@@ -1,6 +1,6 @@
 [project]
 name = "aegis"
-version = "0.1.0"
+version = "0.4.0"
 description = "AI incident-response orchestrator: the model proposes, a deterministic verifier decides."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,6 +35,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The recorded incidents must travel with the package. Without this they are absent from an
+# installed wheel and every context tool fails at runtime while the process still exits 0.
+[tool.setuptools.package-data]
+aegis = ["fixtures/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "evals"]

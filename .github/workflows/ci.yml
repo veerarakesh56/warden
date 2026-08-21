@@ -42,17 +42,33 @@ jobs:
       - name: Eval gate
         run: pytest evals -q
 
-      - name: Demo must run end to end
-        run: aegis demo
+      # ⛔ This used to be `run: aegis demo` and nothing more. That asserts the process exited 0 -
+      # not that it produced correct answers. A packaging bug once made every incident return
+      # AUTO_SAFE inside the container and this step stayed green. Assert the OUTPUT.
+      - name: Demo must produce the expected verdicts
+        run: |
+          out=$(aegis demo)
+          echo "$out"
+          echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::no APPROVED_FOR_HUMAN verdict"; exit 1; }
+          echo "$out" | grep -q "ESCALATED"          || { echo "::error::no ESCALATED verdict"; exit 1; }
+          echo "$out" | grep -q "P6-BLAST-RADIUS"    || { echo "::error::P6 did not fire on inc-003"; exit 1; }
+          test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::expected exactly one AUTO_SAFE - fixtures probably missing"; exit 1; }
 
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build and run the container
+      # Same rule as above: the container must produce CORRECT output, not merely exit 0. This is
+      # the job that missed a packaging bug where the installed wheel shipped no fixtures, so every
+      # tool failed, context came back empty and all four incidents returned AUTO_SAFE.
+      - name: Build the container and assert its output
         run: |
           docker build -t aegis:ci .
-          docker run --rm -e AEGIS_MOCK=1 aegis:ci demo
+          out=$(docker run --rm -e AEGIS_MOCK=1 -e AEGIS_TRACE=0 aegis:ci demo)
+          echo "$out"
+          echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
+          echo "$out" | grep -q "ESCALATED"          || { echo "::error::container produced no ESCALATED"; exit 1; }
+          test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::container: expected exactly one AUTO_SAFE - fixtures missing from the wheel?"; exit 1; }
 
   terraform:
     runs-on: ubuntu-latest

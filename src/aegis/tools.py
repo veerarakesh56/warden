@@ -24,7 +24,14 @@ from dataclasses import dataclass
 from .models import Alert, ContextBundle
 from .observability import span
 
-FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures"
+# Fixtures live INSIDE the package and are shipped as package data.
+#
+# ⛔ They used to sit at the repo root, found via `parents[2] / "fixtures"`. That works from a
+# source checkout and silently breaks once the package is pip-installed: the path resolves to
+# `<site-packages>/../../fixtures`, which does not exist. In the container every tool therefore
+# failed, the context came back empty, and the demo returned AUTO_SAFE for all four incidents —
+# wrong answers, exit code 0, and a green CI job that only checked the exit code.
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 
 # Wall-clock ceiling per tool. Threads are used rather than signals because signal-based timeouts
 # are POSIX-main-thread only, and this has to behave identically on Windows and in a container.

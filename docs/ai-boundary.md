@@ -49,6 +49,15 @@ The policies are not hypothetical. Each one has a test that proves it can fire:
 | `P6-BLAST-RADIUS` | Unattended actions that cross service boundaries |
 | `P7-DISPROPORTIONATE` | Failing over a database because of a `low` alert |
 | `P8-PARTIAL-CONTEXT` | Treating a partial picture as a complete one when a tool timed out |
+| `P9-THIN-EVIDENCE` | Acting on two log lines because the model *said* it was confident |
+
+⭐⭐ **`P9` is the one that came from evidence rather than reasoning.** Against a live model, all four
+bundled incidents came back at **confidence 0.85** — including the one whose entire evidence is two
+vague log lines. `P4` escalates below 0.55, so with that model it would never fire.
+
+**A model's self-reported confidence is not a measurement.** It is a token sequence that looks like
+one. `P9` counts what was actually gathered — log lines, distinct metrics, deploys — because a
+number we compute cannot be influenced by how sure the model sounds.
 
 ⭐ **P5 is the one to look at.** The model is not lying when it proposes a rollback — it is
 pattern-matching "errors after change" and that is usually right. It is wrong *here* because the

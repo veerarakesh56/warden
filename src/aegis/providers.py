@@ -92,7 +92,10 @@ class GeminiProvider:
     def __init__(self, model: str | None = None) -> None:
         from google import genai
 
-        self.model = model or os.environ.get("AEGIS_MODEL", "gemini-2.0-flash")
+        # ⚠ Model names expire. `gemini-2.0-flash` was the default here and the API answered
+        # "no longer available ... use models/gemini-3.6-flash". A hardcoded model id is a dated
+        # assumption, which is why AEGIS_MODEL overrides it without touching code.
+        self.model = model or os.environ.get("AEGIS_MODEL", "gemini-3.6-flash")
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Get a free key at aistudio.google.com.")

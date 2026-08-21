@@ -38,6 +38,24 @@ ENV_ALLOWED: dict[str, set[ActionKind]] = {
 
 MIN_CONFIDENCE = 0.55
 
+# Thresholds for P9. Deliberately modest — this is a floor for "somebody looked at something",
+# not a quality bar. Tune per deployment; the point is that it is OUR number, not the model's.
+MIN_LOG_LINES = 3
+MIN_METRICS = 2
+
+
+def _evidence_is_substantial(context) -> bool:
+    """Is there enough gathered evidence to justify touching production?
+
+    Counted, not asked. A model reporting high confidence over two log lines is the exact failure
+    this exists to catch, and it was observed on a live model, not hypothesised.
+    """
+    has_logs = len(context.logs) >= MIN_LOG_LINES
+    has_metrics = len(context.metrics) >= MIN_METRICS
+    has_deploys = bool(context.recent_deploys)
+    # Two independent kinds of evidence, or a deploy plus one other kind.
+    return sum([has_logs, has_metrics, has_deploys]) >= 2
+
 
 def verify(
     alert: Alert,
@@ -106,6 +124,22 @@ def verify(
         escalate = True
         policies.append("P8-PARTIAL-CONTEXT")
         reasons.append(f"{len(context.tool_errors)} context tool(s) failed; evidence is incomplete.")
+
+    # P9 — evidence measured by US, not confidence reported by the model.
+    #
+    # Added after running against a live model: it returned confidence 0.85 on ALL FOUR bundled
+    # incidents, including the one whose entire evidence is two vague log lines. A model's
+    # self-reported confidence is not calibrated, so P4 alone would essentially never fire — the
+    # gate would be relying on a number the model has no incentive or ability to get right.
+    #
+    # This counts what was actually gathered. It cannot be talked around by a confident tone.
+    if proposal.action not in AUTO_SAFE_ACTIONS and not _evidence_is_substantial(context):
+        escalate = True
+        policies.append("P9-THIN-EVIDENCE")
+        reasons.append(
+            f"Evidence is thin ({len(context.logs)} log line(s), {len(context.metrics)} metric(s), "
+            f"{len(context.recent_deploys)} deploy(s)); a human should look before acting."
+        )
 
     if rejected:
         return Verdict(

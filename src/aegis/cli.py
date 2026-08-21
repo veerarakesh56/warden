@@ -9,14 +9,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import pathlib
 import sys
 
 from .graph import run
 from .llm import LLMClient
 from .models import Alert, Severity
-
-FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "fixtures"
 
 # The bundled scenarios. Each one exists to exercise a different route through the graph.
 DEMO_ALERTS: dict[str, dict] = {

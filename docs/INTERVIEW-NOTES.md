@@ -65,6 +65,25 @@ Three, all found by running it, all now regression tests:
 ⭐ This is the strongest answer in the interview. Anyone can show a repo. Almost nobody volunteers
 the defect they found in their own instrument.
 
+## 7b. ⭐ What happened when you ran it against a real model?
+
+**The best question you can be asked, because most portfolio projects were never run for real.**
+
+Three findings, all documented in the README:
+
+1. **Confidence came back at 0.85 on all four incidents** — including the one whose evidence is two
+   vague log lines. `P4` escalates below 0.55, so with that model it would never fire. **A model's
+   self-reported confidence is a token sequence that looks like a measurement.** That is why `P9`
+   exists: it counts gathered evidence, which the model cannot influence by sounding sure.
+2. **The live model picked a different action from the mock** on the replica incident. So the eval
+   suite is a regression gate for routing and policy — not a correctness standard. Worth saying
+   before someone else points it out.
+3. **The hardcoded model id had expired.** `gemini-2.0-flash` returned "no longer available". Pinned
+   model names are dated assumptions; `AEGIS_MODEL` overrides without a code change.
+
+⭐ If asked "what surprised you?" — this is the answer. It shows the design survived contact with a
+real model *and* that you changed the design when the evidence said to.
+
 ## 8. Why is the ECS task role read-only?
 
 Because "it only acts when the verifier approves" is a design argument, not a security boundary. IAM

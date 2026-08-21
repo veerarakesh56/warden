@@ -36,10 +36,10 @@ from .models import (
 )
 from .redaction import redact
 from .tools import FixtureBackend, gather
-from .verifier import ENV_ALLOWED, MIN_CONFIDENCE, verify
+from .verifier import ENV_ALLOWED, MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
 
 SERVER_NAME = "aegis"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.4.0"
 
 
 def _tools() -> list[types.Tool]:
@@ -71,7 +71,20 @@ def _tools() -> list[types.Tool]:
                     },
                     "reversible": {"type": "boolean"},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                    "has_logs": {"type": "boolean", "default": True},
+                    # Counts, not booleans. Policy P9 weighs how much evidence was actually
+                    # gathered, and a boolean cannot express "two vague log lines" versus "a
+                    # hundred". An earlier schema used has_logs: boolean and the gate could not
+                    # tell the difference.
+                    "log_lines": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "How many log lines were gathered as evidence.",
+                    },
+                    "metric_count": {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "How many distinct metrics were gathered.",
+                    },
                     "has_recent_deploy": {"type": "boolean", "default": False},
                     "tool_errors": {"type": "integer", "default": 0},
                 },
@@ -112,7 +125,7 @@ def _tools() -> list[types.Tool]:
         types.Tool(
             name="describe_policy",
             title="Explain the AEGIS policy set",
-            description="Return the eight policies, the per-environment action allow-list and the confidence threshold.",
+            description="Return the nine policies, the per-environment action allow-list and the confidence threshold.",
             input_schema={"type": "object", "properties": {}},
         ),
     ]
@@ -146,7 +159,8 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 started_at="1970-01-01T00:00:00Z",
             )
             context = ContextBundle(
-                logs=["evidence present"] if args.get("has_logs", True) else [],
+                logs=["evidence line"] * int(args.get("log_lines", 0)),
+                metrics={f"m{i}": 0.0 for i in range(int(args.get("metric_count", 0)))},
                 recent_deploys=[{"sha": "unknown"}] if args.get("has_recent_deploy") else [],
                 tool_errors=["upstream tool failed"] * int(args.get("tool_errors", 0)),
             )
@@ -213,11 +227,16 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         "P6-BLAST-RADIUS": "multi_service or region always needs a human",
                         "P7-DISPROPORTIONATE": "heavy actions on low/medium severity escalate",
                         "P8-PARTIAL-CONTEXT": "a failed context tool means incomplete evidence",
+                        "P9-THIN-EVIDENCE": (
+                            "too little evidence was gathered to justify acting, regardless of "
+                            "stated confidence - counted by AEGIS, not claimed by the model"
+                        ),
                     },
                     "environment_allowlist": {
                         env: sorted(a.value for a in actions) for env, actions in ENV_ALLOWED.items()
                     },
                     "min_confidence": MIN_CONFIDENCE,
+                    "min_evidence": {"log_lines": MIN_LOG_LINES, "metrics": MIN_METRICS},
                 }
             )
 

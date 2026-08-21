@@ -3,10 +3,10 @@
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
 
-**Status:** v0.3.0 — LangGraph pipeline, verified redaction, 8 policies, real tool timeouts,
+**Status:** v0.4.0 — LangGraph pipeline, verified redaction, 9 policies, real tool timeouts,
 **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic conventions**, Terraform
 deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic, OpenAI-compatible),
-4 recorded incidents, **69 tests**, eval gate in CI.
+4 recorded incidents, **74 tests**, output-asserting CI.
 
 ## The problem
 
@@ -36,7 +36,7 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
   two log lines refer to the same host.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
-- **A deterministic gate.** Eight policies in plain Python decide what happens. No prompt, no
+- **A deterministic gate.** Nine policies in plain Python decide what happens. No prompt, no
   probability. Each returns a policy id so a rejection can be explained without re-running anything.
 - **A budget that stops things.** Token and USD ceilings raise and halt the run.
 - **Real timeouts.** Every context tool runs under a wall-clock deadline. A hung logging backend
@@ -108,10 +108,10 @@ Any MCP client — Claude Desktop, an IDE agent, another orchestrator — gets f
 
 | Tool | What it does |
 |---|---|
-| ⭐ **`verify_remediation`** | Runs the deterministic 8-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
+| ⭐ **`verify_remediation`** | Runs the deterministic 9-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
 | `redact_text` | Masks identifiers and verifies its own output. Use before putting logs in any prompt |
 | `gather_incident_context` | Logs, metrics and deploys under a timeout — already redacted |
-| `describe_policy` | The eight policies and the per-environment allow-list |
+| `describe_policy` | The nine policies and the per-environment allow-list |
 
 ⭐⭐ **Why this is the interesting one:** an agent written by someone else, with no safety layer of its
 own, can ask AEGIS whether the thing it is about to do is allowed in production — and get an
@@ -154,9 +154,48 @@ Four recorded incidents, each exercising a different route:
 low confidence, proposes escalation, and the verifier lets it through precisely *because* it is
 inert.
 
-## Three bugs worth keeping in the README
+## What running it against a real model taught us
 
-Each was found by **running** the thing, not by reading it, and each is now a regression test.
+Every test here runs in mock mode. That is correct for CI — but it means the design was, until it
+was actually run, an argument rather than a result. Running all four incidents against a live
+**Gemini** model produced three findings the mocks could never have surfaced.
+
+**1. ⚠ The model's self-reported confidence is not calibrated — and that breaks a policy.**
+It returned **confidence 0.85 on all four incidents**, including `inc-004`, whose entire evidence is
+two vague log lines. Policy `P4` escalates below 0.55, so with this model **P4 would essentially
+never fire.** A gate that depends on a number the model has no ability to get right is not a gate.
+
+⭐ **This is why `P9-THIN-EVIDENCE` exists.** It counts what was actually gathered — log lines,
+distinct metrics, deploys — and escalates when two independent kinds of evidence are missing.
+**Ours to measure, not the model's to claim.** It cannot be talked around by a confident tone.
+
+**2. The live model chose a different action from the mock.** On `inc-003` (saturated replica) the
+mock proposes `failover_replica`; the live model proposed `restart_pods` — more conservative, and
+arguably wrong for the actual cause. ⛔ **So the eval suite encodes the mock's behaviour, not a
+correctness standard.** It is a regression gate for routing and policy, and it was already
+documented as such — this is the proof.
+
+**3. Model identifiers expire.** `gemini-2.0-flash` was the hardcoded default; the API replied
+*"no longer available … use models/gemini-3.6-flash"*. A pinned model id is a dated assumption,
+which is why `AEGIS_MODEL` overrides it without touching code.
+
+⭐ The live run also confirmed the parts that matter: **7 identifiers masked before anything left the
+process**, cost tracked per call (~$0.009 per incident), and on the thin-evidence incident the model
+proposed `no_action` rather than inventing a fix.
+
+## Four bugs worth keeping in the README
+
+Each was found by **running** the thing, not by reading it, and each is now guarded.
+
+**0. ⭐ The container produced wrong answers and CI was green.** Fixtures lived at the repo root and
+were resolved with `Path(__file__).parents[2] / "fixtures"`. That works from a source checkout and
+breaks silently once pip-installed — the path lands outside site-packages. Inside the container
+every context tool failed, the evidence came back empty, and **all four incidents returned
+`AUTO_SAFE`**: wrong verdicts, exit code 0.
+
+⛔ **The CI docker job never noticed, because it ran `docker run … demo` and checked only the exit
+code.** It asked *"did it run?"* when the question was *"was it right?"* Fixtures are now package
+data, and **both CI jobs assert on the output** — the exact verdicts and that `P6` fires.
 
 **1. Every incident produced the same hypothesis.** The mock reasoner branched on substrings of the
 rendered prompt — which contains field labels like `RECENT DEPLOYS:` and metric keys like

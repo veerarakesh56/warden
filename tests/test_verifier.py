@@ -30,7 +30,14 @@ def _alert(**kw):
 
 
 def _ctx(**kw):
-    base = dict(logs=["err"], metrics={"error_rate": 0.04}, recent_deploys=[{"sha": "abc"}])
+    # Deliberately realistic rather than minimal. An earlier version used a single log line and a
+    # single metric, and P9 (thin evidence) correctly flagged it - the helper was describing a
+    # situation no operator would act on, while the tests called it the "clean case".
+    base = dict(
+        logs=["err 500", "err 500", "NullPointerException"],
+        metrics={"error_rate": 0.04, "p99_latency_ms": 2140.0},
+        recent_deploys=[{"sha": "abc"}],
+    )
     base.update(kw)
     return ContextBundle(**base)
 
@@ -117,3 +124,36 @@ def test_rejection_beats_escalation_when_both_apply():
     """A hard no must not be softened into 'ask a human' by a second, weaker finding."""
     v = verify(_alert(), _ctx(recent_deploys=[]), _rc(confidence=0.1), _prop())
     assert v.status is VerdictStatus.rejected
+
+
+# --------------------------------------------------------------------------- P9
+# Added after a LIVE model run returned confidence 0.85 on all four bundled incidents, including
+# the one whose evidence is two vague log lines. Self-reported confidence is not calibrated, so the
+# gate needed a signal it measures itself.
+
+
+def test_p9_thin_evidence_escalates_even_at_high_confidence():
+    thin = ContextBundle(logs=["one line"], metrics={}, recent_deploys=[])
+    v = verify(_alert(), thin, _rc(confidence=0.99), _prop(action=ActionKind.restart_pods))
+    assert v.status is VerdictStatus.escalated
+    assert "P9-THIN-EVIDENCE" in v.policy_ids
+
+
+def test_p9_does_not_fire_on_a_well_evidenced_incident():
+    v = verify(_alert(), _ctx(), _rc(), _prop())
+    assert "P9-THIN-EVIDENCE" not in v.policy_ids
+
+
+def test_p9_accepts_two_independent_kinds_of_evidence():
+    """Logs plus metrics, no deploy - enough to reason about."""
+    ctx = ContextBundle(
+        logs=["a", "b", "c"], metrics={"error_rate": 0.1, "p99": 900.0}, recent_deploys=[]
+    )
+    v = verify(_alert(), ctx, _rc(), _prop(action=ActionKind.restart_pods))
+    assert "P9-THIN-EVIDENCE" not in v.policy_ids
+
+
+def test_p9_ignores_inert_actions():
+    thin = ContextBundle(logs=["one line"])
+    v = verify(_alert(), thin, _rc(), _prop(action=ActionKind.escalate_to_human))
+    assert "P9-THIN-EVIDENCE" not in v.policy_ids

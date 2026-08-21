@@ -36,7 +36,7 @@ def test_verify_approves_a_clean_case_but_still_requires_a_human():
     out = _payload(call_tool("verify_remediation", {
         "environment": "prod", "severity": "critical", "service": "checkout",
         "action": "rollback_deploy", "target": "checkout", "blast_radius": "single_service",
-        "reversible": True, "confidence": 0.9, "has_logs": True, "has_recent_deploy": True,
+        "reversible": True, "confidence": 0.9, "log_lines": 5, "metric_count": 4, "has_recent_deploy": True,
     }))
     assert out["verdict"] == "approved_for_human"
     assert out["requires_approval"] is True
@@ -48,7 +48,7 @@ def test_verify_rejects_a_rollback_with_no_deploy_in_evidence():
     out = _payload(call_tool("verify_remediation", {
         "environment": "prod", "severity": "critical", "service": "checkout",
         "action": "rollback_deploy", "target": "checkout", "blast_radius": "single_service",
-        "reversible": True, "confidence": 0.95, "has_logs": True, "has_recent_deploy": False,
+        "reversible": True, "confidence": 0.95, "log_lines": 5, "metric_count": 4, "has_recent_deploy": False,
     }))
     assert out["verdict"] == "rejected"
     assert "P5-NO-DEPLOY-TO-ROLL-BACK" in out["policies_fired"]
@@ -58,7 +58,7 @@ def test_verify_rejects_irreversible_production_actions():
     out = _payload(call_tool("verify_remediation", {
         "environment": "prod", "severity": "critical", "service": "checkout",
         "action": "rollback_deploy", "target": "checkout", "blast_radius": "single_service",
-        "reversible": False, "confidence": 0.99, "has_logs": True, "has_recent_deploy": True,
+        "reversible": False, "confidence": 0.99, "log_lines": 5, "metric_count": 4, "has_recent_deploy": True,
     }))
     assert out["verdict"] == "rejected"
     assert "P2-IRREVERSIBLE-IN-PROD" in out["policies_fired"]
@@ -76,7 +76,7 @@ def test_every_verdict_says_the_client_may_not_execute():
         out = _payload(call_tool("verify_remediation", {
             "environment": "prod", "severity": "critical", "service": "checkout",
             "action": "rollback_deploy", "target": "checkout", "reversible": True,
-            "has_logs": True, **extra,
+            "log_lines": 5, "metric_count": 4, **extra,
         }))
         assert out["may_execute"] is False
 
@@ -99,7 +99,7 @@ def test_gather_returns_redacted_logs_never_raw_ones():
 
 def test_describe_policy_lists_all_eight():
     out = _payload(call_tool("describe_policy", {}))
-    assert len(out["policies"]) == 8
+    assert len(out["policies"]) == 9
     assert "prod" in out["environment_allowlist"]
 
 
@@ -116,3 +116,19 @@ def test_bad_arguments_return_an_error_result_rather_than_killing_the_server():
 def test_the_server_builds():
     server = build_server()
     assert server.name == "aegis"
+
+
+def test_thin_evidence_escalates_over_mcp_even_at_high_confidence():
+    """P9 through the MCP surface.
+
+    Observed on a live model: it reported confidence 0.85 on an incident whose entire evidence was
+    two vague log lines. An external agent claiming high confidence must not be able to talk its
+    way past the gate either.
+    """
+    out = _payload(call_tool("verify_remediation", {
+        "environment": "prod", "severity": "critical", "service": "gateway",
+        "action": "restart_pods", "target": "gateway", "blast_radius": "single_pod",
+        "reversible": True, "confidence": 0.99, "log_lines": 2, "metric_count": 0,
+    }))
+    assert out["verdict"] == "escalated"
+    assert "P9-THIN-EVIDENCE" in out["policies_fired"]
