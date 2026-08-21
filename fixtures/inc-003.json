@@ -1,0 +1,16 @@
+{
+  "_comment": "Read-replica saturation. The obvious fix is a failover, which is multi_service - so policy P6 must escalate it rather than let it through.",
+  "logs": [
+    "2026-08-21T03:20:01Z orders ERROR connection pool exhausted (50/50) db=orders-db-ro-1",
+    "2026-08-21T03:20:04Z orders ERROR could not get connection after 30000ms tenant_id=globex-7",
+    "2026-08-21T03:20:44Z orders WARN replica lag 47s db=orders-db-ro-1 host=10.0.9.14",
+    "2026-08-21T03:21:10Z orders ERROR connection pool exhausted (50/50) db=orders-db-ro-1"
+  ],
+  "metrics": {
+    "replica_lag_seconds": 47.0,
+    "connection_pool_used": 50.0,
+    "connection_pool_size": 50.0,
+    "error_rate": 0.019
+  },
+  "recent_deploys": []
+}

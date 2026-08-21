@@ -1,0 +1,19 @@
+{
+  "_comment": "Bad deploy causing a 5xx spike. Logs deliberately carry PII and identifiers so the redaction stage has real work to do.",
+  "logs": [
+    "2026-08-21T10:02:11Z checkout ERROR 500 upstream timeout user=priya.nair@corp.io tenant_id=acme-42 src=10.4.12.9",
+    "2026-08-21T10:02:14Z checkout ERROR 500 upstream timeout user=raj.mehta@corp.io tenant_id=acme-42 src=10.4.12.9",
+    "2026-08-21T10:02:19Z checkout ERROR NullPointerException in PaymentAdapter.charge() trace=3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    "2026-08-21T10:02:20Z checkout WARN assumed role arn:aws:iam::123456789012:role/checkout-exec",
+    "2026-08-21T10:02:31Z checkout ERROR 500 rate now 4.2% over 1m window"
+  ],
+  "metrics": {
+    "error_rate": 0.042,
+    "p99_latency_ms": 2140.0,
+    "requests_per_sec": 880.0,
+    "cpu_utilisation": 0.41
+  },
+  "recent_deploys": [
+    { "sha": "9f2c1ab", "service": "checkout", "at": "2026-08-21T09:58:00Z", "by": "deploy-bot" }
+  ]
+}

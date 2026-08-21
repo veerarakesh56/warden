@@ -1,0 +1,16 @@
+{
+  "_comment": "Pods OOM-killed under load. No deploy involved - proves the graph does not reach for rollback by reflex.",
+  "logs": [
+    "2026-08-21T14:11:02Z checkout WARN memory usage 94% of limit pod=checkout-7d9f8",
+    "2026-08-21T14:11:40Z kubelet OOMKilled container=checkout pod=checkout-7d9f8 node=ip-10-0-3-22",
+    "2026-08-21T14:12:03Z kubelet OOMKilled container=checkout pod=checkout-2b4c1 node=ip-10-0-3-22",
+    "2026-08-21T14:12:20Z checkout INFO restarting after crash user=ops@corp.io"
+  ],
+  "metrics": {
+    "memory_utilisation": 0.94,
+    "restart_count": 6.0,
+    "error_rate": 0.011,
+    "requests_per_sec": 1420.0
+  },
+  "recent_deploys": []
+}

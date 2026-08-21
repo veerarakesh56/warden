@@ -1,0 +1,41 @@
+[project]
+name = "aegis"
+version = "0.1.0"
+description = "AI incident-response orchestrator: the model proposes, a deterministic verifier decides."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Veera Rakesh Kethari" }]
+dependencies = [
+    "langgraph>=1.0",
+    "pydantic>=2.0",
+    "anthropic>=1.0",
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+aegis = "aegis.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "evals"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "evals"]
+
+[tool.ruff.lint]
+# C408: `dict(a=1)` over `{"a": 1}`. Kept deliberately — the demo fixtures and test helpers use the
+# `base = dict(...); base.update(kw)` override pattern, which is unreadable with brace literals.
+ignore = ["C408"]

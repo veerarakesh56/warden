@@ -1,0 +1,12 @@
+{
+  "_comment": "Ambiguous alert with thin evidence. The correct behaviour is to decline and hand to a human - NOT to invent a plausible-sounding fix. This is the case most agent demos get wrong.",
+  "logs": [
+    "2026-08-21T22:04:00Z gateway WARN elevated 4xx from a single client",
+    "2026-08-21T22:04:30Z gateway INFO healthcheck ok"
+  ],
+  "metrics": {
+    "error_rate": 0.004,
+    "p99_latency_ms": 310.0
+  },
+  "recent_deploys": []
+}

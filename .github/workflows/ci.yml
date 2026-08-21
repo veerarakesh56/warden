@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Mock mode everywhere: CI must never need a key, and the eval gate must be deterministic.
+env:
+  AEGIS_MOCK: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests evals
+
+      - name: Unit tests
+        run: pytest tests -q
+
+      - name: Eval gate
+        run: pytest evals -q
+
+      - name: Demo must run end to end
+        run: aegis demo
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the container
+        run: |
+          docker build -t aegis:ci .
+          docker run --rm -e AEGIS_MOCK=1 aegis:ci demo
