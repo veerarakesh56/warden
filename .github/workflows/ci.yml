@@ -22,7 +22,16 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,all-providers]"
+
+      # The core package must import with NO vendor SDK present. providers.py imports them lazily,
+      # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
+      # provider the user never asked for.
+      - name: Core imports without any provider SDK
+        run: |
+          python -m venv /tmp/bare
+          /tmp/bare/bin/pip install -q -e .
+          /tmp/bare/bin/python -c "import aegis; from aegis.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
         run: ruff check src tests evals

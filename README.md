@@ -3,8 +3,9 @@
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
 
-**Status:** v0.1.1 — LangGraph pipeline, verified redaction, 8 policies, real tool timeouts,
-OpenTelemetry tracing, Terraform deploy, 4 recorded incidents, **40 tests**, eval gate in CI.
+**Status:** v0.2.0 — LangGraph pipeline, verified redaction, 8 policies, real tool timeouts,
+OpenTelemetry tracing, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local,
+Anthropic, OpenAI-compatible), 4 recorded incidents, **57 tests**, eval gate in CI.
 
 ## The problem
 
@@ -62,7 +63,36 @@ pip install -e ".[dev]"
 AEGIS_MOCK=1 aegis demo --verbose
 ```
 
-To run against the live model: `AEGIS_MOCK=0 ANTHROPIC_API_KEY=sk-... aegis run --incident inc-001`
+### Running against a real model — including free ones
+
+AEGIS is **not tied to a vendor**. That is a design position, not a cost saving: a safety layer that
+only works against one model is not a safety layer, and incident logs are the kind of data plenty of
+organisations cannot send to any third party at all.
+
+```bash
+# Google AI Studio - genuine free tier, no card
+pip install -e ".[gemini]"
+AEGIS_MOCK=0 AEGIS_PROVIDER=gemini GEMINI_API_KEY=... aegis run --incident inc-001
+
+# Fully local, no key, nothing leaves the machine
+pip install -e ".[openai]"
+AEGIS_MOCK=0 AEGIS_PROVIDER=ollama AEGIS_MODEL=llama3.1 aegis run --incident inc-001
+
+# Anthropic, Groq or OpenRouter
+AEGIS_MOCK=0 AEGIS_PROVIDER=anthropic ANTHROPIC_API_KEY=... aegis run --incident inc-001
+AEGIS_MOCK=0 AEGIS_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY aegis run
+```
+
+| `AEGIS_PROVIDER` | Key | Notes |
+|---|---|---|
+| `mock` | none | Deterministic, no network. Default in CI |
+| `gemini` | `GEMINI_API_KEY` | **Free tier** |
+| `ollama` | none | **Fully local** — nothing leaves the machine |
+| `anthropic` | `ANTHROPIC_API_KEY` | |
+| `openai` / `groq` / `openrouter` | `OPENAI_API_KEY` | One OpenAI-shaped client covers all three |
+
+⭐ Providers report their own token usage, and a provider that cannot is made to **over-estimate**
+rather than return zero — a budget fed zeros never fires.
 
 ## What the demo shows
 

@@ -6,16 +6,23 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Veera Rakesh Kethari" }]
+# Core deps carry NO vendor SDK. Which model answers is a deployment decision, so the provider
+# packages are extras - install only the one you use. providers.py imports them lazily inside each
+# class, so a missing SDK is a readable error from the provider you asked for, not an ImportError
+# at startup for one you never wanted.
 dependencies = [
     "langgraph>=1.0",
     "pydantic>=2.0",
-    "anthropic>=1.0",
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+anthropic = ["anthropic>=1.0"]
+gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
+openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via AEGIS_BASE_URL
+all-providers = ["anthropic>=1.0", "google-genai>=1.0", "openai>=1.0"]
 
 [project.scripts]
 aegis = "aegis.cli:main"
