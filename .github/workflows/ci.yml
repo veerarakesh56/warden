@@ -44,3 +44,21 @@ jobs:
         run: |
           docker build -t aegis:ci .
           docker run --rm -e AEGIS_MOCK=1 aegis:ci demo
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Format check
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      # -backend=false: validate the configuration without needing AWS credentials or state.
+      - name: Validate
+        run: |
+          terraform -chdir=terraform init -backend=false
+          terraform -chdir=terraform validate

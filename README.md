@@ -3,8 +3,8 @@
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
 
-**Status:** v0.1.0 — LangGraph pipeline, verified redaction, 8 policies, 4 recorded incidents,
-33 tests, eval gate in CI.
+**Status:** v0.1.1 — LangGraph pipeline, verified redaction, 8 policies, real tool timeouts,
+OpenTelemetry tracing, Terraform deploy, 4 recorded incidents, **40 tests**, eval gate in CI.
 
 ## The problem
 
@@ -37,7 +37,17 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
 - **A deterministic gate.** Eight policies in plain Python decide what happens. No prompt, no
   probability. Each returns a policy id so a rejection can be explained without re-running anything.
 - **A budget that stops things.** Token and USD ceilings raise and halt the run.
+- **Real timeouts.** Every context tool runs under a wall-clock deadline. A hung logging backend
+  during an incident is the normal case, not the edge case — and a timed-out tool becomes *visible
+  partial context* (policy `P8`) rather than a gap that looks like completeness.
+- **OpenTelemetry tracing.** One span per node — `aegis.run → tool.* → analyse → propose → verify` —
+  carrying confidence, action, blast radius, verdict, policies fired, and **token cost per step**.
+  Console exporter by default so it works with no collector; set `OTEL_EXPORTER_OTLP_ENDPOINT` to
+  ship to a real backend.
 - **A full audit trail.** Every node records what it saw and did.
+- **Terraform to deploy it.** ECS Fargate task with a **read-only task role** — AEGIS can inspect
+  infrastructure but not change it — and the API key passed by Secrets Manager ARN so it never
+  enters Terraform state. See [`terraform/`](terraform/).
 
 ## Quickstart
 
@@ -69,16 +79,28 @@ Four recorded incidents, each exercising a different route:
 low confidence, proposes escalation, and the verifier lets it through precisely *because* it is
 inert.
 
-## A bug worth keeping in the README
+## Three bugs worth keeping in the README
 
-The first version of the mock reasoner branched on substrings of the rendered prompt. That prompt
-contains field labels — `RECENT DEPLOYS:` — and metric keys like `error_rate`. **Every incident
-matched the "bad deploy" branch and produced an identical hypothesis, and the demo still looked like
-it worked.**
+Each was found by **running** the thing, not by reading it, and each is now a regression test.
 
-The instrument was asking whether a *word appeared*, when the question was whether a *deploy
-existed*. It now reads typed state, and `test_hypotheses_are_not_all_the_same` fails the build if
-that class of bug ever returns.
+**1. Every incident produced the same hypothesis.** The mock reasoner branched on substrings of the
+rendered prompt — which contains field labels like `RECENT DEPLOYS:` and metric keys like
+`error_rate`. So the "bad deploy" branch always matched, **and the demo still looked like it
+worked.** The instrument was asking whether a *word appeared* when the question was whether a
+*deploy existed*. Guarded by `test_hypotheses_are_not_all_the_same`.
+
+**2. The audit trail contradicted the verdict.** `auto_safe` and `approved_for_human` shared a
+route, so an inert action carrying `requires_approval=False` still logged that it was waiting on an
+operator. Guarded by `test_terminal_node_matches_the_verdict`.
+
+**3. The tool timeout was cosmetic.** `ThreadPoolExecutor` used as a context manager calls
+`shutdown(wait=True)` on exit — so the deadline fired at 0.3s and the caller then **blocked for the
+full 6 seconds anyway**. The docstring said "each tool has a timeout" while the timeout did nothing.
+Guarded by `test_a_hanging_tool_does_not_hang_the_run`, which asserts wall-clock, not just the
+exception.
+
+⭐ The pattern in all three: **the code claimed something the code did not do, and everything looked
+green.** That is why every guard here is written to be *proven able to fail* before it is trusted.
 
 ## Architecture
 
@@ -104,6 +126,11 @@ enforcement and the audit trail, asserted on every push.
 - Redaction is regex-based — a strong control against accidental leakage, not a guarantee against a
   determined adversary.
 - The eval suite tests deterministic behaviour, **not** live model quality.
+- A timed-out tool thread is **abandoned, not killed** — Python cannot force-stop a thread. The
+  caller stops waiting, which is what the deadline is for; a real deployment should also set a
+  socket timeout on the backend client.
+- The Terraform is **validated in CI, never `apply`-ed** against a live account, and its read policy
+  uses `resources = ["*"]` because the services under diagnosis are not known ahead of time.
 
 ## Related
 

@@ -32,6 +32,7 @@ from .models import (
     Verdict,
     VerdictStatus,
 )
+from .observability import record_cost, span
 from .redaction import redact, redact_many
 from .tools import FixtureBackend, gather
 from .verifier import verify
@@ -226,12 +227,16 @@ def _evidence_blob(state: AegisState) -> str:
 def node_analyse(state: AegisState) -> AegisState:
     llm: LLMClient = state["llm"]
     signals = Signals.of(state)
-    rc = llm.structured(
-        system=SYSTEM_ANALYSE,
-        user=_evidence_blob(state),
-        schema=RootCause,
-        mock_factory=lambda: _mock_root_cause(signals),
-    )
+    with span("analyse", has_deploy=signals.has_deploy, log_count=signals.log_count) as sp:
+        rc = llm.structured(
+            system=SYSTEM_ANALYSE,
+            user=_evidence_blob(state),
+            schema=RootCause,
+            mock_factory=lambda: _mock_root_cause(signals),
+        )
+        sp.set_attribute("aegis.confidence", rc.confidence)
+        record_cost(sp, input_tokens=llm.cost.input_tokens,
+                    output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
     return {
         "root_cause": rc,
         "audit": [{"node": "analyse", "confidence": rc.confidence, "hypothesis": rc.hypothesis}],
@@ -241,12 +246,17 @@ def node_analyse(state: AegisState) -> AegisState:
 def node_propose(state: AegisState) -> AegisState:
     llm: LLMClient = state["llm"]
     signals = Signals.of(state)
-    proposal = llm.structured(
-        system=SYSTEM_PROPOSE,
-        user=_evidence_blob(state) + f"\n\nHYPOTHESIS: {state['root_cause'].hypothesis}",
-        schema=RemediationProposal,
-        mock_factory=lambda: _mock_proposal(signals),
-    )
+    with span("propose") as sp:
+        proposal = llm.structured(
+            system=SYSTEM_PROPOSE,
+            user=_evidence_blob(state) + f"\n\nHYPOTHESIS: {state['root_cause'].hypothesis}",
+            schema=RemediationProposal,
+            mock_factory=lambda: _mock_proposal(signals),
+        )
+        sp.set_attribute("aegis.action", proposal.action.value)
+        sp.set_attribute("aegis.blast_radius", proposal.blast_radius)
+        record_cost(sp, input_tokens=llm.cost.input_tokens,
+                    output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
     return {
         "proposal": proposal,
         "audit": [{"node": "propose", "action": proposal.action.value, "target": proposal.target}],
@@ -255,7 +265,11 @@ def node_propose(state: AegisState) -> AegisState:
 
 def node_verify(state: AegisState) -> AegisState:
     """No model here. On purpose."""
-    verdict = verify(state["alert"], state["context"], state["root_cause"], state["proposal"])
+    with span("verify", environment=state["alert"].environment) as sp:
+        verdict = verify(state["alert"], state["context"], state["root_cause"], state["proposal"])
+        sp.set_attribute("aegis.verdict", verdict.status.value)
+        sp.set_attribute("aegis.policies", ",".join(verdict.policy_ids))
+        sp.set_attribute("aegis.requires_approval", verdict.requires_approval)
     return {
         "verdict": verdict,
         "audit": [
@@ -348,7 +362,13 @@ def build_graph():
 def run(alert: Alert, *, llm: LLMClient | None = None, backend: FixtureBackend | None = None) -> RunReport:
     llm = llm or LLMClient()
     app = build_graph()
-    final = app.invoke({"alert": alert, "llm": llm, "backend": backend, "audit": []})
+    with span("aegis.run", alert_id=alert.alert_id, service=alert.service,
+              environment=alert.environment, severity=alert.severity.value) as root:
+        final = app.invoke({"alert": alert, "llm": llm, "backend": backend, "audit": []})
+        record_cost(root, input_tokens=llm.cost.input_tokens,
+                    output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
+        if final.get("verdict") is not None:
+            root.set_attribute("aegis.verdict", final["verdict"].status.value)
     return RunReport(
         alert=final["alert"],
         redaction_map_size=len(final.get("redaction_map", {})),
