@@ -78,7 +78,42 @@ def span(name: str, **attrs: Any) -> Iterator[trace.Span]:
 
 
 def record_cost(sp: trace.Span, *, input_tokens: int, output_tokens: int, usd: float) -> None:
-    """Token and money on the span itself, so cost is queryable per run and per node."""
-    sp.set_attribute("aegis.tokens.input", input_tokens)
-    sp.set_attribute("aegis.tokens.output", output_tokens)
-    sp.set_attribute("aegis.cost.usd", usd)
+    """Token and money on the span itself, so cost is queryable per run and per node.
+
+    Uses the **OpenTelemetry GenAI semantic conventions** (`gen_ai.*`) rather than invented names.
+    That is the difference between traces a tool can read and traces only we can read: Langfuse,
+    Arize Phoenix and any OTLP backend understand `gen_ai.usage.input_tokens` out of the box.
+
+    ⚠ The GenAI conventions were moved to their own repository in semconv v1.42.0 (June 2026) and
+    remain in *Development* status — the core usage and model attributes are stable enough to build
+    on, but expect churn. Cost is not in the spec, so it stays under `aegis.`
+    """
+    sp.set_attribute(GEN_AI_INPUT_TOKENS, input_tokens)
+    sp.set_attribute(GEN_AI_OUTPUT_TOKENS, output_tokens)
+    sp.set_attribute("aegis.cost.usd", usd)  # not a spec attribute; ours by necessity
+
+
+# OpenTelemetry GenAI semantic conventions. Named constants rather than inline strings so a spec
+# change is one edit, and so a typo cannot silently produce an attribute nothing queries.
+GEN_AI_OPERATION = "gen_ai.operation.name"
+GEN_AI_PROVIDER = "gen_ai.provider.name"
+GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
+GEN_AI_INPUT_TOKENS = "gen_ai.usage.input_tokens"
+GEN_AI_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
+
+
+def record_model_call(
+    sp: trace.Span,
+    *,
+    operation: str,
+    provider: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    usd: float,
+) -> None:
+    """Everything one model call should put on a span, in spec order."""
+    sp.set_attribute(GEN_AI_OPERATION, operation)
+    sp.set_attribute(GEN_AI_PROVIDER, provider)
+    sp.set_attribute(GEN_AI_REQUEST_MODEL, model)
+    record_cost(sp, input_tokens=input_tokens, output_tokens=output_tokens, usd=usd)

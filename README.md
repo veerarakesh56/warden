@@ -3,9 +3,10 @@
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
 
-**Status:** v0.2.0 — LangGraph pipeline, verified redaction, 8 policies, real tool timeouts,
-OpenTelemetry tracing, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local,
-Anthropic, OpenAI-compatible), 4 recorded incidents, **57 tests**, eval gate in CI.
+**Status:** v0.3.0 — LangGraph pipeline, verified redaction, 8 policies, real tool timeouts,
+**MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic conventions**, Terraform
+deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic, OpenAI-compatible),
+4 recorded incidents, **69 tests**, eval gate in CI.
 
 ## The problem
 
@@ -93,6 +94,50 @@ AEGIS_MOCK=0 AEGIS_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY a
 
 ⭐ Providers report their own token usage, and a provider that cannot is made to **over-estimate**
 rather than return zero — a budget fed zeros never fires.
+
+## MCP — the policy gate as a tool any agent can call
+
+Most MCP servers hand an agent **more capability**. This one hands it a **constraint**.
+
+```bash
+pip install -e ".[mcp]"
+aegis-mcp                      # stdio transport
+```
+
+Any MCP client — Claude Desktop, an IDE agent, another orchestrator — gets four tools:
+
+| Tool | What it does |
+|---|---|
+| ⭐ **`verify_remediation`** | Runs the deterministic 8-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
+| `redact_text` | Masks identifiers and verifies its own output. Use before putting logs in any prompt |
+| `gather_incident_context` | Logs, metrics and deploys under a timeout — already redacted |
+| `describe_policy` | The eight policies and the per-environment allow-list |
+
+⭐⭐ **Why this is the interesting one:** an agent written by someone else, with no safety layer of its
+own, can ask AEGIS whether the thing it is about to do is allowed in production — and get an
+auditable answer with policy ids. **The closed action enum is published in the tool schema**, so a
+client cannot even name an action outside the set. Every response carries `may_execute: false`.
+
+Built on the official `mcp` Python SDK **v2** (2026-07-28 spec, stateless core).
+⚠ `mcp.server.fastmcp` does not exist in v2 — it was removed in the rework. This uses the low-level
+`Server` with explicit callbacks.
+
+## Observability that other tools can read
+
+Spans use the **OpenTelemetry GenAI semantic conventions** — `gen_ai.operation.name`,
+`gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+`gen_ai.usage.output_tokens` — rather than invented attribute names. That is the difference between
+traces a tool can read and traces only we can read: **[Langfuse](https://langfuse.com) and
+[Arize Phoenix](https://phoenix.arize.com) ingest them over OTLP with no adapter.**
+
+```bash
+AEGIS_TRACE_CONSOLE=1 aegis run --incident inc-001     # see the spans
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006 aegis run   # ship to Phoenix
+```
+
+⚠ The GenAI conventions moved to their own repo in semconv **v1.42.0 (June 2026)** and remain in
+*Development* status. Core usage and model attributes are stable enough to build on; expect churn.
+Cost has no spec attribute, so it stays under `aegis.cost.usd`.
 
 ## What the demo shows
 

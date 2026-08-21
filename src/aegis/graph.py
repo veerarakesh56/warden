@@ -32,7 +32,7 @@ from .models import (
     Verdict,
     VerdictStatus,
 )
-from .observability import record_cost, span
+from .observability import record_cost, record_model_call, span
 from .redaction import redact, redact_many
 from .tools import FixtureBackend, gather
 from .verifier import verify
@@ -235,8 +235,9 @@ def node_analyse(state: AegisState) -> AegisState:
             mock_factory=lambda: _mock_root_cause(signals),
         )
         sp.set_attribute("aegis.confidence", rc.confidence)
-        record_cost(sp, input_tokens=llm.cost.input_tokens,
-                    output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
+        record_model_call(sp, operation="chat", provider=llm.provider_name, model=llm.model,
+                          input_tokens=llm.cost.input_tokens,
+                          output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
     return {
         "root_cause": rc,
         "audit": [{"node": "analyse", "confidence": rc.confidence, "hypothesis": rc.hypothesis}],
@@ -255,8 +256,9 @@ def node_propose(state: AegisState) -> AegisState:
         )
         sp.set_attribute("aegis.action", proposal.action.value)
         sp.set_attribute("aegis.blast_radius", proposal.blast_radius)
-        record_cost(sp, input_tokens=llm.cost.input_tokens,
-                    output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
+        record_model_call(sp, operation="chat", provider=llm.provider_name, model=llm.model,
+                          input_tokens=llm.cost.input_tokens,
+                          output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
     return {
         "proposal": proposal,
         "audit": [{"node": "propose", "action": proposal.action.value, "target": proposal.target}],
