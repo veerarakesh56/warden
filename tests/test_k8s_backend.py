@@ -496,6 +496,42 @@ def test_job_manifest_cannot_hang_or_lose_evidence():
     assert c["capabilities"]["drop"] == ["ALL"]
 
 
+def test_job_pod_satisfies_restricted_pss_so_it_runs_on_eks_not_just_k3d():
+    """EKS / GKE / AKS ENFORCE the `restricted` Pod Security Standard; k3d (the CI cluster) can be
+    lax. A Job that is admitted on k3d but missing a `restricted` requirement would be REJECTED on
+    EKS — the classic 'works in CI, fails in prod' gap. This checks every restricted rule that is
+    visible in the manifest, cluster-independently, so the deploy-everywhere claim cannot regress.
+
+    The one people forget is seccompProfile: RuntimeDefault — it is required by `restricted` and its
+    absence is the single most common reason a hardened-looking pod is refused on managed Kubernetes.
+    """
+    job = yaml.safe_load((ROOT / "k8s" / "job.yaml").read_text(encoding="utf-8"))
+    pod = job["spec"]["template"]["spec"]
+    psc = pod.get("securityContext", {})
+    csc = pod["containers"][0].get("securityContext", {})
+
+    # seccomp must be set at pod OR container level, to RuntimeDefault (or Localhost)
+    seccomp = psc.get("seccompProfile") or csc.get("seccompProfile") or {}
+    assert seccomp.get("type") in ("RuntimeDefault", "Localhost"), "restricted requires a seccompProfile"
+
+    assert psc.get("runAsNonRoot") is True
+    assert csc.get("allowPrivilegeEscalation") is False
+    assert csc.get("capabilities", {}).get("drop") == ["ALL"]
+    # add is empty or only the one capability restricted permits
+    assert set(csc.get("capabilities", {}).get("add", [])) <= {"NET_BIND_SERVICE"}
+    assert csc.get("privileged") in (None, False)
+
+    # host namespaces and hostPath volumes are forbidden by baseline/restricted
+    for host_key in ("hostNetwork", "hostPID", "hostIPC"):
+        assert pod.get(host_key) in (None, False), f"{host_key} is forbidden under restricted"
+    for vol in pod.get("volumes", []):
+        assert "hostPath" not in vol, "hostPath volumes are forbidden under restricted"
+
+    # and the namespace must actually ENFORCE restricted, or none of the above is checked at admission
+    ns = yaml.safe_load((ROOT / "k8s" / "namespace.yaml").read_text(encoding="utf-8"))
+    assert ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "restricted"
+
+
 # --------------------------------------------------------------------------- quantities
 
 

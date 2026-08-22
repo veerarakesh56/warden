@@ -7,7 +7,7 @@
 **a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
-OpenAI-compatible), 4 recorded incidents, **186 tests** (7 against a live cluster) plus a 15-case mutation check,
+OpenAI-compatible), 4 recorded incidents, **187 tests** (7 against a live cluster) plus a 15-case mutation check,
 output-asserting CI.
 
 ## The problem
@@ -163,6 +163,31 @@ Job runs as **uid 10001, read-only root filesystem, all capabilities dropped**, 
 design argument. A ServiceAccount that *cannot* mutate anything is a security boundary — if the
 policy engine has a bug, the credentials still cannot do harm. This is the Kubernetes twin of the
 Terraform task role.
+
+### Runs on ECS **or** any Kubernetes — EKS, GKE, AKS, k3d
+
+Two deployment paths, both included:
+
+- **Any Kubernetes cluster** (EKS / GKE / AKS / k3d) — the `k8s/` manifests. The runtime is
+  cluster-agnostic: it reads the cluster through **in-cluster config** and calls **no cloud API**, so
+  on EKS it needs **no IRSA / IAM role** — only the read-only k8s RBAC. The pod is **fully
+  `restricted`-PSS compliant** (`seccompProfile: RuntimeDefault`, non-root uid 10001, read-only root
+  FS, all capabilities dropped), so it is admitted on clusters that **strictly enforce Pod Security**
+  — which is exactly what EKS/GKE/AKS do, and what CI proves by enforcing `restricted` on the
+  namespace and admitting the Job while rejecting a privileged pod. The **only** cluster-specific
+  change is the image, which the demo hard-codes to `aegis:local`. On EKS, push to ECR and set it:
+  ```bash
+  kubectl apply -k k8s/     # namespace, ServiceAccount, ClusterRole, RoleBinding — portable as-is
+  sed 's#aegis:local#<acct>.dkr.ecr.<region>.amazonaws.com/aegis:0.5.1#' k8s/job.yaml \
+    | kubectl create -f -   # one diagnosis, image retargeted to your registry
+  ```
+- **ECS / Fargate** — the `terraform/` module: a task with a **read-only task role** and **all Linux
+  capabilities dropped**, mirroring the k8s Job.
+
+⚠ **Honestly scoped:** the portability that makes EKS work — strict `restricted` admission, no cloud
+API dependency — is **CI-verified on k3d**, which enforces the identical Pod Security standard. It has
+**not** been run against a live EKS cluster; the manifests are compliant and cluster-agnostic, not
+field-tested on managed EKS.
 
 ### Proven against a real cluster, both directions
 
