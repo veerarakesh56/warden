@@ -79,10 +79,10 @@ class Signals:
     pool_saturated: bool
     service: str
     log_count: int
-    # Cluster-status signals. A live Kubernetes backend cannot report utilisation without a
-    # metrics server, but it can always report what the kubelet already knows: how many times a
-    # container was OOM-killed and how often it restarted. Those are what an on-call engineer reads
-    # first anyway.
+    # Cluster-status signals. A live Kubernetes backend cannot report utilisation without a metrics
+    # server, but it can always report what the kubelet knows: how many CONTAINERS currently show an
+    # OOM-killed termination, the summed restart count, and how many are in CrashLoopBackOff. These
+    # are counts of current state, not lifetime tallies - what an on-call engineer reads first.
     oom_killed: int = 0
     restarts: int = 0
     crashloop: int = 0

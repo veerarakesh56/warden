@@ -68,3 +68,28 @@ def test_clean_text_is_untouched():
     r = redact(text)
     assert r.text == text
     assert r.size == 0
+
+
+def test_a_secret_that_looks_like_a_placeholder_token_does_not_corrupt():
+    """Pathological collision: a tenant value literally equal to another placeholder's internal text.
+
+    `tenant_id=UUID_1` maps to `<TENANT_1>`, while a real UUID nearby maps to `<UUID_1>`. A naive
+    literal sweep would rewrite the `UUID_1` inside `<UUID_1>` to `<TENANT_1>`, producing the mangled
+    `<<TENANT_1>>` - two distinct secrets collapsed onto one label, and a broken restore. The sweep
+    must leave existing placeholders alone, and the leak guard must not false-alarm on the coincidence.
+    """
+    text = "tenant_id=UUID_1 trace 3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+    r = redact(text)  # must not raise RedactionLeak
+    assert "<<" not in r.text and ">>" not in r.text, f"corrupted placeholder: {r.text!r}"
+    assert r.text.count("<UUID_1>") == 1
+    assert r.text.count("<TENANT_1>") == 1
+    assert r.restore(r.text) == text, "restore must reproduce the original exactly"
+
+
+def test_redaction_round_trips_through_restore():
+    text = (
+        "user bob@corp.io on 192.168.1.7 tenant_id=acme-9 "
+        "trace 9f8b7c6d-1234-4a5b-8c9d-0e1f2a3b4c5d twice: 192.168.1.7"
+    )
+    r = redact(text)
+    assert r.restore(r.text) == text

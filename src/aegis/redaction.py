@@ -29,6 +29,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+# A placeholder token, captured so `re.split` keeps it as its own segment: `<LABEL_123>`.
+_PLACEHOLDER = re.compile(r"(<[A-Z][A-Z0-9]*_\d+>)")
+
+
 class RedactionLeak(RuntimeError):
     """A secret survived redaction. Always fatal — never downgraded to a warning."""
 
@@ -82,20 +86,37 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
     # survives anywhere, regardless of the word-boundary quirks that make a regex miss a second
     # occurrence. Real example from a live cluster: a Kubernetes "failed to reserve container name"
     # event embeds the pod UID inside `..._default_<uid>_0`, where the trailing `b_` is not a `\b`
-    # boundary, so the `(uid)` copy was masked and the `_0`-suffixed copy was not. Longest originals
+    # boundary, so the `(uid)` copy was masked and the `_0`-suffixed copy was not.
+    #
+    # ⛔ The sweep must NOT run inside placeholders already placed. If a TENANT value happens to be
+    # the literal `UUID_1`, a naive sweep rewrites the neighbouring `<UUID_1>` to `<<TENANT_1>>` -
+    # no leak, but two distinct secrets collapse to one label and restore() breaks. So the text is
+    # split on placeholder tokens and only the segments BETWEEN them are swept. Longest originals
     # first, so a value that is a substring of another does not corrupt the longer replacement.
-    for placeholder, original in sorted(mapping.items(), key=lambda kv: -len(kv[1])):
-        if original:
-            out = out.replace(original, placeholder)
+    ordered = sorted(mapping.items(), key=lambda kv: -len(kv[1]))
+    parts = _PLACEHOLDER.split(out)  # even indices = free text, odd indices = whole placeholders
+    for i in range(0, len(parts), 2):
+        for placeholder, original in ordered:
+            if original:
+                parts[i] = parts[i].replace(original, placeholder)
+    out = "".join(parts)
 
     _assert_clean(out, mapping)
     return RedactionResult(text=out, mapping=mapping)
 
 
 def _assert_clean(redacted: str, mapping: dict[str, str]) -> None:
-    """Read the value back. A setter that succeeds can still have clamped."""
+    """Read the value back. A setter that succeeds can still have clamped.
+
+    Only the text OUTSIDE placeholders counts. A secret value that happens to equal a placeholder's
+    internal text - a tenant literally named `UUID_1`, which collides with the token `<UUID_1>` - is
+    not a leak of that value; the real value is gone and only the label coincides. Stripping whole
+    `<LABEL_N>` tokens first means a genuine free-text leak is still caught (it is not part of a
+    token, so it survives the strip), while the coincidence is not a false alarm that refuses the run.
+    """
+    free_text = _PLACEHOLDER.sub(" ", redacted)
     for placeholder, original in mapping.items():
-        if original and original in redacted:
+        if original and original in free_text:
             raise RedactionLeak(
                 f"{placeholder} was substituted but its original value is still present in the "
                 f"redacted text. Refusing to send this to the model."

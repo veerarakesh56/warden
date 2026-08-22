@@ -36,9 +36,17 @@ MUTATIONS = [
     (
         "redaction leak check disabled",
         "redaction.py",
-        "        if original and original in redacted:",
+        "        if original and original in free_text:",
         "        if False:",
         "a secret surviving redaction would be silently sent to the model",
+    ),
+    (
+        "redaction sweep stops protecting existing placeholders",
+        "redaction.py",
+        "    for i in range(0, len(parts), 2):",
+        "    for i in range(0, len(parts), 1):",
+        "sweeping the placeholder segments too collapses two distinct secrets onto one label "
+        "(<UUID_1> -> <<TENANT_1>>) and breaks restore",
     ),
     (
         "fixtures path reverted to the packaging bug",
