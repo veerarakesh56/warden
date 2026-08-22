@@ -9,6 +9,9 @@ import importlib
 
 import pytest
 from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import aegis.observability as obs
 
@@ -19,6 +22,25 @@ def _fresh_module():
     importlib.reload(obs)
     yield
     importlib.reload(obs)
+
+
+@pytest.fixture
+def recorded_spans(monkeypatch):
+    """A LOCAL recording tracer, so attribute assertions actually run.
+
+    `obs.span()` opens its span on the global tracer, which is a no-op provider when tracing is off
+    (`AEGIS_TRACE=0`, the default for tests). On a no-op span `set_attribute` silently does nothing,
+    so a test guarding its assertions behind `if attrs:` passes having verified NOTHING. Rather than
+    fight OpenTelemetry's set-once global provider, this points `obs.tracer` at a private in-memory
+    provider for the duration of the test - deterministic regardless of env, and no global mutation.
+    Returns (exporter, tracer); read the finished span off the exporter.
+    """
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    local_tracer = provider.get_tracer("test")
+    monkeypatch.setattr(obs, "tracer", lambda: local_tracer)
+    return exporter, local_tracer
 
 
 def test_configure_is_idempotent(monkeypatch):
@@ -60,12 +82,15 @@ def test_otlp_endpoint_selects_an_exporter_and_never_raises(monkeypatch):
     assert exporter is not None
 
 
-def test_span_sets_prefixed_attributes_and_skips_none():
-    with obs.span("unit.test", alpha="a", beta=None) as sp:
-        attrs = getattr(sp, "attributes", {}) or {}
-    if attrs:  # a real (recording) span - a no-op span exposes nothing, which is fine
-        assert attrs.get("aegis.alpha") == "a"
-        assert "aegis.beta" not in attrs, "None-valued attributes should be omitted, not stringified"
+def test_span_sets_prefixed_attributes_and_skips_none(recorded_spans):
+    exporter, _ = recorded_spans
+    with obs.span("unit.test", alpha="a", beta=None):
+        pass
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1, "the span was not recorded - the test would prove nothing"
+    attrs = dict(finished[0].attributes or {})
+    assert attrs.get("aegis.alpha") == "a"
+    assert "aegis.beta" not in attrs, "None-valued attributes should be omitted, not stringified"
 
 
 def test_span_records_the_exception_and_re_raises():
@@ -86,17 +111,19 @@ def test_gen_ai_attribute_names_match_the_spec():
     assert obs.GEN_AI_OUTPUT_TOKENS == "gen_ai.usage.output_tokens"
 
 
-def test_record_model_call_sets_every_field():
-    obs.configure()
-    tracer = trace.get_tracer("test")
+def test_record_model_call_sets_every_field(recorded_spans):
+    exporter, tracer = recorded_spans
     with tracer.start_as_current_span("m") as sp:
         obs.record_model_call(
             sp, operation="chat", provider="gemini", model="gemini-3.6-flash",
             input_tokens=10, output_tokens=5, usd=0.001,
         )
-        attrs = getattr(sp, "attributes", {}) or {}
-    if attrs:
-        assert attrs[obs.GEN_AI_PROVIDER] == "gemini"
-        assert attrs[obs.GEN_AI_REQUEST_MODEL] == "gemini-3.6-flash"
-        assert attrs[obs.GEN_AI_INPUT_TOKENS] == 10
-        assert attrs["aegis.cost.usd"] == 0.001
+    finished = exporter.get_finished_spans()
+    assert len(finished) == 1, "the span was not recorded - the test would prove nothing"
+    attrs = dict(finished[0].attributes or {})
+    assert attrs[obs.GEN_AI_OPERATION] == "chat"
+    assert attrs[obs.GEN_AI_PROVIDER] == "gemini"
+    assert attrs[obs.GEN_AI_REQUEST_MODEL] == "gemini-3.6-flash"
+    assert attrs[obs.GEN_AI_INPUT_TOKENS] == 10
+    assert attrs[obs.GEN_AI_OUTPUT_TOKENS] == 5
+    assert attrs["aegis.cost.usd"] == 0.001

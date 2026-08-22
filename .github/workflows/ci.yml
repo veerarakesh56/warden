@@ -34,7 +34,7 @@ jobs:
           /tmp/bare/bin/python -c "import aegis; from aegis.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
-        run: ruff check src tests evals
+        run: ruff check src tests evals scripts
 
       - name: Unit tests
         run: pytest tests -q

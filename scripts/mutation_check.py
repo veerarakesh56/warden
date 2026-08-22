@@ -45,8 +45,10 @@ MUTATIONS = [
         "redaction.py",
         "    for i in range(0, len(parts), 2):",
         "    for i in range(0, len(parts), 1):",
-        "sweeping the placeholder segments too collapses two distinct secrets onto one label "
-        "(<UUID_1> -> <<TENANT_1>>) and breaks restore",
+        (
+            "sweeping the placeholder segments too collapses two distinct secrets onto one label "
+            "(<UUID_1> -> <<TENANT_1>>) and breaks restore"
+        ),
     ),
     (
         "fixtures path reverted to the packaging bug",

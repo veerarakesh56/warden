@@ -97,7 +97,7 @@ def test_gather_returns_redacted_logs_never_raw_ones():
     assert all("@corp.io" not in line for line in out["logs"])
 
 
-def test_describe_policy_lists_all_eight():
+def test_describe_policy_lists_all_nine():
     out = _payload(call_tool("describe_policy", {}))
     assert len(out["policies"]) == 9
     assert "prod" in out["environment_allowlist"]
