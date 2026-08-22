@@ -187,6 +187,45 @@ def test_persistent_provider_errors_end_in_ModelRefused_not_a_raw_traceback():
     assert p.calls == 3  # initial + 2 retries, all transient failures
 
 
+class _AuthErrorProvider:
+    """Raises a PERMANENT 401 (a bad key) - identical every attempt, so retrying is pure waste."""
+
+    name = "auth"
+    model = "auth-1"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, *, system: str, user: str) -> Completion:
+        self.calls += 1
+        err = RuntimeError("401 UNAUTHENTICATED: invalid key")
+        err.code = 401  # google-genai shape; openai/anthropic use .status_code, both handled
+        raise err
+
+
+def test_a_permanent_auth_error_fails_fast_without_burning_retries():
+    """A 401 will fail identically every attempt, so it must fail after ONE call, not three - the
+    operator needs the bad-key failure surfaced now, not after two pointless retries."""
+    p = _AuthErrorProvider()
+    with pytest.raises(ModelRefused):
+        LLMClient(provider=p, mock=False).structured(system="s", user="u", schema=Toy, retries=2)
+    assert p.calls == 1, "a permanent 4xx must not be retried"
+
+
+def test_is_transient_classification():
+    from aegis.llm import _is_transient
+
+    conn = ConnectionError("dial tcp: refused")           # no status -> transient
+    assert _is_transient(conn) is True
+    for code_attr in ("status_code", "code"):
+        e429 = RuntimeError("rate limited"); setattr(e429, code_attr, 429)
+        e503 = RuntimeError("unavailable"); setattr(e503, code_attr, 503)
+        e401 = RuntimeError("bad key"); setattr(e401, code_attr, 401)
+        e400 = RuntimeError("bad request"); setattr(e400, code_attr, 400)
+        assert _is_transient(e429) is True and _is_transient(e503) is True
+        assert _is_transient(e401) is False and _is_transient(e400) is False
+
+
 def test_call_ceiling_is_enforced_across_separate_calls():
     p = FakeProvider('{"answer": "ok", "score": 1}')
     c = _client(p, max_calls=2, max_usd=999)

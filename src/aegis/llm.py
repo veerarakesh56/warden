@@ -143,7 +143,9 @@ class LLMClient:
         )
 
         last: Exception | None = None
+        attempts = 0
         for _ in range(retries + 1):
+            attempts += 1
             try:
                 # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
                 # same env var) is the one that actually ends the worker thread and lets the process
@@ -164,11 +166,31 @@ class LLMClient:
             except (ValidationError, ValueError) as exc:
                 last = exc  # the model answered, it just was not valid JSON — retry
             except Exception as exc:  # noqa: BLE001
-                # A transient provider/network error (503, 429, connection reset). The provider SDKs
-                # have their internal retries DISABLED (providers.py) precisely because this loop is
-                # meant to re-handle them — so it must, or one flaky response aborts the whole run.
+                # A provider/network error. The SDKs' internal retries are DISABLED (providers.py) so
+                # this loop re-handles them — but only the TRANSIENT ones (429/5xx/connection reset).
+                # A permanent 4xx (401 bad key, 400 malformed) will fail identically every attempt, so
+                # retrying it just delays a failure the operator must fix — fail fast instead.
                 last = exc
-        raise ModelRefused(f"{schema.__name__} not produced after {retries + 1} attempts: {last}")
+                if not _is_transient(exc):
+                    break
+        plural = "attempt" if attempts == 1 else "attempts"
+        raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Is this provider error worth retrying? A connection/socket error (no HTTP status) or a
+    429/5xx is transient; a 4xx (401/403/400) is permanent. Duck-typed across SDKs, which expose the
+    status as `.status_code` (openai, anthropic) or `.code` (google-genai)."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(exc, "code", None)
+    if status is None:
+        return True  # no HTTP status → a connection/DNS/socket failure → transient
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        return True
+    return status == 429 or status >= 500
 
 
 def extract_json(text: str) -> str:
