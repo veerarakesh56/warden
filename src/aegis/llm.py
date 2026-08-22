@@ -144,20 +144,29 @@ class LLMClient:
 
         last: Exception | None = None
         for _ in range(retries + 1):
-            # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s, same
-            # env var) is the one that actually ends the worker thread and lets the process exit.
-            # This wall-clock is a BACKSTOP set just after it, for the rare case the SDK timeout does
-            # not fire (e.g. an OAuth-style key whose validation hangs below the request layer). A
-            # ModelCallTimeout is NOT caught below, so either bound stops the run immediately.
-            completion = _complete_within(
-                self._provider, system=system, user=prompt, seconds=self.call_timeout_s + 2.0
-            )
-            # Charged BEFORE validation: a malformed response still costs money, and a budget that
-            # only counts successful calls can be exhausted by a model that keeps failing.
-            self._charge(completion.input_tokens, completion.output_tokens)
             try:
+                # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
+                # same env var) is the one that actually ends the worker thread and lets the process
+                # exit. This wall-clock is a BACKSTOP set just after it, for the rare case the SDK
+                # timeout does not fire (e.g. an OAuth-style key whose validation hangs below the
+                # request layer).
+                completion = _complete_within(
+                    self._provider, system=system, user=prompt, seconds=self.call_timeout_s + 2.0
+                )
+                # Charged BEFORE validation: a malformed response still costs money, and a budget
+                # that only counts successful calls can be exhausted by a model that keeps failing.
+                self._charge(completion.input_tokens, completion.output_tokens)
                 return schema.model_validate_json(extract_json(completion.text))
+            except (ModelCallTimeout, BudgetExceeded):
+                # Fatal by design: a hung call or a blown budget must stop the run immediately, not
+                # be retried into three consecutive hangs or an overspend.
+                raise
             except (ValidationError, ValueError) as exc:
+                last = exc  # the model answered, it just was not valid JSON — retry
+            except Exception as exc:  # noqa: BLE001
+                # A transient provider/network error (503, 429, connection reset). The provider SDKs
+                # have their internal retries DISABLED (providers.py) precisely because this loop is
+                # meant to re-handle them — so it must, or one flaky response aborts the whole run.
                 last = exc
         raise ModelRefused(f"{schema.__name__} not produced after {retries + 1} attempts: {last}")
 

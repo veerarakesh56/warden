@@ -159,6 +159,16 @@ resource "aws_ecs_task_definition" "aegis" {
 
       readonlyRootFilesystem = true
       user                   = "10001"
+
+      # Drop every Linux capability, mirroring the k8s Job (k8s/job.yaml drops ALL). Fargate keeps
+      # only the caps a container declares, so with none declared the task holds none — the same
+      # posture the manifest twin claims parity with. Without this the task ran with the full
+      # default bounding set (CHOWN, SETUID, NET_RAW, ...).
+      linuxParameters = {
+        capabilities = {
+          drop = ["ALL"]
+        }
+      }
     }
   ])
 }

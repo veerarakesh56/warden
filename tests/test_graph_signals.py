@@ -86,6 +86,16 @@ def test_an_oom_after_a_deploy_is_NOT_a_bad_deploy():
     assert s.memory_pressure is True
 
 
+def test_oom_wins_over_the_error_rate_clause_too_not_just_the_cluster_clause():
+    """Regression: the fixture clause (error_rate) had no OOM guard, so a deploy that was OOM-killing
+    AND showing a raised error rate (they co-occur — OOM causes 5xx) was mis-routed to rollback. OOM
+    must win here as well, so this routes to scale_up, never rollback_deploy."""
+    s = _signals(error_rate=0.05, oom_killed_containers=3.0, _has_deploy=True)
+    assert s.bad_deploy is False
+    assert s.memory_pressure is True
+    assert _mock_proposal(s).action is ActionKind.scale_up
+
+
 # --------------------------------------------------------------------------- routing
 
 

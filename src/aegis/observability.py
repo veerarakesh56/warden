@@ -4,9 +4,12 @@ One span per node, so a run is a tree an operator can read: which node was slow,
 what the verdict was, and what the tokens cost. This is the difference between "the agent did
 something" and "here is exactly what it did, in order, with timings".
 
-Defaults to a console exporter so the trace is visible with no collector running — a demo that
-needs a Jaeger stack before you can see anything is a demo nobody runs. Set
-`OTEL_EXPORTER_OTLP_ENDPOINT` to ship to a real backend instead.
+By default a provider IS installed but NO exporter is attached, so spans are recorded and nothing
+is printed — the human-readable verdict output stays clean. Opt in to seeing traces without any
+collector by setting `AEGIS_TRACE_CONSOLE=1` (prints spans to the console); set
+`OTEL_EXPORTER_OTLP_ENDPOINT` to ship to a real backend (Langfuse, Phoenix, any OTLP collector)
+instead. If that OTLP exporter extra is not installed, it falls back to the console rather than
+crashing a run.
 
 `AEGIS_TRACE=0` turns tracing off entirely for quiet test runs.
 """

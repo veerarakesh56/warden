@@ -23,6 +23,16 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("UUID", re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")),
     ("AWSACCT", re.compile(r"\b\d{12}\b")),
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
+    # IPv6 — we redact IPv4, so an IPv6 address (common in dual-stack k8s pod logs) is the same
+    # identifier and must be masked too. Deliberately matches ONLY real addresses: either a `::`
+    # compression or a full 8 groups, so a `10:02:11` timestamp or a `00:1a:2b:3c:4d:5e` MAC (no
+    # `::`, not 8 groups) is left alone.
+    ("IPV6", re.compile(
+        r"(?<![:.\w])(?:"
+        r"(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}"
+        r"|(?:[A-Fa-f0-9]{1,4}:){1,7}:(?:[A-Fa-f0-9]{1,4})?(?::[A-Fa-f0-9]{1,4}){0,6}"
+        r")(?![:.\w])"
+    )),
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{3,})[\"']?")),
     # The negative lookahead stops an ISO-8601 date (YYYY-MM-DD, which every log line starts with)

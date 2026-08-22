@@ -39,6 +39,15 @@ def test_arn_is_taken_whole_not_piecemeal():
     assert r.text == "role <ARN_1> denied", "the whole ARN should collapse to a single placeholder"
 
 
+def test_ipv6_addresses_are_masked_like_ipv4():
+    """We redact IPv4, so IPv6 (common in dual-stack k8s logs) is the same identifier. But a time
+    (10:02:11) and a MAC (00:1a:2b:3c:4d:5e) - colons without a `::` or 8 groups - must survive."""
+    assert "2001:db8:85a3::8a2e:370:7334" not in redact("from 2001:db8:85a3::8a2e:370:7334").text
+    assert "fe80::1" not in redact("gw fe80::1").text
+    assert redact("event at 10:02:11 today").size == 0, "a time was masked as an IPv6 address"
+    assert redact("nic 00:1a:2b:3c:4d:5e up").size == 0, "a MAC was masked as an IPv6 address"
+
+
 def test_iso_date_is_not_mistaken_for_a_phone_number():
     """Regression: the PHONE pattern matched YYYY-MM-DD, so every log line's timestamp was masked as
     a phone and the temporal evidence was lost. A real phone must still be masked."""

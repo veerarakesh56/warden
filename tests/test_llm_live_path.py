@@ -151,6 +151,40 @@ def test_a_hung_model_call_times_out_fast_instead_of_hanging_the_run():
     assert elapsed < 12, f"the wall-clock did not fire: waited {elapsed:.1f}s"
 
 
+class _FlakyProvider:
+    """Raises a transient error on the first N calls, then returns valid JSON — a 503/429/reset."""
+
+    name = "flaky"
+    model = "flaky-1"
+
+    def __init__(self, fail_times: int) -> None:
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def complete(self, *, system: str, user: str) -> Completion:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise ProviderError("503 Service Unavailable")
+        return Completion('{"answer": "ok", "score": 1}', 100, 50)
+
+
+def test_a_transient_provider_error_is_retried_not_fatal():
+    """The provider SDKs' internal retries are disabled because AEGIS retries here. So a flaky 503
+    that would succeed on the next attempt must be RETRIED, not abort the whole run on the first hit.
+    This is the regression an adversarial review caught after SDK retries were turned off."""
+    p = _FlakyProvider(fail_times=1)
+    out = LLMClient(provider=p, mock=False).structured(system="s", user="u", schema=Toy, retries=2)
+    assert out.answer == "ok"
+    assert p.calls == 2, "the transient error was not retried"
+
+
+def test_persistent_provider_errors_end_in_ModelRefused_not_a_raw_traceback():
+    p = _FlakyProvider(fail_times=99)
+    with pytest.raises(ModelRefused):
+        LLMClient(provider=p, mock=False).structured(system="s", user="u", schema=Toy, retries=2)
+    assert p.calls == 3  # initial + 2 retries, all transient failures
+
+
 def test_call_ceiling_is_enforced_across_separate_calls():
     p = FakeProvider('{"answer": "ok", "score": 1}')
     c = _client(p, max_calls=2, max_usd=999)

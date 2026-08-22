@@ -102,9 +102,13 @@ class Signals:
         (containers crash-looping after a real image change, with no OOM to explain it). Without
         the second, a live cluster could never reach the rollback branch.
         """
-        if not self.has_deploy:
+        # OOM always wins, whichever evidence shape is present. Memory pressure has its own remedy
+        # (scale_up), so a deploy that is OOM-killing is NOT a bad deploy even if the error rate is
+        # also up — OOM raises 5xx, so error_rate and oom_killed co-occur, and the earlier guard on
+        # the cluster clause alone let the fixture clause misfire and route to rollback.
+        if not self.has_deploy or self.oom_killed > 0:
             return False
-        return self.error_rate > 0.02 or (self.crashloop > 0 and self.oom_killed == 0)
+        return self.error_rate > 0.02 or self.crashloop > 0
 
     @classmethod
     def of(cls, state: AegisState) -> Signals:
