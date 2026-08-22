@@ -7,7 +7,7 @@
 **a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
-OpenAI-compatible), 4 recorded incidents, **193 tests** (7 against a live cluster) plus a 15-case mutation check,
+OpenAI-compatible), 4 recorded incidents, **194 tests** (7 against a live cluster) plus a 15-case mutation check,
 output-asserting CI.
 
 ## The problem

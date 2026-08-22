@@ -78,11 +78,25 @@ def test_gemini_accepts_either_key_variable(monkeypatch):
     [("groq", "groq.com"), ("openrouter", "openrouter.ai"), ("ollama", "localhost:11434")],
 )
 def test_openai_aliases_point_at_the_right_host(monkeypatch, alias, expected_host):
-    """One OpenAI-shaped client covers four vendors - the alias must set the base URL for you."""
+    """One OpenAI-shaped client covers four vendors - the alias must set the base URL on the client,
+    WITHOUT mutating the process env (see the two-alias leak test below)."""
     monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    resolve(alias)
-    assert expected_host in os.environ["AEGIS_BASE_URL"]
+    p = resolve(alias)
+    assert expected_host in str(p._client.base_url)
+    assert "AEGIS_BASE_URL" not in os.environ, "resolve() must not write the process env"
+
+
+def test_resolving_two_aliases_does_not_leak_the_first_endpoint(monkeypatch):
+    """The bug an adversarial review found: resolve() wrote AEGIS_BASE_URL and never cleared it, so
+    a later resolve('ollama') reused a prior resolve('groq') endpoint - a "local" client silently
+    pointing at a cloud API. Each resolve must be independent."""
+    monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "fake")
+    resolve("groq")
+    ollama = resolve("ollama")
+    assert "localhost:11434" in str(ollama._client.base_url), "ollama leaked the groq endpoint"
+    assert "groq" not in str(ollama._client.base_url)
 
 
 def test_ollama_needs_no_real_key(monkeypatch):

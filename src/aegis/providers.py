@@ -184,11 +184,12 @@ class OpenAICompatProvider:
 
     name = "openai"
 
-    def __init__(self, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
         from openai import OpenAI
 
         self.model = model or os.environ.get("AEGIS_MODEL", "gpt-4o-mini")
-        base_url = os.environ.get("AEGIS_BASE_URL")  # e.g. http://localhost:11434/v1 for Ollama
+        # Passed in by resolve() for the aliases; falls back to the env for an explicit custom host.
+        base_url = base_url or os.environ.get("AEGIS_BASE_URL")  # e.g. http://localhost:11434/v1
         # Ollama ignores the key but the client requires one to be present.
         api_key = os.environ.get("OPENAI_API_KEY") or ("ollama" if base_url else None)
         if not api_key:
@@ -234,7 +235,11 @@ def resolve(name: str | None = None) -> Provider:
     name = (name or os.environ.get("AEGIS_PROVIDER") or "anthropic").lower()
     if name not in _REGISTRY:
         raise ProviderError(f"unknown provider '{name}'. Known: {', '.join(sorted(_REGISTRY))}")
-    # Convenience: point the OpenAI-compatible client at the right host without extra config.
-    if name in DEFAULT_BASE_URLS and not os.environ.get("AEGIS_BASE_URL"):
-        os.environ["AEGIS_BASE_URL"] = DEFAULT_BASE_URLS[name]
+    # Point the OpenAI-compatible client at the right host by PASSING it, never by mutating the
+    # process env. Writing AEGIS_BASE_URL used to persist: a later resolve('ollama') then reused a
+    # prior resolve('groq') endpoint, so a "local" Ollama client silently pointed at a cloud API —
+    # breaking the local-only guarantee and mutating the library caller's global env. An explicit
+    # AEGIS_BASE_URL still wins (custom self-hosted host).
+    if name in DEFAULT_BASE_URLS:
+        return OpenAICompatProvider(base_url=os.environ.get("AEGIS_BASE_URL") or DEFAULT_BASE_URLS[name])
     return _REGISTRY[name]()
