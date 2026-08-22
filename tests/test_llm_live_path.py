@@ -54,8 +54,10 @@ def _client(provider, **kw):
         '```json\n{"answer": "yes", "score": 1}\n```',
         '```\n{"answer": "yes", "score": 1}\n```',
         'Here is the result:\n{"answer": "yes", "score": 1}\nHope that helps.',
+        # reasoning in a ```text fence FIRST, then the JSON in a later fence (Anthropic, no JSON-mode)
+        '```text\nlet me think about this\n```\n```json\n{"answer": "yes", "score": 1}\n```',
     ],
-    ids=["bare", "json-fence", "plain-fence", "prose-wrapped"],
+    ids=["bare", "json-fence", "plain-fence", "prose-wrapped", "reasoning-fence-then-json"],
 )
 def test_extract_json_handles_every_shape_providers_actually_return(raw):
     assert extract_json(raw) == '{"answer": "yes", "score": 1}'

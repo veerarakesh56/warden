@@ -125,3 +125,42 @@ def test_audit_trail_covers_every_node():
     nodes = [step["node"] for step in report.audit]
     for expected in ("ingest", "gather", "redact", "analyse", "propose", "verify"):
         assert expected in nodes, f"audit trail is missing '{expected}': {nodes}"
+
+
+class _ScriptedProvider:
+    """Returns hand-written JSON per call, so a run can be driven to a chosen verdict. Used to reach
+    verdict shapes the four bundled incidents never produce."""
+
+    name = "scripted"
+    model = "scripted-1"
+
+    def __init__(self, *responses: str) -> None:
+        from aegis.providers import Completion
+
+        self._responses = list(responses)
+        self._Completion = Completion
+        self.calls = 0
+
+    def complete(self, *, system: str, user: str):
+        text = self._responses[min(self.calls, len(self._responses) - 1)]
+        self.calls += 1
+        return self._Completion(text, 10, 5)
+
+
+def test_a_rejected_verdict_routes_to_halt_end_to_end():
+    """The four demo incidents never REJECT, so the rejected->halt edge, node_halt and
+    RunReport.halted_reason were never exercised through run() - only verify() in isolation. This
+    drives a rejecting proposal (scale_down, which the prod allow-list forbids) all the way through
+    the graph, so a regression that misroutes a rejected verdict to record_safe would be caught."""
+    rc = '{"hypothesis": "bad config push", "confidence": 0.9, "evidence": ["e1", "e2"]}'
+    prop = (
+        '{"action": "scale_down", "target": "checkout", "reasoning": "r", "expected_effect": "e", '
+        '"blast_radius": "single_service", "reversible": true}'
+    )
+    llm = LLMClient(provider=_ScriptedProvider(rc, prop), mock=False)
+    report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=llm)
+
+    assert report.verdict.status is VerdictStatus.rejected
+    assert "P1-ENV-ALLOWLIST" in report.verdict.policy_ids
+    assert report.audit[-1]["node"] == "halt", "a rejected verdict must terminate at node halt"
+    assert report.halted_reason, "halted_reason must carry the rejection reasons for the operator"

@@ -107,7 +107,8 @@ jobs:
           # `apply --dry-run` rejects; oom-workload and posture-probe are ordinary named objects).
           kubectl apply --dry-run=server -f k8s/test/oom-workload.yaml -f k8s/test/posture-probe.yaml
           # A Job with generateName cannot be `apply`-ed at all; `create --dry-run` is its check.
-          kubectl create --dry-run=server -f k8s/job.yaml >/dev/null && echo "job.yaml valid"
+          kubectl create --dry-run=server -f k8s/job.yaml >/dev/null || { echo "::error::job.yaml failed server-side validation"; exit 1; }
+          echo "job.yaml valid"
           # Idempotent: the second apply -k must change nothing.
           out=$(kubectl apply -k k8s/); echo "$out"
           echo "$out" | grep -qvE 'unchanged' && { echo "::error::second apply -k was not a no-op"; exit 1; } || true

@@ -39,6 +39,18 @@ def test_arn_is_taken_whole_not_piecemeal():
     assert r.text == "role <ARN_1> denied", "the whole ARN should collapse to a single placeholder"
 
 
+def test_credentials_are_masked_jwt_and_api_keys():
+    """These two patterns had NO test, so deleting the JWT row or breaking the APIKEY regex kept the
+    whole suite green while a real GitHub token or JWT flowed unredacted into the model prompt - and
+    the MCP redact_text tool advertises masking exactly these. redact() only raises on a MATCHED
+    value that survives, so a pattern that silently stops matching is invisible without this."""
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    assert jwt not in redact(f"authorization bearer {jwt}").text
+    for key in ("sk-ant-api03-AbCdEf12345678", "sk-proj-abcdef123456", "ghp_AbCdEf1234567890abcd",
+                "AKIAIOSFODNN7EXAMPLE"):
+        assert key not in redact(f"leaked {key} in a log line").text, f"{key} was not masked"
+
+
 def test_ipv6_addresses_are_masked_like_ipv4():
     """We redact IPv4, so IPv6 (common in dual-stack k8s logs) is the same identifier. But a time
     (10:02:11) and a MAC (00:1a:2b:3c:4d:5e) - colons without a `::` or 8 groups - must survive."""

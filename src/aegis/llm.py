@@ -177,13 +177,16 @@ def extract_json(text: str) -> str:
     Public and separately tested because it is the most provider-sensitive code in the project:
     some return bare JSON, some wrap it in ```json fences, some add a sentence of prose first.
     """
-    text = text.strip()
-    if text.startswith("```"):
-        parts = text.split("```")
-        if len(parts) > 1:
-            text = parts[1]
-        text = text.removeprefix("json").strip()
-    start, end = text.find("{"), text.rfind("}")
+    original = text.strip()
+    candidate = original
+    if candidate.startswith("```"):
+        # The JSON is usually the FIRST fenced block, but a model (Anthropic without JSON-mode) may
+        # put reasoning in a ```text fence first and the JSON in a LATER one. Blindly taking the
+        # first block then broke a response the plain scan below would have handled. So: pick the
+        # first fenced block that actually contains an object, else fall back to the whole response.
+        fenced = [p.removeprefix("json").strip() for p in original.split("```")[1::2]]
+        candidate = next((p for p in fenced if "{" in p and "}" in p), original)
+    start, end = candidate.find("{"), candidate.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ValueError("no JSON object found in model output")
-    return text[start : end + 1]
+    return candidate[start : end + 1]
