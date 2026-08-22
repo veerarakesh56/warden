@@ -6,12 +6,13 @@ the answer is a list of nodes and the state at each one — not a scrollback of 
 
 The shape is deliberately linear with one branch:
 
-    ingest -> redact -> gather -> analyse -> propose -> verify -> route
-                                                                  |
-                                        halt / await-approval / execute-safe
+    ingest -> gather -> redact -> analyse -> propose -> verify -> route
+                                                                 |
+                                       halt / escalate / await-approval / record-safe
 
-`redact` sits before anything reaches a model, and `verify` sits after everything a model produced.
-Those two nodes are the whole safety argument.
+`gather` fetches the evidence, `redact` scrubs it before anything reaches a model, and `verify`
+sits after everything a model produced. `redact` before `analyse` and `verify` after `propose` are
+the whole safety argument.
 """
 
 from __future__ import annotations
@@ -261,6 +262,9 @@ def node_analyse(state: AegisState) -> AegisState:
     llm: LLMClient = state["llm"]
     signals = Signals.of(state)
     with span("analyse", has_deploy=signals.has_deploy, log_count=signals.log_count) as sp:
+        # Snapshot the running cost so this span records what THIS node spent, not the total so far.
+        # (llm.cost is cumulative, and one node may cost several charges when the call is retried.)
+        before = (llm.cost.input_tokens, llm.cost.output_tokens, llm.cost.usd)
         rc = llm.structured(
             system=SYSTEM_ANALYSE,
             user=_evidence_blob(state),
@@ -269,8 +273,9 @@ def node_analyse(state: AegisState) -> AegisState:
         )
         sp.set_attribute("aegis.confidence", rc.confidence)
         record_model_call(sp, operation="chat", provider=llm.provider_name, model=llm.model,
-                          input_tokens=llm.cost.input_tokens,
-                          output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
+                          input_tokens=llm.cost.input_tokens - before[0],
+                          output_tokens=llm.cost.output_tokens - before[1],
+                          usd=llm.cost.usd - before[2])
     return {
         "root_cause": rc,
         "audit": [{"node": "analyse", "confidence": rc.confidence, "hypothesis": rc.hypothesis}],
@@ -281,6 +286,7 @@ def node_propose(state: AegisState) -> AegisState:
     llm: LLMClient = state["llm"]
     signals = Signals.of(state)
     with span("propose") as sp:
+        before = (llm.cost.input_tokens, llm.cost.output_tokens, llm.cost.usd)
         proposal = llm.structured(
             system=SYSTEM_PROPOSE,
             user=_evidence_blob(state) + f"\n\nHYPOTHESIS: {state['root_cause'].hypothesis}",
@@ -290,8 +296,9 @@ def node_propose(state: AegisState) -> AegisState:
         sp.set_attribute("aegis.action", proposal.action.value)
         sp.set_attribute("aegis.blast_radius", proposal.blast_radius)
         record_model_call(sp, operation="chat", provider=llm.provider_name, model=llm.model,
-                          input_tokens=llm.cost.input_tokens,
-                          output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
+                          input_tokens=llm.cost.input_tokens - before[0],
+                          output_tokens=llm.cost.output_tokens - before[1],
+                          usd=llm.cost.usd - before[2])
     return {
         "proposal": proposal,
         "audit": [{"node": "propose", "action": proposal.action.value, "target": proposal.target}],
@@ -347,7 +354,7 @@ def node_await_approval(state: AegisState) -> AegisState:
 
 
 def node_record_safe(state: AegisState) -> AegisState:
-    """Inert outcome — `no_action`, `escalate_to_human` or `clear_cache`.
+    """Inert outcome — `no_action` or `escalate_to_human` (the only members of AUTO_SAFE_ACTIONS).
 
     Recorded rather than queued, because nothing here needs a person to approve it.
     """

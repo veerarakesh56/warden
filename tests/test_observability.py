@@ -127,3 +127,27 @@ def test_record_model_call_sets_every_field(recorded_spans):
     assert attrs[obs.GEN_AI_INPUT_TOKENS] == 10
     assert attrs[obs.GEN_AI_OUTPUT_TOKENS] == 5
     assert attrs["aegis.cost.usd"] == 0.001
+
+
+def test_each_node_span_records_its_own_cost_not_the_running_total(recorded_spans):
+    """Per-node cost must be the node's own tokens, or the trace cannot answer 'which node cost what'.
+
+    llm.cost is cumulative, so recording it directly on each span made the `propose` span report
+    analyse+propose. Both model nodes charge 120 output tokens in mock mode; the cumulative bug
+    showed propose=240. This asserts each node reports its own 120 and the deltas sum to the total.
+    """
+    from aegis.cli import DEMO_ALERTS
+    from aegis.graph import run
+    from aegis.llm import LLMClient
+    from aegis.models import Alert
+
+    exporter, _ = recorded_spans
+    report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True))
+    spans = {s.name: dict(s.attributes or {}) for s in exporter.get_finished_spans()}
+
+    a_out = spans["analyse"][obs.GEN_AI_OUTPUT_TOKENS]
+    p_out = spans["propose"][obs.GEN_AI_OUTPUT_TOKENS]
+    assert a_out == 120 and p_out == 120, f"cumulative leak: analyse={a_out}, propose={p_out}"
+    a_in = spans["analyse"][obs.GEN_AI_INPUT_TOKENS]
+    p_in = spans["propose"][obs.GEN_AI_INPUT_TOKENS]
+    assert a_in + p_in == report.cost.input_tokens, "per-node inputs must sum to the run total"

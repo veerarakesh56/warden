@@ -157,3 +157,30 @@ def test_p9_ignores_inert_actions():
     thin = ContextBundle(logs=["one line"])
     v = verify(_alert(), thin, _rc(), _prop(action=ActionKind.escalate_to_human))
     assert "P9-THIN-EVIDENCE" not in v.policy_ids
+
+
+# --------------------------------------------------------------------------- what counts as inert
+# Only doing nothing and handing off to a human skip approval. Everything that can touch running
+# infrastructure - clear_cache included - is held for a person, because that is the project's claim.
+
+
+def test_only_no_action_and_escalate_are_auto_safe():
+    from aegis.verifier import AUTO_SAFE_ACTIONS
+
+    assert AUTO_SAFE_ACTIONS == {ActionKind.no_action, ActionKind.escalate_to_human}
+
+
+def test_clear_cache_in_prod_is_held_for_a_human_not_auto_run():
+    """A cache flush can cause a stampede/latency spike, so it is a real action behind approval."""
+    v = verify(_alert(), _ctx(), _rc(), _prop(action=ActionKind.clear_cache))
+    assert v.status is VerdictStatus.approved_for_human
+    assert v.requires_approval is True
+
+
+def test_thin_evidence_clear_cache_escalates_rather_than_slipping_through_as_safe():
+    """The regression this guards: while clear_cache was 'auto_safe' it skipped P9 entirely, so a
+    cache flush on two log lines passed unattended. Now it is subject to the evidence floor."""
+    thin = ContextBundle(logs=["one line"], metrics={}, recent_deploys=[])
+    v = verify(_alert(), thin, _rc(confidence=0.99), _prop(action=ActionKind.clear_cache))
+    assert v.status is VerdictStatus.escalated
+    assert "P9-THIN-EVIDENCE" in v.policy_ids

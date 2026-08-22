@@ -18,8 +18,12 @@ from .models import (
     VerdictStatus,
 )
 
-# Actions that may ever run without a human, and only when every other policy also passes.
-AUTO_SAFE_ACTIONS = {ActionKind.no_action, ActionKind.escalate_to_human, ActionKind.clear_cache}
+# Actions genuinely inert enough to skip human approval. Deliberately only the two that CANNOT
+# touch running infrastructure: doing nothing, and handing off to a person. `clear_cache` was here
+# and was removed - flushing a production cache can cause a stampede/latency spike, so it is a real
+# action and belongs behind approval like the others. The project's whole claim is "nothing risky
+# runs without a human"; this list is where that claim is enforced, so it stays as short as possible.
+AUTO_SAFE_ACTIONS = {ActionKind.no_action, ActionKind.escalate_to_human}
 
 # Per-environment allow-list. Production is deliberately narrower than staging.
 ENV_ALLOWED: dict[str, set[ActionKind]] = {

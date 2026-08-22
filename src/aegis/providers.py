@@ -26,6 +26,7 @@ for the budget ceiling, so a provider that cannot report them must estimate rath
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from typing import Protocol
@@ -33,6 +34,31 @@ from typing import Protocol
 
 class ProviderError(RuntimeError):
     """The provider could not be reached or refused the request."""
+
+
+class _SuppressAFCNotice(logging.Filter):
+    """Drop google-genai's 'automatic function calling' chatter, and nothing else.
+
+    google-genai logs 'AFC is enabled ...' and 'Direct use of automatic function calling (AFC) in
+    Models.generate_content is not recommended ...' on EVERY generate_content call. AEGIS passes no
+    tools, so AFC is irrelevant here - it is pure noise on every live call. This filters only those
+    two records by message content, so any real error from the same logger still gets through.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage().lower()
+        return "automatic function calling" not in msg and "afc is enabled" not in msg
+
+
+_afc_filter_installed = False
+
+
+def _quiet_gemini_afc_notice() -> None:
+    """Install the AFC filter once. Idempotent so repeated GeminiProvider construction cannot stack it."""
+    global _afc_filter_installed
+    if not _afc_filter_installed:
+        logging.getLogger("google_genai.models").addFilter(_SuppressAFCNotice())
+        _afc_filter_installed = True
 
 
 @dataclass(frozen=True)
@@ -92,6 +118,7 @@ class GeminiProvider:
     def __init__(self, model: str | None = None) -> None:
         from google import genai
 
+        _quiet_gemini_afc_notice()
         # ⚠ Model names expire. `gemini-2.0-flash` was the default here and the API answered
         # "no longer available ... use models/gemini-3.6-flash". A hardcoded model id is a dated
         # assumption, which is why AEGIS_MODEL overrides it without touching code.
