@@ -17,6 +17,7 @@ the whole safety argument.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
@@ -41,6 +42,20 @@ from .verifier import verify
 
 def _append(left: list, right: list) -> list:
     return (left or []) + (right or [])
+
+
+def _as_count(value: object) -> int:
+    """A count metric as a non-negative int, treating NaN/inf/None/garbage as 0.
+
+    Metrics arrive through tools.gather via setattr, bypassing pydantic, and a JSON backend can
+    parse `NaN`/`Infinity` into real floats — so `int(nan)` raised and aborted the whole run with a
+    traceback. A missing or malformed count means "we did not observe any", i.e. 0, not a crash.
+    """
+    try:
+        v = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return int(v) if math.isfinite(v) and v > 0 else 0
 
 
 class AegisState(TypedDict, total=False):
@@ -123,9 +138,9 @@ class Signals:
             pool_saturated=bool(size) and used >= size,
             service=state["alert"].service,
             log_count=len(ctx.logs),
-            oom_killed=int(m.get("oom_killed_containers", 0.0)),
-            restarts=int(m.get("restart_count", 0.0)),
-            crashloop=int(m.get("crashloop_containers", 0.0)),
+            oom_killed=_as_count(m.get("oom_killed_containers")),
+            restarts=_as_count(m.get("restart_count")),
+            crashloop=_as_count(m.get("crashloop_containers")),
         )
 
 

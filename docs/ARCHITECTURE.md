@@ -84,8 +84,10 @@ RoleBinding** in each namespace AEGIS may diagnose. Never a ClusterRoleBinding. 
 a plain Role in the `aegis` namespace — which cannot see pods in `default`, where workloads live.
 A Role only reaches its own namespace; caught before apply.
 
-CI asks the API server directly, both ways: six reads must be `yes`; seven writes, two unbound
-namespaces and two cluster-scoped reads must each be `no`. Including `get secrets` → `no`.
+CI asks the API server directly, both ways: the **exact five** reads the code makes must be `yes`
+(list pods, get pods/log, list events, get deployments, list replicasets); writes, unbound
+namespaces and cluster-scoped reads must each be `no`. Including `get pods` (only `list` is granted)
+and `get secrets` → `no`.
 
 Every tool call is individually caught **and runs under a wall-clock deadline**
 (`AEGIS_TOOL_TIMEOUT`, default 5s). A failure or timeout becomes an entry in `context.tool_errors`,

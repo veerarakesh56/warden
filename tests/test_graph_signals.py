@@ -41,6 +41,20 @@ def test_missing_cluster_keys_default_to_zero():
     assert s.oom_killed == 0 and s.crashloop == 0 and s.restarts == 0
 
 
+def test_non_finite_count_metrics_degrade_to_zero_not_crash():
+    """A JSON backend can parse `NaN`/`Infinity` into real floats, and metrics bypass pydantic
+    (set via setattr in gather). `int(nan)` used to raise and abort the whole run with a traceback.
+    A malformed count means 'nothing observed' = 0, and the derived signals must not raise."""
+    for bad in ({"oom_killed_containers": float("nan")},
+                {"restart_count": float("inf")},
+                {"crashloop_containers": float("-inf")}):
+        s = _signals(**bad)
+        assert s.oom_killed == 0 and s.restarts == 0 and s.crashloop == 0
+        # the derived properties must not raise on the coerced values
+        assert s.memory_pressure is False
+        assert s.bad_deploy is False
+
+
 # --------------------------------------------------------------------------- memory_pressure
 
 
