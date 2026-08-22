@@ -3,10 +3,12 @@
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
 
-**Status:** v0.4.0 — LangGraph pipeline, verified redaction, 9 policies, real tool timeouts,
-**MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic conventions**, Terraform
-deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic, OpenAI-compatible),
-4 recorded incidents, **74 tests**, output-asserting CI.
+**Status:** v0.5.1 — LangGraph pipeline, verified redaction, 9 policies, real tool timeouts,
+**a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
+both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
+conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
+OpenAI-compatible), 4 recorded incidents, **159 tests** (7 against a live cluster) plus a 14-case mutation check,
+output-asserting CI.
 
 ## The problem
 
@@ -122,6 +124,98 @@ Built on the official `mcp` Python SDK **v2** (2026-07-28 spec, stateless core).
 ⚠ `mcp.server.fastmcp` does not exist in v2 — it was removed in the rework. This uses the low-level
 `Server` with explicit callbacks.
 
+## Kubernetes — it has now seen a pod
+
+Until v0.5.0 this project talked about pods constantly — `restart_pods`, `single_pod`, OOM-killed
+containers — and had never read one. The vocabulary was Kubernetes; the evidence was JSON fixtures.
+That is the same defect shape as every other bug in this README: **a claim the code did not back.**
+
+```bash
+pip install -e ".[k8s]"
+AEGIS_BACKEND=k8s aegis run --incident inc-002      # reads the cluster your kubeconfig points at
+```
+
+**`KubernetesBackend`** satisfies the same three-method contract as the fixture backend — `logs`,
+`metrics`, `deploys` — so nothing above it changed. It reads:
+
+| | From | Honest note |
+|---|---|---|
+| **metrics** | pod status: restart counts, `OOMKilled` terminations, `CrashLoopBackOff`, readiness, memory limits | ⚠ **Not a metrics server.** k3d does not ship one, so these are counts the kubelet already records, not CPU/memory %. They are also what an on-call engineer reads first |
+| **logs** | the events stream (`OOMKilling`, `BackOff`, `Unhealthy`…) then container log tails | events first — they are the headline |
+| **deploys** | the Deployment's `deployment.kubernetes.io/revision` and last Progressing time | reported only inside a window, so policy P5 is handed real evidence |
+
+⛔ **Read-only by construction.** The module uses only `list_*`, `read_*` and
+`read_namespaced_pod_log`; a test greps the source for any write verb. And **RBAC enforces the same
+thing from the cluster's side** — see below.
+
+### Deploying it into the cluster it diagnoses
+
+```bash
+kubectl apply -k k8s/            # namespace, ServiceAccount, ClusterRole, RoleBinding, Job
+```
+
+The ClusterRole has **get / list / watch only**. No `create`, `update`, `patch`, `delete`. It is
+bound with a **namespaced RoleBinding** per diagnosed namespace — never a ClusterRoleBinding. The
+Job runs as **uid 10001, read-only root filesystem, all capabilities dropped**, under the
+`restricted` Pod Security Standard.
+
+⭐ **RBAC is the boundary, not the verifier.** "It only acts when the policy gate approves" is a
+design argument. A ServiceAccount that *cannot* mutate anything is a security boundary — if the
+policy engine has a bug, the credentials still cannot do harm. This is the Kubernetes twin of the
+Terraform task role.
+
+### Proven against a real cluster, both directions
+
+CI creates a **k3d** cluster on every push and:
+
+1. Validates every manifest with `kubectl apply --dry-run=server` — schema-checked by a real API.
+2. Asks the API server **both ways**: `kubectl auth can-i get pods` → must be `yes`;
+   `delete pods`, `patch deployments`, `get secrets`, `get pods -n kube-system`, `get nodes` → must
+   each be **`no`**. A check that only confirmed the reads would pass a `*`-verb ClusterRoleBinding.
+3. Deploys `k8s/test/oom-workload.yaml` — a pod that **actually OOM-kills itself** (300 MiB into a
+   48Mi limit) — and waits for the kubelet to record `lastState.terminated.reason: OOMKilled`.
+4. Runs AEGIS against it from outside and asserts the *output*: `"backend": "kubernetes"`,
+   `scale_up`, `APPROVED_FOR_HUMAN`, `"tool_errors": []`.
+5. Imports the image and runs AEGIS **inside** the cluster as the Job, under the read-only
+   ServiceAccount, and asserts the same verdict from its logs — plus that it ran as `user=10001`
+   with `readOnlyRootFilesystem`.
+
+### Bugs the cluster found that no fake could
+
+**The OOM workload wasn't OOMing.** The first command was `head -c 300M /dev/zero | tail; echo
+unreachable`. busybox's `head` rejects the `M` suffix — `invalid number '300M'` — so nothing was
+allocated, the `echo` ran, and the container exited **0**. The Deployment restarted it on a loop:
+restart count climbing, status `Completed`, zero OOM kills. **It looked exactly like the OOM test
+was working.** Caught by reading the container log instead of the restart counter.
+
+**A 40-line log tail arrived as one line.** With the client's default deserialisation,
+`read_namespaced_pod_log` returned the *repr* of bytes as a string — `b'2026-…\n2026-…'` — with
+literal backslash-n inside. `_log_text()` now reads the raw response and decodes it, and a test
+feeds it every shape the client has been seen to return.
+
+**Redaction left a copy of a UUID behind — and the guard refused the run.** A `CrashLoopBackOff`
+event embeds the pod UID twice: bare as `(534e3098-…)` and inside a longer token
+`…_default_534e3098-…-24ae0fb955bb_0`. The UUID regex ends in `\b`, and `b` followed by `_` is not a
+word boundary, so one copy was masked and one was not. `_assert_clean` saw the survivor and raised
+`RedactionLeak` rather than send it to a model. The redactor now runs a **final literal sweep**;
+⭐ the failure was loud and safe, which is the guard working as designed.
+
+### Then an adversarial review found nine more
+
+Four independent reviewers each tried to refute one claim about the Kubernetes work; every finding
+was attacked by a second reviewer, and the upheld ones were fixed, not noted:
+
+- **RBAC was read-only but not minimal** — 12 of 16 granted verb/resource pairs had no caller. Cut
+  to the exact five the code makes; CI now asserts `watch pods` and `get pods` are *denied*.
+- **The RBAC unit test passed with `roleRef: cluster-admin`.** Now a structural check, not a grep.
+- **The Job could hang forever** (no deadline; a stalled read left a thread joined at exit —
+  reproduced live) and **deleted its own evidence** after an hour. Fixed with socket timeouts, a Job
+  deadline, and a seven-day TTL.
+- **`rollout restart` was reported as a deploy**, so P5 would allow a no-op "rollback".
+  `deploys()` now compares ReplicaSet images.
+- **Init-container OOMs, dead pods, and other workloads' events** were mis-handled — all fixed.
+- **The write-verb tripwire was bypassable** by `getattr`/`call_api`/`subprocess`. Now an AST walk.
+
 ## Observability that other tools can read
 
 Spans use the **OpenTelemetry GenAI semantic conventions** — `gen_ai.operation.name`,
@@ -183,9 +277,11 @@ which is why `AEGIS_MODEL` overrides it without touching code.
 process**, cost tracked per call (~$0.009 per incident), and on the thin-evidence incident the model
 proposed `no_action` rather than inventing a fix.
 
-## Four bugs worth keeping in the README
+## Bugs worth keeping in the README
 
-Each was found by **running** the thing, not by reading it, and each is now guarded.
+Each was found by **running** the thing, not by reading it, and each is now guarded. (The Kubernetes bugs
+— the OOM workload that wasn't OOMing, and the log tail that arrived as one line — are in the
+Kubernetes section above; both needed a real cluster to surface.)
 
 **0. ⭐ The container produced wrong answers and CI was green.** Fixtures lived at the repo root and
 were resolved with `Path(__file__).parents[2] / "fixtures"`. That works from a source checkout and

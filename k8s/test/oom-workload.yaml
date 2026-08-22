@@ -1,0 +1,61 @@
+# A workload that OOM-kills itself, on purpose.
+#
+# This is the real-cluster twin of fixture inc-002. It exists so the pipeline can be proven against
+# a live API server rather than recorded JSON: the kubelet terminates the container with reason
+# OOMKilled, the restart count climbs, and AEGIS must read that from pod status and arrive at the
+# same verdict the fixture produces.
+#
+# Mechanism: `tail` with no arguments must buffer its entire input to print the last lines, so
+# piping 300 MB of zeros into it inside a 48Mi cgroup guarantees the kernel OOM-kills it. busybox is
+# ~2MB, so the image pull is not the slow part of the test.
+#
+# ⛔ The first version of this command was `head -c 300M ... | tail; echo unreachable`. busybox's
+# `head -c` REJECTS the M suffix ("invalid number '300M'"), so nothing was ever allocated, the
+# trailing echo ran, and the container exited 0. The Deployment restarted it on a loop - restart
+# count climbing, status "Completed", zero OOM kills. It LOOKED like the OOM test was working.
+# Caught by reading the container log rather than the restart counter. Now: bytes as a plain
+# integer, and `tail` is the LAST command so its SIGKILL (exit 137) is the container's exit.
+#
+# Name and label match inc-002's alert: service="checkout" -> selector app=checkout, in `default`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: default
+  labels:
+    app: checkout
+    aegis.test/purpose: synthetic-oom
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+        - name: checkout
+          image: busybox:1.36
+          # 314572800 = 300 MiB. No suffix: busybox head does not parse one.
+          # Logs like a real service would (startup, version, bind, then the work), not a single
+          # line: a 2-line lifetime is unrealistically quiet and sat below the verifier's thin-
+          # evidence floor on a fresh pod. This is the synthetic workload being honest, not the
+          # policy being loosened.
+          command:
+            - sh
+            - -c
+            - |
+              echo "checkout starting (synthetic OOM workload)"
+              echo "version=1.0.0 build=ci"
+              echo "listening on :8080"
+              echo "allocating 300MiB into a 48Mi limit..."
+              head -c 314572800 /dev/zero | tail
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 48Mi

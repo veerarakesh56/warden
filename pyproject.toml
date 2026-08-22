@@ -1,6 +1,6 @@
 [project]
 name = "aegis"
-version = "0.4.0"
+version = "0.5.1"
 description = "AI incident-response orchestrator: the model proposes, a deterministic verifier decides."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,7 @@ anthropic = ["anthropic>=1.0"]
 gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
 openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via AEGIS_BASE_URL
 mcp = ["mcp>=2.0"]                      # expose the policy gate to any MCP client
+k8s = ["kubernetes>=30"]                # read a live cluster: AEGIS_BACKEND=k8s
 all-providers = ["anthropic>=1.0", "google-genai>=1.0", "openai>=1.0"]
 
 [project.scripts]

@@ -42,6 +42,36 @@ class ToolError(RuntimeError):
     pass
 
 
+# A backend that reads many things (several pods' logs, say) may succeed on most and fail on one.
+# Raising would lose the successes; returning the failure as a plain line lets the verifier count
+# it as EVIDENCE. So: a line carrying this prefix is a partial failure. `gather()` moves every such
+# line out of the result and into `tool_errors`, where policy P8 reads it.
+PARTIAL_PREFIX = "TOOL-PARTIAL "
+
+
+def resolve_backend(name: str | None = None):
+    """Pick the evidence source from `AEGIS_BACKEND`.
+
+        fixture     recorded incidents shipped with the package (default; what CI uses)
+        k8s         a live Kubernetes cluster via kubeconfig or in-cluster credentials
+
+    Same shape as `providers.resolve()`: the optional client is imported lazily, so the core
+    package installs and runs with no cluster library present.
+    """
+    name = (name or os.environ.get("AEGIS_BACKEND") or "fixture").lower()
+    if name in ("fixture", "fixtures", "mock"):
+        return FixtureBackend()
+    if name in ("k8s", "kubernetes"):
+        try:
+            from .k8s_backend import KubernetesBackend
+        except ImportError as exc:  # the `kubernetes` client is an optional extra
+            raise ToolError(
+                "AEGIS_BACKEND=k8s needs the Kubernetes client: pip install -e '.[k8s]'"
+            ) from exc
+        return KubernetesBackend()
+    raise ToolError(f"unknown backend '{name}'. Known: fixture, k8s")
+
+
 @dataclass
 class ToolResult:
     name: str
@@ -52,6 +82,8 @@ class ToolResult:
 
 class FixtureBackend:
     """Reads recorded incident data. Real deployments substitute a live client here."""
+
+    name = "fixture"
 
     def __init__(self, root: pathlib.Path | None = None) -> None:
         self.root = root or FIXTURES
@@ -109,7 +141,15 @@ def gather(
     ):
         with span(f"tool.{name}", tool=name, timeout_s=timeout) as sp:
             try:
-                setattr(bundle, sink, _call_with_timeout(fn, alert, timeout))
+                result = _call_with_timeout(fn, alert, timeout)
+                if isinstance(result, list):
+                    # Partial failures travel in-band; route them to where the verifier looks.
+                    partial = [x for x in result if isinstance(x, str) and x.startswith(PARTIAL_PREFIX)]
+                    result = [x for x in result if x not in partial]
+                    for p in partial:
+                        bundle.tool_errors.append(f"{name}: {p[len(PARTIAL_PREFIX):]}")
+                    sp.set_attribute("aegis.tool.partial_failures", len(partial))
+                setattr(bundle, sink, result)
                 sp.set_attribute("aegis.tool.ok", True)
             except FutureTimeout:
                 msg = f"{name}: timed out after {timeout:.1f}s"

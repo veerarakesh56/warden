@@ -48,7 +48,7 @@ def configure() -> None:
     if _CONFIGURED or os.environ.get("AEGIS_TRACE") == "0":
         return
     provider = TracerProvider(
-        resource=Resource.create({"service.name": "aegis", "service.version": "0.1.0"})
+        resource=Resource.create({"service.name": "aegis", "service.version": "0.5.1"})
     )
     exporter = _build_exporter()
     if exporter is not None:

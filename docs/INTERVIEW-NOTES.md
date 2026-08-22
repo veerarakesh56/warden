@@ -84,6 +84,69 @@ Three findings, all documented in the README:
 ⭐ If asked "what surprised you?" — this is the answer. It shows the design survived contact with a
 real model *and* that you changed the design when the evidence said to.
 
+## 7e. ⭐⭐ You had it adversarially reviewed. What did that find, and what did you do?
+
+**This is the strongest thing to talk about — it shows the work is bigger than the demo.** Four
+independent reviewers each tried to *refute* one claim about the Kubernetes work; every finding was
+then attacked by a second reviewer; the upheld ones were fixed, not filed.
+
+What it caught, and the fix:
+- **RBAC was read-only but not *minimal*** — 12 of 16 granted verb/resource pairs had no caller. I
+  cut it to the exact five the code makes, and CI now asserts the unused verbs (`watch pods`,
+  `get pods`) are *denied*, not just that writes are.
+- **The RBAC test passed with `roleRef: cluster-admin`** — it was a grep for the word "delete". Now
+  a structural check: the binding must point at the ClusterRole in the file, verbs ⊆ {get, list}.
+- **The Job could hang forever** (no deadline; a stalled read left a thread the interpreter joins at
+  exit — I reproduced it live) and **deleted its own diagnosis after an hour**. Both fixed.
+- **`kubectl rollout restart` was reported as a deploy**, so the rollback policy would fire on a
+  no-op. The backend now compares ReplicaSet images.
+
+⭐ The honest framing: a green test suite proves the tests ran, not that they'd notice a real
+regression. The review, and the mutation check (which deliberately breaks the code and asserts the
+suite goes red), are how I check the tests themselves. Two mutations "survived" the last run — both
+were the mutation *script* pointing at code I'd since rewritten, not test holes; I re-anchored them
+and they're caught.
+
+## 7f. Something broke while you were building it against the real cluster. What?
+
+**The redaction leak guard fired — correctly.** A `CrashLoopBackOff` event embeds the pod UID
+twice, once inside a longer token where the `\b` regex boundary doesn't match. One copy got masked,
+one didn't, and `_assert_clean` refused to send the half-redacted text to the model. I added a final
+literal sweep so every found value is replaced everywhere. The point I'd make: **the failure was
+loud and safe.** The guard exists precisely so a redaction miss stops the run instead of leaking
+quietly — and that's what happened, on real data, before any model saw it.
+
+## 7c. ⭐ Has it actually run against Kubernetes, or does it just talk about pods?
+
+**Both — and the second was true for four releases before the first.** Until v0.5.0 the vocabulary
+was Kubernetes (`restart_pods`, OOM-killed containers) and the evidence was JSON fixtures. That is
+the exact defect shape the rest of the project exists to catch: a claim the code did not back.
+
+Now: a `KubernetesBackend` reads pod status, events, log tails and Deployment revisions; CI spins up
+a **real k3d cluster** on every push, deploys a pod that **really OOM-kills itself**, and asserts
+AEGIS reaches `scale_up` / `APPROVED_FOR_HUMAN` — run from **outside** the cluster *and* from
+**inside** it as a Job under a read-only ServiceAccount.
+
+⭐ **Two bugs only the real cluster could surface** — say these, they are the proof you ran it:
+- The "OOM workload" **wasn't OOMing**. busybox `head -c 300M` rejects the `M` suffix; nothing was
+  allocated, the container exited 0, the Deployment restarted it in a loop. Restart count climbing,
+  status `Completed`, zero OOM kills — it *looked* like the test worked. Caught by reading the
+  container log, not the restart counter.
+- The client returned a 40-line log tail as **one line**: the repr of bytes as a str, `b'…\n…'`.
+  Invisible with a fake client.
+
+## 7d. Why a ClusterRole with a namespaced RoleBinding, and not a Role?
+
+Because a Role only reaches its own namespace. The first draft put a Role in `aegis`; it could not
+see pods in `default`, where the workloads live. A ClusterRole holds the *permission set*; a
+RoleBinding grants it in *one namespace at a time*. There is deliberately no ClusterRoleBinding —
+that would be cluster-wide. To diagnose another namespace you add one RoleBinding there; you never
+widen the role.
+
+And it is tested **both ways** from the API server's own view: reads `yes`, writes `no`, an unbound
+namespace `no`, cluster-scoped `no`, `get secrets` `no`. A check that only confirmed the reads
+would pass a `*`-verb ClusterRoleBinding.
+
 ## 8. Why is the ECS task role read-only?
 
 Because "it only acts when the verifier approves" is a design argument, not a security boundary. IAM

@@ -1,0 +1,19 @@
+# The NEGATIVE test for Pod Security. This pod must be REJECTED by the `aegis` namespace.
+#
+# A positive test (the Job is admitted) cannot distinguish "restricted is enforced" from "the
+# label is mistyped and nothing is enforced". Applying this and asserting `Forbidden` can. CI runs
+# `kubectl apply --dry-run=server -f` on it and fails if the API server ACCEPTS it.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: aegis-privileged-must-fail
+  namespace: aegis
+spec:
+  restartPolicy: Never
+  containers:
+    - name: bad
+      image: busybox:1.36
+      command: ["sh", "-c", "id"]
+      securityContext:
+        privileged: true          # restricted PSS forbids this
+        runAsUser: 0              # and this

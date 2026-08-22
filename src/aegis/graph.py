@@ -79,6 +79,30 @@ class Signals:
     pool_saturated: bool
     service: str
     log_count: int
+    # Cluster-status signals. A live Kubernetes backend cannot report utilisation without a
+    # metrics server, but it can always report what the kubelet already knows: how many times a
+    # container was OOM-killed and how often it restarted. Those are what an on-call engineer reads
+    # first anyway.
+    oom_killed: int = 0
+    restarts: int = 0
+    crashloop: int = 0
+
+    @property
+    def memory_pressure(self) -> bool:
+        """True on either kind of evidence: a utilisation figure, or actual OOM kills."""
+        return self.memory_utilisation >= 0.85 or self.oom_killed > 0
+
+    @property
+    def bad_deploy(self) -> bool:
+        """A recent template change AND something broke that is not memory.
+
+        Two shapes of evidence: the fixture shape (an error-rate metric) and the cluster shape
+        (containers crash-looping after a real image change, with no OOM to explain it). Without
+        the second, a live cluster could never reach the rollback branch.
+        """
+        if not self.has_deploy:
+            return False
+        return self.error_rate > 0.02 or (self.crashloop > 0 and self.oom_killed == 0)
 
     @classmethod
     def of(cls, state: AegisState) -> Signals:
@@ -93,22 +117,30 @@ class Signals:
             pool_saturated=bool(size) and used >= size,
             service=state["alert"].service,
             log_count=len(ctx.logs),
+            oom_killed=int(m.get("oom_killed_containers", 0.0)),
+            restarts=int(m.get("restart_count", 0.0)),
+            crashloop=int(m.get("crashloop_containers", 0.0)),
         )
 
 
 def _mock_root_cause(s: Signals) -> RootCause:
-    if s.has_deploy and s.error_rate > 0.02:
+    if s.bad_deploy:
         return RootCause(
             hypothesis="A recent deploy introduced the error spike.",
             confidence=0.82,
             evidence=["error rate rose after the deploy timestamp"],
             ruled_out=["infrastructure saturation"],
         )
-    if s.memory_utilisation >= 0.85:
+    if s.memory_pressure:
+        evidence = (
+            [f"{s.oom_killed} OOMKilled termination(s), {s.restarts} restart(s)"]
+            if s.oom_killed
+            else [f"memory utilisation at {s.memory_utilisation:.0%} of limit"]
+        )
         return RootCause(
             hypothesis="Pods are being OOM-killed under memory pressure.",
             confidence=0.74,
-            evidence=[f"memory utilisation at {s.memory_utilisation:.0%} of limit"],
+            evidence=evidence,
         )
     if s.pool_saturated or s.replica_lag > 10:
         return RootCause(
@@ -124,7 +156,7 @@ def _mock_root_cause(s: Signals) -> RootCause:
 
 
 def _mock_proposal(s: Signals) -> RemediationProposal:
-    if s.has_deploy and s.error_rate > 0.02:
+    if s.bad_deploy:
         return RemediationProposal(
             action=ActionKind.rollback_deploy,
             target=s.service,
@@ -133,7 +165,7 @@ def _mock_proposal(s: Signals) -> RemediationProposal:
             blast_radius="single_service",
             reversible=True,
         )
-    if s.memory_utilisation >= 0.85:
+    if s.memory_pressure:
         return RemediationProposal(
             action=ActionKind.scale_up,
             target=s.service,
@@ -190,6 +222,7 @@ def node_gather(state: AegisState) -> AegisState:
         "audit": [
             {
                 "node": "gather",
+                "backend": getattr(backend, "name", type(backend).__name__),
                 "logs": len(context.logs),
                 "metrics": len(context.metrics),
                 "deploys": len(context.recent_deploys),

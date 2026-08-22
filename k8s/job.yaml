@@ -1,0 +1,74 @@
+# AEGIS running INSIDE the cluster it diagnoses, as a one-shot Job.
+#
+# ⚠ THIS IS THE DEMO SHAPE. It hard-codes the bundled incident inc-002 and runs the deterministic
+# mock reasoner (AEGIS_MOCK=1) against LIVE cluster evidence. A production deployment is the same
+# pod spec created per alert by a controller (Alertmanager webhook -> Job) with the alert passed
+# as env and a real provider configured. That controller is deliberately not included.
+#
+# Create with `kubectl create -f k8s/job.yaml` - NOT apply. A Job's pod template is immutable and
+# its name must be unique, so `generateName` mints a fresh Job each time and `create` is the only
+# verb that honours it. (The first version used a fixed name under `kubectl apply -k`: the second
+# apply was a silent no-op and changing --incident was rejected as "field is immutable". Measured.)
+#
+# Everything restrictive here is on purpose and mirrors the Dockerfile and the Terraform task:
+# non-root, read-only root filesystem, no privilege escalation, every capability dropped, and the
+# ServiceAccount whose ClusterRole contains no write verb. This is what lets the `aegis` namespace
+# enforce the `restricted` Pod Security Standard and still admit the pod.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: aegis-
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: aegis
+spec:
+  backoffLimit: 0            # a diagnosis that failed should be read, not retried blindly
+  # The Job must END. backoffLimit bounds only pods that reach Failed; it does nothing for a pod
+  # stuck in ImagePullBackOff, or a process that blocks on exit. A review found that a stalled API
+  # read left a worker thread the interpreter joined at exit - verdict printed, pod never completed,
+  # Job active forever, token mounted. The backend now sets socket timeouts; this is the backstop.
+  activeDeadlineSeconds: 300
+  # Keep the finished Job for 7 days. Its logs are the ONLY record of the diagnosis (read-only root
+  # FS, no volume, stdout only). The first version deleted it after ONE HOUR - an auditor asking
+  # "what did AEGIS propose for the 03:12 page?" at 09:00 got NotFound. Ship logs in production.
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aegis
+    spec:
+      serviceAccountName: aegis
+      automountServiceAccountToken: true   # the one place a token is needed
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: aegis
+          image: aegis:local          # k3d image import aegis:local -c <cluster>; a registry in prod
+          imagePullPolicy: IfNotPresent
+          args: ["run", "--incident", "inc-002", "--verbose"]
+          env:
+            - name: AEGIS_BACKEND
+              value: "k8s"
+            - name: AEGIS_MOCK
+              value: "1"              # reasoning stays deterministic; the EVIDENCE is live
+            - name: AEGIS_TRACE
+              value: "0"
+            - name: AEGIS_K8S_NAMESPACE
+              value: "default"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

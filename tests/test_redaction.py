@@ -38,14 +38,29 @@ def test_restore_round_trips():
     assert r.restore(r.text) == text
 
 
-def test_leak_is_fatal_not_a_warning():
+def test_leak_guard_can_fire():
     """The guard has to be able to fail, or it is not a guard.
 
-    Force the failure case: claim a mapping for a value that redact() will not substitute, so the
-    original is still present in the output when the check runs.
+    `redact()` itself can no longer produce a leak - a final literal sweep replaces every mapped
+    original before the check (see `test_survives_a_value_embedded_in_a_larger_token`). So the guard
+    is tested directly: hand `_assert_clean` an output where a mapped original survived, and it must
+    raise. This is the invariant the sweep upholds; the test proves the check that backs it works.
     """
+    from aegis.redaction import _assert_clean
+
     with pytest.raises(RedactionLeak):
-        redact("plain text with no secrets", mapping={"<EMAIL_1>": "text"})
+        _assert_clean("the secret alice@corp.io is still here", {"<EMAIL_1>": "alice@corp.io"})
+
+
+def test_survives_a_value_embedded_in_a_larger_token():
+    """Live-cluster regression: a Kubernetes event embeds the pod UID inside a longer token
+    (`..._default_<uid>_0`) where a trailing-`\\b` regex misses one of two occurrences. The final
+    literal sweep must catch the copy the pattern skipped."""
+    uid = "534e3098-a21e-415b-8010-24ae0fb955bb"
+    text = f"reserve name checkout_default_{uid}_0 pod=({uid})"
+    r = redact(text)
+    assert uid not in r.text
+    assert r.text.count("<UUID_1>") == 2, "both occurrences masked, same placeholder"
 
 
 def test_clean_text_is_untouched():

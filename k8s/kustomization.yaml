@@ -1,0 +1,12 @@
+# kubectl apply -k k8s/        -> the DURABLE parts: namespace, ServiceAccount, ClusterRole, RoleBinding
+# kubectl create -f k8s/job.yaml -> ONE diagnosis (generateName; a Job is immutable, so never `apply` it)
+#
+# Plain manifests with kustomize (built into kubectl) rather than a Helm chart: no extra tool to
+# install, and every resource is readable as-is. Re-applying this tree is idempotent (measured:
+# every object reports `unchanged` on the second apply). kustomize emits resources in its own
+# kind order (Namespace first) regardless of the order listed here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - rbac.yaml

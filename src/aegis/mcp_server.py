@@ -39,7 +39,7 @@ from .tools import FixtureBackend, gather
 from .verifier import ENV_ALLOWED, MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
 
 SERVER_NAME = "aegis"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.1"
 
 
 def _tools() -> list[types.Tool]:

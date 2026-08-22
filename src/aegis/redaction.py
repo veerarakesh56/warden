@@ -78,6 +78,16 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
 
         out = pattern.sub(_sub, out)
 
+    # Final literal sweep. The patterns FIND secrets; this GUARANTEES none of the found values
+    # survives anywhere, regardless of the word-boundary quirks that make a regex miss a second
+    # occurrence. Real example from a live cluster: a Kubernetes "failed to reserve container name"
+    # event embeds the pod UID inside `..._default_<uid>_0`, where the trailing `b_` is not a `\b`
+    # boundary, so the `(uid)` copy was masked and the `_0`-suffixed copy was not. Longest originals
+    # first, so a value that is a substring of another does not corrupt the longer replacement.
+    for placeholder, original in sorted(mapping.items(), key=lambda kv: -len(kv[1])):
+        if original:
+            out = out.replace(original, placeholder)
+
     _assert_clean(out, mapping)
     return RedactionResult(text=out, mapping=mapping)
 

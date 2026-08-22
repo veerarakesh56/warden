@@ -41,12 +41,51 @@ collected — and nothing unredacted is ever in scope when it is called.
 uses an `Annotated[..., _append]` reducer so each node appends rather than overwrites — losing the
 trail to a careless return would defeat the purpose of having one.
 
-## Where to swap fixtures for real backends
+## Evidence backends
 
-`src/aegis/tools.py` holds `FixtureBackend` with three methods: `logs`, `metrics`, `deploys`. A real
-deployment implements the same three against Loki, CloudWatch, Prometheus or Datadog and passes it
-to `run(alert, backend=...)`. **Nothing above that class changes.** The boundary is drawn there
-precisely so the swap is one file.
+The contract is three methods — `logs`, `metrics`, `deploys` — and `gather()` is the only thing
+that calls them. **Nothing above that boundary knows or cares which backend is in use.** That is the
+whole reason the boundary exists, and v0.5.0 cashed it in:
+
+| Backend | `AEGIS_BACKEND` | Reads | Proven by |
+|---|---|---|---|
+| `FixtureBackend` | `fixture` (default) | recorded incidents shipped as package data | the eval gate, every push |
+| `KubernetesBackend` | `k8s` | a live cluster — pod status, events, log tails, Deployment revision | the CI `k8s` job: a real k3d cluster, a pod that really OOM-kills, RBAC checked both ways, run from outside *and* inside the cluster |
+
+Adding Loki, CloudWatch or Datadog is the same shape: one class, three methods, passed to
+`run(alert, backend=...)`.
+
+### `KubernetesBackend` — what it is honest about
+
+- **Metrics are pod-status counts, not utilisation.** `restart_count`, `oom_killed_count`,
+  `crashloop_count`, `pods_ready`, `pods_total`, `memory_limit_mib`. A metrics server would add
+  CPU/memory %, and k3d does not ship one. The counts are also what an on-call engineer reads first.
+- **Read-only by construction.** Only `list_*`, `read_*`, `read_namespaced_pod_log`. A test greps
+  the module for any write verb. The mutation check adds a `delete_namespaced_pod` call and asserts
+  the suite goes red.
+- **Logs are read raw.** `_preload_content=False`, then `_log_text()` decodes. The client's default
+  path returned the repr of bytes as a str against a real k3s cluster — one line, literal `\n`.
+- **A missing Deployment is `[]`, not an error.** Bare pods and StatefulSets have none; policy P5
+  then refuses any rollback, which is the correct outcome. A 403, by contrast, propagates — it means
+  the RBAC is wrong, and hiding it would make a broken deployment look healthy.
+
+### The alert → workload mapping
+
+```
+namespace  = alert.labels["namespace"]  or $AEGIS_K8S_NAMESPACE  or "default"
+selector   = alert.labels["selector"]   or f"app={alert.service}"
+deployment = alert.labels["deployment"] or alert.service
+```
+
+### RBAC is the boundary
+
+`k8s/rbac.yaml`: a **ClusterRole** holding the read-only verb set, granted by a **namespaced
+RoleBinding** in each namespace AEGIS may diagnose. Never a ClusterRoleBinding. The first draft used
+a plain Role in the `aegis` namespace — which cannot see pods in `default`, where workloads live.
+A Role only reaches its own namespace; caught before apply.
+
+CI asks the API server directly, both ways: six reads must be `yes`; seven writes, two unbound
+namespaces and two cluster-scoped reads must each be `no`. Including `get secrets` → `no`.
 
 Every tool call is individually caught **and runs under a wall-clock deadline**
 (`AEGIS_TOOL_TIMEOUT`, default 5s). A failure or timeout becomes an entry in `context.tool_errors`,

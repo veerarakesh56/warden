@@ -14,6 +14,7 @@ import sys
 from .graph import run
 from .llm import LLMClient
 from .models import Alert, Severity
+from .tools import resolve_backend
 
 # The bundled scenarios. Each one exists to exercise a different route through the graph.
 DEMO_ALERTS: dict[str, dict] = {
@@ -99,14 +100,18 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
+    # Evidence source is a deployment decision, like the model provider. AEGIS_BACKEND=k8s reads a
+    # live cluster; the default reads the recorded fixtures so CI never needs one.
+    backend = resolve_backend()
+
     if args.cmd == "run":
         llm = LLMClient(max_usd=args.max_usd)
-        report = run(_alert_from(args.incident), llm=llm)
+        report = run(_alert_from(args.incident), llm=llm, backend=backend)
         _print_report(report, verbose=args.verbose)
         return 0
 
     for incident in DEMO_ALERTS:
-        report = run(_alert_from(incident), llm=LLMClient())
+        report = run(_alert_from(incident), llm=LLMClient(), backend=backend)
         _print_report(report, verbose=args.verbose)
     print("\nNo action was executed. AEGIS proposes and gates; a human executes.\n")
     return 0

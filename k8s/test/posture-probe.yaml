@@ -1,0 +1,41 @@
+# Proves the security posture at RUNTIME, not from the manifest echoed back by the API server.
+#
+# Reading `spec.securityContext.runAsUser` off a pod object re-proves that job.yaml says what it
+# says. This pod runs the same image under the same ServiceAccount and security context as the
+# Job, and asks the PROCESS: what uid are you, and can you write to the root filesystem? CI
+# asserts the answers are `10001` and `READONLY`. If the `restricted` PSS label on the namespace
+# were ever mistyped, the negative probe (privileged-must-fail.yaml) catches that side.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: aegis-posture-probe
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: aegis-probe
+spec:
+  serviceAccountName: aegis
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: probe
+      image: aegis:local
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c"]
+      args:
+        - |
+          echo "uid=$(id -u)"
+          if touch /probe-write-test 2>/dev/null; then echo "rootfs=WRITABLE"; else echo "rootfs=READONLY"; fi
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        requests: { cpu: 10m, memory: 32Mi }
+        limits: { cpu: 100m, memory: 64Mi }

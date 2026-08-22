@@ -1,0 +1,86 @@
+# The Kubernetes twin of the Terraform's read-only IAM role.
+#
+# AEGIS proposes; a deterministic verifier decides; a human executes. But "it only acts when the
+# verifier approves" is a design argument, not a security boundary. RBAC is the boundary. If this
+# ServiceAccount cannot mutate anything, then a bug in the policy engine cannot either.
+#
+# Verbs are get/list ONLY. There is no create, update, patch, delete or deletecollection anywhere
+# in this file, and CI proves it from the API server's own view, on both sides:
+#     kubectl auth can-i list   pods -n default     --as=system:serviceaccount:aegis:aegis  -> yes
+#     kubectl auth can-i delete pods -n default     --as=system:serviceaccount:aegis:aegis  -> no
+#     kubectl auth can-i watch  pods -n default     --as=system:serviceaccount:aegis:aegis  -> no
+#     kubectl auth can-i list   pods -n kube-system --as=system:serviceaccount:aegis:aegis  -> no
+#
+# ⚠ HONEST LIMIT - "cannot read secrets" is true of the Secrets RESOURCE only. `list pods` and
+# `get deployments` return full specs, and a spec can carry plaintext env values; `pods/log` returns
+# whatever the application printed. Any pod-reader sees those, and no RBAC can change it. That is
+# precisely why AEGIS's redaction stage sits BEFORE anything reaches a model.
+#
+# SHAPE: a ClusterRole holds the permission SET; a namespaced RoleBinding grants it in ONE
+# namespace at a time. A RoleBinding that references a ClusterRole scopes those permissions to the
+# RoleBinding's namespace only - that is the standard pattern for "read these things, but only
+# where I say". There is deliberately NO ClusterRoleBinding: that would be cluster-wide.
+#
+# ⚠ The first draft used a plain Role in the `aegis` namespace. That cannot see pods in `default`,
+# where the workloads being diagnosed actually live. Caught before apply, kept here as the lesson:
+# a Role only reaches its own namespace.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aegis
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: aegis
+# No API token is mounted unless a pod asks for one. The Job asks; nothing else should.
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aegis-readonly
+  labels:
+    app.kubernetes.io/name: aegis
+# MINIMAL means: exactly the verb/resource pairs the code calls, and nothing else. The ruler is
+# src/aegis/k8s_backend.py - five client calls, five grants. A review of the first draft found
+# 12 of 16 granted pairs had no caller (every `watch`, the whole events.k8s.io group, `get pods`).
+# "Read-only" was true; "minimal" was not. CI now also asserts that `watch pods` is DENIED.
+rules:
+  # list_namespaced_pod - pod status, restarts, termination reasons.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # read_namespaced_pod_log - container log tails. A subresource, so its own rule.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # list_namespaced_event - BackOff / Unhealthy / FailedScheduling for this workload's pods.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  # read_namespaced_deployment + list_namespaced_replica_set - the rollout history that lets
+  # deploys() tell a real template change from a `rollout restart`. Policy P5 depends on it.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list"]
+---
+# Grant in the namespace being DIAGNOSED. One of these per namespace AEGIS may read; never a
+# ClusterRoleBinding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aegis-readonly
+  namespace: default
+  labels:
+    app.kubernetes.io/name: aegis
+subjects:
+  - kind: ServiceAccount
+    name: aegis
+    namespace: aegis
+roleRef:
+  kind: ClusterRole
+  name: aegis-readonly
+  apiGroup: rbac.authorization.k8s.io
