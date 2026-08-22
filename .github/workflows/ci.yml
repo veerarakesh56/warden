@@ -98,13 +98,19 @@ jobs:
 
       - name: Validate manifests against the live API server - including the documented entry point
         run: |
-          kubectl apply -f k8s/namespace.yaml
+          # Apply the durable parts FIRST: dry-running posture-probe.yaml needs the ServiceAccount
+          # to exist, and the second apply -k needs the first to have happened.
+          kubectl apply -k k8s/
           # The command the README tells users to run. A broken kustomization.yaml used to ship green.
           kubectl kustomize k8s/ | kubectl apply --dry-run=server -f -
-          kubectl apply --dry-run=server -f k8s/job.yaml -f k8s/test/oom-workload.yaml -f k8s/test/posture-probe.yaml
-          kubectl apply -k k8s/
-          # Idempotent: the second apply must change nothing.
-          kubectl apply -k k8s/ | tee /dev/stderr | grep -vq -E 'configured|created' || { echo "::error::second apply -k was not a no-op"; exit 1; }
+          # The workload and the probe (client dry-run - the Job uses generateName, which
+          # `apply --dry-run` rejects; oom-workload and posture-probe are ordinary named objects).
+          kubectl apply --dry-run=server -f k8s/test/oom-workload.yaml -f k8s/test/posture-probe.yaml
+          # A Job with generateName cannot be `apply`-ed at all; `create --dry-run` is its check.
+          kubectl create --dry-run=server -f k8s/job.yaml >/dev/null && echo "job.yaml valid"
+          # Idempotent: the second apply -k must change nothing.
+          out=$(kubectl apply -k k8s/); echo "$out"
+          echo "$out" | grep -qvE 'unchanged' && { echo "::error::second apply -k was not a no-op"; exit 1; } || true
 
       - name: Pod Security must REJECT a privileged pod in the aegis namespace
         run: |
