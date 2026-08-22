@@ -84,6 +84,20 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 3)
 
 
+def _sdk_timeout_s() -> float:
+    """Seconds a single provider request may take before its own socket times out.
+
+    Read from the SAME env var as llm.LLM_CALL_TIMEOUT_S (read directly here to avoid a
+    providers<-llm import cycle). This is the bound that actually MATTERS: it makes the SDK's own
+    socket give up, so the worker thread ends and the process can exit. Without it, a hung request
+    (a just-rotated key made the client retry endlessly) blocks the run past every higher-level
+    deadline, because a thread stuck in a blocking C call cannot be force-killed. Each provider is
+    also told NOT to retry internally — AEGIS has its own retry loop, and stacking them multiplies
+    the wall-clock a slow endpoint costs.
+    """
+    return float(os.environ.get("AEGIS_LLM_TIMEOUT", "45.0"))
+
+
 # --------------------------------------------------------------------------- anthropic
 
 
@@ -94,7 +108,7 @@ class AnthropicProvider:
         from anthropic import Anthropic
 
         self.model = model or os.environ.get("AEGIS_MODEL", "claude-sonnet-5")
-        self._client = Anthropic()
+        self._client = Anthropic(timeout=_sdk_timeout_s(), max_retries=0)
 
     def complete(self, *, system: str, user: str) -> Completion:
         resp = self._client.messages.create(
@@ -117,6 +131,7 @@ class GeminiProvider:
 
     def __init__(self, model: str | None = None) -> None:
         from google import genai
+        from google.genai import types
 
         _quiet_gemini_afc_notice()
         # ⚠ Model names expire. `gemini-2.0-flash` was the default here and the API answered
@@ -126,7 +141,14 @@ class GeminiProvider:
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Get a free key at aistudio.google.com.")
-        self._client = genai.Client(api_key=api_key)
+        # timeout is in MILLISECONDS here; attempts=1 means no internal retry (see _sdk_timeout_s).
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                timeout=int(_sdk_timeout_s() * 1000),
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
+        )
 
     def complete(self, *, system: str, user: str) -> Completion:
         from google.genai import types
@@ -171,7 +193,10 @@ class OpenAICompatProvider:
         api_key = os.environ.get("OPENAI_API_KEY") or ("ollama" if base_url else None)
         if not api_key:
             raise ProviderError("OPENAI_API_KEY is not set (or set AEGIS_BASE_URL for a local model).")
-        self._client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+        kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
+        if base_url:
+            kw["base_url"] = base_url
+        self._client = OpenAI(**kw)
 
     def complete(self, *, system: str, user: str) -> Completion:
         resp = self._client.chat.completions.create(

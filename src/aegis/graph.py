@@ -47,6 +47,7 @@ class AegisState(TypedDict, total=False):
     alert: Alert
     context: ContextBundle
     redacted_logs: list[str]
+    redacted_deploys: list[dict[str, str]]
     redaction_map: dict[str, str]
     root_cause: RootCause
     proposal: RemediationProposal
@@ -234,28 +235,51 @@ def node_gather(state: AegisState) -> AegisState:
 
 
 def node_redact(state: AegisState) -> AegisState:
-    """Nothing downstream of here sees a real identifier."""
+    """Nothing downstream of here sees a real identifier.
+
+    ⛔ recent_deploys is scrubbed too, not just logs+summary. It reaches the model through
+    _evidence_blob, and on the live Kubernetes backend a deploy's `image` is an ECR ref whose host
+    embeds the 12-digit AWS account id (`123456789012.dkr.ecr...`). That value is masked in a log
+    line but was passing through here in the clear — a real breach of this docstring's promise.
+    One shared `mapping` so the same host gets the same placeholder wherever it appears.
+    """
     context = state["context"]
     redacted_logs, mapping = redact_many(context.logs)
+    redacted_deploys: list[dict[str, str]] = []
+    for deploy in context.recent_deploys:
+        scrubbed: dict[str, str] = {}
+        for key, value in deploy.items():
+            r = redact(str(value), mapping=mapping)
+            mapping = r.mapping
+            scrubbed[key] = r.text
+        redacted_deploys.append(scrubbed)
     summary = redact(state["alert"].summary, mapping=mapping)
+    mapping = summary.mapping
     alert = state["alert"].model_copy(update={"summary": summary.text})
     return {
         "alert": alert,
         "redacted_logs": redacted_logs,
-        "redaction_map": summary.mapping,
-        "audit": [{"node": "redact", "identifiers_masked": len(summary.mapping)}],
+        "redacted_deploys": redacted_deploys,
+        "redaction_map": mapping,
+        "audit": [{"node": "redact", "identifiers_masked": len(mapping)}],
     }
 
 
 def _evidence_blob(state: AegisState) -> str:
     ctx = state["context"]
-    return (
+    blob = (
         f"ALERT: {state['alert'].name} — {state['alert'].summary}\n"
         f"SERVICE: {state['alert'].service} ENV: {state['alert'].environment}\n"
         f"METRICS: {ctx.metrics}\n"
-        f"RECENT DEPLOYS: {ctx.recent_deploys}\n"
+        f"RECENT DEPLOYS: {state.get('redacted_deploys', [])}\n"
         f"LOGS:\n" + "\n".join(state.get("redacted_logs", []))
     )
+    # Final backstop before the prompt leaves for the model: run the WHOLE assembled string through
+    # the redactor once more with the run's mapping. Anything not individually scrubbed — a metric
+    # key, alert.name, the service — cannot carry an identifier past this point, and placeholders
+    # already in place do not re-match any pattern. This only sanitises the prompt string; it does
+    # not touch alert.service in state, which the verifier still needs structurally.
+    return redact(blob, mapping=state.get("redaction_map", {})).text
 
 
 def node_analyse(state: AegisState) -> AegisState:

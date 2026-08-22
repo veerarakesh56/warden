@@ -7,7 +7,7 @@
 **a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
-OpenAI-compatible), 4 recorded incidents, **159 tests** (7 against a live cluster) plus a 14-case mutation check,
+OpenAI-compatible), 4 recorded incidents, **181 tests** (7 against a live cluster) plus a 15-case mutation check,
 output-asserting CI.
 
 ## The problem
@@ -154,8 +154,8 @@ thing from the cluster's side** — see below.
 kubectl apply -k k8s/            # namespace, ServiceAccount, ClusterRole, RoleBinding, Job
 ```
 
-The ClusterRole has **get / list / watch only**. No `create`, `update`, `patch`, `delete`. It is
-bound with a **namespaced RoleBinding** per diagnosed namespace — never a ClusterRoleBinding. The
+The ClusterRole has **get / list only** — no `watch`, and no `create`, `update`, `patch`, `delete`.
+It is bound with a **namespaced RoleBinding** per diagnosed namespace — never a ClusterRoleBinding. The
 Job runs as **uid 10001, read-only root filesystem, all capabilities dropped**, under the
 `restricted` Pod Security Standard.
 
@@ -169,9 +169,10 @@ Terraform task role.
 CI creates a **k3d** cluster on every push and:
 
 1. Validates every manifest with `kubectl apply --dry-run=server` — schema-checked by a real API.
-2. Asks the API server **both ways**: `kubectl auth can-i get pods` → must be `yes`;
-   `delete pods`, `patch deployments`, `get secrets`, `get pods -n kube-system`, `get nodes` → must
-   each be **`no`**. A check that only confirmed the reads would pass a `*`-verb ClusterRoleBinding.
+2. Asks the API server **both ways**: `kubectl auth can-i list pods` → must be `yes`;
+   `get pods` (only `list` is granted), `delete pods`, `patch deployments`, `get secrets`,
+   `list pods -n kube-system`, `get nodes` → must each be **`no`**. A check that only confirmed the
+   reads would pass a `*`-verb ClusterRoleBinding.
 3. Deploys `k8s/test/oom-workload.yaml` — a pod that **actually OOM-kills itself** (300 MiB into a
    48Mi limit) — and waits for the kubelet to record `lastState.terminated.reason: OOMKilled`.
 4. Runs AEGIS against it from outside and asserts the *output*: `"backend": "kubernetes"`,

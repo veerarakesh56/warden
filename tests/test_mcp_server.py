@@ -65,20 +65,30 @@ def test_verify_rejects_irreversible_production_actions():
 
 
 def test_every_verdict_says_the_client_may_not_execute():
-    """The most important field in the response, asserted across all four verdict shapes."""
+    """may_execute must be False for EVERY verdict shape, auto_safe INCLUDED.
+
+    An earlier version drove only rollback_deploy, so it never produced auto_safe - three of the
+    four VerdictStatus values - and a mutation making may_execute True for auto_safe would have
+    survived. Each case below is chosen to land on a distinct verdict, and the last one is an inert
+    action that verifies auto_safe, the one case where 'may it execute?' is most tempting to answer yes.
+    """
     cases = [
-        {"confidence": 0.9, "has_recent_deploy": True, "blast_radius": "single_service"},
-        {"confidence": 0.2, "has_recent_deploy": True, "blast_radius": "single_service"},
-        {"confidence": 0.9, "has_recent_deploy": True, "blast_radius": "region"},
-        {"confidence": 0.9, "has_recent_deploy": False, "blast_radius": "single_service"},
+        ("rollback_deploy", {"confidence": 0.9, "has_recent_deploy": True, "blast_radius": "single_service"}),  # approved_for_human
+        ("rollback_deploy", {"confidence": 0.2, "has_recent_deploy": True, "blast_radius": "single_service"}),   # escalated (P4)
+        ("rollback_deploy", {"confidence": 0.9, "has_recent_deploy": False, "blast_radius": "single_service"}),  # rejected (P5)
+        ("escalate_to_human", {"confidence": 0.9, "has_recent_deploy": True, "blast_radius": "single_service"}), # auto_safe (inert)
     ]
-    for extra in cases:
+    seen = set()
+    for action, extra in cases:
         out = _payload(call_tool("verify_remediation", {
             "environment": "prod", "severity": "critical", "service": "checkout",
-            "action": "rollback_deploy", "target": "checkout", "reversible": True,
+            "action": action, "target": "checkout", "reversible": True,
             "log_lines": 5, "metric_count": 4, **extra,
         }))
-        assert out["may_execute"] is False
+        seen.add(out["verdict"])
+        assert out["may_execute"] is False, f"verdict {out['verdict']} reported may_execute=True"
+    assert "auto_safe" in seen, "auto_safe was never exercised - the may_execute guard is a tautology"
+    assert len(seen) == 4, f"not all four verdict shapes exercised: {sorted(seen)}"
 
 
 def test_redact_tool_masks_and_reports():

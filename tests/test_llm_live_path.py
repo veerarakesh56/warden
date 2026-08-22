@@ -9,6 +9,8 @@ the failure modes that matter (a model returning prose, fenced JSON, or garbage 
 demand rather than by waiting for them to happen in production.
 """
 
+import time
+
 import pytest
 from pydantic import BaseModel
 
@@ -116,6 +118,37 @@ def test_the_budget_stops_a_run_mid_retry():
     with pytest.raises(BudgetExceeded):
         c.structured(system="s", user="u", schema=Toy, retries=5)
     assert p.calls < 6, "the ceiling did not interrupt the retry loop"
+
+
+class _HangingProvider:
+    """A provider whose call never returns in time — a dead key that makes the SDK retry endlessly,
+    or a wedged network. Observed live when a rotated Gemini key hung the whole run."""
+
+    name = "hang"
+    model = "hang-1"
+
+    def complete(self, *, system: str, user: str) -> Completion:
+        time.sleep(30)
+        return Completion("{}", 1, 1)
+
+
+def test_a_hung_model_call_times_out_fast_instead_of_hanging_the_run():
+    """The budget stops COST; this stops TIME. Without it a hung provider hangs the run forever.
+
+    The assertion is on WHEN control returns: ~2s (the ceiling), not ~30s (the provider's sleep). A
+    ModelCallTimeout is not caught by the retry loop, so it stops the run immediately rather than
+    retrying into three consecutive hangs.
+    """
+    from aegis.llm import ModelCallTimeout
+
+    c = LLMClient(provider=_HangingProvider(), mock=False, call_timeout_s=2.0)
+    started = time.monotonic()
+    with pytest.raises(ModelCallTimeout):
+        c.structured(system="s", user="u", schema=Toy, retries=2)
+    elapsed = time.monotonic() - started
+    # ceiling = call_timeout_s + 2s backstop = 4s; must be far below the 30s sleep, and it must NOT
+    # have burned all three retries (~90s) — a timeout is not retried.
+    assert elapsed < 12, f"the wall-clock did not fire: waited {elapsed:.1f}s"
 
 
 def test_call_ceiling_is_enforced_across_separate_calls():

@@ -25,7 +25,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{3,})[\"']?")),
-    ("PHONE", re.compile(r"(?<![\d.])\+?\d[\d\s\-]{8,14}\d(?![\d.])")),
+    # The negative lookahead stops an ISO-8601 date (YYYY-MM-DD, which every log line starts with)
+    # being masked as a phone number — that was masking timestamps and losing evidence.
+    ("PHONE", re.compile(r"(?<![\d.])(?!\d{4}-\d\d-\d\d)\+?\d[\d\s\-]{8,14}\d(?![\d.])")),
 ]
 
 

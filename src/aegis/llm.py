@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -32,9 +33,45 @@ T = TypeVar("T", bound=BaseModel)
 PRICE_PER_MTOK_IN = float(os.environ.get("AEGIS_PRICE_IN", "3.00"))
 PRICE_PER_MTOK_OUT = float(os.environ.get("AEGIS_PRICE_OUT", "15.00"))
 
+# Wall-clock ceiling for a single model call. The budget above stops COST; this stops TIME. Without
+# it a slow, retrying or hung provider hangs the whole run forever — observed live: a Gemini key
+# that had just been rotated made the SDK retry past every internal timeout, and `aegis run` never
+# returned. The tools already have this (tools.py); the model call did not, which was the gap.
+LLM_CALL_TIMEOUT_S = float(os.environ.get("AEGIS_LLM_TIMEOUT", "45.0"))
+
 
 class BudgetExceeded(RuntimeError):
     """The run cost more than it was allowed to. Fatal by design."""
+
+
+class ModelCallTimeout(RuntimeError):
+    """A single model call exceeded the wall-clock ceiling. Fatal — better a loud stop than a hang."""
+
+
+def _complete_within(provider: Provider, *, system: str, user: str, seconds: float):
+    """Run provider.complete() under a wall-clock deadline, on a DAEMON thread.
+
+    A daemon thread so a genuinely hung SDK call (bad key, dead socket, endless retry) cannot block
+    interpreter exit the way a normal worker would — the caller stops waiting, and the process can
+    still shut down. The abandoned thread is the same accepted trade-off tools.py documents: Python
+    cannot force-kill a thread, so a real deployment also sets a socket timeout on the client.
+    """
+    box: dict[str, Any] = {}
+
+    def _worker() -> None:
+        try:
+            box["ok"] = provider.complete(system=system, user=user)
+        except BaseException as exc:  # noqa: BLE001 - carried across the thread boundary, re-raised below
+            box["err"] = exc
+
+    th = threading.Thread(target=_worker, name="aegis-llm-call", daemon=True)
+    th.start()
+    th.join(seconds)
+    if th.is_alive():
+        raise ModelCallTimeout(f"model call exceeded {seconds:.0f}s and was abandoned")
+    if "err" in box:
+        raise box["err"]
+    return box["ok"]
 
 
 class ModelRefused(RuntimeError):
@@ -49,9 +86,11 @@ class LLMClient:
         max_usd: float = 0.50,
         max_calls: int = 8,
         mock: bool | None = None,
+        call_timeout_s: float | None = None,
     ) -> None:
         self.max_usd = float(os.environ.get("AEGIS_MAX_USD", max_usd))
         self.max_calls = max_calls
+        self.call_timeout_s = LLM_CALL_TIMEOUT_S if call_timeout_s is None else call_timeout_s
         self.cost = CostRecord()
         self.mock = (os.environ.get("AEGIS_MOCK") == "1") if mock is None else mock
         self._provider = provider if provider is not None else (None if self.mock else resolve())
@@ -105,7 +144,14 @@ class LLMClient:
 
         last: Exception | None = None
         for _ in range(retries + 1):
-            completion = self._provider.complete(system=system, user=prompt)
+            # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s, same
+            # env var) is the one that actually ends the worker thread and lets the process exit.
+            # This wall-clock is a BACKSTOP set just after it, for the rare case the SDK timeout does
+            # not fire (e.g. an OAuth-style key whose validation hangs below the request layer). A
+            # ModelCallTimeout is NOT caught below, so either bound stops the run immediately.
+            completion = _complete_within(
+                self._provider, system=system, user=prompt, seconds=self.call_timeout_s + 2.0
+            )
             # Charged BEFORE validation: a malformed response still costs money, and a budget that
             # only counts successful calls can be exhausted by a model that keeps failing.
             self._charge(completion.input_tokens, completion.output_tokens)

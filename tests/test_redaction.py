@@ -26,10 +26,27 @@ def test_same_value_gets_the_same_placeholder():
 
 
 def test_arn_is_taken_whole_not_piecemeal():
+    """The WHOLE ARN must become one placeholder, not just the account number masked while the
+    `arn:aws:iam::` prefix and the role path leak. Asserting only that the account digits are gone
+    is not enough - the AWSACCT pattern alone satisfies that, so the test would pass even with the
+    ARN pattern deleted. These assertions fail unless the ARN pattern took the whole token.
+    """
     text = "role arn:aws:iam::123456789012:role/payments-exec denied"
     r = redact(text)
-    assert "arn:aws:iam::123456789012:role/payments-exec" not in r.text
+    assert "arn:aws:iam::" not in r.text, "the ARN prefix leaked - masked piecemeal, not whole"
+    assert "role/payments-exec" not in r.text, "the role path leaked - masked piecemeal, not whole"
     assert "123456789012" not in r.text
+    assert r.text == "role <ARN_1> denied", "the whole ARN should collapse to a single placeholder"
+
+
+def test_iso_date_is_not_mistaken_for_a_phone_number():
+    """Regression: the PHONE pattern matched YYYY-MM-DD, so every log line's timestamp was masked as
+    a phone and the temporal evidence was lost. A real phone must still be masked."""
+    r = redact("2026-08-21T10:02:11Z checkout ERROR 500 after deploy")
+    assert "2026-08-21" in r.text, "the date was masked as a phone number"
+    assert redact("2026-08-21").size == 0
+    # a genuine phone number is still caught
+    assert "+1 415-555-0142" not in redact("oncall +1 415-555-0142 paged").text
 
 
 def test_restore_round_trips():
