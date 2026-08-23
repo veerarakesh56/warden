@@ -27,6 +27,22 @@ def test_runreport_context_is_redacted_not_raw():
     assert report.redaction_map_size > 0, "sanity: redaction did run"
 
 
+def test_alert_labels_are_redacted_in_the_report():
+    """Alertmanager labels routinely carry an instance IP, a pod name, an owner email or a token,
+    and they reach the serialised RunReport.alert. node_redact scrubbed only the summary, so labels
+    leaked raw. Now every label value is scrubbed (service/env stay structural)."""
+    alert = Alert(
+        alert_id="inc-x", name="HighErrorRate", severity=Severity.high, service="checkout",
+        environment="prod", summary="5xx spike", started_at="2026-08-21T10:00:00Z",
+        labels={"instance": "10.0.3.14:9100", "owner_email": "oncall@corp.io",
+                "trace_token": "Bearer abcdef0123456789ABCDEF"},
+    )
+    serialized = run(alert, llm=LLMClient(mock=True)).model_dump_json()
+    for raw in ("10.0.3.14", "oncall@corp.io", "abcdef0123456789ABCDEF"):
+        assert raw not in serialized, f"label value {raw} leaked into the serialised report"
+    assert "checkout" in serialized, "service stays structural (the proposal target needs it)"
+
+
 def _state_after_redact():
     alert = Alert(
         alert_id="x", name="HighErrorRate", severity=Severity.high, service="checkout",
@@ -57,7 +73,7 @@ def test_deploy_identifiers_do_not_reach_the_model():
 def test_deploy_structure_survives_so_the_model_can_still_reason():
     """Redaction must mask the account id, not destroy the fact that this was an ECR deploy."""
     blob = _evidence_blob(_state_after_redact())
-    assert "<AWSACCT_1>" in blob
+    assert "<ACCOUNTID_1>" in blob
     assert ".dkr.ecr.us-east-1.amazonaws.com/checkout" in blob
     assert "revision" in blob
 

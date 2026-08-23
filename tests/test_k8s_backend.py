@@ -301,6 +301,28 @@ def test_rollout_restart_is_not_a_deploy():
     assert _backend(apps=FakeApps(replicasets=rs)).deploys(_alert()) == []
 
 
+def test_init_container_only_image_change_is_a_deploy():
+    """A deploy that bumps ONLY a migration/init-container image (app container unchanged) is a real
+    template change. _images() compared app containers alone, so it read as a no-op restart, hid the
+    deploy, and P5 then blocked the legitimate rollback of a failing migration. Init images count."""
+    def _rs_init(rev, app_img, init_img, created):
+        return NS(
+            metadata=NS(
+                annotations={"deployment.kubernetes.io/revision": str(rev)},
+                creation_timestamp=created,
+                owner_references=[NS(kind="Deployment", uid="dep-uid")],
+            ),
+            spec=NS(template=NS(spec=NS(
+                init_containers=[NS(image=init_img)],
+                containers=[NS(image=app_img)],
+            ))),
+        )
+    rs = [_rs_init(1, "app:v9", "migrate:v1", datetime.now(UTC) - timedelta(days=2)),
+          _rs_init(2, "app:v9", "migrate:v2", datetime.now(UTC) - timedelta(minutes=5))]
+    d = _backend(apps=FakeApps(replicasets=rs)).deploys(_alert())
+    assert len(d) == 1, "an init-container-only image change must be detected as a deploy"
+
+
 def test_first_rollout_counts():
     rs = [_rs(1, ["acme/checkout:v1"], created=datetime.now(UTC) - timedelta(minutes=5))]
     assert len(_backend(apps=FakeApps(replicasets=rs)).deploys(_alert())) == 1

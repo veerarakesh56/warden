@@ -7,7 +7,7 @@
 **a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
-OpenAI-compatible), 4 recorded incidents, **200 tests** (7 against a live cluster) plus a 15-case mutation check,
+OpenAI-compatible), 4 recorded incidents, **203 tests** (7 against a live cluster) plus a 15-case mutation check,
 output-asserting CI.
 
 ## The problem
@@ -32,10 +32,13 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
 
 - **Evidence first.** Tools run deterministically *before* the model reasons. The model does not
   choose what to look at, because choosing the evidence is choosing the answer.
-- **Redaction that is verified, not assumed.** Emails, IPv4/IPv6, UUIDs, ARNs, JWTs, vendor API keys,
-  AWS account IDs and secret access keys, PEM private keys, connection-string passwords, bearer
-  tokens, `password=`/`secret=` values and tenant identifiers are masked before any token leaves the
-  process — then the output is re-scanned and a surviving value raises. Stable placeholders mean the model can still tell that
+- **Redaction that is verified, not assumed — and cloud-neutral.** Emails (incl. URL-encoded `%40`),
+  IPv4/IPv6, UUIDs, PEM private keys, connection-string passwords (Postgres/MySQL/Redis — so RDS,
+  Cloud SQL and Azure SQL alike), JWTs and bearer tokens, and vendor credentials across **AWS**
+  (ARN, account/secret keys), **GCP** (`AIza` keys, `ya29.` OAuth tokens), **Azure** (storage
+  `AccountKey`, SAS `sig`), plus GitHub/GitLab/Slack/Stripe keys and `password=`/`secret=` values are
+  masked before any token leaves the process — then the output is re-scanned and a surviving value
+  raises. Stable placeholders mean the model can still tell that
   two log lines refer to the same host.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.

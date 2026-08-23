@@ -29,6 +29,11 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub (ghp_/gho_/ghu_/ghs_/ghr_), AWS (AKIA),
     # Slack (xoxb-/xoxp-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_).
     ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|pk_live_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|xox[baprs]-|glpat-|AIza)[A-Za-z0-9_\-]{8,}\b")),
+    # GCP OAuth2 access token (ya29.<long>). Masked whole and BEFORE the phone pattern, which would
+    # otherwise fragment a digit-run inside it and leave the rest exposed. Cloud-neutral: GCP.
+    ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
+    # Azure Shared Access Signature: the `sig=` query parameter is the credential. Cloud-neutral: Azure.
+    ("AZURESAS", re.compile(r"(?i)(?<=[?&])sig=([^\s&\"'<]{16,})")),
     # Credentials embedded in a URL / connection string: scheme://user:PASSWORD@host. Masks the
     # password (group 1). A literal `@` inside a password is only partially covered (rare — real
     # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
@@ -37,7 +42,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # evidence source) reads as the email to both the model and an operator, so it must be masked too.
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
     ("UUID", re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")),
-    ("AWSACCT", re.compile(r"\b\d{12}\b")),
+    # A bare 12-digit id: an AWS account id, a GCP project number, or any 12-digit account id. The
+    # label is cloud-NEUTRAL (was AWSACCT, which mislabelled a GCP project number as an AWS account
+    # id on a non-AWS deployment) since AEGIS runs on any cloud.
+    ("ACCOUNTID", re.compile(r"\b\d{12}\b")),
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     # IPv6 — we redact IPv4, so an IPv6 address (common in dual-stack k8s pod logs) is the same
     # identifier and must be masked too. Deliberately matches ONLY real addresses: either a `::`
@@ -61,10 +69,13 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # class) is left alone. The bounded [\w.\-] prefix/suffix lets the sensitive word sit INSIDE a
     # compound key (`aws_secret_access_key`, `db_password`), which a `\b`-anchored form missed — the
     # AWS secret access key (the credential paired with the AKIA id) is the case that exposed it.
+    # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
+    # GCP and generic (private_key, client_secret, api_key, password, token, credential).
     ("SECRET", re.compile(
         r"(?i)(?:^|[\s\"',;{(\[=])[\w.\-]{0,40}"
-        r"(?:password|passwd|pwd|secret|access[_\-]?key|api[_\-]?key|apikey|auth[_\-]?token"
-        r"|access[_\-]?token|client[_\-]?secret|credential|token)[\w.\-]{0,20}"
+        r"(?:password|passwd|pwd|secret|access[_\-]?key|account[_\-]?key|shared[_\-]?access[_\-]?key"
+        r"|private[_\-]?key|api[_\-]?key|apikey|auth[_\-]?token|access[_\-]?token|sas[_\-]?token"
+        r"|client[_\-]?secret|credential|token)[\w.\-]{0,20}"
         r"\s*[:=]\s*[\"']?([^\s\"',;<]{3,})"
     )),
 ]

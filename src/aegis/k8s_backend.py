@@ -317,7 +317,12 @@ def _revision_of(rs) -> int:
 
 
 def _images(rs) -> list[str]:
-    containers = rs.spec.template.spec.containers or []
+    # Init containers count too: a deploy that bumps ONLY a migration/init-container image is a real
+    # template change, and comparing app containers alone misclassified it as a no-op restart -
+    # hiding the deploy, so bad_deploy never fired and P5 blocked the legitimate rollback. This
+    # matches metrics()/logs(), which already fold in init containers.
+    spec = rs.spec.template.spec
+    containers = list(getattr(spec, "init_containers", None) or []) + list(spec.containers or [])
     return sorted(c.image or "" for c in containers)
 
 

@@ -98,11 +98,12 @@ def _tools() -> list[types.Tool]:
             name="redact_text",
             title="Redact identifiers before sending text to a model",
             description=(
-                "Mask emails, IPv4/IPv6, UUIDs, ARNs, JWTs, API keys (OpenAI/GitHub/AWS/Slack/"
-                "GitLab/Stripe/Google), AWS account ids and secret access keys, PEM private keys, "
-                "connection-string passwords, bearer tokens, password=/secret= values and tenant "
-                "identifiers. Verifies its own output and fails if any original value survived. Use "
-                "before putting logs into any prompt."
+                "Mask emails (incl. %40-encoded), IPv4/IPv6, UUIDs, PEM private keys, "
+                "connection-string passwords, JWTs/bearer tokens, and cloud credentials across AWS "
+                "(ARN, account/secret keys), GCP (AIza, ya29. tokens) and Azure (AccountKey, SAS "
+                "sig), plus GitHub/GitLab/Slack/Stripe keys, password=/secret= values and tenant "
+                "ids. Verifies its own output and fails if any original value survived. Use before "
+                "putting logs into any prompt."
             ),
             input_schema={
                 "type": "object",

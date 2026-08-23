@@ -274,7 +274,23 @@ def node_redact(state: AegisState) -> AegisState:
         redacted_deploys.append(scrubbed)
     summary = redact(state["alert"].summary, mapping=mapping)
     mapping = summary.mapping
-    alert = state["alert"].model_copy(update={"summary": summary.text})
+    # Alert.name and Alert.labels reach the model (via _evidence_blob) AND the serialised
+    # RunReport.alert, so they must be scrubbed too. Alertmanager labels routinely carry an instance
+    # IP, a pod name, an owner email, even a token — and node_redact previously scrubbed only the
+    # summary, so labels leaked raw into the exported report. Safe to redact here: labels are read by
+    # the backend during node_gather, which runs BEFORE this node, so nothing downstream needs the
+    # raw values. `service`/`environment`/`severity`/`alert_id` are left structural — the verifier and
+    # the proposal target need them intact, and they are identifiers by design, not free-text.
+    name_r = redact(state["alert"].name, mapping=mapping)
+    mapping = name_r.mapping
+    redacted_labels: dict[str, str] = {}
+    for key, value in state["alert"].labels.items():
+        lr = redact(str(value), mapping=mapping)
+        mapping = lr.mapping
+        redacted_labels[key] = lr.text
+    alert = state["alert"].model_copy(
+        update={"summary": summary.text, "name": name_r.text, "labels": redacted_labels}
+    )
     # Overwrite the context with its REDACTED form. node_redact scrubbed into redacted_logs/
     # redacted_deploys, but state["context"] stayed RAW — and run() ships it into RunReport.context,
     # the exported, serialised, auditor-facing artifact. So model_dump_json() of the report leaked

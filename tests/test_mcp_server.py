@@ -121,7 +121,7 @@ def test_gather_over_mcp_redacts_deploy_identifiers(monkeypatch):
     out = _payload(call_tool("gather_incident_context", {"alert_id": "inc-001"}))
     blob = json.dumps(out["recent_deploys"])
     assert "123456789012" not in blob and "eve@corp.io" not in blob, "deploy identifier leaked over MCP"
-    assert "<AWSACCT" in blob or "<EMAIL" in blob, "the deploy was returned, just scrubbed"
+    assert "<ACCOUNTID" in blob or "<EMAIL" in blob, "the deploy was returned, just scrubbed"
 
 
 def test_describe_policy_lists_all_nine():

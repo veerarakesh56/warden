@@ -28,7 +28,7 @@ def test_same_value_gets_the_same_placeholder():
 def test_arn_is_taken_whole_not_piecemeal():
     """The WHOLE ARN must become one placeholder, not just the account number masked while the
     `arn:aws:iam::` prefix and the role path leak. Asserting only that the account digits are gone
-    is not enough - the AWSACCT pattern alone satisfies that, so the test would pass even with the
+    is not enough - the ACCOUNTID pattern alone satisfies that, so the test would pass even with the
     ARN pattern deleted. These assertions fail unless the ARN pattern took the whole token.
     """
     text = "role arn:aws:iam::123456789012:role/payments-exec denied"
@@ -49,6 +49,21 @@ def test_credentials_are_masked_jwt_and_api_keys():
     for key in ("sk-ant-api03-AbCdEf12345678", "sk-proj-abcdef123456", "ghp_AbCdEf1234567890abcd",
                 "AKIAIOSFODNN7EXAMPLE"):
         assert key not in redact(f"leaked {key} in a log line").text, f"{key} was not masked"
+
+
+def test_non_aws_cloud_secrets_are_masked_gcp_and_azure():
+    """AEGIS runs on any cloud, so redaction must cover GCP and Azure credentials too, not only AWS.
+    GCP OAuth tokens, Azure storage AccountKeys (bare and in connection strings) and Azure SAS
+    signatures all realistically appear in incident logs on those platforms."""
+    secrets = [
+        ("bearer ya29.a0AfH6SMBx7longGcpOAuthTokenValue1234567890", "ya29.a0AfH6SMBx7longGcpOAuthTokenValue1234567890"),
+        ("DefaultEndpointsProtocol=https;AccountName=st;AccountKey=YmFzZTY0QXp1cmVLZXlWYWx1ZTk5==;x",
+         "YmFzZTY0QXp1cmVLZXlWYWx1ZTk5=="),
+        ("AccountKey=Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFi==", "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFi=="),
+        ("https://s.blob.core.windows.net/c?sv=2021&sig=abcDEF123SasSignatureXyz789", "abcDEF123SasSignatureXyz789"),
+    ]
+    for text, secret in secrets:
+        assert secret not in redact(text).text, f"{secret!r} (non-AWS cloud secret) leaked"
 
 
 def test_url_encoded_email_is_masked():
