@@ -1,0 +1,88 @@
+# AEGIS per-environment policy
+# ---------------------------------------------------------------------------
+# WHICH environment may do WHAT, WHO is allowed to approve/apply it, and whether
+# AEGIS may resolve an incident automatically (after approval) or must hand every
+# fix to a human. This is DATA an operator edits — adding an environment, an
+# allowlist entry or an authorised principal needs no code change.
+#
+# The safety model, low tier -> high tier:
+#   - staging / qa-staging : AEGIS MAY auto-apply an allowlisted action, then emit
+#                            a promotion report so a human can replay the same fix
+#                            in the higher environments.
+#   - pre-prod / qa-prod   : AEGIS proposes; a human applies. No auto-remediation.
+#   - prod                 : never auto. Narrowest allowlist. Authorised responders only.
+#
+# An environment NOT listed here falls to `default`, which is deliberately the most
+# restrictive: it can only do nothing or escalate, is never auto-remediable, and has
+# no authorised principals. A typo'd or brand-new environment name therefore cannot
+# inherit broad permissions by accident — it fails closed.
+#
+# allow_actions / deny_actions values MUST be members of ActionKind (validated at
+# load). `deny_actions` wins over `allow_actions`. no_action and escalate_to_human
+# are ALWAYS permitted (the system must always be able to do nothing / hand off),
+# so they need not be listed. "*" in allow_actions means "every ActionKind".
+#
+# authorized_principals are opaque identity strings your caller supplies, by
+# convention "<kind>:<name>" — e.g. role:oncall, svc:aegis-staging, user:rakesh.
+# "*" means any principal (use only for a throwaway sandbox).
+# ---------------------------------------------------------------------------
+
+version: 1
+
+default:
+  tier: unknown
+  auto_remediate: false
+  require_human_approval: true
+  allow_actions: []          # only the always-on no_action / escalate_to_human
+  deny_actions: []
+  authorized_principals: []
+
+environments:
+
+  dev:
+    tier: nonprod
+    auto_remediate: true
+    require_human_approval: false
+    allow_actions: ["*"]         # a sandbox: anything, no human in the loop
+    deny_actions: []
+    authorized_principals: ["*"]
+
+  staging:
+    tier: nonprod
+    auto_remediate: true
+    require_human_approval: false
+    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache]
+    deny_actions: [failover_replica]     # a DB failover is a human call even in staging
+    authorized_principals: [svc:aegis-staging, role:oncall, role:platform, role:qa]
+
+  qa-staging:
+    tier: nonprod
+    auto_remediate: true
+    require_human_approval: false
+    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache]
+    deny_actions: [failover_replica]
+    authorized_principals: [svc:aegis-qa, role:qa, role:oncall, role:platform]
+
+  pre-prod:
+    tier: preprod
+    auto_remediate: false        # AEGIS proposes; a human applies
+    require_human_approval: true
+    allow_actions: [restart_pods, scale_up, rollback_deploy]
+    deny_actions: [scale_down, clear_cache, failover_replica]
+    authorized_principals: [role:oncall, role:platform, role:release]
+
+  qa-prod:
+    tier: preprod
+    auto_remediate: false
+    require_human_approval: true
+    allow_actions: [restart_pods, scale_up, rollback_deploy]
+    deny_actions: [scale_down, clear_cache, failover_replica]
+    authorized_principals: [role:oncall, role:platform, role:qa-lead]
+
+  prod:
+    tier: prod
+    auto_remediate: false        # NEVER auto in production
+    require_human_approval: true
+    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache]
+    deny_actions: [scale_down]   # scaling prod down is a capacity decision a human owns
+    authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]

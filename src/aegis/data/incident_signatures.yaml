@@ -89,8 +89,8 @@ signatures:
     maturity: basic
     title: ImagePullBackOff / ErrImagePull
     detect:
-      event_reason: [Failed, ErrImagePull, ImagePullBackOff]
-      log_contains: ["imagepullbackoff", "errimagepull", "manifest unknown", "pull access denied", "no such host"]
+      event_reason: [ErrImagePull, ImagePullBackOff]
+      log_contains: ["imagepullbackoff", "errimagepull", "manifest unknown", "pull access denied", "failed to pull image"]
       name_matches: "(?i)image.?pull|pull.?back"
     root_cause: >
       The kubelet cannot pull the container image: wrong tag, private registry
