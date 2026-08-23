@@ -115,3 +115,11 @@ def test_empty_policy_defines_no_environments_raises(tmp_path):
     p.write_text("version: 1\ndefault: {}\nenvironments: {}\n", encoding="utf-8")
     with pytest.raises(EnvironmentPolicyError, match="no environments"):
         EnvironmentPolicies.load(p)
+
+
+def test_credentials_ref_is_a_pointer_per_environment_and_none_when_unknown():
+    pol = default_environment_policies()
+    assert pol.for_env("prod").credentials_ref == "aegis-prod-readonly-role"
+    assert pol.for_env("staging").credentials_ref == "aegis-staging-readonly-sa"
+    # An unrecognised environment inherits the default's (null) reference — no account leaks in.
+    assert pol.for_env("totally-made-up").credentials_ref is None

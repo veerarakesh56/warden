@@ -8,8 +8,8 @@
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
 OpenAI-compatible), a **34-signature incident knowledge base**, **per-environment policy** with a
-four-way remediation gate and **Slack/Teams/webhook** reporting, 4 recorded incidents, **267 tests**
-(7 against a live cluster) plus a 15-case mutation check, output-asserting CI.
+four-way remediation gate and **Slack/Teams/webhook** reporting, 4 recorded incidents, **270 tests**
+(7 against a live cluster) plus a 20-case mutation check, output-asserting CI.
 
 ## The problem
 

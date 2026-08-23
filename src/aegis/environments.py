@@ -63,6 +63,11 @@ class EnvPolicy:
     allow_actions: frozenset[ActionKind]
     deny_actions: frozenset[ActionKind]
     authorized_principals: frozenset[str]
+    # A POINTER to where this environment's credentials/account live — a k8s ServiceAccount name, a
+    # cloud IAM role, a Secrets-Manager id. NEVER the secret itself; AEGIS never stores a credential.
+    # It lets the policy express "which account acts in this environment" and lets a promotion report
+    # tell a human which credential to use in the target env. None = inherit the deployment default.
+    credentials_ref: str | None = None
 
     def permits(self, action: ActionKind) -> bool:
         """Is `action` admissible in this environment? Deny wins over allow."""
@@ -96,6 +101,7 @@ class EnvironmentPolicies:
             allow_actions=self._default.allow_actions,
             deny_actions=self._default.deny_actions,
             authorized_principals=self._default.authorized_principals,
+            credentials_ref=self._default.credentials_ref,
         )
 
     @property
@@ -150,6 +156,7 @@ class EnvironmentPolicies:
             allow_actions=allow,
             deny_actions=deny,
             authorized_principals=frozenset(str(p) for p in principals),
+            credentials_ref=raw.get("credentials_ref"),
         )
 
 

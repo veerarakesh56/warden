@@ -140,12 +140,25 @@ def resolve_sinks() -> list[ChatOpsSink]:
     return sinks
 
 
+def _redact_obj(obj):
+    """Recursively redact every string in a JSON-shaped structure. Defence in depth for the webhook
+    path, which transmits the structured data (build_report already redacts it field-by-field)."""
+    if isinstance(obj, str):
+        return redact(obj).text
+    if isinstance(obj, dict):
+        return {k: _redact_obj(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_obj(v) for v in obj]
+    return obj
+
+
 def notify(report: Report, sinks: list[ChatOpsSink] | None = None) -> list[Notification]:
     """Deliver `report` to every configured sink, redacting the exact payload one more time first."""
     sinks = sinks if sinks is not None else resolve_sinks()
+    # Both payloads that leave the process are re-redacted here: the text (Slack/Teams display) and
+    # the structured JSON (a generic webhook). redact() is idempotent, so re-scrubbing an already
+    # clean payload costs nothing and closes any upstream hole before data crosses the boundary.
     safe_text = redact(report.markdown).text
-    # The structured data is assembled from already-redacted fields; re-serialise through redact() by
-    # scrubbing each string value defensively would be over-engineering, so we scrub the text payload
-    # (what Slack/Teams display) and trust the field-level redaction in build_report for the JSON.
-    results = [sink.send(safe_text, report.data) for sink in sinks]
+    safe_data = _redact_obj(report.data)
+    results = [sink.send(safe_text, safe_data) for sink in sinks]
     return results

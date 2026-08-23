@@ -25,6 +25,11 @@
 # authorized_principals are opaque identity strings your caller supplies, by
 # convention "<kind>:<name>" — e.g. role:oncall, svc:aegis-staging, user:rakesh.
 # "*" means any principal (use only for a throwaway sandbox).
+#
+# credentials_ref is a POINTER to where this environment's account/keys live — a
+# k8s ServiceAccount, a cloud IAM role, a Secrets-Manager id. It is NEVER a secret;
+# AEGIS never stores a credential. The deployment resolves it; the promotion report
+# tells a human which account to use in the target environment.
 # ---------------------------------------------------------------------------
 
 version: 1
@@ -36,6 +41,7 @@ default:
   allow_actions: []          # only the always-on no_action / escalate_to_human
   deny_actions: []
   authorized_principals: []
+  credentials_ref: null
 
 environments:
 
@@ -46,6 +52,7 @@ environments:
     allow_actions: ["*"]         # a sandbox: anything, no human in the loop
     deny_actions: []
     authorized_principals: ["*"]
+    credentials_ref: aegis-dev-local-kubeconfig
 
   staging:
     tier: nonprod
@@ -54,6 +61,7 @@ environments:
     allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache]
     deny_actions: [failover_replica]     # a DB failover is a human call even in staging
     authorized_principals: [svc:aegis-staging, role:oncall, role:platform, role:qa]
+    credentials_ref: aegis-staging-readonly-sa
 
   qa-staging:
     tier: nonprod
@@ -62,6 +70,7 @@ environments:
     allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache]
     deny_actions: [failover_replica]
     authorized_principals: [svc:aegis-qa, role:qa, role:oncall, role:platform]
+    credentials_ref: aegis-qa-staging-readonly-sa
 
   pre-prod:
     tier: preprod
@@ -70,6 +79,7 @@ environments:
     allow_actions: [restart_pods, scale_up, rollback_deploy]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:release]
+    credentials_ref: aegis-preprod-readonly-role
 
   qa-prod:
     tier: preprod
@@ -78,6 +88,7 @@ environments:
     allow_actions: [restart_pods, scale_up, rollback_deploy]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:qa-lead]
+    credentials_ref: aegis-qa-prod-readonly-role
 
   prod:
     tier: prod
@@ -86,3 +97,4 @@ environments:
     allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache]
     deny_actions: [scale_down]   # scaling prod down is a capacity decision a human owns
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]
+    credentials_ref: aegis-prod-readonly-role

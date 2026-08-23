@@ -93,3 +93,16 @@ def test_a_transport_failure_is_a_status_not_an_exception():
 def test_console_sink_transmits_nothing():
     note = ConsoleSink().send("x", {})
     assert note.delivered is True and "not transmitted" in note.detail
+
+
+def test_the_transmitted_json_data_is_recursively_redacted():
+    """The generic-webhook path sends report.data; every string in it is scrubbed before transmit."""
+    from aegis.chatops import _redact_obj
+
+    cap = _CaptureSink()
+    notify(_report(), sinks=[cap])
+    blob = str(cap.data)
+    assert "priya.nair@corp.io" not in blob and "10.2.3.4" not in blob
+    # nested structures are walked, not just top-level keys
+    nested = _redact_obj({"x": ["ip 10.0.0.1", {"y": "u@e.io"}]})
+    assert "10.0.0.1" not in str(nested) and "u@e.io" not in str(nested)

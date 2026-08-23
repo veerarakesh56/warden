@@ -81,3 +81,11 @@ def test_report_carries_the_remediation_outcome():
 def test_report_always_carries_the_safety_line():
     rep = build_report(_alert(), proposal=_prop())
     assert "Nothing was executed against production" in rep.markdown
+
+
+def test_promotion_names_the_account_to_use_in_each_target_env():
+    rep = build_report(_alert(environment="staging"), proposal=_prop(ActionKind.scale_up))
+    # every promotion target carries the credentials pointer for that environment
+    for t in rep.data["promotion"]:
+        assert t["credentials_ref"], f"{t['environment']} missing credentials_ref"
+    assert "aegis-prod-readonly-role" in rep.markdown

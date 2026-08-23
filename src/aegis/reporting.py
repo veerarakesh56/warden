@@ -34,6 +34,7 @@ class PromotionTarget:
     requires_human_approval: bool
     auto_remediates: bool
     note: str
+    credentials_ref: str | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,7 @@ def _promotion_targets(
                 requires_human_approval=p.require_human_approval,
                 auto_remediates=p.auto_remediate,
                 note=note,
+                credentials_ref=p.credentials_ref,
             )
         )
     targets.sort(key=lambda t: (_TIER_RANK.get(t.tier, 99), t.environment))
@@ -115,7 +117,8 @@ def build_report(
         "promotion": [
             {"environment": t.environment, "tier": t.tier,
              "requires_human_approval": t.requires_human_approval,
-             "auto_remediates": t.auto_remediates, "note": t.note}
+             "auto_remediates": t.auto_remediates, "note": t.note,
+             "credentials_ref": t.credentials_ref}
             for t in promotion
         ],
     }
@@ -207,7 +210,8 @@ def _render_markdown(d: dict) -> str:
     if d["promotion"]:
         for t in d["promotion"]:
             approval = "human approval required" if t["requires_human_approval"] else "no separate approval"
-            lines.append(f"- **{t['environment']}** ({t['tier']}): {t['note']} - {approval}")
+            creds = f" - account `{t['credentials_ref']}`" if t.get("credentials_ref") else ""
+            lines.append(f"- **{t['environment']}** ({t['tier']}): {t['note']} - {approval}{creds}")
     else:
         lines.append("- _No higher environment permits this action; nothing to promote._")
     lines.append("")
