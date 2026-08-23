@@ -66,6 +66,17 @@ def test_non_aws_cloud_secrets_are_masked_gcp_and_azure():
         assert secret not in redact(text).text, f"{secret!r} (non-AWS cloud secret) leaked"
 
 
+def test_http_basic_auth_and_kubeconfig_secrets_are_masked():
+    """HTTP Basic auth (base64 of user:pass) and a kubeconfig's client-key-data / certificate-data
+    are credentials that appear in incident logs on any platform - Basic follows the same shape as
+    Bearer, and the kube data keys are keyed base64 values."""
+    assert "dXNlcjpzM2NyM3RwYXNz" not in redact("Authorization: Basic dXNlcjpzM2NyM3RwYXNz").text
+    assert "cHJpdmF0ZWtleWRhdGE" not in redact("client-key-data: cHJpdmF0ZWtleWRhdGE=").text
+    assert "LS0tQ0VSVGRhdGE" not in redact("client-certificate-data: LS0tQ0VSVGRhdGE=").text
+    # a benign word "basic" is not a credential
+    assert "plan" in redact("the basic plan is free").text
+
+
 def test_query_param_credentials_are_masked():
     """URLs with ?password= / &token= / ?api_key= are ubiquitous in HTTP access logs and webhook
     configs; the leading ? or & is a real delimiter, and the value must stop at the next &param."""

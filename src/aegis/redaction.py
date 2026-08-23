@@ -70,6 +70,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{3,})[\"']?")),
     # A token following `Bearer ` in an Authorization header (when it is not already a JWT/API key).
     ("BEARER", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/\-]{12,}=*)")),
+    # HTTP Basic auth: `Authorization: Basic <base64 of user:pass>` - the base64 IS the credential.
+    ("BASIC", re.compile(r"(?i)\bbasic\s+([A-Za-z0-9+/]{8,}={0,2})")),
     # The negative lookahead stops an ISO-8601 date (YYYY-MM-DD, which every log line starts with)
     # being masked as a phone number — that was masking timestamps and losing evidence.
     ("PHONE", re.compile(r"(?<![\d.])(?!\d{4}-\d\d-\d\d)\+?\d[\d\s\-]{8,14}\d(?![\d.])")),
@@ -86,6 +88,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"(?i)(?:^|[\s\"',;{(\[=?&])[\w.\-]{0,40}"
         r"(?:password|passwd|pwd|secret|access[_\-]?key|account[_\-]?key|shared[_\-]?access[_\-]?key"
         r"|private[_\-]?key|api[_\-]?key|apikey|auth[_\-]?token|access[_\-]?token|sas[_\-]?token"
+        # kubeconfig secrets: client-key-data (the private key), certificate-data.
+        r"|key[_\-]?data|cert(?:ificate)?[_\-]?data"
         r"|client[_\-]?secret|credential|token)[\w.\-]{0,20}"
         # optional closing quote after the key so a JSON credential ("password": "x") is matched too
         r"[\"']?\s*[:=]\s*[\"']?"
