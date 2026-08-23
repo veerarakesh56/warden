@@ -87,3 +87,39 @@ def test_budget_flag_is_wired_through():
 def test_no_subcommand_is_rejected():
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_run_report_flag_prints_the_report_and_safety_line(capsys):
+    assert main(["run", "--incident", "inc-002", "--report"]) == 0
+    out = capsys.readouterr().out
+    assert "AEGIS incident report" in out
+    assert "Promotion" in out
+    assert "Nothing was executed against production" in out
+
+
+def test_run_in_staging_with_approval_dry_runs(capsys):
+    assert main([
+        "run", "--incident", "inc-002", "--environment", "staging",
+        "--principal", "role:oncall", "--approve",
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "dry_run" in out
+    assert "would scale_up" in out
+
+
+def test_run_in_prod_never_auto_remediates(capsys):
+    assert main([
+        "run", "--incident", "inc-002",
+        "--principal", "role:oncall", "--approve",
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "not_auto_remediable" in out
+
+
+def test_run_with_unauthorized_principal_is_reported(capsys):
+    assert main([
+        "run", "--incident", "inc-002", "--environment", "staging",
+        "--principal", "role:intern", "--approve",
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "unauthorized" in out
