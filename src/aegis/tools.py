@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 from .models import Alert, ContextBundle
 from .observability import span
+from .redaction import redact
 
 # Fixtures live INSIDE the package and are shipped as package data.
 #
@@ -147,7 +148,12 @@ def gather(
                     partial = [x for x in result if isinstance(x, str) and x.startswith(PARTIAL_PREFIX)]
                     result = [x for x in result if x not in partial]
                     for p in partial:
-                        bundle.tool_errors.append(f"{name}: {p[len(PARTIAL_PREFIX):]}")
+                        # Error TEXT is scrubbed: a backend exception (a connection error naming a
+                        # host/IP, a k8s message with pod content) would otherwise put a raw
+                        # identifier into tool_errors (the audit trail) AND the span attribute
+                        # (exported to a third-party tracing backend) unredacted. The model never
+                        # sees tool_errors, but those two surfaces still must not carry a secret.
+                        bundle.tool_errors.append(redact(f"{name}: {p[len(PARTIAL_PREFIX):]}").text)
                     sp.set_attribute("aegis.tool.partial_failures", len(partial))
                 setattr(bundle, sink, result)
                 sp.set_attribute("aegis.tool.ok", True)
@@ -157,7 +163,7 @@ def gather(
                 sp.set_attribute("aegis.tool.ok", False)
                 sp.set_attribute("aegis.tool.error", msg)
             except Exception as exc:  # noqa: BLE001 - a tool failing is data, not a crash
-                msg = f"{name}: {exc}"
+                msg = redact(f"{name}: {exc}").text  # scrub raw identifiers out of the error text
                 bundle.tool_errors.append(msg)
                 sp.set_attribute("aegis.tool.ok", False)
                 sp.set_attribute("aegis.tool.error", msg)

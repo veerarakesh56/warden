@@ -73,3 +73,19 @@ def test_healthy_tools_are_unaffected_by_the_ceiling():
     ctx = gather(_alert(), FixtureBackend(), timeout=5.0)
     assert ctx.tool_errors == []
     assert ctx.logs and ctx.metrics and ctx.recent_deploys
+
+
+def test_a_tool_error_message_is_redacted_before_it_reaches_the_audit_or_telemetry():
+    """A backend exception can name a host/IP/credential (a connection error). That message lands in
+    tool_errors (the operator-facing audit trail) and on the tool span (exported to a third-party
+    tracing backend) - so a raw identifier there is a leak, even though the model never sees
+    tool_errors. The error text must be scrubbed at the source."""
+    class LeakyBackend(FixtureBackend):
+        def logs(self, alert):
+            raise RuntimeError("connect to redis://:S3cretRedisPass@10.0.0.9 failed")
+
+    ctx = gather(_alert(), LeakyBackend(), timeout=2.0)
+    joined = " ".join(ctx.tool_errors)
+    assert "S3cretRedisPass" not in joined, "credential leaked into tool_errors"
+    assert "10.0.0.9" not in joined, "IP leaked into tool_errors"
+    assert "<URLCRED" in joined or "<IPV4" in joined, "the error was recorded, just scrubbed"
