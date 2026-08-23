@@ -8,6 +8,7 @@ re-running anything.
 
 from __future__ import annotations
 
+from .environments import EnvironmentPolicies, default_environment_policies
 from .models import (
     ActionKind,
     Alert,
@@ -25,20 +26,10 @@ from .models import (
 # runs without a human"; this list is where that claim is enforced, so it stays as short as possible.
 AUTO_SAFE_ACTIONS = {ActionKind.no_action, ActionKind.escalate_to_human}
 
-# Per-environment allow-list. Production is deliberately narrower than staging.
-ENV_ALLOWED: dict[str, set[ActionKind]] = {
-    "prod": {
-        ActionKind.restart_pods,
-        ActionKind.scale_up,
-        ActionKind.rollback_deploy,
-        ActionKind.failover_replica,
-        ActionKind.clear_cache,
-        ActionKind.no_action,
-        ActionKind.escalate_to_human,
-    },
-    "staging": set(ActionKind),
-    "dev": set(ActionKind),
-}
+# The per-environment allow-list is no longer hardcoded here — it lives in environments.yaml so an
+# operator can add an environment (qa-staging, pre-prod, qa-prod, ...) or tighten an allowlist without
+# editing this gate. P1 consults it below. An unknown environment resolves to the restrictive default
+# and fails closed.
 
 MIN_CONFIDENCE = 0.55
 
@@ -66,27 +57,35 @@ def verify(
     context: ContextBundle,
     root_cause: RootCause,
     proposal: RemediationProposal,
+    *,
+    policies_config: EnvironmentPolicies | None = None,
 ) -> Verdict:
-    """Return the binding decision for one proposal."""
+    """Return the binding decision for one proposal.
+
+    `policies_config` lets a caller/test inject a specific environment policy set; by default the
+    bundled/operator-configured one is used.
+    """
+    env_policies = policies_config or default_environment_policies()
+    env = env_policies.for_env(alert.environment)
+
     reasons: list[str] = []
     policies: list[str] = []
     rejected = False
     escalate = False
 
-    # P1 — the action must be permitted in this environment at all.
-    allowed = ENV_ALLOWED.get(alert.environment, set())
-    if proposal.action not in allowed:
+    # P1 — the action must be permitted in this environment at all (from environments.yaml).
+    if not env.permits(proposal.action):
         rejected = True
         policies.append("P1-ENV-ALLOWLIST")
         reasons.append(
             f"{proposal.action.value} is not permitted in {alert.environment}."
         )
 
-    # P2 — nothing irreversible in production, ever, regardless of confidence.
-    if alert.environment == "prod" and not proposal.reversible:
+    # P2 — nothing irreversible in a production-tier environment, ever, regardless of confidence.
+    if env.tier == "prod" and not proposal.reversible:
         rejected = True
         policies.append("P2-IRREVERSIBLE-IN-PROD")
-        reasons.append("Irreversible action proposed against production.")
+        reasons.append("Irreversible action proposed against a production-tier environment.")
 
     # P3 — evidence is a precondition for action, not an optional extra.
     if context.is_empty() and proposal.action not in AUTO_SAFE_ACTIONS:

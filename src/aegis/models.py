@@ -27,7 +27,11 @@ class Alert(BaseModel):
     name: str
     severity: Severity
     service: str
-    environment: Literal["prod", "staging", "dev"]
+    # A free string, resolved against the per-environment policy (environments.py). Not a fixed
+    # Literal because the set of environments is a deployment concern an operator configures
+    # (staging, qa-staging, pre-prod, qa-prod, prod, ...). An environment the policy doesn't know
+    # resolves to the restrictive default and fails closed, so widening this cannot loosen safety.
+    environment: str
     summary: str
     started_at: str
     labels: dict[str, str] = Field(default_factory=dict)

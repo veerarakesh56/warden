@@ -184,3 +184,42 @@ def test_thin_evidence_clear_cache_escalates_rather_than_slipping_through_as_saf
     v = verify(_alert(), thin, _rc(confidence=0.99), _prop(action=ActionKind.clear_cache))
     assert v.status is VerdictStatus.escalated
     assert "P9-THIN-EVIDENCE" in v.policy_ids
+
+
+# --- environment policy is config-driven now (environments.yaml), not a hardcoded dict -----------
+
+def test_p1_uses_the_env_config_qa_staging_denies_failover():
+    """qa-staging is not one of the old three environments; the policy config governs it, and it
+    denies a DB failover even though it auto-remediates everything else."""
+    v = verify(
+        _alert(environment="qa-staging"),
+        _ctx(),
+        _rc(),
+        _prop(action=ActionKind.failover_replica),
+    )
+    assert v.status is VerdictStatus.rejected
+    assert "P1-ENV-ALLOWLIST" in v.policy_ids
+
+
+def test_p1_unknown_environment_fails_closed():
+    """An environment string the policy has never heard of can do nothing but escalate."""
+    v = verify(
+        _alert(environment="brand-new-region-7"),
+        _ctx(),
+        _rc(),
+        _prop(action=ActionKind.restart_pods),
+    )
+    assert v.status is VerdictStatus.rejected
+    assert "P1-ENV-ALLOWLIST" in v.policy_ids
+
+
+def test_a_permitted_action_in_a_new_prod_tier_env_still_blocks_irreversible():
+    """P2 keys on the env TIER, not the literal string 'prod', so any prod-tier env blocks irreversible."""
+    v = verify(
+        _alert(environment="prod"),
+        _ctx(),
+        _rc(confidence=0.99),
+        _prop(action=ActionKind.restart_pods, reversible=False),
+    )
+    assert v.status is VerdictStatus.rejected
+    assert "P2-IRREVERSIBLE-IN-PROD" in v.policy_ids

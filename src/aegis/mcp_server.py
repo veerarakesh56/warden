@@ -26,6 +26,7 @@ from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
+from .environments import default_environment_policies
 from .models import (
     ActionKind,
     Alert,
@@ -36,7 +37,9 @@ from .models import (
 )
 from .redaction import redact
 from .tools import FixtureBackend, gather
-from .verifier import ENV_ALLOWED, MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
+from .verifier import MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
+
+_env_policies = default_environment_policies()
 
 SERVER_NAME = "aegis"
 SERVER_VERSION = "0.5.1"
@@ -56,7 +59,14 @@ def _tools() -> list[types.Tool]:
             input_schema={
                 "type": "object",
                 "properties": {
-                    "environment": {"type": "string", "enum": ["prod", "staging", "dev"]},
+                    "environment": {
+                        "type": "string",
+                        "description": (
+                            "Configured environments: "
+                            + ", ".join(_env_policies.known_environments)
+                            + ". Any other value resolves to the restrictive default (fails closed)."
+                        ),
+                    },
                     "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
                     "service": {"type": "string"},
                     "action": {
@@ -249,7 +259,12 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         ),
                     },
                     "environment_allowlist": {
-                        env: sorted(a.value for a in actions) for env, actions in ENV_ALLOWED.items()
+                        env: sorted(
+                            a.value
+                            for a in ActionKind
+                            if _env_policies.for_env(env).permits(a)
+                        )
+                        for env in _env_policies.known_environments
                     },
                     "min_confidence": MIN_CONFIDENCE,
                     "min_evidence": {"log_lines": MIN_LOG_LINES, "metrics": MIN_METRICS},
