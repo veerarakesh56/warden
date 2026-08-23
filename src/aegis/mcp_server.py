@@ -207,11 +207,24 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 r = redact(line, mapping=mapping)
                 mapping = r.mapping
                 redacted.append(r.text)
+            # recent_deploys must be scrubbed too — on the k8s backend a deploy `image` is an ECR
+            # ref whose host embeds the AWS account id, and `role`/ARN fields carry identifiers. This
+            # payload goes to the external MCP client/model; returning deploys raw was the same leak
+            # the graph path had (fixed there), on a second code path. tool_errors are already
+            # scrubbed by gather(); metrics are floats.
+            redacted_deploys = []
+            for deploy in ctx.recent_deploys:
+                scrubbed = {}
+                for key, value in deploy.items():
+                    dr = redact(str(value), mapping=mapping)
+                    mapping = dr.mapping
+                    scrubbed[key] = dr.text
+                redacted_deploys.append(scrubbed)
             return _ok(
                 {
                     "logs": redacted,
                     "metrics": ctx.metrics,
-                    "recent_deploys": ctx.recent_deploys,
+                    "recent_deploys": redacted_deploys,
                     "tool_errors": ctx.tool_errors,
                     "identifiers_masked": len(mapping),
                 }

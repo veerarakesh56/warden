@@ -107,6 +107,23 @@ def test_gather_returns_redacted_logs_never_raw_ones():
     assert all("@corp.io" not in line for line in out["logs"])
 
 
+def test_gather_over_mcp_redacts_deploy_identifiers(monkeypatch):
+    """recent_deploys in the MCP payload must be scrubbed too - on the k8s backend a deploy image is
+    an ECR ref embedding the AWS account id. Returning deploys raw was the same leak the graph path
+    had, on a second code path."""
+    from aegis import tools
+
+    monkeypatch.setattr(
+        tools.FixtureBackend, "deploys",
+        lambda self, alert: [{"image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/x:v1",
+                              "by": "eve@corp.io"}],
+    )
+    out = _payload(call_tool("gather_incident_context", {"alert_id": "inc-001"}))
+    blob = json.dumps(out["recent_deploys"])
+    assert "123456789012" not in blob and "eve@corp.io" not in blob, "deploy identifier leaked over MCP"
+    assert "<AWSACCT" in blob or "<EMAIL" in blob, "the deploy was returned, just scrubbed"
+
+
 def test_describe_policy_lists_all_nine():
     out = _payload(call_tool("describe_policy", {}))
     assert len(out["policies"]) == 9

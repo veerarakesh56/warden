@@ -33,7 +33,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # password (group 1). A literal `@` inside a password is only partially covered (rare — real
     # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
     ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s@<]{2,256})@")),
-    ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
+    # `@` OR its URL-encoding `%40` — a URL-encoded email (normal in HTTP access logs, the exact
+    # evidence source) reads as the email to both the model and an operator, so it must be masked too.
+    ("EMAIL", re.compile(r"\b[A-Za-z0-9._+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
     ("UUID", re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")),
     ("AWSACCT", re.compile(r"\b\d{12}\b")),
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),

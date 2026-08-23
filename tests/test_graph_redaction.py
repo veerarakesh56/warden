@@ -9,8 +9,22 @@ regression: the assembled prompt must carry no raw identifier from ANY field.
 
 from __future__ import annotations
 
-from aegis.graph import _evidence_blob, node_redact
+from aegis.cli import DEMO_ALERTS
+from aegis.graph import _evidence_blob, node_redact, run
+from aegis.llm import LLMClient
 from aegis.models import Alert, ContextBundle, Severity
+
+
+def test_runreport_context_is_redacted_not_raw():
+    """RunReport is the exported, serialisable, auditor-facing artifact - so its .context must carry
+    placeholders, not raw identifiers. node_redact scrubbed into separate state keys but left
+    state['context'] RAW, so model_dump_json() of the report leaked every raw log email/ARN/AWS id
+    while redaction_map_size falsely signalled 'scrubbed'."""
+    report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True))
+    serialized = report.model_dump_json()
+    for raw in ("priya.nair@corp.io", "acme-42", "arn:aws:iam::", "10.4.12.9"):
+        assert raw not in serialized, f"{raw} leaked into the serialised RunReport"
+    assert report.redaction_map_size > 0, "sanity: redaction did run"
 
 
 def _state_after_redact():

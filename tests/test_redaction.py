@@ -51,6 +51,14 @@ def test_credentials_are_masked_jwt_and_api_keys():
         assert key not in redact(f"leaked {key} in a log line").text, f"{key} was not masked"
 
 
+def test_url_encoded_email_is_masked():
+    """A URL-encoded email (`%40` for `@`, normal in HTTP access logs) reads as the email to both
+    the model and an operator, so the encoding must not be a redaction bypass. A plain email stays
+    masked too."""
+    assert "admin%40corp.example.com" not in redact("user=admin%40corp.example.com hit /login").text
+    assert "bob@corp.io" not in redact("bob@corp.io paged").text
+
+
 def test_high_value_credentials_in_logs_are_masked():
     """The classes an adversarial review found leaking into the model in the clear: DB
     connection-string passwords, PEM private keys, bearer tokens, the AWS secret access key (the

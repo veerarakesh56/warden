@@ -275,8 +275,21 @@ def node_redact(state: AegisState) -> AegisState:
     summary = redact(state["alert"].summary, mapping=mapping)
     mapping = summary.mapping
     alert = state["alert"].model_copy(update={"summary": summary.text})
+    # Overwrite the context with its REDACTED form. node_redact scrubbed into redacted_logs/
+    # redacted_deploys, but state["context"] stayed RAW — and run() ships it into RunReport.context,
+    # the exported, serialised, auditor-facing artifact. So model_dump_json() of the report leaked
+    # every raw log identifier (emails, ARNs, AWS account ids) while redaction_map_size falsely said
+    # "scrubbed". The report now carries placeholders; the raw values live only at the source.
+    # (metrics are floats — no identifier; tool_errors are already scrubbed in gather().)
+    redacted_context = ContextBundle(
+        logs=redacted_logs,
+        metrics=context.metrics,
+        recent_deploys=redacted_deploys,
+        tool_errors=context.tool_errors,
+    )
     return {
         "alert": alert,
+        "context": redacted_context,
         "redacted_logs": redacted_logs,
         "redacted_deploys": redacted_deploys,
         "redaction_map": mapping,
