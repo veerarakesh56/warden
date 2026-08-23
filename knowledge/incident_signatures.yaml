@@ -1,0 +1,690 @@
+# AEGIS incident-signature knowledge base
+# ---------------------------------------------------------------------------
+# A researched catalog of known failure modes, from the most basic (a pod runs
+# out of memory) to systemic/advanced (metastable failure, cache stampede,
+# split-brain). Each entry is DATA, not code: AEGIS loads it, matches an
+# incident against it deterministically, and uses it to (a) name the likely
+# root-cause class and (b) suggest ranked remediation actions from the closed
+# ActionKind enum. The model still only *proposes*; this catalog only *informs*.
+#
+# It is intentionally the one place a new failure mode can be added without
+# touching Python. A signature added here is immediately detectable.
+#
+# Sources synthesised: Google SRE Book & SRE Workbook, AWS Builders' Library
+# ("Avoiding fallback in distributed systems", "Caching challenges", metastable
+# failures literature, Bronson et al. 2021), Kubernetes production runbooks,
+# USE/RED methods (Gregg / Wilkie). Every failure mode here is well-attested;
+# the value AEGIS adds is turning it into a deterministic matcher + gated fix.
+#
+# detect DSL (all keys optional; a signature matches when ALL present keys pass,
+# AND at least one positive signal fired):
+#   event_reason:  [str]   -> any appears as a k8s event reason in logs
+#   log_contains:  [str]   -> any appears (case-insensitive) in a log line
+#   name_matches:  regex   -> matches alert.name (alerts often encode the fault)
+#   metric_gte:    {k: n}  -> context.metrics[k] >= n
+#   metric_lte:    {k: n}  -> context.metrics[k] <= n
+#   deploy_recent: bool    -> a recent deploy is/ isn't present in context
+#   severity_in:   [str]   -> alert.severity in set
+#
+# suggested_actions is ordered best-first. Each action.kind MUST be a member of
+# ActionKind; the loader validates this so a typo can't smuggle in a fake action.
+# remediation_risk: how dangerous the fix itself is (informs env gating).
+# maturity: basic | intermediate | advanced  (curriculum / coverage tracking)
+# ---------------------------------------------------------------------------
+
+version: 1
+
+signatures:
+
+  # ========================= BASIC =========================
+
+  - id: K8S-OOM-001
+    category: memory
+    maturity: basic
+    title: Container OOMKilled (exceeded memory limit)
+    detect:
+      event_reason: [OOMKilled]
+      log_contains: ["out of memory", "oom-kill", "killed process", "cgroup out of memory"]
+      metric_gte: {oom_killed_count: 1}
+      name_matches: "(?i)oom|out.?of.?memory|memory"
+    root_cause: >
+      A container used more memory than its cgroup limit and the kernel OOM-killer
+      terminated it. Either the limit is too low for real traffic, or the process
+      grew (leak, larger payloads, a heavier new build).
+    suggested_actions:
+      - kind: scale_up
+        rationale: "Add replicas to shed per-pod memory pressure (or raise the limit)."
+      - kind: rollback_deploy
+        rationale: "If OOM started right after a deploy, the new build is heavier/leaks."
+      - kind: restart_pods
+        rationale: "Restores service now; buys time but does not fix the cause."
+    remediation_risk: medium
+    references:
+      - "kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/"
+
+  - id: K8S-CLB-001
+    category: compute
+    maturity: basic
+    title: CrashLoopBackOff
+    detect:
+      event_reason: [BackOff, CrashLoopBackOff]
+      log_contains: ["crashloopbackoff", "back-off restarting failed container"]
+      metric_gte: {crashloop_count: 1, restart_count: 5}
+      name_matches: "(?i)crash|restart"
+    root_cause: >
+      A container starts, exits non-zero, and Kubernetes restarts it with growing
+      back-off. Common causes: an unhandled startup exception, a missing dependency
+      or config, a failing migration, or a bad image.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "If the loop began at a deploy, the new build cannot start."
+      - kind: escalate_to_human
+        rationale: "If no deploy correlates, a person must read the crash logs."
+    remediation_risk: medium
+    references:
+      - "kubernetes.io/docs/tasks/debug/debug-application/"
+
+  - id: K8S-IPB-001
+    category: deploy
+    maturity: basic
+    title: ImagePullBackOff / ErrImagePull
+    detect:
+      event_reason: [Failed, ErrImagePull, ImagePullBackOff]
+      log_contains: ["imagepullbackoff", "errimagepull", "manifest unknown", "pull access denied", "no such host"]
+      name_matches: "(?i)image.?pull|pull.?back"
+    root_cause: >
+      The kubelet cannot pull the container image: wrong tag, private registry
+      without a pull secret, a deleted image, or registry/DNS unreachable.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "Revert to the last revision whose image is known-good and present."
+      - kind: escalate_to_human
+        rationale: "Registry auth / missing image needs an operator, not a restart."
+    remediation_risk: low
+    references:
+      - "kubernetes.io/docs/concepts/containers/images/"
+
+  - id: K8S-PROBE-001
+    category: compute
+    maturity: basic
+    title: Readiness / liveness probe failing
+    detect:
+      event_reason: [Unhealthy]
+      log_contains: ["readiness probe failed", "liveness probe failed", "probe failed"]
+      name_matches: "(?i)probe|unhealthy|not.?ready"
+    root_cause: >
+      Pods are running but the health endpoint fails, so they are pulled from the
+      Service (readiness) or restarted (liveness). Cause: a slow dependency, a
+      too-tight probe timeout, or the app genuinely unhealthy.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "If a deploy changed the probe or startup time, revert it."
+      - kind: escalate_to_human
+        rationale: "A probe misconfiguration needs a manifest change, not an action."
+    remediation_risk: low
+
+  - id: K8S-PENDING-001
+    category: compute
+    maturity: basic
+    title: Pods Pending / unschedulable (insufficient resources)
+    detect:
+      event_reason: [FailedScheduling]
+      log_contains: ["insufficient cpu", "insufficient memory", "no nodes available", "didn't match", "unschedulable"]
+      metric_lte: {pods_ready: 0}
+      name_matches: "(?i)pending|unschedulable|schedul"
+    root_cause: >
+      The scheduler cannot place pods: the cluster is out of allocatable CPU/memory,
+      or affinity/taints/nodeSelector exclude every node.
+    suggested_actions:
+      - kind: scale_up
+        rationale: "Add node capacity (cluster autoscaler) so pods can schedule."
+      - kind: escalate_to_human
+        rationale: "If it's affinity/taints, a human must fix the constraint."
+    remediation_risk: medium
+
+  - id: DISK-FULL-001
+    category: storage
+    maturity: basic
+    title: Disk / volume full (DiskPressure)
+    detect:
+      event_reason: [Evicted, FreeDiskSpaceFailed, NodeHasDiskPressure]
+      log_contains: ["no space left on device", "diskpressure", "disk full", "enospc", "quota exceeded", "read-only file system"]
+      name_matches: "(?i)disk|volume.?full|no.?space|storage"
+    root_cause: >
+      A node or PersistentVolume is out of space. Kubernetes evicts pods under
+      DiskPressure. Usual culprits: log/heap-dump growth, an unrotated file, a
+      full PVC, or image bloat on the node.
+    suggested_actions:
+      - kind: clear_cache
+        rationale: "Reclaim space from caches/scratch if that is what filled the disk."
+      - kind: escalate_to_human
+        rationale: "Growing the PVC or cleaning data needs a person to judge safety."
+    remediation_risk: high
+
+  - id: CPU-THROTTLE-001
+    category: compute
+    maturity: basic
+    title: Sustained high CPU / CFS throttling
+    detect:
+      log_contains: ["throttl", "cpu pressure"]
+      metric_gte: {cpu_utilisation: 0.9, cpu_throttled_ratio: 0.25}
+      name_matches: "(?i)cpu|throttl"
+    root_cause: >
+      Pods are pinned at their CPU limit and being throttled by the CFS scheduler,
+      inflating latency. Either the limit is too low, traffic rose, or a hot loop
+      appeared in a new build.
+    suggested_actions:
+      - kind: scale_up
+        rationale: "More replicas spread the CPU load and relieve throttling."
+      - kind: rollback_deploy
+        rationale: "If CPU jumped at a deploy, a regression is burning cycles."
+    remediation_risk: medium
+
+  - id: DEPLOY-BAD-001
+    category: deploy
+    maturity: basic
+    title: Error-rate / latency spike immediately after a deploy
+    detect:
+      deploy_recent: true
+      log_contains: ["error rate", "5xx", "exception", "panic", "regression"]
+      name_matches: "(?i)error.?rate|5xx|deploy|rollout|regression"
+      severity_in: [critical, high, medium]
+    root_cause: >
+      Failure onset lines up with the latest rollout. Correlation is strong enough
+      that rollback is the standard first move — cheap and reversible.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "Fastest reversible mitigation when a deploy correlates with onset."
+      - kind: escalate_to_human
+        rationale: "If rollback is blocked (migrations), a person decides."
+    remediation_risk: medium
+
+  - id: CONFIG-001
+    category: application
+    maturity: basic
+    title: Bad config / missing secret (CreateContainerConfigError)
+    detect:
+      event_reason: [CreateContainerConfigError, InvalidImageName]
+      log_contains: ["createcontainerconfigerror", "couldn't find key", "secret not found", "configmap not found", "missing required env", "invalid configuration"]
+      name_matches: "(?i)config|secret.?missing"
+    root_cause: >
+      The container can't start because a referenced ConfigMap/Secret key is absent
+      or the config is invalid — often a deploy that shipped without its config.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "Revert to the revision whose config still exists and validates."
+      - kind: escalate_to_human
+        rationale: "A missing secret must be recreated by an authorised person."
+    remediation_risk: low
+
+  - id: APP-5XX-001
+    category: application
+    maturity: basic
+    title: Elevated 5xx from the service
+    detect:
+      log_contains: ["500 internal server error", "502 bad gateway", "503 service unavailable", "504 gateway timeout", "upstream connect error"]
+      metric_gte: {error_rate: 0.05}
+      name_matches: "(?i)5xx|http.?5|internal.?server|bad.?gateway|unavailable"
+    root_cause: >
+      The service is returning server errors. 502/503/504 usually mean an upstream
+      or the pods themselves are unavailable/overloaded; 500 means the app is
+      throwing.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "If a deploy correlates, revert first."
+      - kind: scale_up
+        rationale: "If 503/504 under load with no deploy, add capacity."
+      - kind: restart_pods
+        rationale: "If a subset of pods is wedged, cycle them."
+    remediation_risk: medium
+
+  # ===================== INTERMEDIATE =====================
+
+  - id: MEM-LEAK-001
+    category: memory
+    maturity: intermediate
+    title: Memory leak (slow growth toward OOM)
+    detect:
+      log_contains: ["memory grow", "heap", "gc pressure", "rss increasing"]
+      metric_gte: {memory_growth_rate: 0.0, oom_killed_count: 1}
+      name_matches: "(?i)leak|memory.?grow|heap"
+    root_cause: >
+      Memory rises monotonically between restarts rather than plateauing — a leak
+      (unbounded cache, un-closed resources, retained references). Restarting only
+      resets the clock; the fix is in code.
+    suggested_actions:
+      - kind: restart_pods
+        rationale: "Immediate relief; resets the growth curve while a fix is prepared."
+      - kind: rollback_deploy
+        rationale: "If the leak appeared at a specific build, revert it."
+      - kind: escalate_to_human
+        rationale: "A true leak needs a code fix; flag for engineering."
+    remediation_risk: medium
+
+  - id: DB-POOL-001
+    category: database
+    maturity: intermediate
+    title: Connection-pool exhaustion
+    detect:
+      log_contains: ["connection pool", "too many connections", "pool exhausted", "timeout acquiring connection", "no available connection", "fatal: sorry, too many clients"]
+      metric_gte: {db_pool_wait: 1}
+      name_matches: "(?i)pool|too.?many.?connection|max.?connection"
+    root_cause: >
+      The app opened more DB connections than the pool/server allows; requests block
+      waiting for a free connection. Cause: a traffic rise, a slow query holding
+      connections, or a connection leak.
+    suggested_actions:
+      - kind: restart_pods
+        rationale: "Clears leaked/held connections immediately."
+      - kind: scale_down
+        rationale: "Counter-intuitively, FEWER app pods can mean fewer total DB conns if each pod over-allocates; only with human sign-off."
+      - kind: escalate_to_human
+        rationale: "Pool sizing / a slow query needs investigation."
+    remediation_risk: high
+
+  - id: DB-SLOW-001
+    category: database
+    maturity: intermediate
+    title: Slow queries / lock contention
+    detect:
+      log_contains: ["slow query", "lock wait timeout", "deadlock detected", "statement timeout", "query took"]
+      metric_gte: {db_query_p99_ms: 1000}
+      name_matches: "(?i)slow.?quer|lock.?wait|db.?latency"
+    root_cause: >
+      Query latency rose sharply — a missing index after data growth, a lock held
+      by a long transaction, or a heavy migration/backfill running in hours.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Query plans and locks are a DBA/engineer call, not an automated action."
+      - kind: failover_replica
+        rationale: "Only if the PRIMARY is wedged and a healthy replica exists; high blast radius."
+    remediation_risk: high
+
+  - id: CERT-EXPIRE-001
+    category: security
+    maturity: intermediate
+    title: TLS certificate expired / near expiry
+    detect:
+      log_contains: ["certificate has expired", "certificate expired", "x509", "cert expir", "notafter", "tls handshake error"]
+      metric_lte: {cert_days_remaining: 7}
+      name_matches: "(?i)cert|tls.?expir|x509|expiring"
+    root_cause: >
+      A serving or client certificate is at/near expiry; connections fail TLS.
+      Rotation didn't happen (cert-manager stuck, manual cert forgotten).
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Issuing/rotating a certificate needs an authorised operator."
+    remediation_risk: low
+    references:
+      - "cert-manager.io/docs/troubleshooting/"
+
+  - id: HPA-MAX-001
+    category: compute
+    maturity: intermediate
+    title: HPA pinned at max replicas, still saturated
+    detect:
+      log_contains: ["desiredreplicas", "at max replicas", "hpa", "scalinglimited"]
+      metric_gte: {replicas_ratio: 1.0, cpu_utilisation: 0.85}
+      name_matches: "(?i)hpa|autoscal|max.?replica|saturat"
+    root_cause: >
+      The Horizontal Pod Autoscaler is at maxReplicas and the metric is still above
+      target — real capacity shortfall, or a downstream bottleneck the HPA can't fix
+      by adding pods.
+    suggested_actions:
+      - kind: scale_up
+        rationale: "Raise the ceiling / node pool if the bottleneck is genuinely this tier."
+      - kind: escalate_to_human
+        rationale: "If a downstream (DB, upstream API) is the limit, more pods won't help."
+    remediation_risk: medium
+
+  - id: NODE-NOTREADY-001
+    category: compute
+    maturity: intermediate
+    title: Node NotReady / kubelet unhealthy
+    detect:
+      event_reason: [NodeNotReady, NodeNotSchedulable]
+      log_contains: ["node not ready", "kubelet stopped posting", "notready", "network plugin not ready"]
+      name_matches: "(?i)node.?not.?ready|kubelet|node.?down"
+    root_cause: >
+      A node stopped reporting healthy — kubelet crash, network partition to the API
+      server, disk/PID pressure, or the underlying VM died. Its pods are being
+      rescheduled.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Cordon/drain/replace a node is an infra action outside the pod-level allowlist."
+    remediation_risk: high
+
+  - id: DNS-FAIL-001
+    category: network
+    maturity: intermediate
+    title: DNS resolution failures (CoreDNS)
+    detect:
+      log_contains: ["no such host", "name resolution", "servfail", "coredns", "could not resolve", "temporary failure in name resolution", "i/o timeout"]
+      name_matches: "(?i)dns|resolv|coredns|nxdomain"
+    root_cause: >
+      Service discovery is failing — CoreDNS overloaded/crashing, a bad NetworkPolicy,
+      or upstream DNS down. Everything that resolves a name intermittently breaks.
+    suggested_actions:
+      - kind: restart_pods
+        rationale: "If CoreDNS pods are wedged, cycling them often restores resolution."
+      - kind: escalate_to_human
+        rationale: "A NetworkPolicy/upstream-DNS fault needs investigation."
+    remediation_risk: medium
+
+  - id: RATE-429-001
+    category: network
+    maturity: intermediate
+    title: Upstream rate limiting / 429s
+    detect:
+      log_contains: ["429", "too many requests", "rate limit", "throttled", "quota exceeded", "slow down"]
+      metric_gte: {upstream_429_rate: 0.02}
+      name_matches: "(?i)429|rate.?limit|throttl|quota"
+    root_cause: >
+      A dependency (payment API, cloud API, third party) is rejecting our request
+      rate. Either we're sending too much (retry storm, traffic spike) or our quota
+      was cut.
+    suggested_actions:
+      - kind: scale_down
+        rationale: "Reducing our request rate can end the throttling (needs sign-off)."
+      - kind: escalate_to_human
+        rationale: "A quota increase or backoff-config change is a human decision."
+    remediation_risk: medium
+
+  - id: LATENCY-P99-001
+    category: application
+    maturity: intermediate
+    title: p99 latency regression
+    detect:
+      log_contains: ["p99", "latency", "slow response", "timeout"]
+      metric_gte: {latency_p99_ms: 1000}
+      name_matches: "(?i)latency|p99|slow|response.?time"
+    root_cause: >
+      Tail latency rose while throughput may be normal — GC pauses, a slow
+      dependency, lock contention, or a cold cache. RED-method 'Duration' regression.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "If it started at a deploy, revert."
+      - kind: scale_up
+        rationale: "If queueing under load, add capacity."
+      - kind: escalate_to_human
+        rationale: "If a downstream is slow, escalate to its owner."
+    remediation_risk: medium
+
+  - id: QUEUE-BACKLOG-001
+    category: application
+    maturity: intermediate
+    title: Consumer lag / queue backlog growing
+    detect:
+      log_contains: ["consumer lag", "backlog", "queue depth", "messages behind", "kafka lag", "offset lag"]
+      metric_gte: {queue_lag: 1000}
+      name_matches: "(?i)lag|backlog|queue.?depth"
+    root_cause: >
+      Producers are outpacing consumers — a consumer slowdown/crash, a poison
+      message stalling a partition, or a genuine traffic surge. Backlog grows
+      unbounded until consumers catch up.
+    suggested_actions:
+      - kind: scale_up
+        rationale: "Add consumers to drain the backlog (up to partition count)."
+      - kind: restart_pods
+        rationale: "If a consumer is stuck on a poison message, cycling can unstick it."
+      - kind: escalate_to_human
+        rationale: "A poison message may need to be skipped by an operator."
+    remediation_risk: medium
+
+  - id: REPLICA-LAG-001
+    category: database
+    maturity: intermediate
+    title: Read-replica lag
+    detect:
+      log_contains: ["replica lag", "replication lag", "seconds behind master", "standby lag", "wal lag"]
+      metric_gte: {replica_lag_seconds: 30}
+      name_matches: "(?i)replica.?lag|replication.?lag|behind.?master"
+    root_cause: >
+      A read replica is falling behind the primary — heavy write load, a long
+      transaction on the primary, or the replica under-provisioned. Reads return
+      stale data.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Replica sizing / write-load is an investigation, not a one-shot action."
+      - kind: failover_replica
+        rationale: "Only if the PRIMARY is failing and a caught-up replica exists; NEVER to a lagging one."
+    remediation_risk: high
+
+  - id: FD-LEAK-001
+    category: application
+    maturity: intermediate
+    title: File-descriptor / socket leak
+    detect:
+      log_contains: ["too many open files", "emfile", "socket leak", "fd limit", "cannot allocate", "accept4"]
+      name_matches: "(?i)open.?files|fd.?leak|emfile|descriptor"
+    root_cause: >
+      The process is leaking file descriptors/sockets and has hit its ulimit;
+      new connections fail. Usually un-closed HTTP clients or DB connections.
+    suggested_actions:
+      - kind: restart_pods
+        rationale: "Immediate relief; resets the fd count while a code fix is prepared."
+      - kind: escalate_to_human
+        rationale: "The leak itself is a code fix."
+    remediation_risk: medium
+
+  # ======================= ADVANCED / SYSTEMIC =======================
+
+  - id: CASCADE-001
+    category: systemic
+    maturity: advanced
+    title: Cascading failure across services
+    detect:
+      log_contains: ["cascading", "circuit breaker open", "circuit open", "downstream unavailable", "dependency failed", "bulkhead"]
+      name_matches: "(?i)cascad|circuit.?break|multi.?service|widespread"
+      severity_in: [critical, high]
+    root_cause: >
+      One overloaded service is dragging its callers down: timeouts consume caller
+      threads, back-pressure propagates, circuit breakers trip. The blast radius is
+      multi-service, so this is never an unattended fix.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Multi-service blast radius; needs coordinated human incident command."
+      - kind: rollback_deploy
+        rationale: "If one service's recent deploy is the origin, reverting it can stop the spread."
+    remediation_risk: high
+    references:
+      - "sre.google/sre-book/addressing-cascading-failures/"
+
+  - id: RETRY-STORM-001
+    category: systemic
+    maturity: advanced
+    title: Retry storm / thundering herd
+    detect:
+      log_contains: ["retry storm", "thundering herd", "retry budget", "excessive retries", "amplification"]
+      metric_gte: {retry_ratio: 3.0}
+      name_matches: "(?i)retry.?storm|thundering.?herd|retry"
+    root_cause: >
+      A transient error triggered aggressive client retries with no jitter/budget,
+      multiplying load and keeping the dependency down — a self-sustaining overload
+      (a metastable trigger). Adding capacity often doesn't help; reducing load does.
+    suggested_actions:
+      - kind: scale_down
+        rationale: "Shed load to break the amplification loop (with sign-off); fallback/retry-budget is the real fix."
+      - kind: escalate_to_human
+        rationale: "Retry-budget/jitter config is a change humans must ship."
+    remediation_risk: high
+    references:
+      - "aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/"
+
+  - id: CACHE-STAMPEDE-001
+    category: cache
+    maturity: advanced
+    title: Cache stampede on expiry/flush
+    detect:
+      log_contains: ["cache stampede", "cache miss storm", "dogpile", "thundering herd", "cache empty", "origin overload"]
+      metric_gte: {cache_miss_ratio: 0.8}
+      name_matches: "(?i)stampede|dogpile|cache.?miss|cache.?flush"
+    root_cause: >
+      A hot key expired or the cache was flushed; every request now misses and hits
+      the origin/DB simultaneously, overloading it. Flushing a prod cache to 'fix'
+      a problem is a classic trigger — which is exactly why clear_cache is not auto-safe.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Re-warming and request-coalescing are deliberate, human-run steps."
+      - kind: scale_up
+        rationale: "Temporarily add origin capacity to absorb the miss storm."
+    remediation_risk: high
+    references:
+      - "aws.amazon.com/builders-library/caching-challenges-and-strategies/"
+
+  - id: METASTABLE-001
+    category: systemic
+    maturity: advanced
+    title: Metastable failure (won't self-recover after trigger is gone)
+    detect:
+      log_contains: ["metastable", "not recovering", "sustained overload", "stuck in", "self-sustaining", "load amplification"]
+      name_matches: "(?i)metastable|not.?recover|stuck.?overload"
+      severity_in: [critical, high]
+    root_cause: >
+      The system entered a bad stable state kept alive by a sustaining effect
+      (retries, cache misses, queue growth) even though the original trigger has
+      passed. It will NOT recover on its own; load must be shed to force it back.
+    suggested_actions:
+      - kind: scale_down
+        rationale: "Deliberately shed load to collapse the sustaining loop (human sign-off)."
+      - kind: escalate_to_human
+        rationale: "Recovery sequencing (drain, then restore) is an operator decision."
+    remediation_risk: high
+    references:
+      - "sigops.org/s/conferences/hotos/2021/papers/hotos21-s11-bronson.pdf"
+
+  - id: SPLIT-BRAIN-001
+    category: database
+    maturity: advanced
+    title: Split-brain / dual primary
+    detect:
+      log_contains: ["split brain", "split-brain", "two primaries", "dual master", "quorum lost", "fencing", "stonith"]
+      name_matches: "(?i)split.?brain|dual.?primary|quorum"
+      severity_in: [critical, high]
+    root_cause: >
+      A network partition left two nodes each believing they are primary; both
+      accept writes and diverge. This is a data-integrity emergency — automated
+      action could make it worse by acknowledging the wrong primary.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Data-divergence emergency; a human must choose the survivor and fence the other. AEGIS must not act."
+    remediation_risk: high
+
+  - id: DEADLOCK-001
+    category: database
+    maturity: advanced
+    title: Database deadlocks
+    detect:
+      log_contains: ["deadlock detected", "deadlock found", "lock wait timeout exceeded", "victim", "transaction rolled back"]
+      name_matches: "(?i)deadlock"
+    root_cause: >
+      Transactions are acquiring locks in conflicting orders; the DB kills a victim.
+      A burst usually points at a specific code path or a new query pattern.
+    suggested_actions:
+      - kind: rollback_deploy
+        rationale: "If a deploy introduced the conflicting access pattern, revert it."
+      - kind: escalate_to_human
+        rationale: "Lock-ordering fixes are code changes."
+    remediation_risk: medium
+
+  - id: NOISY-NEIGHBOR-001
+    category: systemic
+    maturity: advanced
+    title: Noisy neighbour / resource contention
+    detect:
+      log_contains: ["noisy neighbor", "noisy neighbour", "steal time", "io wait", "contention", "cpu steal"]
+      metric_gte: {cpu_steal: 0.1, io_wait: 0.2}
+      name_matches: "(?i)noisy.?neighbou?r|steal|contention"
+    root_cause: >
+      A co-located workload (same node/host/hypervisor) is consuming shared CPU, I/O
+      or network, starving this service. Symptoms without a matching own-load rise.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Isolating/rescheduling onto dedicated capacity is an infra decision."
+    remediation_risk: medium
+
+  - id: CONTROLPLANE-001
+    category: compute
+    maturity: advanced
+    title: Control-plane / API server saturation (etcd slow)
+    detect:
+      log_contains: ["etcd", "apiserver", "request timed out", "leader election", "too many requests", "context deadline exceeded", "slow request"]
+      name_matches: "(?i)apiserver|etcd|control.?plane|leader.?election"
+      severity_in: [critical, high]
+    root_cause: >
+      The Kubernetes control plane is degraded — etcd slow (disk/quorum), API server
+      throttling (a hot controller/list-watch), or leader election flapping. Cluster
+      operations, including remediation itself, become unreliable.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Control-plane health is a platform-team emergency; AEGIS should not add API load."
+    remediation_risk: high
+
+  - id: CLOUD-QUOTA-001
+    category: cloud
+    maturity: advanced
+    title: Cloud API quota / throttling (provider-side)
+    detect:
+      log_contains: ["limitexceeded", "throttlingexception", "quotaexceeded", "requestlimitexceeded", "rate exceeded", "resourceexhausted", "toomanyrequests", "operation could not be completed"]
+      name_matches: "(?i)quota|limit.?exceeded|throttl.?exception|resource.?exhausted"
+    root_cause: >
+      The cloud provider (AWS/GCP/Azure) is throttling or refusing API calls — an
+      account/region quota hit (instances, IPs, API rate). Autoscaling and deploys
+      stall. Provider-agnostic: LimitExceeded (AWS), RESOURCE_EXHAUSTED (GCP),
+      QuotaExceeded (Azure).
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "A quota increase is a provider ticket / account action; no in-cluster fix."
+    remediation_risk: medium
+
+  - id: SECRET-ROTATION-001
+    category: security
+    maturity: advanced
+    title: Expired / rotated credential causing auth failures
+    detect:
+      log_contains: ["401", "403", "invalid credentials", "access denied", "authentication failed", "expired token", "signature does not match", "invalidaccesskeyid", "unauthorized"]
+      name_matches: "(?i)auth.?fail|unauthor|forbidden|invalid.?credential|expired.?token|rotat"
+    root_cause: >
+      A credential (API key, DB password, cloud access key, service-account token)
+      expired or was rotated without every consumer being updated. Auth fails
+      cluster-wide for anything using it.
+    suggested_actions:
+      - kind: restart_pods
+        rationale: "If pods cache a mounted secret, a restart reloads the rotated value."
+      - kind: escalate_to_human
+        rationale: "Re-issuing/propagating a credential is an authorised-operator action."
+    remediation_risk: high
+
+  - id: CROSSAZ-001
+    category: network
+    maturity: advanced
+    title: Cross-AZ / cross-region latency or partition
+    detect:
+      log_contains: ["cross-az", "cross-region", "network partition", "packet loss", "high latency to", "unreachable zone", "connection reset"]
+      name_matches: "(?i)cross.?az|cross.?region|partition|packet.?loss|zone.?outage"
+      severity_in: [critical, high]
+    root_cause: >
+      A zone/region is degraded or partitioned; traffic crossing it sees latency,
+      loss or resets. Quorum systems may stall; failover may be needed.
+    suggested_actions:
+      - kind: failover_replica
+        rationale: "Fail over to a healthy zone/region IF a replica there is caught up; region blast radius."
+      - kind: escalate_to_human
+        rationale: "A zone outage is a coordinated failover decision."
+    remediation_risk: high
+
+  - id: CLOCK-SKEW-001
+    category: systemic
+    maturity: advanced
+    title: Clock skew breaking auth / tokens / certs
+    detect:
+      log_contains: ["clock skew", "time skew", "token used before issued", "notbefore", "certificate is not yet valid", "timestamp out of range", "ntp"]
+      name_matches: "(?i)clock.?skew|time.?skew|ntp"
+    root_cause: >
+      A node's clock drifted; time-sensitive checks fail — JWT/SAML validation,
+      TLS notBefore/notAfter, request signatures (AWS SigV4), Kerberos. Often after
+      an NTP outage or a VM live-migration.
+    suggested_actions:
+      - kind: escalate_to_human
+        rationale: "Fixing NTP / node time is a host-level action outside the pod allowlist."
+    remediation_risk: medium

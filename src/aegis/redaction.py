@@ -27,9 +27,11 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
     ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")),
     # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub classic (ghp_/gho_/ghu_/ghs_/ghr_) and
-    # fine-grained (github_pat_), AWS (AKIA), Slack (xoxb-/...), GitLab (glpat-), Google (AIza),
-    # Stripe (sk_live_/pk_live_), npm (npm_).
-    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|xox[baprs]-|glpat-|AIza|npm_)[A-Za-z0-9_\-]{8,}\b")),
+    # fine-grained (github_pat_), AWS permanent (AKIA) and STS temporary (ASIA) access-key ids,
+    # Slack (xoxb-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_), npm (npm_).
+    # AKIA/ASIA share one shape (prefix + 16 base32); ASIA is the temporary sibling that travels
+    # with a session token in AssumeRole/SSO bundles and appears bare in botocore errors.
+    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|AIza|npm_)[A-Za-z0-9_\-]{8,}\b")),
     # GCP OAuth2 access token (ya29.<long>). Masked whole and BEFORE the phone pattern, which would
     # otherwise fragment a digit-run inside it and leave the rest exposed. Cloud-neutral: GCP.
     ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
@@ -51,6 +53,17 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # `@` OR its URL-encoding `%40` — a URL-encoded email (normal in HTTP access logs, the exact
     # evidence source) reads as the email to both the model and an operator, so it must be masked too.
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
+    # IBAN (ISO 13616): a REAL country code + 2 check digits + 11-30 alnum BBAN. Financial PII in
+    # payment/refund incident logs (SEPA charge/transfer). Masked WHOLE and BEFORE ACCOUNTID/PHONE,
+    # which would otherwise fragment its digit runs and leak the country+bank prefix. The prefix is
+    # restricted to the SWIFT IBAN-registry country set (not any two letters) so an uppercase
+    # evidence token like `AB12CDEF...` is NOT clobbered — only a genuine IBAN country prefix fires.
+    ("IBAN", re.compile(
+        r"\b(?:AD|AE|AL|AT|AZ|BA|BE|BG|BH|BI|BR|BY|CH|CR|CY|CZ|DE|DJ|DK|DO|EE|EG|ES|FI|FO|FR|GB|GE"
+        r"|GI|GL|GR|GT|HN|HR|HU|IE|IL|IQ|IS|IT|JO|KW|KZ|LB|LC|LI|LT|LU|LV|LY|MC|MD|ME|MK|MN|MR|MT"
+        r"|MU|NI|NL|NO|PK|PL|PS|PT|QA|RO|RS|RU|SA|SC|SD|SE|SI|SK|SM|SO|ST|SV|TL|TN|TR|UA|VA|VG|XK)"
+        r"\d{2}[A-Za-z0-9]{11,30}\b"
+    )),
     ("UUID", re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")),
     # A bare 12-digit id: an AWS account id, a GCP project number, or any 12-digit account id. The
     # label is cloud-NEUTRAL (was AWSACCT, which mislabelled a GCP project number as an AWS account
@@ -79,6 +92,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("BEARER", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/\-]{12,}=*)")),
     # HTTP Basic auth: `Authorization: Basic <base64 of user:pass>` - the base64 IS the credential.
     ("BASIC", re.compile(r"(?i)\bbasic\s+([A-Za-z0-9+/]{8,}={0,2})")),
+    # A grouped payment-card number (4-4-4-4 with space or dash separators). Masked WHOLE and BEFORE
+    # PHONE, which otherwise catches only the first 12-14 digits and leaks the final group. A
+    # contiguous 16-digit card is already caught by PHONE; this closes the spaced/dashed form.
+    ("CREDITCARD", re.compile(r"\b\d{4}[ \-]\d{4}[ \-]\d{4}[ \-]\d{4}\b")),
     # The negative lookahead stops an ISO-8601 date (YYYY-MM-DD, which every log line starts with)
     # being masked as a phone number — that was masking timestamps and losing evidence.
     ("PHONE", re.compile(r"(?<![\d.])(?!\d{4}-\d\d-\d\d)\+?\d[\d\s\-]{8,14}\d(?![\d.])")),

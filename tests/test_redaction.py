@@ -262,3 +262,35 @@ def test_redaction_round_trips_through_restore():
     )
     r = redact(text)
     assert r.restore(r.text) == text
+
+
+def test_aws_sts_temporary_access_key_is_masked():
+    """ASIA... is the STS temporary sibling of AKIA...; both are AWS access-key ids and must mask.
+
+    Literal split so GitHub secret-scanning push-protection does not flag the fake key in the diff.
+    """
+    key = "ASIA" + "Z7XK9QW2E4RTYU6P"
+    r = redact(f"botocore.exceptions.ClientError (ExpiredToken) access key {key}")
+    assert key not in r.text
+    assert "<APIKEY_1>" in r.text
+
+
+def test_iban_is_masked_but_only_for_real_country_prefixes():
+    """IBANs are financial PII in payment incident logs; masked whole. A non-IBAN uppercase token
+    that merely starts 2-letters-2-digits (AB12...) must NOT be clobbered by the IBAN pattern."""
+    for iban in ("DE89370400440532013000", "FR1420041010050500013M02606", "GB29NWBK60161331926819"):
+        r = redact(f"SEPA transfer to {iban} settled")
+        assert iban not in r.text, f"IBAN leaked: {iban}"
+        assert "<IBAN_1>" in r.text
+    # AB is not an IBAN country code -> the IBAN pattern must leave the letters alone.
+    r = redact("correlation AB12CDEFGHIJKLMNOP note")
+    assert "<IBAN" not in r.text, "non-IBAN token wrongly masked as IBAN"
+
+
+def test_grouped_credit_card_is_masked_whole():
+    """A spaced/dashed PAN: PHONE alone catches only the first 12-14 digits and leaks the last group.
+    4111... is a well-known Visa TEST number (not a real card)."""
+    for pan in ("4111 1111 1111 1111", "4111-1111-1111-1111"):
+        r = redact(f"charge {pan} declined")
+        assert pan not in r.text, f"card leaked: {pan}"
+        assert "<CREDITCARD_1>" in r.text
