@@ -7,7 +7,7 @@
 **a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
-OpenAI-compatible), 4 recorded incidents, **203 tests** (7 against a live cluster) plus a 15-case mutation check,
+OpenAI-compatible), 4 recorded incidents, **207 tests** (7 against a live cluster) plus a 15-case mutation check,
 output-asserting CI.
 
 ## The problem
@@ -155,7 +155,8 @@ thing from the cluster's side** — see below.
 ### Deploying it into the cluster it diagnoses
 
 ```bash
-kubectl apply -k k8s/            # namespace, ServiceAccount, ClusterRole, RoleBinding, Job
+kubectl apply -k k8s/            # the DURABLE parts: namespace, ServiceAccount, ClusterRole, RoleBinding
+kubectl create -f k8s/job.yaml   # one diagnosis (the Job uses generateName, so `create`, never `apply`)
 ```
 
 The ClusterRole has **get / list only** — no `watch`, and no `create`, `update`, `patch`, `delete`.

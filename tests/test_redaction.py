@@ -66,6 +66,43 @@ def test_non_aws_cloud_secrets_are_masked_gcp_and_azure():
         assert secret not in redact(text).text, f"{secret!r} (non-AWS cloud secret) leaked"
 
 
+def test_query_param_credentials_are_masked():
+    """URLs with ?password= / &token= / ?api_key= are ubiquitous in HTTP access logs and webhook
+    configs; the leading ? or & is a real delimiter, and the value must stop at the next &param."""
+    assert "SuperSecretPw99" not in redact("https://x.io/cb?password=SuperSecretPw99&next=/home").text
+    assert "abc123def456ghi789" not in redact("GET /reset?access_token=abc123def456ghi789 HTTP/1.1").text
+    assert "/home" in redact("https://x.io/cb?password=SuperSecretPw99&next=/home").text, "over-masked past &"
+
+
+def test_a_comma_bearing_secret_is_masked_whole_not_just_the_head():
+    """A secret containing a comma was leaking its tail (only the part before the comma was masked).
+    Now the whole value is masked - but a comma that begins a NEW key=value pair still stops it, so
+    an ordinary `k=v1,k2=v2` config pair is not gobbled."""
+    assert "defSECRET" not in redact("password: abc,defSECRET").text
+    assert "Zq9mK" not in redact("password=aB3xy,Zq9mK").text
+    assert "key2=v2" in redact("password=v1,key2=v2 next").text, "gobbled the next pair"
+
+
+def test_webhook_urls_with_a_token_in_the_path_are_masked():
+    """Slack/Discord/Teams incoming-webhook URLs carry the credential in the PATH - the whole URL is
+    the secret. No key=value, no vendor prefix, so only a dedicated pattern catches them."""
+    # Built from split literals so this test file does not itself contain a complete webhook URL
+    # that a secret scanner (GitHub push protection) would flag as a live credential.
+    slack = "https://hooks.slack.com/services" + "/T00000000/B00000000/abcdEFGHijklMNOPqrstUVWX"
+    disc = "https://discord.com/api/webhooks" + "/123456789/tokenABCdef_123"
+    assert "abcdEFGHijklMNOPqrstUVWX" not in redact(f"alert to {slack} sent").text
+    assert "tokenABCdef_123" not in redact(f"posted {disc}").text
+
+
+def test_secrets_in_json_values_are_masked():
+    """Structured (JSON) logs are ubiquitous, and a credential there has the key's closing quote
+    between the keyword and the colon (`\"password\": \"x\"`) - which the keyed-value pattern missed.
+    A non-credential JSON value must NOT be over-masked."""
+    assert "s3cr3tJsonValue" not in redact('{"password": "s3cr3tJsonValue"}').text
+    assert "AbCdEf123456key" not in redact('{"api_key":"AbCdEf123456key"}').text
+    assert "value42" in redact('{"config": "value42"}').text, "benign JSON value over-masked"
+
+
 def test_url_encoded_email_is_masked():
     """A URL-encoded email (`%40` for `@`, normal in HTTP access logs) reads as the email to both
     the model and an operator, so the encoding must not be a redaction bypass. A plain email stays

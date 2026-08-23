@@ -34,6 +34,15 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
     # Azure Shared Access Signature: the `sig=` query parameter is the credential. Cloud-neutral: Azure.
     ("AZURESAS", re.compile(r"(?i)(?<=[?&])sig=([^\s&\"'<]{16,})")),
+    # Incoming-webhook URLs carry the credential in the PATH (no key=value, no vendor prefix) — the
+    # whole URL IS the secret (anyone holding it can post). Slack, Discord, MS Teams. Cloud-neutral.
+    ("WEBHOOK", re.compile(
+        r"(?i)https://(?:"
+        r"hooks\.slack\.com/services/[A-Za-z0-9/]+"
+        r"|(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9_\-]+"
+        r"|[a-z0-9.\-]+\.webhook\.office\.com/webhookb2/[A-Za-z0-9@/\-]+"
+        r")"
+    )),
     # Credentials embedded in a URL / connection string: scheme://user:PASSWORD@host. Masks the
     # password (group 1). A literal `@` inside a password is only partially covered (rare — real
     # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
@@ -72,11 +81,18 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
     ("SECRET", re.compile(
-        r"(?i)(?:^|[\s\"',;{(\[=])[\w.\-]{0,40}"
+        # Leading delimiter includes ? and & so a URL QUERY-PARAM credential (?password=, &token=)
+        # is caught — those are ubiquitous in HTTP access logs and webhook configs.
+        r"(?i)(?:^|[\s\"',;{(\[=?&])[\w.\-]{0,40}"
         r"(?:password|passwd|pwd|secret|access[_\-]?key|account[_\-]?key|shared[_\-]?access[_\-]?key"
         r"|private[_\-]?key|api[_\-]?key|apikey|auth[_\-]?token|access[_\-]?token|sas[_\-]?token"
         r"|client[_\-]?secret|credential|token)[\w.\-]{0,20}"
-        r"\s*[:=]\s*[\"']?([^\s\"',;<]{3,})"
+        # optional closing quote after the key so a JSON credential ("password": "x") is matched too
+        r"[\"']?\s*[:=]\s*[\"']?"
+        # The value: any non-separator char, OR a comma that does NOT begin a new key=value pair
+        # (so a comma-bearing secret is masked WHOLE, but `k=v,k2=v2` is not gobbled). `&` stops a
+        # URL query-param value at the next parameter. Char-by-char, so no catastrophic backtracking.
+        r"((?:[^\s\"'<;,&]|,(?!\s*[\w.\-]+\s*[:=]))+)"
     )),
 ]
 
