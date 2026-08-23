@@ -7,8 +7,9 @@
 **a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
-OpenAI-compatible), 4 recorded incidents, **210 tests** (7 against a live cluster) plus a 15-case mutation check,
-output-asserting CI.
+OpenAI-compatible), a **34-signature incident knowledge base**, **per-environment policy** with a
+four-way remediation gate and **Slack/Teams/webhook** reporting, 4 recorded incidents, **267 tests**
+(7 against a live cluster) plus a 15-case mutation check, output-asserting CI.
 
 ## The problem
 
@@ -35,15 +36,34 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
 - **Redaction that is verified, not assumed — and cloud-neutral.** Emails (incl. URL-encoded `%40`),
   IPv4/IPv6, UUIDs, PEM private keys, connection-string passwords (Postgres/MySQL/Redis — so RDS,
   Cloud SQL and Azure SQL alike), JWTs and bearer tokens, and vendor credentials across **AWS**
-  (ARN, account/secret keys), **GCP** (`AIza` keys, `ya29.` OAuth tokens), **Azure** (storage
-  `AccountKey`, SAS `sig`), plus GitHub/GitLab/Slack/Stripe keys and `password=`/`secret=` values are
-  masked before any token leaves the process — then the output is re-scanned and a surviving value
-  raises. Stable placeholders mean the model can still tell that
-  two log lines refer to the same host.
+  (ARN, permanent `AKIA` **and STS temporary `ASIA`** access keys, secret keys), **GCP** (`AIza`
+  keys, `ya29.` OAuth tokens), **Azure** (storage `AccountKey`, SAS `sig`), plus GitHub/GitLab/Slack/
+  Stripe keys, `password=`/`secret=` values and **financial identifiers (IBANs, payment-card numbers)**
+  are masked before any token leaves the process — then the output is re-scanned and a surviving value
+  raises. Stable placeholders mean the model can still tell that two log lines refer to the same host.
+  It masks high-entropy *secrets* while deliberately preserving high-entropy *evidence* (git SHAs,
+  trace/request ids) — an entropy backstop would erase the evidence an RCA needs, so coverage is
+  format-based and curated.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
 - **A deterministic gate.** Nine policies in plain Python decide what happens. No prompt, no
   probability. Each returns a policy id so a rejection can be explained without re-running anything.
+- **A researched incident knowledge base.** 34 signatures, basic (OOMKilled, CrashLoopBackOff,
+  ImagePullBackOff) to advanced (metastable failure, cache stampede, split-brain, retry storm,
+  control-plane saturation), each carrying a deterministic detector and ranked fixes drawn only from
+  the closed action enum. It grounds the model's hypothesis and drives the report's suggestions — and
+  it is DATA (`data/incident_signatures.yaml`), so a new failure mode is one YAML block, not a code change.
+- **Per-environment policy that fails closed.** `data/environments.yaml` sets, for each environment
+  (staging, qa-staging, pre-prod, qa-prod, prod, dev), an allow/deny action list, the authorised
+  principals, and whether AEGIS may auto-remediate at all. An unrecognised environment resolves to a
+  restrictive default that can only escalate — widening the environment set can never loosen safety.
+- **A four-way remediation gate.** A fix is applied only when *verdict × environment auto-remediate ×
+  authorised principal × explicit approval* all hold — and even then only through a pluggable backend.
+  The shipped one is dry-run: it changes nothing and records what it would do. staging/qa-staging can
+  auto-apply after approval; pre-prod and above always hand off to a human.
+- **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
+  promotion plan — the exact higher environments where the same fix is permitted — and push it to
+  Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
 - **A budget that stops things.** Token and USD ceilings raise and halt the run.
 - **Real timeouts.** Every context tool runs under a wall-clock deadline. A hung logging backend
   during an incident is the normal case, not the edge case — and a timed-out tool becomes *visible
@@ -343,6 +363,44 @@ exception.
 ⭐ The pattern in all three: **the code claimed something the code did not do, and everything looked
 green.** That is why every guard here is written to be *proven able to fail* before it is trusted.
 
+## Environments, remediation and ChatOps
+
+The gate does not stop at "approved". AEGIS can **resolve** an incident where it is safe to, and turn
+every run into a report a human uses to promote the same fix upward.
+
+**Per-environment policy** lives in [`src/aegis/data/environments.yaml`](src/aegis/data/environments.yaml)
+(override with `AEGIS_ENV_POLICY_PATH`). Each environment declares its allowed/denied actions, its
+authorised principals, and whether AEGIS may auto-remediate:
+
+| environment | auto-remediate | example allow | denies |
+|---|---|---|---|
+| `staging`, `qa-staging` | yes (after approval) | restart, scale, rollback, clear-cache | DB failover |
+| `pre-prod`, `qa-prod` | no — human applies | restart, scale-up, rollback | scale-down, cache, failover |
+| `prod` | never | restart, scale-up, rollback, failover | scale-down |
+| *anything else* | no | *nothing but escalate* | — (**fails closed**) |
+
+**Remediation is gated four ways** — the action must clear the verifier, the environment must permit
+auto-remediation, the principal must be authorised there, and an approval must be present. Only then
+does it run, and only through a pluggable backend; the shipped `DryRunBackend` changes nothing.
+
+```bash
+# Auto-resolve in staging (dry-run), then print the promotion report:
+aegis run --incident inc-002 --environment staging --principal role:oncall --approve --report
+
+#   -> Remediation: dry_run  "would scale_up 'checkout' in staging"
+#   -> Promotion:  pre-prod / qa-prod / prod  (a human applies)
+
+# The same request in prod is refused by policy, not by chance:
+aegis run --incident inc-002 --principal role:oncall --approve
+#   -> Remediation: not_auto_remediable  (prod never auto-applies)
+```
+
+**ChatOps.** `--emit-chatops` pushes the redacted report to Slack, Teams or a generic webhook
+(`AEGIS_SLACK_WEBHOOK` / `AEGIS_TEAMS_WEBHOOK` / `AEGIS_WEBHOOK_URL`). It is **dry-run unless
+`AEGIS_CHATOPS_LIVE=1`**, re-redacts the exact payload before transmit, and a failed post is a status,
+never a crash. Wiring a real `kubectl`/cloud backend for live remediation is the operator's to add;
+the four-way gate above it is unchanged either way.
+
 ## Architecture
 
 - [`docs/ai-boundary.md`](docs/ai-boundary.md) — **why the model never decides**, the policy table,
@@ -363,7 +421,9 @@ enforcement and the audit trail, asserted on every push.
 ## Limits, stated plainly
 
 - Tools read recorded fixtures; wiring to Loki/CloudWatch/Datadog is one class each, not done here.
-- `await_approval` is terminal. Execution is deliberately absent.
+- Remediation ships **dry-run**: the four-way gate and the executor are real and tested, but the
+  bundled backend changes nothing. A live backend (kubectl/cloud SDK) is a deliberate operator
+  decision, not a hidden default — this codebase does not mutate infrastructure.
 - Redaction is regex-based — a strong control against accidental leakage, not a guarantee against a
   determined adversary.
 - The eval suite tests deterministic behaviour, **not** live model quality.

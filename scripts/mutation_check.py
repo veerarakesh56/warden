@@ -29,7 +29,7 @@ MUTATIONS = [
     (
         "P2 irreversible-in-prod removed",
         "verifier.py",
-        'if alert.environment == "prod" and not proposal.reversible:',
+        'if env.tier == "prod" and not proposal.reversible:',
         "if False:",
         "an irreversible action would become executable in production",
     ),
@@ -126,6 +126,41 @@ MUTATIONS = [
         "  activeDeadlineSeconds: 300",
         "  # activeDeadlineSeconds removed",
         "a stalled run keeps the Job active forever with a token mounted - reproduced live",
+    ),
+    (
+        "prod becomes auto-remediable",
+        "data/environments.yaml",
+        "  prod:\n    tier: prod\n    auto_remediate: false",
+        "  prod:\n    tier: prod\n    auto_remediate: true",
+        "the whole promise - production must NEVER auto-apply a fix without a human",
+    ),
+    (
+        "remediation skips the authorization gate",
+        "remediation.py",
+        "    if not env.authorizes(request.principal):",
+        "    if False and not env.authorizes(request.principal):",
+        "an unauthorised principal could apply a fix - authorization is the who-may-act boundary",
+    ),
+    (
+        "remediation skips the approval gate",
+        "remediation.py",
+        "    if not request.approved:",
+        "    if False and not request.approved:",
+        "a fix would apply with nobody having approved it - the last human checkpoint",
+    ),
+    (
+        "report stops redacting the incident summary",
+        "reporting.py",
+        '"summary": redact(alert.summary).text,',
+        '"summary": alert.summary,',
+        "a raw secret in the alert summary would leave in the report sent to Slack/Teams",
+    ),
+    (
+        "chatops stops redacting the transmitted payload",
+        "chatops.py",
+        "    safe_text = redact(report.markdown).text",
+        "    safe_text = report.markdown",
+        "the last redaction before data leaves the org - removing it is a direct external leak",
     ),
 ]
 
