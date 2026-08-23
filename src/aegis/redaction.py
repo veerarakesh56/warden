@@ -26,9 +26,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("PRIVKEY", re.compile(r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----")),
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
     ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")),
-    # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub (ghp_/gho_/ghu_/ghs_/ghr_), AWS (AKIA),
-    # Slack (xoxb-/xoxp-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_).
-    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|pk_live_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|xox[baprs]-|glpat-|AIza)[A-Za-z0-9_\-]{8,}\b")),
+    # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub classic (ghp_/gho_/ghu_/ghs_/ghr_) and
+    # fine-grained (github_pat_), AWS (AKIA), Slack (xoxb-/...), GitLab (glpat-), Google (AIza),
+    # Stripe (sk_live_/pk_live_), npm (npm_).
+    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|xox[baprs]-|glpat-|AIza|npm_)[A-Za-z0-9_\-]{8,}\b")),
     # GCP OAuth2 access token (ya29.<long>). Masked whole and BEFORE the phone pattern, which would
     # otherwise fragment a digit-run inside it and leave the rest exposed. Cloud-neutral: GCP.
     ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
@@ -58,13 +59,19 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     # IPv6 — we redact IPv4, so an IPv6 address (common in dual-stack k8s pod logs) is the same
     # identifier and must be masked too. Deliberately matches ONLY real addresses: either a `::`
-    # compression or a full 8 groups, so a `10:02:11` timestamp or a `00:1a:2b:3c:4d:5e` MAC (no
-    # `::`, not 8 groups) is left alone.
+    # compression or a full 8 groups, so a `10:02:11` timestamp is left alone. (A MAC has its own
+    # pattern below — it is a device re-identifier, so it IS masked, just not as an IPv6.)
     ("IPV6", re.compile(
         r"(?<![:.\w])(?:"
         r"(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}"
         r"|(?:[A-Fa-f0-9]{1,4}:){1,7}:(?:[A-Fa-f0-9]{1,4})?(?::[A-Fa-f0-9]{1,4}){0,6}"
         r")(?![:.\w])"
+    )),
+    # MAC address (colon, dash, or Cisco dotted) — a persistent device re-identifier, like an IP.
+    # Six pairs, so a 3-group `10:02:11` time does not match.
+    ("MAC", re.compile(
+        r"(?:\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b"
+        r"|\b[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\b)"
     )),
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{3,})[\"']?")),
@@ -83,13 +90,15 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
     ("SECRET", re.compile(
-        # Leading delimiter includes ? and & so a URL QUERY-PARAM credential (?password=, &token=)
-        # is caught — those are ubiquitous in HTTP access logs and webhook configs.
-        r"(?i)(?:^|[\s\"',;{(\[=?&])[\w.\-]{0,40}"
+        # Leading delimiter includes ? & : so URL QUERY-PARAM credentials (?password=, &token=) and
+        # the .npmrc form (//registry/:_authToken=) are caught — ubiquitous in access/CI logs.
+        r"(?i)(?:^|[\s\"',;{(\[=?&:])[\w.\-]{0,40}"
         r"(?:password|passwd|pwd|secret|access[_\-]?key|account[_\-]?key|shared[_\-]?access[_\-]?key"
         r"|private[_\-]?key|api[_\-]?key|apikey|auth[_\-]?token|access[_\-]?token|sas[_\-]?token"
         # kubeconfig secrets: client-key-data (the private key), certificate-data.
         r"|key[_\-]?data|cert(?:ificate)?[_\-]?data"
+        # session cookies are live bearer credentials: sessionid, JSESSIONID, PHPSESSID, connect.sid.
+        r"|session[_\-]?id|jsessionid|phpsessid|sessid|connect\.sid"
         r"|client[_\-]?secret|credential|token)[\w.\-]{0,20}"
         # optional closing quote after the key so a JSON credential ("password": "x") is matched too
         r"[\"']?\s*[:=]\s*[\"']?"

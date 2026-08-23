@@ -66,6 +66,19 @@ def test_non_aws_cloud_secrets_are_masked_gcp_and_azure():
         assert secret not in redact(text).text, f"{secret!r} (non-AWS cloud secret) leaked"
 
 
+def test_session_cookies_npm_and_github_pat_are_masked():
+    """Session cookies are live bearer credentials (theft = account takeover); npm _authToken and
+    GitHub fine-grained PATs (github_pat_) are publish credentials that flood CI/build logs. Token
+    literals are split so this file does not itself trip a secret scanner."""
+    assert "8f9a7b6c5d4e3f2a" not in redact("Set-Cookie: sessionid=8f9a7b6c5d4e3f2a; Path=/").text
+    assert "a1b2c3d4e5f6a7b8" not in redact("Cookie: PHPSESSID=a1b2c3d4e5f6a7b8").text
+    assert "0000abcd1234efgh" not in redact("Set-Cookie: JSESSIONID=0000abcd1234efgh; Secure").text
+    npm_token = "npm_" + "aB3dE5fG7hI9jK1lM3nO5pQ7"
+    assert npm_token not in redact(f"//registry.npmjs.org/:_authToken={npm_token}").text
+    pat = "github_pat_" + "11ABCDE0aZ9wKfN3pQrLxYbVzTmEs"
+    assert pat not in redact(f"remote: invalid credentials for {pat}").text
+
+
 def test_http_basic_auth_and_kubeconfig_secrets_are_masked():
     """HTTP Basic auth (base64 of user:pass) and a kubeconfig's client-key-data / certificate-data
     are credentials that appear in incident logs on any platform - Basic follows the same shape as
@@ -159,12 +172,23 @@ def test_credential_patterns_do_not_over_mask_benign_config():
 
 
 def test_ipv6_addresses_are_masked_like_ipv4():
-    """We redact IPv4, so IPv6 (common in dual-stack k8s logs) is the same identifier. But a time
-    (10:02:11) and a MAC (00:1a:2b:3c:4d:5e) - colons without a `::` or 8 groups - must survive."""
+    """We redact IPv4, so IPv6 (common in dual-stack k8s logs) is the same identifier. A time
+    (10:02:11) - colons without a `::` or 8 groups - must survive as evidence."""
     assert "2001:db8:85a3::8a2e:370:7334" not in redact("from 2001:db8:85a3::8a2e:370:7334").text
     assert "fe80::1" not in redact("gw fe80::1").text
-    assert redact("event at 10:02:11 today").size == 0, "a time was masked as an IPv6 address"
-    assert redact("nic 00:1a:2b:3c:4d:5e up").size == 0, "a MAC was masked as an IPv6 address"
+    assert redact("event at 10:02:11 today").size == 0, "a time was masked as an IPv6/MAC address"
+
+
+def test_mac_addresses_are_masked_as_device_reidentifiers():
+    """A MAC is a persistent device re-identifier (like an IP), so it is masked - in colon, dash and
+    Cisco-dotted forms - but as MAC, never as IPv6, and a time is still left alone."""
+    for text, mac in [("nic 00:1a:2b:3c:4d:5e up", "00:1a:2b:3c:4d:5e"),
+                      ("arp 00-1A-2B-3C-4D-5E", "00-1A-2B-3C-4D-5E"),
+                      ("switch 001a.2b3c.4d5e", "001a.2b3c.4d5e")]:
+        r = redact(text)
+        assert mac not in r.text, f"MAC {mac} leaked"
+        assert "<MAC_" in r.text and "<IPV6_" not in r.text, "masked as MAC, not IPv6"
+    assert redact("event at 10:02:11 today").size == 0, "a time must not be masked as a MAC"
 
 
 def test_iso_date_is_not_mistaken_for_a_phone_number():
