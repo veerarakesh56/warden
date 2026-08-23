@@ -98,7 +98,9 @@ def _tools() -> list[types.Tool]:
             name="redact_text",
             title="Redact identifiers before sending text to a model",
             description=(
-                "Mask emails, IPs, UUIDs, ARNs, JWTs, API keys, AWS account ids and tenant "
+                "Mask emails, IPv4/IPv6, UUIDs, ARNs, JWTs, API keys (OpenAI/GitHub/AWS/Slack/"
+                "GitLab/Stripe/Google), AWS account ids and secret access keys, PEM private keys, "
+                "connection-string passwords, bearer tokens, password=/secret= values and tenant "
                 "identifiers. Verifies its own output and fails if any original value survived. Use "
                 "before putting logs into any prompt."
             ),

@@ -13,12 +13,26 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# Ordered deliberately: the greedy patterns (ARN, JWT) run before the narrow ones (UUID, IP),
-# otherwise a UUID inside an ARN gets replaced first and the ARN pattern then fails to match.
+# Ordered deliberately: the greedy/most-specific patterns run before the narrow ones, otherwise a
+# narrow pattern eats part of a broader secret (a UUID inside an ARN, an EMAIL inside a connection
+# string) and the broader pattern then fails to match.
+#
+# ⛔ Every pattern with a capturing group masks group(1) — the SENSITIVE part only — keeping the
+# surrounding structure (`password=<SECRET_1>`, `postgres://user:<URLCRED_1>@host`) so the model can
+# still reason about the shape. Value char classes EXCLUDE `<` so a value that is already a
+# placeholder (`api_key=<APIKEY_1>`) is never re-matched and corrupted.
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    # A whole PEM private key block — the highest-value secret that turns up in a misconfig dump.
+    ("PRIVKEY", re.compile(r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----")),
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
     ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")),
-    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|ghp_|AKIA)[A-Za-z0-9_\-]{8,}\b")),
+    # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub (ghp_/gho_/ghu_/ghs_/ghr_), AWS (AKIA),
+    # Slack (xoxb-/xoxp-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_).
+    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|pk_live_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|xox[baprs]-|glpat-|AIza)[A-Za-z0-9_\-]{8,}\b")),
+    # Credentials embedded in a URL / connection string: scheme://user:PASSWORD@host. Masks the
+    # password (group 1). A literal `@` inside a password is only partially covered (rare — real
+    # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
+    ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s@<]{2,256})@")),
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
     ("UUID", re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")),
     ("AWSACCT", re.compile(r"\b\d{12}\b")),
@@ -35,9 +49,22 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     )),
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{3,})[\"']?")),
+    # A token following `Bearer ` in an Authorization header (when it is not already a JWT/API key).
+    ("BEARER", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/\-]{12,}=*)")),
     # The negative lookahead stops an ISO-8601 date (YYYY-MM-DD, which every log line starts with)
     # being masked as a phone number — that was masking timestamps and losing evidence.
     ("PHONE", re.compile(r"(?<![\d.])(?!\d{4}-\d\d-\d\d)\+?\d[\d\s\-]{8,14}\d(?![\d.])")),
+    # password=..., secret: ..., aws_secret_access_key="...": the value after a credential-ish key.
+    # Runs LAST so anything already masked (a placeholder starting with `<`, excluded from the value
+    # class) is left alone. The bounded [\w.\-] prefix/suffix lets the sensitive word sit INSIDE a
+    # compound key (`aws_secret_access_key`, `db_password`), which a `\b`-anchored form missed — the
+    # AWS secret access key (the credential paired with the AKIA id) is the case that exposed it.
+    ("SECRET", re.compile(
+        r"(?i)(?:^|[\s\"',;{(\[=])[\w.\-]{0,40}"
+        r"(?:password|passwd|pwd|secret|access[_\-]?key|api[_\-]?key|apikey|auth[_\-]?token"
+        r"|access[_\-]?token|client[_\-]?secret|credential|token)[\w.\-]{0,20}"
+        r"\s*[:=]\s*[\"']?([^\s\"',;<]{3,})"
+    )),
 ]
 
 

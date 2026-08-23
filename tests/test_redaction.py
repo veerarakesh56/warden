@@ -51,6 +51,42 @@ def test_credentials_are_masked_jwt_and_api_keys():
         assert key not in redact(f"leaked {key} in a log line").text, f"{key} was not masked"
 
 
+def test_high_value_credentials_in_logs_are_masked():
+    """The classes an adversarial review found leaking into the model in the clear: DB
+    connection-string passwords, PEM private keys, bearer tokens, the AWS secret access key (the
+    credential paired with the AKIA id), and password=/secret= assignments. These are realistic in
+    a misconfig/credential-leak incident log - the exact input this tool exists to handle."""
+    secrets = [
+        ("postgres://svc:S3cretPass@10.0.0.5:5432/orders", "S3cretPass"),
+        ("mysql://root:hunter2xyz@dbhost/app", "hunter2xyz"),
+        ("redis://:my-redis-pass1@cache:6379", "my-redis-pass1"),
+        ("Authorization: Bearer abc123def456ghi789jkl", "abc123def456ghi789jkl"),
+        ("-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7f8v2n\n-----END RSA PRIVATE KEY-----",
+         "MIIEpAIBAAKCAQEA7f8v2n"),
+        ("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+         "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+        ("db_password=SuperSecret123", "SuperSecret123"),
+        ("client_secret: my-oauth-secret-value", "my-oauth-secret-value"),
+        ("token xoxb-123456789-abcdefABCDEF", "xoxb-123456789-abcdefABCDEF"),
+        ("deploy key glpat-abcDEF1234567890", "glpat-abcDEF1234567890"),
+    ]
+    for text, secret in secrets:
+        assert secret not in redact(text).text, f"{secret!r} leaked to the model"
+
+
+def test_credential_patterns_do_not_over_mask_benign_config():
+    """The credential patterns must not eat ordinary evidence: a path, a date, a plain word, a
+    non-secret key=value. Over-redaction destroys the very evidence the model reasons about."""
+    for text, benign in [
+        ("access_log=/var/log/app.log", "/var/log/app.log"),
+        ("the password policy requires rotation", "policy"),
+        ("broker_topic=orders.v2", "orders.v2"),
+        ("retry_count=5 attempts", "retry_count"),
+        ("see https://github.com/org/repo", "github.com"),
+    ]:
+        assert benign in redact(text).text, f"{benign!r} was over-masked"
+
+
 def test_ipv6_addresses_are_masked_like_ipv4():
     """We redact IPv4, so IPv6 (common in dual-stack k8s logs) is the same identifier. But a time
     (10:02:11) and a MAC (00:1a:2b:3c:4d:5e) - colons without a `::` or 8 groups - must survive."""
