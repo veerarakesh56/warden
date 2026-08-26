@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aegis.models import (
+from warden.models import (
     ActionKind,
     Alert,
     RemediationProposal,
@@ -11,8 +11,8 @@ from aegis.models import (
     Verdict,
     VerdictStatus,
 )
-from aegis.remediation import RemediationOutcome, RemediationResult
-from aegis.reporting import build_report
+from warden.remediation import RemediationOutcome, RemediationResult
+from warden.reporting import build_report
 
 
 def _alert(environment="staging", summary="OOM"):
@@ -88,4 +88,4 @@ def test_promotion_names_the_account_to_use_in_each_target_env():
     # every promotion target carries the credentials pointer for that environment
     for t in rep.data["promotion"]:
         assert t["credentials_ref"], f"{t['environment']} missing credentials_ref"
-    assert "aegis-prod-readonly-role" in rep.markdown
+    assert "warden-prod-readonly-role" in rep.markdown

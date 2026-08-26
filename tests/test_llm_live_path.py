@@ -1,4 +1,4 @@
-"""Tests for the LIVE model path — the code that runs when AEGIS is not in mock mode.
+"""Tests for the LIVE model path — the code that runs when WARDEN is not in mock mode.
 
 This file exists because coverage measurement showed `llm.py` at **60%**: every test in the repo
 ran in mock mode, so the retry loop, the JSON extraction and the token accounting had never
@@ -14,8 +14,8 @@ import time
 import pytest
 from pydantic import BaseModel
 
-from aegis.llm import BudgetExceeded, LLMClient, ModelRefused, extract_json
-from aegis.providers import Completion, ProviderError, resolve
+from warden.llm import BudgetExceeded, LLMClient, ModelRefused, extract_json
+from warden.providers import Completion, ProviderError, resolve
 
 
 class Toy(BaseModel):
@@ -141,7 +141,7 @@ def test_a_hung_model_call_times_out_fast_instead_of_hanging_the_run():
     ModelCallTimeout is not caught by the retry loop, so it stops the run immediately rather than
     retrying into three consecutive hangs.
     """
-    from aegis.llm import ModelCallTimeout
+    from warden.llm import ModelCallTimeout
 
     c = LLMClient(provider=_HangingProvider(), mock=False, call_timeout_s=2.0)
     started = time.monotonic()
@@ -171,7 +171,7 @@ class _FlakyProvider:
 
 
 def test_a_transient_provider_error_is_retried_not_fatal():
-    """The provider SDKs' internal retries are disabled because AEGIS retries here. So a flaky 503
+    """The provider SDKs' internal retries are disabled because WARDEN retries here. So a flaky 503
     that would succeed on the next attempt must be RETRIED, not abort the whole run on the first hit.
     This is the regression an adversarial review caught after SDK retries were turned off."""
     p = _FlakyProvider(fail_times=1)
@@ -213,7 +213,7 @@ def test_a_permanent_auth_error_fails_fast_without_burning_retries():
 
 
 def test_is_transient_classification():
-    from aegis.llm import _is_transient
+    from warden.llm import _is_transient
 
     conn = ConnectionError("dial tcp: refused")           # no status -> transient
     assert _is_transient(conn) is True

@@ -2,7 +2,7 @@
 #
 # This is the real-cluster twin of fixture inc-002. It exists so the pipeline can be proven against
 # a live API server rather than recorded JSON: the kubelet terminates the container with reason
-# OOMKilled, the restart count climbs, and AEGIS must read that from pod status and arrive at the
+# OOMKilled, the restart count climbs, and WARDEN must read that from pod status and arrive at the
 # same verdict the fixture produces.
 #
 # Mechanism: `tail` with no arguments must buffer its entire input to print the last lines, so
@@ -24,7 +24,7 @@ metadata:
   namespace: default
   labels:
     app: checkout
-    aegis.test/purpose: synthetic-oom
+    warden.test/purpose: synthetic-oom
 spec:
   replicas: 1
   selector:

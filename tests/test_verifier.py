@@ -3,7 +3,7 @@
 A gate nobody has watched reject something is not a gate.
 """
 
-from aegis.models import (
+from warden.models import (
     ActionKind,
     Alert,
     ContextBundle,
@@ -12,7 +12,7 @@ from aegis.models import (
     Severity,
     VerdictStatus,
 )
-from aegis.verifier import verify
+from warden.verifier import verify
 
 
 def _alert(**kw):
@@ -165,7 +165,7 @@ def test_p9_ignores_inert_actions():
 
 
 def test_only_no_action_and_escalate_are_auto_safe():
-    from aegis.verifier import AUTO_SAFE_ACTIONS
+    from warden.verifier import AUTO_SAFE_ACTIONS
 
     assert AUTO_SAFE_ACTIONS == {ActionKind.no_action, ActionKind.escalate_to_human}
 

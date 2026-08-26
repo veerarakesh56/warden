@@ -7,13 +7,13 @@ The verifier decides whether an action is *admissible*. This layer decides wheth
 
 Only when all four hold does anything touch infrastructure, and even then only through a pluggable
 `RemediationBackend`. The one this repo ships is `DryRunBackend`, which changes nothing and records
-what it *would* do. That keeps AEGIS's core promise intact — this codebase never mutates a cluster —
+what it *would* do. That keeps WARDEN's core promise intact — this codebase never mutates a cluster —
 while making the execution path real and testable. An operator wanting genuine remediation supplies
 their own backend (kubectl/cloud SDK); the gate above it is the same either way.
 
 The environment gradient (from environments.yaml) does the heavy lifting:
-  - staging / qa-staging : auto_remediate = true  -> with an authorised approval, AEGIS applies.
-  - pre-prod / qa-prod / prod / unknown : auto_remediate = false -> AEGIS never applies; a human does.
+  - staging / qa-staging : auto_remediate = true  -> with an authorised approval, WARDEN applies.
+  - pre-prod / qa-prod / prod / unknown : auto_remediate = false -> WARDEN never applies; a human does.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class RemediationBackend(Protocol):
 
 
 class DryRunBackend:
-    """The default. Touches nothing; reports what a real backend would have done. AEGIS's core
+    """The default. Touches nothing; reports what a real backend would have done. WARDEN's core
     guarantee — this codebase does not execute against infrastructure — lives here."""
 
     live = False
@@ -142,7 +142,7 @@ def decide_remediation(
             f"principal '{who}' is not authorised to remediate in {alert.environment}",
         )
 
-    # 4. This environment must be one AEGIS may auto-apply in at all. pre-prod/qa-prod/prod/unknown
+    # 4. This environment must be one WARDEN may auto-apply in at all. pre-prod/qa-prod/prod/unknown
     #    are not — the fix is handed to a human, who applies it with the report as the runbook.
     if not env.auto_remediate:
         return result(
@@ -151,7 +151,7 @@ def decide_remediation(
         )
 
     # 5. Even in an auto-remediable environment, an explicit approval from the authorised principal
-    #    is required — AEGIS never applies a change nobody signed off.
+    #    is required — WARDEN never applies a change nobody signed off.
     if not request.approved:
         return result(
             RemediationOutcome.awaiting_approval,

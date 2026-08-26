@@ -37,7 +37,7 @@ collected — and nothing unredacted is ever in scope when it is called.
 
 ## State
 
-`AegisState` is a `TypedDict`. Every field is optional so partial updates merge cleanly. `audit`
+`WardenState` is a `TypedDict`. Every field is optional so partial updates merge cleanly. `audit`
 uses an `Annotated[..., _append]` reducer so each node appends rather than overwrites — losing the
 trail to a careless return would defeat the purpose of having one.
 
@@ -47,7 +47,7 @@ The contract is three methods — `logs`, `metrics`, `deploys` — and `gather()
 that calls them. **Nothing above that boundary knows or cares which backend is in use.** That is the
 whole reason the boundary exists, and v0.5.0 cashed it in:
 
-| Backend | `AEGIS_BACKEND` | Reads | Proven by |
+| Backend | `WARDEN_BACKEND` | Reads | Proven by |
 |---|---|---|---|
 | `FixtureBackend` | `fixture` (default) | recorded incidents shipped as package data | the eval gate, every push |
 | `KubernetesBackend` | `k8s` | a live cluster — pod status, events, log tails, Deployment revision | the CI `k8s` job: a real k3d cluster, a pod that really OOM-kills, RBAC checked both ways, run from outside *and* inside the cluster |
@@ -72,7 +72,7 @@ Adding Loki, CloudWatch or Datadog is the same shape: one class, three methods, 
 ### The alert → workload mapping
 
 ```
-namespace  = alert.labels["namespace"]  or $AEGIS_K8S_NAMESPACE  or "default"
+namespace  = alert.labels["namespace"]  or $WARDEN_K8S_NAMESPACE  or "default"
 selector   = alert.labels["selector"]   or f"app={alert.service}"
 deployment = alert.labels["deployment"] or alert.service
 ```
@@ -80,8 +80,8 @@ deployment = alert.labels["deployment"] or alert.service
 ### RBAC is the boundary
 
 `k8s/rbac.yaml`: a **ClusterRole** holding the read-only verb set, granted by a **namespaced
-RoleBinding** in each namespace AEGIS may diagnose. Never a ClusterRoleBinding. The first draft used
-a plain Role in the `aegis` namespace — which cannot see pods in `default`, where workloads live.
+RoleBinding** in each namespace WARDEN may diagnose. Never a ClusterRoleBinding. The first draft used
+a plain Role in the `warden` namespace — which cannot see pods in `default`, where workloads live.
 A Role only reaches its own namespace; caught before apply.
 
 CI asks the API server directly, both ways: the **exact five** reads the code makes must be `yes`
@@ -90,7 +90,7 @@ namespaces and cluster-scoped reads must each be `no`. Including `get pods` (onl
 and `get secrets` → `no`.
 
 Every tool call is individually caught **and runs under a wall-clock deadline**
-(`AEGIS_TOOL_TIMEOUT`, default 5s). A failure or timeout becomes an entry in `context.tool_errors`,
+(`WARDEN_TOOL_TIMEOUT`, default 5s). A failure or timeout becomes an entry in `context.tool_errors`,
 which policy `P8` reads — so a partial picture is *visible to the verifier* rather than looking like
 a complete one. This is the difference between degrading and lying.
 
@@ -105,18 +105,18 @@ socket timeout so the thread actually ends.
 ## Tracing
 
 `observability.py` wires OpenTelemetry. One span per node —
-`aegis.run → tool.* → analyse → propose → verify` — with attributes for confidence, action, blast
+`warden.run → tool.* → analyse → propose → verify` — with attributes for confidence, action, blast
 radius, verdict, policies fired, and **token/USD cost per step**.
 
-Defaults to no exporter; `AEGIS_TRACE_CONSOLE=1` prints spans, `OTEL_EXPORTER_OTLP_ENDPOINT` ships
-them to a collector, `AEGIS_TRACE=0` disables tracing entirely for quiet test runs. If the OTLP
+Defaults to no exporter; `WARDEN_TRACE_CONSOLE=1` prints spans, `OTEL_EXPORTER_OTLP_ENDPOINT` ships
+them to a collector, `WARDEN_TRACE=0` disables tracing entirely for quiet test runs. If the OTLP
 exporter package is absent it falls back to console rather than raising — **telemetry must never take
 the system down.**
 
 ## Deployment
 
 `terraform/` defines an ECS Fargate task. Two choices are deliberate: the **task role is read-only**
-(AEGIS inspects infrastructure, it does not change it — IAM is the boundary, not the verifier), and
+(WARDEN inspects infrastructure, it does not change it — IAM is the boundary, not the verifier), and
 the API key is passed as a **Secrets Manager ARN** so it never enters Terraform state.
 ⚠ Validated in CI, never applied against a live account.
 
@@ -126,7 +126,7 @@ the API key is passed as a **Secrets Manager ARN** so it never enters Terraform 
 ceiling. The ceiling is enforced in the call path, not reported afterwards — a budget that cannot
 stop anything is a number on a dashboard.
 
-⚠ The per-token prices are **configuration, not fact** (`AEGIS_PRICE_IN` / `AEGIS_PRICE_OUT`).
+⚠ The per-token prices are **configuration, not fact** (`WARDEN_PRICE_IN` / `WARDEN_PRICE_OUT`).
 Verify them against current vendor pricing before quoting any figure.
 
 ## Structured output
@@ -137,7 +137,7 @@ anything that cannot be verified cannot be gated.
 
 ## Mock mode
 
-`AEGIS_MOCK=1` replaces both model calls with deterministic factories that read **typed state**.
+`WARDEN_MOCK=1` replaces both model calls with deterministic factories that read **typed state**.
 This is what CI and the eval suite use, so the demo runs with no key and no network.
 
 ⛔ The mocks take **no arguments** on purpose. An earlier version passed the rendered prompt and

@@ -1,16 +1,16 @@
-"""AEGIS as an MCP server.
+"""WARDEN as an MCP server.
 
 Model Context Protocol is the open standard for giving an agent tools. Most MCP servers hand an
 agent *more capability*. This one is unusual: the most valuable tool it exposes is
 **`verify_remediation`**, which hands an agent a *constraint*.
 
-Any MCP-capable client — Claude Desktop, an IDE agent, another orchestrator — can call AEGIS's
+Any MCP-capable client — Claude Desktop, an IDE agent, another orchestrator — can call WARDEN's
 deterministic policy gate and be told, with policy ids, whether the action it was about to take is
 allowed in production. **The safety layer becomes reusable by agents that were not written with one.**
 
 Run it:
 
-    aegis-mcp                      # stdio transport, the usual MCP wiring
+    warden-mcp                      # stdio transport, the usual MCP wiring
 
 Built on the official `mcp` Python SDK v2 (2026-07-28 spec, stateless request/response core).
 ⚠ `mcp.server.fastmcp` does not exist in v2 — it was removed in the rework. This uses the low-level
@@ -41,7 +41,7 @@ from .verifier import MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
 
 _env_policies = default_environment_policies()
 
-SERVER_NAME = "aegis"
+SERVER_NAME = "warden"
 SERVER_VERSION = "0.5.1"
 
 
@@ -49,7 +49,7 @@ def _tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="verify_remediation",
-            title="Verify a remediation against AEGIS policy",
+            title="Verify a remediation against WARDEN policy",
             description=(
                 "Decide whether a proposed infrastructure remediation is allowed. Returns a verdict "
                 "(approved_for_human / escalated / rejected / auto_safe) with the policy ids that "
@@ -137,7 +137,7 @@ def _tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="describe_policy",
-            title="Explain the AEGIS policy set",
+            title="Explain the WARDEN policy set",
             description="Return the nine policies, the per-environment action allow-list and the confidence threshold.",
             input_schema={"type": "object", "properties": {}},
         ),
@@ -194,7 +194,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                     "policies_fired": verdict.policy_ids,
                     "reasons": verdict.reasons,
                     "may_execute": False,
-                    "note": "AEGIS never executes. A human performs the action.",
+                    "note": "WARDEN never executes. A human performs the action.",
                 }
             )
 
@@ -255,7 +255,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         "P8-PARTIAL-CONTEXT": "a failed context tool means incomplete evidence",
                         "P9-THIN-EVIDENCE": (
                             "too little evidence was gathered to justify acting, regardless of "
-                            "stated confidence - counted by AEGIS, not claimed by the model"
+                            "stated confidence - counted by WARDEN, not claimed by the model"
                         ),
                     },
                     "environment_allowlist": {
@@ -287,9 +287,9 @@ def build_server() -> Server:
         SERVER_NAME,
         version=SERVER_VERSION,
         instructions=(
-            "AEGIS exposes a deterministic safety gate for infrastructure remediation. Call "
+            "WARDEN exposes a deterministic safety gate for infrastructure remediation. Call "
             "verify_remediation before acting on any production system; it returns a binding "
-            "verdict with policy ids. AEGIS never executes actions itself."
+            "verdict with policy ids. WARDEN never executes actions itself."
         ),
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,

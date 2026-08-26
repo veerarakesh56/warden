@@ -1,13 +1,13 @@
 """The command line.
 
 Coverage measurement put this module at 22% - 43 of 55 statements untested - which is the worst
-possible place for a gap: `aegis demo` is the first thing anyone who clones this repo runs. Every
+possible place for a gap: `warden demo` is the first thing anyone who clones this repo runs. Every
 other module was tested through its API while the actual entry point was not exercised at all.
 """
 
 import pytest
 
-from aegis.cli import DEMO_ALERTS, main
+from warden.cli import DEMO_ALERTS, main
 
 
 def test_demo_runs_and_prints_every_incident(capsys):
@@ -78,7 +78,7 @@ def test_unknown_incident_exits_with_a_useful_message():
 
 def test_budget_flag_is_wired_through():
     """--max-usd must actually reach the client, not just be accepted by argparse."""
-    from aegis.llm import BudgetExceeded
+    from warden.llm import BudgetExceeded
 
     with pytest.raises(BudgetExceeded):
         main(["run", "--incident", "inc-001", "--max-usd", "0.0001"])
@@ -92,7 +92,7 @@ def test_no_subcommand_is_rejected():
 def test_run_report_flag_prints_the_report_and_safety_line(capsys):
     assert main(["run", "--incident", "inc-002", "--report"]) == 0
     out = capsys.readouterr().out
-    assert "AEGIS incident report" in out
+    assert "WARDEN incident report" in out
     assert "Promotion" in out
     assert "Nothing was executed against production" in out
 

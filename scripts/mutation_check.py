@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SRC = ROOT / "src" / "aegis"
+SRC = ROOT / "src" / "warden"
 
 # (label, file, find, replace, why this mutation matters)
 MUTATIONS = [
@@ -95,7 +95,7 @@ MUTATIONS = [
     (
         "RBAC binding points at cluster-admin",
         "../../k8s/rbac.yaml",
-        "  name: aegis-readonly\n  apiGroup: rbac.authorization.k8s.io",
+        "  name: warden-readonly\n  apiGroup: rbac.authorization.k8s.io",
         "  name: cluster-admin\n  apiGroup: rbac.authorization.k8s.io",
         "review finding: the old grep-based test passed this - zero write verbs in the file, full admin granted",
     ),
@@ -200,7 +200,7 @@ def run_suite() -> bool:
     r = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider"],
         cwd=ROOT, capture_output=True, text=True, check=False,
-        env={**os.environ, "AEGIS_MOCK": "1", "AEGIS_TRACE": "0"},
+        env={**os.environ, "WARDEN_MOCK": "1", "WARDEN_TRACE": "0"},
     )
     return r.returncode == 0
 

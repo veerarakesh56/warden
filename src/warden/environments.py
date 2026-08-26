@@ -1,8 +1,8 @@
-"""Per-environment policy: which environment may do what, who may approve it, and whether AEGIS may
+"""Per-environment policy: which environment may do what, who may approve it, and whether WARDEN may
 resolve an incident automatically or must hand it to a human.
 
 This is the configurable core of the staging -> prod safety gradient. `data/environments.yaml` ships
-a sane default; an operator overrides it with `$AEGIS_ENV_POLICY_PATH` or a path argument. Everything
+a sane default; an operator overrides it with `$WARDEN_ENV_POLICY_PATH` or a path argument. Everything
 is validated at load (unknown action names raise), and an environment absent from the config resolves
 to the `default` policy, which is the most restrictive one possible — the system FAILS CLOSED on an
 unrecognised environment rather than inheriting broad permissions.
@@ -64,7 +64,7 @@ class EnvPolicy:
     deny_actions: frozenset[ActionKind]
     authorized_principals: frozenset[str]
     # A POINTER to where this environment's credentials/account live — a k8s ServiceAccount name, a
-    # cloud IAM role, a Secrets-Manager id. NEVER the secret itself; AEGIS never stores a credential.
+    # cloud IAM role, a Secrets-Manager id. NEVER the secret itself; WARDEN never stores a credential.
     # It lets the policy express "which account acts in this environment" and lets a promotion report
     # tell a human which credential to use in the target env. None = inherit the deployment default.
     credentials_ref: str | None = None
@@ -130,13 +130,13 @@ class EnvironmentPolicies:
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:
-        chosen = path or os.environ.get("AEGIS_ENV_POLICY_PATH")
+        chosen = path or os.environ.get("WARDEN_ENV_POLICY_PATH")
         if chosen:
             p = Path(chosen)
             if not p.is_file():
                 raise EnvironmentPolicyError(f"environment policy not found at {p}")
             return p.read_text(encoding="utf-8")
-        res = resources.files("aegis") / "data" / "environments.yaml"
+        res = resources.files("warden") / "data" / "environments.yaml"
         return res.read_text(encoding="utf-8")
 
     @staticmethod

@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: aegis
+  name: warden
   labels:
-    app.kubernetes.io/name: aegis
-    # Pod Security Standards at the strictest level. AEGIS reads a cluster; it has no reason to
+    app.kubernetes.io/name: warden
+    # Pod Security Standards at the strictest level. WARDEN reads a cluster; it has no reason to
     # run privileged, as root, or with host access, and this makes the API server refuse if it
     # ever tried.
     pod-security.kubernetes.io/enforce: restricted

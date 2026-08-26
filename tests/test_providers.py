@@ -18,7 +18,7 @@ import pytest
 # corresponding extra is absent, or the suite quietly requires what the package says it does not.
 openai_sdk = pytest.importorskip("openai", reason="pip install -e '.[openai]'")
 
-from aegis.providers import (
+from warden.providers import (
     Completion,
     OpenAICompatProvider,
     ProviderError,
@@ -80,18 +80,18 @@ def test_gemini_accepts_either_key_variable(monkeypatch):
 def test_openai_aliases_point_at_the_right_host(monkeypatch, alias, expected_host):
     """One OpenAI-shaped client covers four vendors - the alias must set the base URL on the client,
     WITHOUT mutating the process env (see the two-alias leak test below)."""
-    monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
     p = resolve(alias)
     assert expected_host in str(p._client.base_url)
-    assert "AEGIS_BASE_URL" not in os.environ, "resolve() must not write the process env"
+    assert "WARDEN_BASE_URL" not in os.environ, "resolve() must not write the process env"
 
 
 def test_resolving_two_aliases_does_not_leak_the_first_endpoint(monkeypatch):
-    """The bug an adversarial review found: resolve() wrote AEGIS_BASE_URL and never cleared it, so
+    """The bug an adversarial review found: resolve() wrote WARDEN_BASE_URL and never cleared it, so
     a later resolve('ollama') reused a prior resolve('groq') endpoint - a "local" client silently
     pointing at a cloud API. Each resolve must be independent."""
-    monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
     resolve("groq")
     ollama = resolve("ollama")
@@ -102,14 +102,14 @@ def test_resolving_two_aliases_does_not_leak_the_first_endpoint(monkeypatch):
 def test_ollama_needs_no_real_key(monkeypatch):
     """Local models are the answer for teams that cannot send logs anywhere. A key must not block that."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     p = resolve("ollama")
     assert p.name == "openai"
 
 
 def test_openai_without_key_or_base_url_fails_clearly(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     with pytest.raises(ProviderError) as exc:
         OpenAICompatProvider()
     assert "OPENAI_API_KEY" in str(exc.value)
@@ -118,7 +118,7 @@ def test_openai_without_key_or_base_url_fails_clearly(monkeypatch):
 def test_model_is_overridable_by_env(monkeypatch):
     """A pinned model id is a dated assumption - gemini-2.0-flash was retired mid-project."""
     monkeypatch.setenv("GOOGLE_API_KEY", "fake")
-    monkeypatch.setenv("AEGIS_MODEL", "gemini-3.6-flash-lite")
+    monkeypatch.setenv("WARDEN_MODEL", "gemini-3.6-flash-lite")
     assert resolve("gemini").model == "gemini-3.6-flash-lite"
 
 
@@ -133,7 +133,7 @@ class _FakeOpenAIResponse:
 
 def test_openai_adapter_maps_text_and_usage(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     p = OpenAICompatProvider()
     usage = type("U", (), {"prompt_tokens": 111, "completion_tokens": 22})()
     p._client = type("Cl", (), {
@@ -152,7 +152,7 @@ def test_openai_adapter_maps_text_and_usage(monkeypatch):
 def test_openai_adapter_estimates_when_the_provider_reports_no_usage(monkeypatch):
     """Some OpenAI-compatible servers (Ollama among them) omit usage. Zeros would disarm the budget."""
     monkeypatch.setenv("OPENAI_API_KEY", "fake")
-    monkeypatch.delenv("AEGIS_BASE_URL", raising=False)
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     p = OpenAICompatProvider()
     p._client = type("Cl", (), {
         "chat": type("Ch", (), {

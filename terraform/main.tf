@@ -1,8 +1,8 @@
-# AEGIS on ECS Fargate.
+# WARDEN on ECS Fargate.
 #
 # Two deliberate choices worth reading before you copy this:
 #
-# 1. The task role has **no permissions to change anything**. AEGIS reads logs, metrics and deploy
+# 1. The task role has **no permissions to change anything**. WARDEN reads logs, metrics and deploy
 #    history and proposes a remediation. It does not execute one. Giving it write access to the
 #    infrastructure it reasons about would defeat the entire design.
 # 2. The API key is passed by **secret ARN reference**, never as a Terraform variable, so it never
@@ -19,7 +19,7 @@ data "aws_region" "current" {}
 
 # --------------------------------------------------------------------------- logs
 
-resource "aws_cloudwatch_log_group" "aegis" {
+resource "aws_cloudwatch_log_group" "warden" {
   name              = "/ecs/${var.name}"
   retention_in_days = var.log_retention_days
   tags              = local.tags
@@ -104,9 +104,9 @@ resource "aws_iam_role_policy" "task_readonly" {
 
 # --------------------------------------------------------------------------- networking
 
-resource "aws_security_group" "aegis" {
+resource "aws_security_group" "warden" {
   name        = "${var.name}-task"
-  description = "AEGIS task. Egress only - nothing connects to it."
+  description = "WARDEN task. Egress only - nothing connects to it."
   vpc_id      = var.vpc_id
   tags        = local.tags
 
@@ -121,7 +121,7 @@ resource "aws_security_group" "aegis" {
 
 # --------------------------------------------------------------------------- task
 
-resource "aws_ecs_task_definition" "aegis" {
+resource "aws_ecs_task_definition" "warden" {
   family                   = var.name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -138,9 +138,9 @@ resource "aws_ecs_task_definition" "aegis" {
       essential = true
 
       environment = [
-        { name = "AEGIS_MOCK", value = "0" },
-        { name = "AEGIS_MAX_USD", value = var.max_usd_per_run },
-        { name = "AEGIS_TOOL_TIMEOUT", value = var.tool_timeout_seconds },
+        { name = "WARDEN_MOCK", value = "0" },
+        { name = "WARDEN_MAX_USD", value = var.max_usd_per_run },
+        { name = "WARDEN_TOOL_TIMEOUT", value = var.tool_timeout_seconds },
         { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.otlp_endpoint },
       ]
 
@@ -151,7 +151,7 @@ resource "aws_ecs_task_definition" "aegis" {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.aegis.name
+          "awslogs-group"         = aws_cloudwatch_log_group.warden.name
           "awslogs-region"        = data.aws_region.current.name
           "awslogs-stream-prefix" = "ecs"
         }

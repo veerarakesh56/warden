@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aegis.chatops import (
+from warden.chatops import (
     ConsoleSink,
     GenericWebhookSink,
     Notification,
@@ -10,8 +10,8 @@ from aegis.chatops import (
     notify,
     resolve_sinks,
 )
-from aegis.models import ActionKind, Alert, RemediationProposal, RootCause, Severity
-from aegis.reporting import build_report
+from warden.models import ActionKind, Alert, RemediationProposal, RootCause, Severity
+from warden.reporting import build_report
 
 
 def _report():
@@ -49,15 +49,15 @@ class _CaptureSink:
 # ------------------------------------------------------------------ defaults & safety
 
 def test_no_webhook_configured_falls_back_to_console(monkeypatch):
-    for var in ("AEGIS_SLACK_WEBHOOK", "AEGIS_TEAMS_WEBHOOK", "AEGIS_WEBHOOK_URL"):
+    for var in ("WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL"):
         monkeypatch.delenv(var, raising=False)
     sinks = resolve_sinks()
     assert len(sinks) == 1 and isinstance(sinks[0], ConsoleSink)
 
 
 def test_slack_sink_is_dry_run_unless_explicitly_armed(monkeypatch):
-    monkeypatch.setenv("AEGIS_SLACK_WEBHOOK", "https://hooks.example.invalid/xxx")
-    monkeypatch.delenv("AEGIS_CHATOPS_LIVE", raising=False)
+    monkeypatch.setenv("WARDEN_SLACK_WEBHOOK", "https://hooks.example.invalid/xxx")
+    monkeypatch.delenv("WARDEN_CHATOPS_LIVE", raising=False)
     [sink] = resolve_sinks()
     assert isinstance(sink, SlackWebhookSink)
     note = sink.send("hi", {})
@@ -97,7 +97,7 @@ def test_console_sink_transmits_nothing():
 
 def test_the_transmitted_json_data_is_recursively_redacted():
     """The generic-webhook path sends report.data; every string in it is scrubbed before transmit."""
-    from aegis.chatops import _redact_obj
+    from warden.chatops import _redact_obj
 
     cap = _CaptureSink()
     notify(_report(), sinks=[cap])

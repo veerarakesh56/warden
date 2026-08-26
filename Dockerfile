@@ -2,7 +2,7 @@ FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    AEGIS_MOCK=1
+    WARDEN_MOCK=1
 
 WORKDIR /app
 
@@ -15,8 +15,8 @@ COPY src ./src
 RUN pip install --no-cache-dir ".[k8s]"
 
 # Runs as a non-root user. An incident-response tool that runs as root is its own incident.
-RUN useradd --create-home --uid 10001 aegis
-USER aegis
+RUN useradd --create-home --uid 10001 warden
+USER warden
 
-ENTRYPOINT ["aegis"]
+ENTRYPOINT ["warden"]
 CMD ["demo"]

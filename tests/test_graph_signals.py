@@ -9,8 +9,8 @@ shape included, at the level where the bug would live.
 
 from __future__ import annotations
 
-from aegis.graph import Signals, _mock_proposal, _mock_root_cause
-from aegis.models import ActionKind, Alert, ContextBundle, Severity
+from warden.graph import Signals, _mock_proposal, _mock_root_cause
+from warden.models import ActionKind, Alert, ContextBundle, Severity
 
 
 def _signals(**metrics) -> Signals:

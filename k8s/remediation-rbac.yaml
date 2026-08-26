@@ -1,16 +1,16 @@
-# The WRITE path — deliberately separate from the read-only `aegis` ServiceAccount in rbac.yaml.
+# The WRITE path — deliberately separate from the read-only `warden` ServiceAccount in rbac.yaml.
 #
-# AEGIS is read-only by default. When an operator ARMS live remediation (AEGIS_REMEDIATION=live),
+# WARDEN is read-only by default. When an operator ARMS live remediation (WARDEN_REMEDIATION=live),
 # the one thing it may do to a cluster is restart or scale a Deployment — and even then only after
 # the four-way policy gate passes. This ServiceAccount is the boundary for that: it can `patch`
 # deployments and NOTHING else. No delete, no pods, no secrets, no other resource, no other verb.
 #
 # Proven from the API server's own view, both sides, in CI:
-#   kubectl auth can-i patch  deployments -n default     --as=system:serviceaccount:aegis:aegis-remediator -> yes
-#   kubectl auth can-i get    deployments -n default     --as=system:serviceaccount:aegis:aegis-remediator -> yes
-#   kubectl auth can-i delete pods        -n default     --as=system:serviceaccount:aegis:aegis-remediator -> no
-#   kubectl auth can-i patch  deployments -n kube-system --as=system:serviceaccount:aegis:aegis-remediator -> no
-#   kubectl auth can-i delete deployments -n default     --as=system:serviceaccount:aegis:aegis-remediator -> no
+#   kubectl auth can-i patch  deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> yes
+#   kubectl auth can-i get    deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> yes
+#   kubectl auth can-i delete pods        -n default     --as=system:serviceaccount:warden:warden-remediator -> no
+#   kubectl auth can-i patch  deployments -n kube-system --as=system:serviceaccount:warden:warden-remediator -> no
+#   kubectl auth can-i delete deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> no
 #
 # `get` is needed because a scale reads the current replica count before patching it. Restart and
 # scale are both done with a single `patch deployments` (a strategic-merge patch of the template
@@ -19,42 +19,42 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: aegis-remediator
-  namespace: aegis
+  name: warden-remediator
+  namespace: warden
   labels:
-    app.kubernetes.io/name: aegis
+    app.kubernetes.io/name: warden
     app.kubernetes.io/component: remediation
 automountServiceAccountToken: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: aegis-remediator
+  name: warden-remediator
   labels:
-    app.kubernetes.io/name: aegis
+    app.kubernetes.io/name: warden
     app.kubernetes.io/component: remediation
-# The ruler is src/aegis/remediation_k8s.py: it calls read_namespaced_deployment (get) and
+# The ruler is src/warden/remediation_k8s.py: it calls read_namespaced_deployment (get) and
 # patch_namespaced_deployment (patch). Two grants, two callers. Nothing else — not even list.
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "patch"]
 ---
-# Granted in the namespace AEGIS may remediate. One RoleBinding per such namespace; never a
+# Granted in the namespace WARDEN may remediate. One RoleBinding per such namespace; never a
 # ClusterRoleBinding — that would let it patch deployments cluster-wide.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: aegis-remediator
+  name: warden-remediator
   namespace: default
   labels:
-    app.kubernetes.io/name: aegis
+    app.kubernetes.io/name: warden
     app.kubernetes.io/component: remediation
 subjects:
   - kind: ServiceAccount
-    name: aegis-remediator
-    namespace: aegis
+    name: warden-remediator
+    namespace: warden
 roleRef:
   kind: ClusterRole
-  name: aegis-remediator
+  name: warden-remediator
   apiGroup: rbac.authorization.k8s.io

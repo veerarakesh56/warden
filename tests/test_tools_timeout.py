@@ -6,9 +6,9 @@ docstring while implementing none. A claim in a comment is not a feature.
 
 import time
 
-from aegis.models import ActionKind, Alert, RemediationProposal, RootCause, Severity, VerdictStatus
-from aegis.tools import FixtureBackend, gather
-from aegis.verifier import verify
+from warden.models import ActionKind, Alert, RemediationProposal, RootCause, Severity, VerdictStatus
+from warden.tools import FixtureBackend, gather
+from warden.verifier import verify
 
 
 def _alert():

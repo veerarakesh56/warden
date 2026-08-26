@@ -1,6 +1,6 @@
 # Why the model never decides
 
-The whole of AEGIS is one argument: **a stochastic component may propose, but it must not be the
+The whole of WARDEN is one argument: **a stochastic component may propose, but it must not be the
 thing that decides.** Everything else — the graph, the schemas, the policies — is machinery for
 holding that line.
 
@@ -87,7 +87,7 @@ this document exists to warn about.
 - The tools read recorded fixtures. Wiring them to Loki, CloudWatch or Datadog is one class each,
   but it has not been done here.
 - `await_approval` is a terminal node. Real Slack approval and execution are deliberately absent —
-  the moment AEGIS can execute, it needs an entirely different security review.
+  the moment WARDEN can execute, it needs an entirely different security review.
 - Redaction is regex-based. It catches the identifier classes it knows about. It is a strong control
   against accidental leakage, not a guarantee against a determined adversary.
 - The mock reasoner is a stand-in with hand-written branches. It exists so the routing can be tested

@@ -1,4 +1,4 @@
-"""AEGIS — AI incident-response orchestrator.
+"""WARDEN — AI incident-response orchestrator.
 
 The model proposes. A deterministic verifier decides. Nothing here executes infrastructure actions.
 """

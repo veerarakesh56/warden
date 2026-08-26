@@ -18,11 +18,11 @@ from types import SimpleNamespace as NS
 import pytest
 import yaml
 
-from aegis import k8s_backend
-from aegis.k8s_backend import KubernetesBackend, _to_mib
-from aegis.models import ActionKind, Alert, RemediationProposal, RootCause, Severity, VerdictStatus
-from aegis.tools import PARTIAL_PREFIX, ToolError, gather
-from aegis.verifier import verify
+from warden import k8s_backend
+from warden.k8s_backend import KubernetesBackend, _to_mib
+from warden.models import ActionKind, Alert, RemediationProposal, RootCause, Severity, VerdictStatus
+from warden.tools import PARTIAL_PREFIX, ToolError, gather
+from warden.verifier import verify
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -366,7 +366,7 @@ def test_alert_labels_override_namespace_and_selector():
 
 
 def test_env_default_namespace(monkeypatch):
-    monkeypatch.setenv("AEGIS_K8S_NAMESPACE", "shop")
+    monkeypatch.setenv("WARDEN_K8S_NAMESPACE", "shop")
     core = FakeCore(pods=[_pod()])
     _backend(core).metrics(_alert())
     assert core.calls[-1].startswith("list_namespaced_pod shop ")
@@ -473,7 +473,7 @@ def test_rbac_manifest_is_structurally_read_only():
             "never a built-in like cluster-admin/admin/edit"
         )
         for s in b["subjects"]:
-            assert s["kind"] == "ServiceAccount" and s["name"] == "aegis" and s["namespace"] == "aegis"
+            assert s["kind"] == "ServiceAccount" and s["name"] == "warden" and s["namespace"] == "warden"
 
     sa = next(d for d in docs if d["kind"] == "ServiceAccount")
     assert sa.get("automountServiceAccountToken") is False
@@ -511,7 +511,7 @@ def test_job_manifest_cannot_hang_or_lose_evidence():
     assert spec["ttlSecondsAfterFinished"] >= 7 * 24 * 3600
     assert "generateName" in job["metadata"] and "name" not in job["metadata"], "Jobs are immutable"
     pod = spec["template"]["spec"]
-    assert pod["serviceAccountName"] == "aegis"
+    assert pod["serviceAccountName"] == "warden"
     assert pod["securityContext"]["runAsNonRoot"] is True and pod["securityContext"]["runAsUser"] == 10001
     c = pod["containers"][0]["securityContext"]
     assert c["readOnlyRootFilesystem"] is True and c["allowPrivilegeEscalation"] is False

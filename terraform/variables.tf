@@ -1,11 +1,11 @@
 variable "name" {
   description = "Name prefix for every resource this module creates."
   type        = string
-  default     = "aegis"
+  default     = "warden"
 }
 
 variable "image" {
-  description = "Container image URI for AEGIS (e.g. <acct>.dkr.ecr.<region>.amazonaws.com/aegis:v0.1.0)."
+  description = "Container image URI for WARDEN (e.g. <acct>.dkr.ecr.<region>.amazonaws.com/warden:v0.1.0)."
   type        = string
 }
 
@@ -15,7 +15,7 @@ variable "cluster_arn" {
 }
 
 variable "subnet_ids" {
-  description = "PRIVATE subnet IDs. AEGIS reads logs and metrics; it has no reason to sit in a public subnet."
+  description = "PRIVATE subnet IDs. WARDEN reads logs and metrics; it has no reason to sit in a public subnet."
   type        = list(string)
 
   validation {
@@ -41,7 +41,7 @@ variable "log_retention_days" {
 }
 
 variable "task_cpu" {
-  description = "Fargate CPU units. AEGIS is I/O bound - it waits on tools and the model."
+  description = "Fargate CPU units. WARDEN is I/O bound - it waits on tools and the model."
   type        = string
   default     = "512"
 }

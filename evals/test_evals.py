@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.cli import DEMO_ALERTS
-from aegis.graph import run
-from aegis.llm import LLMClient
-from aegis.models import ActionKind, Alert, VerdictStatus
-from aegis.verifier import AUTO_SAFE_ACTIONS
+from warden.cli import DEMO_ALERTS
+from warden.graph import run
+from warden.llm import LLMClient
+from warden.models import ActionKind, Alert, VerdictStatus
+from warden.verifier import AUTO_SAFE_ACTIONS
 
 CASES = [
     # incident, expected action,               expected verdict,               why this case exists
@@ -90,7 +90,7 @@ def test_cost_is_recorded_for_every_run():
 
 def test_budget_ceiling_halts_the_run():
     """A budget that cannot stop anything is a number on a dashboard, not a control."""
-    from aegis.llm import BudgetExceeded
+    from warden.llm import BudgetExceeded
 
     with pytest.raises(BudgetExceeded):
         run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True, max_usd=0.0001))
@@ -135,7 +135,7 @@ class _ScriptedProvider:
     model = "scripted-1"
 
     def __init__(self, *responses: str) -> None:
-        from aegis.providers import Completion
+        from warden.providers import Completion
 
         self._responses = list(responses)
         self._Completion = Completion

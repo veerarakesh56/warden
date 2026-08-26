@@ -1,6 +1,6 @@
 """Model providers.
 
-AEGIS is not tied to one vendor. That is a design position, not a cost saving:
+WARDEN is not tied to one vendor. That is a design position, not a cost saving:
 
 - **A safety layer that only works against one model is not a safety layer.** The verifier, the
   redaction and the policy gate are provider-independent by construction, and the way to prove that
@@ -12,12 +12,12 @@ AEGIS is not tied to one vendor. That is a design position, not a cost saving:
   organisation has. Plenty of teams cannot send them to any third party, and Ollama support means
   the answer is "run it locally", not "you cannot use this".
 
-Select with `AEGIS_PROVIDER`:
+Select with `WARDEN_PROVIDER`:
 
     mock      (default in tests)  no network, deterministic
     anthropic ANTHROPIC_API_KEY
     gemini    GEMINI_API_KEY      free tier at aistudio.google.com
-    openai    OPENAI_API_KEY      also Groq / OpenRouter / Ollama via AEGIS_BASE_URL
+    openai    OPENAI_API_KEY      also Groq / OpenRouter / Ollama via WARDEN_BASE_URL
 
 Every provider returns the same tuple: (text, input_tokens, output_tokens). Token counts are used
 for the budget ceiling, so a provider that cannot report them must estimate rather than return zero
@@ -40,7 +40,7 @@ class _SuppressAFCNotice(logging.Filter):
     """Drop google-genai's 'automatic function calling' chatter, and nothing else.
 
     google-genai logs 'AFC is enabled ...' and 'Direct use of automatic function calling (AFC) in
-    Models.generate_content is not recommended ...' on EVERY generate_content call. AEGIS passes no
+    Models.generate_content is not recommended ...' on EVERY generate_content call. WARDEN passes no
     tools, so AFC is irrelevant here - it is pure noise on every live call. This filters only those
     two records by message content, so any real error from the same logger still gets through.
     """
@@ -92,10 +92,10 @@ def _sdk_timeout_s() -> float:
     socket give up, so the worker thread ends and the process can exit. Without it, a hung request
     (a just-rotated key made the client retry endlessly) blocks the run past every higher-level
     deadline, because a thread stuck in a blocking C call cannot be force-killed. Each provider is
-    also told NOT to retry internally — AEGIS has its own retry loop, and stacking them multiplies
+    also told NOT to retry internally — WARDEN has its own retry loop, and stacking them multiplies
     the wall-clock a slow endpoint costs.
     """
-    return float(os.environ.get("AEGIS_LLM_TIMEOUT", "45.0"))
+    return float(os.environ.get("WARDEN_LLM_TIMEOUT", "45.0"))
 
 
 # --------------------------------------------------------------------------- anthropic
@@ -107,7 +107,7 @@ class AnthropicProvider:
     def __init__(self, model: str | None = None) -> None:
         from anthropic import Anthropic
 
-        self.model = model or os.environ.get("AEGIS_MODEL", "claude-sonnet-5")
+        self.model = model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5")
         self._client = Anthropic(timeout=_sdk_timeout_s(), max_retries=0)
 
     def complete(self, *, system: str, user: str) -> Completion:
@@ -136,8 +136,8 @@ class GeminiProvider:
         _quiet_gemini_afc_notice()
         # ⚠ Model names expire. `gemini-2.0-flash` was the default here and the API answered
         # "no longer available ... use models/gemini-3.6-flash". A hardcoded model id is a dated
-        # assumption, which is why AEGIS_MODEL overrides it without touching code.
-        self.model = model or os.environ.get("AEGIS_MODEL", "gemini-3.6-flash")
+        # assumption, which is why WARDEN_MODEL overrides it without touching code.
+        self.model = model or os.environ.get("WARDEN_MODEL", "gemini-3.6-flash")
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Get a free key at aistudio.google.com.")
@@ -187,13 +187,13 @@ class OpenAICompatProvider:
     def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
         from openai import OpenAI
 
-        self.model = model or os.environ.get("AEGIS_MODEL", "gpt-4o-mini")
+        self.model = model or os.environ.get("WARDEN_MODEL", "gpt-4o-mini")
         # Passed in by resolve() for the aliases; falls back to the env for an explicit custom host.
-        base_url = base_url or os.environ.get("AEGIS_BASE_URL")  # e.g. http://localhost:11434/v1
+        base_url = base_url or os.environ.get("WARDEN_BASE_URL")  # e.g. http://localhost:11434/v1
         # Ollama ignores the key but the client requires one to be present.
         api_key = os.environ.get("OPENAI_API_KEY") or ("ollama" if base_url else None)
         if not api_key:
-            raise ProviderError("OPENAI_API_KEY is not set (or set AEGIS_BASE_URL for a local model).")
+            raise ProviderError("OPENAI_API_KEY is not set (or set WARDEN_BASE_URL for a local model).")
         kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
         if base_url:
             kw["base_url"] = base_url
@@ -232,14 +232,14 @@ DEFAULT_BASE_URLS = {
 
 def resolve(name: str | None = None) -> Provider:
     """Build the configured provider. Raises a readable error rather than failing at call time."""
-    name = (name or os.environ.get("AEGIS_PROVIDER") or "anthropic").lower()
+    name = (name or os.environ.get("WARDEN_PROVIDER") or "anthropic").lower()
     if name not in _REGISTRY:
         raise ProviderError(f"unknown provider '{name}'. Known: {', '.join(sorted(_REGISTRY))}")
     # Point the OpenAI-compatible client at the right host by PASSING it, never by mutating the
-    # process env. Writing AEGIS_BASE_URL used to persist: a later resolve('ollama') then reused a
+    # process env. Writing WARDEN_BASE_URL used to persist: a later resolve('ollama') then reused a
     # prior resolve('groq') endpoint, so a "local" Ollama client silently pointed at a cloud API —
     # breaking the local-only guarantee and mutating the library caller's global env. An explicit
-    # AEGIS_BASE_URL still wins (custom self-hosted host).
+    # WARDEN_BASE_URL still wins (custom self-hosted host).
     if name in DEFAULT_BASE_URLS:
-        return OpenAICompatProvider(base_url=os.environ.get("AEGIS_BASE_URL") or DEFAULT_BASE_URLS[name])
+        return OpenAICompatProvider(base_url=os.environ.get("WARDEN_BASE_URL") or DEFAULT_BASE_URLS[name])
     return _REGISTRY[name]()

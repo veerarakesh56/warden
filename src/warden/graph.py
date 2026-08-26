@@ -58,7 +58,7 @@ def _as_count(value: object) -> int:
     return int(v) if math.isfinite(v) and v > 0 else 0
 
 
-class AegisState(TypedDict, total=False):
+class WardenState(TypedDict, total=False):
     alert: Alert
     context: ContextBundle
     redacted_logs: list[str]
@@ -126,7 +126,7 @@ class Signals:
         return self.error_rate > 0.02 or self.crashloop > 0
 
     @classmethod
-    def of(cls, state: AegisState) -> Signals:
+    def of(cls, state: WardenState) -> Signals:
         ctx = state["context"]
         m = ctx.metrics
         used, size = m.get("connection_pool_used", 0.0), m.get("connection_pool_size", 0.0)
@@ -230,12 +230,12 @@ SYSTEM_PROPOSE = (
 # --------------------------------------------------------------------------- nodes
 
 
-def node_ingest(state: AegisState) -> AegisState:
+def node_ingest(state: WardenState) -> WardenState:
     alert = state["alert"]
     return {"audit": [{"node": "ingest", "alert_id": alert.alert_id, "env": alert.environment}]}
 
 
-def node_gather(state: AegisState) -> AegisState:
+def node_gather(state: WardenState) -> WardenState:
     backend = state.get("backend") or FixtureBackend()
     context = gather(state["alert"], backend)
     return {
@@ -253,7 +253,7 @@ def node_gather(state: AegisState) -> AegisState:
     }
 
 
-def node_redact(state: AegisState) -> AegisState:
+def node_redact(state: WardenState) -> WardenState:
     """Nothing downstream of here sees a real identifier.
 
     ⛔ recent_deploys is scrubbed too, not just logs+summary. It reaches the model through
@@ -313,7 +313,7 @@ def node_redact(state: AegisState) -> AegisState:
     }
 
 
-def _evidence_blob(state: AegisState) -> str:
+def _evidence_blob(state: WardenState) -> str:
     ctx = state["context"]
     blob = (
         f"ALERT: {state['alert'].name} — {state['alert'].summary}\n"
@@ -330,7 +330,7 @@ def _evidence_blob(state: AegisState) -> str:
     return redact(blob, mapping=state.get("redaction_map", {})).text
 
 
-def node_analyse(state: AegisState) -> AegisState:
+def node_analyse(state: WardenState) -> WardenState:
     llm: LLMClient = state["llm"]
     signals = Signals.of(state)
     with span("analyse", has_deploy=signals.has_deploy, log_count=signals.log_count) as sp:
@@ -343,7 +343,7 @@ def node_analyse(state: AegisState) -> AegisState:
             schema=RootCause,
             mock_factory=lambda: _mock_root_cause(signals),
         )
-        sp.set_attribute("aegis.confidence", rc.confidence)
+        sp.set_attribute("warden.confidence", rc.confidence)
         record_model_call(sp, operation="chat", provider=llm.provider_name, model=llm.model,
                           input_tokens=llm.cost.input_tokens - before[0],
                           output_tokens=llm.cost.output_tokens - before[1],
@@ -354,7 +354,7 @@ def node_analyse(state: AegisState) -> AegisState:
     }
 
 
-def node_propose(state: AegisState) -> AegisState:
+def node_propose(state: WardenState) -> WardenState:
     llm: LLMClient = state["llm"]
     signals = Signals.of(state)
     with span("propose") as sp:
@@ -365,8 +365,8 @@ def node_propose(state: AegisState) -> AegisState:
             schema=RemediationProposal,
             mock_factory=lambda: _mock_proposal(signals),
         )
-        sp.set_attribute("aegis.action", proposal.action.value)
-        sp.set_attribute("aegis.blast_radius", proposal.blast_radius)
+        sp.set_attribute("warden.action", proposal.action.value)
+        sp.set_attribute("warden.blast_radius", proposal.blast_radius)
         record_model_call(sp, operation="chat", provider=llm.provider_name, model=llm.model,
                           input_tokens=llm.cost.input_tokens - before[0],
                           output_tokens=llm.cost.output_tokens - before[1],
@@ -377,13 +377,13 @@ def node_propose(state: AegisState) -> AegisState:
     }
 
 
-def node_verify(state: AegisState) -> AegisState:
+def node_verify(state: WardenState) -> WardenState:
     """No model here. On purpose."""
     with span("verify", environment=state["alert"].environment) as sp:
         verdict = verify(state["alert"], state["context"], state["root_cause"], state["proposal"])
-        sp.set_attribute("aegis.verdict", verdict.status.value)
-        sp.set_attribute("aegis.policies", ",".join(verdict.policy_ids))
-        sp.set_attribute("aegis.requires_approval", verdict.requires_approval)
+        sp.set_attribute("warden.verdict", verdict.status.value)
+        sp.set_attribute("warden.policies", ",".join(verdict.policy_ids))
+        sp.set_attribute("warden.requires_approval", verdict.requires_approval)
     return {
         "verdict": verdict,
         "audit": [
@@ -392,7 +392,7 @@ def node_verify(state: AegisState) -> AegisState:
     }
 
 
-def route_after_verify(state: AegisState) -> str:
+def route_after_verify(state: WardenState) -> str:
     """One outbound edge per verdict status. No status may share a route with another.
 
     An earlier version sent BOTH `approved_for_human` and `auto_safe` to `await_approval`, so an
@@ -408,24 +408,24 @@ def route_after_verify(state: AegisState) -> str:
     }[status]
 
 
-def node_halt(state: AegisState) -> AegisState:
+def node_halt(state: WardenState) -> WardenState:
     reasons = "; ".join(state["verdict"].reasons)
     return {"halted_reason": reasons, "audit": [{"node": "halt", "reasons": reasons}]}
 
 
-def node_escalate(state: AegisState) -> AegisState:
+def node_escalate(state: WardenState) -> WardenState:
     return {"audit": [{"node": "escalate", "to": "oncall"}]}
 
 
-def node_await_approval(state: AegisState) -> AegisState:
+def node_await_approval(state: WardenState) -> WardenState:
     """Where a real deployment would post to Slack and wait for a click.
 
-    It stops here by design. Nothing in AEGIS executes an action against infrastructure.
+    It stops here by design. Nothing in WARDEN executes an action against infrastructure.
     """
     return {"audit": [{"node": "await_approval", "waiting_on": "operator"}]}
 
 
-def node_record_safe(state: AegisState) -> AegisState:
+def node_record_safe(state: WardenState) -> WardenState:
     """Inert outcome — `no_action` or `escalate_to_human` (the only members of AUTO_SAFE_ACTIONS).
 
     Recorded rather than queued, because nothing here needs a person to approve it.
@@ -438,7 +438,7 @@ def node_record_safe(state: AegisState) -> AegisState:
 
 
 def build_graph():
-    g = StateGraph(AegisState)
+    g = StateGraph(WardenState)
     g.add_node("ingest", node_ingest)
     g.add_node("gather", node_gather)
     g.add_node("redact", node_redact)
@@ -476,13 +476,13 @@ def build_graph():
 def run(alert: Alert, *, llm: LLMClient | None = None, backend: FixtureBackend | None = None) -> RunReport:
     llm = llm or LLMClient()
     app = build_graph()
-    with span("aegis.run", alert_id=alert.alert_id, service=alert.service,
+    with span("warden.run", alert_id=alert.alert_id, service=alert.service,
               environment=alert.environment, severity=alert.severity.value) as root:
         final = app.invoke({"alert": alert, "llm": llm, "backend": backend, "audit": []})
         record_cost(root, input_tokens=llm.cost.input_tokens,
                     output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
         if final.get("verdict") is not None:
-            root.set_attribute("aegis.verdict", final["verdict"].status.value)
+            root.set_attribute("warden.verdict", final["verdict"].status.value)
     return RunReport(
         alert=final["alert"],
         redaction_map_size=len(final.get("redaction_map", {})),

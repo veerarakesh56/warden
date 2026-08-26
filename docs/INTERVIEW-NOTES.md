@@ -79,7 +79,7 @@ Three findings, all documented in the README:
    suite is a regression gate for routing and policy — not a correctness standard. Worth saying
    before someone else points it out.
 3. **The hardcoded model id had expired.** `gemini-2.0-flash` returned "no longer available". Pinned
-   model names are dated assumptions; `AEGIS_MODEL` overrides without a code change.
+   model names are dated assumptions; `WARDEN_MODEL` overrides without a code change.
 
 ⭐ If asked "what surprised you?" — this is the answer. It shows the design survived contact with a
 real model *and* that you changed the design when the evidence said to.
@@ -124,7 +124,7 @@ the exact defect shape the rest of the project exists to catch: a claim the code
 
 Now: a `KubernetesBackend` reads pod status, events, log tails and Deployment revisions; CI spins up
 a **real k3d cluster** on every push, deploys a pod that **really OOM-kills itself**, and asserts
-AEGIS reaches `scale_up` / `APPROVED_FOR_HUMAN` — run from **outside** the cluster *and* from
+WARDEN reaches `scale_up` / `APPROVED_FOR_HUMAN` — run from **outside** the cluster *and* from
 **inside** it as a Job under a read-only ServiceAccount.
 
 ⭐ **Two bugs only the real cluster could surface** — say these, they are the proof you ran it:
@@ -137,7 +137,7 @@ AEGIS reaches `scale_up` / `APPROVED_FOR_HUMAN` — run from **outside** the clu
 
 ## 7d. Why a ClusterRole with a namespaced RoleBinding, and not a Role?
 
-Because a Role only reaches its own namespace. The first draft put a Role in `aegis`; it could not
+Because a Role only reaches its own namespace. The first draft put a Role in `warden`; it could not
 see pods in `default`, where the workloads live. A ClusterRole holds the *permission set*; a
 RoleBinding grants it in *one namespace at a time*. There is deliberately no ClusterRoleBinding —
 that would be cluster-wide. To diagnose another namespace you add one RoleBinding there; you never
@@ -170,7 +170,7 @@ In order, and be specific — vagueness here undoes everything above:
 
 1. **Wire a real backend.** `FixtureBackend` → CloudWatch/Loki. One class; the boundary exists for it.
 2. **A scored nightly eval** against the live model, separate from the deterministic CI gate.
-3. **Slack approval + execution**, behind its own security review — the moment AEGIS can act, the
+3. **Slack approval + execution**, behind its own security review — the moment WARDEN can act, the
    threat model changes completely.
 4. **Narrow the IAM read policy** from `resources = ["*"]` with condition blocks.
 5. **Checkpointing.** LangGraph supports it; the graph is written for it but it is not enabled.

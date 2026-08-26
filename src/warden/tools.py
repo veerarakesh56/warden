@@ -36,7 +36,7 @@ FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 
 # Wall-clock ceiling per tool. Threads are used rather than signals because signal-based timeouts
 # are POSIX-main-thread only, and this has to behave identically on Windows and in a container.
-TOOL_TIMEOUT_S = float(os.environ.get("AEGIS_TOOL_TIMEOUT", "5.0"))
+TOOL_TIMEOUT_S = float(os.environ.get("WARDEN_TOOL_TIMEOUT", "5.0"))
 
 
 class ToolError(RuntimeError):
@@ -51,7 +51,7 @@ PARTIAL_PREFIX = "TOOL-PARTIAL "
 
 
 def resolve_backend(name: str | None = None):
-    """Pick the evidence source from `AEGIS_BACKEND`.
+    """Pick the evidence source from `WARDEN_BACKEND`.
 
         fixture     recorded incidents shipped with the package (default; what CI uses)
         k8s         a live Kubernetes cluster via kubeconfig or in-cluster credentials
@@ -59,7 +59,7 @@ def resolve_backend(name: str | None = None):
     Same shape as `providers.resolve()`: the optional client is imported lazily, so the core
     package installs and runs with no cluster library present.
     """
-    name = (name or os.environ.get("AEGIS_BACKEND") or "fixture").lower()
+    name = (name or os.environ.get("WARDEN_BACKEND") or "fixture").lower()
     if name in ("fixture", "fixtures", "mock"):
         return FixtureBackend()
     if name in ("k8s", "kubernetes"):
@@ -67,7 +67,7 @@ def resolve_backend(name: str | None = None):
             from .k8s_backend import KubernetesBackend
         except ImportError as exc:  # the `kubernetes` client is an optional extra
             raise ToolError(
-                "AEGIS_BACKEND=k8s needs the Kubernetes client: pip install -e '.[k8s]'"
+                "WARDEN_BACKEND=k8s needs the Kubernetes client: pip install -e '.[k8s]'"
             ) from exc
         return KubernetesBackend()
     raise ToolError(f"unknown backend '{name}'. Known: fixture, k8s")
@@ -154,18 +154,18 @@ def gather(
                         # (exported to a third-party tracing backend) unredacted. The model never
                         # sees tool_errors, but those two surfaces still must not carry a secret.
                         bundle.tool_errors.append(redact(f"{name}: {p[len(PARTIAL_PREFIX):]}").text)
-                    sp.set_attribute("aegis.tool.partial_failures", len(partial))
+                    sp.set_attribute("warden.tool.partial_failures", len(partial))
                 setattr(bundle, sink, result)
-                sp.set_attribute("aegis.tool.ok", True)
+                sp.set_attribute("warden.tool.ok", True)
             except FutureTimeout:
                 msg = f"{name}: timed out after {timeout:.1f}s"
                 bundle.tool_errors.append(msg)
-                sp.set_attribute("aegis.tool.ok", False)
-                sp.set_attribute("aegis.tool.error", msg)
+                sp.set_attribute("warden.tool.ok", False)
+                sp.set_attribute("warden.tool.error", msg)
             except Exception as exc:  # noqa: BLE001 - a tool failing is data, not a crash
                 msg = redact(f"{name}: {exc}").text  # scrub raw identifiers out of the error text
                 bundle.tool_errors.append(msg)
-                sp.set_attribute("aegis.tool.ok", False)
-                sp.set_attribute("aegis.tool.error", msg)
+                sp.set_attribute("warden.tool.ok", False)
+                sp.set_attribute("warden.tool.error", msg)
 
     return bundle

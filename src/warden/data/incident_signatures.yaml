@@ -1,8 +1,8 @@
-# AEGIS incident-signature knowledge base
+# WARDEN incident-signature knowledge base
 # ---------------------------------------------------------------------------
 # A researched catalog of known failure modes, from the most basic (a pod runs
 # out of memory) to systemic/advanced (metastable failure, cache stampede,
-# split-brain). Each entry is DATA, not code: AEGIS loads it, matches an
+# split-brain). Each entry is DATA, not code: WARDEN loads it, matches an
 # incident against it deterministically, and uses it to (a) name the likely
 # root-cause class and (b) suggest ranked remediation actions from the closed
 # ActionKind enum. The model still only *proposes*; this catalog only *informs*.
@@ -14,7 +14,7 @@
 # ("Avoiding fallback in distributed systems", "Caching challenges", metastable
 # failures literature, Bronson et al. 2021), Kubernetes production runbooks,
 # USE/RED methods (Gregg / Wilkie). Every failure mode here is well-attested;
-# the value AEGIS adds is turning it into a deterministic matcher + gated fix.
+# the value WARDEN adds is turning it into a deterministic matcher + gated fix.
 #
 # detect DSL (all keys optional; a signature matches when ALL present keys pass,
 # AND at least one positive signal fired):
@@ -567,7 +567,7 @@ signatures:
       action could make it worse by acknowledging the wrong primary.
     suggested_actions:
       - kind: escalate_to_human
-        rationale: "Data-divergence emergency; a human must choose the survivor and fence the other. AEGIS must not act."
+        rationale: "Data-divergence emergency; a human must choose the survivor and fence the other. WARDEN must not act."
     remediation_risk: high
 
   - id: DEADLOCK-001
@@ -617,7 +617,7 @@ signatures:
       operations, including remediation itself, become unreliable.
     suggested_actions:
       - kind: escalate_to_human
-        rationale: "Control-plane health is a platform-team emergency; AEGIS should not add API load."
+        rationale: "Control-plane health is a platform-team emergency; WARDEN should not add API load."
     remediation_risk: high
 
   - id: CLOUD-QUOTA-001

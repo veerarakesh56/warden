@@ -1,7 +1,7 @@
 """The LIVE remediation backend against a REAL cluster. Skipped unless opted in; fails (not skips)
 if opted in and no cluster is reachable.
 
-    AEGIS_K8S_INTEGRATION=1 pytest tests/integration/test_live_remediation.py -q
+    WARDEN_K8S_INTEGRATION=1 pytest tests/integration/test_live_remediation.py -q
 
 It is self-contained: it creates its own throwaway Deployment, so it cannot disturb the read-path
 integration tests (which operate on `checkout`). It proves the one thing the unit tests cannot — that
@@ -16,18 +16,18 @@ import os
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("AEGIS_K8S_INTEGRATION") != "1",
-    reason="set AEGIS_K8S_INTEGRATION=1 with a reachable cluster",
+    os.environ.get("WARDEN_K8S_INTEGRATION") != "1",
+    reason="set WARDEN_K8S_INTEGRATION=1 with a reachable cluster",
 )
 
 kubernetes = pytest.importorskip("kubernetes", reason="pip install -e '.[k8s]'")
 
-from aegis.models import ActionKind
-from aegis.remediation import RemediationError
-from aegis.remediation_k8s import KubernetesRemediationBackend
+from warden.models import ActionKind
+from warden.remediation import RemediationError
+from warden.remediation_k8s import KubernetesRemediationBackend
 
 NS = "default"
-NAME = "aegis-rem-target"
+NAME = "warden-rem-target"
 
 
 def _admin():
@@ -45,7 +45,7 @@ def apps():
     try:
         return _admin()
     except Exception as exc:  # noqa: BLE001
-        pytest.fail(f"AEGIS_K8S_INTEGRATION=1 but no cluster is reachable: {exc}")
+        pytest.fail(f"WARDEN_K8S_INTEGRATION=1 but no cluster is reachable: {exc}")
 
 
 @pytest.fixture(scope="module")

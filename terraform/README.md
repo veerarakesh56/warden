@@ -1,12 +1,12 @@
-# Deploying AEGIS on AWS
+# Deploying WARDEN on AWS
 
 An ECS Fargate task definition, its roles, an egress-only security group and a log group.
 
 ```hcl
-module "aegis" {
-  source = "github.com/veerarakesh56/aegis//terraform"
+module "warden" {
+  source = "github.com/veerarakesh56/warden//terraform"
 
-  image                = "<acct>.dkr.ecr.ap-south-1.amazonaws.com/aegis:v0.1.0"
+  image                = "<acct>.dkr.ecr.ap-south-1.amazonaws.com/warden:v0.1.0"
   cluster_arn          = aws_ecs_cluster.platform.arn
   vpc_id               = module.vpc.vpc_id
   subnet_ids           = module.vpc.private_subnets
@@ -19,7 +19,7 @@ module "aegis" {
 ## The two decisions worth arguing about
 
 **1. The task role cannot change anything.** It has `logs:*Get*`, `cloudwatch:Get*` and
-`ecs:Describe*` — read-only. AEGIS reads evidence and proposes a remediation; a human executes it.
+`ecs:Describe*` — read-only. WARDEN reads evidence and proposes a remediation; a human executes it.
 Granting write access to the infrastructure it reasons about would defeat the design, and "it only
 uses them when the verifier approves" is not a security boundary — IAM is.
 
@@ -29,7 +29,7 @@ files get committed, copied into buckets and shared far more often than anyone p
 
 ## Also set deliberately
 
-- **Private subnets only**, with a validation rule that rejects an empty list. AEGIS reads telemetry;
+- **Private subnets only**, with a validation rule that rejects an empty list. WARDEN reads telemetry;
   nothing connects *to* it, so it has no reason to be publicly routable.
 - **Egress on 443 only** — model API, AWS APIs, OTLP collector.
 - **`readonlyRootFilesystem = true`** and **non-root user 10001**, matching the Dockerfile.

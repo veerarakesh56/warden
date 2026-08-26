@@ -110,7 +110,7 @@ class KnowledgeBase:
 
     @classmethod
     def load(cls, path: str | os.PathLike[str] | None = None) -> KnowledgeBase:
-        """Load from `path`, else $AEGIS_KNOWLEDGE_PATH, else the catalog bundled in the package."""
+        """Load from `path`, else $WARDEN_KNOWLEDGE_PATH, else the catalog bundled in the package."""
         text = cls._read_source(path)
         try:
             doc = yaml.safe_load(text)
@@ -126,14 +126,14 @@ class KnowledgeBase:
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:
-        chosen = path or os.environ.get("AEGIS_KNOWLEDGE_PATH")
+        chosen = path or os.environ.get("WARDEN_KNOWLEDGE_PATH")
         if chosen:
             p = Path(chosen)
             if not p.is_file():
                 raise KnowledgeError(f"knowledge base not found at {p}")
             return p.read_text(encoding="utf-8")
         # Bundled with the package (ships as package-data), so an installed wheel still has it.
-        res = resources.files("aegis") / "data" / "incident_signatures.yaml"
+        res = resources.files("warden") / "data" / "incident_signatures.yaml"
         return res.read_text(encoding="utf-8")
 
     @staticmethod

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.knowledge import KnowledgeBase, KnowledgeError, default_knowledge_base
-from aegis.models import ActionKind, Alert, ContextBundle, Severity
+from warden.knowledge import KnowledgeBase, KnowledgeError, default_knowledge_base
+from warden.models import ActionKind, Alert, ContextBundle, Severity
 
 
 def _alert(name="PodOOMKilled", sev=Severity.high, summary=""):

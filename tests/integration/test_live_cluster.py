@@ -1,6 +1,6 @@
 """Against a REAL cluster. Skipped unless opted into; FAILS if opted into and the cluster is absent.
 
-    AEGIS_K8S_INTEGRATION=1 pytest tests/integration -q
+    WARDEN_K8S_INTEGRATION=1 pytest tests/integration -q
 
 Preconditions (the CI `k8s` job sets them up; locally: `k3d cluster create` then
 `kubectl apply -f k8s/test/oom-workload.yaml` and wait for an OOMKilled status):
@@ -23,18 +23,18 @@ import os
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("AEGIS_K8S_INTEGRATION") != "1",
-    reason="set AEGIS_K8S_INTEGRATION=1 with a reachable cluster and the OOM workload deployed",
+    os.environ.get("WARDEN_K8S_INTEGRATION") != "1",
+    reason="set WARDEN_K8S_INTEGRATION=1 with a reachable cluster and the OOM workload deployed",
 )
 
 kubernetes = pytest.importorskip("kubernetes", reason="pip install -e '.[k8s]'")
 
-from aegis.cli import DEMO_ALERTS
-from aegis.graph import run
-from aegis.k8s_backend import KubernetesBackend
-from aegis.llm import LLMClient
-from aegis.models import ActionKind, Alert, VerdictStatus
-from aegis.tools import PARTIAL_PREFIX, gather
+from warden.cli import DEMO_ALERTS
+from warden.graph import run
+from warden.k8s_backend import KubernetesBackend
+from warden.llm import LLMClient
+from warden.models import ActionKind, Alert, VerdictStatus
+from warden.tools import PARTIAL_PREFIX, gather
 
 
 @pytest.fixture(scope="module")
@@ -42,7 +42,7 @@ def backend():
     try:
         return KubernetesBackend()
     except Exception as exc:  # noqa: BLE001
-        pytest.fail(f"AEGIS_K8S_INTEGRATION=1 but no cluster is reachable: {exc}")
+        pytest.fail(f"WARDEN_K8S_INTEGRATION=1 but no cluster is reachable: {exc}")
 
 
 @pytest.fixture(scope="module")

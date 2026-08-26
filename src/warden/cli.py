@@ -1,8 +1,8 @@
 """Command line entry point.
 
-    aegis run --alert fixtures/alerts/inc-001.yaml
-    aegis run --incident inc-001            # shorthand for the bundled fixtures
-    aegis demo                              # every bundled incident, one line each
+    warden run --alert fixtures/alerts/inc-001.yaml
+    warden run --incident inc-001            # shorthand for the bundled fixtures
+    warden demo                              # every bundled incident, one line each
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
 
     remediation = None
     if principal is not None and report.proposal and report.verdict:
-        # DRY-RUN unless AEGIS_REMEDIATION=live arms the real k8s backend. Either way the four-way
+        # DRY-RUN unless WARDEN_REMEDIATION=live arms the real k8s backend. Either way the four-way
         # gate decides whether it is even reached. A live-backend init fault (no cluster) is surfaced,
         # not crashed.
         try:
@@ -135,7 +135,7 @@ def _alert_from(incident: str) -> Alert:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="aegis", description=__doc__)
+    parser = argparse.ArgumentParser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_run = sub.add_parser("run", help="run one incident through the graph")
@@ -154,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    # Evidence source is a deployment decision, like the model provider. AEGIS_BACKEND=k8s reads a
+    # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
     # live cluster; the default reads the recorded fixtures so CI never needs one.
     backend = resolve_backend()
 
@@ -177,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     for incident in DEMO_ALERTS:
         report = run(_alert_from(incident), llm=LLMClient(), backend=backend)
         _print_report(report, verbose=args.verbose)
-    print("\nNo action was executed. AEGIS proposes and gates; a human executes.\n")
+    print("\nNo action was executed. WARDEN proposes and gates; a human executes.\n")
     return 0
 
 

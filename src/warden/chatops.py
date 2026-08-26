@@ -6,8 +6,8 @@ Three deliberate safety choices, because this is the one component that sends da
   1. REDACT AGAIN. The report handed in is already redacted, but this module re-runs `redact()` on
      the exact bytes it is about to transmit. Redaction is idempotent, so this costs nothing and
      means a bug upstream cannot turn into an external leak.
-  2. DRY-RUN BY DEFAULT. Even with a webhook configured, nothing is POSTed unless AEGIS_CHATOPS_LIVE=1
-     (or a live sink is passed explicitly). Running AEGIS must never spam a channel by accident; the
+  2. DRY-RUN BY DEFAULT. Even with a webhook configured, nothing is POSTed unless WARDEN_CHATOPS_LIVE=1
+     (or a live sink is passed explicitly). Running WARDEN must never spam a channel by accident; the
      default returns the payload it *would* have sent.
   3. STDLIB ONLY. urllib, not requests — no new dependency, and the POST is bounded by a timeout and
      can never raise into the pipeline (a failed notification is a returned status, not a crash).
@@ -82,7 +82,7 @@ class SlackWebhookSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (AEGIS_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         return _post_json(self._url, {"text": text}, self.name)
 
 
@@ -95,12 +95,12 @@ class TeamsWebhookSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (AEGIS_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         # Microsoft Teams incoming webhook: a legacy MessageCard carries plain text reliably.
         card = {
             "@type": "MessageCard",
             "@context": "https://schema.org/extensions",
-            "summary": "AEGIS incident report",
+            "summary": "WARDEN incident report",
             "text": text,
         }
         return _post_json(self._url, card, self.name)
@@ -117,23 +117,23 @@ class GenericWebhookSink:
 
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
-            return Notification(sink=self.name, delivered=False, detail="dry-run (AEGIS_CHATOPS_LIVE!=1)")
+            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         return _post_json(self._url, data, self.name)
 
 
 def resolve_sinks() -> list[ChatOpsSink]:
     """Build the sink list from the environment. Empty of webhooks -> a single ConsoleSink.
 
-    AEGIS_SLACK_WEBHOOK / AEGIS_TEAMS_WEBHOOK / AEGIS_WEBHOOK_URL configure destinations.
-    AEGIS_CHATOPS_LIVE=1 arms them; otherwise every sink is dry-run.
+    WARDEN_SLACK_WEBHOOK / WARDEN_TEAMS_WEBHOOK / WARDEN_WEBHOOK_URL configure destinations.
+    WARDEN_CHATOPS_LIVE=1 arms them; otherwise every sink is dry-run.
     """
-    live = os.environ.get("AEGIS_CHATOPS_LIVE") == "1"
+    live = os.environ.get("WARDEN_CHATOPS_LIVE") == "1"
     sinks: list[ChatOpsSink] = []
-    if url := os.environ.get("AEGIS_SLACK_WEBHOOK"):
+    if url := os.environ.get("WARDEN_SLACK_WEBHOOK"):
         sinks.append(SlackWebhookSink(url, live=live))
-    if url := os.environ.get("AEGIS_TEAMS_WEBHOOK"):
+    if url := os.environ.get("WARDEN_TEAMS_WEBHOOK"):
         sinks.append(TeamsWebhookSink(url, live=live))
-    if url := os.environ.get("AEGIS_WEBHOOK_URL"):
+    if url := os.environ.get("WARDEN_WEBHOOK_URL"):
         sinks.append(GenericWebhookSink(url, live=live))
     if not sinks:
         sinks.append(ConsoleSink())

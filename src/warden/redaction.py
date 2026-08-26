@@ -67,7 +67,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("UUID", re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")),
     # A bare 12-digit id: an AWS account id, a GCP project number, or any 12-digit account id. The
     # label is cloud-NEUTRAL (was AWSACCT, which mislabelled a GCP project number as an AWS account
-    # id on a non-AWS deployment) since AEGIS runs on any cloud.
+    # id on a non-AWS deployment) since WARDEN runs on any cloud.
     ("ACCOUNTID", re.compile(r"\b\d{12}\b")),
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     # IPv6 — we redact IPv4, so an IPv6 address (common in dual-stack k8s pod logs) is the same

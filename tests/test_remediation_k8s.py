@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from aegis.models import (
+from warden.models import (
     ActionKind,
     Alert,
     RemediationProposal,
@@ -14,14 +14,14 @@ from aegis.models import (
     Verdict,
     VerdictStatus,
 )
-from aegis.remediation import (
+from warden.remediation import (
     DryRunBackend,
     RemediationError,
     RemediationOutcome,
     RemediationRequest,
     decide_remediation,
 )
-from aegis.remediation_k8s import KubernetesRemediationBackend, resolve_remediation_backend
+from warden.remediation_k8s import KubernetesRemediationBackend, resolve_remediation_backend
 
 
 class _Dep:
@@ -95,7 +95,7 @@ def test_scale_down_never_reaches_zero():
 
 
 def test_scale_up_respects_the_max_replicas_ceiling(monkeypatch):
-    monkeypatch.setattr("aegis.remediation_k8s.MAX_REPLICAS", 3)
+    monkeypatch.setattr("warden.remediation_k8s.MAX_REPLICAS", 3)
     apps = _Apps(replicas=3)
     b = KubernetesRemediationBackend(apps=apps, namespace="default")
     msg = b.apply(ActionKind.scale_up, "checkout", "staging")
@@ -122,9 +122,9 @@ def test_an_api_fault_becomes_a_remediation_error_not_a_raw_exception():
 # ------------------------------------------------------------------ arming & the gate
 
 def test_backend_factory_is_dry_run_unless_armed(monkeypatch):
-    monkeypatch.delenv("AEGIS_REMEDIATION", raising=False)
+    monkeypatch.delenv("WARDEN_REMEDIATION", raising=False)
     assert isinstance(resolve_remediation_backend(), DryRunBackend)
-    monkeypatch.setenv("AEGIS_REMEDIATION", "off")
+    monkeypatch.setenv("WARDEN_REMEDIATION", "off")
     assert isinstance(resolve_remediation_backend(), DryRunBackend)
 
 

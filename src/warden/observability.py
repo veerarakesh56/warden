@@ -6,12 +6,12 @@ something" and "here is exactly what it did, in order, with timings".
 
 By default a provider IS installed but NO exporter is attached, so spans are recorded and nothing
 is printed — the human-readable verdict output stays clean. Opt in to seeing traces without any
-collector by setting `AEGIS_TRACE_CONSOLE=1` (prints spans to the console); set
+collector by setting `WARDEN_TRACE_CONSOLE=1` (prints spans to the console); set
 `OTEL_EXPORTER_OTLP_ENDPOINT` to ship to a real backend (Langfuse, Phoenix, any OTLP collector)
 instead. If that OTLP exporter extra is not installed, it falls back to the console rather than
 crashing a run.
 
-`AEGIS_TRACE=0` turns tracing off entirely for quiet test runs.
+`WARDEN_TRACE=0` turns tracing off entirely for quiet test runs.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _build_exporter() -> SpanExporter | None:
             # The OTLP exporter is an optional extra. Fall back rather than crash a run because
             # telemetry could not be shipped - observability must never take the system down.
             return ConsoleSpanExporter()
-    if os.environ.get("AEGIS_TRACE_CONSOLE") == "1":
+    if os.environ.get("WARDEN_TRACE_CONSOLE") == "1":
         return ConsoleSpanExporter()
     return None
 
@@ -48,10 +48,10 @@ def _build_exporter() -> SpanExporter | None:
 def configure() -> None:
     """Idempotent. Safe to call from every entry point."""
     global _CONFIGURED
-    if _CONFIGURED or os.environ.get("AEGIS_TRACE") == "0":
+    if _CONFIGURED or os.environ.get("WARDEN_TRACE") == "0":
         return
     provider = TracerProvider(
-        resource=Resource.create({"service.name": "aegis", "service.version": "0.5.1"})
+        resource=Resource.create({"service.name": "warden", "service.version": "0.5.1"})
     )
     exporter = _build_exporter()
     if exporter is not None:
@@ -62,7 +62,7 @@ def configure() -> None:
 
 def tracer() -> trace.Tracer:
     configure()
-    return trace.get_tracer("aegis")
+    return trace.get_tracer("warden")
 
 
 @contextmanager
@@ -71,7 +71,7 @@ def span(name: str, **attrs: Any) -> Iterator[trace.Span]:
     with tracer().start_as_current_span(name) as sp:
         for key, value in attrs.items():
             if value is not None:
-                sp.set_attribute(f"aegis.{key}", value)
+                sp.set_attribute(f"warden.{key}", value)
         try:
             yield sp
         except Exception as exc:
@@ -89,11 +89,11 @@ def record_cost(sp: trace.Span, *, input_tokens: int, output_tokens: int, usd: f
 
     ⚠ The GenAI conventions were moved to their own repository in semconv v1.42.0 (June 2026) and
     remain in *Development* status — the core usage and model attributes are stable enough to build
-    on, but expect churn. Cost is not in the spec, so it stays under `aegis.`
+    on, but expect churn. Cost is not in the spec, so it stays under `warden.`
     """
     sp.set_attribute(GEN_AI_INPUT_TOKENS, input_tokens)
     sp.set_attribute(GEN_AI_OUTPUT_TOKENS, output_tokens)
-    sp.set_attribute("aegis.cost.usd", usd)  # not a spec attribute; ours by necessity
+    sp.set_attribute("warden.cost.usd", usd)  # not a spec attribute; ours by necessity
 
 
 # OpenTelemetry GenAI semantic conventions. Named constants rather than inline strings so a spec

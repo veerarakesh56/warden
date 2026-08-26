@@ -1,6 +1,6 @@
 """The remediation report — the artifact a human uses to promote a fix to the higher environments.
 
-The owner's flow: AEGIS auto-resolves in staging/qa-staging, then produces a report so whoever has
+The owner's flow: WARDEN auto-resolves in staging/qa-staging, then produces a report so whoever has
 access to prod can apply the same fix there. This module builds that report from the pieces of one
 run and renders it two ways — Markdown (for a human / ChatOps) and a JSON dict (for machines).
 
@@ -61,7 +61,7 @@ def _promotion_targets(
         if not p.permits(proposal.action):
             continue  # the action isn't allowed there at all — not a promotion target
         note = (
-            "AEGIS can auto-apply after approval"
+            "WARDEN can auto-apply after approval"
             if p.auto_remediate
             else "a human applies this fix"
         )
@@ -159,7 +159,7 @@ def build_report(
 def _render_markdown(d: dict) -> str:
     a = d["alert"]
     lines: list[str] = []
-    lines.append(f"# AEGIS incident report - {a['id']} - {a['name']}")
+    lines.append(f"# WARDEN incident report - {a['id']} - {a['name']}")
     lines.append("")
     lines.append(f"- **Service**: {a['service']}")
     lines.append(f"- **Environment**: {a['environment']}")
@@ -216,5 +216,5 @@ def _render_markdown(d: dict) -> str:
         lines.append("- _No higher environment permits this action; nothing to promote._")
     lines.append("")
     lines.append("---")
-    lines.append("_AEGIS proposes and gates. Nothing was executed against production by this tool._")
+    lines.append("_WARDEN proposes and gates. Nothing was executed against production by this tool._")
     return "\n".join(lines)

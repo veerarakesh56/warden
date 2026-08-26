@@ -1,19 +1,19 @@
 """A REAL, gated Kubernetes remediation backend — the opt-in write path.
 
 `KubernetesBackend` (k8s_backend.py) is read-only by construction. This is its deliberate opposite:
-the one place AEGIS can actually change a cluster. It is kept small, separate, and hard to reach:
+the one place WARDEN can actually change a cluster. It is kept small, separate, and hard to reach:
 
   - it does exactly TWO reversible things — a rollout **restart** and a **scale** (up/down) — and
     refuses every other action loudly. No delete, no rollback, no failover, no cache flush: those are
     either irreversible or high-blast-radius, and this backend does not know how to do them on purpose.
-  - it never runs unless `resolve_remediation_backend()` is explicitly armed (`AEGIS_REMEDIATION=live`),
+  - it never runs unless `resolve_remediation_backend()` is explicitly armed (`WARDEN_REMEDIATION=live`),
     AND the four-way gate in remediation.py already passed (env auto-remediates × authorised principal
     × approval × an admissible action). Arming it is necessary, never sufficient.
   - its write permission is a SEPARATE ServiceAccount (`k8s/remediation-rbac.yaml`) that can `patch`
     deployments and nothing else — the RBAC, not this code, is the real boundary, exactly as it is for
-    the read path. The read-only `aegis` SA is untouched.
+    the read path. The read-only `warden` SA is untouched.
 
-Scaling is clamped: never below 1, never above AEGIS_REMEDIATION_MAX_REPLICAS. A restart sets the
+Scaling is clamped: never below 1, never above WARDEN_REMEDIATION_MAX_REPLICAS. A restart sets the
 standard `kubectl.kubernetes.io/restartedAt` template annotation, which is what `kubectl rollout
 restart` itself does — the kube controllers do the rest, and it is fully reversible.
 """
@@ -27,11 +27,11 @@ from .models import ActionKind
 from .remediation import RemediationError
 
 REQUEST_TIMEOUT = (
-    float(os.environ.get("AEGIS_K8S_CONNECT_TIMEOUT", "3.0")),
-    float(os.environ.get("AEGIS_K8S_READ_TIMEOUT", "4.0")),
+    float(os.environ.get("WARDEN_K8S_CONNECT_TIMEOUT", "3.0")),
+    float(os.environ.get("WARDEN_K8S_READ_TIMEOUT", "4.0")),
 )
-SCALE_STEP = int(os.environ.get("AEGIS_REMEDIATION_SCALE_STEP", "1"))
-MAX_REPLICAS = int(os.environ.get("AEGIS_REMEDIATION_MAX_REPLICAS", "10"))
+SCALE_STEP = int(os.environ.get("WARDEN_REMEDIATION_SCALE_STEP", "1"))
+MAX_REPLICAS = int(os.environ.get("WARDEN_REMEDIATION_MAX_REPLICAS", "10"))
 
 # The only actions this backend will carry out. Everything else is refused — see the module docstring.
 _SUPPORTED = {ActionKind.restart_pods, ActionKind.scale_up, ActionKind.scale_down}
@@ -43,7 +43,7 @@ class KubernetesRemediationBackend:
     live = True
 
     def __init__(self, *, apps=None, namespace: str | None = None, kubeconfig: str | None = None) -> None:
-        self._ns = namespace or os.environ.get("AEGIS_K8S_NAMESPACE", "default")
+        self._ns = namespace or os.environ.get("WARDEN_K8S_NAMESPACE", "default")
         if apps is None:
             from kubernetes import client, config
 
@@ -54,7 +54,7 @@ class KubernetesRemediationBackend:
                     config.load_kube_config(config_file=kubeconfig)
                 except config.ConfigException as exc:
                     raise RemediationError(
-                        "AEGIS_REMEDIATION=live but no cluster credentials were found "
+                        "WARDEN_REMEDIATION=live but no cluster credentials were found "
                         f"(not in-cluster, and no usable kubeconfig): {exc}"
                     ) from exc
             apps = client.AppsV1Api()
@@ -122,12 +122,12 @@ def resolve_remediation_backend():
     """The backend `decide_remediation` should use. DRY-RUN unless explicitly armed.
 
     Default (unset / anything but 'live'): a DryRunBackend that changes nothing. Set
-    AEGIS_REMEDIATION=live to arm the real Kubernetes backend — necessary, never sufficient: the
+    WARDEN_REMEDIATION=live to arm the real Kubernetes backend — necessary, never sufficient: the
     four-way policy gate still has to pass before it is ever called.
     """
     from .remediation import DryRunBackend
 
-    if os.environ.get("AEGIS_REMEDIATION", "").lower() == "live":
+    if os.environ.get("WARDEN_REMEDIATION", "").lower() == "live":
         return KubernetesRemediationBackend()
     return DryRunBackend()
 

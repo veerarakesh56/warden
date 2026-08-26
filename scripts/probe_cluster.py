@@ -2,7 +2,7 @@
 
 Not a test. A way to read the evidence with your own eyes before trusting a verdict built on it.
 
-    AEGIS_BACKEND=k8s python scripts/probe_cluster.py [service] [namespace]
+    WARDEN_BACKEND=k8s python scripts/probe_cluster.py [service] [namespace]
 """
 
 from __future__ import annotations
@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 import sys
 
-from aegis.k8s_backend import KubernetesBackend
-from aegis.models import Alert, Severity
-from aegis.tools import gather
+from warden.k8s_backend import KubernetesBackend
+from warden.models import Alert, Severity
+from warden.tools import gather
 
 service = sys.argv[1] if len(sys.argv) > 1 else "checkout"
 namespace = sys.argv[2] if len(sys.argv) > 2 else "default"

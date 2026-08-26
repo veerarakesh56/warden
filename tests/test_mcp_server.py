@@ -6,7 +6,7 @@ standing up a client. The transport is the SDK's problem; the contract is ours.
 
 import json
 
-from aegis.mcp_server import _tools, build_server, call_tool
+from warden.mcp_server import _tools, build_server, call_tool
 
 
 def _payload(result):
@@ -111,7 +111,7 @@ def test_gather_over_mcp_redacts_deploy_identifiers(monkeypatch):
     """recent_deploys in the MCP payload must be scrubbed too - on the k8s backend a deploy image is
     an ECR ref embedding the AWS account id. Returning deploys raw was the same leak the graph path
     had, on a second code path."""
-    from aegis import tools
+    from warden import tools
 
     monkeypatch.setattr(
         tools.FixtureBackend, "deploys",
@@ -142,7 +142,7 @@ def test_bad_arguments_return_an_error_result_rather_than_killing_the_server():
 
 def test_the_server_builds():
     server = build_server()
-    assert server.name == "aegis"
+    assert server.name == "warden"
 
 
 def test_thin_evidence_escalates_over_mcp_even_at_high_confidence():

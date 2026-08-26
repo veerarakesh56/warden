@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aegis.models import (
+from warden.models import (
     ActionKind,
     Alert,
     RemediationProposal,
@@ -10,7 +10,7 @@ from aegis.models import (
     Verdict,
     VerdictStatus,
 )
-from aegis.remediation import (
+from warden.remediation import (
     DryRunBackend,
     RemediationOutcome,
     RemediationRequest,
@@ -110,7 +110,7 @@ def test_a_live_backend_actually_applies_when_every_gate_passes():
     backend = _LiveBackend()
     r = decide_remediation(
         _alert(), _prop(), _approved_verdict(),
-        RemediationRequest(principal="svc:aegis-staging", approved=True),
+        RemediationRequest(principal="svc:warden-staging", approved=True),
         backend=backend,
     )
     assert r.outcome is RemediationOutcome.applied

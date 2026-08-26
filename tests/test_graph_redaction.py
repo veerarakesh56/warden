@@ -9,10 +9,10 @@ regression: the assembled prompt must carry no raw identifier from ANY field.
 
 from __future__ import annotations
 
-from aegis.cli import DEMO_ALERTS
-from aegis.graph import _evidence_blob, node_redact, run
-from aegis.llm import LLMClient
-from aegis.models import Alert, ContextBundle, Severity
+from warden.cli import DEMO_ALERTS
+from warden.graph import _evidence_blob, node_redact, run
+from warden.llm import LLMClient
+from warden.models import Alert, ContextBundle, Severity
 
 
 def test_runreport_context_is_redacted_not_raw():

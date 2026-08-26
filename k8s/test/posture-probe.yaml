@@ -8,12 +8,12 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: aegis-posture-probe
-  namespace: aegis
+  name: warden-posture-probe
+  namespace: warden
   labels:
-    app.kubernetes.io/name: aegis-probe
+    app.kubernetes.io/name: warden-probe
 spec:
-  serviceAccountName: aegis
+  serviceAccountName: warden
   automountServiceAccountToken: false
   restartPolicy: Never
   securityContext:
@@ -24,7 +24,7 @@ spec:
       type: RuntimeDefault
   containers:
     - name: probe
-      image: aegis:local
+      image: warden:local
       imagePullPolicy: IfNotPresent
       command: ["sh", "-c"]
       args:

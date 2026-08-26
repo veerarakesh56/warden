@@ -10,7 +10,7 @@ Three things matter here and none of them is the prompt:
    one — see `providers.py`. A safety layer that only works against one vendor is not a safety
    layer.
 
-`AEGIS_MOCK=1` runs the whole pipeline deterministically with no network and no key, which is what
+`WARDEN_MOCK=1` runs the whole pipeline deterministically with no network and no key, which is what
 CI and the eval suite use. A demo that only works with a paid key is a demo nobody can reproduce.
 """
 
@@ -30,14 +30,14 @@ T = TypeVar("T", bound=BaseModel)
 
 # USD per 1M tokens. ⚠ Configuration, not fact — vendors change pricing and the free tiers cost
 # nothing at all. Verify before quoting these figures anywhere.
-PRICE_PER_MTOK_IN = float(os.environ.get("AEGIS_PRICE_IN", "3.00"))
-PRICE_PER_MTOK_OUT = float(os.environ.get("AEGIS_PRICE_OUT", "15.00"))
+PRICE_PER_MTOK_IN = float(os.environ.get("WARDEN_PRICE_IN", "3.00"))
+PRICE_PER_MTOK_OUT = float(os.environ.get("WARDEN_PRICE_OUT", "15.00"))
 
 # Wall-clock ceiling for a single model call. The budget above stops COST; this stops TIME. Without
 # it a slow, retrying or hung provider hangs the whole run forever — observed live: a Gemini key
-# that had just been rotated made the SDK retry past every internal timeout, and `aegis run` never
+# that had just been rotated made the SDK retry past every internal timeout, and `warden run` never
 # returned. The tools already have this (tools.py); the model call did not, which was the gap.
-LLM_CALL_TIMEOUT_S = float(os.environ.get("AEGIS_LLM_TIMEOUT", "45.0"))
+LLM_CALL_TIMEOUT_S = float(os.environ.get("WARDEN_LLM_TIMEOUT", "45.0"))
 
 
 class BudgetExceeded(RuntimeError):
@@ -64,7 +64,7 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
         except BaseException as exc:  # noqa: BLE001 - carried across the thread boundary, re-raised below
             box["err"] = exc
 
-    th = threading.Thread(target=_worker, name="aegis-llm-call", daemon=True)
+    th = threading.Thread(target=_worker, name="warden-llm-call", daemon=True)
     th.start()
     th.join(seconds)
     if th.is_alive():
@@ -88,11 +88,11 @@ class LLMClient:
         mock: bool | None = None,
         call_timeout_s: float | None = None,
     ) -> None:
-        self.max_usd = float(os.environ.get("AEGIS_MAX_USD", max_usd))
+        self.max_usd = float(os.environ.get("WARDEN_MAX_USD", max_usd))
         self.max_calls = max_calls
         self.call_timeout_s = LLM_CALL_TIMEOUT_S if call_timeout_s is None else call_timeout_s
         self.cost = CostRecord()
-        self.mock = (os.environ.get("AEGIS_MOCK") == "1") if mock is None else mock
+        self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
         self._provider = provider if provider is not None else (None if self.mock else resolve())
 
     @property

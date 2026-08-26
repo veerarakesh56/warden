@@ -7,7 +7,7 @@ on:
 
 # Mock mode everywhere: CI must never need a key, and the eval gate must be deterministic.
 env:
-  AEGIS_MOCK: "1"
+  WARDEN_MOCK: "1"
 
 jobs:
   check:
@@ -31,7 +31,7 @@ jobs:
         run: |
           python -m venv /tmp/bare
           /tmp/bare/bin/pip install -q -e .
-          /tmp/bare/bin/python -c "import aegis; from aegis.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
+          /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
         run: ruff check src tests evals scripts
@@ -42,12 +42,12 @@ jobs:
       - name: Eval gate
         run: pytest evals -q
 
-      # ⛔ This used to be `run: aegis demo` and nothing more. That asserts the process exited 0 -
+      # ⛔ This used to be `run: warden demo` and nothing more. That asserts the process exited 0 -
       # not that it produced correct answers. A packaging bug once made every incident return
       # AUTO_SAFE inside the container and this step stayed green. Assert the OUTPUT.
       - name: Demo must produce the expected verdicts
         run: |
-          out=$(aegis demo)
+          out=$(warden demo)
           echo "$out"
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::no APPROVED_FOR_HUMAN verdict"; exit 1; }
           echo "$out" | grep -q "ESCALATED"          || { echo "::error::no ESCALATED verdict"; exit 1; }
@@ -63,8 +63,8 @@ jobs:
       # tool failed, context came back empty and all four incidents returned AUTO_SAFE.
       - name: Build the container and assert its output
         run: |
-          docker build -t aegis:ci .
-          out=$(docker run --rm -e AEGIS_MOCK=1 -e AEGIS_TRACE=0 aegis:ci demo)
+          docker build -t warden:ci .
+          out=$(docker run --rm -e WARDEN_MOCK=1 -e WARDEN_TRACE=0 warden:ci demo)
           echo "$out"
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
           echo "$out" | grep -q "ESCALATED"          || { echo "::error::container produced no ESCALATED"; exit 1; }
@@ -92,7 +92,7 @@ jobs:
 
       - name: Create cluster
         run: |
-          k3d cluster create aegis-ci --no-lb --wait --timeout 300s
+          k3d cluster create warden-ci --no-lb --wait --timeout 300s
           kubectl get nodes -o wide
           kubectl wait --for=condition=Ready node --all --timeout=120s
 
@@ -113,7 +113,7 @@ jobs:
           out=$(kubectl apply -k k8s/); echo "$out"
           echo "$out" | grep -qvE 'unchanged' && { echo "::error::second apply -k was not a no-op"; exit 1; } || true
 
-      - name: Pod Security must REJECT a privileged pod in the aegis namespace
+      - name: Pod Security must REJECT a privileged pod in the warden namespace
         run: |
           # A positive test (the Job is admitted) cannot tell 'restricted is enforced' from 'the
           # label is mistyped'. This can.
@@ -126,7 +126,7 @@ jobs:
       # RBAC from the API server's point of view, BOTH directions, MINIMAL not just read-only.
       - name: RBAC must allow exactly the five reads the code makes
         run: |
-          SA=system:serviceaccount:aegis:aegis
+          SA=system:serviceaccount:warden:warden
           allow() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
           allow list pods -n default
           # ⛔ NOT `get pods/log`: in kubectl's grammar TYPE/NAME means "a pod NAMED log", so that
@@ -139,7 +139,7 @@ jobs:
 
       - name: RBAC must deny writes, unused read verbs, secrets, other namespaces and cluster scope
         run: |
-          SA=system:serviceaccount:aegis:aegis
+          SA=system:serviceaccount:warden:warden
           deny() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "no" ] || { echo "::error::$* must be denied"; exit 1; }; }
           # writes
           deny delete pods -n default
@@ -162,7 +162,7 @@ jobs:
           deny get secrets -n default
           deny list secrets -n default
           deny list pods -n kube-system
-          deny list pods -n aegis
+          deny list pods -n warden
           deny get nodes
           deny list namespaces
 
@@ -172,7 +172,7 @@ jobs:
           # stays read-only. Arming live remediation means applying this separately, and this proves
           # its boundary from the API server's own view, both directions.
           kubectl apply -f k8s/remediation-rbac.yaml
-          SA=system:serviceaccount:aegis:aegis-remediator
+          SA=system:serviceaccount:warden:warden-remediator
           allow() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
           deny()  { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "no" ]  || { echo "::error::$* must be denied";  exit 1; }; }
           # exactly the two the backend calls
@@ -187,7 +187,7 @@ jobs:
           deny patch  pods -n default
           deny get    secrets -n default
           deny patch  deployments.apps -n kube-system
-          deny patch  deployments.apps -n aegis
+          deny patch  deployments.apps -n warden
 
       - name: Deploy the synthetic OOM workload and wait until it is GENUINELY crash-looping
         run: |
@@ -218,8 +218,8 @@ jobs:
 
       - name: Integration tests against the live cluster - and they must have RUN, not skipped
         env:
-          AEGIS_K8S_INTEGRATION: "1"
-          AEGIS_TRACE: "0"
+          WARDEN_K8S_INTEGRATION: "1"
+          WARDEN_TRACE: "0"
         run: |
           set -o pipefail
           pytest tests/integration -q -rs | tee it.txt
@@ -227,13 +227,13 @@ jobs:
           grep -qE ' skipped' it.txt && { echo "::error::integration tests skipped with the opt-in set"; exit 1; }
           echo "integration tests ran for real"
 
-      - name: AEGIS from OUTSIDE the cluster must reach scale_up / APPROVED_FOR_HUMAN
+      - name: WARDEN from OUTSIDE the cluster must reach scale_up / APPROVED_FOR_HUMAN
         env:
-          AEGIS_BACKEND: k8s
-          AEGIS_MOCK: "1"
-          AEGIS_TRACE: "0"
+          WARDEN_BACKEND: k8s
+          WARDEN_MOCK: "1"
+          WARDEN_TRACE: "0"
         run: |
-          out=$(aegis run --incident inc-002 --verbose)
+          out=$(warden run --incident inc-002 --verbose)
           echo "$out"
           echo "$out" | grep -q '"backend": "kubernetes"'   || { echo "::error::evidence did not come from the cluster"; exit 1; }
           echo "$out" | grep -q 'scale_up'                   || { echo "::error::expected scale_up"; exit 1; }
@@ -243,25 +243,25 @@ jobs:
 
       - name: Build the image and load it into the cluster
         run: |
-          docker build -t aegis:local .
-          k3d image import aegis:local -c aegis-ci
+          docker build -t warden:local .
+          k3d image import warden:local -c warden-ci
 
       - name: Runtime posture probe - what uid does the PROCESS run as, and can it write?
         run: |
           kubectl apply -f k8s/test/posture-probe.yaml
-          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/aegis-posture-probe -n aegis --timeout=120s || { kubectl describe pod aegis-posture-probe -n aegis; exit 1; }
-          out=$(kubectl logs pod/aegis-posture-probe -n aegis)
+          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/warden-posture-probe -n warden --timeout=120s || { kubectl describe pod warden-posture-probe -n warden; exit 1; }
+          out=$(kubectl logs pod/warden-posture-probe -n warden)
           echo "$out"
           echo "$out" | grep -q '^uid=10001$'      || { echo "::error::process is not uid 10001"; exit 1; }
           echo "$out" | grep -q '^rootfs=READONLY$' || { echo "::error::root filesystem is writable"; exit 1; }
 
-      - name: AEGIS from INSIDE the cluster, under the read-only ServiceAccount
+      - name: WARDEN from INSIDE the cluster, under the read-only ServiceAccount
         run: |
           # `create`, not `apply`: the Job uses generateName and is immutable once made.
           job=$(kubectl create -f k8s/job.yaml -o jsonpath='{.metadata.name}')
           echo "created job/$job"
-          kubectl wait --for=condition=complete "job/$job" -n aegis --timeout=180s || { kubectl describe "job/$job" -n aegis; kubectl logs "job/$job" -n aegis || true; exit 1; }
-          out=$(kubectl logs "job/$job" -n aegis)
+          kubectl wait --for=condition=complete "job/$job" -n warden --timeout=180s || { kubectl describe "job/$job" -n warden; kubectl logs "job/$job" -n warden || true; exit 1; }
+          out=$(kubectl logs "job/$job" -n warden)
           echo "$out"
           echo "$out" | grep -q '"backend": "kubernetes"' || { echo "::error::in-cluster run did not use the cluster backend"; exit 1; }
           echo "$out" | grep -q 'scale_up'                 || { echo "::error::in-cluster run did not propose scale_up"; exit 1; }
@@ -274,7 +274,7 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: k3d cluster delete aegis-ci || true
+        run: k3d cluster delete warden-ci || true
 
   terraform:
     runs-on: ubuntu-latest

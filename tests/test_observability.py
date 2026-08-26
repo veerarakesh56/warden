@@ -13,7 +13,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-import aegis.observability as obs
+import warden.observability as obs
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +29,7 @@ def recorded_spans(monkeypatch):
     """A LOCAL recording tracer, so attribute assertions actually run.
 
     `obs.span()` opens its span on the global tracer, which is a no-op provider when tracing is off
-    (`AEGIS_TRACE=0`, the default for tests). On a no-op span `set_attribute` silently does nothing,
+    (`WARDEN_TRACE=0`, the default for tests). On a no-op span `set_attribute` silently does nothing,
     so a test guarding its assertions behind `if attrs:` passes having verified NOTHING. Rather than
     fight OpenTelemetry's set-once global provider, this points `obs.tracer` at a private in-memory
     provider for the duration of the test - deterministic regardless of env, and no global mutation.
@@ -44,7 +44,7 @@ def recorded_spans(monkeypatch):
 
 
 def test_configure_is_idempotent(monkeypatch):
-    monkeypatch.delenv("AEGIS_TRACE", raising=False)
+    monkeypatch.delenv("WARDEN_TRACE", raising=False)
     obs.configure()
     first = trace.get_tracer_provider()
     obs.configure()
@@ -52,22 +52,22 @@ def test_configure_is_idempotent(monkeypatch):
 
 
 def test_trace_disabled_short_circuits(monkeypatch):
-    monkeypatch.setenv("AEGIS_TRACE", "0")
+    monkeypatch.setenv("WARDEN_TRACE", "0")
     obs.configure()
-    assert obs._CONFIGURED is False, "AEGIS_TRACE=0 must not install a provider"
+    assert obs._CONFIGURED is False, "WARDEN_TRACE=0 must not install a provider"
 
 
 def test_console_exporter_selected_by_env(monkeypatch):
     from opentelemetry.sdk.trace.export import ConsoleSpanExporter
 
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-    monkeypatch.setenv("AEGIS_TRACE_CONSOLE", "1")
+    monkeypatch.setenv("WARDEN_TRACE_CONSOLE", "1")
     assert isinstance(obs._build_exporter(), ConsoleSpanExporter)
 
 
 def test_no_exporter_when_nothing_is_configured(monkeypatch):
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
-    monkeypatch.delenv("AEGIS_TRACE_CONSOLE", raising=False)
+    monkeypatch.delenv("WARDEN_TRACE_CONSOLE", raising=False)
     assert obs._build_exporter() is None, "spans should not be exported unless asked for"
 
 
@@ -89,8 +89,8 @@ def test_span_sets_prefixed_attributes_and_skips_none(recorded_spans):
     finished = exporter.get_finished_spans()
     assert len(finished) == 1, "the span was not recorded - the test would prove nothing"
     attrs = dict(finished[0].attributes or {})
-    assert attrs.get("aegis.alpha") == "a"
-    assert "aegis.beta" not in attrs, "None-valued attributes should be omitted, not stringified"
+    assert attrs.get("warden.alpha") == "a"
+    assert "warden.beta" not in attrs, "None-valued attributes should be omitted, not stringified"
 
 
 def test_span_records_the_exception_and_re_raises():
@@ -126,7 +126,7 @@ def test_record_model_call_sets_every_field(recorded_spans):
     assert attrs[obs.GEN_AI_REQUEST_MODEL] == "gemini-3.6-flash"
     assert attrs[obs.GEN_AI_INPUT_TOKENS] == 10
     assert attrs[obs.GEN_AI_OUTPUT_TOKENS] == 5
-    assert attrs["aegis.cost.usd"] == 0.001
+    assert attrs["warden.cost.usd"] == 0.001
 
 
 def test_each_node_span_records_its_own_cost_not_the_running_total(recorded_spans):
@@ -136,10 +136,10 @@ def test_each_node_span_records_its_own_cost_not_the_running_total(recorded_span
     analyse+propose. Both model nodes charge 120 output tokens in mock mode; the cumulative bug
     showed propose=240. This asserts each node reports its own 120 and the deltas sum to the total.
     """
-    from aegis.cli import DEMO_ALERTS
-    from aegis.graph import run
-    from aegis.llm import LLMClient
-    from aegis.models import Alert
+    from warden.cli import DEMO_ALERTS
+    from warden.graph import run
+    from warden.llm import LLMClient
+    from warden.models import Alert
 
     exporter, _ = recorded_spans
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True))

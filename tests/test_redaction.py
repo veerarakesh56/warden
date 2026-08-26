@@ -1,6 +1,6 @@
 import pytest
 
-from aegis.redaction import RedactionLeak, redact, redact_many
+from warden.redaction import RedactionLeak, redact, redact_many
 
 
 def test_scrubs_the_obvious_identifiers():
@@ -52,7 +52,7 @@ def test_credentials_are_masked_jwt_and_api_keys():
 
 
 def test_non_aws_cloud_secrets_are_masked_gcp_and_azure():
-    """AEGIS runs on any cloud, so redaction must cover GCP and Azure credentials too, not only AWS.
+    """WARDEN runs on any cloud, so redaction must cover GCP and Azure credentials too, not only AWS.
     GCP OAuth tokens, Azure storage AccountKeys (bare and in connection strings) and Azure SAS
     signatures all realistically appear in incident logs on those platforms."""
     secrets = [
@@ -215,7 +215,7 @@ def test_leak_guard_can_fire():
     is tested directly: hand `_assert_clean` an output where a mapped original survived, and it must
     raise. This is the invariant the sweep upholds; the test proves the check that backs it works.
     """
-    from aegis.redaction import _assert_clean
+    from warden.redaction import _assert_clean
 
     with pytest.raises(RedactionLeak):
         _assert_clean("the secret alice@corp.io is still here", {"<EMAIL_1>": "alice@corp.io"})

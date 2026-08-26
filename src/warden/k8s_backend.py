@@ -46,7 +46,7 @@ Things that are deliberate, most of them learned from an adversarial review of t
    `TOOL-PARTIAL` prefix that `gather()` routes into `tool_errors`.
 
 Mapping from an alert to a workload:
-    namespace  = alert.labels["namespace"]  or $AEGIS_K8S_NAMESPACE  or "default"
+    namespace  = alert.labels["namespace"]  or $WARDEN_K8S_NAMESPACE  or "default"
     selector   = alert.labels["selector"]   or f"app={alert.service}"
     deployment = alert.labels["deployment"] or alert.service
 
@@ -64,17 +64,17 @@ from .tools import PARTIAL_PREFIX, ToolError
 # Socket timeouts for every API call: (connect, read). The read timeout must be shorter than the
 # tool deadline in tools.py so the worker thread ends on its own instead of being abandoned.
 REQUEST_TIMEOUT = (
-    float(os.environ.get("AEGIS_K8S_CONNECT_TIMEOUT", "3.0")),
-    float(os.environ.get("AEGIS_K8S_READ_TIMEOUT", "4.0")),
+    float(os.environ.get("WARDEN_K8S_CONNECT_TIMEOUT", "3.0")),
+    float(os.environ.get("WARDEN_K8S_READ_TIMEOUT", "4.0")),
 )
 # How far back a template change counts as "recent" — this window IS the evidence policy P5 asks
 # for before permitting a rollback.
-RECENT_DEPLOY_WINDOW = timedelta(hours=float(os.environ.get("AEGIS_K8S_DEPLOY_WINDOW_H", "6")))
-LOG_TAIL_LINES = int(os.environ.get("AEGIS_K8S_LOG_TAIL", "40"))
+RECENT_DEPLOY_WINDOW = timedelta(hours=float(os.environ.get("WARDEN_K8S_DEPLOY_WINDOW_H", "6")))
+LOG_TAIL_LINES = int(os.environ.get("WARDEN_K8S_LOG_TAIL", "40"))
 # Log reads are O(pods x containers) and sequential; cap them so a 40-replica service cannot eat
 # the whole tool budget. Newest pods first — they are the ones crashing now.
-LOG_MAX_PODS = int(os.environ.get("AEGIS_K8S_LOG_MAX_PODS", "5"))
-EVENT_LIMIT = int(os.environ.get("AEGIS_K8S_EVENT_LIMIT", "500"))
+LOG_MAX_PODS = int(os.environ.get("WARDEN_K8S_LOG_MAX_PODS", "5"))
+EVENT_LIMIT = int(os.environ.get("WARDEN_K8S_EVENT_LIMIT", "500"))
 
 # Event reasons that are evidence in their own right. Anything else is noise at incident time.
 INTERESTING_EVENT_REASONS = {
@@ -101,7 +101,7 @@ class KubernetesBackend:
                     config.load_kube_config(config_file=kubeconfig)  # a developer's kubeconfig
                 except config.ConfigException as exc:
                     raise ToolError(
-                        "AEGIS_BACKEND=k8s but no cluster credentials were found (not in-cluster, "
+                        "WARDEN_BACKEND=k8s but no cluster credentials were found (not in-cluster, "
                         f"and no usable kubeconfig): {exc}"
                     ) from exc
             core = core or client.CoreV1Api()
@@ -113,7 +113,7 @@ class KubernetesBackend:
 
     @staticmethod
     def _namespace(alert: Alert) -> str:
-        return alert.labels.get("namespace") or os.environ.get("AEGIS_K8S_NAMESPACE", "default")
+        return alert.labels.get("namespace") or os.environ.get("WARDEN_K8S_NAMESPACE", "default")
 
     @staticmethod
     def _selector(alert: Alert) -> str:

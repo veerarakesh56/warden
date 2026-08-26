@@ -59,7 +59,7 @@ class RootCause(BaseModel):
 
 
 class ActionKind(str, Enum):
-    """The closed set of things AEGIS is allowed to propose.
+    """The closed set of things WARDEN is allowed to propose.
 
     Closed on purpose. A model that can invent an action kind can invent `delete_database`.
     """
@@ -89,7 +89,7 @@ class VerdictStatus(str, Enum):
     approved_for_human = "approved_for_human"  # passed policy, still needs a person
     auto_safe = "auto_safe"                    # passed policy and is safe to run unattended
     rejected = "rejected"                      # policy said no
-    escalated = "escalated"                    # AEGIS declines to decide
+    escalated = "escalated"                    # WARDEN declines to decide
 
 
 class Verdict(BaseModel):

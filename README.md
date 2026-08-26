@@ -1,4 +1,4 @@
-# AEGIS
+# WARDEN
 
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
@@ -23,7 +23,7 @@ Ask an LLM to remediate an incident and it will always produce something. Given 
 does not say "I don't know" — it produces a confident, plausible action. In a chat assistant that is
 a bug. In an operations tool it is an outage with a good explanation attached.
 
-## What AEGIS does
+## What WARDEN does
 
 ```
 alert → gather evidence → REDACT → analyse → propose → VERIFY → halt | escalate | await approval
@@ -56,12 +56,12 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
   it is DATA (`data/incident_signatures.yaml`), so a new failure mode is one YAML block, not a code change.
 - **Per-environment policy that fails closed.** `data/environments.yaml` sets, for each environment
   (staging, qa-staging, pre-prod, qa-prod, prod, dev), an allow/deny action list, the authorised
-  principals, and whether AEGIS may auto-remediate at all. An unrecognised environment resolves to a
+  principals, and whether WARDEN may auto-remediate at all. An unrecognised environment resolves to a
   restrictive default that can only escalate — widening the environment set can never loosen safety.
 - **A four-way remediation gate.** A fix is applied only when *verdict × environment auto-remediate ×
   authorised principal × explicit approval* all hold — and even then only through a pluggable backend.
   The default is dry-run (changes nothing, records what it would do). A **real Kubernetes backend**
-  (`AEGIS_REMEDIATION=live`) restarts or scales a Deployment for real — restart/scale only, clamped
+  (`WARDEN_REMEDIATION=live`) restarts or scales a Deployment for real — restart/scale only, clamped
   (never to zero, never past a ceiling), behind a **separate write-RBAC** ServiceAccount that can
   `patch deployments` and nothing else. Arming it is necessary, never sufficient: the gate still
   decides. staging/qa-staging can auto-apply after approval; pre-prod and above always hand off.
@@ -72,12 +72,12 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
 - **Real timeouts.** Every context tool runs under a wall-clock deadline. A hung logging backend
   during an incident is the normal case, not the edge case — and a timed-out tool becomes *visible
   partial context* (policy `P8`) rather than a gap that looks like completeness.
-- **OpenTelemetry tracing.** One span per node — `aegis.run → tool.* → analyse → propose → verify` —
+- **OpenTelemetry tracing.** One span per node — `warden.run → tool.* → analyse → propose → verify` —
   carrying confidence, action, blast radius, verdict, policies fired, and **token cost per step**.
   Console exporter by default so it works with no collector; set `OTEL_EXPORTER_OTLP_ENDPOINT` to
   ship to a real backend.
 - **A full audit trail.** Every node records what it saw and did.
-- **Terraform to deploy it.** ECS Fargate task with a **read-only task role** — AEGIS can inspect
+- **Terraform to deploy it.** ECS Fargate task with a **read-only task role** — WARDEN can inspect
   infrastructure but not change it — and the API key passed by Secrets Manager ARN so it never
   enters Terraform state. See [`terraform/`](terraform/).
 
@@ -91,30 +91,30 @@ or
 
 ```bash
 pip install -e ".[dev]"
-AEGIS_MOCK=1 aegis demo --verbose
+WARDEN_MOCK=1 warden demo --verbose
 ```
 
 ### Running against a real model — including free ones
 
-AEGIS is **not tied to a vendor**. That is a design position, not a cost saving: a safety layer that
+WARDEN is **not tied to a vendor**. That is a design position, not a cost saving: a safety layer that
 only works against one model is not a safety layer, and incident logs are the kind of data plenty of
 organisations cannot send to any third party at all.
 
 ```bash
 # Google AI Studio - genuine free tier, no card
 pip install -e ".[gemini]"
-AEGIS_MOCK=0 AEGIS_PROVIDER=gemini GEMINI_API_KEY=... aegis run --incident inc-001
+WARDEN_MOCK=0 WARDEN_PROVIDER=gemini GEMINI_API_KEY=... warden run --incident inc-001
 
 # Fully local, no key, nothing leaves the machine
 pip install -e ".[openai]"
-AEGIS_MOCK=0 AEGIS_PROVIDER=ollama AEGIS_MODEL=llama3.1 aegis run --incident inc-001
+WARDEN_MOCK=0 WARDEN_PROVIDER=ollama WARDEN_MODEL=llama3.1 warden run --incident inc-001
 
 # Anthropic, Groq or OpenRouter
-AEGIS_MOCK=0 AEGIS_PROVIDER=anthropic ANTHROPIC_API_KEY=... aegis run --incident inc-001
-AEGIS_MOCK=0 AEGIS_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY aegis run
+WARDEN_MOCK=0 WARDEN_PROVIDER=anthropic ANTHROPIC_API_KEY=... warden run --incident inc-001
+WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY warden run
 ```
 
-| `AEGIS_PROVIDER` | Key | Notes |
+| `WARDEN_PROVIDER` | Key | Notes |
 |---|---|---|
 | `mock` | none | Deterministic, no network. Default in CI |
 | `gemini` | `GEMINI_API_KEY` | **Free tier** |
@@ -131,7 +131,7 @@ Most MCP servers hand an agent **more capability**. This one hands it a **constr
 
 ```bash
 pip install -e ".[mcp]"
-aegis-mcp                      # stdio transport
+warden-mcp                      # stdio transport
 ```
 
 Any MCP client — Claude Desktop, an IDE agent, another orchestrator — gets four tools:
@@ -144,7 +144,7 @@ Any MCP client — Claude Desktop, an IDE agent, another orchestrator — gets f
 | `describe_policy` | The nine policies and the per-environment allow-list |
 
 ⭐⭐ **Why this is the interesting one:** an agent written by someone else, with no safety layer of its
-own, can ask AEGIS whether the thing it is about to do is allowed in production — and get an
+own, can ask WARDEN whether the thing it is about to do is allowed in production — and get an
 auditable answer with policy ids. **The closed action enum is published in the tool schema**, so a
 client cannot even name an action outside the set. Every response carries `may_execute: false`.
 
@@ -160,7 +160,7 @@ That is the same defect shape as every other bug in this README: **a claim the c
 
 ```bash
 pip install -e ".[k8s]"
-AEGIS_BACKEND=k8s aegis run --incident inc-002      # reads the cluster your kubeconfig points at
+WARDEN_BACKEND=k8s warden run --incident inc-002      # reads the cluster your kubeconfig points at
 ```
 
 **`KubernetesBackend`** satisfies the same three-method contract as the fixture backend — `logs`,
@@ -204,10 +204,10 @@ Two deployment paths, both included:
   FS, all capabilities dropped), so it is admitted on clusters that **strictly enforce Pod Security**
   — which is exactly what EKS/GKE/AKS do, and what CI proves by enforcing `restricted` on the
   namespace and admitting the Job while rejecting a privileged pod. The **only** cluster-specific
-  change is the image, which the demo hard-codes to `aegis:local`. On EKS, push to ECR and set it:
+  change is the image, which the demo hard-codes to `warden:local`. On EKS, push to ECR and set it:
   ```bash
   kubectl apply -k k8s/     # namespace, ServiceAccount, ClusterRole, RoleBinding — portable as-is
-  sed 's#aegis:local#<acct>.dkr.ecr.<region>.amazonaws.com/aegis:0.5.1#' k8s/job.yaml \
+  sed 's#warden:local#<acct>.dkr.ecr.<region>.amazonaws.com/warden:0.5.1#' k8s/job.yaml \
     | kubectl create -f -   # one diagnosis, image retargeted to your registry
   ```
 - **ECS / Fargate** — the `terraform/` module: a task with a **read-only task role** and **all Linux
@@ -229,9 +229,9 @@ CI creates a **k3d** cluster on every push and:
    reads would pass a `*`-verb ClusterRoleBinding.
 3. Deploys `k8s/test/oom-workload.yaml` — a pod that **actually OOM-kills itself** (300 MiB into a
    48Mi limit) — and waits for the kubelet to record `lastState.terminated.reason: OOMKilled`.
-4. Runs AEGIS against it from outside and asserts the *output*: `"backend": "kubernetes"`,
+4. Runs WARDEN against it from outside and asserts the *output*: `"backend": "kubernetes"`,
    `scale_up`, `APPROVED_FOR_HUMAN`, `"tool_errors": []`.
-5. Imports the image and runs AEGIS **inside** the cluster as the Job, under the read-only
+5. Imports the image and runs WARDEN **inside** the cluster as the Job, under the read-only
    ServiceAccount, and asserts the same verdict from its logs — plus that it ran as `user=10001`
    with `readOnlyRootFilesystem`.
 
@@ -280,13 +280,13 @@ traces a tool can read and traces only we can read: **[Langfuse](https://langfus
 [Arize Phoenix](https://phoenix.arize.com) ingest them over OTLP with no adapter.**
 
 ```bash
-AEGIS_TRACE_CONSOLE=1 aegis run --incident inc-001     # see the spans
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006 aegis run   # ship to Phoenix
+WARDEN_TRACE_CONSOLE=1 warden run --incident inc-001     # see the spans
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006 warden run   # ship to Phoenix
 ```
 
 ⚠ The GenAI conventions moved to their own repo in semconv **v1.42.0 (June 2026)** and remain in
 *Development* status. Core usage and model attributes are stable enough to build on; expect churn.
-Cost has no spec attribute, so it stays under `aegis.cost.usd`.
+Cost has no spec attribute, so it stays under `warden.cost.usd`.
 
 ## What the demo shows
 
@@ -299,7 +299,7 @@ Four recorded incidents, each exercising a different route:
 | `inc-003` | Replica saturated | `failover_replica` | **escalated** | Right action, but multi-service blast radius (`P6`) |
 | `inc-004` | Two vague log lines | `escalate_to_human` | **auto_safe** | ⭐ **Declines to invent a fix** |
 
-⭐ `inc-004` is the one to look at. Most agent demos produce a confident answer there. AEGIS scores
+⭐ `inc-004` is the one to look at. Most agent demos produce a confident answer there. WARDEN scores
 low confidence, proposes escalation, and the verifier lets it through precisely *because* it is
 inert.
 
@@ -326,7 +326,7 @@ documented as such — this is the proof.
 
 **3. Model identifiers expire.** `gemini-2.0-flash` was the hardcoded default; the API replied
 *"no longer available … use models/gemini-3.6-flash"*. A pinned model id is a dated assumption,
-which is why `AEGIS_MODEL` overrides it without touching code.
+which is why `WARDEN_MODEL` overrides it without touching code.
 
 ⭐ The live run also confirmed the parts that matter: **7 identifiers masked before anything left the
 process**, cost tracked per call (~$0.009 per incident), and on the thin-evidence incident the model
@@ -369,12 +369,12 @@ green.** That is why every guard here is written to be *proven able to fail* bef
 
 ## Environments, remediation and ChatOps
 
-The gate does not stop at "approved". AEGIS can **resolve** an incident where it is safe to, and turn
+The gate does not stop at "approved". WARDEN can **resolve** an incident where it is safe to, and turn
 every run into a report a human uses to promote the same fix upward.
 
-**Per-environment policy** lives in [`src/aegis/data/environments.yaml`](src/aegis/data/environments.yaml)
-(override with `AEGIS_ENV_POLICY_PATH`). Each environment declares its allowed/denied actions, its
-authorised principals, and whether AEGIS may auto-remediate:
+**Per-environment policy** lives in [`src/warden/data/environments.yaml`](src/warden/data/environments.yaml)
+(override with `WARDEN_ENV_POLICY_PATH`). Each environment declares its allowed/denied actions, its
+authorised principals, and whether WARDEN may auto-remediate:
 
 | environment | auto-remediate | example allow | denies |
 |---|---|---|---|
@@ -389,32 +389,32 @@ does it run, and only through a pluggable backend; the shipped `DryRunBackend` c
 
 ```bash
 # Auto-resolve in staging (dry-run), then print the promotion report:
-aegis run --incident inc-002 --environment staging --principal role:oncall --approve --report
+warden run --incident inc-002 --environment staging --principal role:oncall --approve --report
 
 #   -> Remediation: dry_run  "would scale_up 'checkout' in staging"
 #   -> Promotion:  pre-prod / qa-prod / prod  (a human applies)
 
 # The same request in prod is refused by policy, not by chance:
-aegis run --incident inc-002 --principal role:oncall --approve
+warden run --incident inc-002 --principal role:oncall --approve
 #   -> Remediation: not_auto_remediable  (prod never auto-applies)
 
 # Arm the REAL Kubernetes backend (restart/scale for real) — still gated, still staging-only here:
 kubectl apply -f k8s/remediation-rbac.yaml            # the separate write-RBAC, once
-AEGIS_REMEDIATION=live AEGIS_BACKEND=k8s \
-  aegis run --incident inc-002 --environment staging --principal svc:aegis-staging --approve
+WARDEN_REMEDIATION=live WARDEN_BACKEND=k8s \
+  warden run --incident inc-002 --environment staging --principal svc:warden-staging --approve
 #   -> Remediation: applied  "scaled deployment/checkout in default from 1 to 2 replica(s)"
 ```
 
-**Live remediation** (`AEGIS_REMEDIATION=live`) uses `KubernetesRemediationBackend`: it does a real
+**Live remediation** (`WARDEN_REMEDIATION=live`) uses `KubernetesRemediationBackend`: it does a real
 rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`, and
-**refuses** every other action. Its permission is a separate `aegis-remediator` ServiceAccount
+**refuses** every other action. Its permission is a separate `warden-remediator` ServiceAccount
 (`k8s/remediation-rbac.yaml`, not in the default deploy) that can patch deployments and nothing else —
 proven both ways by `kubectl auth can-i` in CI, and the restart/scale proven against a live k3d
 cluster. Any other action, target, or cloud is the operator's to plug in; the four-way gate is unchanged.
 
 **ChatOps.** `--emit-chatops` pushes the redacted report to Slack, Teams or a generic webhook
-(`AEGIS_SLACK_WEBHOOK` / `AEGIS_TEAMS_WEBHOOK` / `AEGIS_WEBHOOK_URL`). It is **dry-run unless
-`AEGIS_CHATOPS_LIVE=1`**, re-redacts the exact payload before transmit, and a failed post is a status,
+(`WARDEN_SLACK_WEBHOOK` / `WARDEN_TEAMS_WEBHOOK` / `WARDEN_WEBHOOK_URL`). It is **dry-run unless
+`WARDEN_CHATOPS_LIVE=1`**, re-redacts the exact payload before transmit, and a failed post is a status,
 never a crash.
 
 ## Architecture
@@ -437,7 +437,7 @@ enforcement and the audit trail, asserted on every push.
 ## Limits, stated plainly
 
 - Tools read recorded fixtures; wiring to Loki/CloudWatch/Datadog is one class each, not done here.
-- Remediation is **dry-run by default**. A real live Kubernetes backend ships (`AEGIS_REMEDIATION=live`)
+- Remediation is **dry-run by default**. A real live Kubernetes backend ships (`WARDEN_REMEDIATION=live`)
   and does restart/scale for real — proven against k3d in CI — but it is off unless armed AND the
   four-way gate passes, and it deliberately does **only** restart/scale (no rollback/failover/delete;
   no database or non-k8s target). Live remediation for other targets is an operator's to add.

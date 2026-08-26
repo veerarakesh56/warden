@@ -1,4 +1,4 @@
-# The NEGATIVE test for Pod Security. This pod must be REJECTED by the `aegis` namespace.
+# The NEGATIVE test for Pod Security. This pod must be REJECTED by the `warden` namespace.
 #
 # A positive test (the Job is admitted) cannot distinguish "restricted is enforced" from "the
 # label is mistyped and nothing is enforced". Applying this and asserting `Forbidden` can. CI runs
@@ -6,8 +6,8 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: aegis-privileged-must-fail
-  namespace: aegis
+  name: warden-privileged-must-fail
+  namespace: warden
 spec:
   restartPolicy: Never
   containers:

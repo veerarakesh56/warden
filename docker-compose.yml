@@ -4,14 +4,14 @@
 # demo that only works with the author's credentials is a demo nobody can reproduce.
 #
 # To run against the live model instead:
-#   AEGIS_MOCK=0 ANTHROPIC_API_KEY=sk-... docker compose up
+#   WARDEN_MOCK=0 ANTHROPIC_API_KEY=sk-... docker compose up
 
 services:
-  aegis:
+  warden:
     build: .
     environment:
-      AEGIS_MOCK: "${AEGIS_MOCK:-1}"
+      WARDEN_MOCK: "${WARDEN_MOCK:-1}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      AEGIS_PRICE_IN: "${AEGIS_PRICE_IN:-3.00}"
-      AEGIS_PRICE_OUT: "${AEGIS_PRICE_OUT:-15.00}"
+      WARDEN_PRICE_IN: "${WARDEN_PRICE_IN:-3.00}"
+      WARDEN_PRICE_OUT: "${WARDEN_PRICE_OUT:-15.00}"
     command: ["demo", "--verbose"]
