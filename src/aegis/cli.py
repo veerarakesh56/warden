@@ -16,7 +16,8 @@ from .graph import run
 from .knowledge import default_knowledge_base
 from .llm import LLMClient
 from .models import Alert, Severity
-from .remediation import RemediationRequest, decide_remediation
+from .remediation import RemediationError, RemediationRequest, decide_remediation
+from .remediation_k8s import resolve_remediation_backend
 from .reporting import build_report
 from .tools import resolve_backend
 
@@ -94,11 +95,20 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
 
     remediation = None
     if principal is not None and report.proposal and report.verdict:
+        # DRY-RUN unless AEGIS_REMEDIATION=live arms the real k8s backend. Either way the four-way
+        # gate decides whether it is even reached. A live-backend init fault (no cluster) is surfaced,
+        # not crashed.
+        try:
+            backend = resolve_remediation_backend()
+        except RemediationError as exc:
+            print(f"\n[remediation] live backend unavailable, not applying: {exc}")
+            backend = None
         remediation = decide_remediation(
             alert,
             report.proposal,
             report.verdict,
             RemediationRequest(principal=principal, approved=approve),
+            backend=backend,
         )
 
     built = build_report(

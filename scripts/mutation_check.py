@@ -162,6 +162,34 @@ MUTATIONS = [
         "    safe_text = report.markdown",
         "the last redaction before data leaves the org - removing it is a direct external leak",
     ),
+    (
+        "live k8s backend lies that it is dry-run",
+        "remediation_k8s.py",
+        "    live = True",
+        "    live = False",
+        "the gate would record a real cluster change as a harmless dry_run - the honesty flag IS the audit",
+    ),
+    (
+        "scale_down loses its floor of 1",
+        "remediation_k8s.py",
+        "            target = max(current - SCALE_STEP, 1)",
+        "            target = current - SCALE_STEP",
+        "scaling a Deployment to zero replicas is an OUTAGE dressed as a remediation",
+    ),
+    (
+        "live backend stops refusing unsupported actions",
+        "remediation_k8s.py",
+        "        if action not in _SUPPORTED:",
+        "        if False:",
+        "the write backend would attempt rollback/failover/clear_cache it has no safe way to perform",
+    ),
+    (
+        "the gate stops catching a backend fault",
+        "remediation.py",
+        "    except Exception as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
+        "    except ValueError as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
+        "a live-backend API error (403, unreachable) would crash the pipeline instead of a failed result",
+    ),
 ]
 
 

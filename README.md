@@ -8,8 +8,9 @@
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
 OpenAI-compatible), a **34-signature incident knowledge base**, **per-environment policy** with a
-four-way remediation gate and **Slack/Teams/webhook** reporting, 4 recorded incidents, **270 tests**
-(7 against a live cluster) plus a 20-case mutation check, output-asserting CI.
+four-way remediation gate (dry-run by default; an **opt-in live Kubernetes backend** that restarts/
+scales for real, behind a separate write-RBAC) and **Slack/Teams/webhook** reporting, 4 recorded
+incidents, **287 tests** (10 against a live cluster) plus a 24-case mutation check, output-asserting CI.
 
 ## The problem
 
@@ -59,8 +60,11 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
   restrictive default that can only escalate — widening the environment set can never loosen safety.
 - **A four-way remediation gate.** A fix is applied only when *verdict × environment auto-remediate ×
   authorised principal × explicit approval* all hold — and even then only through a pluggable backend.
-  The shipped one is dry-run: it changes nothing and records what it would do. staging/qa-staging can
-  auto-apply after approval; pre-prod and above always hand off to a human.
+  The default is dry-run (changes nothing, records what it would do). A **real Kubernetes backend**
+  (`AEGIS_REMEDIATION=live`) restarts or scales a Deployment for real — restart/scale only, clamped
+  (never to zero, never past a ceiling), behind a **separate write-RBAC** ServiceAccount that can
+  `patch deployments` and nothing else. Arming it is necessary, never sufficient: the gate still
+  decides. staging/qa-staging can auto-apply after approval; pre-prod and above always hand off.
 - **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
   promotion plan — the exact higher environments where the same fix is permitted — and push it to
   Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
@@ -393,13 +397,25 @@ aegis run --incident inc-002 --environment staging --principal role:oncall --app
 # The same request in prod is refused by policy, not by chance:
 aegis run --incident inc-002 --principal role:oncall --approve
 #   -> Remediation: not_auto_remediable  (prod never auto-applies)
+
+# Arm the REAL Kubernetes backend (restart/scale for real) — still gated, still staging-only here:
+kubectl apply -f k8s/remediation-rbac.yaml            # the separate write-RBAC, once
+AEGIS_REMEDIATION=live AEGIS_BACKEND=k8s \
+  aegis run --incident inc-002 --environment staging --principal svc:aegis-staging --approve
+#   -> Remediation: applied  "scaled deployment/checkout in default from 1 to 2 replica(s)"
 ```
+
+**Live remediation** (`AEGIS_REMEDIATION=live`) uses `KubernetesRemediationBackend`: it does a real
+rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`, and
+**refuses** every other action. Its permission is a separate `aegis-remediator` ServiceAccount
+(`k8s/remediation-rbac.yaml`, not in the default deploy) that can patch deployments and nothing else —
+proven both ways by `kubectl auth can-i` in CI, and the restart/scale proven against a live k3d
+cluster. Any other action, target, or cloud is the operator's to plug in; the four-way gate is unchanged.
 
 **ChatOps.** `--emit-chatops` pushes the redacted report to Slack, Teams or a generic webhook
 (`AEGIS_SLACK_WEBHOOK` / `AEGIS_TEAMS_WEBHOOK` / `AEGIS_WEBHOOK_URL`). It is **dry-run unless
 `AEGIS_CHATOPS_LIVE=1`**, re-redacts the exact payload before transmit, and a failed post is a status,
-never a crash. Wiring a real `kubectl`/cloud backend for live remediation is the operator's to add;
-the four-way gate above it is unchanged either way.
+never a crash.
 
 ## Architecture
 
@@ -421,9 +437,10 @@ enforcement and the audit trail, asserted on every push.
 ## Limits, stated plainly
 
 - Tools read recorded fixtures; wiring to Loki/CloudWatch/Datadog is one class each, not done here.
-- Remediation ships **dry-run**: the four-way gate and the executor are real and tested, but the
-  bundled backend changes nothing. A live backend (kubectl/cloud SDK) is a deliberate operator
-  decision, not a hidden default — this codebase does not mutate infrastructure.
+- Remediation is **dry-run by default**. A real live Kubernetes backend ships (`AEGIS_REMEDIATION=live`)
+  and does restart/scale for real — proven against k3d in CI — but it is off unless armed AND the
+  four-way gate passes, and it deliberately does **only** restart/scale (no rollback/failover/delete;
+  no database or non-k8s target). Live remediation for other targets is an operator's to add.
 - Redaction is regex-based — a strong control against accidental leakage, not a guarantee against a
   determined adversary.
 - The eval suite tests deterministic behaviour, **not** live model quality.

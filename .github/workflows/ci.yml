@@ -166,6 +166,29 @@ jobs:
           deny get nodes
           deny list namespaces
 
+      - name: The WRITE path (live remediation) grants exactly patch+get on deployments, nothing else
+        run: |
+          # remediation-rbac.yaml is deliberately NOT in the default kustomization - the default deploy
+          # stays read-only. Arming live remediation means applying this separately, and this proves
+          # its boundary from the API server's own view, both directions.
+          kubectl apply -f k8s/remediation-rbac.yaml
+          SA=system:serviceaccount:aegis:aegis-remediator
+          allow() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
+          deny()  { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "no" ]  || { echo "::error::$* must be denied";  exit 1; }; }
+          # exactly the two the backend calls
+          allow patch deployments.apps -n default
+          allow get   deployments.apps -n default
+          # everything else is denied - including the destructive verbs, pods, secrets, other namespaces
+          deny delete deployments.apps -n default
+          deny update deployments.apps -n default
+          deny list   deployments.apps -n default
+          deny delete pods -n default
+          deny create pods -n default
+          deny patch  pods -n default
+          deny get    secrets -n default
+          deny patch  deployments.apps -n kube-system
+          deny patch  deployments.apps -n aegis
+
       - name: Deploy the synthetic OOM workload and wait until it is GENUINELY crash-looping
         run: |
           kubectl apply -f k8s/test/oom-workload.yaml

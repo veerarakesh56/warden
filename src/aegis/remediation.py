@@ -34,6 +34,12 @@ class RemediationOutcome(str, Enum):
     unauthorized = "unauthorized"            # the principal may not act in this environment
     not_auto_remediable = "not_auto_remediable"  # this env never auto-applies; a human must
     blocked = "blocked"                      # the verdict was not approvable in the first place
+    failed = "failed"                        # every gate passed, but the backend errored while acting
+
+
+class RemediationError(RuntimeError):
+    """A remediation backend could not carry out (or refused) an action. Caught by the gate and
+    turned into a `failed` result — a backend fault must never crash the pipeline."""
 
 
 class RemediationRequest(BaseModel):
@@ -154,7 +160,12 @@ def decide_remediation(
         )
 
     # 6. All gates passed. Apply through the backend. The shipped DryRunBackend changes nothing.
+    #    A live backend that errors (an API 403, a missing deployment, an unsupported action) must
+    #    not crash the run — it becomes a `failed` result carrying the reason.
     exec_backend = backend or DryRunBackend()
-    change = exec_backend.apply(action, target, alert.environment)
+    try:
+        change = exec_backend.apply(action, target, alert.environment)
+    except Exception as exc:  # noqa: BLE001 - a backend fault is a result, not a crash
+        return result(RemediationOutcome.failed, f"backend error: {exc}")
     outcome = RemediationOutcome.applied if exec_backend.live else RemediationOutcome.dry_run
     return result(outcome, f"applied by '{request.principal}' after approval", change)
