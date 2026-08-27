@@ -118,17 +118,62 @@ class KubernetesRemediationBackend:
         return f"scaled deployment/{deployment} in {self._ns} from {current} to {target} replica(s)"
 
 
+class LiveRemediationRouter:
+    """Sends an approved action to the backend that can actually perform it.
+
+    Kubernetes actions (restart/scale) go to `KubernetesRemediationBackend`; `terminate_connections`
+    goes to `DatabaseRemediationBackend`. Anything else is refused — a router that silently did
+    nothing would be worse than one that says it cannot.
+
+    Both delegates are built LAZILY, on first use of an action they own. A Kubernetes-only deployment
+    therefore never needs database credentials, and a database-only one never needs a kubeconfig; a
+    missing credential surfaces as a `failed` remediation naming the real reason, at the moment the
+    action is actually attempted.
+    """
+
+    def __init__(self, *, k8s=None, database=None) -> None:
+        self._k8s = k8s
+        self._db = database
+        # Provisional: overwritten per-apply with what the DELEGATE reports, because a database
+        # backend may be running dry (WARDEN_DB_DRY_RUN=1) and the audit must not call that a change.
+        self.live = True
+
+    def _backend_for(self, action: ActionKind):
+        if action in _SUPPORTED:
+            if self._k8s is None:
+                self._k8s = KubernetesRemediationBackend()
+            return self._k8s
+        if action is ActionKind.terminate_connections:
+            if self._db is None:
+                from .database_remediation import DatabaseRemediationBackend
+
+                self._db = DatabaseRemediationBackend()
+            return self._db
+        raise RemediationError(
+            f"{action.value} has no live remediation backend "
+            "(restart_pods / scale_up / scale_down go to Kubernetes; "
+            "terminate_connections goes to the database)"
+        )
+
+    def apply(self, action: ActionKind, target: str, environment: str) -> str:
+        backend = self._backend_for(action)
+        # Report the DELEGATE's honesty flag, so a dry-running database backend is recorded as a dry
+        # run and a real Kubernetes patch is recorded as a change.
+        self.live = bool(getattr(backend, "live", True))
+        return backend.apply(action, target, environment)
+
+
 def resolve_remediation_backend():
     """The backend `decide_remediation` should use. DRY-RUN unless explicitly armed.
 
     Default (unset / anything but 'live'): a DryRunBackend that changes nothing. Set
-    WARDEN_REMEDIATION=live to arm the real Kubernetes backend — necessary, never sufficient: the
-    four-way policy gate still has to pass before it is ever called.
+    WARDEN_REMEDIATION=live to arm the real backends — necessary, never sufficient: the four-way
+    policy gate still has to pass before either of them is ever called.
     """
     from .remediation import DryRunBackend
 
     if os.environ.get("WARDEN_REMEDIATION", "").lower() == "live":
-        return KubernetesRemediationBackend()
+        return LiveRemediationRouter()
     return DryRunBackend()
 
 

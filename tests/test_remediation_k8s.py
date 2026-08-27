@@ -107,6 +107,9 @@ def test_scale_up_respects_the_max_replicas_ceiling(monkeypatch):
 
 @pytest.mark.parametrize("action", [
     ActionKind.rollback_deploy, ActionKind.failover_replica, ActionKind.clear_cache,
+    # A database action must never be attempted against the cluster: the router sends it to the
+    # database backend, and if it ever arrived here anyway this backend has to refuse it.
+    ActionKind.terminate_connections,
 ])
 def test_it_refuses_actions_outside_restart_and_scale(action):
     with pytest.raises(RemediationError, match="restart_pods / scale_up / scale_down only"):

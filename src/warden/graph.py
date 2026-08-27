@@ -103,6 +103,16 @@ class Signals:
     oom_killed: int = 0
     restarts: int = 0
     crashloop: int = 0
+    # Database signal: connections stuck idle-in-transaction. They hold pool slots and locks, so a
+    # rising count is the connection-exhaustion incident whose fix is to terminate them.
+    idle_in_transaction: int = 0
+
+    @property
+    def stuck_connections(self) -> bool:
+        """Enough idle-in-transaction connections to BE the incident, AND no replica-lag emergency
+        (which would call for a failover instead). Idle-in-transaction holds pool slots and row
+        locks; the remedy is to terminate those connections, not to fail the database over."""
+        return self.idle_in_transaction >= 5 and self.replica_lag <= 10
 
     @property
     def memory_pressure(self) -> bool:
@@ -141,6 +151,7 @@ class Signals:
             oom_killed=_as_count(m.get("oom_killed_containers")),
             restarts=_as_count(m.get("restart_count")),
             crashloop=_as_count(m.get("crashloop_containers")),
+            idle_in_transaction=_as_count(m.get("idle_in_transaction")),
         )
 
 
@@ -162,6 +173,13 @@ def _mock_root_cause(s: Signals) -> RootCause:
             hypothesis="Pods are being OOM-killed under memory pressure.",
             confidence=0.74,
             evidence=evidence,
+        )
+    if s.stuck_connections:
+        return RootCause(
+            hypothesis="Connections stuck idle-in-transaction are exhausting the database pool.",
+            confidence=0.71,
+            evidence=[f"{s.idle_in_transaction} idle-in-transaction connection(s), no replica lag"],
+            ruled_out=["replica saturation"],
         )
     if s.pool_saturated or s.replica_lag > 10:
         return RootCause(
@@ -192,6 +210,15 @@ def _mock_proposal(s: Signals) -> RemediationProposal:
             target=s.service,
             reasoning="Raise the memory limit and add replica headroom.",
             expected_effect="OOM kills stop.",
+            blast_radius="single_service",
+            reversible=True,
+        )
+    if s.stuck_connections:
+        return RemediationProposal(
+            action=ActionKind.terminate_connections,
+            target=f"{s.service}-db",
+            reasoning="Terminate the idle-in-transaction connections holding the pool and its locks.",
+            expected_effect="Pool frees up and new connections succeed.",
             blast_radius="single_service",
             reversible=True,
         )

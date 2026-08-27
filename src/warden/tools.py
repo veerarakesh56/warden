@@ -50,11 +50,25 @@ class ToolError(RuntimeError):
 PARTIAL_PREFIX = "TOOL-PARTIAL "
 
 
+# Backend name -> engine key. `db`/`database` map to None: the engine is then read from the DSN
+# scheme (postgresql:// mysql:// redis:// mongodb:// mssql://), so one setting covers a mixed estate.
+_DB_BACKENDS: dict[str, str | None] = {
+    "db": None, "database": None,
+    "postgres": "postgres", "postgresql": "postgres",
+    "mysql": "mysql", "mariadb": "mysql",
+    "redis": "redis", "rediss": "redis",
+    "mongo": "mongo", "mongodb": "mongo",
+    "mssql": "mssql", "sqlserver": "mssql",
+}
+
+
 def resolve_backend(name: str | None = None):
     """Pick the evidence source from `WARDEN_BACKEND`.
 
         fixture     recorded incidents shipped with the package (default; what CI uses)
         k8s         a live Kubernetes cluster via kubeconfig or in-cluster credentials
+        postgres | mysql | redis | mongo | mssql   a live database, read-only
+                    (or `db`/`database` to pick the engine from the DSN scheme itself)
 
     Same shape as `providers.resolve()`: the optional client is imported lazily, so the core
     package installs and runs with no cluster library present.
@@ -70,7 +84,17 @@ def resolve_backend(name: str | None = None):
                 "WARDEN_BACKEND=k8s needs the Kubernetes client: pip install -e '.[k8s]'"
             ) from exc
         return KubernetesBackend()
-    raise ToolError(f"unknown backend '{name}'. Known: fixture, k8s")
+    if name in _DB_BACKENDS:
+        # The driver itself (psycopg / pymysql / redis / pymongo / pymssql) is imported lazily inside
+        # the engine adapter at CONNECT time, so a missing extra surfaces as a readable error from the
+        # engine you actually asked for - not an ImportError for four you never wanted.
+        from .database import DatabaseBackend
+
+        return DatabaseBackend(engine=_DB_BACKENDS[name])
+    raise ToolError(
+        f"unknown backend '{name}'. Known: fixture, k8s, "
+        "db/database, postgres, mysql, redis, mongo, mssql"
+    )
 
 
 @dataclass

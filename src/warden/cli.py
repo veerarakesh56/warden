@@ -59,6 +59,15 @@ DEMO_ALERTS: dict[str, dict] = {
         summary="Slightly elevated 4xx from one client",
         started_at="2026-08-21T22:04:00Z",
     ),
+    "inc-005": dict(
+        alert_id="inc-005",
+        name="DBConnectionsStuck",
+        severity=Severity.high,
+        service="payments",
+        environment="prod",
+        summary="Connection pool exhausted by 25 idle-in-transaction connections, no replica lag",
+        started_at="2026-08-26T04:10:00Z",
+    ),
 }
 
 

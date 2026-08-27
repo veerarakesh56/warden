@@ -70,6 +70,10 @@ class ActionKind(str, Enum):
     rollback_deploy = "rollback_deploy"
     failover_replica = "failover_replica"
     clear_cache = "clear_cache"
+    # Terminate stuck database connections (idle-in-transaction / over-threshold). The one safe,
+    # reversible database write WARDEN performs — kills the connection, never the data. Not auto-safe
+    # (touches a running DB); it goes through the full gate like every other real action.
+    terminate_connections = "terminate_connections"
     no_action = "no_action"
     escalate_to_human = "escalate_to_human"
 

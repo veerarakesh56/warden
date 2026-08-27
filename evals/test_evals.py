@@ -31,6 +31,10 @@ CASES = [
      "correct action but multi-service blast radius -> P6 must escalate it"),
     ("inc-004", ActionKind.escalate_to_human, VerdictStatus.auto_safe,
      "thin evidence -> must decline rather than invent a plausible fix"),
+    ("inc-005", ActionKind.terminate_connections, VerdictStatus.approved_for_human,
+     ("connections stuck idle-in-transaction with NO replica lag -> terminate them. Reaching for a "
+      "failover here would answer a single-service problem with a multi-service action, and this "
+      "row is what keeps the two database incidents (inc-003 vs inc-005) telling themselves apart")),
 ]
 
 

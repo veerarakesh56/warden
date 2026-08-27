@@ -274,6 +274,8 @@ signatures:
       waiting for a free connection. Cause: a traffic rise, a slow query holding
       connections, or a connection leak.
     suggested_actions:
+      - kind: terminate_connections
+        rationale: "Kill the idle-in-transaction / stuck connections holding pool slots and locks — the direct fix for exhaustion."
       - kind: restart_pods
         rationale: "Clears leaked/held connections immediately."
       - kind: scale_down
@@ -294,6 +296,8 @@ signatures:
       Query latency rose sharply — a missing index after data growth, a lock held
       by a long transaction, or a heavy migration/backfill running in hours.
     suggested_actions:
+      - kind: terminate_connections
+        rationale: "If a lock is held by an idle-in-transaction connection, terminating it releases the lock — targeted, far lighter than a failover."
       - kind: escalate_to_human
         rationale: "Query plans and locks are a DBA/engineer call, not an automated action."
       - kind: failover_replica

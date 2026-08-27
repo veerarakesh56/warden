@@ -1,0 +1,16 @@
+{
+  "_comment": "Connection exhaustion from idle-in-transaction connections holding pool slots and row locks (no replica lag). The fix is to terminate the stuck connections, NOT a failover - which is why Signals.stuck_connections is checked before the replica/pool branch, and is guarded by replica_lag<=10 so a genuine replica-lag incident (inc-003) still routes to failover.",
+  "logs": [
+    "2026-08-26T04:10:01Z payments ERROR connection pool exhausted (100/100) db=payments-db-primary host=10.0.7.22",
+    "2026-08-26T04:10:03Z payments WARN 25 connections idle in transaction >300s db=payments-db-primary",
+    "2026-08-26T04:10:20Z payments ERROR could not acquire connection after 30000ms tenant_id=initech-4",
+    "2026-08-26T04:11:02Z payments ERROR connection pool exhausted (100/100) db=payments-db-primary"
+  ],
+  "metrics": {
+    "idle_in_transaction": 25.0,
+    "connection_pool_used": 100.0,
+    "connection_pool_size": 100.0,
+    "replica_lag_seconds": 0.0
+  },
+  "recent_deploys": []
+}

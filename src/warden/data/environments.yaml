@@ -58,7 +58,7 @@ environments:
     tier: nonprod
     auto_remediate: true
     require_human_approval: false
-    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache]
+    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections]
     deny_actions: [failover_replica]     # a DB failover is a human call even in staging
     authorized_principals: [svc:warden-staging, role:oncall, role:platform, role:qa]
     credentials_ref: warden-staging-readonly-sa
@@ -67,7 +67,7 @@ environments:
     tier: nonprod
     auto_remediate: true
     require_human_approval: false
-    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache]
+    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections]
     deny_actions: [failover_replica]
     authorized_principals: [svc:warden-qa, role:qa, role:oncall, role:platform]
     credentials_ref: warden-qa-staging-readonly-sa
@@ -76,7 +76,7 @@ environments:
     tier: preprod
     auto_remediate: false        # WARDEN proposes; a human applies
     require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy]
+    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:release]
     credentials_ref: warden-preprod-readonly-role
@@ -85,7 +85,7 @@ environments:
     tier: preprod
     auto_remediate: false
     require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy]
+    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:qa-lead]
     credentials_ref: warden-qa-prod-readonly-role
@@ -94,7 +94,7 @@ environments:
     tier: prod
     auto_remediate: false        # NEVER auto in production
     require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache]
+    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache, terminate_connections]
     deny_actions: [scale_down]   # scaling prod down is a capacity decision a human owns
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]
     credentials_ref: warden-prod-readonly-role

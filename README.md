@@ -8,9 +8,11 @@
 both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
 conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
 OpenAI-compatible), a **34-signature incident knowledge base**, **per-environment policy** with a
-four-way remediation gate (dry-run by default; an **opt-in live Kubernetes backend** that restarts/
-scales for real, behind a separate write-RBAC) and **Slack/Teams/webhook** reporting, 4 recorded
-incidents, **287 tests** (10 against a live cluster) plus a 24-case mutation check, output-asserting CI.
+four-way remediation gate (dry-run by default; opt-in live backends that restart/scale a **Kubernetes**
+Deployment or terminate stuck **database** connections for real, each behind its own least-privilege
+credential), **read-only database backends** for PostgreSQL/MySQL/Redis/MongoDB/SQL Server, and
+**Slack/Teams/webhook** reporting, 5 recorded incidents, **377 tests** (10 against a live cluster,
+8 against real databases) plus a 30-case mutation check, output-asserting CI.
 
 ## The problem
 
@@ -405,12 +407,80 @@ WARDEN_REMEDIATION=live WARDEN_BACKEND=k8s \
 #   -> Remediation: applied  "scaled deployment/checkout in default from 1 to 2 replica(s)"
 ```
 
-**Live remediation** (`WARDEN_REMEDIATION=live`) uses `KubernetesRemediationBackend`: it does a real
-rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`, and
-**refuses** every other action. Its permission is a separate `warden-remediator` ServiceAccount
-(`k8s/remediation-rbac.yaml`, not in the default deploy) that can patch deployments and nothing else —
-proven both ways by `kubectl auth can-i` in CI, and the restart/scale proven against a live k3d
-cluster. Any other action, target, or cloud is the operator's to plug in; the four-way gate is unchanged.
+**Live remediation** (`WARDEN_REMEDIATION=live`) arms a router that sends each approved action to the
+backend that can perform it — Kubernetes actions to `KubernetesRemediationBackend`, database actions to
+`DatabaseRemediationBackend` — and refuses anything neither can do. On the cluster side it does a real
+rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`. Its
+permission is a separate `warden-remediator` ServiceAccount (`k8s/remediation-rbac.yaml`, not in the
+default deploy) that can patch deployments and nothing else — proven both ways by `kubectl auth can-i`
+in CI, and the restart/scale proven against a live k3d cluster. The four-way gate is unchanged.
+
+## Databases — PostgreSQL, MySQL, Redis, MongoDB, SQL Server
+
+The same shape as Kubernetes: a **read-only** evidence backend, and a separate, gated write path that
+does exactly one safe thing.
+
+**Read (`WARDEN_BACKEND=postgres|mysql|redis|mongo|mssql`, or `db` to take the engine from the DSN).**
+`DatabaseBackend` reports connection and transaction health as evidence: active connections against the
+maximum, **idle-in-transaction** count, long-running queries, lock waits, replica lag; for Redis,
+clients/blocked/evictions/memory; for Mongo, connections and long-running ops. It is **read-only by
+construction** — every statement is a SELECT/SHOW/INFO/serverStatus/currentOp, and a test parses the
+module's AST and fails if a write verb appears in any string it could execute (docstrings excluded, so
+the module's own description of the rule is not mistaken for a violation). Query text is redacted
+before it becomes evidence, because a query can carry PII.
+
+**Write — one action: `terminate_connections`.** Connections stuck *idle in transaction* hold pool
+slots and row locks; killing them is the standard on-call fix and destroys no data (the transaction
+rolls back, the application reconnects). Per engine: `pg_terminate_backend` · `KILL` · `CLIENT KILL` ·
+`killOp` · `KILL` (SQL Server). Three clamps, enforced in the SQL **and again in Python** so one broken
+`WHERE` cannot widen them:
+
+| clamp | value |
+|---|---|
+| only connections stuck beyond | `WARDEN_DB_TERMINATE_IDLE_SECS` (default 300s) |
+| at most | `WARDEN_DB_TERMINATE_MAX` (default 20) |
+| never | its own connection (`pg_backend_pid()` / `CONNECTION_ID()` / `client_id()` / `@@SPID`) |
+
+`WARDEN_DB_DRY_RUN=1` selects the candidates and reports the count **without killing anything** — and
+in that mode the backend reports itself as not-live, so the audit records a dry run rather than a
+change. Everything else a database incident might want — failover, promotion, schema change, FLUSH,
+DROP — is deliberately absent: `failover_replica` escalates to a human by policy, and the rest are not
+in the action enum at all.
+
+Its credential is a **separate least-privilege role** (`WARDEN_DB_ADMIN_DSN`), the database twin of the
+write-RBAC ServiceAccount. The role that reads health needs none of these, and this role needs nothing
+else:
+
+| engine | the only grant it needs |
+|---|---|
+| PostgreSQL | `GRANT pg_signal_backend` |
+| MySQL | `CONNECTION_ADMIN` |
+| SQL Server | `ALTER ANY CONNECTION` |
+| Redis | an ACL user permitted `CLIENT\|KILL` |
+| MongoDB | `killop` |
+
+**Proven against real servers, not stubs.** CI's `db` job runs PostgreSQL, MySQL, Redis and MongoDB as
+service containers and asserts that a genuinely stuck connection is selected, terminated, and **gone
+from the server afterwards** — and that the run did not silently skip an engine.
+
+⚠ Two honest limits. **MongoDB proves the read and the self-sparing selection, not a kill**:
+manufacturing a long-running op on demand needs a server started with `enableTestCommands`, which a
+stock container does not have, so `killOp` is covered by unit test only. **SQL Server ships with an
+adapter and unit tests but no live container run** — `pymssql` plus a 2 GB EULA image did not fit this
+environment, and it is flagged here rather than quietly counted as proven.
+
+### The bug a real database found that no stub would have
+
+Ten rounds of three deliberately-stuck PostgreSQL connections: **two rounds missed one**, and the
+server explained why — it reported that connection's age as **minus 115 seconds**. A host clock step
+(NTP correction, VM pause/resume, a container host resyncing) had stamped `state_change` in the
+*future*, and such a connection can never satisfy `state_change < now() - interval`. It was invisible
+to both the evidence read and the terminator, permanently and silently.
+
+Declining to terminate a connection whose age cannot be judged is right — it might be one second old.
+Doing it **silently** is not. Those connections are now reported with the `TOOL-PARTIAL` prefix, which
+lands them in `tool_errors`, fires policy **P8** (partial context) and sends the incident to a human:
+the correct answer to *"there is something here I cannot measure."*
 
 **ChatOps.** `--emit-chatops` pushes the redacted report to Slack, Teams or a generic webhook
 (`WARDEN_SLACK_WEBHOOK` / `WARDEN_TEAMS_WEBHOOK` / `WARDEN_WEBHOOK_URL`). It is **dry-run unless
@@ -436,11 +506,16 @@ enforcement and the audit trail, asserted on every push.
 
 ## Limits, stated plainly
 
-- Tools read recorded fixtures; wiring to Loki/CloudWatch/Datadog is one class each, not done here.
-- Remediation is **dry-run by default**. A real live Kubernetes backend ships (`WARDEN_REMEDIATION=live`)
-  and does restart/scale for real — proven against k3d in CI — but it is off unless armed AND the
-  four-way gate passes, and it deliberately does **only** restart/scale (no rollback/failover/delete;
-  no database or non-k8s target). Live remediation for other targets is an operator's to add.
+- Evidence comes from recorded fixtures, a live Kubernetes cluster, or a live database. Wiring to
+  Loki/CloudWatch/Datadog is one class each, not done here.
+- Remediation is **dry-run by default**. Live backends ship for Kubernetes (restart/scale) and for
+  databases (terminate stuck connections) and are proven against k3d and against real PostgreSQL,
+  MySQL, Redis and MongoDB in CI — but they are off unless armed AND the four-way gate passes, and
+  they deliberately do only those things. No rollback, failover, delete, schema change or FLUSH: those
+  escalate to a human by policy or are absent from the action enum entirely.
+- **MongoDB's kill path is unit-tested, not live-tested** (a stock container cannot manufacture a
+  long-running op), and **SQL Server has an adapter and unit tests but no live container run**. Both
+  are stated here rather than counted as proven.
 - Redaction is regex-based — a strong control against accidental leakage, not a guarantee against a
   determined adversary.
 - The eval suite tests deterministic behaviour, **not** live model quality.

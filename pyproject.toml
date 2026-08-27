@@ -29,6 +29,13 @@ gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
 openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via WARDEN_BASE_URL
 mcp = ["mcp>=2.0"]                      # expose the policy gate to any MCP client
 k8s = ["kubernetes>=30"]                # read a live cluster: WARDEN_BACKEND=k8s
+# Database backends (read health + terminate stuck connections): WARDEN_BACKEND=postgres|mysql|redis|mongo|mssql
+postgres = ["psycopg[binary]>=3.1"]
+mysql = ["pymysql>=1.1"]
+redis = ["redis>=5.0"]
+mongo = ["pymongo>=4.6"]
+mssql = ["pymssql>=2.2"]
+databases = ["psycopg[binary]>=3.1", "pymysql>=1.1", "redis>=5.0", "pymongo>=4.6", "pymssql>=2.2"]
 all-providers = ["anthropic>=1.0", "google-genai>=1.0", "openai>=1.0"]
 
 [project.scripts]

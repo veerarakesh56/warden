@@ -190,6 +190,52 @@ MUTATIONS = [
         "    except ValueError as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
         "a live-backend API error (403, unreachable) would crash the pipeline instead of a failed result",
     ),
+    (
+        "database terminator lies about being a dry run",
+        "database_remediation.py",
+        "        self.live = not self._dry_run",
+        "        self.live = True",
+        (
+            "the honesty flag IS the audit: a dry run recorded as `applied` would tell an operator "
+            "connections were terminated when nothing was touched "
+            "(NB the class attribute is not the guard here - __init__ sets the instance flag)"
+        ),
+    ),
+    (
+        "database terminate loses its python-side ceiling",
+        "database_remediation.py",
+        "        candidates = candidates[:MAX_TERMINATE]",
+        "        candidates = list(candidates)",
+        "one broken WHERE clause away from terminating every connection on the server at once",
+    ),
+    (
+        "database terminate stops sparing its OWN connection",
+        "database_remediation.py",
+        '                "AND pid <> pg_backend_pid() "',
+        '                "AND 1 = 1 "',
+        "it would terminate the very connection it is issuing the terminate from - the classic self-kill",
+    ),
+    (
+        "dry run actually terminates",
+        "database_remediation.py",
+        "        if self._dry_run:",
+        "        if False:",
+        "the safe way to try this against a real database would silently become the dangerous way",
+    ),
+    (
+        "the read-only database backend gains a write statement",
+        "database.py",
+        '"SELECT count(*) FROM pg_locks WHERE NOT granted"',
+        '"DELETE FROM pg_locks WHERE NOT granted"',
+        "read-only BY CONSTRUCTION: the evidence backend must never be able to change a database",
+    ),
+    (
+        "terminate_connections dropped from the production allow-list",
+        "data/environments.yaml",
+        "    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache, terminate_connections]",
+        "    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache]",
+        "policy P1 would reject the action in prod, and the eval row for inc-005 must notice",
+    ),
 ]
 
 
