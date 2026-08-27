@@ -210,11 +210,15 @@ class MongoStub:
         return {"inprog": self._ops}
 
 
-def test_mongo_skips_its_own_currentOp_call_and_short_ops():
+def test_mongo_skips_its_own_call_the_heartbeats_and_short_ops():
     conn = MongoStub([
-        {"secs_running": 900, "opid": 10, "command": {"currentOp": 1}},  # this very call
-        {"secs_running": 900, "opid": 11},
-        {"secs_running": 30, "opid": 12},
+        # this very call - a real currentOp entry names itself in `command`
+        {"secs_running": 900, "opid": 10, "ns": "admin.$cmd.aggregate", "command": {"currentOp": 1}},
+        # the server's own awaitable heartbeat: active for seconds BY DESIGN, must be spared
+        {"secs_running": 900, "opid": 13, "ns": "admin.$cmd", "command": {"hello": 1}},
+        # a real application query - the only thing here worth terminating
+        {"secs_running": 900, "opid": 11, "ns": "warden.orders", "command": {"find": "orders"}},
+        {"secs_running": 30, "opid": 12, "ns": "warden.orders", "command": {"find": "orders"}},
     ])
     assert _MongoKiller.candidates(conn, 300, 20) == [11]
 

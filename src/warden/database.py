@@ -240,6 +240,40 @@ class _Redis:
         return out
 
 
+# MongoDB's `currentOp` reports the SERVER'S OWN background work alongside user queries, and some of
+# it legitimately runs for a long time. The awaitable `hello` heartbeat every driver (including ours)
+# keeps open is the worst trap: it sits "active" for seconds by design, so a naive
+# `secs_running >= threshold` filter selects it — which would inflate the evidence with normal
+# background activity AND, on the terminate path, kill the driver's own monitoring connections while
+# never touching the stuck query somebody actually called about. Observed against a real server.
+#
+# So the rule is an ALLOW-list, not a deny-list: killing is destructive, and under-selecting is the
+# safe direction to be wrong in.
+_MONGO_INTERNAL_COMMANDS = frozenset({
+    "hello", "ismaster", "isMaster", "ping", "replSetHeartbeat", "replSetUpdatePosition",
+    "currentOp", "killOp", "serverStatus", "buildInfo", "getLog", "connPoolStats", "top",
+    "waitForFailPoint", "getParameter", "setParameter", "listDatabases", "endSessions",
+})
+# Namespaces owned by the server, not by an application. A stuck application query never lives here.
+_MONGO_SYSTEM_NS = ("admin.", "local.", "config.", "$cmd.aggregate")
+
+
+def _mongo_is_user_op(op: dict) -> bool:
+    """Is this a real application operation a human would want terminated?"""
+    if op.get("opid") is None:
+        return False
+    secs = op.get("secs_running")
+    if secs is None:  # an op with no measured duration cannot be judged old
+        return False
+    command = op.get("command") or {}
+    first = next(iter(command), "")
+    if first in _MONGO_INTERNAL_COMMANDS:
+        return False
+    # A server-owned namespace (or none at all) is never an application's stuck query.
+    ns = str(op.get("ns") or "")
+    return bool(ns) and not ns.startswith(_MONGO_SYSTEM_NS)
+
+
 class _Mongo:
     engine = "mongo"
 
@@ -256,8 +290,11 @@ class _Mongo:
         current = float(conns.get("current", 0))
         available = float(conns.get("available", 0))
         ops = conn.admin.command("currentOp", {"active": True})
-        long_ops = sum(1 for op in ops.get("inprog", []) if float(op.get("secs_running", 0)) >= 60)
-        idle = sum(1 for op in ops.get("inprog", []) if float(op.get("secs_running", 0)) >= IDLE_SECS)
+        # USER ops only. Counting the server's own heartbeats here reported a healthy cluster as
+        # having several long-running operations, every single time.
+        user_ops = [op for op in ops.get("inprog", []) if _mongo_is_user_op(op)]
+        long_ops = sum(1 for op in user_ops if float(op.get("secs_running", 0)) >= 60)
+        idle = sum(1 for op in user_ops if float(op.get("secs_running", 0)) >= IDLE_SECS)
         return {
             "current_connections": current,
             "available_connections": available,
@@ -271,7 +308,9 @@ class _Mongo:
         ops = conn.admin.command("currentOp", {"active": True})
         out = []
         for op in ops.get("inprog", []):
-            if float(op.get("secs_running", 0)) >= idle_secs and op.get("opid") is not None:
+            if not _mongo_is_user_op(op):
+                continue
+            if float(op.get("secs_running", 0)) >= idle_secs:
                 ns = redact(str(op.get("ns", ""))).text
                 out.append(f"opid={op.get('opid')} running {int(op.get('secs_running',0))}s ns={ns}")
                 if len(out) >= PROBLEM_OP_LIMIT:
@@ -306,7 +345,15 @@ class _MSSQL:
         idle_tx = r(conn, "SELECT count(*) FROM sys.dm_exec_sessions s "
                           "WHERE s.is_user_process = 1 AND s.open_transaction_count > 0 AND s.status = 'sleeping' "
                           "AND s.last_request_end_time < DATEADD(second, -60, GETDATE())")[0][0]
-        long_q = r(conn, "SELECT count(*) FROM sys.dm_exec_requests WHERE total_elapsed_time > 60000")[0][0]
+        # USER requests only. `sys.dm_exec_requests` also lists SQL Server's own background tasks -
+        # LAZY WRITER, CHECKPOINT, XE TIMER and friends - which run for the lifetime of the instance
+        # and so always have an enormous total_elapsed_time. Counting those reported **28
+        # long-running queries on a freshly started, completely idle server**, which would have gone
+        # into the evidence as though the database were in trouble. Observed against a real server;
+        # the same shape as MongoDB's `hello` heartbeats.
+        long_q = r(conn, "SELECT count(*) FROM sys.dm_exec_requests req "
+                         "JOIN sys.dm_exec_sessions s ON req.session_id = s.session_id "
+                         "WHERE s.is_user_process = 1 AND req.total_elapsed_time > 60000")[0][0]
         return {
             "active_connections": float(total),
             "idle_in_transaction": float(idle_tx),

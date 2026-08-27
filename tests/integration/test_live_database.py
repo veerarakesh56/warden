@@ -9,6 +9,7 @@ this run:
     WARDEN_TEST_MYSQL_DSN  mysql://root:warden@localhost:53306/warden
     WARDEN_TEST_REDIS_DSN  redis://localhost:56379/0
     WARDEN_TEST_MONGO_DSN  mongodb://localhost:57017/warden
+    WARDEN_TEST_MSSQL_DSN  mssql://sa:<password>@localhost:11433/master
 
 ⛔ The distinction that matters: a DSN that is SET but unreachable is a FAILURE, not a skip. "You told
 me this database exists" and "it answered" are different claims, and a green run must only ever mean
@@ -34,23 +35,27 @@ pytestmark = pytest.mark.skipif(
     reason="set WARDEN_DB_INTEGRATION=1 (plus at least one WARDEN_TEST_*_DSN) to run these",
 )
 
-from warden.database import _Mongo, _MySQL, _Postgres, _Redis
+from warden.database import _MSSQL, _Mongo, _MySQL, _Postgres, _Redis
 from warden.database_remediation import (
     _MongoKiller,
+    _MSSQLKiller,
     _MySQLKiller,
     _PostgresKiller,
     _RedisKiller,
 )
+from warden.tools import PARTIAL_PREFIX
 
 PG_DSN = os.environ.get("WARDEN_TEST_PG_DSN")
 MYSQL_DSN = os.environ.get("WARDEN_TEST_MYSQL_DSN")
 REDIS_DSN = os.environ.get("WARDEN_TEST_REDIS_DSN")
 MONGO_DSN = os.environ.get("WARDEN_TEST_MONGO_DSN")
+MSSQL_DSN = os.environ.get("WARDEN_TEST_MSSQL_DSN")
 
 needs_pg = pytest.mark.skipif(not PG_DSN, reason="WARDEN_TEST_PG_DSN not set")
 needs_mysql = pytest.mark.skipif(not MYSQL_DSN, reason="WARDEN_TEST_MYSQL_DSN not set")
 needs_redis = pytest.mark.skipif(not REDIS_DSN, reason="WARDEN_TEST_REDIS_DSN not set")
 needs_mongo = pytest.mark.skipif(not MONGO_DSN, reason="WARDEN_TEST_MONGO_DSN not set")
+needs_mssql = pytest.mark.skipif(not MSSQL_DSN, reason="WARDEN_TEST_MSSQL_DSN not set")
 
 
 def _connect_or_fail(adapter, dsn, label):
@@ -92,9 +97,27 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
         time.sleep(1.0)
 
         with admin.cursor() as cur:
-            cur.execute("SELECT state FROM pg_stat_activity WHERE pid = %s", (victim_pid,))
-            state = cur.fetchone()[0]
+            cur.execute(
+                "SELECT state, EXTRACT(EPOCH FROM (now() - state_change)) "
+                "FROM pg_stat_activity WHERE pid = %s",
+                (victim_pid,),
+            )
+            state, age = cur.fetchone()
         assert state == "idle in transaction", f"victim is {state!r}, not idle in transaction"
+
+        if age is not None and float(age) < 0:
+            # The server stamped this connection in the FUTURE - a host clock step, which Docker
+            # Desktop's VM does under load (measured: 2 rounds in 10, age reported as -115s). The
+            # documented behaviour is to decline to terminate what cannot be aged, and to SAY SO.
+            # Assert exactly that rather than failing: it is the correct outcome, not a flake.
+            assert victim_pid not in _PostgresKiller.candidates(admin, 0, 20), (
+                "a connection whose age is unknowable must never be terminated"
+            )
+            partials = [
+                line for line in _Postgres.problem_ops(admin, 0) if line.startswith(PARTIAL_PREFIX)
+            ]
+            assert partials, "clock skew must be reported as a partial, not passed over in silence"
+            pytest.skip(f"host clock skew (age {float(age):.0f}s); asserted the fail-safe path instead")
 
         # idle_secs=0 so the freshly-made victim qualifies; the ceiling still applies.
         candidates = _PostgresKiller.candidates(admin, 0, 20)
@@ -218,20 +241,160 @@ def test_mongo_metrics_come_back_from_a_real_server():
     conn.close()
 
 
-@needs_mongo
-def test_mongo_candidate_selection_runs_against_a_real_server_and_spares_itself():
-    """⚠ HONEST LIMIT: unlike the other three, this does not prove a kill.
+def _slow_mongo_query(dsn, seconds, outcome):
+    """A genuinely long-running query on a USER namespace.
 
-    Manufacturing a genuinely long-running MongoDB operation on demand needs the `sleep` test command
-    (a server started with enableTestCommands), which a stock container does not have. So what is
-    proven here is the half that can be: `currentOp` parses against a real server, and the selection
-    correctly declines to kill its own operation. `killOp` itself is covered by the unit test.
+    `$where` with a busy loop needs only server-side JavaScript (on by default), not the `sleep` test
+    command — so this works against a stock container, in CI, with no special server flags.
     """
+    import pymongo
+
+    client = pymongo.MongoClient(dsn)
+    try:
+        ms = int(seconds) * 1000
+        js = f"function(){{var t=new Date(); while((new Date())-t < {ms}){{}} return true;}}"
+        list(client.warden.warden_probe.find({"$where": js}))
+        outcome["result"] = "completed normally"
+    except Exception as exc:  # noqa: BLE001 - being killed IS the expected outcome
+        outcome["result"] = f"{type(exc).__name__}"
+
+
+@needs_mongo
+def test_mongo_terminate_kills_a_real_long_running_query_and_spares_the_heartbeats():
+    """The bug this test exists for, found against a real server: `currentOp` reports MongoDB's own
+    awaitable `hello` heartbeats, which sit active for seconds by design. A naive
+    `secs_running >= threshold` filter selected them — so the terminator would have killed the
+    drivers' monitoring connections (its own included) while never touching the stuck query.
+    """
+    import threading
+
+
+    admin = _connect_or_fail(_Mongo, MONGO_DSN, "mongo")
+    admin.warden.warden_probe.drop()
+    admin.warden.warden_probe.insert_many([{"x": i} for i in range(50)])
+    outcome: dict[str, str] = {}
+    threading.Thread(target=_slow_mongo_query, args=(MONGO_DSN, 20, outcome), daemon=True).start()
+
+    try:
+        # Poll rather than sleep a fixed amount: CI machines vary.
+        target = None
+        for _ in range(40):
+            for op in admin.admin.command("currentOp", {"active": True}).get("inprog", []):
+                if "warden_probe" in str(op.get("ns") or "") and float(op.get("secs_running") or 0) >= 1:
+                    target = int(op["opid"])
+            if target is not None:
+                break
+            time.sleep(0.5)
+        assert target is not None, "the long-running user query never appeared in currentOp"
+
+        inprog = admin.admin.command("currentOp", {"active": True}).get("inprog", [])
+        heartbeats = [
+            int(op["opid"]) for op in inprog
+            if next(iter(op.get("command") or {}), "") in ("hello", "isMaster", "ismaster")
+        ]
+        selected = _MongoKiller.candidates(admin, 1, 20)
+
+        assert target in selected, f"the real stuck query {target} was not selected: {selected}"
+        for hb in heartbeats:
+            assert hb not in selected, (
+                f"heartbeat op {hb} was selected for termination - killing a driver's monitoring "
+                "connection is an outage, not a remediation"
+            )
+        own = [int(op["opid"]) for op in inprog if "currentOp" in (op.get("command") or {})]
+        for opid in own:
+            assert opid not in selected, "it selected its OWN operation to kill"
+
+        assert _MongoKiller.terminate(admin, [target]) == 1
+        time.sleep(1.5)
+        still = [
+            op for op in admin.admin.command("currentOp", {"active": True}).get("inprog", [])
+            if int(op.get("opid", -1)) == target
+        ]
+        assert not still, "the op was reported killed but is still running on the server"
+    finally:
+        with contextlib.suppress(Exception):
+            admin.warden.warden_probe.drop()
+        admin.close()
+
+
+@needs_mongo
+def test_mongo_metrics_do_not_count_the_servers_own_heartbeats_as_long_running_ops():
+    """An idle MongoDB must read as idle. Before the fix, its own `hello` heartbeats were counted,
+    so a healthy server reported long-running operations every single time."""
     conn = _connect_or_fail(_Mongo, MONGO_DSN, "mongo")
-    candidates = _MongoKiller.candidates(conn, 0, 20)
-    assert isinstance(candidates, list)
-    ops = conn.admin.command("currentOp", {"active": True})
-    own = [op for op in ops.get("inprog", []) if "currentOp" in (op.get("command") or {})]
-    for op in own:
-        assert int(op["opid"]) not in candidates, "it selected its OWN operation to kill"
-    conn.close()
+    try:
+        m = _Mongo.metrics(conn)
+        assert m["long_running_ops"] == 0.0, f"a quiet server reported long-running ops: {m}"
+        assert m["idle_in_transaction"] == 0.0, f"a quiet server reported stuck ops: {m}"
+    finally:
+        conn.close()
+
+
+# ------------------------------------------------------------------ SQL Server
+
+@needs_mssql
+def test_mssql_metrics_come_back_from_a_real_server():
+    conn = _connect_or_fail(_MSSQL, MSSQL_DSN, "mssql")
+    try:
+        m = _MSSQL.metrics(conn)
+        for key in ("active_connections", "idle_in_transaction", "long_running_queries"):
+            assert key in m, f"{key} missing from a real SQL Server read: {m}"
+        assert m["active_connections"] >= 1.0, "our own session should be counted"
+    finally:
+        conn.close()
+
+
+@needs_mssql
+def test_mssql_does_not_count_its_own_background_tasks_as_long_running_queries():
+    """A quiet SQL Server must read as quiet.
+
+    `sys.dm_exec_requests` also lists the instance's own background tasks (LAZY WRITER, CHECKPOINT,
+    XE TIMER...), which have been running since startup. Before the join to `dm_exec_sessions`, a
+    freshly started, completely idle server reported 28 long-running queries.
+    """
+    conn = _connect_or_fail(_MSSQL, MSSQL_DSN, "mssql")
+    try:
+        assert _MSSQL.metrics(conn)["long_running_queries"] == 0.0, (
+            "an idle server reported long-running queries - background tasks are being counted"
+        )
+    finally:
+        conn.close()
+
+
+@needs_mssql
+def test_mssql_terminate_actually_kills_the_sleeping_transaction():
+    from urllib.parse import urlparse
+
+    import pymssql
+
+    admin = _connect_or_fail(_MSSQL, MSSQL_DSN, "mssql")
+    u = urlparse(MSSQL_DSN)
+    victim = pymssql.connect(
+        server=u.hostname, port=str(u.port or 1433), user=u.username, password=u.password or "",
+        database=u.path.lstrip("/") or "master", autocommit=False,
+    )
+    try:
+        vc = victim.cursor()
+        vc.execute("SELECT @@SPID")
+        victim_spid = int(vc.fetchone()[0])
+        # An open transaction that is then left idle - the state that holds locks and blocks others.
+        vc.execute("BEGIN TRANSACTION")
+        vc.execute("SELECT 1")
+        time.sleep(2.0)
+
+        candidates = _MSSQLKiller.candidates(admin, 0, 20)
+        assert victim_spid in candidates, f"the sleeping trx {victim_spid} was not selected: {candidates}"
+        ac = admin.cursor()
+        ac.execute("SELECT @@SPID")
+        own_spid = int(ac.fetchone()[0])
+        assert own_spid not in candidates, "it selected its OWN session to KILL"
+
+        assert _MSSQLKiller.terminate(admin, [victim_spid]) == 1
+        time.sleep(1.0)
+        ac = admin.cursor()
+        ac.execute("SELECT count(*) FROM sys.dm_exec_sessions WHERE session_id = %d", (victim_spid,))
+        assert int(ac.fetchone()[0]) == 0, "the session was reported killed but is still connected"
+    finally:
+        with contextlib.suppress(Exception):
+            victim.close()
+        admin.close()

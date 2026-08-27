@@ -11,8 +11,9 @@ OpenAI-compatible), a **34-signature incident knowledge base**, **per-environmen
 four-way remediation gate (dry-run by default; opt-in live backends that restart/scale a **Kubernetes**
 Deployment or terminate stuck **database** connections for real, each behind its own least-privilege
 credential), **read-only database backends** for PostgreSQL/MySQL/Redis/MongoDB/SQL Server, and
-**Slack/Teams/webhook** reporting, 5 recorded incidents, **377 tests** (10 against a live cluster,
-8 against real databases) plus a 30-case mutation check, output-asserting CI.
+**Slack/Teams/webhook** reporting proven over a real socket, 5 recorded incidents, **394 tests**
+(10 against a live cluster, 12 against five real database engines) plus a 31-case mutation check,
+output-asserting CI.
 
 ## The problem
 
@@ -459,28 +460,36 @@ else:
 | Redis | an ACL user permitted `CLIENT\|KILL` |
 | MongoDB | `killop` |
 
-**Proven against real servers, not stubs.** CI's `db` job runs PostgreSQL, MySQL, Redis and MongoDB as
-service containers and asserts that a genuinely stuck connection is selected, terminated, and **gone
-from the server afterwards** — and that the run did not silently skip an engine.
+**Proven against real servers, not stubs.** CI's `db` job runs **all five engines** — PostgreSQL,
+MySQL, Redis, MongoDB and SQL Server — as service containers, and asserts that a genuinely stuck
+connection is selected, terminated, and **gone from the server afterwards**, and that the run did not
+silently skip an engine.
 
-⚠ Two honest limits. **MongoDB proves the read and the self-sparing selection, not a kill**:
-manufacturing a long-running op on demand needs a server started with `enableTestCommands`, which a
-stock container does not have, so `killOp` is covered by unit test only. **SQL Server ships with an
-adapter and unit tests but no live container run** — `pymssql` plus a 2 GB EULA image did not fit this
-environment, and it is flagged here rather than quietly counted as proven.
+### Three bugs real databases found that no stub would have
 
-### The bug a real database found that no stub would have
+Stubs agree with whatever you assumed. Each of these came from pointing the code at a real server.
 
-Ten rounds of three deliberately-stuck PostgreSQL connections: **two rounds missed one**, and the
-server explained why — it reported that connection's age as **minus 115 seconds**. A host clock step
-(NTP correction, VM pause/resume, a container host resyncing) had stamped `state_change` in the
-*future*, and such a connection can never satisfy `state_change < now() - interval`. It was invisible
-to both the evidence read and the terminator, permanently and silently.
+**1 · A stuck connection that is invisible forever.** Ten rounds of three deliberately-stuck
+PostgreSQL connections: **two rounds missed one**, and the server explained why — it reported that
+connection's age as **minus 115 seconds**. A host clock step (NTP correction, VM pause/resume) had
+stamped `state_change` in the *future*, and such a connection can never satisfy
+`state_change < now() - interval`. Invisible to both the read and the terminator, permanently and
+silently. Declining to terminate what cannot be aged is right — it might be one second old. Doing it
+**silently** is not: those are now reported with the `TOOL-PARTIAL` prefix, which lands them in
+`tool_errors`, fires policy **P8** and sends the incident to a human.
 
-Declining to terminate a connection whose age cannot be judged is right — it might be one second old.
-Doing it **silently** is not. Those connections are now reported with the `TOOL-PARTIAL` prefix, which
-lands them in `tool_errors`, fires policy **P8** (partial context) and sends the incident to a human:
-the correct answer to *"there is something here I cannot measure."*
+**2 · The terminator was about to kill the monitoring, not the problem.** MongoDB's `currentOp` lists
+the server's own awaitable `hello` heartbeats, which sit *active* for seconds by design. A plain
+`secs_running >= threshold` filter selected them — so `terminate_connections` would have killed the
+drivers' monitoring connections (**WARDEN's own included**) while never touching the stuck query
+somebody called about. Selection is now an **allow-list** of real user operations: killing is
+destructive, so under-selecting is the safe direction to be wrong in.
+
+**3 · An idle server reporting an emergency.** A freshly started, completely idle SQL Server reported
+**28 long-running queries** — `sys.dm_exec_requests` also lists the instance's own background tasks
+(LAZY WRITER, CHECKPOINT, XE TIMER), which have been running since startup. That number would have
+gone into the evidence as though the database were in trouble. Now joined to `dm_exec_sessions` on
+`is_user_process = 1`; a quiet server reads as quiet, and a test asserts it.
 
 **ChatOps.** `--emit-chatops` pushes the redacted report to Slack, Teams or a generic webhook
 (`WARDEN_SLACK_WEBHOOK` / `WARDEN_TEAMS_WEBHOOK` / `WARDEN_WEBHOOK_URL`). It is **dry-run unless
@@ -513,9 +522,12 @@ enforcement and the audit trail, asserted on every push.
   MySQL, Redis and MongoDB in CI — but they are off unless armed AND the four-way gate passes, and
   they deliberately do only those things. No rollback, failover, delete, schema change or FLUSH: those
   escalate to a human by policy or are absent from the action enum entirely.
-- **MongoDB's kill path is unit-tested, not live-tested** (a stock container cannot manufacture a
-  long-running op), and **SQL Server has an adapter and unit tests but no live container run**. Both
-  are stated here rather than counted as proven.
+- All five database engines are proven against real servers in CI (read + terminate). **Oracle is not
+  supported** — a licensed, heavy client — and no database *failover* or schema change is offered at
+  any tier; those stay with a human by design, not by omission.
+- The database work is proven against **containers**, not against managed cloud services (RDS, Cloud
+  SQL, Azure SQL). The catalog views and statements are the engines' own, so they transfer — but
+  "tested on RDS" is a claim this repo has not earned.
 - Redaction is regex-based — a strong control against accidental leakage, not a guarantee against a
   determined adversary.
 - The eval suite tests deterministic behaviour, **not** live model quality.

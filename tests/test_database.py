@@ -257,8 +257,11 @@ class _MongoStub:
 
 
 def test_mongo_metrics_count_long_running_ops():
-    conn = _MongoStub(ops=[{"secs_running": 900, "opid": 1}, {"secs_running": 70, "opid": 2},
-                           {"secs_running": 1, "opid": 3}])
+    conn = _MongoStub(ops=[
+        {"secs_running": 900, "opid": 1, "ns": "warden.orders", "command": {"find": "orders"}},
+        {"secs_running": 70, "opid": 2, "ns": "warden.orders", "command": {"find": "orders"}},
+        {"secs_running": 1, "opid": 3, "ns": "warden.orders", "command": {"find": "orders"}},
+    ])
     m = _Mongo.metrics(conn)
     assert m["current_connections"] == 10.0
     assert m["available_connections"] == 90.0
@@ -316,27 +319,41 @@ WRITE_VERBS = (
 )
 
 
-def _string_literals_excluding_docstrings(path: pathlib.Path) -> list[str]:
-    """Every string literal in the module that is NOT a docstring.
+# The calls that actually send something to a database server. A write verb only matters if it can
+# reach one of these.
+_EXECUTING_CALLS = frozenset({"execute", "executemany", "command", "run_command", "eval"})
 
-    Comments are absent from the AST entirely, and docstrings are skipped deliberately: this module's
-    own docstring NAMES the forbidden verbs in order to state the rule, and a naive text grep flags
-    that documentation as a violation — a *mention* counted as an *instance*. What matters is whether
-    a write verb appears in a string the code could actually execute.
+
+def _statements_this_module_can_execute(path: pathlib.Path) -> list[str]:
+    """Every string this module passes to a database-executing call.
+
+    Deliberately NOT "every string literal": that version flagged two innocent things and would keep
+    doing so. The module docstring NAMES the forbidden verbs in order to state the rule, and
+    `_MONGO_INTERNAL_COMMANDS` lists `killOp` precisely so it is never SELECTED. Both are *mentions*,
+    not *instances* — the same mention-counted-as-instance trap this repo keeps meeting.
+
+    What actually matters is narrower and checkable: does a write verb appear in something handed to
+    `.execute()` / `.command()`? f-strings are included via their literal parts, which is how
+    `f"KILL {int(spid)}"` stays visible to this check.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    doc_nodes = set()
+    out: list[str] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.Call):
             continue
-        if node.body and isinstance(node.body[0], ast.Expr):
-            value = node.body[0].value
-            if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                doc_nodes.add(id(value))
-    return [
-        n.value for n in ast.walk(tree)
-        if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in doc_nodes
-    ]
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if name not in _EXECUTING_CALLS:
+            continue
+        for arg in node.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                out.append(arg.value)
+            elif isinstance(arg, ast.JoinedStr):  # an f-string: keep its literal parts
+                out.extend(
+                    part.value for part in arg.values
+                    if isinstance(part, ast.Constant) and isinstance(part.value, str)
+                )
+    return out
 
 
 def test_the_read_backend_contains_no_executable_write_verb():
@@ -344,7 +361,7 @@ def test_the_read_backend_contains_no_executable_write_verb():
     credential — exactly as the k8s read backend is separate from the k8s write backend."""
     path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "database.py"
     offenders = [
-        (verb, s) for s in _string_literals_excluding_docstrings(path)
+        (verb, s) for s in _statements_this_module_can_execute(path)
         for verb in WRITE_VERBS if verb in s.lower()
     ]
     assert not offenders, f"write verb in the READ-ONLY backend: {offenders}"
@@ -355,7 +372,7 @@ def test_the_tripwire_can_actually_fire():
     check must flag it — otherwise the test above passes for the wrong reason."""
     path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "database_remediation.py"
     found = [
-        verb for s in _string_literals_excluding_docstrings(path)
+        verb for s in _statements_this_module_can_execute(path)
         for verb in WRITE_VERBS if verb in s.lower()
     ]
     assert found, "the tripwire found no write verb in the WRITE module - it cannot be trusted"

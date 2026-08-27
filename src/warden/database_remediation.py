@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import os
 
-from .database import IDLE_SECS, adapter_for, dsn_of, engine_of
+from .database import IDLE_SECS, _mongo_is_user_op, adapter_for, dsn_of, engine_of
 from .models import ActionKind, Alert
 from .remediation import RemediationError
 
@@ -144,11 +144,13 @@ class _MongoKiller:
         ops = conn.admin.command("currentOp", {"active": True})
         out: list[int] = []
         for op in ops.get("inprog", []):
-            # Skip the currentOp call itself — that is this connection's own operation.
-            command = op.get("command") or {}
-            if "currentOp" in command:
+            # USER operations only — `_mongo_is_user_op` excludes the currentOp call itself, the
+            # awaitable `hello` heartbeats every driver keeps open (which sit active for seconds by
+            # design and were being selected), and anything in a server-owned namespace. Killing a
+            # driver's monitoring connection is not a remediation; it is an outage with extra steps.
+            if not _mongo_is_user_op(op):
                 continue
-            if float(op.get("secs_running", 0)) >= idle_secs and op.get("opid") is not None:
+            if float(op.get("secs_running", 0)) >= idle_secs:
                 out.append(int(op["opid"]))
                 if len(out) >= limit:
                     break
