@@ -11,7 +11,7 @@ OpenAI-compatible), a **34-signature incident knowledge base**, **per-environmen
 four-way remediation gate (dry-run by default; opt-in live backends that restart/scale a **Kubernetes**
 Deployment or terminate stuck **database** connections for real, each behind its own least-privilege
 credential), **read-only database backends** for PostgreSQL/MySQL/Redis/MongoDB/SQL Server, and
-**Slack/Teams/webhook** reporting proven over a real socket, 5 recorded incidents, **394 tests**
+**Slack/Teams/webhook** reporting proven over a real socket, 5 recorded incidents, **388 tests**
 (10 against a live cluster, 12 against five real database engines) plus a 31-case mutation check,
 output-asserting CI.
 
