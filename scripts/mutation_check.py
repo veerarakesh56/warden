@@ -236,6 +236,16 @@ MUTATIONS = [
         "    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache]",
         "policy P1 would reject the action in prod, and the eval row for inc-005 must notice",
     ),
+    (
+        "the cluster CI job swallows the database suite again",
+        "../../.github/workflows/ci.yml",
+        "          pytest tests/integration/test_live_cluster.py tests/integration/test_live_remediation.py -q -rs | tee it.txt",
+        "          pytest tests/integration -q -rs | tee it.txt",
+        (
+            "the exact regression that broke CI: the cluster job collects the database suite, which "
+            "skips for want of service containers and trips its own zero-skips guard"
+        ),
+    ),
 ]
 
 

@@ -222,7 +222,13 @@ jobs:
           WARDEN_TRACE: "0"
         run: |
           set -o pipefail
-          pytest tests/integration -q -rs | tee it.txt
+          # ⛔ The CLUSTER files by name, not the whole directory. `tests/integration` also holds the
+          # database suite, which needs its own service containers and belongs to the `db` job - and
+          # the zero-skips assertion below (the thing that stops a cluster test silently vanishing)
+          # cannot tell "skipped because it is not this job's lane" from "skipped because the cluster
+          # is missing". `tests/test_ci_lanes.py` asserts every integration file is claimed by a job,
+          # so adding one here can never be forgotten.
+          pytest tests/integration/test_live_cluster.py tests/integration/test_live_remediation.py -q -rs | tee it.txt
           grep -qE '^[0-9]+ passed' it.txt || { echo "::error::no integration test actually passed"; exit 1; }
           grep -qE ' skipped' it.txt && { echo "::error::integration tests skipped with the opt-in set"; exit 1; }
           echo "integration tests ran for real"
