@@ -367,7 +367,7 @@ jobs:
           grep -qE '^[0-9]+ passed' db.txt || { echo "::error::no database integration test actually passed"; exit 1; }
           # Every engine's DSN is set, so a skip here means an engine silently dropped out of the run.
           grep -qE ' skipped' db.txt && { echo "::error::an engine skipped despite its DSN being set"; exit 1; }
-          echo "database integration tests ran for real, against all four engines"
+          echo "database integration tests ran for real, against all five engines"
 
   terraform:
     runs-on: ubuntu-latest
