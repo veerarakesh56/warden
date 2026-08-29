@@ -128,8 +128,8 @@ WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY
 | `anthropic` | `ANTHROPIC_API_KEY` | |
 | `openai` / `groq` / `openrouter` | `OPENAI_API_KEY` | One OpenAI-shaped client covers all three |
 
-⭐ Providers report their own token usage, and a provider that cannot is made to **over-estimate**
-rather than return zero — a budget fed zeros never fires.
+Providers report their own token usage; one that cannot is made to **over-estimate** rather than
+return zero, because a budget fed zeros never fires.
 
 ## MCP — the policy gate as a tool for any agent
 
@@ -144,19 +144,17 @@ Any MCP client — Claude Desktop, an IDE agent, another orchestrator — gets f
 
 | Tool | What it does |
 |---|---|
-| ⭐ **`verify_remediation`** | Runs the deterministic 9-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
+| **`verify_remediation`** | Runs the deterministic 9-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
 | `redact_text` | Masks identifiers and verifies its own output. Use before putting logs in any prompt |
 | `gather_incident_context` | Logs, metrics and deploys under a timeout — already redacted |
 | `describe_policy` | The nine policies and the per-environment allow-list |
 
-⭐⭐ **Why this is the interesting one:** an agent written by someone else, with no safety layer of its
-own, can ask WARDEN whether the thing it is about to do is allowed in production — and get an
-auditable answer with policy ids. **The closed action enum is published in the tool schema**, so a
-client cannot even name an action outside the set. Every response carries `may_execute: false`.
+So an agent with no safety layer of its own can ask whether the action it is about to take is
+allowed in production, and get an auditable answer with policy ids. The closed action enum is
+published in the tool schema, so a client cannot name an action outside the set, and every
+response carries `may_execute: false`.
 
-Built on the official `mcp` Python SDK **v2** (2026-07-28 spec, stateless core).
-⚠ `mcp.server.fastmcp` does not exist in v2 — it was removed in the rework. This uses the low-level
-`Server` with explicit callbacks.
+Built on the official `mcp` Python SDK v2 (2026-07-28 spec, stateless core).
 
 ## Kubernetes — reading a live cluster
 
@@ -171,13 +169,13 @@ WARDEN_BACKEND=k8s warden run --incident inc-002      # reads the cluster your k
 **`KubernetesBackend`** satisfies the same three-method contract as the fixture backend — `logs`,
 `metrics`, `deploys` — so nothing above it changed. It reads:
 
-| | From | Honest note |
+| | From | Note |
 |---|---|---|
-| **metrics** | pod status: restart counts, `OOMKilled` terminations, `CrashLoopBackOff`, readiness, memory limits | ⚠ **Not a metrics server.** k3d does not ship one, so these are counts the kubelet already records, not CPU/memory %. They are also what an on-call engineer reads first |
+| **metrics** | pod status: restart counts, `OOMKilled` terminations, `CrashLoopBackOff`, readiness, memory limits | **Not a metrics server.** k3d does not ship one, so these are counts the kubelet already records, not CPU/memory %. They are also what an on-call engineer reads first |
 | **logs** | the events stream (`OOMKilling`, `BackOff`, `Unhealthy`…) then container log tails | events first — they are the headline |
 | **deploys** | the Deployment's `deployment.kubernetes.io/revision` and last Progressing time | reported only inside a window, so policy P5 is handed real evidence |
 
-⛔ **Read-only by construction.** The module uses only `list_*`, `read_*` and
+**Read-only by construction.** The module uses only `list_*`, `read_*` and
 `read_namespaced_pod_log`; a test greps the source for any write verb. And **RBAC enforces the same
 thing from the cluster's side** — see below.
 
@@ -193,7 +191,7 @@ It is bound with a **namespaced RoleBinding** per diagnosed namespace — never 
 Job runs as **uid 10001, read-only root filesystem, all capabilities dropped**, under the
 `restricted` Pod Security Standard.
 
-⭐ **RBAC is the boundary, not the verifier.** "It only acts when the policy gate approves" is a
+**RBAC is the boundary, not the verifier.** "It only acts when the policy gate approves" is a
 design argument. A ServiceAccount that *cannot* mutate anything is a security boundary — if the
 policy engine has a bug, the credentials still cannot do harm. This is the Kubernetes twin of the
 Terraform task role.
@@ -218,17 +216,17 @@ Two deployment paths, both included:
 - **ECS / Fargate** — the `terraform/` module: a task with a **read-only task role** and **all Linux
   capabilities dropped**, mirroring the k8s Job.
 
-⚠ **Honestly scoped:** the portability that makes EKS work — strict `restricted` admission, no cloud
-API dependency — is **CI-verified on k3d**, which enforces the identical Pod Security standard. It has
-**not** been run against a live EKS cluster; the manifests are compliant and cluster-agnostic, not
+**Scope:** the portability that makes EKS work — strict `restricted` admission and no cloud-API
+dependency — is CI-verified on k3d, which enforces the identical Pod Security standard. It has not
+been run against a live EKS cluster: the manifests are compliant and cluster-agnostic, not
 field-tested on managed EKS.
 
 ## Observability that other tools can read
 
 Spans use the **OpenTelemetry GenAI semantic conventions** — `gen_ai.operation.name`,
 `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
-`gen_ai.usage.output_tokens` — rather than invented attribute names. That is the difference between
-traces a tool can read and traces only we can read: **[Langfuse](https://langfuse.com) and
+`gen_ai.usage.output_tokens` — rather than invented attribute names. That is the difference between traces any
+tool can read and traces only this project could: **[Langfuse](https://langfuse.com) and
 [Arize Phoenix](https://phoenix.arize.com) ingest them over OTLP with no adapter.**
 
 ```bash
@@ -236,7 +234,7 @@ WARDEN_TRACE_CONSOLE=1 warden run --incident inc-001     # see the spans
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006 warden run   # ship to Phoenix
 ```
 
-⚠ The GenAI conventions moved to their own repo in semconv **v1.42.0 (June 2026)** and remain in
+The GenAI conventions moved to their own repo in semconv **v1.42.0 (June 2026)** and remain in
 *Development* status. Core usage and model attributes are stable enough to build on; expect churn.
 Cost has no spec attribute, so it stays under `warden.cost.usd`.
 
@@ -249,12 +247,11 @@ Five recorded incidents, each exercising a different route:
 | `inc-001` | 5xx spike **after a deploy** | `rollback_deploy` | **approved_for_human** | Clean signal — and a person still presses the button |
 | `inc-002` | OOM kills, **no deploy** | `scale_up` | **approved_for_human** | Does not reach for rollback by reflex |
 | `inc-003` | Replica saturated, lag 47s | `failover_replica` | **escalated** | Right action, but multi-service blast radius (`P6`) |
-| `inc-004` | Two vague log lines | `escalate_to_human` | **auto_safe** | ⭐ **Declines to invent a fix** |
+| `inc-004` | Two vague log lines | `escalate_to_human` | **auto_safe** | **Declines to invent a fix** |
 | `inc-005` | Pool exhausted by idle-in-transaction connections, **no lag** | `terminate_connections` | **approved_for_human** | Tells a stuck-connection incident apart from `inc-003` — a single-service fix, not a failover |
 
-⭐ `inc-004` is the one to look at. Most agent demos produce a confident answer there. WARDEN scores
-low confidence, proposes escalation, and the verifier lets it through precisely *because* it is
-inert.
+`inc-004` is the one worth running. Given two vague log lines, WARDEN scores low confidence and
+proposes escalation — and the verifier lets that through precisely *because* escalation is inert.
 
 ## Environments, remediation and ChatOps
 
@@ -312,8 +309,7 @@ does exactly one safe thing.
 maximum, **idle-in-transaction** count, long-running queries, lock waits, replica lag; for Redis,
 clients/blocked/evictions/memory; for Mongo, connections and long-running ops. It is **read-only by
 construction** — every statement is a SELECT/SHOW/INFO/serverStatus/currentOp, and a test parses the
-module's AST and fails if a write verb appears in any string it could execute (docstrings excluded, so
-the module's own description of the rule is not mistaken for a violation). Query text is redacted
+module's AST and fails if a write verb reaches anything it could execute. Query text is redacted
 before it becomes evidence, because a query can carry PII.
 
 **Write — one action: `terminate_connections`.** Connections stuck *idle in transaction* hold pool
@@ -378,16 +374,15 @@ WARDEN_DB_INTEGRATION=1  pytest tests/integration/test_live_database.py  # needs
 - Evidence comes from recorded fixtures, a live Kubernetes cluster, or a live database. Wiring to
   Loki/CloudWatch/Datadog is one class each, not done here.
 - Remediation is **dry-run by default**. Live backends ship for Kubernetes (restart/scale) and for
-  databases (terminate stuck connections) and are proven against k3d and against real PostgreSQL,
-  MySQL, Redis and MongoDB in CI — but they are off unless armed AND the four-way gate passes, and
-  they deliberately do only those things. No rollback, failover, delete, schema change or FLUSH: those
-  escalate to a human by policy or are absent from the action enum entirely.
-- All five database engines are proven against real servers in CI (read + terminate). **Oracle is not
-  supported** — a licensed, heavy client — and no database *failover* or schema change is offered at
-  any tier; those stay with a human by design, not by omission.
-- The database work is proven against **containers**, not against managed cloud services (RDS, Cloud
-  SQL, Azure SQL). The catalog views and statements are the engines' own, so they transfer — but
-  "tested on RDS" is a claim this repo has not earned.
+  databases (terminate stuck connections), and CI exercises both against real infrastructure — a k3d
+  cluster and all five engines as service containers. They stay off unless armed *and* the four-way
+  gate passes, and they deliberately do only those things. No rollback, failover, delete, schema
+  change or FLUSH: those escalate to a human by policy, or are absent from the action enum entirely.
+- **Oracle is not supported** (a licensed, heavy client), and no database *failover* or schema change
+  is offered at any tier — by design, not omission.
+- The database work runs against **containers**, not managed cloud services (RDS, Cloud SQL, Azure
+  SQL). The catalog views and statements are the engines' own, so they transfer — but "tested on RDS"
+  is a claim this repo has not earned.
 - Redaction is regex-based — a strong control against accidental leakage, not a guarantee against a
   determined adversary.
 - The eval suite tests deterministic behaviour, **not** live model quality.
