@@ -3,17 +3,20 @@
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
 
-**Status:** v0.5.1 — LangGraph pipeline, verified redaction, 9 policies, real tool timeouts,
-**a live Kubernetes backend proven against a real k3d cluster in CI** (read-only RBAC verified
-both ways, in-cluster Job), **MCP server** exposing the policy gate, OpenTelemetry **GenAI semantic
-conventions**, Terraform deploy, **provider-agnostic** (Gemini free tier, Ollama local, Anthropic,
-OpenAI-compatible), a **34-signature incident knowledge base**, **per-environment policy** with a
-four-way remediation gate (dry-run by default; opt-in live backends that restart/scale a **Kubernetes**
-Deployment or terminate stuck **database** connections for real, each behind its own least-privilege
-credential), **read-only database backends** for PostgreSQL/MySQL/Redis/MongoDB/SQL Server, and
-**Slack/Teams/webhook** reporting proven over a real socket, 5 recorded incidents, **388 tests**
-(10 against a live cluster, 12 against five real database engines) plus a 31-case mutation check,
-output-asserting CI.
+**Status:** v0.5.1 — working, tested and deployable. 388 tests (10 against a live Kubernetes
+cluster, 12 against five real database engines), a 31-case mutation check, and CI that asserts the
+actual verdicts rather than the exit code.
+
+| | |
+|---|---|
+| **Pipeline** | LangGraph: alert → evidence → redaction → RCA → typed proposal → deterministic gate |
+| **Safety** | 9 policies, closed action enum, verified redaction, token/USD budget, real tool timeouts |
+| **Evidence** | recorded fixtures · a live Kubernetes cluster · PostgreSQL, MySQL, Redis, MongoDB, SQL Server |
+| **Remediation** | dry-run by default; opt-in live backends (restart/scale a Deployment, terminate stuck DB connections) behind their own least-privilege credentials |
+| **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
+| **Reporting** | redacted Markdown/JSON report with a promotion plan → Slack, Teams or any webhook |
+| **Integrations** | MCP server · OpenTelemetry GenAI conventions · Terraform ECS module |
+| **Models** | provider-agnostic: Gemini (free tier), Ollama (local), Anthropic, OpenAI-compatible |
 
 ## The problem
 
@@ -128,7 +131,7 @@ WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY
 ⭐ Providers report their own token usage, and a provider that cannot is made to **over-estimate**
 rather than return zero — a budget fed zeros never fires.
 
-## MCP — the policy gate as a tool any agent can call
+## MCP — the policy gate as a tool for any agent
 
 Most MCP servers hand an agent **more capability**. This one hands it a **constraint**.
 
@@ -155,11 +158,10 @@ Built on the official `mcp` Python SDK **v2** (2026-07-28 spec, stateless core).
 ⚠ `mcp.server.fastmcp` does not exist in v2 — it was removed in the rework. This uses the low-level
 `Server` with explicit callbacks.
 
-## Kubernetes — it has now seen a pod
+## Kubernetes — reading a live cluster
 
-Until v0.5.0 this project talked about pods constantly — `restart_pods`, `single_pod`, OOM-killed
-containers — and had never read one. The vocabulary was Kubernetes; the evidence was JSON fixtures.
-That is the same defect shape as every other bug in this README: **a claim the code did not back.**
+Point WARDEN at a cluster and the evidence comes from the real thing — pod status, events, container
+log tails and Deployment rollout history — instead of recorded fixtures.
 
 ```bash
 pip install -e ".[k8s]"
@@ -179,7 +181,7 @@ WARDEN_BACKEND=k8s warden run --incident inc-002      # reads the cluster your k
 `read_namespaced_pod_log`; a test greps the source for any write verb. And **RBAC enforces the same
 thing from the cluster's side** — see below.
 
-### Deploying it into the cluster it diagnoses
+### Deploying into the cluster it diagnoses
 
 ```bash
 kubectl apply -k k8s/            # the DURABLE parts: namespace, ServiceAccount, ClusterRole, RoleBinding
@@ -221,59 +223,6 @@ API dependency — is **CI-verified on k3d**, which enforces the identical Pod S
 **not** been run against a live EKS cluster; the manifests are compliant and cluster-agnostic, not
 field-tested on managed EKS.
 
-### Proven against a real cluster, both directions
-
-CI creates a **k3d** cluster on every push and:
-
-1. Validates every manifest with `kubectl apply --dry-run=server` — schema-checked by a real API.
-2. Asks the API server **both ways**: `kubectl auth can-i list pods` → must be `yes`;
-   `get pods` (only `list` is granted), `delete pods`, `patch deployments`, `get secrets`,
-   `list pods -n kube-system`, `get nodes` → must each be **`no`**. A check that only confirmed the
-   reads would pass a `*`-verb ClusterRoleBinding.
-3. Deploys `k8s/test/oom-workload.yaml` — a pod that **actually OOM-kills itself** (300 MiB into a
-   48Mi limit) — and waits for the kubelet to record `lastState.terminated.reason: OOMKilled`.
-4. Runs WARDEN against it from outside and asserts the *output*: `"backend": "kubernetes"`,
-   `scale_up`, `APPROVED_FOR_HUMAN`, `"tool_errors": []`.
-5. Imports the image and runs WARDEN **inside** the cluster as the Job, under the read-only
-   ServiceAccount, and asserts the same verdict from its logs — plus that it ran as `user=10001`
-   with `readOnlyRootFilesystem`.
-
-### Bugs the cluster found that no fake could
-
-**The OOM workload wasn't OOMing.** The first command was `head -c 300M /dev/zero | tail; echo
-unreachable`. busybox's `head` rejects the `M` suffix — `invalid number '300M'` — so nothing was
-allocated, the `echo` ran, and the container exited **0**. The Deployment restarted it on a loop:
-restart count climbing, status `Completed`, zero OOM kills. **It looked exactly like the OOM test
-was working.** Caught by reading the container log instead of the restart counter.
-
-**A 40-line log tail arrived as one line.** With the client's default deserialisation,
-`read_namespaced_pod_log` returned the *repr* of bytes as a string — `b'2026-…\n2026-…'` — with
-literal backslash-n inside. `_log_text()` now reads the raw response and decodes it, and a test
-feeds it every shape the client has been seen to return.
-
-**Redaction left a copy of a UUID behind — and the guard refused the run.** A `CrashLoopBackOff`
-event embeds the pod UID twice: bare as `(534e3098-…)` and inside a longer token
-`…_default_534e3098-…-24ae0fb955bb_0`. The UUID regex ends in `\b`, and `b` followed by `_` is not a
-word boundary, so one copy was masked and one was not. `_assert_clean` saw the survivor and raised
-`RedactionLeak` rather than send it to a model. The redactor now runs a **final literal sweep**;
-⭐ the failure was loud and safe, which is the guard working as designed.
-
-### Then an adversarial review found nine more
-
-Four independent reviewers each tried to refute one claim about the Kubernetes work; every finding
-was attacked by a second reviewer, and the upheld ones were fixed, not noted:
-
-- **RBAC was read-only but not minimal** — 12 of 16 granted verb/resource pairs had no caller. Cut
-  to the exact five the code makes; CI now asserts `watch pods` and `get pods` are *denied*.
-- **The RBAC unit test passed with `roleRef: cluster-admin`.** Now a structural check, not a grep.
-- **The Job could hang forever** (no deadline; a stalled read left a thread joined at exit —
-  reproduced live) and **deleted its own evidence** after an hour. Fixed with socket timeouts, a Job
-  deadline, and a seven-day TTL.
-- **`rollout restart` was reported as a deploy**, so P5 would allow a no-op "rollback".
-  `deploys()` now compares ReplicaSet images.
-- **Init-container OOMs, dead pods, and other workloads' events** were mis-handled — all fixed.
-- **The write-verb tripwire was bypassable** by `getattr`/`call_api`/`subprocess`. Now an AST walk.
-
 ## Observability that other tools can read
 
 Spans use the **OpenTelemetry GenAI semantic conventions** — `gen_ai.operation.name`,
@@ -293,82 +242,19 @@ Cost has no spec attribute, so it stays under `warden.cost.usd`.
 
 ## What the demo shows
 
-Four recorded incidents, each exercising a different route:
+Five recorded incidents, each exercising a different route:
 
 | Incident | Evidence | Proposal | Verdict | Why it matters |
 |---|---|---|---|---|
 | `inc-001` | 5xx spike **after a deploy** | `rollback_deploy` | **approved_for_human** | Clean signal — and a person still presses the button |
 | `inc-002` | OOM kills, **no deploy** | `scale_up` | **approved_for_human** | Does not reach for rollback by reflex |
-| `inc-003` | Replica saturated | `failover_replica` | **escalated** | Right action, but multi-service blast radius (`P6`) |
+| `inc-003` | Replica saturated, lag 47s | `failover_replica` | **escalated** | Right action, but multi-service blast radius (`P6`) |
 | `inc-004` | Two vague log lines | `escalate_to_human` | **auto_safe** | ⭐ **Declines to invent a fix** |
+| `inc-005` | Pool exhausted by idle-in-transaction connections, **no lag** | `terminate_connections` | **approved_for_human** | Tells a stuck-connection incident apart from `inc-003` — a single-service fix, not a failover |
 
 ⭐ `inc-004` is the one to look at. Most agent demos produce a confident answer there. WARDEN scores
 low confidence, proposes escalation, and the verifier lets it through precisely *because* it is
 inert.
-
-## What running it against a real model taught us
-
-Every test here runs in mock mode. That is correct for CI — but it means the design was, until it
-was actually run, an argument rather than a result. Running all four incidents against a live
-**Gemini** model produced three findings the mocks could never have surfaced.
-
-**1. ⚠ The model's self-reported confidence is not calibrated — and that breaks a policy.**
-It returned **confidence 0.85 on all four incidents**, including `inc-004`, whose entire evidence is
-two vague log lines. Policy `P4` escalates below 0.55, so with this model **P4 would essentially
-never fire.** A gate that depends on a number the model has no ability to get right is not a gate.
-
-⭐ **This is why `P9-THIN-EVIDENCE` exists.** It counts what was actually gathered — log lines,
-distinct metrics, deploys — and escalates when two independent kinds of evidence are missing.
-**Ours to measure, not the model's to claim.** It cannot be talked around by a confident tone.
-
-**2. The live model chose a different action from the mock.** On `inc-003` (saturated replica) the
-mock proposes `failover_replica`; the live model proposed `restart_pods` — more conservative, and
-arguably wrong for the actual cause. ⛔ **So the eval suite encodes the mock's behaviour, not a
-correctness standard.** It is a regression gate for routing and policy, and it was already
-documented as such — this is the proof.
-
-**3. Model identifiers expire.** `gemini-2.0-flash` was the hardcoded default; the API replied
-*"no longer available … use models/gemini-3.6-flash"*. A pinned model id is a dated assumption,
-which is why `WARDEN_MODEL` overrides it without touching code.
-
-⭐ The live run also confirmed the parts that matter: **7 identifiers masked before anything left the
-process**, cost tracked per call (~$0.009 per incident), and on the thin-evidence incident the model
-proposed `no_action` rather than inventing a fix.
-
-## Bugs worth keeping in the README
-
-Each was found by **running** the thing, not by reading it, and each is now guarded. (The Kubernetes bugs
-— the OOM workload that wasn't OOMing, and the log tail that arrived as one line — are in the
-Kubernetes section above; both needed a real cluster to surface.)
-
-**0. ⭐ The container produced wrong answers and CI was green.** Fixtures lived at the repo root and
-were resolved with `Path(__file__).parents[2] / "fixtures"`. That works from a source checkout and
-breaks silently once pip-installed — the path lands outside site-packages. Inside the container
-every context tool failed, the evidence came back empty, and **all four incidents returned
-`AUTO_SAFE`**: wrong verdicts, exit code 0.
-
-⛔ **The CI docker job never noticed, because it ran `docker run … demo` and checked only the exit
-code.** It asked *"did it run?"* when the question was *"was it right?"* Fixtures are now package
-data, and **both CI jobs assert on the output** — the exact verdicts and that `P6` fires.
-
-**1. Every incident produced the same hypothesis.** The mock reasoner branched on substrings of the
-rendered prompt — which contains field labels like `RECENT DEPLOYS:` and metric keys like
-`error_rate`. So the "bad deploy" branch always matched, **and the demo still looked like it
-worked.** The instrument was asking whether a *word appeared* when the question was whether a
-*deploy existed*. Guarded by `test_hypotheses_are_not_all_the_same`.
-
-**2. The audit trail contradicted the verdict.** `auto_safe` and `approved_for_human` shared a
-route, so an inert action carrying `requires_approval=False` still logged that it was waiting on an
-operator. Guarded by `test_terminal_node_matches_the_verdict`.
-
-**3. The tool timeout was cosmetic.** `ThreadPoolExecutor` used as a context manager calls
-`shutdown(wait=True)` on exit — so the deadline fired at 0.3s and the caller then **blocked for the
-full 6 seconds anyway**. The docstring said "each tool has a timeout" while the timeout did nothing.
-Guarded by `test_a_hanging_tool_does_not_hang_the_run`, which asserts wall-clock, not just the
-exception.
-
-⭐ The pattern in all three: **the code claimed something the code did not do, and everything looked
-green.** That is why every guard here is written to be *proven able to fail* before it is trusted.
 
 ## Environments, remediation and ChatOps
 
@@ -460,41 +346,8 @@ else:
 | Redis | an ACL user permitted `CLIENT\|KILL` |
 | MongoDB | `killop` |
 
-**Proven against real servers, not stubs.** CI's `db` job runs **all five engines** — PostgreSQL,
-MySQL, Redis, MongoDB and SQL Server — as service containers, and asserts that a genuinely stuck
-connection is selected, terminated, and **gone from the server afterwards**, and that the run did not
-silently skip an engine.
-
-### Three bugs real databases found that no stub would have
-
-Stubs agree with whatever you assumed. Each of these came from pointing the code at a real server.
-
-**1 · A stuck connection that is invisible forever.** Ten rounds of three deliberately-stuck
-PostgreSQL connections: **two rounds missed one**, and the server explained why — it reported that
-connection's age as **minus 115 seconds**. A host clock step (NTP correction, VM pause/resume) had
-stamped `state_change` in the *future*, and such a connection can never satisfy
-`state_change < now() - interval`. Invisible to both the read and the terminator, permanently and
-silently. Declining to terminate what cannot be aged is right — it might be one second old. Doing it
-**silently** is not: those are now reported with the `TOOL-PARTIAL` prefix, which lands them in
-`tool_errors`, fires policy **P8** and sends the incident to a human.
-
-**2 · The terminator was about to kill the monitoring, not the problem.** MongoDB's `currentOp` lists
-the server's own awaitable `hello` heartbeats, which sit *active* for seconds by design. A plain
-`secs_running >= threshold` filter selected them — so `terminate_connections` would have killed the
-drivers' monitoring connections (**WARDEN's own included**) while never touching the stuck query
-somebody called about. Selection is now an **allow-list** of real user operations: killing is
-destructive, so under-selecting is the safe direction to be wrong in.
-
-**3 · An idle server reporting an emergency.** A freshly started, completely idle SQL Server reported
-**28 long-running queries** — `sys.dm_exec_requests` also lists the instance's own background tasks
-(LAZY WRITER, CHECKPOINT, XE TIMER), which have been running since startup. That number would have
-gone into the evidence as though the database were in trouble. Now joined to `dm_exec_sessions` on
-`is_user_process = 1`; a quiet server reads as quiet, and a test asserts it.
-
-**ChatOps.** `--emit-chatops` pushes the redacted report to Slack, Teams or a generic webhook
-(`WARDEN_SLACK_WEBHOOK` / `WARDEN_TEAMS_WEBHOOK` / `WARDEN_WEBHOOK_URL`). It is **dry-run unless
-`WARDEN_CHATOPS_LIVE=1`**, re-redacts the exact payload before transmit, and a failed post is a status,
-never a crash.
+Every engine is exercised against a real server in CI, not a stub: the `db` job runs all five as
+service containers and asserts a stuck connection is selected, terminated and gone.
 
 ## Architecture
 
@@ -502,6 +355,9 @@ never a crash.
   and the honest limits.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — nodes, state, and where to swap fixtures for real
   backends.
+- [`docs/INTERVIEW-NOTES.md`](docs/INTERVIEW-NOTES.md) — the design decisions, defended.
+- [`docs/ENGINEERING-NOTES.md`](docs/ENGINEERING-NOTES.md) — defects found while building it, and the
+  fix each one forced.
 
 ## Tests
 
@@ -509,9 +365,13 @@ never a crash.
 make check     # ruff + unit tests + eval gate
 ```
 
-`tests/` covers redaction and every policy — each with a case proving the policy can **fire**, not
-just pass. `evals/` is the behavioural gate: routing, safety invariants, cost recording, budget
-enforcement and the audit trail, asserted on every push.
+`tests/` covers redaction and every policy; `evals/` is the behavioural gate (routing, safety
+invariants, cost, budget, audit trail). Live-infrastructure suites are opt-in:
+
+```bash
+WARDEN_K8S_INTEGRATION=1 pytest tests/integration/test_live_cluster.py   # needs a cluster
+WARDEN_DB_INTEGRATION=1  pytest tests/integration/test_live_database.py  # needs a database
+```
 
 ## Limits, stated plainly
 
