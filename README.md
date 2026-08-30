@@ -355,7 +355,7 @@ service containers and asserts a stuck connection is selected, terminated and go
   and the honest limits.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — nodes, state, and where to swap fixtures for real
   backends.
-- [`docs/INTERVIEW-NOTES.md`](docs/INTERVIEW-NOTES.md) — the design decisions, defended.
+- [`docs/DESIGN-DECISIONS.md`](docs/DESIGN-DECISIONS.md) — why each choice was made, and what it costs.
 - [`docs/ENGINEERING-NOTES.md`](docs/ENGINEERING-NOTES.md) — defects found while building it, and the
   fix each one forced.
 
