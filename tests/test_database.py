@@ -324,35 +324,96 @@ WRITE_VERBS = (
 _EXECUTING_CALLS = frozenset({"execute", "executemany", "command", "run_command", "eval"})
 
 
+def _called_name(node: ast.Call) -> str:
+    func = node.func
+    return func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+
+
+def _literal_str_args(node: ast.Call) -> list[str]:
+    """String literals passed positionally, including an f-string's literal parts — which is how
+    `f"KILL {int(spid)}"` stays visible to this check."""
+    out: list[str] = []
+    for arg in node.args:
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+            out.append(arg.value)
+        elif isinstance(arg, ast.JoinedStr):
+            out.extend(
+                part.value for part in arg.values
+                if isinstance(part, ast.Constant) and isinstance(part.value, str)
+            )
+    return out
+
+
+def _executing_functions(tree: ast.AST) -> set[str]:
+    """Names of this module's OWN functions that can reach a database-executing call.
+
+    ⛔ This is the fix for a hole a mutation found. `database.py` never calls `.execute()` with a
+    literal: every adapter passes its SQL to the module's own `_rows(conn, sql)` helper, which then
+    calls `cur.execute(sql)` with a VARIABLE. A checker that only looked at literals handed directly
+    to `.execute()` therefore read ZERO statements out of the module it guards and passed vacuously
+    — `mutation_check.py`'s "the read-only database backend gains a write statement" replaced a
+    SELECT with a DELETE and the suite stayed green.
+
+    So: a function is 'executing' if it calls an executing call, or calls another executing function.
+    Iterated to a fixpoint, because the indirection can be more than one hop deep.
+    """
+    bodies: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bodies[node.name] = {
+                _called_name(c) for c in ast.walk(node) if isinstance(c, ast.Call)
+            }
+    executing = {name for name, calls in bodies.items() if calls & _EXECUTING_CALLS}
+    changed = True
+    while changed:
+        changed = False
+        for name, calls in bodies.items():
+            if name not in executing and calls & executing:
+                executing.add(name)
+                changed = True
+    return executing
+
+
+def _alias_map(tree: ast.AST) -> dict[str, str]:
+    """Local aliases of a method, e.g. `r = cls._rows` — the form every adapter in `database.py`
+    uses, and one more way a literal reaches the server under a different name."""
+    out: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        value = node.value
+        if isinstance(value, ast.Attribute):
+            out[target.id] = value.attr
+        elif isinstance(value, ast.Name):
+            out[target.id] = value.id
+    return out
+
+
 def _statements_this_module_can_execute(path: pathlib.Path) -> list[str]:
-    """Every string this module passes to a database-executing call.
+    """Every string literal this module can get to a database server.
 
-    Deliberately NOT "every string literal": that version flagged two innocent things and would keep
-    doing so. The module docstring NAMES the forbidden verbs in order to state the rule, and
-    `_MONGO_INTERNAL_COMMANDS` lists `killOp` precisely so it is never SELECTED. Both are *mentions*,
-    not *instances* — the same mention-counted-as-instance trap this repo keeps meeting.
+    Deliberately NOT "every string literal in the file": that version flagged two innocent things and
+    would keep doing so. The module docstring NAMES the forbidden verbs in order to state the rule,
+    and `_MONGO_INTERNAL_COMMANDS` lists `killOp` precisely so it is never SELECTED. Both are
+    *mentions*, not *instances* — the mention-counted-as-instance trap this repo keeps meeting.
 
-    What actually matters is narrower and checkable: does a write verb appear in something handed to
-    `.execute()` / `.command()`? f-strings are included via their literal parts, which is how
-    `f"KILL {int(spid)}"` stays visible to this check.
+    What matters is reachability: a literal handed to `.execute()` / `.command()` **or to one of this
+    module's own functions that reaches one**, directly or through an alias.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
+    reachable = _EXECUTING_CALLS | _executing_functions(tree)
+    aliases = _alias_map(tree)
     out: list[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        func = node.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-        if name not in _EXECUTING_CALLS:
+        name = _called_name(node)
+        if name not in reachable and aliases.get(name) not in reachable:
             continue
-        for arg in node.args:
-            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                out.append(arg.value)
-            elif isinstance(arg, ast.JoinedStr):  # an f-string: keep its literal parts
-                out.extend(
-                    part.value for part in arg.values
-                    if isinstance(part, ast.Constant) and isinstance(part.value, str)
-                )
+        out.extend(_literal_str_args(node))
     return out
 
 
@@ -376,6 +437,51 @@ def test_the_tripwire_can_actually_fire():
         for verb in WRITE_VERBS if verb in s.lower()
     ]
     assert found, "the tripwire found no write verb in the WRITE module - it cannot be trusted"
+
+
+def test_the_tripwire_reads_the_read_backend_at_all():
+    """The guard above can pass for the WORST reason: finding nothing because it looked nowhere.
+
+    `database.py` hands its SQL to `_rows(conn, sql)`, which calls `cur.execute(sql)` with a
+    variable — so a checker that only inspected literals passed straight to `.execute()` collected
+    ZERO statements and asserted `not []`. It was green and blind, and the mutation that replaces a
+    SELECT with a DELETE survived. Assert the collector actually sees the module's SQL.
+    """
+    path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "database.py"
+    statements = _statements_this_module_can_execute(path)
+    assert len(statements) >= 10, f"expected the read backend's SQL, collected {len(statements)}"
+    joined = " ".join(statements).lower()
+    assert "pg_stat_activity" in joined, "PostgreSQL SQL not reached by the tripwire"
+    assert "information_schema.processlist" in joined, "MySQL SQL not reached by the tripwire"
+    assert "sys.dm_exec_sessions" in joined, "SQL Server SQL not reached by the tripwire"
+
+
+def test_the_tripwire_catches_a_write_hidden_behind_a_helper(tmp_path):
+    """The exact shape that got through: the write verb never touches `.execute()` directly.
+
+    A guard is only trusted here once it has been watched reject something, so this builds the
+    pattern deliberately and asserts it is flagged.
+    """
+    module = tmp_path / "sneaky.py"
+    module.write_text(
+        "class _Adapter:\n"
+        "    @staticmethod\n"
+        "    def _rows(conn, sql, params=()):\n"
+        "        with conn.cursor() as cur:\n"
+        "            cur.execute(sql, params)\n"
+        "            return cur.fetchall()\n"
+        "\n"
+        "    @classmethod\n"
+        "    def metrics(cls, conn):\n"
+        "        r = cls._rows\n"
+        "        return r(conn, 'DELETE FROM pg_locks WHERE NOT granted')\n",
+        encoding="utf-8",
+    )
+    found = [
+        verb for s in _statements_this_module_can_execute(module)
+        for verb in WRITE_VERBS if verb in s.lower()
+    ]
+    assert found, "a write verb reaching the server through a helper must be flagged"
 
 
 # ------------------------------------------------------------------ the clock-skew finding
