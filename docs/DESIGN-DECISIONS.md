@@ -93,8 +93,13 @@ was then attacked by a second reviewer; the upheld ones were fixed rather than f
 
 A green test suite proves the tests ran, not that they would notice a real regression. The review,
 and the mutation check (which deliberately breaks the code and asserts the suite goes red), are how
-the tests themselves are checked. Two mutations survived the last run — both were the mutation
-*script* pointing at code since rewritten, not test holes; they were re-anchored and are now caught.
+the tests themselves are checked. Mutations have survived twice, and the two cases are different in
+kind. On an earlier run two survived because the mutation *script* was anchored on code since
+rewritten, not because of test holes; they were re-anchored and are now caught. On 2026-09-06 one
+survived that **was** a genuine hole in a test: the AST tripwire asserting this module is read-only
+was collecting zero statements out of `database.py` — every adapter hands its SQL to a helper rather
+than to `.execute()` directly — so the test asserted `not []` and had always been green. The checker
+now follows that indirection, two tests pin it, and a full re-run reports 31 caught, 0 survived.
 
 ## 10. What broke while building against a real cluster
 

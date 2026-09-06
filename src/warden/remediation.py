@@ -6,10 +6,16 @@ The verifier decides whether an action is *admissible*. This layer decides wheth
     auto-remediate  x  authorised principal  x  explicit approval  x  a live backend
 
 Only when all four hold does anything touch infrastructure, and even then only through a pluggable
-`RemediationBackend`. The one this repo ships is `DryRunBackend`, which changes nothing and records
-what it *would* do. That keeps WARDEN's core promise intact — this codebase never mutates a cluster —
-while making the execution path real and testable. An operator wanting genuine remediation supplies
-their own backend (kubectl/cloud SDK); the gate above it is the same either way.
+`RemediationBackend`. The DEFAULT is `DryRunBackend`, which changes nothing and records what it
+*would* do, so an unconfigured WARDEN mutates nothing. Two real backends also ship and are opt-in
+behind `WARDEN_REMEDIATION=live`: `remediation_k8s.KubernetesRemediationBackend` (restart or scale
+one Deployment, clamped to >=1 and <=WARDEN_REMEDIATION_MAX_REPLICAS) and
+`database_remediation.DatabaseRemediationBackend` (terminate stuck idle-in-transaction connections,
+count-clamped, never its own connection). Both act for real when armed, and CI proves it against
+live infrastructure -- see
+tests/integration/test_live_remediation.py::test_scale_up_actually_raises_replicas_on_the_real_deployment.
+An operator wanting different behaviour supplies their own backend; the gate above it is the same
+either way.
 
 The environment gradient (from environments.yaml) does the heavy lifting:
   - staging / qa-staging : auto_remediate = true  -> with an authorised approval, WARDEN applies.
