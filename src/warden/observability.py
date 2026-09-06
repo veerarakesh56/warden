@@ -51,7 +51,7 @@ def configure() -> None:
     if _CONFIGURED or os.environ.get("WARDEN_TRACE") == "0":
         return
     provider = TracerProvider(
-        resource=Resource.create({"service.name": "warden", "service.version": "0.5.1"})
+        resource=Resource.create({"service.name": "warden", "service.version": "0.6.0"})
     )
     exporter = _build_exporter()
     if exporter is not None:

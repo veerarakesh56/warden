@@ -3,7 +3,7 @@
 The model proposes. A deterministic verifier decides. Nothing here executes infrastructure actions.
 """
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 from .graph import run
 from .models import Alert, RunReport
