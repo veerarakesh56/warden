@@ -25,26 +25,34 @@ from warden.remediation_k8s import KubernetesRemediationBackend, resolve_remedia
 
 
 class _Dep:
-    def __init__(self, replicas):
+    def __init__(self, replicas, resource_version="12345"):
         self.spec = type("S", (), {"replicas": replicas})()
+        self.metadata = type("M", (), {"resource_version": resource_version})()
 
 
 class _Apps:
     """Records patches; returns a deployment with a settable replica count."""
 
-    def __init__(self, replicas=2, fail=False):
+    def __init__(self, replicas=2, fail=False, resource_version="12345", conflict=False):
         self.replicas = replicas
         self.fail = fail
+        self.resource_version = resource_version
+        self.conflict = conflict
         self.patches = []
 
     def read_namespaced_deployment(self, name, ns, **kw):
         if self.fail:
             raise RuntimeError("boom: API unreachable")
-        return _Dep(self.replicas)
+        return _Dep(self.replicas, resource_version=self.resource_version)
 
     def patch_namespaced_deployment(self, name, ns, body, **kw):
         if self.fail:
             raise RuntimeError("boom: 403 forbidden")
+        if self.conflict:
+            # What the real API server does when the resourceVersion precondition does not match.
+            exc = RuntimeError("409: the object has been modified")
+            exc.status = 409
+            raise exc
         self.patches.append((name, ns, body))
         return _Dep(self.replicas)
 
@@ -72,7 +80,10 @@ def test_scale_up_increases_replicas():
     apps = _Apps(replicas=2)
     b = KubernetesRemediationBackend(apps=apps, namespace="default")
     msg = b.apply(ActionKind.scale_up, "checkout", "staging")
-    assert apps.patches[-1][2] == {"spec": {"replicas": 3}}
+    body = apps.patches[-1][2]
+    assert body["spec"] == {"replicas": 3}
+    # read-then-write, so the patch is conditional on what was read
+    assert body["metadata"]["resourceVersion"] == "12345"
     assert "from 2 to 3" in msg
 
 
@@ -80,7 +91,9 @@ def test_scale_down_decreases_replicas():
     apps = _Apps(replicas=3)
     b = KubernetesRemediationBackend(apps=apps, namespace="default")
     b.apply(ActionKind.scale_down, "checkout", "staging")
-    assert apps.patches[-1][2] == {"spec": {"replicas": 2}}
+    body = apps.patches[-1][2]
+    assert body["spec"] == {"replicas": 2}
+    assert body["metadata"]["resourceVersion"] == "12345"
 
 
 # ------------------------------------------------------------------ the safety clamps
@@ -180,3 +193,36 @@ def test_prod_still_blocks_the_live_backend_before_it_is_ever_called():
     )
     assert r.outcome is RemediationOutcome.not_auto_remediable
     assert apps.patches == [], "prod must never reach the live backend"
+
+# ------------------------------------------------------ scaling is a read-then-write, so it is guarded
+
+
+def test_scale_sends_the_observed_resource_version_as_a_precondition():
+    """The replica target is computed from a prior read, so the patch must be conditional on it.
+
+    Without the precondition a concurrent change — an HPA, another operator, a person with kubectl —
+    is silently overwritten between the read and the patch.
+    """
+    apps = _Apps(replicas=2, resource_version="rv-777")
+    backend = KubernetesRemediationBackend(apps=apps, namespace="default")
+
+    backend.apply(ActionKind.scale_up, "checkout", "staging")
+
+    assert len(apps.patches) == 1
+    _, _, body = apps.patches[0]
+    assert body["metadata"]["resourceVersion"] == "rv-777", body
+    assert body["spec"]["replicas"] == 3, body
+
+
+def test_scale_refuses_to_overwrite_a_concurrent_change():
+    """A 409 from the precondition must surface as a clear refusal, not a generic failure."""
+    apps = _Apps(replicas=2, conflict=True)
+    backend = KubernetesRemediationBackend(apps=apps, namespace="default")
+
+    with pytest.raises(RemediationError) as err:
+        backend.apply(ActionKind.scale_up, "checkout", "staging")
+
+    message = str(err.value)
+    assert "changed by something else" in message
+    assert "refusing to overwrite" in message
+    assert apps.patches == []

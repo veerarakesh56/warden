@@ -5,12 +5,33 @@ All notable changes to WARDEN are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — pre-1.0, so a minor
 bump may carry a breaking change.
 
+## [0.6.1] - 2026-09-06
+
+### Fixed
+
+- **`scale_up` / `scale_down` could silently overwrite a concurrent change.** `_scale` reads the
+  Deployment to compute a target from the current replica count, then patches it — a read-then-write
+  with no precondition, so anything that changed the Deployment in between (a HorizontalPodAutoscaler,
+  another operator, a person with `kubectl`) was clobbered. The patch now carries the observed
+  `metadata.resourceVersion`, so the API server rejects the write with 409 Conflict instead and the
+  backend surfaces a clear refusal rather than a generic failure. Two tests pin it: one asserts the
+  precondition is actually sent, one asserts a conflict is refused and nothing is patched.
+  ⚠ The relative `current + SCALE_STEP` step is deliberate and unchanged — "scale up one step" is the
+  action an incident responder means — so a duplicate alert still compounds, bounded by
+  `WARDEN_REMEDIATION_MAX_REPLICAS`. That is documented, not fixed here.
+- Found while writing an answer to "what happens if the same alert arrives twice?", which is a fair
+  argument for writing the awkward answers down.
+
+### Testing
+
+- **392 tests** (345 unit + 22 opt-in live, 25 evals, 10 live-cluster, 12 live-database).
+
 ## [0.6.0] - 2026-09-06
 
 ⛔ **The `0.5.1` tag was 37 commits behind this content.** Everything below already existed on
 `main` under the version string `0.5.1`, so anyone cloning the published release got a differently
 named package (`src/aegis/`) with 52 files and 14 mutations. This release exists so that the
-version number and the code agree. **If you read a description of WARDEN that cites 390 tests,
+version number and the code agree. **If you read a description of WARDEN that cites 390-392 tests,
 31 mutations or five database engines, this is the release it describes.**
 
 ### Changed — BREAKING

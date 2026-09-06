@@ -109,11 +109,27 @@ class KubernetesRemediationBackend:
         if target == current:
             return f"deployment/{deployment} already at {current} replica(s); no change (bounds hit)"
 
+        # Optimistic concurrency. The replica count is computed from the read above, so this is a
+        # read-then-write: without a precondition it silently overwrites anything that changed the
+        # Deployment in between — an HPA, another operator, a person with kubectl. Sending the
+        # observed resourceVersion makes the API server reject the write with 409 Conflict instead,
+        # so a concurrent change fails loudly and is never clobbered.
+        body: dict = {"spec": {"replicas": target}}
+        observed = getattr(getattr(dep, "metadata", None), "resource_version", None)
+        if observed:
+            body["metadata"] = {"resourceVersion": observed}
+
         try:
             self._apps.patch_namespaced_deployment(
-                deployment, self._ns, {"spec": {"replicas": target}}, _request_timeout=REQUEST_TIMEOUT
+                deployment, self._ns, body, _request_timeout=REQUEST_TIMEOUT
             )
         except Exception as exc:
+            if getattr(exc, "status", None) == 409:
+                raise RemediationError(
+                    f"deployment/{deployment} was changed by something else while scaling it "
+                    f"(read at resourceVersion {observed}); refusing to overwrite that change — "
+                    f"re-run to act on the current state"
+                ) from exc
             raise RemediationError(f"scaling deployment/{deployment} failed: {_one_line(exc)}") from exc
         return f"scaled deployment/{deployment} in {self._ns} from {current} to {target} replica(s)"
 

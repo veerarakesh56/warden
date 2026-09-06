@@ -1,6 +1,6 @@
 [project]
 name = "warden"
-version = "0.6.0"
+version = "0.6.1"
 description = "AI incident-response orchestrator: the model proposes, a deterministic verifier decides."
 readme = "README.md"
 requires-python = ">=3.11"
