@@ -33,11 +33,13 @@ class _Dep:
 class _Apps:
     """Records patches; returns a deployment with a settable replica count."""
 
-    def __init__(self, replicas=2, fail=False, resource_version="12345", conflict=False):
+    def __init__(self, replicas=2, fail=False, resource_version="12345",
+                 conflict_times=0, replicas_after_conflict=None):
         self.replicas = replicas
         self.fail = fail
         self.resource_version = resource_version
-        self.conflict = conflict
+        self.conflict_times = conflict_times
+        self.replicas_after_conflict = replicas_after_conflict
         self.patches = []
 
     def read_namespaced_deployment(self, name, ns, **kw):
@@ -48,10 +50,14 @@ class _Apps:
     def patch_namespaced_deployment(self, name, ns, body, **kw):
         if self.fail:
             raise RuntimeError("boom: 403 forbidden")
-        if self.conflict:
-            # What the real API server does when the resourceVersion precondition does not match.
-            exc = RuntimeError("409: the object has been modified")
-            exc.status = 409
+        if self.conflict_times > 0:
+            # What the API server does when a JSON Patch `test` op does not hold (422), or when the
+            # object moved (409). After the conflict the world may have a different replica count.
+            self.conflict_times -= 1
+            if self.replicas_after_conflict is not None:
+                self.replicas = self.replicas_after_conflict
+            exc = RuntimeError("422: the test op did not hold")
+            exc.status = 422
             raise exc
         self.patches.append((name, ns, body))
         return _Dep(self.replicas)
@@ -80,10 +86,13 @@ def test_scale_up_increases_replicas():
     apps = _Apps(replicas=2)
     b = KubernetesRemediationBackend(apps=apps, namespace="default")
     msg = b.apply(ActionKind.scale_up, "checkout", "staging")
-    body = apps.patches[-1][2]
-    assert body["spec"] == {"replicas": 3}
-    # read-then-write, so the patch is conditional on what was read
-    assert body["metadata"]["resourceVersion"] == "12345"
+    patch = apps.patches[-1][2]
+    # A JSON Patch: it must TEST the count it read before replacing it, so a concurrent change to
+    # spec.replicas is rejected by the API server rather than clobbered.
+    assert patch == [
+        {"op": "test", "path": "/spec/replicas", "value": 2},
+        {"op": "replace", "path": "/spec/replicas", "value": 3},
+    ]
     assert "from 2 to 3" in msg
 
 
@@ -91,9 +100,11 @@ def test_scale_down_decreases_replicas():
     apps = _Apps(replicas=3)
     b = KubernetesRemediationBackend(apps=apps, namespace="default")
     b.apply(ActionKind.scale_down, "checkout", "staging")
-    body = apps.patches[-1][2]
-    assert body["spec"] == {"replicas": 2}
-    assert body["metadata"]["resourceVersion"] == "12345"
+    patch = apps.patches[-1][2]
+    assert patch == [
+        {"op": "test", "path": "/spec/replicas", "value": 3},
+        {"op": "replace", "path": "/spec/replicas", "value": 2},
+    ]
 
 
 # ------------------------------------------------------------------ the safety clamps
@@ -197,32 +208,52 @@ def test_prod_still_blocks_the_live_backend_before_it_is_ever_called():
 # ------------------------------------------------------ scaling is a read-then-write, so it is guarded
 
 
-def test_scale_sends_the_observed_resource_version_as_a_precondition():
-    """The replica target is computed from a prior read, so the patch must be conditional on it.
+def test_scale_conditions_the_write_on_the_count_it_read():
+    """The target is computed from a prior read, so the write must be conditional on that count.
 
-    Without the precondition a concurrent change — an HPA, another operator, a person with kubectl —
-    is silently overwritten between the read and the patch.
+    A whole-object `resourceVersion` precondition was tried and a real cluster rejected it on the
+    first attempt: a Deployment's resourceVersion is bumped by its own controller writing `status`.
+    The condition has to be on the field we actually care about.
     """
-    apps = _Apps(replicas=2, resource_version="rv-777")
+    apps = _Apps(replicas=2)
     backend = KubernetesRemediationBackend(apps=apps, namespace="default")
 
     backend.apply(ActionKind.scale_up, "checkout", "staging")
 
     assert len(apps.patches) == 1
-    _, _, body = apps.patches[0]
-    assert body["metadata"]["resourceVersion"] == "rv-777", body
-    assert body["spec"]["replicas"] == 3, body
+    _, _, patch = apps.patches[0]
+    assert patch[0] == {"op": "test", "path": "/spec/replicas", "value": 2}, patch
 
 
-def test_scale_refuses_to_overwrite_a_concurrent_change():
-    """A 409 from the precondition must surface as a clear refusal, not a generic failure."""
-    apps = _Apps(replicas=2, conflict=True)
+def test_scale_rereads_and_recomputes_when_the_count_moved_under_it():
+    """On conflict it must re-read, not clobber and not give up.
+
+    Something else scaling to 5 mid-flight means stepping from 5 is right and stepping from the
+    stale 2 is wrong, so the retry recomputes the target from the fresh read.
+    """
+    apps = _Apps(replicas=2, conflict_times=1, replicas_after_conflict=5)
+    backend = KubernetesRemediationBackend(apps=apps, namespace="default")
+
+    msg = backend.apply(ActionKind.scale_up, "checkout", "staging")
+
+    assert len(apps.patches) == 1, "the rejected attempt must not be recorded as a patch"
+    _, _, patch = apps.patches[0]
+    assert patch == [
+        {"op": "test", "path": "/spec/replicas", "value": 5},
+        {"op": "replace", "path": "/spec/replicas", "value": 6},
+    ], patch
+    assert "from 5 to 6" in msg
+
+
+def test_scale_gives_up_loudly_under_sustained_contention():
+    """If it never wins the race it must raise, not loop and not silently do nothing."""
+    apps = _Apps(replicas=2, conflict_times=99)
     backend = KubernetesRemediationBackend(apps=apps, namespace="default")
 
     with pytest.raises(RemediationError) as err:
         backend.apply(ActionKind.scale_up, "checkout", "staging")
 
     message = str(err.value)
-    assert "changed by something else" in message
-    assert "refusing to overwrite" in message
+    assert "kept changing under us" in message
+    assert "refusing to fight it" in message
     assert apps.patches == []

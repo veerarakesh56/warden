@@ -5,7 +5,35 @@ All notable changes to WARDEN are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — pre-1.0, so a minor
 bump may carry a breaking change.
 
+## [0.6.2] - 2026-09-06
+
+### Fixed
+
+- ⛔ **0.6.1's own fix was wrong, and a real cluster caught it.** Conditioning the scale patch on
+  `metadata.resourceVersion` looked correct and passed every unit test against a fake client. It
+  fails on a live Deployment: the Deployment controller writes `status` continuously, so
+  resourceVersion moves for reasons that have nothing to do with anyone touching `spec`. CI's
+  live-cluster job rejected the very first attempt with *"Operation cannot be fulfilled … the object
+  has been modified"*.
+  The condition is now on the field that actually matters — a JSON Patch `test` op on
+  `/spec/replicas` — and a conflict re-reads and recomputes the target, bounded by
+  `WARDEN_REMEDIATION_SCALE_RETRIES` (3), raising if it never wins. That is both the idiomatic
+  Kubernetes pattern and the semantically right one for a *relative* step: if something else scaled
+  to 5 while we were deciding, stepping from 5 is correct and stepping from the stale value is not.
+  Nothing is clobbered, because the target is always derived from a fresh read.
+  ⭐ The lesson is the project's own: a guard that passes against a fake proves the request was
+  made, not that the outcome is right. Only the live job could tell the difference.
+
+### Testing
+
+- **393 tests.** Three tests now cover the scale path: the write is conditional on the count that was
+  read, a conflict re-reads and recomputes from the new value, and sustained contention raises
+  loudly rather than looping or silently doing nothing.
+
 ## [0.6.1] - 2026-09-06
+
+⚠ **Tagged but never released — its scale fix regressed the live-cluster job. Use 0.6.2.**
+
 
 ### Fixed
 

@@ -32,6 +32,9 @@ REQUEST_TIMEOUT = (
 )
 SCALE_STEP = int(os.environ.get("WARDEN_REMEDIATION_SCALE_STEP", "1"))
 MAX_REPLICAS = int(os.environ.get("WARDEN_REMEDIATION_MAX_REPLICAS", "10"))
+# A Deployment's resourceVersion churns because its own controller writes `status`, so a
+# read-then-write needs bounded retries rather than a whole-object precondition.
+SCALE_CONFLICT_RETRIES = int(os.environ.get("WARDEN_REMEDIATION_SCALE_RETRIES", "3"))
 
 # The only actions this backend will carry out. Everything else is refused — see the module docstring.
 _SUPPORTED = {ActionKind.restart_pods, ActionKind.scale_up, ActionKind.scale_down}
@@ -93,45 +96,80 @@ class KubernetesRemediationBackend:
         return f"rollout restart of deployment/{deployment} in {self._ns} (restartedAt={stamp})"
 
     def _scale(self, action: ActionKind, deployment: str) -> str:
-        try:
-            dep = self._apps.read_namespaced_deployment(
-                deployment, self._ns, _request_timeout=REQUEST_TIMEOUT
-            )
-        except Exception as exc:
-            raise RemediationError(f"could not read deployment/{deployment}: {_one_line(exc)}") from exc
+        """Step the replica count, conditional on the count we actually read.
 
-        current = dep.spec.replicas if dep.spec.replicas is not None else 1
-        if action is ActionKind.scale_up:
-            target = min(current + SCALE_STEP, MAX_REPLICAS)
-        else:  # scale_down — never to zero; that is an outage, not a remediation
-            target = max(current - SCALE_STEP, 1)
+        This is a read-then-write, so it needs a concurrency story. Sending
+        `metadata.resourceVersion` as a precondition is the obvious one and it is WRONG here: a
+        Deployment's resourceVersion is bumped by its own controller writing `status`, constantly
+        and especially during an incident, so the precondition fails for reasons that have nothing
+        to do with anyone changing `spec`. That was tried, and a real cluster rejected it with
+        "the object has been modified" on the first attempt.
 
-        if target == current:
-            return f"deployment/{deployment} already at {current} replica(s); no change (bounds hit)"
-
-        # Optimistic concurrency. The replica count is computed from the read above, so this is a
-        # read-then-write: without a precondition it silently overwrites anything that changed the
-        # Deployment in between — an HPA, another operator, a person with kubectl. Sending the
-        # observed resourceVersion makes the API server reject the write with 409 Conflict instead,
-        # so a concurrent change fails loudly and is never clobbered.
-        body: dict = {"spec": {"replicas": target}}
-        observed = getattr(getattr(dep, "metadata", None), "resource_version", None)
-        if observed:
-            body["metadata"] = {"resourceVersion": observed}
-
-        try:
-            self._apps.patch_namespaced_deployment(
-                deployment, self._ns, body, _request_timeout=REQUEST_TIMEOUT
-            )
-        except Exception as exc:
-            if getattr(exc, "status", None) == 409:
+        So: re-read and recompute on conflict, bounded. That is the idiomatic Kubernetes pattern and
+        it is also the semantically correct one for a *relative* step — if something else scaled the
+        Deployment to 5 while we were deciding, stepping from 5 is right and stepping from the stale
+        value is not. Nothing is ever clobbered, because the target is always derived from a fresh
+        read. Sustained contention raises rather than looping.
+        """
+        last_conflict: Exception | None = None
+        for _ in range(SCALE_CONFLICT_RETRIES):
+            try:
+                dep = self._apps.read_namespaced_deployment(
+                    deployment, self._ns, _request_timeout=REQUEST_TIMEOUT
+                )
+            except Exception as exc:
                 raise RemediationError(
-                    f"deployment/{deployment} was changed by something else while scaling it "
-                    f"(read at resourceVersion {observed}); refusing to overwrite that change — "
-                    f"re-run to act on the current state"
+                    f"could not read deployment/{deployment}: {_one_line(exc)}"
                 ) from exc
-            raise RemediationError(f"scaling deployment/{deployment} failed: {_one_line(exc)}") from exc
-        return f"scaled deployment/{deployment} in {self._ns} from {current} to {target} replica(s)"
+
+            current = dep.spec.replicas if dep.spec.replicas is not None else 1
+            if action is ActionKind.scale_up:
+                target = min(current + SCALE_STEP, MAX_REPLICAS)
+            else:  # scale_down — never to zero; that is an outage, not a remediation
+                target = max(current - SCALE_STEP, 1)
+
+            if target == current:
+                return (
+                    f"deployment/{deployment} already at {current} replica(s); "
+                    f"no change (bounds hit)"
+                )
+
+            # Condition the write on the replica count we just read, not on the whole object's
+            # version: we care whether `spec.replicas` moved, not whether the controller touched
+            # `status`. A JSON Patch `test` op does exactly that, and the API server rejects the
+            # whole patch if it does not hold.
+            patch = [
+                {"op": "test", "path": "/spec/replicas", "value": current},
+                {"op": "replace", "path": "/spec/replicas", "value": target},
+            ]
+            try:
+                self._apps.patch_namespaced_deployment(
+                    deployment,
+                    self._ns,
+                    patch,
+                    # A list body already selects this, but say it rather than rely on it.
+                    _content_type="application/json-patch+json",
+                    _request_timeout=REQUEST_TIMEOUT,
+                )
+            except Exception as exc:
+                if getattr(exc, "status", None) in (409, 422):
+                    # 409: the object moved. 422: the `test` op did not hold — someone else changed
+                    # spec.replicas. Either way, re-read and recompute from the new truth.
+                    last_conflict = exc
+                    continue
+                raise RemediationError(
+                    f"scaling deployment/{deployment} failed: {_one_line(exc)}"
+                ) from exc
+            return (
+                f"scaled deployment/{deployment} in {self._ns} "
+                f"from {current} to {target} replica(s)"
+            )
+
+        raise RemediationError(
+            f"deployment/{deployment} kept changing under us while scaling "
+            f"({SCALE_CONFLICT_RETRIES} attempts); something else is actively scaling it — "
+            f"refusing to fight it: {_one_line(last_conflict)}"
+        )
 
 
 class LiveRemediationRouter:
