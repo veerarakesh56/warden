@@ -22,7 +22,7 @@ Redaction after the fact is not a control; it is a cleanup.
 ## 3. How is the redaction known to work?
 
 It re-scans its own output and raises `RedactionLeak` if any original value survived. **The guard has
-a test proving it can fail** — `test_leak_is_fatal_not_a_warning`. A guard nobody has watched reject
+a test proving it can fail** — `test_leak_guard_can_fire` in `tests/test_redaction.py`. A guard nobody has watched reject
 something is not a guard.
 
 ⚠ Honest limit: it is regex-based. Strong against accidental leakage, not a guarantee against a
