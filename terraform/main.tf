@@ -77,17 +77,19 @@ data "aws_iam_policy_document" "task_readonly" {
     sid    = "ReadObservabilitySignals"
     effect = "Allow"
 
+    # ⭐ These are EXACTLY the four API calls `src/warden/aws_backend.py` makes, and a test asserts
+    # the two lists are equal in both directions
+    # (tests/test_aws_backend.py::test_iam_policy_grants_exactly_what_the_code_calls).
+    #
+    # Under-granting is an AccessDenied discovered during a real incident. Over-granting is the
+    # thing every least-privilege review actually finds: a standing permission on a production
+    # account that nothing uses. This list previously held ten actions, six of which no code path
+    # ever called.
     actions = [
-      "logs:FilterLogEvents",
-      "logs:GetLogEvents",
-      "logs:DescribeLogGroups",
-      "logs:DescribeLogStreams",
       "cloudwatch:GetMetricData",
-      "cloudwatch:GetMetricStatistics",
-      "cloudwatch:ListMetrics",
       "ecs:DescribeServices",
       "ecs:DescribeTaskDefinition",
-      "ecs:ListTasks",
+      "logs:FilterLogEvents",
     ]
 
     # Read-only actions across the account being diagnosed. Narrow with a condition block in a real
@@ -139,6 +141,10 @@ resource "aws_ecs_task_definition" "warden" {
 
       environment = [
         { name = "WARDEN_MOCK", value = "0" },
+        # Without this the container reads the fixtures shipped in the package and the task role
+        # above is decoration: a live IAM grant that nothing calls. Checked by a test.
+        { name = "WARDEN_BACKEND", value = var.backend },
+        { name = "WARDEN_AWS_CLUSTER", value = var.diagnosed_cluster },
         { name = "WARDEN_MAX_USD", value = var.max_usd_per_run },
         { name = "WARDEN_TOOL_TIMEOUT", value = var.tool_timeout_seconds },
         { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = var.otlp_endpoint },

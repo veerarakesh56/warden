@@ -29,6 +29,7 @@ gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
 openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via WARDEN_BASE_URL
 mcp = ["mcp>=2.0"]                      # expose the policy gate to any MCP client
 k8s = ["kubernetes>=30"]                # read a live cluster: WARDEN_BACKEND=k8s
+aws = ["boto3>=1.34"]                   # read a live AWS account (CloudWatch + ECS): WARDEN_BACKEND=aws
 # Database backends (read health + terminate stuck connections): WARDEN_BACKEND=postgres|mysql|redis|mongo|mssql
 postgres = ["psycopg[binary]>=3.1"]
 mysql = ["pymysql>=1.1"]
@@ -60,7 +61,7 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests", "evals"]
+src = ["src", "tests", "evals", "scenarios"]
 
 [tool.ruff.lint]
 # C408: `dict(a=1)` over `{"a": 1}`. Kept deliberately — the demo fixtures and test helpers use the

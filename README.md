@@ -225,6 +225,44 @@ dependency — is CI-verified on k3d, which enforces the identical Pod Security 
 been run against a live EKS cluster: the manifests are compliant and cluster-agnostic, not
 field-tested on managed EKS.
 
+## AWS — reading a live account (CloudWatch + ECS)
+
+```bash
+pip install -e ".[aws]"
+export WARDEN_AWS_CLUSTER=prod-cluster
+WARDEN_BACKEND=aws warden run --incident inc-002    # reads whatever your AWS credentials can see
+```
+
+**`AwsBackend`** satisfies the same three-method contract as the fixture and Kubernetes backends,
+so nothing above it changed. It reads:
+
+| | From | Note |
+|---|---|---|
+| **metrics** | `ecs:DescribeServices` for running / desired / pending task counts and failed rollouts; `cloudwatch:GetMetricData` for CPU and memory | The counts are **exact**; utilisation is sampled, and is **omitted rather than zeroed** when CloudWatch has no datapoint — a service that has published nothing is not a service at 0% CPU |
+| **logs** | `logs:FilterLogEvents` on the service's log group, bounded by both a time window and an event cap | A missing log group is a **partial failure**, not silence |
+| **deploys** | the PRIMARY deployment's task definition, compared image-by-image with revision *N−1* | `--force-new-deployment` is ECS's `kubectl rollout restart`: a new deployment record with the **same** images. It is **not** reported as a deploy, so policy P5 cannot approve a rollback that could not possibly help |
+
+**Four API calls, and the IAM policy grants exactly those four.**
+
+```
+cloudwatch:GetMetricData   ecs:DescribeServices   ecs:DescribeTaskDefinition   logs:FilterLogEvents
+```
+
+`tests/test_aws_backend.py::test_iam_policy_grants_exactly_what_the_code_calls` walks this module's
+AST for every `self._<client>.<method>(...)` call, converts each to its IAM action name, and asserts
+**set equality** with the `actions` list in `terraform/main.tf`. It fails in *both* directions:
+under-granting is an `AccessDenied` discovered during a real incident; over-granting is the standing
+unused permission every least-privilege review actually finds. That list held ten actions before this
+backend existed — **six of them were never called by any code path.**
+
+**The three AWS services WARDEN reads, and which backend does it:**
+
+| Service | Backend | How |
+|---|---|---|
+| **ECS + CloudWatch** | `WARDEN_BACKEND=aws` | this section |
+| **EKS** | `WARDEN_BACKEND=k8s` | EKS *is* Kubernetes — same backend, no cloud API call, no IRSA needed |
+| **RDS** (PostgreSQL / MySQL) | `WARDEN_BACKEND=postgres` \| `mysql` | RDS speaks the ordinary wire protocol; the DSN points at the instance endpoint |
+
 ## Observability that other tools can read
 
 Spans use the **OpenTelemetry GenAI semantic conventions** — `gen_ai.operation.name`,

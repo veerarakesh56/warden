@@ -34,6 +34,22 @@ variable "anthropic_secret_arn" {
   type        = string
 }
 
+variable "backend" {
+  description = "Evidence source (WARDEN_BACKEND). `aws` reads CloudWatch and ECS with the read-only task role below. `fixture` reads the recorded incidents shipped in the package - useful for a smoke test, but then the task role is decoration."
+  type        = string
+  default     = "aws"
+
+  validation {
+    condition     = contains(["aws", "fixture", "k8s"], var.backend)
+    error_message = "backend must be one of: aws, fixture, k8s."
+  }
+}
+
+variable "diagnosed_cluster" {
+  description = "ECS cluster name WARDEN reads evidence FROM (WARDEN_AWS_CLUSTER). Often the same cluster it runs in, but not necessarily - it is the one under investigation. Has no default on purpose: `default` is a real ECS cluster name, so a guess would point the whole investigation at the wrong thing and still return data."
+  type        = string
+}
+
 variable "log_retention_days" {
   description = "CloudWatch log retention. Incident context is sensitive; do not keep it forever by accident."
   type        = number

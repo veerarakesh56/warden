@@ -67,6 +67,7 @@ def resolve_backend(name: str | None = None):
 
         fixture     recorded incidents shipped with the package (default; what CI uses)
         k8s         a live Kubernetes cluster via kubeconfig or in-cluster credentials
+        aws         a live AWS account: CloudWatch Logs, CloudWatch metrics and ECS, read-only
         postgres | mysql | redis | mongo | mssql   a live database, read-only
                     (or `db`/`database` to pick the engine from the DSN scheme itself)
 
@@ -84,6 +85,14 @@ def resolve_backend(name: str | None = None):
                 "WARDEN_BACKEND=k8s needs the Kubernetes client: pip install -e '.[k8s]'"
             ) from exc
         return KubernetesBackend()
+    if name in ("aws", "cloudwatch", "ecs"):
+        try:
+            from .aws_backend import AwsBackend
+        except ImportError as exc:  # boto3 is an optional extra
+            raise ToolError(
+                "WARDEN_BACKEND=aws needs the AWS SDK: pip install -e '.[aws]'"
+            ) from exc
+        return AwsBackend()
     if name in _DB_BACKENDS:
         # The driver itself (psycopg / pymysql / redis / pymongo / pymssql) is imported lazily inside
         # the engine adapter at CONNECT time, so a missing extra surfaces as a readable error from the
@@ -92,7 +101,7 @@ def resolve_backend(name: str | None = None):
 
         return DatabaseBackend(engine=_DB_BACKENDS[name])
     raise ToolError(
-        f"unknown backend '{name}'. Known: fixture, k8s, "
+        f"unknown backend '{name}'. Known: fixture, k8s, aws, "
         "db/database, postgres, mysql, redis, mongo, mssql"
     )
 
