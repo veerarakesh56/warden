@@ -5,6 +5,9 @@ possible place for a gap: `warden demo` is the first thing anyone who clones thi
 other module was tested through its API while the actual entry point was not exercised at all.
 """
 
+import json
+from datetime import UTC, datetime
+
 import pytest
 
 from warden.cli import DEMO_ALERTS, main
@@ -123,3 +126,90 @@ def test_run_with_unauthorized_principal_is_reported(capsys):
     ]) == 0
     out = capsys.readouterr().out
     assert "unauthorized" in out
+
+
+# --------------------------------------------------------------------------- live-system overrides
+#
+# These four flags are what makes a BUNDLED incident shape usable against a REAL backend. Without
+# them the demo alerts carry a fixed date in the past, so an AWS run reads an empty time window and
+# reports an absence of evidence — which is indistinguishable from a healthy service.
+
+
+def test_service_override_reaches_the_proposal(capsys):
+    assert main(["run", "--incident", "inc-002", "--service", "checkout-live"]) == 0
+    assert "checkout-live" in capsys.readouterr().out
+
+
+def test_started_at_now_replaces_the_fixed_demo_date(capsys, tmp_path):
+    out_file = tmp_path / "r.json"
+    assert main([
+        "run", "--incident", "inc-002", "--started-at", "now", "--json", str(out_file),
+    ]) == 0
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    started = datetime.fromisoformat(payload["alert"]["started_at"])
+    assert abs((datetime.now(UTC) - started).total_seconds()) < 300
+    assert not payload["alert"]["started_at"].startswith("2026-08-21")
+
+
+def test_started_at_accepts_an_explicit_timestamp(tmp_path):
+    out_file = tmp_path / "r.json"
+    assert main([
+        "run", "--incident", "inc-002", "--started-at", "2026-09-01T00:00:00+00:00",
+        "--json", str(out_file),
+    ]) == 0
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["alert"]["started_at"] == "2026-09-01T00:00:00+00:00"
+
+
+def test_a_bad_timestamp_fails_loudly_rather_than_reading_the_wrong_window():
+    """Silently falling back would make WARDEN read a window that contains nothing and call it
+    evidence. Better to refuse to start."""
+    with pytest.raises(SystemExit, match="ISO-8601"):
+        main(["run", "--incident", "inc-002", "--started-at", "last tuesday"])
+
+
+def test_labels_are_added_and_repeatable(tmp_path):
+    out_file = tmp_path / "r.json"
+    assert main([
+        "run", "--incident", "inc-002",
+        "--label", "cluster=prod-1", "--label", "log_group=/ecs/checkout",
+        "--json", str(out_file),
+    ]) == 0
+    labels = json.loads(out_file.read_text(encoding="utf-8"))["alert"]["labels"]
+    assert labels["cluster"] == "prod-1"
+    assert labels["log_group"] == "/ecs/checkout"
+
+
+def test_a_malformed_label_is_rejected():
+    with pytest.raises(SystemExit, match="K=V"):
+        main(["run", "--incident", "inc-002", "--label", "clusterprod"])
+
+
+def test_a_label_value_may_contain_equals_signs(tmp_path):
+    """A DSN or a selector routinely carries '='. Splitting on the FIRST one is the whole point."""
+    out_file = tmp_path / "r.json"
+    assert main([
+        "run", "--incident", "inc-005", "--label", "dsn=postgresql://u:p@h/db?sslmode=require",
+        "--json", str(out_file),
+    ]) == 0
+    labels = json.loads(out_file.read_text(encoding="utf-8"))["alert"]["labels"]
+    assert labels["dsn"].endswith("?sslmode=require")
+
+
+def test_json_report_is_written_and_is_the_full_report(tmp_path, capsys):
+    out_file = tmp_path / "nested" / "r.json"
+    assert main(["run", "--incident", "inc-002", "--json", str(out_file)]) == 0
+    assert out_file.exists(), "the parent directory must be created"
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["alert"]["alert_id"] == "inc-002"
+    assert "verdict" in payload and "context" in payload and "cost" in payload
+    assert str(out_file) in capsys.readouterr().out
+
+
+def test_no_overrides_leaves_the_alert_untouched(tmp_path):
+    out_file = tmp_path / "r.json"
+    assert main(["run", "--incident", "inc-002", "--json", str(out_file)]) == 0
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["alert"]["started_at"] == DEMO_ALERTS["inc-002"]["started_at"]
+    assert payload["alert"]["service"] == DEMO_ALERTS["inc-002"]["service"]
+    assert payload["alert"]["labels"] == {}

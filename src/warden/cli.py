@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import sys
+from datetime import UTC, datetime
 
 from .chatops import notify, resolve_sinks
 from .graph import run
@@ -143,6 +145,42 @@ def _alert_from(incident: str) -> Alert:
     return Alert(**DEMO_ALERTS[incident])
 
 
+def _apply_overrides(alert: Alert, args) -> Alert:
+    """Point a bundled incident shape at a real system.
+
+    `--started-at` matters more than it looks: the bundled alerts carry a fixed date, and a backend
+    that reads a time window around it (AWS) would read a window with nothing in it and report an
+    absence of evidence — which reads exactly like a healthy service.
+    """
+    update: dict[str, object] = {}
+    if args.environment:
+        update["environment"] = args.environment
+    if getattr(args, "service", None):
+        update["service"] = args.service
+
+    when = getattr(args, "started_at", None)
+    if when:
+        if when.lower() == "now":
+            update["started_at"] = datetime.now(UTC).isoformat()
+        else:
+            try:  # fail here, loudly, rather than silently reading the wrong window later
+                datetime.fromisoformat(when)
+            except ValueError as exc:
+                raise SystemExit(f"--started-at must be ISO-8601 or 'now': {exc}") from exc
+            update["started_at"] = when
+
+    labels = dict(alert.labels)
+    for pair in getattr(args, "label", None) or []:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise SystemExit(f"--label must be K=V, got '{pair}'")
+        labels[key] = value
+    if labels != alert.labels:
+        update["labels"] = labels
+
+    return alert.model_copy(update=update) if update else alert
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -157,6 +195,14 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--approve", action="store_true", help="the principal approves applying the fix")
     p_run.add_argument("--emit-chatops", action="store_true", help="send the report to configured Slack/Teams/webhook sinks")
     p_run.add_argument("--environment", default=None, help="override the incident's environment (e.g. staging) to see the per-env gate")
+    # Overrides that let a BUNDLED incident shape be pointed at a REAL system. Without them the
+    # demo alerts cannot be used outside the fixtures: their `started_at` is a fixed date in the
+    # past, so a backend that reads a window around it (AWS) reads an EMPTY window and reports
+    # nothing — which is indistinguishable from a healthy service.
+    p_run.add_argument("--service", default=None, help="override the service the alert points at, e.g. the real ECS service name")
+    p_run.add_argument("--started-at", default=None, metavar="WHEN", help="override when the alert fired: an ISO-8601 timestamp, or 'now'")
+    p_run.add_argument("--label", action="append", default=[], metavar="K=V", help="add an alert label; repeatable (e.g. --label cluster=prod)")
+    p_run.add_argument("--json", default=None, metavar="PATH", help="also write the full report as JSON to PATH — an audit artefact, not just terminal output")
 
     p_demo = sub.add_parser("demo", help="run every bundled incident")
     p_demo.add_argument("--verbose", action="store_true")
@@ -168,12 +214,15 @@ def main(argv: list[str] | None = None) -> int:
     backend = resolve_backend()
 
     if args.cmd == "run":
-        alert = _alert_from(args.incident)
-        if args.environment:
-            alert = alert.model_copy(update={"environment": args.environment})
+        alert = _apply_overrides(_alert_from(args.incident), args)
         llm = LLMClient(max_usd=args.max_usd)
         report = run(alert, llm=llm, backend=backend)
         _print_report(report, verbose=args.verbose)
+        if args.json:
+            path = pathlib.Path(args.json)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+            print(f"\nreport written to {path}")
 
         want_remediation = args.principal is not None
         if args.report or want_remediation or args.emit_chatops:
