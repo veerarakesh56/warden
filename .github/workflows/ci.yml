@@ -22,7 +22,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,all-providers,mcp,k8s]"
+          pip install -e ".[dev,all-providers,mcp,k8s,aws]"
 
       # The core package must import with NO vendor SDK present. providers.py imports them lazily,
       # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
@@ -34,7 +34,13 @@ jobs:
           /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
-        run: ruff check src tests evals scripts
+        run: ruff check src tests evals scripts scenarios
+
+      # Runs against what git ACTUALLY tracks, so it answers "what is really on GitHub" rather
+      # than "what did anyone mean to put there". Fails the build on a credential, an account id,
+      # or a .env / .tfvars / .tfstate being tracked at all.
+      - name: Nothing unpublishable is committed
+        run: python scripts/check_publishable.py
 
       - name: Unit tests
         run: pytest tests -q
@@ -386,3 +392,12 @@ jobs:
         run: |
           terraform -chdir=terraform init -backend=false
           terraform -chdir=terraform validate
+
+      # The proving ground is a separate root module, so the validate above never touched it. It
+      # went in unvalidated once; a `count` on a resource whose outputs were read unconditionally
+      # is exactly the kind of error that only shows up at apply time, on a real account, after
+      # fifteen minutes of EKS.
+      - name: Validate the proving ground
+        run: |
+          terraform -chdir=terraform/proving-ground init -backend=false
+          terraform -chdir=terraform/proving-ground validate

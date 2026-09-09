@@ -11,3 +11,21 @@ build/
 .coverage
 coverage.xml
 .review/
+
+# Terraform. ⛔ tfstate carries the RDS master password in PLAINTEXT — Terraform stores every
+# `sensitive` value unencrypted in state, and marking it sensitive only hides it from the CLI
+# output. tfvars carries a home IP address and an email. Neither belongs in a public repo.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+
+# The published evidence bundles. `*.log` above would otherwise silently drop the run transcript
+# from a bundle that was copied in, and a reader would be looking at reports with no record of how
+# they were produced. This is safe by construction, not by trust: scripts/aws_proof.sh writes every
+# run OUTSIDE the repo, redacts it, and copies it in ONLY after scripts/check_publishable.py passes
+# on the redacted directory. A bundle that failed that scan never reaches this path.
+!docs/aws-proof-*/run.log
