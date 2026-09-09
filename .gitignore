@@ -29,3 +29,8 @@ crash.*.log
 # run OUTSIDE the repo, redacts it, and copies it in ONLY after scripts/check_publishable.py passes
 # on the redacted directory. A bundle that failed that scan never reaches this path.
 !docs/aws-proof-*/run.log
+
+# Local working notes that mention the job hunt and the public post. Useful on this machine,
+# out of place in a public repository. The engineering handoff that IS publishable lives at
+# docs/SESSION-HANDOFF-*.md and is committed.
+NEXT-SESSION-PROMPT.txt
