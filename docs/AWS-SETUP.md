@@ -113,12 +113,29 @@ variable `sensitive` hides it from CLI output, not from state.
 
 ---
 
-## ⚠ These policies have not been tested against a real `terraform apply`
+## What a real `terraform apply` turned out to need
 
-Stated plainly because it matters: they were derived by enumerating every resource type in
-`terraform/proving-ground/*.tf`, not by running them. **The EKS block is the least certain part** —
-managed node groups are the one place where AWS does work on your behalf and the required caller
-permissions are easy to under-specify.
+The Wave 1 block **has** now been run against a real account. It failed twice, and both were
+permissions the policy did not grant. Recorded here rather than quietly patched, because "derived by
+reading the `.tf` files" was never the same thing as "tested", and this is what the difference cost:
+
+| Missing | Symptom |
+|---|---|
+| `budgets:TagResource` | `AccessDeniedException ... not authorized to perform: budgets:TagResource`. The budget resource carries tags, and tagging is a separate action from `ModifyBudget` |
+| `iam:CreateServiceLinkedRole` for `ecs.amazonaws.com` | `InvalidParameterException: Unable to assume the service linked role`. ⭐ **An account that has never used ECS has no `AWSServiceRoleForECS`.** Nothing in the Terraform mentions it — AWS creates it on your behalf, and only if you may |
+
+⭐ The second one is the interesting failure: a permission an experienced reader would not think to
+grant, because the resource needing it does not appear anywhere in the configuration. It is scoped
+with an `iam:AWSServiceName` condition so it can create that one service-linked role and no other.
+
+⚠ **The RDS and EKS blocks are still untested** and were derived the same way. **The EKS block is
+the least certain part** — managed node groups are the one place where AWS does the most work on
+your behalf, and the required caller permissions are easy to under-specify. Expect it to need at
+least one round of exactly the above.
+
+⭐ Before pasting any policy, run `python scripts/check_iam_actions.py`. It checks every action
+against AWS's own published list — it would have caught `budgets:DescribeBudget`, which was in this
+file and does not exist. It cannot tell you an action is *missing*; only an apply does that.
 
 If an apply fails with `AccessDenied`:
 

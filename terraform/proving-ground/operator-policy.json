@@ -118,6 +118,17 @@
       }
     },
     {
+      "Sid": "TheEcsServiceLinkedRoleAFreshAccountDoesNotHaveYet",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "ecs.amazonaws.com"
+        }
+      }
+    },
+    {
       "Sid": "AssumeOnlyTheReaderRole",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
@@ -134,7 +145,10 @@
       "Effect": "Allow",
       "Action": [
         "budgets:ViewBudget",
-        "budgets:ModifyBudget"
+        "budgets:ModifyBudget",
+        "budgets:TagResource",
+        "budgets:UntagResource",
+        "budgets:ListTagsForResource"
       ],
       "Resource": "*"
     },
