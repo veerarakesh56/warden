@@ -2,7 +2,7 @@
 #
 #   curl -s https://checkip.amazonaws.com     -> your public IP
 
-region       = "ap-south-1"
+region       = "ap-south-2"
 my_ip_cidr   = "203.0.113.7/32"      # ⛔ YOUR IP. 0.0.0.0/0 is rejected by a validation rule.
 budget_email = "you@example.com"     # where the $5 budget alarm goes
 budget_usd   = 5

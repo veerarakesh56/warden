@@ -47,9 +47,10 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
   capacity_providers = ["FARGATE_SPOT", "FARGATE"]
 
   default_capacity_provider_strategy {
-    # Spot, because a task that gets reclaimed mid-proof is a realistic incident rather than a
-    # problem, and it is roughly 70% cheaper.
-    capacity_provider = "FARGATE_SPOT"
+    # Spot by default, because a task that gets reclaimed mid-proof is a realistic incident rather
+    # than a problem, and it is roughly 70% cheaper. Overridable because Spot is not available in
+    # every region - see var.capacity_provider.
+    capacity_provider = var.capacity_provider
     weight            = 1
   }
 }
@@ -195,7 +196,7 @@ resource "aws_ecs_service" "checkout" {
   desired_count   = 2                                                # two, so "1 of 2 running" is visible when one is killed
 
   capacity_provider_strategy {
-    capacity_provider = "FARGATE_SPOT"
+    capacity_provider = var.capacity_provider
     weight            = 1
   }
 

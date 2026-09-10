@@ -1,13 +1,37 @@
 variable "region" {
   description = "AWS region. Anything works; pick the one closest to you - latency here is only your own patience."
   type        = string
-  default     = "ap-south-1"
+  default     = "ap-south-2"
 }
 
 variable "name" {
   description = "Name prefix. Also the ECS cluster name WARDEN reads evidence from."
   type        = string
   default     = "warden-pg"
+}
+
+variable "capacity_provider" {
+  description = <<-EOT
+    FARGATE_SPOT (default, ~70% cheaper) or FARGATE.
+
+    ⚠ Fargate Spot is NOT available in every region, and the whole benchmark runs on it. In a region
+    without it, every task fails to place, the service never reaches a healthy baseline, and Wave 1
+    measures nothing while looking like a catastrophic failure of the tool. Verify before applying:
+
+      aws ecs put-cluster-capacity-providers --help   # no: this does not tell you
+      aws ec2 describe-instance-type-offerings ...    # no: Fargate is not an instance type
+
+    There is no clean API for it. The honest check is to apply and watch whether tasks reach RUNNING;
+    if they sit in PROVISIONING and stop with a capacity error, set this to FARGATE and re-apply. On
+    FARGATE the cost estimate in outputs.tf roughly triples and is still under a cent an hour.
+  EOT
+  type        = string
+  default     = "FARGATE_SPOT"
+
+  validation {
+    condition     = contains(["FARGATE_SPOT", "FARGATE"], var.capacity_provider)
+    error_message = "capacity_provider must be FARGATE_SPOT or FARGATE."
+  }
 }
 
 variable "my_ip_cidr" {

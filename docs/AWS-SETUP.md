@@ -79,7 +79,7 @@ Then attach whichever you created to your user, your group, or your Identity Cen
 
 ⚠ **Two things to change if you edit the defaults:**
 
-- The policies hard-code **`ap-south-1`** in every `aws:RequestedRegion` condition. If you set a
+- The policies hard-code **`ap-south-2`** (Hyderabad) in every `aws:RequestedRegion` condition. If you set a
   different `region` in `terraform.tfvars`, change it in the policy files too or every call is denied.
 - IAM statements are scoped to `role/warden-pg-*`, which matches the default `var.name = "warden-pg"`
   plus Terraform's random suffix. If you change `var.name`, change the policy.

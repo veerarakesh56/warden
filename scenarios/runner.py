@@ -429,10 +429,10 @@ _FAKE_RESPONSES: dict[str, Callable[[str], dict]] = {
     },
     "register_task_definition": lambda tag: {
         "taskDefinition": {
-            "taskDefinitionArn": "arn:aws:ecs:ap-south-1:111122223333:task-definition/checkout:99"
+            "taskDefinitionArn": "arn:aws:ecs:ap-south-2:111122223333:task-definition/checkout:99"
         }
     },
-    "list_tasks": lambda tag: {"taskArns": ["arn:aws:ecs:ap-south-1:111122223333:task/fake"]},
+    "list_tasks": lambda tag: {"taskArns": ["arn:aws:ecs:ap-south-2:111122223333:task/fake"]},
     "list_role_policies": lambda tag: {"PolicyNames": ["warden-reader-inline"]},
     "describe_security_groups": lambda tag: {
         "SecurityGroups": [{
@@ -486,9 +486,9 @@ _DRY_REPORT: dict[str, Any] = {
 
 def _dry_harness() -> Harness:
     target = ops.Target(
-        region="ap-south-1", cluster="warden-proving-ground", service="checkout",
+        region="ap-south-2", cluster="warden-proving-ground", service="checkout",
         log_group="/ecs/checkout",
-        baseline_task_definition="arn:aws:ecs:ap-south-1:111122223333:task-definition/checkout:1",
+        baseline_task_definition="arn:aws:ecs:ap-south-2:111122223333:task-definition/checkout:1",
         security_group_id="sg-fake", route_table_id="rtb-fake", warden_role_name="warden-reader",
     )
     shared = _FakeAws()

@@ -97,6 +97,8 @@ output "estimated_hourly_usd" {
   value = format(
     "%.4f",
     # Fargate Spot, 2 tasks x (0.25 vCPU + 0.5 GB) at ap-south-1 spot rates, plus the optional bits.
+    # NOTE: ap-south-2 (Hyderabad) prices differ slightly from ap-south-1. This is an ESTIMATE for
+    # sanity-checking the bill, never a quote - the $5 budget alarm is the real guard.
     0.0086 + (var.enable_rds ? 0.0210 : 0) + (var.enable_eks ? 0.1096 : 0)
   )
 }
