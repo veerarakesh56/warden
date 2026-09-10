@@ -34,11 +34,24 @@ locals {
   name = "${var.name}-${random_id.suffix.hex}"
 
   tags = {
-    # Every resource carries these two. If a destroy half-fails, this is how the leftovers are
+    # Every resource carries these. If a destroy half-fails, this is how the leftovers are
     # found — see the README's resourcegroupstaggingapi query.
-    Project     = "warden-proving-ground"
-    DeleteAfter = formatdate("YYYY-MM-DD", timeadd(timestamp(), "24h"))
-    ManagedBy   = "terraform"
+    Project   = "warden-proving-ground"
+    ManagedBy = "terraform"
+    # ⛔ There was a `DeleteAfter = formatdate(..., timeadd(timestamp(), "24h"))` here. It broke
+    # every apply that used a saved plan:
+    #
+    #     Error: Provider produced inconsistent final plan ... .tags_all: new element "Project"
+    #     has appeared. This is a bug in the provider  <- it was not
+    #
+    # `timestamp()` is evaluated at APPLY time, so it returns a different value than the one the
+    # plan recorded, and `tags_all` then mismatches on every resource. A bare `terraform apply`
+    # evaluates once and hides it; `plan -out=FILE` followed by `apply FILE` does not. The error
+    # blames the provider, which sends you to the wrong issue tracker.
+    #
+    # Nothing read the tag. `Project` is what the teardown sweep queries and the $5 budget is what
+    # actually catches a forgotten environment, so the date was a nicety that cost a real apply.
+    Lifecycle = "ephemeral"
   }
 
   # Two AZs: RDS subnet groups and EKS both require it. No third — it buys nothing here and every

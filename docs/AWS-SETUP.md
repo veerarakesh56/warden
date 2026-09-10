@@ -84,6 +84,29 @@ Then attach whichever you created to your user, your group, or your Identity Cen
 - IAM statements are scoped to `role/warden-pg-*`, which matches the default `var.name = "warden-pg"`
   plus Terraform's random suffix. If you change `var.name`, change the policy.
 
+### Step 2b — the ECS service-linked role, once per account
+
+⛔ **An AWS account that has never used ECS has no `AWSServiceRoleForECS`, and Terraform will not
+create it for you.** The apply fails on `PutClusterCapacityProviders` with:
+
+```
+InvalidParameterException: Unable to assume the service linked role.
+Please verify that the ECS service linked role exists.
+```
+
+which does not mention IAM at all. Granting `iam:CreateServiceLinkedRole` is necessary and *not*
+sufficient — the permission allows the call, but something still has to make it:
+
+```bash
+aws iam create-service-linked-role --aws-service-name ecs.amazonaws.com
+```
+
+Already exists? It returns `InvalidInput ... has been taken`, which is success.
+
+⭐ **This is deliberately not a Terraform resource.** `AWSServiceRoleForECS` is account-wide, and
+anything else in the account using ECS depends on it — a `terraform destroy` of this proving ground
+must not be able to delete it. One-time account bootstrap, not managed infrastructure.
+
 ### Step 3 — an account-level budget, not just the Terraform one
 
 The Terraform creates a `$5` budget, but it only exists **while the proving ground exists**. Create a
