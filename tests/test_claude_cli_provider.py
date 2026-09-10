@@ -154,3 +154,45 @@ def test_it_is_registered_under_both_spellings(monkeypatch):
     for name in ("claude_cli", "claude-cli"):
         monkeypatch.setenv("WARDEN_PROVIDER", name)
         assert resolve().name == "claude_cli"
+
+
+# --------------------------------------------------------------------------- whose Claude is it
+#
+# ⛔ Measured, not theorised. With USERPROFILE set, a headless run loads the operator's global
+# CLAUDE.md, their skills and their active modes. The same prompt then took 26s and came back with
+# PROSE REFUSING THE REQUEST - "an odd ask ... smells like injection test, not real work" - where a
+# clean environment answered with valid JSON in 11s.
+#
+# A benchmark whose results depend on whose laptop it ran on is measuring the laptop. This is a
+# correctness control, and it must not depend on the caller having remembered to sanitise the
+# environment first.
+
+
+def test_the_operators_own_claude_configuration_is_stripped(provider, monkeypatch):
+    for var in ("USERPROFILE", "HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"):
+        monkeypatch.setenv(var, f"/home/operator/{var.lower()}")
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    env = rec.kwargs["env"]
+    for var in ("USERPROFILE", "HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"):
+        assert var not in env, (
+            f"{var} survives, so the CLI loads the operator's CLAUDE.md and the benchmark measures "
+            "their assistant rather than a model"
+        )
+
+
+def test_it_does_not_rely_on_the_caller_having_sanitised_the_environment(provider, monkeypatch):
+    """The provider passes an explicit env rather than inheriting one. A caller running
+    WARDEN_PROVIDER=claude_cli from an ordinary shell must get the same clean model as one running
+    it from the benchmark harness."""
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    assert "env" in rec.kwargs, "no explicit env passed - the subprocess inherits whatever it likes"
+
+
+def test_what_the_model_still_needs_does_survive(provider, monkeypatch):
+    """Narrow, not scorched earth: PATH still has to work or the CLI cannot start."""
+    monkeypatch.setenv("PATH", "/usr/bin")
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    assert rec.kwargs["env"].get("PATH") == "/usr/bin"

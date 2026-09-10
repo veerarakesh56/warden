@@ -438,12 +438,23 @@ def _live_harness(timeout_s: float) -> Harness:
         }
 
     def stabilize() -> None:
+        # ⛔ BOUNDED. boto3's `services_stable` waiter defaults to 40 attempts at 15s - up to TEN
+        # MINUTES per call, and it spends all of it whenever a service will not converge, which is
+        # exactly the state most of these scenarios leave behind.
+        #
+        # Measured across a real 14-scenario wave: 35 of 117 minutes went to this waiter, more than
+        # the model spent thinking. The next scenario only needs the service to have started
+        # settling, not to be perfectly stable - and `check_baseline` catches anything genuinely
+        # wrong before the wave continues, so a short budget loses nothing.
+        attempts = int(os.environ.get("WARDEN_BENCH_STABILIZE_ATTEMPTS", "8"))  # 8 x 15s = 2 min
         try:
             clients.ecs.get_waiter("services_stable").wait(
                 cluster=target.cluster, services=[target.service],
+                WaiterConfig={"Delay": 15, "MaxAttempts": attempts},
             )
         except Exception as exc:  # noqa: BLE001 - a wave should not die because a waiter gave up
-            print(f"   (services-stable waiter: {type(exc).__name__}: {exc})")
+            print(f"   (services-stable: gave up after ~{attempts * 15}s, continuing: "
+                  f"{type(exc).__name__})")
 
     return Harness(
         clients=clients, target=target, account=account,

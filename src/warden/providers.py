@@ -295,9 +295,27 @@ class ClaudeCliProvider:
         "WebFetch", "WebSearch", "Task", "Agent", "TodoWrite",
     )
 
+    # ⛔ Variables that make the CLI load the OPERATOR'S OWN configuration. Stripped, always.
+    #
+    # This is a correctness control, not tidiness. With `USERPROFILE` set, a headless run picks up
+    # the user's global CLAUDE.md, their skills and their active modes — and then it is not a model
+    # being measured, it is that person's personalised coding assistant. Measured directly: the same
+    # prompt answered with clean JSON in 11s without these, and with them took 26s and came back
+    # with prose refusing the request as "an odd ask ... smells like injection test, not real work".
+    # A benchmark whose results depend on the operator's dotfiles is measuring the dotfiles.
+    #
+    # ⚠ If the CLI stores its credentials under the home directory, removing this breaks
+    # authentication and `complete()` raises rather than silently returning something useless. That
+    # is the right failure: a confusing auth error beats a corrupted measurement.
+    _CONFIG_ENV = ("USERPROFILE", "HOME", "HOMEPATH", "HOMEDRIVE", "XDG_CONFIG_HOME",
+                   "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_CONFIG", "ANTHROPIC_CONFIG_DIR")
+
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
+        import os as _os
         import subprocess
         import tempfile
+
+        env = {k: v for k, v in _os.environ.items() if k not in self._CONFIG_ENV}
 
         cmd = [
             self._exe, "-p",
@@ -316,6 +334,7 @@ class ClaudeCliProvider:
                 text=True,
                 timeout=_sdk_timeout_s(),
                 check=False,
+                env=env,
                 # ⛔ Outside the repository. Combined with --disallowed-tools, the answer key is out
                 # of reach twice over.
                 cwd=tempfile.gettempdir(),
