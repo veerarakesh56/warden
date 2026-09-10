@@ -7,6 +7,33 @@ and why**, with the affected runs re-scored — never a quiet edit.
 
 ---
 
+## What WARDEN is told, and what it is not
+
+Every scenario in every wave is given the **same alert**, byte for byte: `scenarios/alert.yaml`.
+
+```
+ECSServiceAlarm — CloudWatch alarm fired for ECS service checkout
+```
+
+⛔ **It names no cause, and that is the single most important thing about it.** The alert's name and
+summary are the first line of the reasoning prompt (`src/warden/graph.py::_evidence_blob`). The five
+bundled demo incidents each name their own cause — one of them is literally `PodOOMKilled — Repeated
+OOM kills, memory at 94% of limit`. Running the wave with that would hand the model the answer on
+the three OOM scenarios and feed it a *false* answer on the other eleven, while the results table
+went on calling the number "diagnosis accuracy".
+
+⚠ **This makes the benchmark harder than reality, and it is worth saying so rather than letting it
+be discovered.** A real alert usually carries some signal about what broke: an OOM alert really is
+usually called something like `PodOOMKilled`. WARDEN here is working from telemetry alone. That is
+the safe direction to be wrong in — it cannot flatter the result — but it does mean these numbers
+are a floor, not an estimate of field performance.
+
+`environment: prod` is also deliberate. The policy gate keys on it (`P2-IRREVERSIBLE-IN-PROD` and
+the per-environment allowlists), so labelling the throwaway proving ground `prod` is what makes the
+gate 2×2 measure the gate people would actually be running. It is recorded in every run manifest.
+
+---
+
 ## Why three scores and not one
 
 A single "accuracy" number would hide the only thing this benchmark exists to measure. So every

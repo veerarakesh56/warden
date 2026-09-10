@@ -129,3 +129,63 @@ def test_score_counts_signals_and_orders_by_it():
     )
     top = kb.match(_alert(name="PodOOMKilled"), ctx, limit=1)[0]
     assert top.score == len(top.signals) >= 2
+
+
+# ------------------------------------------------------------------ reaching the model, or not
+#
+# ⛔ The module docstring used to claim the top matches were "folded into the reasoning prompt".
+# They were not: `graph.py` never imported this module, and the matches only decorated the report
+# after the graph had finished. A reader would have found that in ten minutes.
+#
+# It is now true, behind a flag that is OFF by default, because the honest version of this feature
+# is an experiment rather than a boast: run the same faults with the catalog on and off and publish
+# the difference. These tests pin both arms.
+
+
+def _state(context):
+    from warden.graph import WardenState  # noqa: F401 - the TypedDict is structural
+
+    return {"alert": _alert(), "context": context, "redacted_logs": list(context.logs),
+            "redacted_deploys": [], "redaction_map": {}}
+
+
+def test_the_catalog_does_not_reach_the_prompt_by_default(monkeypatch):
+    from warden.graph import _evidence_blob
+
+    monkeypatch.delenv("WARDEN_KNOWLEDGE_IN_PROMPT", raising=False)
+    blob = _evidence_blob(_state(ContextBundle(logs=["OOMKilled", "cgroup out of memory"])))
+    assert "KNOWN PATTERNS" not in blob
+    assert "K8S-OOM" not in blob
+
+
+def test_the_catalog_reaches_the_prompt_when_asked_for(monkeypatch):
+    from warden.graph import _evidence_blob
+
+    monkeypatch.setenv("WARDEN_KNOWLEDGE_IN_PROMPT", "1")
+    blob = _evidence_blob(_state(ContextBundle(logs=["OOMKilled", "cgroup out of memory"])))
+    assert "KNOWN PATTERNS" in blob
+    # A signature id and its root cause, so the ablation is actually feeding the model something.
+    assert any(s.signature.id in blob
+               for s in default_knowledge_base().match(_alert(), ContextBundle(logs=["OOMKilled"])))
+
+
+def test_the_catalog_is_offered_as_a_candidate_not_as_an_answer(monkeypatch):
+    """A prompt that states a cause invites the model to agree with it. The wording has to leave
+    room for the catalog to be wrong, because on the fault classes it does not cover it will be."""
+    from warden.graph import _evidence_blob
+
+    monkeypatch.setenv("WARDEN_KNOWLEDGE_IN_PROMPT", "1")
+    blob = _evidence_blob(_state(ContextBundle(logs=["OOMKilled"])))
+    assert "not a" in blob and "conclusion" in blob
+
+
+def test_an_incident_the_catalog_does_not_cover_adds_nothing(monkeypatch):
+    """The arm is only interesting if it is empty when the catalog has nothing to say — otherwise
+    the 'catalog on' arm is just a longer prompt."""
+    from warden.graph import _evidence_blob
+
+    monkeypatch.setenv("WARDEN_KNOWLEDGE_IN_PROMPT", "1")
+    quiet = ContextBundle(logs=["everything is completely fine and nominal"])
+    state = {"alert": _alert(name="AllGood", summary="nominal"), "context": quiet,
+             "redacted_logs": list(quiet.logs), "redacted_deploys": [], "redaction_map": {}}
+    assert "KNOWN PATTERNS" not in _evidence_blob(state)

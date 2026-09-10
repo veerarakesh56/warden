@@ -1,5 +1,18 @@
 # Session handoff — 2026-09-09
 
+> ⚠ **Partly superseded on 2026-09-10.** This file is left as the record of what was true on the
+> 9th rather than edited to pretend otherwise. Three things below have since changed:
+>
+> - **§4 "`scenarios/runner.py` — not written"** is out of date. `runner.py`, `score.py` and their
+>   tests exist, and a `--dry-run` executes the whole wave offline. A run against a real AWS account
+>   still has not happened.
+> - **§4 says to write ground truth to `scenarios/ground-truth/`. Do not.** Ground truth records
+>   real task-definition ARNs, and an ARN contains the 12-digit account id — the exact leak
+>   `scripts/check_publishable.py` exists to catch. Runs write to `~/warden-bench-runs/` instead.
+> - **§5's second "false claim" was overstated.** `evals/test_evals.py` said a real deployment
+>   *"adds"* a nightly live-model eval — aspirational, not a claim that one existed. It has been
+>   reworded to be unmissable anyway. The `knowledge.py` claim in §5 was real, and is now fixed.
+
 Written for whoever picks this up next, human or model, with **no prior context**. Everything below
 was verified in this session; where something is unverified it says so.
 

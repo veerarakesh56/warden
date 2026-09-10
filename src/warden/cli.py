@@ -1,7 +1,7 @@
 """Command line entry point.
 
-    warden run --alert fixtures/alerts/inc-001.yaml
     warden run --incident inc-001            # shorthand for the bundled fixtures
+    warden run --alert path/to/alert.yaml    # any alert, from a file
     warden demo                              # every bundled incident, one line each
 """
 
@@ -12,6 +12,9 @@ import json
 import pathlib
 import sys
 from datetime import UTC, datetime
+
+import yaml
+from pydantic import ValidationError
 
 from .chatops import notify, resolve_sinks
 from .graph import run
@@ -145,6 +148,27 @@ def _alert_from(incident: str) -> Alert:
     return Alert(**DEMO_ALERTS[incident])
 
 
+def _alert_from_file(path: str) -> Alert:
+    """Load an alert from a YAML file with the same fields as a bundled one.
+
+    Why this exists rather than "just add another bundled incident": every bundled alert names its
+    own cause (`PodOOMKilled`, "Repeated OOM kills, memory at 94% of limit"), and that text reaches
+    the model verbatim as the first line of the reasoning prompt. Anything that measures WARDEN
+    against a fault it was not told about needs an alert that does not name the answer — so the
+    alert has to be able to come from outside this file.
+
+    Validation is pydantic's, and it is loud: a malformed alert fails here rather than becoming a
+    confusing result later.
+    """
+    data = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise SystemExit(f"--alert {path}: expected a YAML mapping, got {type(data).__name__}")
+    try:
+        return Alert(**data)
+    except ValidationError as exc:
+        raise SystemExit(f"--alert {path}: {exc}") from exc
+
+
 def _apply_overrides(alert: Alert, args) -> Alert:
     """Point a bundled incident shape at a real system.
 
@@ -186,7 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_run = sub.add_parser("run", help="run one incident through the graph")
-    p_run.add_argument("--incident", default="inc-001")
+    source = p_run.add_mutually_exclusive_group()
+    source.add_argument("--incident", default="inc-001", help="one of the bundled incident fixtures")
+    source.add_argument("--alert", default=None, metavar="PATH", help="read the alert from a YAML file instead of using a bundled incident")
     p_run.add_argument("--verbose", action="store_true")
     p_run.add_argument("--max-usd", type=float, default=0.50)
     # Opt-in remediation + reporting. Off by default, so the plain `run` output is unchanged.
@@ -214,7 +240,8 @@ def main(argv: list[str] | None = None) -> int:
     backend = resolve_backend()
 
     if args.cmd == "run":
-        alert = _apply_overrides(_alert_from(args.incident), args)
+        alert = _alert_from_file(args.alert) if args.alert else _alert_from(args.incident)
+        alert = _apply_overrides(alert, args)
         llm = LLMClient(max_usd=args.max_usd)
         report = run(alert, llm=llm, backend=backend)
         _print_report(report, verbose=args.verbose)

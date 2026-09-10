@@ -4,10 +4,14 @@
 module loads it, validates it hard, and matches a live incident against it with plain Python — no
 model call. Two uses:
 
-  1. INFORM the model — the top matches are folded into the reasoning prompt as "known patterns that
-     fit the evidence", so the hypothesis is grounded in a curated catalog rather than invented.
+  1. INFORM the model — with `WARDEN_KNOWLEDGE_IN_PROMPT=1`, the top matches are folded into the
+     reasoning prompt as "known patterns that fit the evidence". ⛔ **OFF BY DEFAULT**, and that is
+     deliberate: a tool that quietly feeds its own catalog of answers to the model is a lookup table
+     wearing a model's clothes. Both arms are run over the same injected faults and the difference is
+     published — see `graph.py::_knowledge_block`.
   2. SUGGEST fixes — each signature carries ranked `suggested_actions` drawn from the *closed*
-     ActionKind enum, so a suggestion can never be an action the verifier doesn't understand.
+     ActionKind enum, so a suggestion can never be an action the verifier doesn't understand. This
+     path is always on, and it decorates the report; it does not reach the model.
 
 Validation is loud on purpose (same philosophy as the verifier and the redactor): a signature whose
 `suggested_actions.kind` is a typo, or whose `detect` block uses an unknown key, is a signature that

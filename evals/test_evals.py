@@ -6,9 +6,13 @@ change to a prompt, a policy or the graph that alters behaviour fails the build 
 discovered in an incident.
 
 ⚠ These run in mock mode. That makes them a test of ROUTING, POLICY and REDACTION — deterministic
-things that must never drift. They are NOT a measure of live model quality; a real deployment adds
-a scored eval against the live model, which is a different instrument and belongs in a nightly job,
-not a pre-merge gate.
+things that must never drift. They are NOT a measure of live model quality.
+
+⛔ TO BE UNAMBIGUOUS: there is no nightly scored eval against a live model in this repository, and
+no CI job runs one. Measuring live model quality is a different instrument, and the one being built
+for it is the fault-injection benchmark in the `scenarios/` directory — which has its own rubric,
+committed before the runs it grades. Until that has run against a real account, nothing here is
+evidence about how good the model is at anything.
 """
 
 from __future__ import annotations

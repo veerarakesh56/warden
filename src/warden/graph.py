@@ -18,11 +18,13 @@ the whole safety argument.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from .knowledge import default_knowledge_base
 from .llm import LLMClient
 from .models import (
     ActionKind,
@@ -340,6 +342,40 @@ def node_redact(state: WardenState) -> WardenState:
     }
 
 
+def _knowledge_block(state: WardenState) -> str:
+    """The curated incident signatures, folded into the prompt — OFF unless explicitly enabled.
+
+    ⛔ OFF BY DEFAULT, AND THAT IS A MEASUREMENT DECISION RATHER THAN A PERFORMANCE ONE. This repo
+    ships a hand-written catalog of failure modes. A tool that feeds its own catalog of answers to
+    the model without saying so is a lookup table wearing a model's clothes: "it diagnosed the
+    incident" would quietly mean "it found the incident somebody had already written down".
+
+    So the catalog is opt-in (`WARDEN_KNOWLEDGE_IN_PROMPT=1`), the benchmark runs both arms over the
+    same faults, and the difference is published — split by whether the incident was in the catalog
+    at all. A catalog that only helps on the incidents it already describes is worth knowing about,
+    and averaging it away would hide exactly that.
+
+    The matches are offered as candidates, never as a conclusion, and `verify` runs afterwards
+    regardless of what the model was shown.
+    """
+    if os.environ.get("WARDEN_KNOWLEDGE_IN_PROMPT") != "1":
+        return ""
+    matches = default_knowledge_base().match(state["alert"], state["context"])
+    if not matches:
+        return ""
+    lines = [
+        "",
+        "KNOWN PATTERNS THAT FIT THIS EVIDENCE. A curated catalog of past failure modes, not a",
+        "conclusion: a pattern can match the symptoms here and still be the wrong cause.",
+    ]
+    for match in matches:
+        lines.append(
+            f"  - {match.signature.id} {match.signature.title}: {match.signature.root_cause}"
+            f"  [matched on: {', '.join(match.signals)}]"
+        )
+    return "\n".join(lines)
+
+
 def _evidence_blob(state: WardenState) -> str:
     ctx = state["context"]
     blob = (
@@ -348,6 +384,7 @@ def _evidence_blob(state: WardenState) -> str:
         f"METRICS: {ctx.metrics}\n"
         f"RECENT DEPLOYS: {state.get('redacted_deploys', [])}\n"
         f"LOGS:\n" + "\n".join(state.get("redacted_logs", []))
+        + _knowledge_block(state)
     )
     # Final backstop before the prompt leaves for the model: run the WHOLE assembled string through
     # the redactor once more with the run's mapping. Anything not individually scrubbed — a metric

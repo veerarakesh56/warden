@@ -1,0 +1,26 @@
+# The one alert every scenario in every wave is given.  Byte-identical across all of them.
+#
+# ⛔ IT MUST NOT NAME A CAUSE.  The alert's `name` and `summary` are the first line of the reasoning
+# prompt (`src/warden/graph.py`), so an alert called `PodOOMKilled` hands the model the answer on
+# every OOM scenario and feeds it a false one everywhere else.  The five bundled incidents all name
+# their own cause, which is right for a demo and disqualifying for a measurement.
+#
+# ⚠ This makes the benchmark HARDER than reality, not easier: a real alert usually carries some
+# signal about what broke.  That is the safe direction to be wrong in, and it is recorded here and
+# in ../SCORING.md rather than left for a reader to discover.
+#
+# `started_at` below is a placeholder.  The runner always passes `--started-at now`, because the AWS
+# backend reads a time window around it and a window in the past is empty — which is indistinguishable
+# from a healthy service.
+#
+# `environment: prod` is deliberate.  The policy gate keys on it (P2-IRREVERSIBLE-IN-PROD, the
+# per-environment allowlists in src/warden/data/environments.yaml), so labelling the throwaway
+# proving ground `prod` is what makes the gate 2x2 measure the gate people would actually run.
+
+alert_id: bench
+name: ECSServiceAlarm
+severity: high
+service: checkout
+environment: prod
+summary: CloudWatch alarm fired for ECS service checkout
+started_at: "2026-01-01T00:00:00Z"
