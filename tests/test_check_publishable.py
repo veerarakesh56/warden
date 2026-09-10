@@ -160,3 +160,45 @@ def test_the_repository_as_it_stands_is_publishable():
         [sys.executable, str(SCRIPT)], cwd=ROOT, capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --------------------------------------------------------------------------- the blinding bug
+#
+# ⛔ A placeholder used to suppress every finding on its LINE rather than just itself. Redaction
+# writes `<ACCOUNT>` into exactly the lines that carry ARNs, so redacting an account id switched off
+# scanning for any real credential sitting beside it - and a JSON report is usually a single line,
+# so one `<ACCOUNT>` blinded the entire file.
+#
+# That defeated the only guarantee this script offers. "The redactor ran" and "the redactor worked"
+# are different claims, and the second had quietly stopped being checked.
+
+
+def test_a_redacted_placeholder_does_not_hide_a_real_secret_beside_it(tmp_path):
+    key = _synth("AKIA", "IOSFODNN", "7NOTREAL")
+    code, out = _scan(
+        tmp_path, "report.json",
+        '{"arn":"arn:aws:ecs:ap-south-2:<ACCOUNT>:cluster/x","key":"' + key + '"}\n',
+    )
+    assert code != 0, "a real AWS key was waved through because <ACCOUNT> was on the same line"
+    assert "AKIA" in out
+
+
+def test_a_placeholder_value_is_still_allowed(tmp_path):
+    """The rule has to keep working for what it was written for: the VALUE being a placeholder."""
+    code, _ = _scan(tmp_path, "conf.yaml", 'aws_access_key_id: <YOUR_KEY_HERE>\n')
+    assert code == 0
+
+
+def test_a_single_line_json_report_is_scanned_all_the_way_along(tmp_path):
+    """The realistic shape. A benchmark report is one line with many fields, and only the first
+    account id becomes a placeholder."""
+    key = _synth("AKIA", "IOSFODNN", "7NOTREAL")
+    dsn = "postgres://user:" + _synth("hun", "ter", "2") + "@db.example.com:5432/app"
+    code, out = _scan(
+        tmp_path, "one-line.json",
+        '{"a":"arn:aws:iam::<ACCOUNT>:role/r","b":"111122223333","c":"' + key + '",'
+        '"d":"' + dsn + '"}\n',
+    )
+    assert code != 0
+    assert "AKIA" in out, "the key later in the line was not reached"
+    assert "dsn-password" in out, "the DSN password even later in the line was not reached"

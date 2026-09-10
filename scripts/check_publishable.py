@@ -188,7 +188,17 @@ def scan(paths: list[pathlib.Path], *, root: pathlib.Path,
                     value = match.group(1) if match.groups() else match.group(0)
                     if value in ALLOWED:
                         continue
-                    if PLACEHOLDER.search(line):
+                    # ⛔ THE VALUE, NOT THE LINE. This used to test the whole line, which meant one
+                    # placeholder anywhere on a line suppressed EVERY finding on it - and redaction
+                    # writes `<ACCOUNT>` into exactly those lines. So redacting an account id turned
+                    # off scanning for the real credential sitting beside it, and a JSON report is
+                    # usually one line, so a single `<ACCOUNT>` blinded the whole file.
+                    #
+                    # That defeated the one guarantee this script exists to give: "the redactor ran"
+                    # and "the redactor worked" are different claims, and the second was no longer
+                    # being checked. Found by planting an AWS key next to an ARN and watching the
+                    # publish step wave it through.
+                    if PLACEHOLDER.search(value):
                         continue
                     shown = value if len(value) <= 8 else f"{value[:4]}...{value[-2:]}"
                     findings.append(f"{rel}:{number}: {human} ({name}: {shown})")
