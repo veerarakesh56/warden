@@ -263,6 +263,16 @@ class ClaudeCliProvider:
       protect you from.
     - **Check your plan's terms** before using a subscription as a batch inference backend for
       dozens of runs. That is a question about your agreement, not about this code.
+
+    ⛔ IT IS FAR HEAVIER THAN AN API CALL, AND THIS IS MEASURED, NOT ESTIMATED. Each call boots a
+    whole Claude Code process, not an HTTP request. Running a 14-scenario benchmark wave through it
+    (2 calls per run, 3 runs per scenario = 84 process launches) was measured at ~700 MB resident and
+    several CPU-seconds per call, took roughly 20 minutes per scenario against 2 minutes for the same
+    wave on an HTTP provider, and made the machine visibly sluggish for its owner.
+
+    ⭐ So: fine for a handful of calls, wrong for a batch. For a wave, use a free HTTP tier
+    (`gemini`, or `groq` via WARDEN_PROVIDER=groq) and keep this for the case it was built for -
+    having no API credit and needing a few real inferences.
     """
 
     name = "claude_cli"
