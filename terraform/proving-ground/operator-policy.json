@@ -50,6 +50,8 @@
         "ecs:TagResource",
         "ecs:UntagResource",
         "ecs:ListTagsForResource",
+        "ecs:ListTaskDefinitions",
+        "ecs:ListServices",
 
         "logs:CreateLogGroup",
         "logs:DeleteLogGroup",

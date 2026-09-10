@@ -515,3 +515,67 @@ def test_the_task_definition_declares_the_aws_backend():
 def test_readme_documents_the_aws_backend():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "WARDEN_BACKEND=aws" in text
+
+
+# --------------------------------------------------------------------------- what to compare with
+#
+# ⛔ Found by running against a real AWS account, not by a fixture.
+#
+# `deploys()` used to compare revision N with revision N-1, assuming the previously REGISTERED
+# revision is the previously DEPLOYED one. A real account breaks that constantly: CI registers
+# revisions that never ship, a rollback leaves a gap, and a benchmark wave registers one variant per
+# scenario. Seven scenarios in a row deployed checkout:7 to checkout:13, so each was compared with
+# the PREVIOUS SCENARIO's variant instead of with what was running. Same image, so WARDEN reported
+# NO DEPLOY for a genuine deploy - and P5-NO-DEPLOY-TO-ROLL-BACK then rejected the correct rollback.
+#
+# ECS already answers this: during a rollout describe_services returns the PRIMARY deployment
+# alongside the ACTIVE one it is replacing.
+
+
+def _rollout(primary_rev: int, active_rev: int) -> list[dict]:
+    base = "arn:aws:ecs:eu-west-1:111122223333:task-definition/checkout:"
+    return [
+        {"status": "PRIMARY", "createdAt": NOW, "taskDefinition": f"{base}{primary_rev}"},
+        {"status": "ACTIVE", "createdAt": NOW - timedelta(minutes=30),
+         "taskDefinition": f"{base}{active_rev}"},
+    ]
+
+
+def test_a_deploy_is_compared_with_what_was_running_not_with_revision_minus_one():
+    """checkout:13 replacing checkout:2. Revision 12 happens to carry the same image as 13 - as it
+    did in the real wave - so comparing against it reports no deploy and hides a real change."""
+    ecs = FakeEcs(services=[_service(deployments=_rollout(13, 2))], task_defs={
+        "checkout:13": ["repo/checkout:broken"],
+        "checkout:12": ["repo/checkout:broken"],   # the previous SCENARIO's variant
+        "checkout:2": ["repo/checkout:healthy"],   # what was actually running
+    })
+    out = _backend(ecs=ecs).deploys(_alert())
+    assert len(out) == 1, "a genuine deploy was reported as no deploy"
+    assert out[0]["image"] == "repo/checkout:broken"
+    assert out[0]["previous_image"] == "repo/checkout:healthy"
+
+
+def test_a_restart_is_still_not_a_deploy():
+    """The property that must survive the fix. A force-new-deployment moves the deployment record
+    without changing the task definition, and calling that a deploy would hand P5 the evidence it
+    needs to approve a rollback that could not possibly help."""
+    ecs = FakeEcs(services=[_service(deployments=_rollout(7, 7))], task_defs={
+        "checkout:7": ["repo/checkout:v2"],
+        "checkout:6": ["repo/checkout:v1"],
+    })
+    assert _backend(ecs=ecs).deploys(_alert()) == [], "a restart was reported as a deploy"
+
+
+def test_it_falls_back_to_the_previous_revision_when_the_service_is_steady():
+    """After a rollout completes there is only a PRIMARY deployment, so there is nothing else to
+    compare with and revision-1 is the best available answer. Keeping this is what stops the fix
+    from blinding WARDEN to a deploy it used to see."""
+    deployments = [{
+        "status": "PRIMARY", "createdAt": NOW,
+        "taskDefinition": "arn:aws:ecs:eu-west-1:111122223333:task-definition/checkout:7",
+    }]
+    ecs = FakeEcs(services=[_service(deployments=deployments)], task_defs={
+        "checkout:7": ["repo/checkout:v2"], "checkout:6": ["repo/checkout:v1"],
+    })
+    out = _backend(ecs=ecs).deploys(_alert())
+    assert len(out) == 1 and out[0]["previous_image"] == "repo/checkout:v1"

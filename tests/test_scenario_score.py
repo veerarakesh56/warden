@@ -168,7 +168,7 @@ def test_every_assertion_kind_the_catalog_uses_is_implemented():
     }
     for kind in kinds:
         assert kind in (
-            "metric_present", "metric_equal", "metric_lt", "tool_error_contains",
+            "metric_present", "metric_equal", "metric_lt", "metric_gte", "tool_error_contains",
             "logs_empty", "deploys_nonempty",
         ), f"the catalog uses assertion kind {kind!r} and check_evidence does not implement it"
 
@@ -339,3 +339,37 @@ def test_an_unchanged_rubric_says_nothing(tmp_path):
     assert scored["rubric_drift"] is False
     score.main(["--run", str(tmp_path)])
     assert "THE RUBRIC CHANGED" not in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "context,passes",
+    [
+        ({"metrics": {"deployments_in_flight": 2.0}}, True),
+        ({"metrics": {"deployments_in_flight": 3.0}}, True),
+        ({"metrics": {"deployments_in_flight": 1.0}}, False),
+        ({"metrics": {}}, False),
+    ],
+)
+def test_metric_gte(context, passes):
+    """Added after the first real run. `tasks_running < tasks_desired` is impossible on ECS with
+    minimumHealthyPercent=100 - old tasks are held up until new ones are healthy - so a failing
+    deploy is visible as an unconverged rollout, not as lost capacity."""
+    ok, _ = score.check_evidence(
+        [{"kind": "metric_gte", "left": "deployments_in_flight", "right_value": 2}], context)
+    assert ok is passes
+
+
+def test_the_catalog_no_longer_asserts_the_impossible_symptom():
+    """⛔ A guard against reintroducing it. Seven scenarios asserted a symptom AWS is designed to
+    prevent, and 27 of 42 runs scored NO-EVIDENCE because of it."""
+    catalog = score.load_catalog()
+    offenders = [
+        s["id"] for s in catalog.values()
+        for a in s.get("evidence_assertions") or []
+        if a.get("kind") == "metric_lt"
+        and a.get("left") == "tasks_running" and a.get("right") == "tasks_desired"
+    ]
+    assert not offenders, (
+        "these assert tasks_running < tasks_desired, which ECS rolling deployments make impossible: "
+        f"{offenders}"
+    )

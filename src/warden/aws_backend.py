@@ -333,16 +333,49 @@ class AwsBackend:
             return [f"{PARTIAL_PREFIX}deploys: {family}:{revision}: {_one_line(exc)}"]
         current_images = _images_of(current)
 
+        # ⛔ WHAT TO COMPARE AGAINST, AND WHY revision-1 IS WRONG.
+        #
+        # This used to compare revision N against revision N-1, assuming the previously REGISTERED
+        # revision is the previously DEPLOYED one. A real account breaks that assumption constantly:
+        # CI registers revisions that are never rolled out, a rollback leaves a gap, and a benchmark
+        # wave registers one variant per scenario. Measured against a live account, seven scenarios
+        # in a row deployed checkout:7 through checkout:13, so each was compared with the PREVIOUS
+        # SCENARIO's variant rather than with what was actually running - identical images, so
+        # WARDEN reported NO DEPLOY for a genuine deploy, and P5-NO-DEPLOY-TO-ROLL-BACK then
+        # rejected the correct rollback.
+        #
+        # ECS already answers this properly: during a rollout `describe_services` returns the
+        # PRIMARY deployment alongside the ACTIVE one it is replacing. Use that, and fall back to
+        # revision-1 only when there is nothing else to compare with.
+        previous_arn = next(
+            (d.get("taskDefinition") for d in deployments
+             if d is not primary and d.get("taskDefinition")),
+            "",
+        )
+        previous_ref = ""
+        if previous_arn:
+            prev_family, prev_revision = _family_revision(previous_arn)
+            if prev_family:
+                # ⛔ Used, even when it is the SAME revision as PRIMARY. That is exactly what a
+                # `--force-new-deployment` looks like — a new deployment record pointing at the
+                # unchanged task definition — and the images then compare equal, so it is correctly
+                # not a deploy. Skipping it here and falling through to revision-1 would report a
+                # restart as a deploy, which is the single defect this whole comparison exists to
+                # prevent. A test asserts it.
+                previous_ref = f"{prev_family}:{prev_revision}"
+        if not previous_ref and revision > 1:
+            previous_ref = f"{family}:{revision - 1}"
+
         previous_images: list[str] = []
-        if revision > 1:
+        if previous_ref:
             try:
-                previous_images = _images_of(self._task_definition(f"{family}:{revision - 1}"))
+                previous_images = _images_of(self._task_definition(previous_ref))
             except Exception as exc:  # noqa: BLE001
                 # ⭐ The important branch. Without the previous revision we cannot tell a real
                 # deploy from a force-new-deployment, and reporting it anyway would let policy P5
                 # approve a rollback on a restart. Report the gap; report no deploy.
                 gap = (
-                    f"{PARTIAL_PREFIX}deploys: previous revision {family}:{revision - 1} "
+                    f"{PARTIAL_PREFIX}deploys: previous revision {previous_ref} "
                     f"unreadable, cannot prove a template change: {_one_line(exc)}"
                 )
                 return [gap]

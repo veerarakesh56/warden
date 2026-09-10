@@ -119,6 +119,14 @@ def check_evidence(assertions: list[dict], context: dict) -> tuple[bool, list[st
                 right = float(metrics[right_name])
             if float(metrics[left]) != right:
                 failures.append(f"metric_equal {left}=={right_name}: {metrics[left]} != {right}")
+        elif kind == "metric_gte":
+            left = assertion["left"]
+            if left not in metrics:
+                failures.append(f"metric_gte {left}: not read")
+                continue
+            right = float(assertion["right_value"])
+            if not float(metrics[left]) >= right:
+                failures.append(f"metric_gte {left}>={right}: {metrics[left]} < {right}")
         elif kind == "metric_lt":
             left, right_name = assertion["left"], assertion["right"]
             if left not in metrics or right_name not in metrics:

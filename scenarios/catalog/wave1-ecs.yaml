@@ -24,6 +24,35 @@
 #
 # The `inject` / `revert` op vocabulary is deliberately small and declarative so a reader can see
 # exactly what was done to the account without reading Python.  Implemented in ../ops.py.
+#
+# ---------------------------------------------------------------------------------------------
+# ⛔ CHANGED AFTER THE FIRST REAL RUN, ON 2026-09-10, AND SAID SO HERE RATHER THAN QUIETLY.
+#
+# Seven scenarios asserted `tasks_running < tasks_desired`.  Measured against a live account, that
+# assertion is IMPOSSIBLE, and the benchmark was wrong rather than the tool:
+#
+#   ECS rolling deployments default to `minimumHealthyPercent: 100` and `maximumPercent: 200`.  The
+#   OLD healthy tasks keep running until the new ones pass health checks, so a deploy that can never
+#   succeed leaves capacity at desired FOREVER.  Running count does not fall - it RISES, to 3 of a
+#   desired 2, while the doomed replacement waits.  The symptom was invented at a desk from an
+#   intuition about what a broken deploy looks like, and AWS is specifically designed to prevent it.
+#
+# 27 of 42 runs in that wave scored NO-EVIDENCE as a result, which correctly reported the scenarios
+# as unmeasurable rather than blaming the model.
+#
+# ⭐ What a failing rolling deploy ACTUALLY looks like, read from that run's own reports:
+#
+#     healthy service       deployments_in_flight = 1
+#     any failing deploy    deployments_in_flight = 2   (the PRIMARY that cannot converge, plus the
+#                                                        ACTIVE one it has not been allowed to replace)
+#
+# So the assertion is now `deployments_in_flight >= 2`.  ⚠ This is a weaker claim than the old one
+# and it is worth being clear about that: it proves the backend saw a rollout that has not
+# converged, not that users were affected.  It is what the evidence actually supports.
+#
+# ⛔ The FIRST run's results stand as published.  A benchmark that edits its fixtures until they
+# pass has measured nothing; the point of that run is that it found this.
+# ---------------------------------------------------------------------------------------------
 
 wave: 1
 service: ecs
@@ -101,9 +130,9 @@ scenarios:
     revert:
       - op: ecs_deploy_baseline
     evidence_assertions:
-      - kind: metric_lt
-        left: tasks_running
-        right: tasks_desired
+      - kind: metric_gte
+        left: deployments_in_flight
+        right_value: 2
       - kind: deploys_nonempty
     notes: >
       Fargate performs the kill.  We chose a 900 MiB allocation inside a 512 MiB task; everything
@@ -123,9 +152,9 @@ scenarios:
     revert:
       - op: ecs_deploy_baseline
     evidence_assertions:
-      - kind: metric_lt
-        left: tasks_running
-        right: tasks_desired
+      - kind: metric_gte
+        left: deployments_in_flight
+        right_value: 2
       - kind: deploys_nonempty
     notes: >
       ⚠ Note what is NOT asserted: log lines.  A task that never starts writes nothing to its log
@@ -145,9 +174,9 @@ scenarios:
     revert:
       - op: ecs_deploy_baseline
     evidence_assertions:
-      - kind: metric_lt
-        left: tasks_running
-        right: tasks_desired
+      - kind: metric_gte
+        left: deployments_in_flight
+        right_value: 2
       - kind: deploys_nonempty
 
   - id: ecs-06-invalid-secret-arn
@@ -163,9 +192,9 @@ scenarios:
     revert:
       - op: ecs_deploy_baseline
     evidence_assertions:
-      - kind: metric_lt
-        left: tasks_running
-        right: tasks_desired
+      - kind: metric_gte
+        left: deployments_in_flight
+        right_value: 2
     notes: >
       The execution role cannot resolve the secret, so the task never reaches RUNNING and writes no
       logs.  Same evidence shape as the image-pull failure but a completely different cause — which
@@ -240,9 +269,9 @@ scenarios:
     revert:
       - op: ecs_deploy_baseline
     evidence_assertions:
-      - kind: metric_lt
-        left: tasks_running
-        right: tasks_desired
+      - kind: metric_gte
+        left: deployments_in_flight
+        right_value: 2
     notes: >
       ⭐ The pair to ecs-03, and the reason both exist.  The IMAGE is unchanged between revisions —
       only the command differs — so WARDEN's image-based deploy detection reports NO DEPLOY.  Same
@@ -301,9 +330,9 @@ scenarios:
       - op: sg_restore_egress
       - op: ecs_force_new_deployment
     evidence_assertions:
-      - kind: metric_lt
-        left: tasks_running
-        right: tasks_desired
+      - kind: metric_gte
+        left: deployments_in_flight
+        right_value: 2
     notes: >
       ⚠ Note the force-new-deployment in inject: without it the running tasks keep running and there
       is no symptom at all.  That is itself a true and slightly uncomfortable fact about this class
@@ -322,9 +351,9 @@ scenarios:
       - op: route_restore_default
       - op: ecs_force_new_deployment
     evidence_assertions:
-      - kind: metric_lt
-        left: tasks_running
-        right: tasks_desired
+      - kind: metric_gte
+        left: deployments_in_flight
+        right_value: 2
     notes: >
       Symptomatically near-identical to ecs-12 and caused by a completely different resource.  Two
       scenarios that look the same from telemetry and need different humans to fix them is the
