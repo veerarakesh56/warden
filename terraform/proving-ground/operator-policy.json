@@ -34,7 +34,9 @@
         "ecs:CreateCluster",
         "ecs:DeleteCluster",
         "ecs:DescribeClusters",
+        "ecs:UpdateClusterSettings",
         "ecs:PutClusterCapacityProviders",
+        "ecs:DescribeCapacityProviders",
         "ecs:RegisterTaskDefinition",
         "ecs:DeregisterTaskDefinition",
         "ecs:DescribeTaskDefinition",
@@ -57,7 +59,11 @@
         "logs:DeleteRetentionPolicy",
         "logs:FilterLogEvents",
         "logs:TagResource",
+        "logs:UntagResource",
         "logs:ListTagsForResource",
+        "logs:TagLogGroup",
+        "logs:UntagLogGroup",
+        "logs:ListTagsLogGroup",
 
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
@@ -83,6 +89,7 @@
         "iam:ListRolePolicies",
         "iam:ListAttachedRolePolicies",
         "iam:ListInstanceProfilesForRole",
+        "iam:ListRoleTags",
         "iam:PutRolePolicy",
         "iam:GetRolePolicy",
         "iam:DeleteRolePolicy",
@@ -127,8 +134,7 @@
       "Effect": "Allow",
       "Action": [
         "budgets:ViewBudget",
-        "budgets:ModifyBudget",
-        "budgets:DescribeBudget"
+        "budgets:ModifyBudget"
       ],
       "Resource": "*"
     },

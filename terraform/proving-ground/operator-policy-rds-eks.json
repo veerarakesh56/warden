@@ -65,8 +65,7 @@
         "ec2:DescribeLaunchTemplates",
         "ec2:DescribeLaunchTemplateVersions",
         "autoscaling:DescribeAutoScalingGroups",
-        "autoscaling:DescribeScalingActivities",
-        "iam:CreateServiceLinkedRole"
+        "autoscaling:DescribeScalingActivities"
       ],
       "Resource": "*",
       "Condition": {
@@ -74,6 +73,12 @@
           "aws:RequestedRegion": "ap-south-2"
         }
       }
+    },
+    {
+      "Sid": "IamIsGlobalSoItCannotCarryARegionCondition",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     }
   ]
 }
