@@ -68,6 +68,72 @@ class RunnerError(RuntimeError):
     """The wave cannot continue. Never swallowed."""
 
 
+def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
+    """Is the proving ground in the state a wave is entitled to assume? Returns what is wrong.
+
+    ⛔ WHY THIS EXISTS, AND IT IS NOT HYPOTHETICAL. A wave was killed mid-scenario and its `finally`
+    never ran, so the account was left on a deliberately-crashing task definition. The ground-truth
+    file recorded that honestly — `status: running`, `revert_ok: null` — but nothing stopped the NEXT
+    wave from starting against a broken service and producing a full results table that looked
+    entirely normal. Every scenario would have been graded against a fault nobody injected.
+
+    ⚠ This checks the state the scenarios manipulate, not everything. A wave that passes here can
+    still be contaminated in some way not listed. It is a floor, not a proof.
+    """
+    problems: list[str] = []
+
+    service = clients.ecs.describe_services(
+        cluster=target.cluster, services=[target.service],
+    )["services"][0]
+    if not service["taskDefinition"].endswith(target.baseline_task_definition.split("/")[-1]):
+        problems.append(
+            f"service is on {service['taskDefinition'].split('/')[-1]}, not the baseline "
+            f"{target.baseline_task_definition.split('/')[-1]} - a previous run did not revert"
+        )
+    if service["desiredCount"] != 2:
+        problems.append(f"desiredCount is {service['desiredCount']}, expected 2")
+    if service["runningCount"] != service["desiredCount"] or service["pendingCount"]:
+        problems.append(
+            f"service is not steady: {service['runningCount']} running, "
+            f"{service['pendingCount']} pending, {service['desiredCount']} desired"
+        )
+
+    if not clients.logs.describe_log_groups(
+        logGroupNamePrefix=target.log_group,
+    ).get("logGroups"):
+        problems.append(f"log group {target.log_group} is missing - a previous run deleted it")
+
+    if target.security_group_id:
+        sg = clients.ec2.describe_security_groups(
+            GroupIds=[target.security_group_id],
+        )["SecurityGroups"][0]
+        if not sg.get("IpPermissionsEgress"):
+            problems.append("security group has no egress rule - a previous run revoked it")
+
+    if target.route_table_id:
+        routes = clients.ec2.describe_route_tables(
+            RouteTableIds=[target.route_table_id],
+        )["RouteTables"][0]["Routes"]
+        if not [r for r in routes if r.get("DestinationCidrBlock") == "0.0.0.0/0"]:
+            problems.append("route table has no default route - a previous run deleted it")
+
+    if target.warden_role_name:
+        names = clients.iam.list_role_policies(
+            RoleName=target.warden_role_name,
+        ).get("PolicyNames") or []
+        if names:
+            document = clients.iam.get_role_policy(
+                RoleName=target.warden_role_name, PolicyName=names[0],
+            )["PolicyDocument"]
+            actions = document["Statement"][0].get("Action") or []
+            if len(actions) != 4:
+                problems.append(
+                    f"the reader role grants {len(actions)} action(s), expected 4 - a previous run "
+                    "shrank it and did not restore it"
+                )
+    return problems
+
+
 # --------------------------------------------------------------------------- the catalog
 
 
