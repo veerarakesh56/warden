@@ -272,6 +272,19 @@ def score_run_dir(run_dir: pathlib.Path) -> dict:
     current = hashlib.sha256(SCORING.read_bytes()).hexdigest()
     rubric_drift = bool(recorded) and recorded != current
 
+    # ⛔ The catalog counts too, and this was missed the first time. `scoring.yaml` holds the
+    # fault-class grading, but the CATALOG holds every `evidence_assertions` block - and an evidence
+    # failure voids a diagnosis entirely by scoring it NO-EVIDENCE. Changing an assertion therefore
+    # changes the numbers just as surely as changing the rubric does.
+    #
+    # This is not hypothetical: seven scenarios had an impossible assertion corrected after the
+    # first real run, so re-scoring that run today would quietly apply the NEW assertions to OLD
+    # evidence and report a result nobody measured.
+    recorded_catalog = manifest.get("catalog_sha256") or {}
+    current_catalog = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                       for p in sorted(CATALOG.glob("*.yaml"))}
+    catalog_drift = bool(recorded_catalog) and recorded_catalog != current_catalog
+
     rows: list[dict] = []
     incomplete: list[str] = []
     for gt_path in sorted((run_dir / "ground-truth").glob("*.json")):
@@ -299,6 +312,9 @@ def score_run_dir(run_dir: pathlib.Path) -> dict:
         "rubric_drift": rubric_drift,
         "rubric_sha256_recorded": recorded,
         "rubric_sha256_now": current,
+        "catalog_drift": catalog_drift,
+        "catalog_sha256_recorded": recorded_catalog,
+        "catalog_sha256_now": current_catalog,
     }
 
 
@@ -384,6 +400,12 @@ def render_markdown(scored: dict, summary: dict) -> str:
         add("> ⛔ **DRY RUN. Nothing here touched AWS.** No fault was injected, no permission was")
         add("> removed, and every report is canned. These numbers say the pipeline holds together")
         add("> and say nothing whatsoever about whether WARDEN diagnoses anything.")
+        add("")
+    if scored.get("catalog_drift"):
+        add("> ⛔ **THE SCENARIO CATALOG CHANGED AFTER THIS RUN.** The evidence assertions these")
+        add("> results were produced under are not the ones on disk now, so an assertion that")
+        add("> passed then may fail today and vice versa — and a failed assertion voids a diagnosis")
+        add("> entirely by scoring it NO-EVIDENCE. Re-score at the commit in the manifest, or re-run.")
         add("")
     if scored.get("rubric_drift"):
         add("> ⛔ **THE RUBRIC CHANGED AFTER THIS RUN.** `scoring.yaml` on disk does not match the")
@@ -559,6 +581,9 @@ def main(argv: list[str] | None = None) -> int:
     markdown = render_markdown(scored, summary)
     (run_dir / "RESULTS.md").write_text(markdown, encoding="utf-8")
 
+    if scored.get("catalog_drift"):
+        print("THE SCENARIO CATALOG CHANGED AFTER THIS RUN: the evidence assertions on disk are "
+              "not the ones these results were produced under.")
     if scored.get("rubric_drift"):
         print("THE RUBRIC CHANGED AFTER THIS RUN: scoring.yaml no longer matches the hash the "
               "manifest recorded. These numbers were not produced by the committed rubric.")

@@ -373,3 +373,39 @@ def test_the_catalog_no_longer_asserts_the_impossible_symptom():
         "these assert tasks_running < tasks_desired, which ECS rolling deployments make impossible: "
         f"{offenders}"
     )
+
+
+def test_a_catalog_edited_after_the_run_is_reported_loudly(tmp_path):
+    """⛔ The sibling of the rubric-drift check, and it was missed the first time.
+
+    scoring.yaml holds the fault-class grading; the CATALOG holds every evidence assertion, and a
+    failed assertion voids a diagnosis outright by scoring it NO-EVIDENCE. Editing an assertion
+    therefore moves the numbers exactly as much as editing the rubric does.
+
+    Not hypothetical: seven scenarios had an impossible assertion corrected after the first real
+    wave, and re-scoring that wave afterwards changed it from 11 CORRECT / 27 NO-EVIDENCE to
+    19 CORRECT / 9 NO-EVIDENCE - from identical evidence.
+    """
+    from scenarios import runner
+
+    runner.main(["--wave", "1", "--dry-run", "--repeat", "1", "--only", "ecs-01",
+                 "--out", str(tmp_path)])
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["catalog_sha256"] = {"wave1-ecs.yaml": "0" * 64}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    scored = score.score_run_dir(tmp_path)
+    assert scored["catalog_drift"] is True
+
+    score.main(["--run", str(tmp_path)])
+    assert "THE SCENARIO CATALOG CHANGED AFTER THIS RUN" in (
+        tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+
+
+def test_an_unchanged_catalog_says_nothing(tmp_path):
+    from scenarios import runner
+
+    runner.main(["--wave", "1", "--dry-run", "--repeat", "1", "--only", "ecs-01",
+                 "--out", str(tmp_path)])
+    assert score.score_run_dir(tmp_path)["catalog_drift"] is False
