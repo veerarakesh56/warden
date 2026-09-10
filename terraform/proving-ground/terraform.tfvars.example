@@ -7,8 +7,13 @@ my_ip_cidr   = "203.0.113.7/32"      # ⛔ YOUR IP. 0.0.0.0/0 is rejected by a v
 budget_email = "you@example.com"     # where the $5 budget alarm goes
 budget_usd   = 5
 
-# The expensive resource: $0.10/hour for the control plane, idle or not.
-enable_eks = true
+# ⛔ BOTH OF THESE DEFAULT TO false IN variables.tf. Leave them commented out unless you are running
+# the wave that needs them. An example file that switches on the expensive resource is how a cost
+# control gets defeated by copy-paste - which is the failure this project's own cost model calls the
+# dominant risk, ahead of the hourly rate.
+#
+# enable_eks = true   # Wave 2 only. $0.10/hour for the control plane, idle or not. ~$73/month if forgotten.
+# enable_rds = true   # Wave 3 only. ~$0.021/hour, free for 12 months on a new account.
 
 # db_password is NOT set here. scripts/aws_proof.sh generates one per run and passes it with
 # -var. Setting it in a file means a real credential sitting on disk after the environment is gone.
