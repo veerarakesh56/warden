@@ -149,7 +149,7 @@ class _ScriptedProvider:
         self._Completion = Completion
         self.calls = 0
 
-    def complete(self, *, system: str, user: str):
+    def complete(self, *, system: str, user: str, schema=None):
         text = self._responses[min(self.calls, len(self._responses) - 1)]
         self.calls += 1
         return self._Completion(text, 10, 5)

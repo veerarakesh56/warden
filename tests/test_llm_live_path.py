@@ -10,6 +10,7 @@ demand rather than by waiting for them to happen in production.
 """
 
 import time
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -34,7 +35,7 @@ class FakeProvider:
         self.calls = 0
         self._in, self._out = in_tok, out_tok
 
-    def complete(self, *, system: str, user: str) -> Completion:
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         self.calls += 1
         text = self._responses[min(self.calls - 1, len(self._responses) - 1)]
         return Completion(text, self._in, self._out)
@@ -129,7 +130,7 @@ class _HangingProvider:
     name = "hang"
     model = "hang-1"
 
-    def complete(self, *, system: str, user: str) -> Completion:
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         time.sleep(30)
         return Completion("{}", 1, 1)
 
@@ -163,7 +164,7 @@ class _FlakyProvider:
         self.fail_times = fail_times
         self.calls = 0
 
-    def complete(self, *, system: str, user: str) -> Completion:
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         self.calls += 1
         if self.calls <= self.fail_times:
             raise ProviderError("503 Service Unavailable")
@@ -196,7 +197,7 @@ class _AuthErrorProvider:
     def __init__(self) -> None:
         self.calls = 0
 
-    def complete(self, *, system: str, user: str) -> Completion:
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         self.calls += 1
         err = RuntimeError("401 UNAUTHENTICATED: invalid key")
         err.code = 401  # google-genai shape; openai/anthropic use .status_code, both handled

@@ -48,7 +48,8 @@ class ModelCallTimeout(RuntimeError):
     """A single model call exceeded the wall-clock ceiling. Fatal — better a loud stop than a hang."""
 
 
-def _complete_within(provider: Provider, *, system: str, user: str, seconds: float):
+def _complete_within(provider: Provider, *, system: str, user: str, seconds: float,
+                     schema: Any = None):
     """Run provider.complete() under a wall-clock deadline, on a DAEMON thread.
 
     A daemon thread so a genuinely hung SDK call (bad key, dead socket, endless retry) cannot block
@@ -60,7 +61,7 @@ def _complete_within(provider: Provider, *, system: str, user: str, seconds: flo
 
     def _worker() -> None:
         try:
-            box["ok"] = provider.complete(system=system, user=user)
+            box["ok"] = provider.complete(system=system, user=user, schema=schema)
         except BaseException as exc:  # noqa: BLE001 - carried across the thread boundary, re-raised below
             box["err"] = exc
 
@@ -153,7 +154,8 @@ class LLMClient:
                 # timeout does not fire (e.g. an OAuth-style key whose validation hangs below the
                 # request layer).
                 completion = _complete_within(
-                    self._provider, system=system, user=prompt, seconds=self.call_timeout_s + 2.0
+                    self._provider, system=system, user=prompt,
+                    seconds=self.call_timeout_s + 2.0, schema=schema,
                 )
                 # Charged BEFORE validation: a malformed response still costs money, and a budget
                 # that only counts successful calls can be exhausted by a model that keeps failing.

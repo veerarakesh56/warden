@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class ProviderError(RuntimeError):
@@ -72,7 +72,15 @@ class Provider(Protocol):
     name: str
     model: str
 
-    def complete(self, *, system: str, user: str) -> Completion: ...
+    # `schema` is the pydantic model the caller needs back, passed so a provider whose API can
+    # ENFORCE a response shape does so. Optional, and ignored by providers that cannot: the prompt
+    # already describes the schema, and that is the fallback.
+    #
+    # ⛔ It is not decoration. Told only "return JSON", Gemini intermittently returned the SCHEMA it
+    # had been shown - {"description": "...", "properties": {...}} - instead of an instance of it.
+    # Three retries, three schemas, ModelRefused, and a scenario recorded as ERROR. Found by a real
+    # benchmark run, not by a test.
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion: ...
 
 
 def _estimate_tokens(text: str) -> int:
@@ -110,7 +118,7 @@ class AnthropicProvider:
         self.model = model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5")
         self._client = Anthropic(timeout=_sdk_timeout_s(), max_retries=0)
 
-    def complete(self, *, system: str, user: str) -> Completion:
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=1500,
@@ -150,16 +158,22 @@ class GeminiProvider:
             ),
         )
 
-    def complete(self, *, system: str, user: str) -> Completion:
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         from google.genai import types
 
+        # ⭐ response_schema makes Google enforce the shape server-side. Without it, `response_mime_type`
+        # alone says "some JSON" - and this model intermittently answered with the JSON SCHEMA from the
+        # prompt rather than an instance of it, which no amount of retrying fixes.
+        config: dict[str, Any] = {
+            "system_instruction": system,
+            "response_mime_type": "application/json",
+        }
+        if schema is not None:
+            config["response_schema"] = schema
         resp = self._client.models.generate_content(
             model=self.model,
             contents=user,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                response_mime_type="application/json",
-            ),
+            config=types.GenerateContentConfig(**config),
         )
         text = resp.text or ""
         usage = getattr(resp, "usage_metadata", None)
@@ -199,7 +213,11 @@ class OpenAICompatProvider:
             kw["base_url"] = base_url
         self._client = OpenAI(**kw)
 
-    def complete(self, *, system: str, user: str) -> Completion:
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
+        # `schema` is accepted and not used. `json_object` mode is the only shape control every
+        # OpenAI-compatible host here supports — Groq, OpenRouter and Ollama do not all implement
+        # `json_schema`, and one that silently ignores it is worse than not sending it. The schema
+        # is in the prompt, and llm.structured validates what comes back either way.
         resp = self._client.chat.completions.create(
             model=self.model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
