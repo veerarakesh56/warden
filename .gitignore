@@ -23,8 +23,8 @@ coverage.xml
 # ⛔ A SAVED PLAN IS NOT A SUMMARY. `terraform plan -out=FILE` writes a binary containing every
 # resource attribute and the resolved account id, and `terraform show FILE` prints the lot. It was
 # not ignored here until a real plan was run and the account id turned up in it.
-tfplan
-*.tfplan
+tfplan*
+*.tfplan*
 plan.out
 crash.log
 crash.*.log
