@@ -59,6 +59,7 @@ def _harness(target, *, invoke=None, ecs=None, **overrides) -> runner.Harness:
             "AWS_SESSION_TOKEN": "t", "arn": READER_ARN,
         },
         invoke_warden=invoke or (lambda env, path: (runner._write_json(path, {"ok": True}), 0, "")[1:]),
+        baseline=overrides.pop("baseline", list),
         sleep=lambda _s: None,
         **overrides,
     )
@@ -345,3 +346,142 @@ def test_the_abort_message_does_say_so_when_something_is_still_broken(tmp_path, 
     with pytest.raises(runner.RunnerError, match="something IS still broken"):
         runner.run_wave(_harness(target, ecs=RefusingRevert()), [SCENARIO], tmp_path,
                         repeat=1, arm={}, log=lambda _m: None)
+
+
+# --------------------------------------------------------------------------- the baseline gate
+#
+# ⛔ `check_baseline` was once written, documented, and cited in a comment as the thing that "catches
+# anything genuinely wrong before the next scenario" - while the wave loop never called it. It ran
+# only when someone ran it by hand. These tests exist so that can't recur silently.
+
+
+def test_the_baseline_is_checked_before_every_scenario_not_once(tmp_path, target):
+    calls: list[int] = []
+
+    def baseline():
+        calls.append(1)
+        return []
+
+    runner.run_wave(
+        _harness(target, baseline=baseline),
+        [SCENARIO, {**SCENARIO, "id": "unit-02"}, {**SCENARIO, "id": "unit-03"}],
+        tmp_path, repeat=1, arm={}, log=lambda _m: None,
+    )
+    assert len(calls) == 3, "the state a scenario inherits is its predecessor's; check every time"
+
+
+def test_a_scenario_is_not_injected_when_the_baseline_is_dirty(tmp_path, target):
+    """⛔ Load-bearing. Stop BEFORE injecting - a scenario graded against a state nobody injected
+    produces a normal-looking row in a normal-looking table."""
+    ecs = FakeEcs()
+    with pytest.raises(runner.RunnerError, match="not at baseline"):
+        runner.run_wave(
+            _harness(target, ecs=ecs, baseline=lambda: ["2 deployments in flight"]),
+            [SCENARIO], tmp_path, repeat=1, arm={}, log=lambda _m: None,
+        )
+    assert not [c for c in ecs.calls if c[0] == "update_service"], "it injected anyway"
+    assert not (tmp_path / "ground-truth" / "unit-01.json").exists()
+
+
+def test_the_wave_stops_at_the_first_dirty_scenario_and_keeps_what_ran(tmp_path, target):
+    states = iter([[], ["service is on checkout:17, not the baseline checkout:2"]])
+    done: list[dict] = []
+    with pytest.raises(runner.RunnerError):
+        runner.run_wave(
+            _harness(target, baseline=lambda: next(states)),
+            [SCENARIO, {**SCENARIO, "id": "unit-02"}],
+            tmp_path, repeat=1, arm={}, log=lambda _m: None, records=done,
+        )
+    assert [r["scenario_id"] for r in done] == ["unit-01"]
+
+
+def test_the_harness_cannot_be_built_without_saying_what_its_baseline_check_is(target):
+    """No default. A field that defaults to 'no check' is exactly how the check stopped running."""
+    ecs = FakeEcs()
+    with pytest.raises(TypeError):
+        runner.Harness(
+            clients=Clients(ecs=ecs, logs=ecs, ec2=ecs, iam=ecs), target=target,
+            account="111122223333", assume_reader=dict,
+            invoke_warden=lambda env, path: (0, ""),
+        )
+
+
+# --------------------------------------------------------------------------- check_baseline itself
+
+
+class _Aws:
+    """A read-only account in a chosen state, for check_baseline."""
+
+    def __init__(self, *, services=None, egress=True, route=True, actions=4, log_group=True):
+        self._services = services
+        self._egress, self._route, self._actions, self._log_group = egress, route, actions, log_group
+
+    def describe_services(self, **_):
+        return {"services": self._services if self._services is not None else []}
+
+    def describe_log_groups(self, **_):
+        return {"logGroups": [{"logGroupName": "/ecs/checkout"}] if self._log_group else []}
+
+    def describe_security_groups(self, **_):
+        return {"SecurityGroups": [{"IpPermissionsEgress": [{"IpProtocol": "-1"}] if self._egress else []}]}
+
+    def describe_route_tables(self, **_):
+        routes = [{"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-1"}] if self._route else []
+        return {"RouteTables": [{"Routes": routes}]}
+
+    def list_role_policies(self, **_):
+        return {"PolicyNames": ["warden-readonly"]}
+
+    def get_role_policy(self, **_):
+        return {"PolicyDocument": {"Statement": [{"Action": ["a"] * self._actions}]}}
+
+
+def _service(td="checkout:2", deployments=1, running=2, pending=0, status="ACTIVE"):
+    return {"status": status, "desiredCount": 2, "runningCount": running, "pendingCount": pending,
+            "taskDefinition": f"arn:aws:ecs:r:1:task-definition/{td}",
+            "deployments": [{"status": "PRIMARY"}] * deployments}
+
+
+def _check(aws, target):
+    target.security_group_id, target.route_table_id = "sg-1", "rtb-1"
+    return runner.check_baseline(Clients(ecs=aws, logs=aws, ec2=aws, iam=aws), target)
+
+
+def test_a_clean_account_passes(target):
+    assert _check(_Aws(services=[_service()]), target) == []
+
+
+def test_a_rollout_in_flight_is_not_baseline(target):
+    """⛔ The check that was missing. running == desired can hold while a rollout is still
+    converging, so steadiness alone let a mid-rollout 'healthy control' through."""
+    problems = _check(_Aws(services=[_service(deployments=2)]), target)
+    assert any("deployments in flight" in p for p in problems)
+
+
+def test_a_missing_service_is_reported_not_crashed_on(target):
+    """It raised IndexError on the day the cluster had been deleted - exactly when it matters."""
+    problems = _check(_Aws(services=[]), target)
+    assert problems and "not found" in problems[0]
+
+
+def test_an_inactive_service_is_not_baseline(target):
+    problems = _check(_Aws(services=[_service(status="INACTIVE")]), target)
+    assert problems and "not found" in problems[0]
+
+
+def test_the_revision_is_compared_exactly(target):
+    """`endswith` would have accepted checkout:12 vs checkout:2? No - but it would accept any
+    family ending in 'checkout:2'. Exact equality or nothing."""
+    assert any("not the baseline" in p for p in _check(_Aws(services=[_service(td="xcheckout:2")]), target))
+    assert any("not the baseline" in p for p in _check(_Aws(services=[_service(td="checkout:12")]), target))
+
+
+@pytest.mark.parametrize("kw,expected", [
+    ({"egress": False}, "no egress rule"),
+    ({"route": False}, "no default route"),
+    ({"actions": 3}, "expected 4"),
+    ({"log_group": False}, "log group"),
+])
+def test_each_thing_a_scenario_breaks_is_checked(target, kw, expected):
+    problems = _check(_Aws(services=[_service()], **kw), target)
+    assert any(expected in p for p in problems), problems

@@ -235,6 +235,10 @@ def _register_variant(clients: Clients, target: Target, variant: str, account: s
     }
     if base.get("taskRoleArn"):
         kwargs["taskRoleArn"] = base["taskRoleArn"]
+    # ⛔ Tagged, so teardown can find it. Every variant registered here is a new revision the
+    # Terraform state has never heard of; untagged, it is invisible to the teardown sweep, which then
+    # reports "0 resources remaining" while leaving one revision per scenario per wave behind.
+    kwargs["tags"] = [{"key": PROJECT_TAG[0], "value": PROJECT_TAG[1]}]
 
     registered = clients.ecs.register_task_definition(**kwargs)
     return registered["taskDefinition"]["taskDefinitionArn"]
@@ -308,7 +312,12 @@ def op_logs_delete_group(clients: Clients, target: Target, *, log_group: str, **
 def op_logs_create_group(clients: Clients, target: Target, *, log_group: str,
                          retention_days: int = 1, **_):
     try:
-        clients.logs.create_log_group(logGroupName=log_group)
+        # ⛔ Tagged for the same reason as the task definitions. Terraform created the original with
+        # tags; this RE-created one is a different resource that Terraform only finds by name, and
+        # the tag sweep - the check that says "nothing is left" - never finds it at all.
+        clients.logs.create_log_group(
+            logGroupName=log_group, tags={PROJECT_TAG[0]: PROJECT_TAG[1]},
+        )
     except Exception as exc:
         if "ResourceAlreadyExists" not in str(exc):
             raise

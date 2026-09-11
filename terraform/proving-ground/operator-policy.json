@@ -39,6 +39,7 @@
         "ecs:DescribeCapacityProviders",
         "ecs:RegisterTaskDefinition",
         "ecs:DeregisterTaskDefinition",
+        "ecs:DeleteTaskDefinitions",
         "ecs:DescribeTaskDefinition",
         "ecs:CreateService",
         "ecs:UpdateService",

@@ -52,6 +52,12 @@
 #
 # ⛔ The FIRST run's results stand as published.  A benchmark that edits its fixtures until they
 # pass has measured nothing; the point of that run is that it found this.
+#
+# ⛔ SECOND CHANGE, 2026-09-11.  `ecs-01-healthy-control` gains `deployments_in_flight == 1`.  A
+# healthy control ran mid-rollout because the harness started the next scenario before the previous
+# revert had converged; see that scenario's inline comment.  Stricter, not easier.  The harness bug
+# that caused it is fixed separately in scenarios/runner.py - this assertion is the backstop that
+# would have reported the contamination instead of scoring it.
 # ---------------------------------------------------------------------------------------------
 
 wave: 1
@@ -83,6 +89,15 @@ scenarios:
         right: tasks_desired
       - kind: metric_present
         name: tasks_desired
+      # ⛔ ADDED 2026-09-11, after seeing results.  A healthy control once ran against a service
+      # still rolling back from the previous scenario: 2 deployments in flight, 3 of 2 tasks
+      # running.  `tasks_running == tasks_desired` held on two of its three runs anyway, so the
+      # assertion above could not tell "healthy" from "mid-rollout", and two runs proposed rolling
+      # back a service with nothing wrong.  This makes the control stricter, never easier: a run
+      # that fails it is reported NO-EVIDENCE rather than scored as a false positive.
+      - kind: metric_equal
+        left: deployments_in_flight
+        right_value: 1
     notes: >
       The false-positive test.  A tool that produces a confident root cause for a healthy service is
       worse than useless, because it trains its operators to ignore it.  Scored CORRECT only for

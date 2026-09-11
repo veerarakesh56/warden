@@ -82,13 +82,24 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
     """
     problems: list[str] = []
 
-    service = clients.ecs.describe_services(
+    # ⚠ An absent service must be REPORTED, not crash the check. `["services"][0]` raised IndexError
+    # on the day the cluster had been deleted, which is exactly when this check matters most.
+    services = clients.ecs.describe_services(
         cluster=target.cluster, services=[target.service],
-    )["services"][0]
-    if not service["taskDefinition"].endswith(target.baseline_task_definition.split("/")[-1]):
+    ).get("services") or []
+    service = next((s for s in services if s.get("status") == "ACTIVE"), None)
+    if service is None:
         problems.append(
-            f"service is on {service['taskDefinition'].split('/')[-1]}, not the baseline "
-            f"{target.baseline_task_definition.split('/')[-1]} - a previous run did not revert"
+            f"service {target.service} not found (or not ACTIVE) in cluster {target.cluster} - "
+            "the proving ground is not up"
+        )
+        return problems
+
+    current = (service.get("taskDefinition") or "").split("/")[-1]
+    baseline = target.baseline_task_definition.split("/")[-1]
+    if current != baseline:
+        problems.append(
+            f"service is on {current}, not the baseline {baseline} - a previous run did not revert"
         )
     if service["desiredCount"] != 2:
         problems.append(f"desiredCount is {service['desiredCount']}, expected 2")
@@ -97,6 +108,16 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
             f"service is not steady: {service['runningCount']} running, "
             f"{service['pendingCount']} pending, {service['desiredCount']} desired"
         )
+    # ⛔ A rollout still in flight. This is the check that was missing, and it is the one that
+    # mattered: a healthy control once ran with 2 deployments in flight, 3 of 2 tasks running,
+    # still converging from the previous revert. running == desired held on two of its three runs
+    # while the service was nowhere near settled, so the steadiness check above cannot catch it.
+    in_flight = len(service.get("deployments") or [])
+    if in_flight != 1:
+        problems.append(
+            f"{in_flight} deployments in flight - a rollout has not converged, so the next "
+            "scenario would read the previous one's rollout as evidence"
+        )
 
     if not clients.logs.describe_log_groups(
         logGroupNamePrefix=target.log_group,
@@ -104,17 +125,22 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
         problems.append(f"log group {target.log_group} is missing - a previous run deleted it")
 
     if target.security_group_id:
-        sg = clients.ec2.describe_security_groups(
+        groups = clients.ec2.describe_security_groups(
             GroupIds=[target.security_group_id],
-        )["SecurityGroups"][0]
-        if not sg.get("IpPermissionsEgress"):
+        ).get("SecurityGroups") or []
+        if not groups:
+            problems.append(f"security group {target.security_group_id} not found")
+        elif not groups[0].get("IpPermissionsEgress"):
             problems.append("security group has no egress rule - a previous run revoked it")
 
     if target.route_table_id:
-        routes = clients.ec2.describe_route_tables(
+        tables = clients.ec2.describe_route_tables(
             RouteTableIds=[target.route_table_id],
-        )["RouteTables"][0]["Routes"]
-        if not [r for r in routes if r.get("DestinationCidrBlock") == "0.0.0.0/0"]:
+        ).get("RouteTables") or []
+        if not tables:
+            problems.append(f"route table {target.route_table_id} not found")
+        elif not [r for r in tables[0].get("Routes") or []
+                  if r.get("DestinationCidrBlock") == "0.0.0.0/0"]:
             problems.append("route table has no default route - a previous run deleted it")
 
     if target.warden_role_name:
@@ -206,6 +232,14 @@ class Harness:
     assume_reader: Callable[[], dict[str, str]]
     # (env, report_path) -> (exit_code, stderr_tail)
     invoke_warden: Callable[[dict[str, str], pathlib.Path], tuple[int, str]]
+    # () -> list of problems; empty means the proving ground is at baseline.
+    #
+    # ⛔ REQUIRED, deliberately, with no default. `check_baseline` was once written, documented,
+    # and cited in a comment as the thing that "catches anything genuinely wrong before the next
+    # scenario" - while the wave loop never called it. It ran only when someone ran it by hand. A
+    # field that defaults to "no check" is how that happens, so every harness must now say what its
+    # baseline check is, even if the answer is "none, this is a dry run".
+    baseline: Callable[[], list[str]]
     sleep: Callable[[float], None] = time.sleep
     stabilize: Callable[[], None] = lambda: None
 
@@ -367,6 +401,18 @@ def run_wave(harness: Harness, scenarios: list[dict], out: pathlib.Path, *, repe
     for scenario in scenarios:
         log(f"== {scenario['id']}  ({scenario['fault_class']}, "
             f"settle {scenario.get('settle_seconds')}s)")
+
+        # ⛔ Before EVERY scenario, not once per wave. The state a scenario inherits is whatever the
+        # previous one's revert left, and a revert that "succeeded" can still leave a rollout in
+        # flight. A scenario that starts there reads its predecessor's rollout as evidence.
+        problems = harness.baseline()
+        if problems:
+            raise RunnerError(
+                f"{scenario['id']}: the proving ground is not at baseline, so this scenario would be "
+                "graded against a state nobody injected. Stopping the wave.\n  - "
+                + "\n  - ".join(problems)
+            )
+
         record = run_scenario(harness, scenario, out, repeat=repeat, arm=arm)
         records.append(record)
         log(f"   {record['status']}, {len(record['runs'])} run(s), "
@@ -438,27 +484,31 @@ def _live_harness(timeout_s: float) -> Harness:
         }
 
     def stabilize() -> None:
-        # ⛔ BOUNDED. boto3's `services_stable` waiter defaults to 40 attempts at 15s - up to TEN
-        # MINUTES per call, and it spends all of it whenever a service will not converge, which is
-        # exactly the state most of these scenarios leave behind.
+        # ⛔ THIS WAIT IS THE COST OF A VALID RESULT, NOT WASTE. An earlier version capped it at 120s
+        # and called the time it saved "pure waste". Measured: the rollout after a revert takes a
+        # median of ~210s and up to 272s - ECS starting baseline tasks, waiting for health checks,
+        # then draining the variant. A 120s cap started the next scenario mid-rollout, and the
+        # healthy control then read the previous scenario's rollout as evidence: 2 deployments in
+        # flight, 3 of 2 tasks running, and two proposals to roll back a service with nothing wrong.
         #
-        # Measured across a real 14-scenario wave: 35 of 117 minutes went to this waiter, more than
-        # the model spent thinking. The next scenario only needs the service to have started
-        # settling, not to be perfectly stable - and `check_baseline` catches anything genuinely
-        # wrong before the wave continues, so a short budget loses nothing.
-        attempts = int(os.environ.get("WARDEN_BENCH_STABILIZE_ATTEMPTS", "8"))  # 8 x 15s = 2 min
+        # So it waits long enough for a real rollout (8 min covers the 272s max with margin). This
+        # is a best-effort WAIT only. The GATE is `baseline()`, which run_wave calls before every
+        # scenario and which stops the wave if a rollout is still in flight - so a waiter that gives
+        # up here cannot let a contaminated scenario through, it just hands the decision on.
+        attempts = int(os.environ.get("WARDEN_BENCH_STABILIZE_ATTEMPTS", "32"))  # 32 x 15s = 8 min
         try:
             clients.ecs.get_waiter("services_stable").wait(
                 cluster=target.cluster, services=[target.service],
                 WaiterConfig={"Delay": 15, "MaxAttempts": attempts},
             )
-        except Exception as exc:  # noqa: BLE001 - a wave should not die because a waiter gave up
-            print(f"   (services-stable: gave up after ~{attempts * 15}s, continuing: "
-                  f"{type(exc).__name__})")
+        except Exception as exc:  # noqa: BLE001 - the baseline gate decides, not the waiter
+            print(f"   (services-stable did not converge in ~{attempts * 15}s: "
+                  f"{type(exc).__name__}. The baseline check will decide whether to continue.)")
 
     return Harness(
         clients=clients, target=target, account=account,
         assume_reader=assume, invoke_warden=_subprocess_warden(target, timeout_s),
+        baseline=lambda: check_baseline(clients, target),
         stabilize=stabilize,
     )
 
@@ -583,6 +633,9 @@ def _dry_harness() -> Harness:
             "arn": "arn:aws:sts::111122223333:assumed-role/warden-reader/dry-run",
         },
         invoke_warden=invoke,
+        # No real account, so nothing to check. Said explicitly rather than inherited from a default:
+        # the field is required precisely so that "no check" is always a visible decision.
+        baseline=list,
         sleep=lambda _seconds: None,
     )
 

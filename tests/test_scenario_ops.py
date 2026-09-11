@@ -412,3 +412,23 @@ def test_every_variant_named_in_the_catalog_exists():
                 if variant is not None and variant not in ops._VARIANTS:
                     missing.append(f"{scenario['id']}: {variant}")
     assert not missing, f"scenarios referencing variants that do not exist: {missing}"
+
+
+# --------------------------------------------------------------------------- leaving nothing behind
+#
+# ⛔ Everything the injector creates must carry the project tag. Terraform does not know about these
+# resources, and until 2026-09-11 nothing tagged them - so the teardown sweep, which reports "0 tagged
+# resources remaining", could not see them and would have declared the account clean with one
+# task-definition revision per scenario per wave still in it.
+
+
+def test_a_registered_variant_is_tagged_so_teardown_can_find_it(clients, target):
+    ops.op_ecs_deploy_variant(clients, target, variant="oom", account=ACCOUNT)
+    tags = clients.ecs.registered[-1].get("tags") or []
+    assert {"key": "Project", "value": "warden-proving-ground"} in tags
+
+
+def test_the_recreated_log_group_is_tagged_so_teardown_can_find_it(clients, target):
+    ops.op_logs_create_group(clients, target, log_group="/ecs/checkout")
+    created = [kw for name, kw in clients.logs.calls if name == "create_log_group"]
+    assert created and created[-1].get("tags") == {"Project": "warden-proving-ground"}
