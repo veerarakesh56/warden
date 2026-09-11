@@ -353,6 +353,19 @@ class ClaudeCliProvider:
                 input=user,
                 capture_output=True,
                 text=True,
+                # ⛔ EXPLICIT UTF-8, both directions. Without it Python uses the Windows code page
+                # (cp1252), and measured against the real CLI that did two separate things:
+                #   - a character cp1252 cannot encode - the `→` the model itself writes into its
+                #     hypothesis, which the propose step then sends back - crashed the call before
+                #     it was sent: "'charmap' codec can't encode character '→'", three
+                #     retries, ModelRefused, and a benchmark run recorded as ERROR;
+                #   - a character cp1252 CAN encode - the em dash in every prompt's ALERT line -
+                #     went out as a cp1252 byte to a CLI that reads UTF-8, so it arrived corrupt.
+                #     Every prompt sent this way carried one garbled character.
+                # UTF-8 was verified to round-trip `→ — é` exactly. `replace` only guards decoding
+                # a reply; encoding a Python str as UTF-8 cannot fail.
+                encoding="utf-8",
+                errors="replace",
                 timeout=_sdk_timeout_s(),
                 check=False,
                 env=env,

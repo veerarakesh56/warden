@@ -230,3 +230,18 @@ def test_an_unrelated_failure_is_not_mistaken_for_exhaustion(provider, monkeypat
     with pytest.raises(ProviderError) as info:
         provider.complete(system="s", user="u")
     assert not isinstance(info.value, ProviderExhausted)
+
+
+def test_the_cli_is_spoken_to_in_utf8_not_the_windows_code_page(provider, monkeypatch):
+    """⛔ Found by a real wave: a run died on `'charmap' codec can't encode character '\u2192'`.
+
+    With no explicit encoding, Python encodes stdin in cp1252 on Windows. The model writes `→` into
+    its own hypothesis, the propose step sends that hypothesis back, and cp1252 cannot encode it -
+    so the call crashed before it was sent. Characters cp1252 CAN encode, like the em dash in every
+    prompt's ALERT line, were silently corrupted instead, because the CLI reads UTF-8. Verified
+    against the real CLI: UTF-8 round-trips `→ — é` exactly."""
+    rec = _Recorder()
+    monkeypatch.setattr(subprocess, "run", rec)
+    provider.complete(system="s", user="ALERT: x \u2014 y. HYPOTHESIS: a \u2192 b")
+    assert rec.kwargs.get("encoding") == "utf-8"
+    assert rec.kwargs["input"].encode(rec.kwargs["encoding"])  # must not raise
