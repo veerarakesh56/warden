@@ -257,3 +257,35 @@ def test_gemini_without_a_key_says_where_to_get_one(monkeypatch):
     with pytest.raises(ProviderError) as exc:
         resolve("gemini")
     assert "aistudio.google.com" in str(exc.value)
+
+
+class _ExhaustedProvider:
+    """Every call fails the way an account with no capacity left does."""
+
+    name = "exhausted"
+    model = "exhausted-1"
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
+        from warden.providers import ProviderExhausted
+
+        self.calls += 1
+        raise ProviderExhausted("usage limit reached")
+
+
+def test_an_exhausted_provider_is_called_once_not_retried():
+    """⛔ It carries no HTTP status, so _is_transient() would call it transient and retry it twice
+    more - three calls against a pool with nothing left, on every run of a wave."""
+    from warden.providers import ProviderExhausted
+
+    provider = _ExhaustedProvider()
+    client = LLMClient(provider=provider, mock=False)
+
+    class _Schema(BaseModel):
+        x: int
+
+    with pytest.raises(ProviderExhausted):
+        client.structured(system="s", user="u", schema=_Schema)
+    assert provider.calls == 1

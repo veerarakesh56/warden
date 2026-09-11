@@ -24,7 +24,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from .models import CostRecord
-from .providers import Provider, resolve
+from .providers import Provider, ProviderExhausted, resolve
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -161,9 +161,11 @@ class LLMClient:
                 # that only counts successful calls can be exhausted by a model that keeps failing.
                 self._charge(completion.input_tokens, completion.output_tokens)
                 return schema.model_validate_json(extract_json(completion.text))
-            except (ModelCallTimeout, BudgetExceeded):
+            except (ModelCallTimeout, BudgetExceeded, ProviderExhausted):
                 # Fatal by design: a hung call or a blown budget must stop the run immediately, not
-                # be retried into three consecutive hangs or an overspend.
+                # be retried into three consecutive hangs or an overspend. An exhausted provider
+                # likewise: it has no error code, so _is_transient() would call it transient and
+                # retry it twice more against a pool that has nothing left.
                 raise
             except (ValidationError, ValueError) as exc:
                 last = exc  # the model answered, it just was not valid JSON — retry

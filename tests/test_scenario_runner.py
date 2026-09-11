@@ -485,3 +485,130 @@ def test_the_revision_is_compared_exactly(target):
 def test_each_thing_a_scenario_breaks_is_checked(target, kw, expected):
     problems = _check(_Aws(services=[_service()], **kw), target)
     assert any(expected in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------- when the model runs dry
+#
+# ⛔ Found by a real wave on the Max plan. The usage limit was hit mid-run and the runner carried on:
+# injecting real faults into the account for runs that could not succeed, and recording an ERROR for
+# each. The results table would have read as the tool failing. It now stops at the first sign.
+
+
+def test_an_exhausted_model_stops_the_wave_and_the_scenario_is_still_reverted(tmp_path, target):
+    ecs = FakeEcs()
+    done: list[dict] = []
+    with pytest.raises(runner.RunnerError, match="--resume"):
+        runner.run_wave(
+            _harness(target, ecs=ecs,
+                     invoke=lambda env, path: (1, "warden.llm... ProviderExhausted: usage limit")),
+            [SCENARIO, {**SCENARIO, "id": "unit-02"}],
+            tmp_path, repeat=3, arm={}, log=lambda _m: None, records=done,
+        )
+    assert [r["scenario_id"] for r in done] == ["unit-01"], "the second scenario must not start"
+    assert done[0]["status"] == "exhausted"
+    assert len(done[0]["runs"]) == 1, "stop at the FIRST exhausted run, not after three"
+    desired = [kw.get("desiredCount") for name, kw in ecs.calls if name == "update_service"]
+    assert desired == [0, 2], "the scenario that hit the limit must still be put back"
+
+
+def test_an_ordinary_failure_does_not_stop_the_wave(tmp_path, target):
+    """A false positive would end a wave on an error that has nothing to do with capacity."""
+    done: list[dict] = []
+    runner.run_wave(
+        _harness(target, invoke=lambda env, path: (1, "ModelRefused: RootCause not produced")),
+        [SCENARIO, {**SCENARIO, "id": "unit-02"}],
+        tmp_path, repeat=1, arm={}, log=lambda _m: None, records=done,
+    )
+    assert [r["scenario_id"] for r in done] == ["unit-01", "unit-02"]
+
+
+# --------------------------------------------------------------------------- resume
+
+
+def _run(tmp_path, *extra):
+    return runner.main(["--wave", "1", "--dry-run", "--repeat", "2", "--only", "ecs-01,ecs-02",
+                        "--out", str(tmp_path), *extra])
+
+
+def _break(tmp_path, scenario_id):
+    """Make a completed scenario look interrupted: one repeat failed."""
+    gt = tmp_path / "ground-truth" / f"{scenario_id}.json"
+    record = json.loads(gt.read_text(encoding="utf-8"))
+    record["runs"][1]["exit_code"] = 1
+    record["runs"][1]["report_written"] = False
+    gt.write_text(json.dumps(record), encoding="utf-8")
+
+
+def test_is_complete_requires_every_repeat_to_have_a_report():
+    ok = {"status": "ok", "runs": [{"exit_code": 0, "report_written": True}] * 3}
+    assert runner.is_complete(ok, 3)
+    assert not runner.is_complete({**ok, "runs": ok["runs"][:2]}, 3), "a missing repeat"
+    assert not runner.is_complete({**ok, "status": "exhausted"}, 3)
+    bad = {"status": "ok", "runs": [{"exit_code": 0, "report_written": True},
+                                     {"exit_code": 1, "report_written": False},
+                                     {"exit_code": 0, "report_written": True}]}
+    assert not runner.is_complete(bad, 3), "one failed repeat makes the scenario incomplete"
+
+
+def test_resume_reruns_only_what_is_incomplete_and_keeps_the_old_attempt(tmp_path):
+    _run(tmp_path)
+    _break(tmp_path, "ecs-02-log-group-deleted")
+    before = (tmp_path / "ground-truth" / "ecs-01-healthy-control.json").read_text(encoding="utf-8")
+
+    assert runner.main(["--resume", str(tmp_path)]) == 0
+
+    after = (tmp_path / "ground-truth" / "ecs-01-healthy-control.json").read_text(encoding="utf-8")
+    assert before == after, "a complete scenario must not be re-run"
+    kept = tmp_path / "ground-truth" / "superseded" / "ecs-02-log-group-deleted.attempt-1.json"
+    assert kept.exists(), "the incomplete attempt must be kept, not overwritten"
+    record = json.loads(kept.read_text(encoding="utf-8"))
+    assert all(r["report"].startswith("reports/superseded/") for r in record["runs"])
+    assert all((tmp_path / r["report"]).exists() for r in record["runs"] if r["report_written"])
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["resumes"][-1]["rerun"] == ["ecs-02-log-group-deleted"]
+    assert sorted(manifest["scenarios_completed"]) == [
+        "ecs-01-healthy-control", "ecs-02-log-group-deleted"]
+
+
+def test_a_second_resume_does_not_overwrite_the_first_superseded_attempt(tmp_path):
+    _run(tmp_path)
+    for _ in range(2):
+        _break(tmp_path, "ecs-02-log-group-deleted")
+        runner.main(["--resume", str(tmp_path)])
+    kept = sorted(p.name for p in (tmp_path / "ground-truth" / "superseded").glob("*.json"))
+    assert kept == ["ecs-02-log-group-deleted.attempt-1.json",
+                    "ecs-02-log-group-deleted.attempt-2.json"]
+
+
+def test_the_scorer_counts_a_rerun_scenario_once(tmp_path):
+    """Superseded attempts live where the scorer's non-recursive glob does not look."""
+    from scenarios import score
+
+    _run(tmp_path)
+    _break(tmp_path, "ecs-02-log-group-deleted")
+    runner.main(["--resume", str(tmp_path)])
+    rows = score.score_run_dir(tmp_path)["rows"]
+    assert sum(1 for r in rows if r["scenario_id"] == "ecs-02-log-group-deleted") == 2  # repeat=2
+
+
+def test_resume_refuses_when_the_rubric_or_catalog_has_changed(tmp_path):
+    """⛔ One run under one rubric. Otherwise it is two measurements stitched together."""
+    _run(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["scoring_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(SystemExit, match="two rubrics"):
+        runner.main(["--resume", str(tmp_path)])
+
+
+def test_resume_refuses_a_different_cluster(tmp_path):
+    """⛔ A different cluster is a different fault instance, not a continuation."""
+    _run(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cluster"] = "some-other-cluster"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(SystemExit, match="Start a new run"):
+        runner.main(["--resume", str(tmp_path)])

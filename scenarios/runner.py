@@ -19,6 +19,19 @@ nothing at all. That exact defect was found in this project once already.
 contaminated account while looking like a perfectly normal run, and nothing in the output would say
 so.
 
+⛔ RUN IT DETACHED, AND IF IT STOPS, RESUME IT. A wave takes around two hours. Twice, the wave was
+launched as a child of an interactive Claude Code session and died with it - the second time
+because the session ran out of usage, which the wave's own `claude -p` calls had helped exhaust. The
+runner now stops cleanly on an exhausted provider, and `--resume DIR` continues from where it
+stopped, re-running only incomplete scenarios. Launch it so it does not share the session's life:
+
+    # Windows
+    Start-Process -WindowStyle Hidden -FilePath .venv\\Scripts\\python.exe `
+      -ArgumentList '-m','scenarios.runner','--resume','<DIR>' `
+      -RedirectStandardOutput <DIR>\\runner.log -RedirectStandardError <DIR>\\runner.err
+    # Linux / macOS
+    setsid nohup python -m scenarios.runner --resume <DIR> > <DIR>/runner.log 2>&1 &
+
 ⚠ This module writes RAW artefacts — a task-definition ARN contains the 12-digit account id. They
 land OUTSIDE the repository by default (`~/warden-bench-runs/`). Redaction is
 `scripts/aws_proof_bundle.py` and the gate is `scripts/check_publishable.py`; duplicating either
@@ -66,6 +79,16 @@ SYSTEM_ENV = ("PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "COMSPEC", "PAT
 
 class RunnerError(RuntimeError):
     """The wave cannot continue. Never swallowed."""
+
+
+class ModelExhausted(RuntimeError):
+    """The model provider has no capacity left, so every later run would fail identically."""
+
+
+# Markers in a failed WARDEN run's stderr meaning the provider is out of capacity for the account,
+# not that this one call went wrong. `ProviderExhausted` is WARDEN's own error for it; the Gemini
+# daily free-tier quota is recognised by its quota id.
+EXHAUSTION_MARKERS = ("ProviderExhausted", "GenerateRequestsPerDay")
 
 
 def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
@@ -362,8 +385,16 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
                 }
             )
             _write_json(ground_truth, record)
+            # ⛔ Stop at the FIRST sign the model has no capacity left. Carrying on means injecting
+            # real faults into the account for runs that cannot succeed, and a results table full of
+            # ERROR rows that read like the tool failing. That is what the first Max-plan wave did.
+            if code != 0 and any(m in (stderr_tail or "") for m in EXHAUSTION_MARKERS):
+                raise ModelExhausted((stderr_tail or "")[-300:])
 
         record["status"] = "ok"
+    except ModelExhausted as exc:
+        record["status"] = "exhausted"
+        record["error"] = f"model provider exhausted: {exc}"
     except Exception as exc:  # noqa: BLE001 - recorded as an error, never swallowed
         record["status"] = "error"
         record["error"] = f"{type(exc).__name__}: {exc}"
@@ -436,6 +467,12 @@ def run_wave(harness: Harness, scenarios: list[dict], out: pathlib.Path, *, repe
                 f"wave. {hint} Either way the state of the proving ground is now unknown, and every "
                 "scenario after this one would be graded against it while looking like a normal "
                 "run. Check the account, or destroy and re-apply it, before running anything else."
+            )
+        if record["status"] == "exhausted":
+            raise RunnerError(
+                f"{scenario['id']}: the model provider has no capacity left ({record['error'][:160]}). "
+                "Stopping the wave: every later run would fail the same way. This scenario was "
+                f"reverted. Resume after the limit resets with:  --resume {out}"
             )
         harness.stabilize()
     return records
@@ -651,6 +688,59 @@ def _git_commit() -> str:
     return proc.stdout.strip() if proc.returncode == 0 else "unknown"
 
 
+def is_complete(record: dict, repeat: int) -> bool:
+    """A scenario counts only if EVERY repeat produced a report. Otherwise it is re-run whole.
+
+    Never re-run a single missing repeat on its own: the injected state that the other repeats
+    measured has been reverted and no longer exists, so a lone re-run would measure a different
+    fault instance and be reported as if it were the same one.
+    """
+    runs = record.get("runs") or []
+    return (
+        record.get("status") == "ok"
+        and len(runs) == repeat
+        and all(r.get("exit_code") == 0 and r.get("report_written") for r in runs)
+    )
+
+
+def supersede(out: pathlib.Path, scenario_id: str) -> str:
+    """Move an incomplete attempt out of the scored set. Kept, never deleted, never overwritten.
+
+    Superseded attempts go to `ground-truth/superseded/`, which the scorer's non-recursive glob does
+    not read - so a re-run scenario is counted once, while the evidence that it WAS re-run, and why,
+    stays in the bundle for anyone to read.
+    """
+    gt_dir = out / "ground-truth"
+    current = gt_dir / f"{scenario_id}.json"
+    kept = gt_dir / "superseded"
+    kept.mkdir(parents=True, exist_ok=True)
+    attempt = 1
+    while (kept / f"{scenario_id}.attempt-{attempt}.json").exists():
+        attempt += 1
+    record = json.loads(current.read_text(encoding="utf-8"))
+    reports = out / "reports" / "superseded"
+    reports.mkdir(parents=True, exist_ok=True)
+    for run in record.get("runs") or []:
+        name = f"{scenario_id}.attempt-{attempt}.{run['index']}.json"
+        src = out / run["report"]
+        if src.exists():
+            src.replace(reports / name)
+        run["report"] = f"reports/superseded/{name}"
+    record["superseded"] = {"at": _now(), "attempt": attempt}
+    _write_json(kept / f"{scenario_id}.attempt-{attempt}.json", record)
+    current.unlink()
+    return f"ground-truth/superseded/{scenario_id}.attempt-{attempt}.json"
+
+
+def _completed_on_disk(out: pathlib.Path, repeat: int) -> list[str]:
+    done = []
+    for path in sorted((out / "ground-truth").glob("*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if is_complete(record, repeat):
+            done.append(record["scenario_id"])
+    return done
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="scenarios.runner", description=__doc__,
@@ -662,8 +752,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repeat", type=int, default=3,
                         help="WARDEN runs per injected state. The model is not deterministic, so "
                              "n=1 is a coin flip reported as a result")
-    parser.add_argument("--out", default=None,
-                        help="artefact directory (default: ~/warden-bench-runs/<stamp>)")
+    where = parser.add_mutually_exclusive_group()
+    where.add_argument("--out", default=None,
+                       help="artefact directory (default: ~/warden-bench-runs/<stamp>)")
+    where.add_argument("--resume", default=None, metavar="DIR",
+                       help="continue an interrupted run in DIR: complete scenarios are kept, the "
+                            "rest are re-run whole. Uses that run's wave, repeat and arm")
     parser.add_argument("--arm", action="append", default=[], metavar="K=V",
                         help="extra env for WARDEN, e.g. --arm WARDEN_KNOWLEDGE_IN_PROMPT=1. "
                              "Recorded in the manifest")
@@ -672,6 +766,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="no AWS and no API key: exercises the loop and the artefacts, and "
                              "proves nothing about AWS")
     args = parser.parse_args(argv)
+
+    if args.resume:
+        return _resume(pathlib.Path(args.resume), args.warden_timeout)
 
     arm: dict[str, str] = {}
     for pair in args.arm:
@@ -718,23 +815,84 @@ def main(argv: list[str] | None = None) -> int:
     }
     _write_json(out / "manifest.json", manifest)
     print(f"artefacts -> {out}")
+    return _run_and_record(harness, scenarios, out, manifest)
 
+
+def _resume(out: pathlib.Path, warden_timeout: float) -> int:
+    """Continue an interrupted run, refusing anything that would make it two runs posing as one."""
+    manifest_path = out / "manifest.json"
+    if not manifest_path.exists():
+        raise SystemExit(f"--resume {out}: no manifest.json - not a runner output directory")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    # ⛔ One rubric. A run graded partly under one catalog and partly under another is two
+    # measurements stitched together, and the manifest would describe only one of them.
+    catalog_now = {p.name: _sha256(p) for p in sorted(CATALOG.glob("*.yaml"))}
+    if (manifest.get("catalog_sha256") != catalog_now
+            or manifest.get("scoring_sha256") != _sha256(SCORING)):
+        raise SystemExit(
+            f"--resume {out}: the scenario catalog or the rubric has changed since this run began. "
+            "Resuming would grade one run under two rubrics. Start a new run instead."
+        )
+
+    harness = _dry_harness() if manifest.get("dry_run") else _live_harness(warden_timeout)
+    # ⛔ One environment. A different cluster is a different fault instance entirely.
+    if harness.target.cluster != manifest.get("cluster"):
+        raise SystemExit(
+            f"--resume {out}: this run was on cluster {manifest.get('cluster')!r} and the proving "
+            f"ground is now {harness.target.cluster!r}. Start a new run instead."
+        )
+
+    repeat = int(manifest["repeat"])
+    _doc, catalog = load_wave(int(manifest["wave"]))
+    wanted = set(manifest.get("scenario_ids") or [])
+    scenarios = [s for s in catalog if s["id"] in wanted]
+
+    todo, superseded = [], []
+    for scenario in scenarios:
+        gt = out / "ground-truth" / f"{scenario['id']}.json"
+        if gt.exists():
+            if is_complete(json.loads(gt.read_text(encoding="utf-8")), repeat):
+                continue
+            superseded.append(supersede(out, scenario["id"]))
+        todo.append(scenario)
+
+    manifest.setdefault("resumes", []).append({
+        "at": _now(),
+        "git_commit": _git_commit(),
+        "rerun": [s["id"] for s in todo],
+        "superseded": superseded,
+    })
+    _write_json(manifest_path, manifest)
+    print(f"resuming {out.name}: {len(scenarios) - len(todo)} complete, {len(todo)} to run "
+          f"({len(superseded)} incomplete attempt(s) kept under ground-truth/superseded/)")
+    if not todo:
+        print("nothing left to run.")
+        return 0
+    return _run_and_record(harness, todo, out, manifest, total=len(scenarios))
+
+
+def _run_and_record(harness: Harness, scenarios: list[dict], out: pathlib.Path, manifest: dict,
+                    *, total: int | None = None) -> int:
+    arm = manifest.get("arm") or {}
+    repeat = int(manifest["repeat"])
     rc = 0
     records: list[dict] = []
     try:
-        run_wave(harness, scenarios, out, repeat=args.repeat, arm=arm, records=records)
+        run_wave(harness, scenarios, out, repeat=repeat, arm=arm, records=records)
     except RunnerError as exc:
         print(f"\nSTOPPED: {exc}", file=sys.stderr)
         rc = 1
 
     manifest["ended_at"] = _now()
-    manifest["scenarios_completed"] = [r["scenario_id"] for r in records]
+    manifest["scenarios_completed"] = _completed_on_disk(out, repeat)
     manifest["errors"] = [r["scenario_id"] for r in records if r["status"] != "ok"]
     _write_json(out / "manifest.json", manifest)
 
-    print(f"\n{len(records)}/{len(scenarios)} scenarios ran. Score them with:")
+    print(f"\n{len(manifest['scenarios_completed'])}/{total or len(scenarios)} scenarios "
+          "complete. Score them with:")
     print(f"  python -m scenarios.score --run {out}")
-    if not args.dry_run:
+    if not manifest.get("dry_run"):
         print("\nThese artefacts contain real ARNs, and so the account id. They are outside the")
         print("repository on purpose. Redact before publishing, then run check_publishable.py.")
     return rc

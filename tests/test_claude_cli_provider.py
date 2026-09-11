@@ -196,3 +196,37 @@ def test_what_the_model_still_needs_does_survive(provider, monkeypatch):
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
     assert rec.kwargs["env"].get("PATH") == "/usr/bin"
+
+
+# --------------------------------------------------------------------------- when the pool runs dry
+#
+# ⛔ Found by a real wave. The usage limit was hit mid-run and five runs failed with
+# `claude CLI exited 1:` followed by NOTHING - the CLI writes its reason to stdout, and only stderr
+# was being reported. The one fact that explained every one of those ERROR rows had been discarded.
+
+
+def test_the_reason_on_stdout_is_not_thrown_away(provider, monkeypatch):
+    rec = _Recorder(returncode=1, stdout="Something went wrong on our side", stderr="")
+    monkeypatch.setattr(subprocess, "run", rec)
+    with pytest.raises(ProviderError, match="Something went wrong on our side"):
+        provider.complete(system="s", user="u")
+
+
+def test_a_usage_limit_is_recognised_as_exhaustion_not_a_generic_error(provider, monkeypatch):
+    from warden.providers import ProviderExhausted
+
+    rec = _Recorder(returncode=1, stdout="Claude AI usage limit reached|1789040000", stderr="")
+    monkeypatch.setattr(subprocess, "run", rec)
+    with pytest.raises(ProviderExhausted):
+        provider.complete(system="s", user="u")
+
+
+def test_an_unrelated_failure_is_not_mistaken_for_exhaustion(provider, monkeypatch):
+    """A false positive here would stop a whole wave on an ordinary error."""
+    from warden.providers import ProviderExhausted
+
+    rec = _Recorder(returncode=1, stdout="", stderr="Invalid model name: sonet")
+    monkeypatch.setattr(subprocess, "run", rec)
+    with pytest.raises(ProviderError) as info:
+        provider.complete(system="s", user="u")
+    assert not isinstance(info.value, ProviderExhausted)

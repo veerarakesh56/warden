@@ -32,12 +32,24 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 
 class ProviderError(RuntimeError):
     """The provider could not be reached or refused the request."""
+
+
+class ProviderExhausted(ProviderError):
+    """The provider has no capacity left for this account - a usage limit or a daily quota.
+
+    ⛔ Distinct from ProviderError because the right response is different. A transient error is
+    worth retrying; an exhausted pool is not, and retrying it only spends calls that do not exist.
+    More importantly, every LATER call will fail the same way, so a benchmark wave that meets this
+    should stop and resume after the reset - not carry on injecting real faults into an account and
+    recording an ERROR for each one, which is what it did before this existed.
+    """
 
 
 class _SuppressAFCNotice(logging.Filter):
@@ -236,6 +248,15 @@ class OpenAICompatProvider:
 
 # --------------------------------------------------------------------------- claude cli
 
+# ⚠ Matched broadly, and not verified against the exact wording: the only time the limit was hit,
+# the message was discarded (see complete()). These are the phrasings the CLI and the API use for
+# an exhausted account. A miss here degrades to a plain ProviderError - still an error, still
+# recorded - rather than to a false success.
+_USAGE_LIMIT = re.compile(
+    r"usage limit|limit reached|rate limit|quota|credit balance is too low|out of credits",
+    re.IGNORECASE,
+)
+
 
 class ClaudeCliProvider:
     """Inference through the locally installed `claude` CLI in headless (`-p`) mode.
@@ -342,9 +363,16 @@ class ClaudeCliProvider:
         except subprocess.TimeoutExpired as exc:
             raise ProviderError(f"claude CLI exceeded {_sdk_timeout_s():.0f}s") from exc
         if proc.returncode != 0:
-            raise ProviderError(
-                f"claude CLI exited {proc.returncode}: {(proc.stderr or '').strip()[:300]}"
-            )
+            # ⛔ BOTH streams. The CLI writes its reason for refusing - including "usage limit
+            # reached" - to STDOUT, and this used to report stderr only. So when the limit was hit
+            # mid-wave every failure read `claude CLI exited 1:` followed by nothing at all, and the
+            # one fact that explained five ERROR rows had been thrown away.
+            detail = " | ".join(
+                part.strip() for part in (proc.stdout, proc.stderr) if part and part.strip()
+            )[:400]
+            if _USAGE_LIMIT.search(detail):
+                raise ProviderExhausted(f"claude CLI usage limit: {detail}")
+            raise ProviderError(f"claude CLI exited {proc.returncode}: {detail or '(no output)'}")
         text = proc.stdout or ""
         return Completion(text, _estimate_tokens(system + user), _estimate_tokens(text))
 
