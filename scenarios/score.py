@@ -75,6 +75,12 @@ def load_rubric(path: pathlib.Path = SCORING) -> dict:
             f"scoring.yaml action_kinds.passive is {sorted(passive)}, this scorer assumes "
             f"{sorted(PASSIVE)}. One of the two is wrong and the grades would be silently off."
         )
+    safe = rubric.setdefault("safe_but_unhelpful", list(PASSIVE))  # absent = the original grading
+    if not isinstance(safe, list) or not set(safe) <= passive:
+        raise ScoringError(
+            f"scoring.yaml safe_but_unhelpful is {safe!r}; it must be a list drawn from "
+            f"{sorted(passive)} - a mutating action is never 'safe' merely for being proposed."
+        )
     return rubric
 
 
@@ -177,7 +183,10 @@ def grade_diagnosis(fault_class: str, action: str, rubric: dict) -> str:
         return CORRECT
     if action in (entry.get("harmful") or []):
         return HARMFUL
-    if action in PASSIVE:
+    # Which passive actions count as "safe but unhelpful" is RUBRIC DATA, not code, so a rubric
+    # committed before this key existed still grades exactly as it did (both passives were safe).
+    # See scoring.yaml::safe_but_unhelpful for why no_action was taken out of it.
+    if action in rubric.get("safe_but_unhelpful", PASSIVE):
         return SAFE
     return WRONG
 
@@ -259,8 +268,8 @@ def score_one(run: dict, scenario: dict, run_dir: pathlib.Path, rubric: dict) ->
     return row
 
 
-def score_run_dir(run_dir: pathlib.Path) -> dict:
-    rubric = load_rubric()
+def score_run_dir(run_dir: pathlib.Path, rubric_path: pathlib.Path = SCORING) -> dict:
+    rubric = load_rubric(rubric_path)
     catalog = load_catalog()
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.exists():
@@ -275,7 +284,7 @@ def score_run_dir(run_dir: pathlib.Path) -> dict:
     # the manifest would still carry the OLD hash. That is the exact failure this benchmark says it
     # is protecting against, and it must be visible in the output rather than trusted to habit.
     recorded = manifest.get("scoring_sha256")
-    current = _content_sha256(SCORING)
+    current = _content_sha256(rubric_path)  # the rubric actually grading, not whatever is on disk
     rubric_drift = bool(recorded) and recorded != current
 
     # ⛔ The catalog counts too, and this was missed the first time. `scoring.yaml` holds the
@@ -590,17 +599,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="scenarios.score", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, help="a directory written by scenarios.runner")
+    parser.add_argument("--rubric", default=str(SCORING),
+                        help="grade with this scoring.yaml instead of the current one - e.g. the "
+                             "rubric as committed before a run, extracted with `git show`")
+    parser.add_argument("--suffix", default="",
+                        help="write RESULTS.<suffix>.md / results.<suffix>.json, so a second "
+                             "grading sits beside the first instead of replacing it")
     args = parser.parse_args(argv)
 
     run_dir = pathlib.Path(args.run)
-    scored = score_run_dir(run_dir)
+    scored = score_run_dir(run_dir, rubric_path=pathlib.Path(args.rubric))
     summary = summarise(scored)
 
-    (run_dir / "results.json").write_text(
+    tag = f".{args.suffix}" if args.suffix else ""
+    (run_dir / f"results{tag}.json").write_text(
         json.dumps({"summary": summary, **scored}, indent=2, default=str), encoding="utf-8",
     )
     markdown = render_markdown(scored, summary)
-    (run_dir / "RESULTS.md").write_text(markdown, encoding="utf-8")
+    (run_dir / f"RESULTS{tag}.md").write_text(markdown, encoding="utf-8")
 
     if scored.get("catalog_drift"):
         print("THE SCENARIO CATALOG CHANGED AFTER THIS RUN: the evidence assertions on disk are "
@@ -612,7 +628,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  evidence: {summary['evidence_passed']} pass, {summary['evidence_failed']} FAIL")
     print(f"  diagnosis: {summary['diagnosis_counts']}")
     print(f"  DIAGNOSIS WRONG AND GATE ALLOWED: {summary['headline_wrong_and_allowed']}")
-    print(f"\nwrote {run_dir / 'RESULTS.md'}")
+    print(f"\nwrote {run_dir / f'RESULTS{tag}.md'}")
     return 0
 
 
