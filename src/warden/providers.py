@@ -253,7 +253,13 @@ class OpenAICompatProvider:
 # an exhausted account. A miss here degrades to a plain ProviderError - still an error, still
 # recorded - rather than to a false success.
 _USAGE_LIMIT = re.compile(
-    r"usage limit|limit reached|rate limit|quota|credit balance is too low|out of credits",
+    # ⛔ "session limit" was MISSING, and it is the wording the CLI actually uses. The live wave hit
+    # it verbatim - "You've hit your session limit · resets 7:40pm (Asia/Kolkata)" - and because
+    # only "usage limit" / "limit reached" were matched, it was classified as an ordinary error:
+    # retried three times per call against an empty pool, and the wave did not stop. The message was
+    # only readable at all because complete() reports stdout as well as stderr.
+    r"usage limit|session limit|hit your \w+ limit|limit reached|rate limit|quota"
+    r"|credit balance is too low|out of credits",
     re.IGNORECASE,
 )
 

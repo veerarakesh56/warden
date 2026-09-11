@@ -245,3 +245,15 @@ def test_the_cli_is_spoken_to_in_utf8_not_the_windows_code_page(provider, monkey
     provider.complete(system="s", user="ALERT: x \u2014 y. HYPOTHESIS: a \u2192 b")
     assert rec.kwargs.get("encoding") == "utf-8"
     assert rec.kwargs["input"].encode(rec.kwargs["encoding"])  # must not raise
+
+
+def test_the_real_session_limit_message_is_recognised(provider, monkeypatch):
+    """⛔ The exact text the CLI printed when a live wave hit the limit. The first version of the
+    pattern did not match it, so the limit was retried and the wave kept going."""
+    from warden.providers import ProviderExhausted
+
+    real = "You've hit your session limit \u00b7 resets 7:40pm (Asia/Kolkata)"
+    rec = _Recorder(returncode=1, stdout=real, stderr="")
+    monkeypatch.setattr(subprocess, "run", rec)
+    with pytest.raises(ProviderExhausted):
+        provider.complete(system="s", user="u")
