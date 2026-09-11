@@ -56,7 +56,8 @@ resource "aws_ecs_cluster_capacity_providers" "this" {
 }
 
 resource "aws_iam_role" "task_execution" {
-  name = "${local.name}-exec"
+  permissions_boundary = local.permissions_boundary
+  name                 = "${local.name}-exec"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

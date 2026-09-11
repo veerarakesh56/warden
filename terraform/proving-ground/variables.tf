@@ -98,3 +98,20 @@ variable "healthy_image" {
   type        = string
   default     = "public.ecr.aws/docker/library/python:3.12-alpine"
 }
+
+variable "permissions_boundary_name" {
+  description = <<-EOT
+    Name of the IAM permissions boundary every role here must carry, or "" for none.
+
+    Set this to "WardenProvingGroundBoundary" once that policy exists AND is attached to the
+    operator user. From then on the boundary DENIES creating any role that does not carry it -
+    that is what stops the operator escalating by creating a broad role and passing it to an ECS
+    task - so an apply with this left empty fails on CreateRole with AccessDenied. That is the
+    intended failure: loud, early, and before anything is created without the ceiling.
+
+    Only the NAME is given; the ARN is built from the caller's own account, so no account id ever
+    has to be written into a file.
+  EOT
+  type        = string
+  default     = ""
+}

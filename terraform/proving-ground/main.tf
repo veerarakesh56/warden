@@ -61,7 +61,12 @@ locals {
   # The ECS service is named `checkout` because that is the service name in the bundled incidents,
   # so `warden run --incident inc-002` points at it with no override.
   service_name = "checkout"
-  log_group    = "/ecs/${local.service_name}"
+
+  # The ceiling every role must carry; null when no boundary is in use. See var.permissions_boundary_name.
+  permissions_boundary = var.permissions_boundary_name == "" ? null : (
+    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.permissions_boundary_name}"
+  )
+  log_group = "/ecs/${local.service_name}"
 }
 
 # --------------------------------------------------------------------------- network

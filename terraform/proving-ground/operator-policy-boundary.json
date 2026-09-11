@@ -1,0 +1,245 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CeilingRegionalServicesTheBenchmarkUses",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "ecs:*",
+        "ecr:*",
+        "eks:*",
+        "rds:*",
+        "logs:*",
+        "cloudwatch:*",
+        "elasticloadbalancing:*",
+        "lambda:*",
+        "sqs:*",
+        "s3:*",
+        "autoscaling:*",
+        "application-autoscaling:*",
+        "events:*",
+        "tag:*",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:ListSecrets",
+        "kms:DescribeKey",
+        "kms:ListAliases"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "CeilingIamOnlyForWardenPgRolesAndProfiles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePermissionsBoundary",
+        "iam:CreateInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/warden-pg-*",
+        "arn:aws:iam::*:instance-profile/warden-pg-*"
+      ]
+    },
+    {
+      "Sid": "CeilingPassAndAssumeOnlyWardenPgRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole",
+        "sts:AssumeRole"
+      ],
+      "Resource": "arn:aws:iam::*:role/warden-pg-*"
+    },
+    {
+      "Sid": "CeilingEditOnlyTheOperatorsOwnPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion"
+      ],
+      "Resource": "arn:aws:iam::*:policy/WardenProvingGroundOperator"
+    },
+    {
+      "Sid": "CeilingServiceLinkedRolesForTheseServicesOnly",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "eks.amazonaws.com",
+            "eks-nodegroup.amazonaws.com",
+            "rds.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "autoscaling.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CeilingOnlyTheProvingGroundsOwnBudget",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "budgets:ModifyBudget",
+        "budgets:TagResource",
+        "budgets:UntagResource",
+        "budgets:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:budgets::*:budget/warden-pg-*"
+    },
+    {
+      "Sid": "CeilingWhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyTouchingThisBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:DeletePolicy",
+        "iam:TagPolicy",
+        "iam:UntagPolicy"
+      ],
+      "Resource": "arn:aws:iam::*:policy/WardenProvingGroundBoundary"
+    },
+    {
+      "Sid": "DenyRemovingOrReplacingAnyBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteUserPermissionsBoundary",
+        "iam:PutUserPermissionsBoundary",
+        "iam:DeleteRolePermissionsBoundary"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyAnyRoleThatDoesNotCarryThisBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "iam:PermissionsBoundary": "arn:aws:iam::*:policy/WardenProvingGroundBoundary"
+        }
+      }
+    },
+    {
+      "Sid": "DenyIdentityGroupAndOrganisationChanges",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateUser",
+        "iam:DeleteUser",
+        "iam:CreateAccessKey",
+        "iam:DeleteAccessKey",
+        "iam:UpdateAccessKey",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "iam:DeleteLoginProfile",
+        "iam:AttachUserPolicy",
+        "iam:DetachUserPolicy",
+        "iam:PutUserPolicy",
+        "iam:DeleteUserPolicy",
+        "iam:CreateGroup",
+        "iam:AddUserToGroup",
+        "iam:RemoveUserFromGroup",
+        "iam:AttachGroupPolicy",
+        "iam:PutGroupPolicy",
+        "iam:CreatePolicy",
+        "iam:DeleteAccountPasswordPolicy",
+        "iam:UpdateAccountPasswordPolicy",
+        "iam:CreateSAMLProvider",
+        "iam:CreateOpenIDConnectProvider",
+        "iam:DeleteOpenIDConnectProvider",
+        "organizations:*",
+        "account:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDestroyingS3DataThatIsNotOurs",
+      "Effect": "Deny",
+      "Action": [
+        "s3:DeleteBucket",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutBucketAcl",
+        "s3:PutObjectAcl"
+      ],
+      "NotResource": [
+        "arn:aws:s3:::warden-pg-*",
+        "arn:aws:s3:::warden-pg-*/*"
+      ]
+    },
+    {
+      "Sid": "DenyDestroyingKeysSecretsTablesAndSnapshots",
+      "Effect": "Deny",
+      "Action": [
+        "kms:ScheduleKeyDeletion",
+        "kms:DisableKey",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:PutSecretValue",
+        "dynamodb:DeleteTable",
+        "rds:DeleteDBCluster",
+        "rds:DeleteDBSnapshot",
+        "rds:DeleteDBClusterSnapshot"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyTheComputeThatWouldMakeAStolenKeyWorthStealing",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:RunInstances",
+        "ec2:RequestSpotInstances",
+        "ec2:RequestSpotFleet",
+        "ec2:CreateFleet",
+        "ec2:RunScheduledInstances",
+        "ec2:PurchaseReservedInstancesOffering",
+        "ec2:PurchaseHostReservation",
+        "ec2:AllocateHosts"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

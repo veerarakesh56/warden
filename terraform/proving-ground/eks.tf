@@ -9,8 +9,9 @@
 # ⛔ $0.10/hour for the control plane, running or idle. `-var enable_eks=false` skips this file.
 
 resource "aws_iam_role" "eks_cluster" {
-  count = var.enable_eks ? 1 : 0
-  name  = "${local.name}-eks-cluster"
+  permissions_boundary = local.permissions_boundary
+  count                = var.enable_eks ? 1 : 0
+  name                 = "${local.name}-eks-cluster"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -54,8 +55,9 @@ resource "aws_eks_cluster" "this" {
 # --------------------------------------------------------------------------- nodes
 
 resource "aws_iam_role" "eks_node" {
-  count = var.enable_eks ? 1 : 0
-  name  = "${local.name}-eks-node"
+  permissions_boundary = local.permissions_boundary
+  count                = var.enable_eks ? 1 : 0
+  name                 = "${local.name}-eks-node"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

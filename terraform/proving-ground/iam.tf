@@ -51,6 +51,7 @@ data "aws_iam_policy_document" "reader" {
 }
 
 resource "aws_iam_role" "reader" {
+  permissions_boundary = local.permissions_boundary
   # The `warden-` prefix is load-bearing: scenarios/ops.py refuses to modify any role whose name
   # does not start with it, which is what stops a fault injection reaching a real role.
   name                 = "${local.name}-reader"

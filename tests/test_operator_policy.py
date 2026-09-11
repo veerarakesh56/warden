@@ -113,6 +113,8 @@ def test_every_action_the_fault_injector_calls_is_granted():
 
     granted: set[str] = set()
     for path in POLICIES:
+        if path.name == "operator-policy-boundary.json":
+            continue  # a ceiling, not a grant - it must never make a missing grant look present
         for statement in _statements(path):
             if statement.get("Effect") != "Allow":
                 continue
@@ -129,3 +131,137 @@ def test_every_action_the_fault_injector_calls_is_granted():
         "scenarios/ops.py makes these calls and no operator policy grants them:\n  "
         + "\n  ".join(missing)
     )
+
+
+# --------------------------------------------------------------------------- the permissions boundary
+#
+# ⛔ The operator may edit its own policy, so that it can grant itself what a new wave needs without
+# a human pasting JSON each time. A principal that can edit its own permissions is an administrator
+# UNLESS something it cannot edit caps what those permissions can reach. That something is
+# operator-policy-boundary.json, and these tests are the reason to believe it holds.
+#
+# ⚠ These check the policy DOCUMENTS, action by action. They are not a full IAM evaluation - AWS's
+# policy simulator is the authority, and a real attempt to exceed the ceiling is the proof.
+
+BOUNDARY = TF_DIR / "operator-policy-boundary.json"
+OPERATOR = TF_DIR / "operator-policy.json"
+BOUNDARY_ARN = "arn:aws:iam::*:policy/WardenProvingGroundBoundary"
+OPERATOR_ARN = "arn:aws:iam::*:policy/WardenProvingGroundOperator"
+
+
+def _matches(pattern: str, action: str) -> bool:
+    import fnmatch
+
+    return fnmatch.fnmatchcase(action.lower(), pattern.lower())
+
+
+def _denies(action: str, resource: str) -> bool:
+    """Does the boundary deny this action on this resource, unconditionally?"""
+    import fnmatch
+
+    for st in _statements(BOUNDARY):
+        if st["Effect"] != "Deny" or "Condition" in st:
+            continue
+        if not any(_matches(p, action) for p in _actions(st)):
+            continue
+        resources = st.get("Resource")
+        resources = [resources] if isinstance(resources, str) else (resources or [])
+        if any(fnmatch.fnmatchcase(resource, r) for r in resources):
+            return True
+    return False
+
+
+def test_the_operator_can_edit_only_its_own_policy():
+    """Self-edit on ANY other policy would let it rewrite the permissions of principals it does not
+    own - including whatever the account owner is attached to."""
+    for path in (OPERATOR, BOUNDARY):
+        for st in _statements(path):
+            if st["Effect"] != "Allow":
+                continue
+            if any(_matches(a, "iam:CreatePolicyVersion") for a in _actions(st)):
+                assert st["Resource"] == OPERATOR_ARN, f"{path.name}::{st['Sid']} -> {st['Resource']}"
+
+
+def test_the_boundary_cannot_be_edited_by_the_principal_it_bounds():
+    """⛔ Load-bearing. If the operator could edit the ceiling, the ceiling would be a suggestion."""
+    for action in ("iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion",
+                   "iam:DeletePolicyVersion", "iam:DeletePolicy"):
+        assert _denies(action, BOUNDARY_ARN), f"{action} on the boundary is not denied"
+
+
+def test_the_boundary_cannot_be_detached_or_replaced():
+    """⛔ Removing the boundary from itself is the one-step way out of it."""
+    for action in ("iam:DeleteUserPermissionsBoundary", "iam:PutUserPermissionsBoundary",
+                   "iam:DeleteRolePermissionsBoundary"):
+        assert _denies(action, "arn:aws:iam::111122223333:user/warden-operator"), action
+
+
+def test_every_new_role_must_carry_the_boundary():
+    """⛔ Closes the indirect route out: create a role with broad permissions, pass it to an ECS
+    task, and run code as that role. A role carrying the same boundary cannot exceed it either.
+
+    The condition relies on documented IAM behaviour: a negated operator (ArnNotLike) evaluates TRUE
+    when the key is absent - so a CreateRole with no boundary at all is denied, not waved through."""
+    st = next(s for s in _statements(BOUNDARY) if s["Sid"] == "DenyAnyRoleThatDoesNotCarryThisBoundary")
+    assert st["Effect"] == "Deny"
+    assert "iam:CreateRole" in _actions(st)
+    assert st["Condition"] == {"ArnNotLike": {"iam:PermissionsBoundary": BOUNDARY_ARN}}
+
+
+def test_the_boundary_never_allows_identity_or_group_escalation():
+    """Attaching a policy to a group the operator is in, or to itself, sidesteps a user boundary."""
+    for action in ("iam:AttachUserPolicy", "iam:PutUserPolicy", "iam:AttachGroupPolicy",
+                   "iam:PutGroupPolicy", "iam:AddUserToGroup", "iam:CreateAccessKey",
+                   "iam:CreateUser", "iam:CreatePolicy"):
+        assert _denies(action, "*"), f"{action} is not denied by the boundary"
+
+
+def test_roles_can_only_be_assumed_or_passed_within_the_proving_ground():
+    """With self-edit, the operator could grant itself sts:AssumeRole on ANY role - including an
+    existing admin role that trusts the account. The ceiling has to stop that."""
+    for st in _statements(BOUNDARY):
+        if st["Effect"] == "Allow" and any(a in ("sts:AssumeRole", "iam:PassRole") for a in _actions(st)):
+            assert st["Resource"] == "arn:aws:iam::*:role/warden-pg-*", st["Sid"]
+
+
+def test_the_operator_policy_fits_inside_the_boundary():
+    """Every action the operator grants must be allowed by the ceiling and not flatly denied by it.
+    A grant the boundary silently cancels is a permission that looks present and is not."""
+    ceiling = [a for st in _statements(BOUNDARY) if st["Effect"] == "Allow" for a in _actions(st)]
+    outside = []
+    for st in _statements(OPERATOR):
+        if st["Effect"] != "Allow":
+            continue
+        for action in _actions(st):
+            if not any(_matches(p, action) for p in ceiling):
+                outside.append(f"{st['Sid']}: {action} (not in the ceiling)")
+            elif _denies(action, "*"):
+                outside.append(f"{st['Sid']}: {action} (flatly denied by the boundary)")
+    assert not outside, "granted by the operator policy but cancelled by the boundary:\n  " + \
+        "\n  ".join(outside)
+
+
+def test_budgets_are_scoped_to_the_proving_ground():
+    """It was `Resource: "*"` - which let this user modify or delete ANY budget, including the
+    account-level alarm its owner relies on. Found while writing the boundary."""
+    for path in (OPERATOR, BOUNDARY):
+        for st in _statements(path):
+            if st["Effect"] == "Allow" and any(a.startswith("budgets:") for a in _actions(st)):
+                assert st["Resource"] == "arn:aws:budgets::*:budget/warden-pg-*", f"{path.name}::{st['Sid']}"
+
+
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
+def test_no_two_statements_share_a_sid(path):
+    """IAM rejects a policy with a repeated Sid. A merge that duplicated one did exactly that, and
+    it would only have surfaced on the paste."""
+    sids = [st.get("Sid") for st in _statements(path) if st.get("Sid")]
+    assert len(sids) == len(set(sids)), f"duplicate Sid in {path.name}"
+
+
+@pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
+def test_no_account_id_is_written_into_a_policy(path):
+    """The ARNs wildcard the account (`arn:aws:iam::*:...`). A literal account id here would be one
+    more place it leaks from, and the policies are meant to be pasted anywhere."""
+    import re
+
+    assert not re.search(r"\b\d{12}\b", path.read_text(encoding="utf-8"))

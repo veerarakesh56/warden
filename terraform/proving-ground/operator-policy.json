@@ -30,7 +30,6 @@
         "ec2:RevokeSecurityGroupIngress",
         "ec2:CreateTags",
         "ec2:DeleteTags",
-
         "ecs:CreateCluster",
         "ecs:DeleteCluster",
         "ecs:DescribeClusters",
@@ -53,7 +52,6 @@
         "ecs:ListTagsForResource",
         "ecs:ListTaskDefinitions",
         "ecs:ListServices",
-
         "logs:CreateLogGroup",
         "logs:DeleteLogGroup",
         "logs:DescribeLogGroups",
@@ -67,10 +65,8 @@
         "logs:TagLogGroup",
         "logs:UntagLogGroup",
         "logs:ListTagsLogGroup",
-
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
-
         "tag:GetResources",
         "tag:TagResources",
         "tag:UntagResources"
@@ -101,7 +97,8 @@
         "iam:TagRole",
         "iam:UntagRole",
         "iam:UpdateAssumeRolePolicy",
-        "iam:UpdateRole"
+        "iam:UpdateRole",
+        "iam:PutRolePermissionsBoundary"
       ],
       "Resource": "arn:aws:iam::*:role/warden-pg-*"
     },
@@ -144,7 +141,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "BudgetsAndIamAreGlobalSoNoRegionCondition",
+      "Sid": "OnlyTheProvingGroundsOwnBudgetAndGlobalSoNoRegionCondition",
       "Effect": "Allow",
       "Action": [
         "budgets:ViewBudget",
@@ -153,7 +150,20 @@
         "budgets:UntagResource",
         "budgets:ListTagsForResource"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:budgets::*:budget/warden-pg-*"
+    },
+    {
+      "Sid": "EditOnlyThisPolicyAndOnlyWithinTheBoundary",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion"
+      ],
+      "Resource": "arn:aws:iam::*:policy/WardenProvingGroundOperator"
     },
     {
       "Sid": "NeverTouchIdentityOutsideTheProvingGround",
