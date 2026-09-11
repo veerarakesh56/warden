@@ -612,3 +612,43 @@ def test_resume_refuses_a_different_cluster(tmp_path):
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(SystemExit, match="Start a new run"):
         runner.main(["--resume", str(tmp_path)])
+
+
+# --------------------------------------------------------------------------- forced re-runs
+#
+# ⛔ Forcing a COMPLETE scenario to run again is exactly the mechanism a benchmark would use to cheat:
+# re-run until the answer improves, keep the better one. It exists because a real bug - the claude_cli
+# provider garbling one character of every prompt - made six completed scenarios unrepresentative.
+# So it is only available with a written reason, and the old attempts are kept, not replaced.
+
+
+def test_a_forced_rerun_without_a_reason_is_refused(tmp_path):
+    """⛔ Load-bearing. Without a reason, --rerun is 're-run until you like it'."""
+    _run(tmp_path)
+    with pytest.raises(SystemExit, match="needs --reason"):
+        runner.main(["--resume", str(tmp_path), "--rerun", "ecs-01"])
+
+
+def test_a_forced_rerun_keeps_the_old_attempt_and_records_why(tmp_path):
+    _run(tmp_path)
+    runner.main(["--resume", str(tmp_path), "--rerun", "ecs-01",
+                 "--reason", "provider garbled one character of every prompt before 2e2e074"])
+    kept = tmp_path / "ground-truth" / "superseded" / "ecs-01-healthy-control.attempt-1.json"
+    assert kept.exists(), "a forced re-run must never replace the evidence it supersedes"
+    entry = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))["resumes"][-1]
+    assert entry["forced"] == ["ecs-01-healthy-control"]
+    assert "garbled" in entry["reason"]
+    assert entry["rerun"] == ["ecs-01-healthy-control"], "only what was asked for, nothing else"
+
+
+def test_rerun_without_resume_is_refused(tmp_path):
+    with pytest.raises(SystemExit, match="only makes sense with --resume"):
+        runner.main(["--wave", "1", "--dry-run", "--rerun", "ecs-01", "--reason", "x",
+                     "--out", str(tmp_path)])
+
+
+def test_a_rerun_that_matches_nothing_is_refused(tmp_path):
+    """A typo in --rerun must not quietly do nothing and look like it worked."""
+    _run(tmp_path)
+    with pytest.raises(SystemExit, match="matched no scenario"):
+        runner.main(["--resume", str(tmp_path), "--rerun", "ecs-99", "--reason", "x"])

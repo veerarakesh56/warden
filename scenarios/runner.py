@@ -763,6 +763,12 @@ def main(argv: list[str] | None = None) -> int:
     where.add_argument("--resume", default=None, metavar="DIR",
                        help="continue an interrupted run in DIR: complete scenarios are kept, the "
                             "rest are re-run whole. Uses that run's wave, repeat and arm")
+    parser.add_argument("--rerun", default="", metavar="IDS",
+                        help="with --resume: comma-separated scenario id prefixes to re-run even if "
+                             "complete. Requires --reason. The superseded attempts are kept")
+    parser.add_argument("--reason", default="",
+                        help="why --rerun is forcing complete scenarios to run again. Recorded in "
+                             "the manifest and printed in RESULTS.md")
     parser.add_argument("--arm", action="append", default=[], metavar="K=V",
                         help="extra env for WARDEN, e.g. --arm WARDEN_KNOWLEDGE_IN_PROMPT=1. "
                              "Recorded in the manifest")
@@ -772,8 +778,12 @@ def main(argv: list[str] | None = None) -> int:
                              "proves nothing about AWS")
     args = parser.parse_args(argv)
 
+    if args.rerun and not args.resume:
+        raise SystemExit("--rerun only makes sense with --resume")
     if args.resume:
-        return _resume(pathlib.Path(args.resume), args.warden_timeout)
+        rerun = tuple(x.strip() for x in args.rerun.split(",") if x.strip())
+        return _resume(pathlib.Path(args.resume), args.warden_timeout,
+                       rerun=rerun, reason=args.reason.strip())
 
     arm: dict[str, str] = {}
     for pair in args.arm:
@@ -823,8 +833,21 @@ def main(argv: list[str] | None = None) -> int:
     return _run_and_record(harness, scenarios, out, manifest)
 
 
-def _resume(out: pathlib.Path, warden_timeout: float) -> int:
-    """Continue an interrupted run, refusing anything that would make it two runs posing as one."""
+def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] = (),
+            reason: str = "") -> int:
+    """Continue an interrupted run, refusing anything that would make it two runs posing as one.
+
+    ⛔ `rerun` forces COMPLETE scenarios to run again. That is exactly the mechanism a benchmark
+    would use to cheat - re-run a scenario until the answer is a better one, keep that one. So it is
+    only available with a written reason, every superseded attempt is kept rather than replaced,
+    and both the reason and the attempts are printed in RESULTS.md where a reader will see them.
+    """
+    if rerun and not reason:
+        raise SystemExit(
+            "--rerun forces complete scenarios to run again, and needs --reason saying why. "
+            "Re-running until an answer improves is how a benchmark cheats; the reason is what "
+            "makes a legitimate re-run auditable."
+        )
     manifest_path = out / "manifest.json"
     if not manifest_path.exists():
         raise SystemExit(f"--resume {out}: no manifest.json - not a runner output directory")
@@ -853,13 +876,20 @@ def _resume(out: pathlib.Path, warden_timeout: float) -> int:
     wanted = set(manifest.get("scenario_ids") or [])
     scenarios = [s for s in catalog if s["id"] in wanted]
 
-    todo, superseded = [], []
+    unmatched = [p for p in rerun if not any(s["id"].startswith(p) for s in scenarios)]
+    if unmatched:
+        raise SystemExit(f"--rerun {unmatched} matched no scenario in this run")
+
+    todo, superseded, forced = [], [], []
     for scenario in scenarios:
         gt = out / "ground-truth" / f"{scenario['id']}.json"
+        force = scenario["id"].startswith(rerun) if rerun else False
         if gt.exists():
-            if is_complete(json.loads(gt.read_text(encoding="utf-8")), repeat):
+            if is_complete(json.loads(gt.read_text(encoding="utf-8")), repeat) and not force:
                 continue
             superseded.append(supersede(out, scenario["id"]))
+            if force:
+                forced.append(scenario["id"])
         todo.append(scenario)
 
     manifest.setdefault("resumes", []).append({
@@ -867,6 +897,8 @@ def _resume(out: pathlib.Path, warden_timeout: float) -> int:
         "git_commit": _git_commit(),
         "rerun": [s["id"] for s in todo],
         "superseded": superseded,
+        "forced": forced,
+        "reason": reason,
     })
     _write_json(manifest_path, manifest)
     print(f"resuming {out.name}: {len(scenarios) - len(todo)} complete, {len(todo)} to run "

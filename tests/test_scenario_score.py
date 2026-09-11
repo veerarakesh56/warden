@@ -409,3 +409,19 @@ def test_an_unchanged_catalog_says_nothing(tmp_path):
     runner.main(["--wave", "1", "--dry-run", "--repeat", "1", "--only", "ecs-01",
                  "--out", str(tmp_path)])
     assert score.score_run_dir(tmp_path)["catalog_drift"] is False
+
+
+def test_a_forced_rerun_and_its_reason_are_printed_in_the_results(tmp_path):
+    """⛔ An audit trail in a manifest nobody opens is not an audit trail. Forced re-runs are the one
+    mechanism that could cherry-pick answers, so they must be visible where the numbers are read."""
+    from scenarios import runner
+
+    runner.main(["--wave", "1", "--dry-run", "--repeat", "1", "--only", "ecs-01,ecs-02",
+                 "--out", str(tmp_path)])
+    runner.main(["--resume", str(tmp_path), "--rerun", "ecs-01",
+                 "--reason", "the provider garbled one character per prompt"])
+    score.main(["--run", str(tmp_path)])
+    markdown = (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+    assert "resumed 1 time" in markdown
+    assert "ecs-01-healthy-control" in markdown.split("## 7.")[1]
+    assert "garbled one character per prompt" in markdown

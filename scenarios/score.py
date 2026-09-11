@@ -536,6 +536,21 @@ def render_markdown(scored: dict, summary: dict) -> str:
 
     add("## 7. What did not produce a score")
     add("")
+    # ⛔ Every resume and every forced re-run is printed here, where a reader of the results sees it -
+    # not left in a manifest nobody opens. Re-running a scenario until the answer improves is how a
+    # benchmark cheats, so the only defence is that nothing can be re-run out of sight.
+    resumes = manifest.get("resumes") or []
+    if resumes:
+        add(f"This run was interrupted and resumed {len(resumes)} time(s). Superseded attempts are "
+            "kept, unscored, under `ground-truth/superseded/`.")
+        add("")
+        add("| Resumed at | Commit | Re-run | Forced (were complete) | Reason |")
+        add("|---|---|---|---|---|")
+        for entry in resumes:
+            add(f"| {str(entry.get('at', ''))[:19]} | `{str(entry.get('git_commit', ''))[:7]}` "
+                f"| {len(entry.get('rerun') or [])} | {', '.join(entry.get('forced') or []) or '—'} "
+                f"| {entry.get('reason') or '— (only incomplete scenarios)'} |")
+        add("")
     if scored["incomplete"]:
         add("Scenarios that did not complete cleanly:")
         add("")
