@@ -54,6 +54,12 @@ ERROR = "ERROR"
 PASSIVE = ("escalate_to_human", "no_action")
 
 
+def _content_sha256(path: pathlib.Path) -> str:
+    """LF-normalised hash, so a CRLF checkout and an LF checkout agree. Identical to
+    scenarios/runner.py::_sha256 - see there for why raw bytes gave a false tamper alarm."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 class ScoringError(RuntimeError):
     """The artefacts or the rubric cannot be graded. Never downgraded to a warning."""
 
@@ -269,7 +275,7 @@ def score_run_dir(run_dir: pathlib.Path) -> dict:
     # the manifest would still carry the OLD hash. That is the exact failure this benchmark says it
     # is protecting against, and it must be visible in the output rather than trusted to habit.
     recorded = manifest.get("scoring_sha256")
-    current = hashlib.sha256(SCORING.read_bytes()).hexdigest()
+    current = _content_sha256(SCORING)
     rubric_drift = bool(recorded) and recorded != current
 
     # ⛔ The catalog counts too, and this was missed the first time. `scoring.yaml` holds the
@@ -281,7 +287,7 @@ def score_run_dir(run_dir: pathlib.Path) -> dict:
     # first real run, so re-scoring that run today would quietly apply the NEW assertions to OLD
     # evidence and report a result nobody measured.
     recorded_catalog = manifest.get("catalog_sha256") or {}
-    current_catalog = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+    current_catalog = {p.name: _content_sha256(p)
                        for p in sorted(CATALOG.glob("*.yaml"))}
     catalog_drift = bool(recorded_catalog) and recorded_catalog != current_catalog
 

@@ -425,3 +425,17 @@ def test_a_forced_rerun_and_its_reason_are_printed_in_the_results(tmp_path):
     assert "resumed 1 time" in markdown
     assert "ecs-01-healthy-control" in markdown.split("## 7.")[1]
     assert "garbled one character per prompt" in markdown
+
+
+def test_the_rubric_hash_does_not_depend_on_line_endings(tmp_path):
+    """⛔ Raw bytes made the hash describe the CHECKOUT, not the rubric. On a Windows clone (CRLF)
+    and a Linux clone (LF) of the same commit, a published bundle's rubric hash disagreed - so the
+    drift check would have called untouched results tampered with, for anyone on another OS."""
+    from scenarios import runner
+
+    lf, crlf = tmp_path / "lf.yaml", tmp_path / "crlf.yaml"
+    lf.write_bytes(b"a: 1\nb: 2\n")
+    crlf.write_bytes(b"a: 1\r\nb: 2\r\n")
+    assert score._content_sha256(lf) == score._content_sha256(crlf)
+    assert runner._sha256(lf) == runner._sha256(crlf)
+    assert score._content_sha256(lf) == runner._sha256(lf), "runner and scorer must agree"

@@ -201,7 +201,16 @@ def load_wave(wave: int) -> tuple[dict, list[dict]]:
 
 
 def _sha256(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hash of the file's CONTENT, independent of the platform's line endings.
+
+    ⛔ This hashed raw bytes, and git on Windows checks text files out with CRLF. So the rubric hash
+    recorded in a manifest described this laptop's checkout, not the rubric: anyone re-scoring a
+    published bundle from a Linux or macOS clone would get a different hash, and the scorer's drift
+    check would announce "THE RUBRIC CHANGED AFTER THIS RUN" about results that were never touched.
+    A tamper check that fires on honest data is worse than none. Normalising to LF makes the hash
+    the same on every platform. Must stay identical to scenarios/score.py::_content_sha256.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def _now() -> str:
