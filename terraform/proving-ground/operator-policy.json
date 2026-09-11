@@ -166,6 +166,16 @@
       "Resource": "arn:aws:iam::*:policy/WardenProvingGroundOperator"
     },
     {
+      "Sid": "ValidatePoliciesWithAccessAnalyzer",
+      "Effect": "Allow",
+      "Action": [
+        "access-analyzer:ValidatePolicy",
+        "access-analyzer:CheckNoNewAccess",
+        "access-analyzer:CheckAccessNotGranted"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "NeverTouchIdentityOutsideTheProvingGround",
       "Effect": "Deny",
       "Action": [

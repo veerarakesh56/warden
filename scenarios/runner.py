@@ -19,7 +19,8 @@ nothing at all. That exact defect was found in this project once already.
 contaminated account while looking like a perfectly normal run, and nothing in the output would say
 so.
 
-⛔ RUN IT DETACHED, AND IF IT STOPS, RESUME IT. A wave takes around two hours. Twice, the wave was
+⛔ RUN IT DETACHED, AND IF IT STOPS, RESUME IT. A 14-scenario wave takes about seven hours, and
+most of it is the 18-minute quiet period before each inject (see QUIET_SECONDS). Twice, the wave was
 launched as a child of an interactive Claude Code session and died with it - the second time
 because the session ran out of usage, which the wave's own `claude -p` calls had helped exhaust. The
 runner now stops cleanly on an exhausted provider, and `--resume DIR` continues from where it
