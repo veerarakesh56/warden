@@ -126,6 +126,16 @@
       "Resource": "*"
     },
     {
+      "Sid": "CeilingPolicyValidationOnlyReadsTheDocumentItIsSent",
+      "Effect": "Allow",
+      "Action": [
+        "access-analyzer:ValidatePolicy",
+        "access-analyzer:CheckNoNewAccess",
+        "access-analyzer:CheckAccessNotGranted"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "DenyTouchingThisBoundary",
       "Effect": "Deny",
       "Action": [
