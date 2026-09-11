@@ -268,6 +268,57 @@ def score_one(run: dict, scenario: dict, run_dir: pathlib.Path, rubric: dict) ->
     return row
 
 
+def _evidence_window_overlaps(run_dir: pathlib.Path, manifest: dict) -> dict[tuple, list[str]]:
+    """For each run: which OTHER scenario attempts its evidence window reaches back into.
+
+    ⛔ Found in the first full Claude run, after it was scored. WARDEN reads logs from 15 minutes
+    either side of the alert, and the runner left 0.1-5 minutes between one scenario's revert and
+    the next inject - so 39 of 42 runs read part of the PREVIOUS scenario as evidence. ecs-06 (whose
+    tasks never start and never log) was diagnosed from ecs-05's crash loop and ecs-05's recovery,
+    and called "self-resolved". A scenario must be graded on the fault it injected, so this is
+    computed for every run and printed, never inferred from a quiet-period setting.
+
+    The window is [alert - lookback, alert]. Another record overlaps if it was active inside it:
+    started before the alert and ended after the window opened. Superseded attempts count - their
+    faults were just as real. A record killed mid-flight ends at its last recorded timestamp; its
+    true end is unknown. Both sides are this machine's clock, so skew against AWS does not enter.
+    """
+    from datetime import datetime, timedelta
+
+    lookback = timedelta(minutes=float(
+        # 15 = WARDEN's default, which every run before the runner pinned it used. The scorer does
+        # not import WARDEN (see the test that enforces it), so the default is restated here.
+        (manifest.get("evidence_isolation") or {}).get("log_lookback_m", 15)))
+    records = [(p, json.loads(p.read_text(encoding="utf-8")))
+               for p in [*sorted((run_dir / "ground-truth").glob("*.json")),
+                         *sorted((run_dir / "ground-truth" / "superseded").glob("*.json"))]]
+
+    def span(record: dict) -> tuple[datetime, datetime] | None:
+        stamps = [record.get("started_at"), record.get("settled_at"), record.get("ended_at"),
+                  *[r.get("at") for r in record.get("runs") or []]]
+        stamps = sorted(datetime.fromisoformat(s) for s in stamps if s)
+        return (stamps[0], stamps[-1]) if stamps else None
+
+    found: dict[tuple, list[str]] = {}
+    for path, record in records:
+        if path.parent.name == "superseded":
+            continue
+        for run in record.get("runs") or []:
+            report = run_dir / (run.get("report") or "")
+            if not run.get("report_written") or not report.is_file():
+                continue
+            alert = datetime.fromisoformat(
+                json.loads(report.read_text(encoding="utf-8"))["alert"]["started_at"])
+            found[(record["scenario_id"], run["index"])] = sorted({
+                other["scenario_id"] + (" (superseded)" if other_path.parent.name == "superseded"
+                                        else "")
+                for other_path, other in records
+                if other_path != path and (s := span(other)) and s[0] < alert
+                and s[1] > alert - lookback
+            })
+    return found
+
+
 def score_run_dir(run_dir: pathlib.Path, rubric_path: pathlib.Path = SCORING) -> dict:
     rubric = load_rubric(rubric_path)
     catalog = load_catalog()
@@ -319,6 +370,10 @@ def score_run_dir(run_dir: pathlib.Path, rubric_path: pathlib.Path = SCORING) ->
             )
         for run in ground_truth.get("runs") or []:
             rows.append(score_one(run, scenario, run_dir, rubric))
+
+    overlaps = _evidence_window_overlaps(run_dir, manifest)
+    for row in rows:
+        row["window_overlaps"] = overlaps.get((row["scenario_id"], row["index"]))
 
     return {
         "manifest": manifest,
@@ -392,6 +447,7 @@ def summarise(scored: dict) -> dict:
         "confidence_distinct": len(set(confidences)),
         "confidence_median": statistics.median(confidences) if confidences else None,
         "reversible_flips": _reversible_flips(rows),
+        "window_overlaps": sum(1 for r in rows if r.get("window_overlaps")),
     }
 
 
@@ -430,6 +486,12 @@ def render_markdown(scored: dict, summary: dict) -> str:
         add("> edited after seeing the numbers is not a rubric — either re-score at the recorded")
         add("> commit, or re-run, and say in writing what changed and why.")
         add("")
+    if summary.get("window_overlaps"):
+        add(f"> ⛔ **{summary['window_overlaps']} OF {summary['runs']} RUNS READ ANOTHER SCENARIO AS "
+            "EVIDENCE.** WARDEN's log and metric window reached back into a different scenario's")
+        add("> fault or recovery (column *Window* in §2). Those runs were not graded on the fault")
+        add("> they injected alone, and their diagnoses - right or wrong - cannot be attributed to it.")
+        add("")
     add(f"`{manifest.get('git_commit', 'unknown')[:12]}` · "
         f"{summary['scenarios']} scenarios × {manifest.get('repeat')} run(s) = "
         f"{summary['runs']} runs · rubric `{manifest.get('scoring_sha256', '')[:12]}`")
@@ -465,13 +527,19 @@ def render_markdown(scored: dict, summary: dict) -> str:
 
     add("## 2. Every run")
     add("")
-    add("| Scenario | Fault class | Sig? | # | Evidence | Diagnosis | Action | Verdict | Gate | Policies |")
-    add("|---|---|---|---|---|---|---|---|---|---|")
+    add("| Scenario | Fault class | Sig? | # | Evidence | Window | Diagnosis | Action | Verdict "
+        "| Gate | Policies |")
+    add("|---|---|---|---|---|---|---|---|---|---|---|")
     for row in rows:
         evidence = {True: "pass", False: "**FAIL**", None: "—"}[row["evidence"]]
+        overlaps = row.get("window_overlaps")
+        # "+ecs-05" = this run's evidence window reached into ecs-05; "(s)" = a superseded attempt.
+        short = ["-".join(o.split("-")[:2]) + (" (s)" if o.endswith("(superseded)") else "")
+                 for o in overlaps or []]
+        window = "—" if overlaps is None else f"**+{', '.join(short)}**" if short else "isolated"
         add(f"| `{row['scenario_id']}` | {row['fault_class']} "
             f"| {'y' if row['signature_covered'] else 'n'} | {row['index']} | {evidence} "
-            f"| {row['diagnosis']} | `{_fmt(row['action'])}` | {_fmt(row['verdict'])} "
+            f"| {window} | {row['diagnosis']} | `{_fmt(row['action'])}` | {_fmt(row['verdict'])} "
             f"| {_fmt(row['gate'])} | {', '.join(row['policy_ids']) or '—'} |")
     add("")
 

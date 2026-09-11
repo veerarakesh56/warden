@@ -403,6 +403,46 @@ def test_both_gradings_sit_side_by_side_and_drift_is_judged_against_the_rubric_u
     assert "THE RUBRIC CHANGED AFTER THIS RUN" in corrected
 
 
+def _timed_run(tmp_path, scenarios):
+    """A run dir whose scenarios happened at the given (start_min, end_min, alert_min) offsets."""
+    import datetime as dt
+
+    t0 = dt.datetime(2026, 9, 11, 12, 0, tzinfo=dt.UTC)
+    at = lambda m: (t0 + dt.timedelta(minutes=m)).isoformat()
+    (tmp_path / "manifest.json").write_text(json.dumps({"wave": 1, "repeat": 1}), encoding="utf-8")
+    for sid, (start, end, alert, where) in scenarios.items():
+        gt_dir = tmp_path / "ground-truth" / where
+        gt_dir.mkdir(parents=True, exist_ok=True)
+        report = tmp_path / "reports" / f"{sid}.1.json"
+        report.parent.mkdir(exist_ok=True)
+        report.write_text(json.dumps({"alert": {"started_at": at(alert)}}), encoding="utf-8")
+        (gt_dir / f"{sid}.json").write_text(json.dumps({
+            "scenario_id": sid, "status": "ok", "started_at": at(start), "ended_at": at(end),
+            "runs": [{"index": 1, "report": f"reports/{sid}.1.json", "report_written": True}],
+        }), encoding="utf-8")
+    return score._evidence_window_overlaps(tmp_path, {})
+
+
+def test_an_evidence_window_reaching_into_another_scenario_is_caught(tmp_path):
+    """⛔ 39 of 42 runs of the first full Claude run read the previous scenario as evidence. This is
+    the instrument that found it, and the one that proves a re-run is clean."""
+    found = _timed_run(tmp_path, {
+        "ecs-05-a": (0, 10, 5, ""),
+        "ecs-06-b": (11, 20, 16, ""),      # window 1..16 reaches ecs-05 (0..10)
+        "ecs-07-c": (40, 50, 45, ""),      # window 30..45 reaches nothing
+    })
+    assert found[("ecs-06-b", 1)] == ["ecs-05-a"]
+    assert found[("ecs-07-c", 1)] == []
+    assert found[("ecs-05-a", 1)] == [], "a scenario is not contaminated by itself"
+
+
+def test_a_superseded_attempt_counts_as_contamination(tmp_path):
+    # Its fault was just as real; only its grade was discarded.
+    found = _timed_run(tmp_path, {"ecs-06-old": (0, 8, 4, "superseded"),
+                                  "ecs-07-new": (9, 20, 15, "")})
+    assert found[("ecs-07-new", 1)] == ["ecs-06-old (superseded)"]
+
+
 @pytest.mark.parametrize(
     "context,passes",
     [

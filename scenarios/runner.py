@@ -81,6 +81,24 @@ PASSTHROUGH = (
 # ⛔ HOME and USERPROFILE are deliberately absent. See the module docstring.
 SYSTEM_ENV = ("PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "COMSPEC", "PATHEXT", "LANG", "TZ")
 
+# ⛔ How far back WARDEN reads logs and metrics from the alert - pinned here, not left to WARDEN's
+# defaults, because QUIET_SECONDS is derived from it and the two must not drift apart.
+#
+# The first full Claude run left 0.1-5 minutes between one scenario's revert and the next inject,
+# while WARDEN reads 15 minutes back. 39 of 42 runs read the previous scenario as evidence; ecs-06,
+# whose tasks never start, was diagnosed from ecs-05's crash loop and recovery and called
+# "self-resolved". `check_baseline` isolates the STATE a scenario inherits; this isolates the
+# EVIDENCE. Before every inject the wave waits out the longest window, plus a margin for this
+# machine's clock against AWS's (measured at 103s ahead, which errs safe; behind would not).
+LOG_LOOKBACK_M = 15
+METRIC_WINDOW_M = 10
+QUIET_SECONDS = (max(LOG_LOOKBACK_M, METRIC_WINDOW_M) + 3) * 60
+
+
+def _evidence_isolation() -> dict[str, int]:
+    return {"log_lookback_m": LOG_LOOKBACK_M, "metric_window_m": METRIC_WINDOW_M,
+            "quiet_seconds_before_each_inject": QUIET_SECONDS}
+
 
 class RunnerError(RuntimeError):
     """The wave cannot continue. Never swallowed."""
@@ -305,6 +323,8 @@ def warden_env(creds: dict[str, str], target: ops.Target, arm: dict[str, str]) -
             # A live account is slower than a fixture read. At the 5s default a tool times out and
             # the run measures the timeout instead of the incident.
             "WARDEN_TOOL_TIMEOUT": os.environ.get("WARDEN_TOOL_TIMEOUT", "15"),
+            "WARDEN_AWS_LOG_LOOKBACK_M": str(LOG_LOOKBACK_M),
+            "WARDEN_AWS_METRIC_WINDOW_M": str(METRIC_WINDOW_M),
         }
     )
     env.update(arm)
@@ -446,6 +466,11 @@ def run_wave(harness: Harness, scenarios: list[dict], out: pathlib.Path, *, repe
     for scenario in scenarios:
         log(f"== {scenario['id']}  ({scenario['fault_class']}, "
             f"settle {scenario.get('settle_seconds')}s)")
+
+        # ⛔ Before EVERY scenario, the first included: a resume, or a repair by hand, is activity
+        # the evidence window would read just as surely as a previous scenario. See QUIET_SECONDS.
+        log(f"   quiet {QUIET_SECONDS // 60} min, so no evidence window reaches earlier activity")
+        harness.sleep(QUIET_SECONDS)
 
         # ⛔ Before EVERY scenario, not once per wave. The state a scenario inherits is whatever the
         # previous one's revert left, and a revert that "succeeded" can still leave a rollout in
@@ -836,6 +861,7 @@ def main(argv: list[str] | None = None) -> int:
         "service": harness.target.service,
         "region": harness.target.region,
         "scenario_ids": [s["id"] for s in scenarios],
+        "evidence_isolation": _evidence_isolation(),
     }
     _write_json(out / "manifest.json", manifest)
     print(f"artefacts -> {out}")
@@ -870,6 +896,13 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
         raise SystemExit(
             f"--resume {out}: the scenario catalog or the rubric has changed since this run began. "
             "Resuming would grade one run under two rubrics. Start a new run instead."
+        )
+    # ⛔ One evidence window too. Resuming a run from before the quiet period existed would give
+    # half its scenarios isolated evidence and half not, under one manifest.
+    if manifest.get("evidence_isolation") != _evidence_isolation():
+        raise SystemExit(
+            f"--resume {out}: this run's evidence isolation {manifest.get('evidence_isolation')} "
+            f"differs from the runner's {_evidence_isolation()}. Start a new run instead."
         )
 
     harness = _dry_harness() if manifest.get("dry_run") else _live_harness(warden_timeout)

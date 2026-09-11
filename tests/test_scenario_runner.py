@@ -60,7 +60,7 @@ def _harness(target, *, invoke=None, ecs=None, **overrides) -> runner.Harness:
         },
         invoke_warden=invoke or (lambda env, path: (runner._write_json(path, {"ok": True}), 0, "")[1:]),
         baseline=overrides.pop("baseline", list),
-        sleep=lambda _s: None,
+        sleep=overrides.pop("sleep", lambda _s: None),
         **overrides,
     )
 
@@ -368,6 +368,38 @@ def test_the_baseline_is_checked_before_every_scenario_not_once(tmp_path, target
         tmp_path, repeat=1, arm={}, log=lambda _m: None,
     )
     assert len(calls) == 3, "the state a scenario inherits is its predecessor's; check every time"
+
+
+def test_every_inject_waits_out_warden_s_evidence_window_first(tmp_path, target):
+    """⛔ The first full Claude run left 0.1-5 min between scenarios while WARDEN reads 15 min back,
+    so 39 of 42 runs read the previous scenario as evidence. The wait must come before EVERY
+    inject - the first too - and be at least as long as the window WARDEN is told to read."""
+    events: list[str] = []
+    ecs = FakeEcs()
+    original = ecs.update_service
+    ecs.update_service = lambda **kw: (events.append("inject"), original(**kw))[1]
+    runner.run_wave(
+        _harness(target, ecs=ecs, sleep=lambda s: events.append(f"sleep {s}")),
+        [SCENARIO, {**SCENARIO, "id": "unit-02"}], tmp_path, repeat=1, arm={}, log=lambda _m: None,
+    )
+    quiet, settle = f"sleep {runner.QUIET_SECONDS}", "sleep 5"
+    # update_service is both the inject (count 0) and the revert (count 2).
+    assert events == [quiet, "inject", settle, "inject", quiet, "inject", settle, "inject"]
+
+    env = runner.warden_env({"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "s",
+                             "AWS_SESSION_TOKEN": "t"}, target, {})
+    window_m = max(int(env["WARDEN_AWS_LOG_LOOKBACK_M"]), int(env["WARDEN_AWS_METRIC_WINDOW_M"]))
+    assert runner.QUIET_SECONDS > window_m * 60, "the quiet period must outlast what WARDEN reads"
+
+
+def test_resume_refuses_a_run_from_before_evidence_isolation(tmp_path):
+    _run(tmp_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["evidence_isolation"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(SystemExit, match="evidence isolation"):
+        runner.main(["--resume", str(tmp_path)])
 
 
 def test_a_scenario_is_not_injected_when_the_baseline_is_dirty(tmp_path, target):
