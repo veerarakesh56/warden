@@ -206,6 +206,17 @@ def _apply_overrides(alert: Alert, args) -> Alert:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # ⛔ Never crash while REPORTING. On Windows a piped stdout is cp1252 and cannot encode `→`,
+    # which the model writes into its own hypotheses - so printing a successful diagnosis raised
+    # UnicodeEncodeError and turned it into a failed run. `replace` shows a `?` in the terminal
+    # instead; the JSON report is written in UTF-8 regardless, so nothing is lost there. The
+    # encoding itself is deliberately left alone: a caller decoding this output as the platform
+    # default keeps working.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):  # not a TextIOWrapper, e.g. under a test capture
+            pass
     parser = argparse.ArgumentParser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -244,11 +255,17 @@ def main(argv: list[str] | None = None) -> int:
         alert = _apply_overrides(alert, args)
         llm = LLMClient(max_usd=args.max_usd)
         report = run(alert, llm=llm, backend=backend)
-        _print_report(report, verbose=args.verbose)
+        # ⛔ The artefact FIRST, the terminal second. This printed first, and printing crashed: the
+        # model writes `→` into its hypothesis, stdout was a cp1252 pipe, and UnicodeEncodeError
+        # killed the process - after the whole diagnosis had succeeded, and before the JSON report
+        # was written, so the result was lost and a benchmark run recorded as ERROR. The report is
+        # the audit record; a failure to DISPLAY it must never be able to destroy it.
         if args.json:
             path = pathlib.Path(args.json)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+        _print_report(report, verbose=args.verbose)
+        if args.json:
             print(f"\nreport written to {path}")
 
         want_remediation = args.principal is not None
