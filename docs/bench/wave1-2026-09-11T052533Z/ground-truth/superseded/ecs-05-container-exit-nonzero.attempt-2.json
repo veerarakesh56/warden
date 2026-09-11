@@ -1,0 +1,66 @@
+{
+  "scenario_id": "ecs-05-container-exit-nonzero",
+  "fault_class": "container_exit_nonzero",
+  "fidelity": "real",
+  "signature_covered": true,
+  "settle_seconds": 210,
+  "status": "ok",
+  "started_at": "2026-09-11T09:42:42.052875+00:00",
+  "injected": [
+    {
+      "op": "ecs_deploy_variant",
+      "args": {
+        "variant": "exit_one"
+      },
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:29"
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "ecs_deploy_baseline",
+      "args": {},
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:2"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-05-container-exit-nonzero.attempt-2.1.json",
+      "exit_code": 1,
+      "report_written": false,
+      "stderr_tail": "ckend\": backend, \"audit\": []})\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 3913, in invoke\n    for chunk in self.stream(\n                 ~~~~~~~~~~~^\n        input,\n        ^^^^^^\n    ...<11 lines>...\n        **kwargs,\n        ^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 2967, in stream\n    for _ in runner.tick(\n             ~~~~~~~~~~~^\n        [t for t in loop.tasks.values() if not t.writes],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        schedule_task=loop.accept_push,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_runner.py\", line 207, in tick\n    run_with_retry(\n    ~~~~~~~~~~~~~~^\n        t,\n        ^^\n    ...<10 lines>...\n        },\n        ^^\n    )\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_retry.py\", line 617, in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n  File \"C:\\work\\warden\\src\\warden\\graph.py\", line 426, in node_propose\n    proposal = llm.structured(\n        system=SYSTEM_PROPOSE,\n    ...<2 lines>...\n        mock_factory=lambda: _mock_proposal(signals),\n    )\n  File \"C:\\work\\warden\\src\\warden\\llm.py\", line 181, in structured\n    raise ModelRefused(f\"{schema.__name__} not produced after {attempts} {plural}: {last}\")\nwarden.llm.ModelRefused: RemediationProposal not produced after 3 attempts: 'charmap' codec can't encode character '\\u2192' in position 12424: character maps to <undefined>\nDuring task with name 'propose' and id 'e098e712-4719-608a-f0a4-243c4f87d3c5'\n",
+      "at": "2026-09-11T09:47:32.283081+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-05-container-exit-nonzero.attempt-2.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T09:48:45.832135+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-05-container-exit-nonzero.attempt-2.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T09:49:58.005633+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T09:46:14.996564+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T09:50:00.866051+00:00",
+  "superseded": {
+    "at": "2026-09-11T11:37:13.528431+00:00",
+    "attempt": 2
+  }
+}

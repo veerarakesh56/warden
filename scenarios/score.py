@@ -273,10 +273,14 @@ def _evidence_window_overlaps(run_dir: pathlib.Path, manifest: dict) -> dict[tup
 
     ⛔ Found in the first full Claude run, after it was scored. WARDEN reads logs from 15 minutes
     either side of the alert, and the runner left 0.1-5 minutes between one scenario's revert and
-    the next inject - so 39 of 42 runs read part of the PREVIOUS scenario as evidence. ecs-06 (whose
-    tasks never start and never log) was diagnosed from ecs-05's crash loop and ecs-05's recovery,
-    and called "self-resolved". A scenario must be graded on the fault it injected, so this is
-    computed for every run and printed, never inferred from a quiet-period setting.
+    the next inject - so 39 of 42 runs read part of the PREVIOUS scenario as evidence.
+
+    ⚠ What the clean re-run then showed, because guessing would have been easy and wrong: for ecs-09
+    the contamination WAS the answer - given 57-79 log lines from ecs-08 it called a service at 0/0
+    tasks "a transient dip" 3/3, and with isolated evidence it identified the scale-to-zero 3/3. For
+    ecs-06 it was NOT: the same no_action came back 3/3 from clean evidence. Contaminated evidence
+    invalidates a run either way, which is why this is computed and printed for every run rather
+    than inferred from a quiet-period setting.
 
     The window is [alert - lookback, alert]. Another record overlaps if it was active inside it:
     started before the alert and ended after the window opened. Superseded attempts count - their

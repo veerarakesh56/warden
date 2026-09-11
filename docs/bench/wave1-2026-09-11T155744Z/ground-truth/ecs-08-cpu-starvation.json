@@ -1,0 +1,62 @@
+{
+  "scenario_id": "ecs-08-cpu-starvation",
+  "fault_class": "cpu_starvation",
+  "fidelity": "real",
+  "signature_covered": true,
+  "settle_seconds": 300,
+  "status": "ok",
+  "started_at": "2026-09-11T19:17:25.977127+00:00",
+  "injected": [
+    {
+      "op": "ecs_deploy_variant",
+      "args": {
+        "variant": "cpu_starved"
+      },
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:47"
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "ecs_deploy_baseline",
+      "args": {},
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:2"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-08-cpu-starvation.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T19:23:12.363670+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-08-cpu-starvation.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T19:23:56.102851+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-08-cpu-starvation.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T19:24:37.870084+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T19:22:26.487672+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T19:24:38.598651+00:00"
+}

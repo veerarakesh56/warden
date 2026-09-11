@@ -1,0 +1,148 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T17:05:24.926161+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 5,
+  "context": {
+    "logs": [
+      "ecs/checkout/f871aa8e02f944038f6c95c59d9a49de 2026-09-11T16:59:05.049000+00:00 checkout: started",
+      "ecs/checkout/f871aa8e02f944038f6c95c59d9a49de 2026-09-11T16:59:05.049000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/f871aa8e02f944038f6c95c59d9a49de 2026-09-11T16:59:07.049000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/6e5f234ae05c46c59f127f4247fab<PHONE_1>T16:59:36.319000+00:00 checkout: started",
+      "ecs/checkout/6e5f234ae05c46c59f127f4247fab<PHONE_1>T16:59:36.319000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/6e5f234ae05c46c59f127f4247fab<PHONE_1>T16:59:38.319000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/f179ddcf8d114918a53926aaea8cce<PHONE_2>T17:00:05.924000+00:00 checkout: started",
+      "ecs/checkout/f179ddcf8d114918a53926aaea8cce<PHONE_2>T17:00:05.924000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/f179ddcf8d114918a53926aaea8cce<PHONE_2>T17:00:07.924000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/cbbd6b6bb8d64f96aae0f5bae4c6e17b 2026-09-11T17:00:37.346000+00:00 checkout: started",
+      "ecs/checkout/cbbd6b6bb8d64f96aae0f5bae4c6e17b 2026-09-11T17:00:37.346000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/cbbd6b6bb8d64f96aae0f5bae4c6e17b 2026-09-11T17:00:39.346000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/0415fdc17b2b4d178ee9890a711d452c 2026-09-11T17:01:10.896000+00:00 checkout: started",
+      "ecs/checkout/0415fdc17b2b4d178ee9890a711d452c 2026-09-11T17:01:10.896000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/0415fdc17b2b4d178ee9890a711d452c 2026-09-11T17:01:12.896000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/4e1a6e717c1c43b2af460c2ea07fda<PHONE_3>T17:01:37.329000+00:00 checkout: started",
+      "ecs/checkout/4e1a6e717c1c43b2af460c2ea07fda<PHONE_3>T17:01:37.330000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/4e1a6e717c1c43b2af460c2ea07fda<PHONE_3>T17:01:39.330000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/01873b11f55a471b81a65fd675e<PHONE_4>T17:02:12.554000+00:00 checkout: started",
+      "ecs/checkout/01873b11f55a471b81a65fd675e<PHONE_4>T17:02:12.554000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/01873b11f55a471b81a65fd675e<PHONE_4>T17:02:14.554000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/f3dca68f375c4e97a89b45e00e222c<PHONE_5>T17:02:36.502000+00:00 checkout: started",
+      "ecs/checkout/f3dca68f375c4e97a89b45e00e222c<PHONE_5>T17:02:36.502000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/f3dca68f375c4e97a89b45e00e222c<PHONE_5>T17:02:38.502000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/f3dca68f375c4e97a89b45e00e222c<PHONE_5>T17:02:39.502000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/f3dca68f375c4e97a89b45e00e222c<PHONE_5>T17:02:39.502000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/f3dca68f375c4e97a89b45e00e222c<PHONE_5>T17:02:39.502000+00:00 MemoryError",
+      "ecs/checkout/a6090ff772ae40f282a3899e089bd3bd 2026-09-11T17:03:11.753000+00:00 checkout: started",
+      "ecs/checkout/a6090ff772ae40f282a3899e089bd3bd 2026-09-11T17:03:11.753000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/a6090ff772ae40f282a3899e089bd3bd 2026-09-11T17:03:13.753000+00:00 checkout: allocating 900MiB cache"
+    ],
+    "metrics": {
+      "tasks_running": 3.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.004963654559105635,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [
+      {
+        "service": "checkout",
+        "revision": "42",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-11T22:28:18.228000+05:30",
+        "by": "ecs",
+        "registered_at": "2026-09-11T22:28:17.986000+05:30"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "checkout task crash-looping from OOM: app allocates fixed ~900MiB cache on startup, exceeding container memory limit, triggering MemoryError and container restart every ~30s. Correlates with deploy revision 42 (python:3.12.7-alpine, up from python:3.12-alpine) — new/changed image likely shifted base memory footprint or cache-size logic, pushing it over the limit. Alarm reflects instability (2 deployments in flight, repeated task churn) from this loop, not a scheduling/capacity problem.",
+    "confidence": 0.7,
+    "evidence": [
+      "8+ distinct task IDs start/warn/OOM within ~4min window, ~30s apart — restart loop pattern",
+      "each cycle: 'memory pressure rising' -> 'allocating 900MiB cache' -> MemoryError traceback",
+      "memory_utilization_pct 0.586 (58.6%) elevated vs cpu_utilization_pct ~0.005% (near zero) — memory-bound, not CPU-bound",
+      "deployments_in_flight=2 with tasks_running(3) > tasks_desired(2) — consistent with new+old revisions churning during bad rollout",
+      "recent deploy revision 42 bumped image python:3.12-alpine -> python:3.12.7-alpine same time window as failures start"
+    ],
+    "ruled_out": [
+      "CPU exhaustion — utilization near 0%",
+      "scheduling/capacity shortage — tasks_pending=0",
+      "ECS deployment mechanism failure — deployments_failed=0, ECS itself is working, app is crashing"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "checkout:revision 42 (public.ecr.aws/docker/library/python:3.12.7-alpine) -> revert to public.ecr.aws/docker/library/python:3.12-alpine",
+    "reasoning": "Crash loop start exact match deploy rev42 time. Fixed 900MiB cache alloc + new base image push mem over limit -> MemoryError every ~30s. Not capacity issue, tasks_running(3) already > desired(2) from restart churn. Rollback removes bad image, restore stable state.",
+    "expected_effect": "Task stop OOM-crashing, stabilize at desired count 2, alarm clear once tasks steady.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 3433,
+    "output_tokens": 667,
+    "usd": 0.020304000000000003,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 30,
+      "metrics": 7,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 5
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.7,
+      "hypothesis": "checkout task crash-looping from OOM: app allocates fixed ~900MiB cache on startup, exceeding container memory limit, triggering MemoryError and container restart every ~30s. Correlates with deploy revision 42 (python:3.12.7-alpine, up from python:3.12-alpine) — new/changed image likely shifted base memory footprint or cache-size logic, pushing it over the limit. Alarm reflects instability (2 deployments in flight, repeated task churn) from this loop, not a scheduling/capacity problem."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "checkout:revision 42 (public.ecr.aws/docker/library/python:3.12.7-alpine) -> revert to public.ecr.aws/docker/library/python:3.12-alpine"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

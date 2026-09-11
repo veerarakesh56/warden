@@ -1,0 +1,66 @@
+{
+  "scenario_id": "ecs-05-container-exit-nonzero",
+  "fault_class": "container_exit_nonzero",
+  "fidelity": "real",
+  "signature_covered": true,
+  "settle_seconds": 210,
+  "status": "ok",
+  "started_at": "2026-09-11T05:48:09.262512+00:00",
+  "injected": [
+    {
+      "op": "ecs_deploy_variant",
+      "args": {
+        "variant": "exit_one"
+      },
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:26"
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "ecs_deploy_baseline",
+      "args": {},
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:2"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-05-container-exit-nonzero.attempt-1.1.json",
+      "exit_code": 1,
+      "report_written": false,
+      "stderr_tail": "arden\\graph.py\", line 545, in run\n    final = app.invoke({\"alert\": alert, \"llm\": llm, \"backend\": backend, \"audit\": []})\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 3913, in invoke\n    for chunk in self.stream(\n                 ~~~~~~~~~~~^\n        input,\n        ^^^^^^\n    ...<11 lines>...\n        **kwargs,\n        ^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 2967, in stream\n    for _ in runner.tick(\n             ~~~~~~~~~~~^\n        [t for t in loop.tasks.values() if not t.writes],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        schedule_task=loop.accept_push,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_runner.py\", line 207, in tick\n    run_with_retry(\n    ~~~~~~~~~~~~~~^\n        t,\n        ^^\n    ...<10 lines>...\n        },\n        ^^\n    )\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_retry.py\", line 617, in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n  File \"C:\\work\\warden\\src\\warden\\graph.py\", line 404, in node_analyse\n    rc = llm.structured(\n        system=SYSTEM_ANALYSE,\n    ...<2 lines>...\n        mock_factory=lambda: _mock_root_cause(signals),\n    )\n  File \"C:\\work\\warden\\src\\warden\\llm.py\", line 179, in structured\n    raise ModelRefused(f\"{schema.__name__} not produced after {attempts} {plural}: {last}\")\nwarden.llm.ModelRefused: RootCause not produced after 3 attempts: claude CLI exited 1: \nDuring task with name 'analyse' and id 'c29d4430-0db4-6c97-af86-540801de4940'\n",
+      "at": "2026-09-11T05:51:58.556412+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-05-container-exit-nonzero.attempt-1.2.json",
+      "exit_code": 1,
+      "report_written": false,
+      "stderr_tail": "arden\\graph.py\", line 545, in run\n    final = app.invoke({\"alert\": alert, \"llm\": llm, \"backend\": backend, \"audit\": []})\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 3913, in invoke\n    for chunk in self.stream(\n                 ~~~~~~~~~~~^\n        input,\n        ^^^^^^\n    ...<11 lines>...\n        **kwargs,\n        ^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 2967, in stream\n    for _ in runner.tick(\n             ~~~~~~~~~~~^\n        [t for t in loop.tasks.values() if not t.writes],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        schedule_task=loop.accept_push,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_runner.py\", line 207, in tick\n    run_with_retry(\n    ~~~~~~~~~~~~~~^\n        t,\n        ^^\n    ...<10 lines>...\n        },\n        ^^\n    )\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_retry.py\", line 617, in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n  File \"C:\\work\\warden\\src\\warden\\graph.py\", line 404, in node_analyse\n    rc = llm.structured(\n        system=SYSTEM_ANALYSE,\n    ...<2 lines>...\n        mock_factory=lambda: _mock_root_cause(signals),\n    )\n  File \"C:\\work\\warden\\src\\warden\\llm.py\", line 179, in structured\n    raise ModelRefused(f\"{schema.__name__} not produced after {attempts} {plural}: {last}\")\nwarden.llm.ModelRefused: RootCause not produced after 3 attempts: claude CLI exited 1: \nDuring task with name 'analyse' and id '782da5a0-f53b-3486-332d-0d223c98e1fd'\n",
+      "at": "2026-09-11T05:52:16.776766+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-05-container-exit-nonzero.attempt-1.3.json",
+      "exit_code": 1,
+      "report_written": false,
+      "stderr_tail": "arden\\graph.py\", line 545, in run\n    final = app.invoke({\"alert\": alert, \"llm\": llm, \"backend\": backend, \"audit\": []})\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 3913, in invoke\n    for chunk in self.stream(\n                 ~~~~~~~~~~~^\n        input,\n        ^^^^^^\n    ...<11 lines>...\n        **kwargs,\n        ^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 2967, in stream\n    for _ in runner.tick(\n             ~~~~~~~~~~~^\n        [t for t in loop.tasks.values() if not t.writes],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        schedule_task=loop.accept_push,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_runner.py\", line 207, in tick\n    run_with_retry(\n    ~~~~~~~~~~~~~~^\n        t,\n        ^^\n    ...<10 lines>...\n        },\n        ^^\n    )\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_retry.py\", line 617, in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n  File \"C:\\work\\warden\\src\\warden\\graph.py\", line 404, in node_analyse\n    rc = llm.structured(\n        system=SYSTEM_ANALYSE,\n    ...<2 lines>...\n        mock_factory=lambda: _mock_root_cause(signals),\n    )\n  File \"C:\\work\\warden\\src\\warden\\llm.py\", line 179, in structured\n    raise ModelRefused(f\"{schema.__name__} not produced after {attempts} {plural}: {last}\")\nwarden.llm.ModelRefused: RootCause not produced after 3 attempts: claude CLI exited 1: \nDuring task with name 'analyse' and id '472b705c-19ab-1928-a30d-d38329a99f04'\n",
+      "at": "2026-09-11T05:52:34.624214+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T05:51:39.719920+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T05:52:35.268932+00:00",
+  "superseded": {
+    "at": "2026-09-11T09:31:12.461040+00:00",
+    "attempt": 1
+  }
+}

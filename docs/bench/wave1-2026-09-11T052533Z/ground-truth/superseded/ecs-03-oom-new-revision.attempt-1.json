@@ -1,0 +1,66 @@
+{
+  "scenario_id": "ecs-03-oom-new-revision",
+  "fault_class": "oom_from_new_revision",
+  "fidelity": "real",
+  "signature_covered": true,
+  "settle_seconds": 240,
+  "status": "ok",
+  "started_at": "2026-09-11T05:30:52.503117+00:00",
+  "injected": [
+    {
+      "op": "ecs_deploy_variant",
+      "args": {
+        "variant": "oom"
+      },
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:24"
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "ecs_deploy_baseline",
+      "args": {},
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:2"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-03-oom-new-revision.attempt-1.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T05:36:03.626094+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-03-oom-new-revision.attempt-1.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T05:36:37.343744+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-03-oom-new-revision.attempt-1.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T05:37:14.414943+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T05:34:52.942421+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T05:37:15.087204+00:00",
+  "superseded": {
+    "at": "2026-09-11T11:37:13.453300+00:00",
+    "attempt": 1
+  }
+}

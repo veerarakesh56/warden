@@ -1,0 +1,206 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T19:48:17.177469+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:33:26.230000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:33:31.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:33:41.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:33:46.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:33:56.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:01.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:11.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:16.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:26.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:31.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:41.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:46.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:56.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:01.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:11.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:16.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:26.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:31.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:41.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:46.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:56.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:01.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:11.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:16.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:26.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:31.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:41.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:46.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:56.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:01.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:11.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:16.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:26.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:31.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:41.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:46.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:56.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:01.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:11.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:16.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:26.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:31.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:41.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:46.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:56.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:01.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:11.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:16.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:26.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:31.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:41.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:46.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:56.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:01.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:11.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:16.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:26.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:31.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:41.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:46.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:56.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:01.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:11.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:16.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:26.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:31.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:41.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:46.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:56.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:01.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:11.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:16.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:26.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:31.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:41.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:46.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:56.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:01.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:11.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:16.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:26.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:31.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:41.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:46.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:56.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:01.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:11.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:16.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:26.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:31.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:41.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:46.249000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:56.238000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 0.0,
+      "tasks_desired": 0.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.0037675646599382166,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "checkout service tasks_desired dropped to 0 (deliberate scale-in or bad automation/manual desiredCount change), not a crash — task heartbeats were healthy continuously up to the last log line, and CPU/mem look normal. deployments_in_flight=1 with tasks_pending=0 and tasks_running=0 fits a drain-to-zero deploy that removed capacity without a replacement, causing full prod outage. RECENT DEPLOYS empty means this change likely didn't go through the tracked CI/CD deploy path (manual API/console, IaC apply, or an autoscaling rule) — so deploy tracking has a blind spot here, or there's a logging gap.",
+    "confidence": 0.5,
+    "evidence": [
+      "tasks_running=0 AND tasks_desired=0 AND tasks_pending=0 — service intentionally at zero capacity, not tasks failing to start",
+      "deployments_in_flight=1 — a deploy/scale event is actively in progress at alarm time",
+      "cpu_utilization_pct ~0.004% and memory ~58.6% — no resource-exhaustion signature",
+      "Two task heartbeats (PHONE_1, PHONE_2) logged 'ok' every ~15s continuously through 19:44:56, right up to the alarm window — tasks were healthy, then vanished",
+      "RECENT DEPLOYS list is empty despite a deployment being in flight — the change wasn't captured by normal deploy tracking"
+    ],
+    "ruled_out": [
+      "OOM kill / memory pressure — memory sits mid-range (58%), not near limit",
+      "CPU starvation / crash loop — CPU near 0%, and heartbeats show no distress before disappearing",
+      "Bad application rollout / failed deploy causing crash — tasks_pending=0 and deployments_failed=0, no evidence of a replacement task attempting and failing to start",
+      "Gradual degradation — heartbeats look uniform/healthy right until the cutoff, arguing against a slow leak or creeping error rate"
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "ecs-service:checkout:prod",
+    "reasoning": "tasks_desired=0 w/ running=0, pending=0, healthy heartbeats til cutoff, normal cpu/mem. Not crash — capacity pulled to zero (bad scale-in/manual desiredCount change/IaC apply). No deploy in recent history tracked, deploy tracking blind spot. Full prod outage on checkout.",
+    "expected_effect": "restore desiredCount >0 (prior known-good, e.g. 2 per dual task IDs seen), tasks schedule, heartbeats resume, alarm clears",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.50 is below the 0.55 threshold."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 7300,
+    "output_tokens": 829,
+    "usd": 0.034335,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 93,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.5,
+      "hypothesis": "checkout service tasks_desired dropped to 0 (deliberate scale-in or bad automation/manual desiredCount change), not a crash — task heartbeats were healthy continuously up to the last log line, and CPU/mem look normal. deployments_in_flight=1 with tasks_pending=0 and tasks_running=0 fits a drain-to-zero deploy that removed capacity without a replacement, causing full prod outage. RECENT DEPLOYS empty means this change likely didn't go through the tracked CI/CD deploy path (manual API/console, IaC apply, or an autoscaling rule) — so deploy tracking has a blind spot here, or there's a logging gap."
+    },
+    {
+      "node": "propose",
+      "action": "scale_up",
+      "target": "ecs-service:checkout:prod"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

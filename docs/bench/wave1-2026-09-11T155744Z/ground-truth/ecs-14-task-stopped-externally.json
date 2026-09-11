@@ -1,0 +1,52 @@
+{
+  "scenario_id": "ecs-14-task-stopped-externally",
+  "fault_class": "spot_interruption",
+  "fidelity": "approximated",
+  "signature_covered": false,
+  "settle_seconds": 45,
+  "status": "ok",
+  "started_at": "2026-09-11T21:55:30.781449+00:00",
+  "injected": [
+    {
+      "op": "ecs_stop_one_task",
+      "args": {},
+      "result": {
+        "stopped": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task/warden-pg-068d9d/a4b6d278be234df2b5113de7560d53ab"
+      }
+    }
+  ],
+  "reverted": [],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-14-task-stopped-externally.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:56:49.551629+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-14-task-stopped-externally.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:57:31.528738+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-14-task-stopped-externally.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:58:16.418703+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T21:56:15.918834+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T21:58:16.419471+00:00"
+}

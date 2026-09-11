@@ -1,0 +1,143 @@
+{
+  "wave": 1,
+  "dry_run": false,
+  "started_at": "2026-09-11T05:25:35.066371+00:00",
+  "repeat": 3,
+  "arm": {
+    "WARDEN_PROVIDER": "claude_cli",
+    "WARDEN_MODEL": "sonnet",
+    "WARDEN_LLM_TIMEOUT": "120"
+  },
+  "alert_file": "scenarios/alert.yaml",
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-01-01T00:00:00Z"
+  },
+  "environment_label": "prod",
+  "catalog_sha256": {
+    "wave1-ecs.yaml": "2a9feafa4d70af072d3e5e2a949ac41c227960aff3132a32b2f592b1b31d2811"
+  },
+  "scoring_sha256": "d425055c812739163f5350861338457c941bdcd2766173fb766ef99a9440d3a2",
+  "git_commit": "a3202b89c6d082437f68d4fd7c21d9c76461c4ba",
+  "cluster": "warden-pg-068d9d",
+  "service": "checkout",
+  "region": "ap-south-2",
+  "scenario_ids": [
+    "ecs-01-healthy-control",
+    "ecs-02-log-group-deleted",
+    "ecs-03-oom-new-revision",
+    "ecs-04-image-pull-failure",
+    "ecs-05-container-exit-nonzero",
+    "ecs-06-invalid-secret-arn",
+    "ecs-07-health-check-failing",
+    "ecs-08-cpu-starvation",
+    "ecs-09-desired-count-zero",
+    "ecs-10-oom-config-change",
+    "ecs-11-reader-role-missing-permission",
+    "ecs-12-sg-blocks-egress",
+    "ecs-13-subnet-no-route",
+    "ecs-14-task-stopped-externally"
+  ],
+  "resumes": [
+    {
+      "at": "2026-09-11T09:31:12.473744+00:00",
+      "git_commit": "0285c11c7e3d74c04bbd6b66edccdaa9a65d3520",
+      "rerun": [
+        "ecs-04-image-pull-failure",
+        "ecs-05-container-exit-nonzero",
+        "ecs-06-invalid-secret-arn",
+        "ecs-07-health-check-failing",
+        "ecs-08-cpu-starvation",
+        "ecs-09-desired-count-zero",
+        "ecs-10-oom-config-change",
+        "ecs-11-reader-role-missing-permission",
+        "ecs-12-sg-blocks-egress",
+        "ecs-13-subnet-no-route",
+        "ecs-14-task-stopped-externally"
+      ],
+      "superseded": [
+        "ground-truth/superseded/ecs-04-image-pull-failure.attempt-1.json",
+        "ground-truth/superseded/ecs-05-container-exit-nonzero.attempt-1.json",
+        "ground-truth/superseded/ecs-06-invalid-secret-arn.attempt-1.json"
+      ]
+    },
+    {
+      "at": "2026-09-11T11:37:13.733299+00:00",
+      "git_commit": "402b19754b1779a6497dde65307a8812f181c941",
+      "rerun": [
+        "ecs-01-healthy-control",
+        "ecs-02-log-group-deleted",
+        "ecs-03-oom-new-revision",
+        "ecs-04-image-pull-failure",
+        "ecs-05-container-exit-nonzero",
+        "ecs-06-invalid-secret-arn",
+        "ecs-07-health-check-failing",
+        "ecs-08-cpu-starvation",
+        "ecs-10-oom-config-change"
+      ],
+      "superseded": [
+        "ground-truth/superseded/ecs-01-healthy-control.attempt-1.json",
+        "ground-truth/superseded/ecs-02-log-group-deleted.attempt-1.json",
+        "ground-truth/superseded/ecs-03-oom-new-revision.attempt-1.json",
+        "ground-truth/superseded/ecs-04-image-pull-failure.attempt-2.json",
+        "ground-truth/superseded/ecs-05-container-exit-nonzero.attempt-2.json",
+        "ground-truth/superseded/ecs-06-invalid-secret-arn.attempt-2.json",
+        "ground-truth/superseded/ecs-07-health-check-failing.attempt-1.json",
+        "ground-truth/superseded/ecs-08-cpu-starvation.attempt-1.json",
+        "ground-truth/superseded/ecs-10-oom-config-change.attempt-1.json"
+      ],
+      "forced": [
+        "ecs-01-healthy-control",
+        "ecs-02-log-group-deleted",
+        "ecs-03-oom-new-revision",
+        "ecs-04-image-pull-failure",
+        "ecs-05-container-exit-nonzero",
+        "ecs-06-invalid-secret-arn"
+      ],
+      "reason": "before 2e2e074 the claude_cli provider encoded stdin as cp1252 so every prompt reached the CLI with a garbled em dash; these six ran before that fix"
+    },
+    {
+      "at": "2026-09-11T14:28:01.509193+00:00",
+      "git_commit": "2ddff4ccf61e53f406b39326ae79015b0c60b56a",
+      "rerun": [
+        "ecs-10-oom-config-change"
+      ],
+      "superseded": [
+        "ground-truth/superseded/ecs-10-oom-config-change.attempt-2.json"
+      ],
+      "forced": [],
+      "reason": ""
+    }
+  ],
+  "ended_at": "2026-09-11T14:37:32.490184+00:00",
+  "scenarios_completed": [
+    "ecs-01-healthy-control",
+    "ecs-02-log-group-deleted",
+    "ecs-03-oom-new-revision",
+    "ecs-04-image-pull-failure",
+    "ecs-05-container-exit-nonzero",
+    "ecs-06-invalid-secret-arn",
+    "ecs-07-health-check-failing",
+    "ecs-08-cpu-starvation",
+    "ecs-09-desired-count-zero",
+    "ecs-10-oom-config-change",
+    "ecs-11-reader-role-missing-permission",
+    "ecs-12-sg-blocks-egress",
+    "ecs-13-subnet-no-route",
+    "ecs-14-task-stopped-externally"
+  ],
+  "errors": [],
+  "hash_normalisation": {
+    "at": "2026-09-11T15:19:43.131908+00:00",
+    "reason": "hashes were taken over raw bytes of a CRLF (Windows) checkout, so they would not match an LF checkout of the same commit. Re-expressed as LF-normalised hashes after verifying the raw hashes still match the files byte for byte. Content unchanged.",
+    "scoring_sha256_raw_crlf": "ebd1117293282ebe7cba9706d0798eade82548d94e35616657d9a1cfda250313",
+    "catalog_sha256_raw_crlf": {
+      "wave1-ecs.yaml": "387176b3e4266a6b5cc726eb2bb5e661f216998b3872711e7fe6c067c855b492"
+    }
+  }
+}

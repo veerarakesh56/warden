@@ -1,0 +1,210 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T19:47:35.309656+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:32:41.230000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:32:46.241000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:32:56.230000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:33:01.241000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:33:11.230000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:33:16.241000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:33:26.230000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:33:31.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:33:41.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:33:46.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:33:56.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:01.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:11.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:16.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:26.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:31.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:41.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:34:46.242000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:34:56.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:01.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:11.231000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:16.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:26.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:31.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:41.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:35:46.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:35:56.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:01.243000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:11.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:16.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:26.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:31.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:41.232000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:36:46.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:36:56.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:01.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:11.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:16.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:26.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:31.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:41.233000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:37:46.244000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:37:56.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:01.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:11.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:16.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:26.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:31.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:41.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:38:46.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:38:56.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:01.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:11.234000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:16.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:26.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:31.245000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:41.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:39:46.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:39:56.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:01.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:11.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:16.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:26.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:31.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:41.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:40:46.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:40:56.235000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:01.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:11.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:16.246000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:26.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:31.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:41.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:41:46.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:41:56.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:01.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:11.236000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:16.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:26.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:31.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:41.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:42:46.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:42:56.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:01.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:11.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:16.247000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:26.237000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:31.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:41.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:43:46.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:43:56.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:01.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:11.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:16.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:26.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:31.248000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:41.238000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/81e68343e95f45309ab0e49e83d582c<PHONE_2>T19:44:46.249000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/8275aca23bca44d88951ddd190e2bbd<PHONE_1>T19:44:56.238000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 0.0,
+      "tasks_desired": 0.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.0037675646599382166,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "checkout service desired_count dropped to 0 (deliberate/automated scale-in via update-service or an autoscaling policy, not a crash), while deployments_in_flight=1 shows ECS mid-transition draining the two healthy tasks. Alarm fired on tasks_running=0 even though logs show both tasks heartbeating cleanly right up to the log tail — no error/exception lines, cpu/mem normal, deployments_failed=0. Root trigger (who/what set desired=0) not visible in this evidence; RECENT DEPLOYS is empty, so if this was a task-definition deploy it isn't captured by this event source, pointing more toward a manual/CLI or autoscaler-driven desired-count change.",
+    "confidence": 0.5,
+    "evidence": [
+      "tasks_desired=0.0 and tasks_running=0.0 together — this is a scale-to-zero signature, not an unhealthy/crashing service (which would show desired>0, running<desired)",
+      "deployments_in_flight=1.0 confirms ECS is actively processing a service update at alarm time",
+      "Both task IDs (<PHONE_1>, <PHONE_2>) log 'heartbeat ok' continuously every ~15s through the entire window with no errors, timeouts, or OOM/crash signatures",
+      "cpu_utilization_pct ~0.004 (near idle) and memory_utilization_pct ~0.586 are consistent with healthy-but-about-to-be-drained tasks, not resource exhaustion",
+      "deployments_failed=0.0 rules out a failed rollout as the trigger",
+      "RECENT DEPLOYS list is empty, so no task-definition/image change is recorded as the cause"
+    ],
+    "ruled_out": [
+      "Crash loop / app-level failure — heartbeats are clean, no error logs, no restart churn visible",
+      "Resource exhaustion (CPU/memory) — utilization is low/normal, not spiking",
+      "Failed deployment/rollback — deployments_failed=0",
+      "Bad image or task-definition deploy causing boot failures — no deploy recorded, no task startup errors in logs"
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "desired_count=0 with tasks_running=0, no crash/error logs, cpu/mem normal, deployments_failed=0. Heartbeats clean till tail — not a failure, looks like deliberate/automated desired-count change (manual CLI or autoscaler). RECENT DEPLOYS empty so root trigger unconfirmed. Forcing scale_up mid in-flight deployment risks fighting an intentional change or racing the deployment.",
+    "expected_effect": "human confirms whether scale-to-zero intended (maint/cost-cutting) or accidental; if accidental, human-approved scale_up restores service safely.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 7711,
+    "output_tokens": 852,
+    "usd": 0.035913,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 99,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.5,
+      "hypothesis": "checkout service desired_count dropped to 0 (deliberate/automated scale-in via update-service or an autoscaling policy, not a crash), while deployments_in_flight=1 shows ECS mid-transition draining the two healthy tasks. Alarm fired on tasks_running=0 even though logs show both tasks heartbeating cleanly right up to the log tail — no error/exception lines, cpu/mem normal, deployments_failed=0. Root trigger (who/what set desired=0) not visible in this evidence; RECENT DEPLOYS is empty, so if this was a task-definition deploy it isn't captured by this event source, pointing more toward a manual/CLI or autoscaler-driven desired-count change."
+    },
+    {
+      "node": "propose",
+      "action": "escalate_to_human",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "escalate_to_human",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

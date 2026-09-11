@@ -1,0 +1,113 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T11:44:48.577441+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.004480389878153801,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: logs: /ecs/checkout: An error occurred (ResourceNotFoundException) when calling the FilterLogEvents operation: The specified log group does not exist."
+    ]
+  },
+  "root_cause": {
+    "hypothesis": "Alarm likely triggered by anomalously low CPU utilization (~0.004%) on checkout service, not by task/deployment failure — task count matches desired (2/2), no pending/failed deployments, memory normal (~59%). One deployment shown in-flight despite empty RECENT DEPLOYS list is unexplained; could be stale/mid-flight deploy or traffic drop causing idle CPU. No logs provided to confirm root cause (e.g. upstream traffic loss, LB misroute, or app stuck idle vs crash-loop).",
+    "confidence": 0.25,
+    "evidence": [
+      "tasks_running == tasks_desired (2/2), tasks_pending=0 — no scheduling/placement failure",
+      "deployments_failed=0 — no failed deploy",
+      "cpu_utilization_pct ~0.0045% — near-zero, abnormal for active service",
+      "memory_utilization_pct ~58.6% — normal range",
+      "deployments_in_flight=1 but RECENT DEPLOYS list empty — inconsistent/incomplete evidence",
+      "LOGS field empty — no app-level error evidence"
+    ],
+    "ruled_out": [
+      "Task crash-loop or scheduling failure (running == desired, no pending)",
+      "Deployment rollback failure (deployments_failed=0)",
+      "Memory exhaustion/OOM (utilization normal)"
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "Tasks 2/2 running, no pending/failed deployments, memory normal (~59%). Only anomaly: CPU ~0.004% and one in-flight deployment not shown in RECENT DEPLOYS. No logs to confirm root cause (idle app, traffic/LB misroute, or stuck deploy). Insufficient signal to pick a safe automated action.",
+    "expected_effect": "Human investigates low-CPU cause and unexplained in-flight deployment before any service-impacting action taken.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 1118,
+    "output_tokens": 580,
+    "usd": 0.012053999999999999,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 0,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": [
+        "logs: logs: /ecs/checkout: An error occurred (ResourceNotFoundException) when calling the FilterLogEvents operation: The specified log group does not exist."
+      ]
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.25,
+      "hypothesis": "Alarm likely triggered by anomalously low CPU utilization (~0.004%) on checkout service, not by task/deployment failure — task count matches desired (2/2), no pending/failed deployments, memory normal (~59%). One deployment shown in-flight despite empty RECENT DEPLOYS list is unexplained; could be stale/mid-flight deploy or traffic drop causing idle CPU. No logs provided to confirm root cause (e.g. upstream traffic loss, LB misroute, or app stuck idle vs crash-loop)."
+    },
+    {
+      "node": "propose",
+      "action": "escalate_to_human",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "escalate_to_human",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

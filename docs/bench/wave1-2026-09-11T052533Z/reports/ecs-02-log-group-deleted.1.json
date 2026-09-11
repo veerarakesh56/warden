@@ -1,0 +1,113 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T11:43:34.720317+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.0046791573986411095,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: logs: /ecs/checkout: An error occurred (ResourceNotFoundException) when calling the FilterLogEvents operation: The specified log group does not exist."
+    ]
+  },
+  "root_cause": {
+    "hypothesis": "Checkout service alarm likely tripped on near-zero CPU utilization (~0.005%) while a deployment is in-flight — tasks match desired count and none are pending/failed, so this isn't a capacity or rollout failure. Pattern suggests running tasks aren't processing traffic (stuck rollout drain, health-check-only tasks, or upstream traffic not reaching service) rather than resource exhaustion.",
+    "confidence": 0.3,
+    "evidence": [
+      "tasks_running == tasks_desired == 2, tasks_pending == 0 → no scheduling/capacity problem",
+      "deployments_failed == 0 → rollout not failing outright",
+      "deployments_in_flight == 1 → active deployment mid-progress at alarm time",
+      "cpu_utilization_pct ~0.0047% → essentially idle, abnormal for a live checkout service",
+      "memory_utilization_pct ~58.6% → normal range, not a memory-pressure event",
+      "RECENT DEPLOYS empty and LOGS empty → limited corroborating evidence"
+    ],
+    "ruled_out": [
+      "Task capacity shortage (running == desired, no pending)",
+      "Deployment failure (deployments_failed == 0)",
+      "Memory exhaustion (utilization normal ~59%)"
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "Tasks match desired (2/2), none pending/failed, mem normal (~59%), but CPU near-zero (~0.005%) with a deployment in-flight yet RECENT DEPLOYS empty and no logs available. Contradictory/insufficient telemetry for checkout (revenue-critical) — can't confirm stuck rollout vs traffic-routing issue vs benign idle. Blind restart/rollback on a payment path without log confirmation risks masking or worsening a checkout outage.",
+    "expected_effect": "On-call gets alerted with current metrics to pull ALB target health, task logs, and deployment status before any state-changing action is taken on checkout.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 1091,
+    "output_tokens": 627,
+    "usd": 0.012678000000000002,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 0,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": [
+        "logs: logs: /ecs/checkout: An error occurred (ResourceNotFoundException) when calling the FilterLogEvents operation: The specified log group does not exist."
+      ]
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.3,
+      "hypothesis": "Checkout service alarm likely tripped on near-zero CPU utilization (~0.005%) while a deployment is in-flight — tasks match desired count and none are pending/failed, so this isn't a capacity or rollout failure. Pattern suggests running tasks aren't processing traffic (stuck rollout drain, health-check-only tasks, or upstream traffic not reaching service) rather than resource exhaustion."
+    },
+    {
+      "node": "propose",
+      "action": "escalate_to_human",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "escalate_to_human",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

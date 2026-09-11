@@ -86,10 +86,10 @@ SYSTEM_ENV = ("PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "COMSPEC", "PAT
 # defaults, because QUIET_SECONDS is derived from it and the two must not drift apart.
 #
 # The first full Claude run left 0.1-5 minutes between one scenario's revert and the next inject,
-# while WARDEN reads 15 minutes back. 39 of 42 runs read the previous scenario as evidence; ecs-06,
-# whose tasks never start, was diagnosed from ecs-05's crash loop and recovery and called
-# "self-resolved". `check_baseline` isolates the STATE a scenario inherits; this isolates the
-# EVIDENCE. Before every inject the wave waits out the longest window, plus a margin for this
+# while WARDEN reads 15 minutes back. 39 of 42 runs read the previous scenario as evidence. The
+# clean re-run showed it changed the answer for ecs-09 (a service at 0/0 tasks, called "a transient
+# dip" on ecs-08's log lines, diagnosed correctly 3/3 once isolated) and did not change it for
+# ecs-06. `check_baseline` isolates the STATE a scenario inherits; this isolates the EVIDENCE. Before every inject the wave waits out the longest window, plus a margin for this
 # machine's clock against AWS's (measured at 103s ahead, which errs safe; behind would not).
 LOG_LOOKBACK_M = 15
 METRIC_WINDOW_M = 10

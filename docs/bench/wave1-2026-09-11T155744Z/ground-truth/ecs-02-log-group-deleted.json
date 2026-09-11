@@ -1,0 +1,65 @@
+{
+  "scenario_id": "ecs-02-log-group-deleted",
+  "fault_class": "log_group_deleted",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 60,
+  "status": "ok",
+  "started_at": "2026-09-11T16:39:09.703712+00:00",
+  "injected": [
+    {
+      "op": "logs_delete_group",
+      "args": {
+        "log_group": "/ecs/checkout"
+      },
+      "result": {
+        "deleted": "/ecs/checkout"
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "logs_create_group",
+      "args": {
+        "log_group": "/ecs/checkout",
+        "retention_days": 1
+      },
+      "result": {
+        "created": "/ecs/checkout"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-02-log-group-deleted.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T16:40:55.397694+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-02-log-group-deleted.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T16:41:27.929325+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-02-log-group-deleted.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T16:41:56.239105+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T16:40:09.775751+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T16:41:56.673338+00:00"
+}

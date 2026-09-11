@@ -1,0 +1,66 @@
+{
+  "scenario_id": "ecs-10-oom-config-change",
+  "fault_class": "oom_from_config_change",
+  "fidelity": "real",
+  "signature_covered": true,
+  "settle_seconds": 240,
+  "status": "ok",
+  "started_at": "2026-09-11T12:55:33.958285+00:00",
+  "injected": [
+    {
+      "op": "ecs_deploy_variant",
+      "args": {
+        "variant": "oom_same_image"
+      },
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:40"
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "ecs_deploy_baseline",
+      "args": {},
+      "result": {
+        "deployed": "arn:aws:ecs:ap-south-2:<ACCOUNT>:task-definition/checkout:2"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-10-oom-config-change.attempt-2.1.json",
+      "exit_code": 1,
+      "report_written": false,
+      "stderr_tail": "lert\": alert, \"llm\": llm, \"backend\": backend, \"audit\": []})\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 3913, in invoke\n    for chunk in self.stream(\n                 ~~~~~~~~~~~^\n        input,\n        ^^^^^^\n    ...<11 lines>...\n        **kwargs,\n        ^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 2967, in stream\n    for _ in runner.tick(\n             ~~~~~~~~~~~^\n        [t for t in loop.tasks.values() if not t.writes],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        schedule_task=loop.accept_push,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_runner.py\", line 207, in tick\n    run_with_retry(\n    ~~~~~~~~~~~~~~^\n        t,\n        ^^\n    ...<10 lines>...\n        },\n        ^^\n    )\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_retry.py\", line 617, in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n  File \"C:\\work\\warden\\src\\warden\\graph.py\", line 404, in node_analyse\n    rc = llm.structured(\n        system=SYSTEM_ANALYSE,\n    ...<2 lines>...\n        mock_factory=lambda: _mock_root_cause(signals),\n    )\n  File \"C:\\work\\warden\\src\\warden\\llm.py\", line 181, in structured\n    raise ModelRefused(f\"{schema.__name__} not produced after {attempts} {plural}: {last}\")\nwarden.llm.ModelRefused: RootCause not produced after 3 attempts: claude CLI exited 1: You've hit your session limit \u00b7 resets 7:40pm (Asia/Kolkata)\nDuring task with name 'analyse' and id '70152589-5b39-2f38-e9ed-aa7649c7ec7e'\n",
+      "at": "2026-09-11T13:00:11.077903+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-10-oom-config-change.attempt-2.2.json",
+      "exit_code": 1,
+      "report_written": false,
+      "stderr_tail": "lert\": alert, \"llm\": llm, \"backend\": backend, \"audit\": []})\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 3913, in invoke\n    for chunk in self.stream(\n                 ~~~~~~~~~~~^\n        input,\n        ^^^^^^\n    ...<11 lines>...\n        **kwargs,\n        ^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 2967, in stream\n    for _ in runner.tick(\n             ~~~~~~~~~~~^\n        [t for t in loop.tasks.values() if not t.writes],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        schedule_task=loop.accept_push,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_runner.py\", line 207, in tick\n    run_with_retry(\n    ~~~~~~~~~~~~~~^\n        t,\n        ^^\n    ...<10 lines>...\n        },\n        ^^\n    )\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_retry.py\", line 617, in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n  File \"C:\\work\\warden\\src\\warden\\graph.py\", line 404, in node_analyse\n    rc = llm.structured(\n        system=SYSTEM_ANALYSE,\n    ...<2 lines>...\n        mock_factory=lambda: _mock_root_cause(signals),\n    )\n  File \"C:\\work\\warden\\src\\warden\\llm.py\", line 181, in structured\n    raise ModelRefused(f\"{schema.__name__} not produced after {attempts} {plural}: {last}\")\nwarden.llm.ModelRefused: RootCause not produced after 3 attempts: claude CLI exited 1: You've hit your session limit \u00b7 resets 7:40pm (Asia/Kolkata)\nDuring task with name 'analyse' and id 'e1671362-1471-bc3a-da68-df84652fce4e'\n",
+      "at": "2026-09-11T13:01:17.339076+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/superseded/ecs-10-oom-config-change.attempt-2.3.json",
+      "exit_code": 1,
+      "report_written": false,
+      "stderr_tail": "lert\": alert, \"llm\": llm, \"backend\": backend, \"audit\": []})\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 3913, in invoke\n    for chunk in self.stream(\n                 ~~~~~~~~~~~^\n        input,\n        ^^^^^^\n    ...<11 lines>...\n        **kwargs,\n        ^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\main.py\", line 2967, in stream\n    for _ in runner.tick(\n             ~~~~~~~~~~~^\n        [t for t in loop.tasks.values() if not t.writes],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        schedule_task=loop.accept_push,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ):\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_runner.py\", line 207, in tick\n    run_with_retry(\n    ~~~~~~~~~~~~~~^\n        t,\n        ^^\n    ...<10 lines>...\n        },\n        ^^\n    )\n    ^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\pregel\\_retry.py\", line 617, in run_with_retry\n    return task.proc.invoke(task.input, config)\n           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 707, in invoke\n    input = context.run(step.invoke, input, config, **kwargs)\n  File \"C:\\work\\warden\\.venv\\Lib\\site-packages\\langgraph\\_internal\\_runnable.py\", line 447, in invoke\n    ret = self.func(*args, **kwargs)\n  File \"C:\\work\\warden\\src\\warden\\graph.py\", line 404, in node_analyse\n    rc = llm.structured(\n        system=SYSTEM_ANALYSE,\n    ...<2 lines>...\n        mock_factory=lambda: _mock_root_cause(signals),\n    )\n  File \"C:\\work\\warden\\src\\warden\\llm.py\", line 181, in structured\n    raise ModelRefused(f\"{schema.__name__} not produced after {attempts} {plural}: {last}\")\nwarden.llm.ModelRefused: RootCause not produced after 3 attempts: claude CLI exited 1: You've hit your session limit \u00b7 resets 7:40pm (Asia/Kolkata)\nDuring task with name 'analyse' and id '97fdd1fe-9223-b0fa-63e5-bb4a3d02a93b'\n",
+      "at": "2026-09-11T13:02:19.628933+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T12:59:34.430502+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T13:02:22.195650+00:00",
+  "superseded": {
+    "at": "2026-09-11T14:28:01.506549+00:00",
+    "attempt": 2
+  }
+}

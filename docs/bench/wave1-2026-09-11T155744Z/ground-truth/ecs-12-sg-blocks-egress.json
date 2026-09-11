@@ -1,0 +1,74 @@
+{
+  "scenario_id": "ecs-12-sg-blocks-egress",
+  "fault_class": "sg_blocks_egress",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 240,
+  "status": "ok",
+  "started_at": "2026-09-11T20:59:33.986178+00:00",
+  "injected": [
+    {
+      "op": "sg_revoke_all_egress",
+      "args": {},
+      "result": {
+        "revoked_rules": 1
+      }
+    },
+    {
+      "op": "ecs_force_new_deployment",
+      "args": {},
+      "result": {
+        "forced": true
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "sg_restore_egress",
+      "args": {},
+      "result": {
+        "restored_rules": 1
+      }
+    },
+    {
+      "op": "ecs_force_new_deployment",
+      "args": {},
+      "result": {
+        "forced": true
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-12-sg-blocks-egress.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:04:02.875348+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-12-sg-blocks-egress.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:04:53.621770+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-12-sg-blocks-egress.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:05:40.453967+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T21:03:34.628193+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T21:05:41.673367+00:00"
+}

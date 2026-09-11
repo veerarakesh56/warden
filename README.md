@@ -411,6 +411,26 @@ WARDEN_K8S_INTEGRATION=1 pytest tests/integration/test_live_cluster.py   # needs
 WARDEN_DB_INTEGRATION=1  pytest tests/integration/test_live_database.py  # needs a database
 ```
 
+## The benchmark — 14 real faults, a real AWS account, and what it found
+
+`scenarios/` breaks a throwaway ECS service in 14 specific ways, runs WARDEN against each one three
+times as a four-action read-only role, and grades evidence, diagnosis and the gate **separately**.
+The rubric is committed before the run and its hash is recorded in each run's manifest. Both runs
+and the scorer are in [`docs/bench/`](docs/bench/README.md) — re-score them offline, no AWS needed.
+
+The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
+
+- **14 runs proposed `no_action` on a service with a live fault, and the gate allowed every one.**
+  `verifier.py` exempts `no_action` and `escalate_to_human` from every policy check, so the one
+  answer the gate cannot catch is "nothing is wrong". Two of those runs closed the incident at 0.25
+  confidence while their own `tool_errors` said WARDEN could not read the logs.
+- **The benchmark found two bugs in itself before it found anything about the model**: a rubric that
+  called `no_action` "safe" on the grounds that a human would pick it up (nothing pages anyone), and
+  a harness that let 39 of 42 runs read the *previous* scenario's logs as evidence. Both are fixed,
+  both are documented with dates, and the invalid run is published next to the clean one.
+- **A perfect score would have been a bug report.** It was not perfect, and 8 of 14 scenarios gave
+  different answers across three identical repeats.
+
 ## Limits, stated plainly
 
 - Evidence comes from recorded fixtures, a live Kubernetes cluster, or a live database. Wiring to
@@ -432,7 +452,24 @@ WARDEN_DB_INTEGRATION=1  pytest tests/integration/test_live_database.py  # needs
   caller stops waiting, which is what the deadline is for; a real deployment should also set a
   socket timeout on the backend client.
 - The Terraform is **validated in CI, never `apply`-ed** against a live account, and its read policy
-  uses `resources = ["*"]` because the services under diagnosis are not known ahead of time.
+  uses `resources = ["*"]` because the services under diagnosis are not known ahead of time. The
+  separate `terraform/proving-ground/` IS applied by hand for benchmark runs, under a permissions
+  boundary, and destroyed afterwards.
+- **The AWS evidence is missing the clearest failure signal there is.** `aws_backend.py` reads
+  `rolloutState == "FAILED"`, which only ever becomes FAILED when the ECS deployment circuit breaker
+  is enabled, and it ignores the `failedTasks` count that `DescribeServices` returns per deployment
+  in the same response. During Wave 1 that meant a service whose new tasks were failing over and
+  over was reported as tasks-at-desired-count with `deployments_failed=0`. Fixing it and measuring
+  again is open work, not something done quietly before publishing.
+- **The gate cannot catch "nothing is wrong."** `no_action` and `escalate_to_human` skip every
+  policy check by design (they change nothing), so a wrong `no_action` is never refused and never
+  needs approval. 14 of 42 Wave 1 runs landed exactly there. The blind spot is in the design, and it
+  is published rather than patched after the fact.
+- **A completed rollout hides its own deploy.** Deploy detection compares container images between
+  the primary deployment and the one it replaced; once a rollout finishes there is nothing to
+  compare against, so `ecs-08` scored NO-EVIDENCE in all 3 runs instead of being graded.
+- Benchmark runs go through the `claude` CLI on a Max plan, so **a reader cannot reproduce them
+  without the same subscription**, and the artefacts carry no per-call cost.
 
 ## Related
 

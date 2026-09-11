@@ -1,0 +1,228 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T10:47:35.342750+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 9,
+  "context": {
+    "logs": [
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:32:44.078000+00:00 checkout: started, healthy",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:32:44.078000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e9aa42272b9443f394dce3b79e<PHONE_2>-11T10:32:45.569000+00:00 checkout: still working",
+      "ecs/checkout/f8a4c75bee44485f88a08b18fbd05d<PHONE_3>T10:32:46.384000+00:00 checkout: still working",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:32:59.078000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e9aa42272b9443f394dce3b79e<PHONE_2>-11T10:33:00.576000+00:00 checkout: still working",
+      "ecs/checkout/f8a4c75bee44485f88a08b18fbd05d<PHONE_3>T10:33:01.470000+00:00 checkout: still working",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:33:14.078000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e9aa42272b9443f394dce3b79e<PHONE_2>-11T10:33:15.663000+00:00 checkout: still working",
+      "ecs/checkout/f8a4c75bee44485f88a08b18fbd05d<PHONE_3>T10:33:16.472000+00:00 checkout: still working",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:33:18.607000+00:00 checkout: started, healthy",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:33:18.607000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:33:29.078000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e9aa42272b9443f394dce3b79e<PHONE_2>-11T10:33:30.669000+00:00 checkout: still working",
+      "ecs/checkout/f8a4c75bee44485f88a08b18fbd05d<PHONE_3>T10:33:31.480000+00:00 checkout: still working",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:33:33.607000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:33:44.079000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e9aa42272b9443f394dce3b79e<PHONE_2>-11T10:33:45.678000+00:00 checkout: still working",
+      "ecs/checkout/f8a4c75bee44485f88a08b18fbd05d<PHONE_3>T10:33:46.485000+00:00 checkout: still working",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:33:48.607000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:33:59.079000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e9aa42272b9443f394dce3b79e<PHONE_2>-11T10:34:00.755000+00:00 checkout: still working",
+      "ecs/checkout/f8a4c75bee44485f88a08b18fbd05d<PHONE_3>T10:34:01.485000+00:00 checkout: still working",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:34:03.607000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:34:14.079000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/f8a4c75bee44485f88a08b18fbd05d<PHONE_3>T10:34:16.493000+00:00 checkout: still working",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:34:18.607000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:34:29.079000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:34:33.607000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:34:44.079000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:34:48.608000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:34:59.080000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:35:03.608000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:35:14.080000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:35:18.608000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:35:29.080000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:35:33.608000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:35:44.080000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:35:48.608000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/72c5b375422f4cc5bd82d<PHONE_1>-09-11T10:35:59.080000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e60f601fcd3f438b990c230a0dd115f<PHONE_4>T10:36:03.608000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:41:44.180000+00:00 checkout: started, healthy",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:41:44.180000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:41:44.704000+00:00 checkout: started, healthy",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:41:44.704000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:41:59.180000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:41:59.704000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:42:14.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:42:14.704000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/bac882f1a36d425dbddedaceff82ec6b 2026-09-11T10:42:27.461000+00:00 checkout: started",
+      "ecs/checkout/bac882f1a36d425dbddedaceff82ec6b 2026-09-11T10:42:27.461000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:42:29.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/bac882f1a36d425dbddedaceff82ec6b 2026-09-11T10:42:29.461000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:42:29.705000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/bac882f1a36d425dbddedaceff82ec6b 2026-09-11T10:42:30.462000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/bac882f1a36d425dbddedaceff82ec6b 2026-09-11T10:42:30.462000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/bac882f1a36d425dbddedaceff82ec6b 2026-09-11T10:42:30.462000+00:00 MemoryError",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:42:44.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:42:44.705000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:42:59.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:42:59.705000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d8d5ef147d0c4feeacaaa24199d19a<PHONE_6>T10:43:01.293000+00:00 checkout: started",
+      "ecs/checkout/d8d5ef147d0c4feeacaaa24199d19a<PHONE_6>T10:43:01.294000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/d8d5ef147d0c4feeacaaa24199d19a<PHONE_6>T10:43:03.294000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/d8d5ef147d0c4feeacaaa24199d19a<PHONE_6>T10:43:04.294000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/d8d5ef147d0c4feeacaaa24199d19a<PHONE_6>T10:43:04.294000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/d8d5ef147d0c4feeacaaa24199d19a<PHONE_6>T10:43:04.294000+00:00 MemoryError",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:43:14.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:43:14.705000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/6fe073e6c4b048ffa14ea7ec14e28c8f 2026-09-11T10:43:29.031000+00:00 checkout: started",
+      "ecs/checkout/6fe073e6c4b048ffa14ea7ec14e28c8f 2026-09-11T10:43:29.031000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:43:29.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:43:29.705000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/6fe073e6c4b048ffa14ea7ec14e28c8f 2026-09-11T10:43:31.031000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:43:44.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:43:44.706000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/f6649b828d3d4f43bfad5fc09827e1de 2026-09-11T10:43:55.759000+00:00 checkout: started",
+      "ecs/checkout/f6649b828d3d4f43bfad5fc09827e1de 2026-09-11T10:43:55.759000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/f6649b828d3d4f43bfad5fc09827e1de 2026-09-11T10:43:57.759000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/f6649b828d3d4f43bfad5fc09827e1de 2026-09-11T10:43:58.760000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/f6649b828d3d4f43bfad5fc09827e1de 2026-09-11T10:43:58.760000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/f6649b828d3d4f43bfad5fc09827e1de 2026-09-11T10:43:58.760000+00:00 MemoryError",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:43:59.181000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:43:59.706000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:44:14.182000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:44:14.706000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/bf2ad00b71fa4df2b49f989473a437b<PHONE_7>T10:44:25.991000+00:00 checkout: started",
+      "ecs/checkout/bf2ad00b71fa4df2b49f989473a437b<PHONE_7>T10:44:25.991000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/bf2ad00b71fa4df2b49f989473a437b<PHONE_7>T10:44:27.991000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/bf2ad00b71fa4df2b49f989473a437b<PHONE_7>T10:44:28.992000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/bf2ad00b71fa4df2b49f989473a437b<PHONE_7>T10:44:28.992000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/bf2ad00b71fa4df2b49f989473a437b<PHONE_7>T10:44:28.992000+00:00 MemoryError",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:44:29.182000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:44:29.706000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:44:44.182000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:44:44.706000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:44:59.182000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:44:59.707000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/814867e6be5244a5b8d<PHONE_8>fd 2026-09-11T10:44:59.947000+00:00 checkout: started",
+      "ecs/checkout/814867e6be5244a5b8d<PHONE_8>fd 2026-09-11T10:44:59.948000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/814867e6be5244a5b8d<PHONE_8>fd 2026-09-11T10:45:01.948000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/814867e6be5244a5b8d<PHONE_8>fd 2026-09-11T10:45:02.948000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/814867e6be5244a5b8d<PHONE_8>fd 2026-09-11T10:45:02.948000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/814867e6be5244a5b8d<PHONE_8>fd 2026-09-11T10:45:02.948000+00:00 MemoryError",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:45:14.182000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:45:14.707000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/6ea8beeae937498abb144c84acd2f5d<PHONE_9>T10:45:19.909000+00:00 checkout: started",
+      "ecs/checkout/6ea8beeae937498abb144c84acd2f5d<PHONE_9>T10:45:19.909000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/6ea8beeae937498abb144c84acd2f5d<PHONE_9>T10:45:21.909000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/6ea8beeae937498abb144c84acd2f5d<PHONE_9>T10:45:22.910000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/6ea8beeae937498abb144c84acd2f5d<PHONE_9>T10:45:22.910000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/6ea8beeae937498abb144c84acd2f5d<PHONE_9>T10:45:22.910000+00:00 MemoryError",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:45:29.183000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:45:29.707000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/13c2f7331c5b42b28d786670ab8d49ab 2026-09-11T10:45:44.183000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_5>T10:45:44.707000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.4395419331267476,
+      "memory_utilization_pct": 0.6510416666666667
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Bad deploy: new task revision's code allocates a 900MiB in-process cache on startup, exceeding the container's memory limit, causing an immediate MemoryError crash. ECS keeps launching replacement tasks of the new revision (bac882f1, d8d5ef14, 6fe073e6, f6649b82, bf2ad00b, 814867e6, 6ea8beea...) which all crash-loop the same way, so the rollout never reaches steady state — old-revision tasks (72c5b375, e9aa4227, f8a4c75b, e60f601f, 13c2f733, a8d6f823) keep heartbeating fine, explaining deployments_in_flight=2 and tasks_pending=1 despite tasks_running==tasks_desired.",
+    "confidence": 0.85,
+    "evidence": [
+      "Repeated pattern across >=6 distinct task IDs: 'started' -> 'WARN memory pressure rising' -> 'allocating 900MiB cache' -> Traceback MemoryError, each ~1-4s after start",
+      "Crash-loop cadence (~24-34s between new task IDs) matches ECS respawning failed tasks of same revision",
+      "Concurrently, separate older task IDs continue clean 'heartbeat ok'/'still working' logs with no memory warnings, indicating two coexisting revisions",
+      "deployments_in_flight=2.0 and tasks_pending=1.0 in metrics confirm rollout stuck mid-transition",
+      "cpu_utilization_pct low (0.44%) rules out CPU-bound cause; memory_utilization_pct 65% is average across mixed healthy+crashing tasks, consistent with some tasks OOMing individually"
+    ],
+    "ruled_out": [
+      "CPU exhaustion (utilization near-zero)",
+      "Config/network-only failure (crash is a specific in-app MemoryError after explicit large allocation, not a generic startup failure)",
+      "Pure infra/ECS control-plane issue (failure signature is application-level Python traceback, reproducible per task)"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "ecs-service/prod/checkout",
+    "reasoning": "New revision allocates 900MiB cache on startup, exceeds container mem limit, MemoryError crash loop (bac882f1, d8d5ef14, 6fe073e6, f6649b82, bf2ad00b, 814867e6, 6ea8beea). Old revision tasks (72c5b375, e9aa4227, f8a4c75b, e60f601f, 13c2f733, a8d6f823) heartbeat fine. Rollback stops crash loop, restores steady state.",
+    "expected_effect": "ECS stops spawning bad-revision tasks, deployments_in_flight drops to 0, tasks_pending to 0, service stabilizes on last-good revision",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "rejected",
+    "reasons": [
+      "Rollback proposed but no recent deploy appears in the gathered context."
+    ],
+    "policy_ids": [
+      "P5-NO-DEPLOY-TO-ROLL-BACK"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 9010,
+    "output_tokens": 753,
+    "usd": 0.038325,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 116,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 9
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.85,
+      "hypothesis": "Bad deploy: new task revision's code allocates a 900MiB in-process cache on startup, exceeding the container's memory limit, causing an immediate MemoryError crash. ECS keeps launching replacement tasks of the new revision (bac882f1, d8d5ef14, 6fe073e6, f6649b82, bf2ad00b, 814867e6, 6ea8beea...) which all crash-loop the same way, so the rollout never reaches steady state — old-revision tasks (72c5b375, e9aa4227, f8a4c75b, e60f601f, 13c2f733, a8d6f823) keep heartbeating fine, explaining deployments_in_flight=2 and tasks_pending=1 despite tasks_running==tasks_desired."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "ecs-service/prod/checkout"
+    },
+    {
+      "node": "verify",
+      "status": "rejected",
+      "policies": [
+        "P5-NO-DEPLOY-TO-ROLL-BACK"
+      ]
+    },
+    {
+      "node": "halt",
+      "reasons": "Rollback proposed but no recent deploy appears in the gathered context."
+    }
+  ],
+  "halted_reason": "Rollback proposed but no recent deploy appears in the gathered context."
+}

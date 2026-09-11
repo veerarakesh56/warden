@@ -1,0 +1,224 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T17:30:30.464595+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:15:34.486000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:15:45.220000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:15:49.487000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:16:00.221000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:16:04.487000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:16:15.221000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:16:19.487000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:16:30.221000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:16:34.487000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:16:45.221000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:16:49.487000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:17:00.221000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:17:04.487000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:17:15.221000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:17:19.487000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:17:30.222000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:17:34.488000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:17:45.222000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:17:49.488000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:18:00.222000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:18:04.488000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:18:15.222000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:18:19.488000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:18:30.222000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:18:34.488000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:18:45.222000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:18:49.488000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:19:00.222000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:19:04.489000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:19:15.223000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:19:19.489000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:19:30.223000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:19:34.489000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:19:45.223000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:19:49.489000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:20:00.223000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:20:04.489000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:20:15.223000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:20:19.489000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:20:30.223000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:20:34.490000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:20:45.223000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:20:49.490000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:21:00.224000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:21:04.490000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:21:15.224000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:21:19.490000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:21:30.224000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:21:34.490000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:21:45.224000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:21:49.490000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:22:00.224000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:22:04.491000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:22:15.224000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:22:19.491000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:22:30.225000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:22:34.491000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:22:45.225000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:22:49.491000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:23:00.225000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:23:04.491000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:23:15.225000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:23:19.491000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:23:30.225000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:23:34.492000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:23:45.226000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:23:49.492000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:24:00.226000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:24:04.492000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:24:15.226000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:24:19.492000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:24:30.226000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:24:34.492000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:24:45.226000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:24:49.493000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:25:00.226000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:25:04.493000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:25:15.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:25:19.493000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:25:30.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:25:34.493000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:25:45.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:25:49.493000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:26:00.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:26:04.494000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:26:15.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:26:19.494000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:26:30.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:26:34.494000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:26:45.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:26:49.494000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:27:00.227000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:27:04.494000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:27:15.228000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:27:19.494000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:27:30.228000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:27:34.494000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:27:45.228000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:27:49.495000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:28:00.228000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:28:04.495000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:28:15.228000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:28:19.495000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/3427341cfde24c81a72aa7e8e<PHONE_2>-11T17:28:30.229000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/cbabaf802b294fd1a1492954a6b85d<PHONE_1>T17:28:34.495000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.0056236316449940205,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [
+      {
+        "service": "checkout",
+        "revision": "43",
+        "image": "public.ecr.aws/docker/library/python:this-tag-does-not-exist-9x8y7z",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-11T22:55:45.808000+05:30",
+        "by": "ecs",
+        "registered_at": "2026-09-11T22:55:45.568000+05:30"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Deploy revision 43 pushed image tag 'python:this-tag-does-not-exist-9x8y7z' which does not exist in registry. New task fails to pull image, stuck pending; old task (previous_image 3.12-alpine) still running and emitting heartbeats. Explains tasks_pending=1, deployments_in_flight=2, near-zero CPU (new task never starts), normal memory (old task still up).",
+    "confidence": 0.85,
+    "evidence": [
+      "RECENT DEPLOYS shows image tag 'this-tag-does-not-exist-9x8y7z' vs previous_image '3.12-alpine'",
+      "tasks_pending=1.0 while tasks_desired=2.0 met by tasks_running=2.0 — extra pending task stuck",
+      "deployments_in_flight=2.0 indicates old+new deployment both active (rollout stalled)",
+      "cpu_utilization_pct near 0 (0.0056%) suggests one task doing nothing (stuck pulling image)",
+      "heartbeat logs continuous ok from two existing task IDs — old tasks unaffected, no crash",
+      "deployments_failed=0.0 — ECS hasn't marked rollout failed yet, consistent with slow CannotPullContainerError retries"
+    ],
+    "ruled_out": [
+      "App-level crash/OOM in running tasks — heartbeats continuous, memory 58% normal, no error logs",
+      "Traffic/load-induced outage — CPU near-zero contradicts overload",
+      "Deployment fully failed/rolled back automatically — deployments_failed=0 shows no rollback triggered yet"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "ecs-service:checkout (prod), revision 43 -> previous revision (image public.ecr.aws/docker/library/python:3.12-alpine)",
+    "reasoning": "Revision 43 set image tag 'python:this-tag-does-not-exist-9x8y7z', invalid/nonexistent in registry. New task cant pull image, stuck pending (tasks_pending=1, deployments_in_flight=2). Old task on 3.12-alpine still up, heartbeats fine, explains near-zero CPU (new task never runs) + normal memory (old task carries load). Root cause bad tag, not capacity/traffic issue.",
+    "expected_effect": "ECS reverts task def to prior working image (3.12-alpine), new tasks pull successfully, deployment converges, pending count -> 0, alarm clears.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 8070,
+    "output_tokens": 693,
+    "usd": 0.034605,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 105,
+      "metrics": 7,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.85,
+      "hypothesis": "Deploy revision 43 pushed image tag 'python:this-tag-does-not-exist-9x8y7z' which does not exist in registry. New task fails to pull image, stuck pending; old task (previous_image 3.12-alpine) still running and emitting heartbeats. Explains tasks_pending=1, deployments_in_flight=2, near-zero CPU (new task never starts), normal memory (old task still up)."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "ecs-service:checkout (prod), revision 43 -> previous revision (image public.ecr.aws/docker/library/python:3.12-alpine)"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

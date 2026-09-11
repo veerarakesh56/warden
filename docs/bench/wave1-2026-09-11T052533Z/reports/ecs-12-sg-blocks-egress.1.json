@@ -1,0 +1,184 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T11:05:06.782334+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 3,
+  "context": {
+    "logs": [
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:50:08.193000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:50:08.299000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_3>T10:50:14.710000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:50:23.194000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:50:23.299000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_3>T10:50:29.710000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:50:38.194000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:50:38.300000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a8d6f823c0124963a4eac69d388ecca<PHONE_3>T10:50:44.710000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:50:53.194000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:50:53.300000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:51:08.194000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:51:08.300000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:51:23.194000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:51:23.300000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:51:38.195000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:51:38.300000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:51:53.195000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:51:53.300000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:52:08.195000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:52:08.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:52:23.195000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:52:23.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:52:38.195000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:52:38.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:52:53.195000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:52:53.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:53:08.196000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:53:08.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:53:23.196000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:53:23.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:53:38.196000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:53:38.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:53:53.196000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:53:53.301000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:54:08.196000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:54:08.302000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:54:23.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:54:23.302000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:54:38.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:54:38.302000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:54:53.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:54:53.302000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:55:08.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:55:08.302000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:55:23.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:55:23.302000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:55:38.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:55:38.303000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:55:53.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:55:53.303000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:56:08.197000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:56:08.303000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:56:23.198000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:56:23.303000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:56:38.198000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:56:38.303000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:56:53.198000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:56:53.303000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:57:08.198000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:57:08.304000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:57:23.198000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:57:23.304000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:57:38.198000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:57:38.304000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:57:53.198000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:57:53.304000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:58:08.199000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:58:08.304000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:58:23.199000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:58:23.304000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:58:38.199000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:58:38.305000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T10:58:53.199000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T10:58:53.305000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.00462240120396018,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Alarm fired because an ECS deployment is stuck: a third task (task_id PHONE_3) started, sent only 3 heartbeats over ~35s (10:50:14–10:50:44), then stopped reporting — consistent with a failed health check, crash, or replacement shortly after launch. This left tasks_pending=1 and deployments_in_flight=2 with the rollout unable to converge, even though the original 2 tasks (PHONE_1, PHONE_2) kept healthy heartbeats throughout. Not a capacity/traffic outage: tasks_running still equals tasks_desired (2), CPU is near-zero, and memory is mid-range — this reads as a deploy/task-replacement churn issue, not resource exhaustion or overload.",
+    "confidence": 0.5,
+    "evidence": [
+      "tasks_running == tasks_desired == 2, so no shortfall in serving capacity",
+      "tasks_pending=1 and deployments_in_flight=2 indicate an active, non-converged deployment",
+      "Task PHONE_3 heartbeats appear only 3 times (10:50:14, 10:50:29, 10:50:44) then vanish from logs, while PHONE_1 and PHONE_2 heartbeat continuously every ~15s through 10:58:53",
+      "cpu_utilization_pct ~0.0046% rules out CPU saturation as the trigger",
+      "memory_utilization_pct 58.6% is unremarkable, not indicative of OOM-driven task death"
+    ],
+    "ruled_out": [
+      "Full service outage — 2 of the original tasks remained healthy the entire window",
+      "CPU-driven scaling/throttling — utilization near zero",
+      "Simple capacity shortfall — running matches desired count"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "tasks_running=tasks_desired=2, both original tasks (PHONE_1, PHONE_2) heartbeat healthy whole window. Third task briefly appeared/dropped but never counted against desired capacity, deployments_failed=0. CPU near-zero, memory mid-range - no resource exhaustion, no user-facing impact evident.",
+    "expected_effect": "No change; alarm likely self-clears once in-flight deployment reconciles or times out. Continue monitoring tasks_pending/deployments_in_flight for next cycle.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 6075,
+    "output_tokens": 822,
+    "usd": 0.030555,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 75,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 3
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.5,
+      "hypothesis": "Alarm fired because an ECS deployment is stuck: a third task (task_id PHONE_3) started, sent only 3 heartbeats over ~35s (10:50:14–10:50:44), then stopped reporting — consistent with a failed health check, crash, or replacement shortly after launch. This left tasks_pending=1 and deployments_in_flight=2 with the rollout unable to converge, even though the original 2 tasks (PHONE_1, PHONE_2) kept healthy heartbeats throughout. Not a capacity/traffic outage: tasks_running still equals tasks_desired (2), CPU is near-zero, and memory is mid-range — this reads as a deploy/task-replacement churn issue, not resource exhaustion or overload."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "no_action",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

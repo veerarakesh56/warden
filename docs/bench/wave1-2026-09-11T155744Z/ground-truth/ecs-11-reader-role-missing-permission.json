@@ -1,0 +1,70 @@
+{
+  "scenario_id": "ecs-11-reader-role-missing-permission",
+  "fault_class": "task_role_missing_permission",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 180,
+  "status": "ok",
+  "started_at": "2026-09-11T20:36:44.623149+00:00",
+  "injected": [
+    {
+      "op": "iam_shrink_role_policy",
+      "args": {
+        "role_kind": "warden_reader",
+        "remove_actions": [
+          "logs:FilterLogEvents"
+        ]
+      },
+      "result": {
+        "removed": [
+          "logs:FilterLogEvents"
+        ],
+        "policy": "warden-readonly"
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "iam_restore_role_policy",
+      "args": {
+        "role_kind": "warden_reader"
+      },
+      "result": {
+        "restored": "warden-readonly"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-11-reader-role-missing-permission.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T20:40:20.591768+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-11-reader-role-missing-permission.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T20:40:54.226347+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-11-reader-role-missing-permission.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T20:41:28.941786+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T20:39:45.583481+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T20:41:30.452610+00:00"
+}

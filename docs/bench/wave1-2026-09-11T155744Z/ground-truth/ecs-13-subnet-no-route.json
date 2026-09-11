@@ -1,0 +1,74 @@
+{
+  "scenario_id": "ecs-13-subnet-no-route",
+  "fault_class": "subnet_no_route",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 240,
+  "status": "ok",
+  "started_at": "2026-09-11T21:28:07.984721+00:00",
+  "injected": [
+    {
+      "op": "route_delete_default",
+      "args": {},
+      "result": {
+        "deleted_route_via": "igw-09aa1d22ea94f495f"
+      }
+    },
+    {
+      "op": "ecs_force_new_deployment",
+      "args": {},
+      "result": {
+        "forced": true
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "route_restore_default",
+      "args": {},
+      "result": {
+        "restored_route_via": "igw-09aa1d22ea94f495f"
+      }
+    },
+    {
+      "op": "ecs_force_new_deployment",
+      "args": {},
+      "result": {
+        "forced": true
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-13-subnet-no-route.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:32:42.061238+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-13-subnet-no-route.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:33:24.640096+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-13-subnet-no-route.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T21:34:05.264251+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T21:32:08.541961+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T21:34:06.418940+00:00"
+}

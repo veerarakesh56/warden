@@ -1,0 +1,187 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T11:19:59.578682+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 4,
+  "context": {
+    "logs": [
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:05:08.203000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:05:23.203000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:05:38.203000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:05:38.310000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:05:53.203000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:05:53.310000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:06:08.204000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:06:08.310000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:06:23.204000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:06:23.310000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:06:38.204000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:06:38.310000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:06:53.204000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:06:53.310000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:07:08.204000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:07:08.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d57e31090a6a47e999236d2bd0c0a<PHONE_3>T11:07:11.113000+00:00 checkout: started, healthy",
+      "ecs/checkout/d57e31090a6a47e999236d2bd0c0a<PHONE_3>T11:07:11.113000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:07:23.204000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:07:23.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d57e31090a6a47e999236d2bd0c0a<PHONE_3>T11:07:26.113000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:07:38.205000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:07:38.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d57e31090a6a47e999236d2bd0c0a<PHONE_3>T11:07:41.113000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:07:51.437000+00:00 checkout: started, healthy",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:07:51.437000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:07:53.205000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:07:53.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d57e31090a6a47e999236d2bd0c0a<PHONE_3>T11:07:56.114000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:08:06.437000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:08:08.205000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:08:08.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d57e31090a6a47e999236d2bd0c0a<PHONE_3>T11:08:11.114000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:08:21.438000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:08:23.205000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:08:23.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d57e31090a6a47e999236d2bd0c0a<PHONE_3>T11:08:26.114000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:08:36.438000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:08:38.205000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:08:38.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:08:51.438000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:08:53.206000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:08:53.311000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:09:06.438000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:09:08.206000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/4259e001dd9d45fe8c9e0c662ae43e<PHONE_2>T11:09:08.312000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:09:21.438000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:09:23.206000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:09:36.438000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:09:38.206000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:09:41.615000+00:00 checkout: started, healthy",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:09:41.615000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:09:51.438000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:09:53.206000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:09:56.615000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:10:06.439000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:10:08.206000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:10:11.615000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:10:21.439000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:10:23.207000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:10:26.615000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:10:36.439000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:10:38.207000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:10:41.615000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:10:51.439000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/e376c23c46054c80bd5a74238e604c<PHONE_1>T11:10:53.207000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:10:56.615000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:11:06.439000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:11:11.616000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:11:21.440000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:11:26.616000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:11:36.440000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:11:41.616000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/64ebc2bf2225499a83d22dc2230a51e<PHONE_4>T11:11:51.440000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/b4dc4042d3d54d82a686838e162e2dfd 2026-09-11T11:11:56.616000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.4345515836030244,
+      "memory_utilization_pct": 0.6510416666666667
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "ECS rolling deployment stuck/flapping on checkout service: new tasks (PHONE_3, PHONE_4, then b4dc) keep getting spun up while originals (PHONE_1, PHONE_2) drain, but task IDs churn faster than steady-state — PHONE_3 disappears ~75s after start with no explicit stop/error log, and tasks_pending stays at 1 with deployments_in_flight=2 through the whole window. Alarm likely fired on deployment not converging, not on an outage (2/2 desired tasks stayed running throughout). Underlying trigger (bad task def, failing health check, crash) not visible in redacted evidence — no error/exit logs, RECENT DEPLOYS empty so can't tie to a release.",
+    "confidence": 0.35,
+    "evidence": [
+      "tasks_pending=1 and deployments_in_flight=2 while tasks_running=tasks_desired=2 — classic non-converging rollout signature",
+      "PHONE_3 started 11:07:11, heartbeats stop abruptly after 11:08:26 (~75s life) with no 'stopped' log line — looks like unhealthy/killed task, not clean drain",
+      "PHONE_4 started 11:07:51 (overlaps PHONE_3) and survives to end of log — successful replacement",
+      "PHONE_2 heartbeats stop after 11:09:08 with no replacement task start logged near that time",
+      "b4dc started 11:09:41 while PHONE_1 still alive, PHONE_1 stops after 11:10:53 — another overlapping churn",
+      "CPU 0.43% / memory 65% — not resource exhaustion",
+      "deployments_failed=0.0 — ECS hasn't marked deploy as failed yet, consistent with a stuck-in-progress rollout"
+    ],
+    "ruled_out": [
+      "Full service outage — desired vs running stayed 2/2 the entire window",
+      "Resource exhaustion (CPU/OOM) — utilization metrics normal",
+      "Attributable bad deploy — RECENT DEPLOYS is empty, no deploy ID/version evidence in redacted data",
+      "Explicit crash/error — logs only show heartbeat/started lines, no error or exit codes present"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "2/2 desired tasks running whole window, heartbeats continuous no gaps, cpu/mem low, no error/exit logs, RECENT DEPLOYS empty. Task churn (PHONE_3/4, b4dc) look like normal rolling replace not crash loop — no stop/error tied to any ID. Alarm likely tripped on deployments_in_flight/pending not converging, not on service outage. No safe corrective action identified from evidence; guessing (restart/rollback) risks disrupting a healthy service with no confirmed root cause.",
+    "expected_effect": "No change to running service. Buys time to pull ECS deployment events / stopped-task reasons (redacted here) to confirm real cause before acting.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 6123,
+    "output_tokens": 880,
+    "usd": 0.031569,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 75,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 4
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.35,
+      "hypothesis": "ECS rolling deployment stuck/flapping on checkout service: new tasks (PHONE_3, PHONE_4, then b4dc) keep getting spun up while originals (PHONE_1, PHONE_2) drain, but task IDs churn faster than steady-state — PHONE_3 disappears ~75s after start with no explicit stop/error log, and tasks_pending stays at 1 with deployments_in_flight=2 through the whole window. Alarm likely fired on deployment not converging, not on an outage (2/2 desired tasks stayed running throughout). Underlying trigger (bad task def, failing health check, crash) not visible in redacted evidence — no error/exit logs, RECENT DEPLOYS empty so can't tie to a release."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "no_action",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

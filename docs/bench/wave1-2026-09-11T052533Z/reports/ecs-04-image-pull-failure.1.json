@@ -1,0 +1,214 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T12:00:16.015382+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 7,
+  "context": {
+    "logs": [
+      "ecs/checkout/5c9c2de1cc604869a1936b29631eee6a 2026-09-11T11:46:22.173000+00:00 checkout: started",
+      "ecs/checkout/5c9c2de1cc604869a1936b29631eee6a 2026-09-11T11:46:22.173000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/5c9c2de1cc604869a1936b29631eee6a 2026-09-11T11:46:24.173000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/28cdc4fb9cdd4ad2b9aba69f<PHONE_1>-11T11:47:02.959000+00:00 checkout: started",
+      "ecs/checkout/28cdc4fb9cdd4ad2b9aba69f<PHONE_1>-11T11:47:02.959000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/28cdc4fb9cdd4ad2b9aba69f<PHONE_1>-11T11:47:04.959000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/28cdc4fb9cdd4ad2b9aba69f<PHONE_1>-11T11:47:05.959000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/28cdc4fb9cdd4ad2b9aba69f<PHONE_1>-11T11:47:05.959000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/28cdc4fb9cdd4ad2b9aba69f<PHONE_1>-11T11:47:05.959000+00:00 MemoryError",
+      "ecs/checkout/b29c83a7fcc34500b41a5d523ff4ae<PHONE_2>T11:47:29.045000+00:00 checkout: started",
+      "ecs/checkout/b29c83a7fcc34500b41a5d523ff4ae<PHONE_2>T11:47:29.045000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/b29c83a7fcc34500b41a5d523ff4ae<PHONE_2>T11:47:31.045000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/bbfd7f1255754e898148ed2ff2a6f2bd 2026-09-11T11:48:01.943000+00:00 checkout: started",
+      "ecs/checkout/bbfd7f1255754e898148ed2ff2a6f2bd 2026-09-11T11:48:01.943000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/bbfd7f1255754e898148ed2ff2a6f2bd 2026-09-11T11:48:03.943000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/bbfd7f1255754e898148ed2ff2a6f2bd 2026-09-11T11:48:04.944000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/bbfd7f1255754e898148ed2ff2a6f2bd 2026-09-11T11:48:04.944000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/bbfd7f1255754e898148ed2ff2a6f2bd 2026-09-11T11:48:04.944000+00:00 MemoryError",
+      "ecs/checkout/7cbbaac3814040b5a26eadcf756dbb<PHONE_3>T11:48:24.201000+00:00 checkout: started",
+      "ecs/checkout/7cbbaac3814040b5a26eadcf756dbb<PHONE_3>T11:48:24.201000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/7cbbaac3814040b5a26eadcf756dbb<PHONE_3>T11:48:26.201000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/b4ebe631031342fb9971a501543978c<PHONE_4>T11:49:09.476000+00:00 checkout: started",
+      "ecs/checkout/b4ebe631031342fb9971a501543978c<PHONE_4>T11:49:09.476000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/b4ebe631031342fb9971a501543978c<PHONE_4>T11:49:11.476000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/da218453d37a410ea0aae3318acc<PHONE_5>T11:49:27.079000+00:00 checkout: started",
+      "ecs/checkout/da218453d37a410ea0aae3318acc<PHONE_5>T11:49:27.079000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/da218453d37a410ea0aae3318acc<PHONE_5>T11:49:29.079000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/da218453d37a410ea0aae3318acc<PHONE_5>T11:49:30.079000+00:00 Traceback (most recent call last):",
+      "ecs/checkout/da218453d37a410ea0aae3318acc<PHONE_5>T11:49:30.079000+00:00   File \"<string>\", line 7, in <module>",
+      "ecs/checkout/da218453d37a410ea0aae3318acc<PHONE_5>T11:49:30.079000+00:00 MemoryError",
+      "ecs/checkout/d205972c16c848298b3f501ffa33bddd 2026-09-11T11:50:08.430000+00:00 checkout: started",
+      "ecs/checkout/d205972c16c848298b3f501ffa33bddd 2026-09-11T11:50:08.430000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/d205972c16c848298b3f501ffa33bddd 2026-09-11T11:50:10.430000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/631f5b81370a4b3e9f80eb00aa33732d 2026-09-11T11:50:26.462000+00:00 checkout: started",
+      "ecs/checkout/631f5b81370a4b3e9f80eb00aa33732d 2026-09-11T11:50:26.462000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/631f5b81370a4b3e9f80eb00aa33732d 2026-09-11T11:50:28.462000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/93f6eec9c5d24b138bb5eba3ada35d3f 2026-09-11T11:51:05.333000+00:00 checkout: started",
+      "ecs/checkout/93f6eec9c5d24b138bb5eba3ada35d3f 2026-09-11T11:51:05.334000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/93f6eec9c5d24b138bb5eba3ada35d3f 2026-09-11T11:51:07.333000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/28d600587c46492b9b1772ec7346fbcc 2026-09-11T11:51:27.875000+00:00 checkout: started",
+      "ecs/checkout/28d600587c46492b9b1772ec7346fbcc 2026-09-11T11:51:27.875000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/28d600587c46492b9b1772ec7346fbcc 2026-09-11T11:51:29.875000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:52:27.470000+00:00 checkout: started, healthy",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:52:27.470000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:52:42.470000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:52:57.471000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:52:59.959000+00:00 checkout: started, healthy",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:52:59.959000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:53:12.471000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:53:14.959000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:53:27.471000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:53:29.959000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:53:42.471000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:53:44.959000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:53:57.471000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:53:59.959000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:54:12.472000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:54:14.959000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:54:27.472000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:54:29.960000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:54:42.472000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:54:44.960000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:54:57.472000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:54:59.960000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:55:12.472000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:55:14.960000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:55:27.473000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:55:29.960000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:55:42.473000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:55:44.960000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:55:57.473000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:55:59.961000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:56:12.473000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:56:14.961000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:56:27.473000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:56:29.961000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:56:42.473000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:56:44.961000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:56:57.474000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:56:59.961000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:57:12.474000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:57:14.961000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:57:27.474000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:57:29.962000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:57:42.474000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:57:44.962000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:57:57.474000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:57:59.962000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:58:12.475000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:58:14.962000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/a27f477017254cba9b661b88c57a00d<PHONE_6>T11:58:27.475000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/2a9e93bd7f16410dbf0ff653e2f5ec<PHONE_7>T11:58:29.962000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.4820560682564974,
+      "memory_utilization_pct": 0.6510416666666667
+    },
+    "recent_deploys": [
+      {
+        "service": "checkout",
+        "revision": "35",
+        "image": "public.ecr.aws/docker/library/python:this-tag-does-not-exist-9x8y7z",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-11T17:25:16.896000+05:30",
+        "by": "ecs",
+        "registered_at": "2026-09-11T17:25:16.659000+05:30"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "checkout tasks OOM-crash-looped because per-task memory limit is too small for a ~900MiB in-process cache allocated at startup (repeated 'allocating 900MiB cache' → MemoryError traceback across ~8 task starts before two tasks finally stayed up). Revision 35's deploy referenced a nonexistent image tag ('python:this-tag-does-not-exist-9x8y7z'), which cannot be pulled at all, so the crash-looping containers seen in logs are almost certainly still running the previous_image (3.12-alpine), not rev 35 — meaning the bad tag is a separate, likely-stuck/failed deployment (explains deployments_in_flight=2 with 0 tasks_desired progress) rather than the direct cause of the MemoryErrors. The alarm is best explained as two concurrent issues: (1) an unpullable image tag stalling the new deployment, and (2) a marginal memory limit on the existing task definition causing intermittent OOM kills during startup cache warm-up, which only cleared once two tasks happened to start (or land on hosts) without hitting the OOM path.",
+    "confidence": 0.5,
+    "evidence": [
+      "RECENT DEPLOYS shows image tag 'this-tag-does-not-exist-9x8y7z', which is not a resolvable tag — such a deploy cannot successfully pull and run",
+      "deployments_in_flight=2.0 with deployments_failed=0.0 suggests a deployment stuck rather than cleanly failed/rolled back",
+      "Logs show repeated cycle: 'started' → 'WARN memory pressure rising' → 'allocating 900MiB cache' → MemoryError traceback, across ~8 distinct task IDs between 11:46 and 11:51 UTC",
+      "Only 2 of ~10 restart cycles avoid the traceback and reach 'started, healthy' with sustained heartbeat ok",
+      "memory_utilization_pct ≈0.65 average is consistent with tasks running near their memory ceiling",
+      "tasks_running=2.0 equals tasks_desired=2.0, i.e. the currently-alive tasks are the two that survived the crash loop, not necessarily rev 35"
+    ],
+    "ruled_out": [
+      "Bad image tag directly causing the MemoryErrors — an unresolvable tag fails at pull/scheduling time, before a Python process could start and log a traceback, so it doesn't match the observed crash signature",
+      "CPU exhaustion — cpu_utilization_pct is only ~0.48, not indicative of CPU-bound failure"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "ecs-service/checkout (prod, revision 35 -> previous_image python:3.12-alpine)",
+    "reasoning": "Rev 35 references unpullable tag 'this-tag-does-not-exist-9x8y7z' — deployment stuck (deployments_in_flight=2, tasks_pending=1). Two current healthy tasks still run previous_image, not rev35. MemoryError crash-loop preceded this deploy and self-resolved once tasks landed clean; separate issue, not fixed by rollback but rollback clears the stuck bad deploy and stops future task launches from failing image pull.",
+    "expected_effect": "Stuck deployment cancelled, ECS stops trying to pull bad tag, service settles on known-good previous_image with 2/2 tasks running.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.50 is below the 0.55 threshold."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 7764,
+    "output_tokens": 983,
+    "usd": 0.038037,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 92,
+      "metrics": 7,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 7
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.5,
+      "hypothesis": "checkout tasks OOM-crash-looped because per-task memory limit is too small for a ~900MiB in-process cache allocated at startup (repeated 'allocating 900MiB cache' → MemoryError traceback across ~8 task starts before two tasks finally stayed up). Revision 35's deploy referenced a nonexistent image tag ('python:this-tag-does-not-exist-9x8y7z'), which cannot be pulled at all, so the crash-looping containers seen in logs are almost certainly still running the previous_image (3.12-alpine), not rev 35 — meaning the bad tag is a separate, likely-stuck/failed deployment (explains deployments_in_flight=2 with 0 tasks_desired progress) rather than the direct cause of the MemoryErrors. The alarm is best explained as two concurrent issues: (1) an unpullable image tag stalling the new deployment, and (2) a marginal memory limit on the existing task definition causing intermittent OOM kills during startup cache warm-up, which only cleared once two tasks happened to start (or land on hosts) without hitting the OOM path."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "ecs-service/checkout (prod, revision 35 -> previous_image python:3.12-alpine)"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

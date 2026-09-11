@@ -23,18 +23,47 @@ name before anything happens, so a dry run shows exactly what `--apply` would re
   - An ECS cluster that has been deleted stays visible as INACTIVE for a while and cannot be removed
     any further. It costs nothing and ages out on AWS's side.
   - A task-definition revision that has been deleted goes to DELETE_IN_PROGRESS and disappears on
-    AWS's schedule, not immediately.
+    AWS's schedule, not immediately. The tagging index keeps listing it until then, so `tagged` can
+    stay non-empty for a while after the revisions themselves are gone - check `revisions_active`
+    and `revisions_inactive`, which read ECS directly.
+  - Deregistering dozens of revisions gets throttled, and boto3 gives up after 4 tries. Every
+    destructive call here waits the throttle out (see `_with_retry`); anything else is re-raised.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from typing import Any
 
 PROJECT = ("Project", "warden-proving-ground")
 DEFAULT_REGION = "ap-south-2"
+# ECS throttles a burst of DeregisterTaskDefinition calls, and boto3's own retries give up at 4.
+THROTTLE_CODES = ("ThrottlingException", "Throttling", "RequestLimitExceeded",
+                  "TooManyRequestsException", "ThrottledException")
+
+
+def _with_retry(call: Callable[[], Any], *, attempts: int = 6,
+                sleep: Callable[[float], None] = time.sleep) -> Any:
+    """Run an AWS call, waiting out a throttle instead of dying on it.
+
+    ⛔ A teardown that stops half way is worse than one that never started, because the account is
+    then in a state nobody described. The first real sweep deregistered 38 of 45 revisions and then
+    raised `ThrottlingException (reached max retries: 4)`, leaving 7 ACTIVE revisions behind and a
+    traceback where the verdict should have been. Anything that is not a throttle is re-raised
+    untouched: a permission error must never be retried into looking like success.
+    """
+    for attempt in range(attempts):
+        try:
+            return call()
+        except Exception as exc:  # re-raised below unless it is a throttle
+            code = (getattr(exc, "response", None) or {}).get("Error", {}).get("Code")
+            if code not in THROTTLE_CODES or attempt == attempts - 1:
+                raise
+            sleep(2 ** attempt)
+    return None  # unreachable: the loop either returns or raises
 
 
 def _revisions(ecs: Any, family: str, status: str) -> list[str]:
@@ -88,14 +117,15 @@ def plan(ecs: Any, logs: Any, family: str, log_group: str) -> dict[str, list[str
     }
 
 
-def apply(ecs: Any, logs: Any, todo: dict[str, list[str]]) -> None:
+def apply(ecs: Any, logs: Any, todo: dict[str, list[str]],
+          sleep: Callable[[float], None] = time.sleep) -> None:
     for arn in todo["deregister"]:
-        ecs.deregister_task_definition(taskDefinition=arn)
+        _with_retry(lambda a=arn: ecs.deregister_task_definition(taskDefinition=a), sleep=sleep)
     # DeleteTaskDefinitions takes at most 10 per call, and only INACTIVE (deregistered) revisions.
     for batch in _chunks(todo["delete"], 10):
-        ecs.delete_task_definitions(taskDefinitions=batch)
+        _with_retry(lambda b=batch: ecs.delete_task_definitions(taskDefinitions=b), sleep=sleep)
     for name in todo["log_groups"]:
-        logs.delete_log_group(logGroupName=name)
+        _with_retry(lambda n=name: logs.delete_log_group(logGroupName=n), sleep=sleep)
 
 
 def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,

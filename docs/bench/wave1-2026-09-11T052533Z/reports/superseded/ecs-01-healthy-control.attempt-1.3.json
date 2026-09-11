@@ -1,0 +1,134 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T05:27:18.521880+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:22:35.928000+00:00 checkout: started, healthy",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:22:35.928000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:22:50.928000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:23:05.928000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:23:18.387000+00:00 checkout: started, healthy",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:23:18.387000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:23:20.928000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:23:33.388000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:23:35.929000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:23:48.388000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:23:50.929000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:24:03.388000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:24:05.929000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:24:18.388000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:24:20.929000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:24:33.388000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:24:35.929000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:24:48.388000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:24:50.930000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:25:03.389000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:25:05.930000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/7e0753c57475471bb015a6dd21f9aa0b 2026-09-11T05:25:18.389000+00:00 checkout: heartbeat ok",
+      "ecs/checkout/d148af97c9a84eaba4d0f86631ac175f 2026-09-11T05:25:20.930000+00:00 checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.5090410721022636,
+      "memory_utilization_pct": 0.6510416666666667
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Alarm fired during a transient state of an in-progress rolling deployment/task replacement (deployments_in_flight=1): new task <TASK_2> started and went healthy while old task <TASK_1> was still running and heartbeating, briefly showing two task IDs active. No actual outage: tasks_running matches tasks_desired (2/2), tasks_pending=0, deployments_failed=0, CPU/memory nominal, and both task IDs heartbeat continuously with no gaps or errors in logs. RECENT DEPLOYS being empty despite deployments_in_flight=1 is unexplained â€” the trigger for this task replacement (deploy, scale event, manual force-new-deployment, or health-check-driven task cycling) isn't identified in the evidence.",
+    "confidence": 0.45,
+    "evidence": [
+      "tasks_running == tasks_desired (2.0 == 2.0), tasks_pending=0 â€” no capacity shortfall",
+      "deployments_failed=0 â€” no failed deployment",
+      "CPU 0.5%, memory 65% â€” no resource exhaustion",
+      "Logs show <TASK_1> and <TASK_2> both heartbeating 'ok' continuously, no error/unhealthy lines",
+      "<TASK_2> starts healthy at 05:23:18 while <TASK_1> still heartbeats until 05:25:20 â€” overlap consistent with rolling replacement",
+      "deployments_in_flight=1 confirms a deployment/task-replacement was active at alarm time"
+    ],
+    "ruled_out": [
+      "Task crash loop / failure â€” no unhealthy or stopped events in logs",
+      "Resource exhaustion (CPU/memory) â€” both well below typical thresholds",
+      "Stuck pending tasks â€” tasks_pending=0 throughout",
+      "Failed deployment â€” deployments_failed=0"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "ecs/checkout/prod",
+    "reasoning": "2/2 tasks running, 0 pending, 0 failed deploys, cpu/mem nominal. Two task IDs = transient rolling replacement overlap, both heartbeating clean throughout. No error/gap in logs. Alarm self-resolves once old task drains.",
+    "expected_effect": "No change. Alarm clears when deployment_in_flight completes and single task ID remains.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 2763,
+    "output_tokens": 679,
+    "usd": 0.018473999999999997,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 23,
+      "metrics": 7,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.45,
+      "hypothesis": "Alarm fired during a transient state of an in-progress rolling deployment/task replacement (deployments_in_flight=1): new task <TASK_2> started and went healthy while old task <TASK_1> was still running and heartbeating, briefly showing two task IDs active. No actual outage: tasks_running matches tasks_desired (2/2), tasks_pending=0, deployments_failed=0, CPU/memory nominal, and both task IDs heartbeat continuously with no gaps or errors in logs. RECENT DEPLOYS being empty despite deployments_in_flight=1 is unexplained â€” the trigger for this task replacement (deploy, scale event, manual force-new-deployment, or health-check-driven task cycling) isn't identified in the evidence."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "ecs/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "no_action",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

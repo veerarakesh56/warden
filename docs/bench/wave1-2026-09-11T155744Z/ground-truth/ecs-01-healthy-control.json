@@ -1,0 +1,44 @@
+{
+  "scenario_id": "ecs-01-healthy-control",
+  "fault_class": "healthy_control",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 30,
+  "status": "ok",
+  "started_at": "2026-09-11T16:16:19.822711+00:00",
+  "injected": [],
+  "reverted": [],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-01-healthy-control.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T16:18:09.901011+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-01-healthy-control.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T16:19:45.836734+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "arn:aws:sts::<ACCOUNT>:assumed-role/warden-pg-068d9d-reader/warden-benchmark",
+      "report": "reports/ecs-01-healthy-control.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-11T16:21:05.089185+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-11T16:16:49.825782+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-11T16:21:05.090439+00:00"
+}

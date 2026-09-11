@@ -56,6 +56,46 @@ class FakeEcs:
         return {"clusters": [{"status": self.cluster_status}]}
 
 
+class Throttled(Exception):
+    """Shaped like botocore's ClientError: the code is read off `.response`."""
+
+    def __init__(self, code="ThrottlingException"):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code}}
+
+
+def test_a_throttled_deregister_is_waited_out_not_abandoned():
+    """⛔ The first real sweep deregistered 38 of 45 revisions, hit ThrottlingException and died,
+    leaving 7 ACTIVE revisions and a traceback instead of a verdict."""
+    calls, waits = [], []
+    ecs = FakeEcs(active=["checkout:1"], inactive=[])
+    real = ecs.deregister_task_definition
+
+    def flaky(*, taskDefinition):
+        calls.append(taskDefinition)
+        if len(calls) < 3:
+            raise Throttled()
+        return real(taskDefinition=taskDefinition)
+
+    ecs.deregister_task_definition = flaky
+    ts.apply(ecs, FakeLogs(groups=()), {"deregister": [BASE + "checkout:1"], "delete": [],
+                                        "log_groups": []}, sleep=waits.append)
+    assert len(calls) == 3 and ecs.deregistered == ["checkout:1"], "it must retry until it lands"
+    assert waits == [1, 2], "and back off between tries"
+
+
+def test_a_permission_error_is_never_retried_into_looking_like_success():
+    ecs = FakeEcs(active=["checkout:1"], inactive=[])
+
+    def denied(*, taskDefinition):
+        raise Throttled(code="AccessDeniedException")
+
+    ecs.deregister_task_definition = denied
+    with pytest.raises(Throttled):
+        ts.apply(ecs, FakeLogs(groups=()), {"deregister": [BASE + "checkout:1"], "delete": [],
+                                            "log_groups": []}, sleep=lambda _s: None)
+
+
 class FakeLogs:
     def __init__(self, groups=("/ecs/checkout",)):
         self.groups = list(groups)

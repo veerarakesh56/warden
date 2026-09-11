@@ -1,0 +1,69 @@
+{
+  "wave": 1,
+  "dry_run": false,
+  "started_at": "2026-09-11T15:58:08.695028+00:00",
+  "repeat": 3,
+  "arm": {
+    "WARDEN_PROVIDER": "claude_cli",
+    "WARDEN_MODEL": "sonnet",
+    "WARDEN_LLM_TIMEOUT": "120"
+  },
+  "alert_file": "scenarios/alert.yaml",
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-01-01T00:00:00Z"
+  },
+  "environment_label": "prod",
+  "catalog_sha256": {
+    "wave1-ecs.yaml": "2a9feafa4d70af072d3e5e2a949ac41c227960aff3132a32b2f592b1b31d2811"
+  },
+  "scoring_sha256": "a37df9d4658128114616d77fa695d28a21029c84946b4eeef806bca07bc63030",
+  "git_commit": "3f31e2dd0a2be410b6d035377849876075a113fd",
+  "cluster": "warden-pg-068d9d",
+  "service": "checkout",
+  "region": "ap-south-2",
+  "scenario_ids": [
+    "ecs-01-healthy-control",
+    "ecs-02-log-group-deleted",
+    "ecs-03-oom-new-revision",
+    "ecs-04-image-pull-failure",
+    "ecs-05-container-exit-nonzero",
+    "ecs-06-invalid-secret-arn",
+    "ecs-07-health-check-failing",
+    "ecs-08-cpu-starvation",
+    "ecs-09-desired-count-zero",
+    "ecs-10-oom-config-change",
+    "ecs-11-reader-role-missing-permission",
+    "ecs-12-sg-blocks-egress",
+    "ecs-13-subnet-no-route",
+    "ecs-14-task-stopped-externally"
+  ],
+  "evidence_isolation": {
+    "log_lookback_m": 15,
+    "metric_window_m": 10,
+    "quiet_seconds_before_each_inject": 1080
+  },
+  "ended_at": "2026-09-11T21:58:16.916197+00:00",
+  "scenarios_completed": [
+    "ecs-01-healthy-control",
+    "ecs-02-log-group-deleted",
+    "ecs-03-oom-new-revision",
+    "ecs-04-image-pull-failure",
+    "ecs-05-container-exit-nonzero",
+    "ecs-06-invalid-secret-arn",
+    "ecs-07-health-check-failing",
+    "ecs-08-cpu-starvation",
+    "ecs-09-desired-count-zero",
+    "ecs-10-oom-config-change",
+    "ecs-11-reader-role-missing-permission",
+    "ecs-12-sg-blocks-egress",
+    "ecs-13-subnet-no-route",
+    "ecs-14-task-stopped-externally"
+  ],
+  "errors": []
+}

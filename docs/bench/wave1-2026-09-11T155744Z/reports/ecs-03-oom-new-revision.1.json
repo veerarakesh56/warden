@@ -1,0 +1,139 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-11T17:04:02.911634+00:00",
+    "labels": {
+      "cluster": "warden-pg-068d9d",
+      "log_group": "/ecs/checkout"
+    }
+  },
+  "redaction_map_size": 4,
+  "context": {
+    "logs": [
+      "ecs/checkout/f871aa8e02f944038f6c95c59d9a49de 2026-09-11T16:59:05.049000+00:00 checkout: started",
+      "ecs/checkout/f871aa8e02f944038f6c95c59d9a49de 2026-09-11T16:59:05.049000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/f871aa8e02f944038f6c95c59d9a49de 2026-09-11T16:59:07.049000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/6e5f234ae05c46c59f127f4247fab<PHONE_1>T16:59:36.319000+00:00 checkout: started",
+      "ecs/checkout/6e5f234ae05c46c59f127f4247fab<PHONE_1>T16:59:36.319000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/6e5f234ae05c46c59f127f4247fab<PHONE_1>T16:59:38.319000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/f179ddcf8d114918a53926aaea8cce<PHONE_2>T17:00:05.924000+00:00 checkout: started",
+      "ecs/checkout/f179ddcf8d114918a53926aaea8cce<PHONE_2>T17:00:05.924000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/f179ddcf8d114918a53926aaea8cce<PHONE_2>T17:00:07.924000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/cbbd6b6bb8d64f96aae0f5bae4c6e17b 2026-09-11T17:00:37.346000+00:00 checkout: started",
+      "ecs/checkout/cbbd6b6bb8d64f96aae0f5bae4c6e17b 2026-09-11T17:00:37.346000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/cbbd6b6bb8d64f96aae0f5bae4c6e17b 2026-09-11T17:00:39.346000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/0415fdc17b2b4d178ee9890a711d452c 2026-09-11T17:01:10.896000+00:00 checkout: started",
+      "ecs/checkout/0415fdc17b2b4d178ee9890a711d452c 2026-09-11T17:01:10.896000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/0415fdc17b2b4d178ee9890a711d452c 2026-09-11T17:01:12.896000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/4e1a6e717c1c43b2af460c2ea07fda<PHONE_3>T17:01:37.329000+00:00 checkout: started",
+      "ecs/checkout/4e1a6e717c1c43b2af460c2ea07fda<PHONE_3>T17:01:37.330000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/4e1a6e717c1c43b2af460c2ea07fda<PHONE_3>T17:01:39.330000+00:00 checkout: allocating 900MiB cache",
+      "ecs/checkout/01873b11f55a471b81a65fd675e<PHONE_4>T17:02:12.554000+00:00 checkout: started",
+      "ecs/checkout/01873b11f55a471b81a65fd675e<PHONE_4>T17:02:12.554000+00:00 checkout: WARN memory pressure rising",
+      "ecs/checkout/01873b11f55a471b81a65fd675e<PHONE_4>T17:02:14.554000+00:00 checkout: allocating 900MiB cache"
+    ],
+    "metrics": {
+      "tasks_running": 3.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "cpu_utilization_pct": 0.004963654559105635,
+      "memory_utilization_pct": 0.5859375
+    },
+    "recent_deploys": [
+      {
+        "service": "checkout",
+        "revision": "42",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-11T22:28:18.228000+05:30",
+        "by": "ecs",
+        "registered_at": "2026-09-11T22:28:17.986000+05:30"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Revision 42 deploy (image bump python:3.12-alpine → 3.12.7-alpine) at 16:58 UTC triggered new task replacements. Each new task allocates 900MiB cache on startup, hits memory pressure, and gets killed/restarted every ~30-35s — a crash loop, not a healthy rollout. tasks_running(3) > desired(2) with deployments_in_flight=2 confirms old+new tasks coexisting mid-rollout, stuck because new tasks keep failing health checks from memory pressure before stabilizing.",
+    "confidence": 0.6,
+    "evidence": [
+      "Deploy at 2026-09-11T22:28:18+05:30 (16:58:18 UTC) precedes first log line by ~47s — tight correlation",
+      "6 distinct task IDs each show identical pattern: started → WARN memory pressure rising → allocating 900MiB cache, then a new task starts ~30s later (implies prior task died)",
+      "deployments_in_flight=2 and tasks_pending=1 indicate the service is stuck mid-deployment, not steady-state",
+      "reported memory_utilization_pct=58.6% is a snapshot average, consistent with tasks flapping between low and high memory rather than one stable high level",
+      "cpu_utilization_pct near zero suggests tasks are dying before doing real work, not from CPU-bound load"
+    ],
+    "ruled_out": [
+      "Pure alarm noise / no real issue — unlikely given repeated crash-loop pattern in logs",
+      "CPU exhaustion — cpu_utilization_pct is ~0.005%, rules this out",
+      "Gradual organic memory leak unrelated to deploy — timing is too tightly coupled to the revision-42 rollout to be coincidental, though causation isn't proven from logs alone"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "ecs-service/checkout (prod) revision 42 -> previous revision (image python:3.12-alpine)",
+    "reasoning": "Rev42 deploy (16:58 UTC, python:3.12.7-alpine) triggers repeat task replace every ~30-35s. Each new task: start -> memory pressure WARN -> alloc 900MiB cache -> die. 6+ task IDs cycle in 4min window. tasks_running(3)>desired(2), deployments_in_flight=2 = old+new stuck mid-rollout, new tasks failing health checks before stabilize. Not transient — crash loop tied to new image.",
+    "expected_effect": "Revert to prior stable image, new tasks stop crash-looping, deployment converges, tasks_running settles to desired(2), deployments_in_flight drops to 0.",
+    "blast_radius": "single_service",
+    "reversible": true
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 2787,
+    "output_tokens": 765,
+    "usd": 0.019836,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "aws",
+      "logs": 21,
+      "metrics": 7,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 4
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.6,
+      "hypothesis": "Revision 42 deploy (image bump python:3.12-alpine → 3.12.7-alpine) at 16:58 UTC triggered new task replacements. Each new task allocates 900MiB cache on startup, hits memory pressure, and gets killed/restarted every ~30-35s — a crash loop, not a healthy rollout. tasks_running(3) > desired(2) with deployments_in_flight=2 confirms old+new tasks coexisting mid-rollout, stuck because new tasks keep failing health checks from memory pressure before stabilizing."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "ecs-service/checkout (prod) revision 42 -> previous revision (image python:3.12-alpine)"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}
