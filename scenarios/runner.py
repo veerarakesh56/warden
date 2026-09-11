@@ -25,10 +25,15 @@ because the session ran out of usage, which the wave's own `claude -p` calls had
 runner now stops cleanly on an exhausted provider, and `--resume DIR` continues from where it
 stopped, re-running only incomplete scenarios. Launch it so it does not share the session's life:
 
-    # Windows
-    Start-Process -WindowStyle Hidden -FilePath .venv\\Scripts\\python.exe `
-      -ArgumentList '-m','scenarios.runner','--resume','<DIR>' `
-      -RedirectStandardOutput <DIR>\\runner.log -RedirectStandardError <DIR>\\runner.err
+    # Windows - through WMI, so its parent is the WMI host and not the session (a child of the
+    # session's shell can die with it), and with ShowWindow=0, so no console window pops up on the
+    # operator's desktop. Both properties were needed: the first launch used WMI without the second,
+    # and put an unexplained cmd window in front of the person whose machine it was.
+    $si = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0}
+    Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+      CommandLine = 'cmd /c ".venv\\Scripts\\python.exe -u -m scenarios.runner --resume <DIR>
+                     > <DIR>\\runner.log 2> <DIR>\\runner.err"'
+      CurrentDirectory = '<repo>'; ProcessStartupInformation = $si }
     # Linux / macOS
     setsid nohup python -m scenarios.runner --resume <DIR> > <DIR>/runner.log 2>&1 &
 
