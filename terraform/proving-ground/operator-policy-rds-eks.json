@@ -78,7 +78,18 @@
       "Sid": "IamIsGlobalSoItCannotCarryARegionCondition",
       "Effect": "Allow",
       "Action": "iam:CreateServiceLinkedRole",
-      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "eks.amazonaws.com",
+            "eks-nodegroup.amazonaws.com",
+            "rds.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "autoscaling.amazonaws.com"
+          ]
+        }
+      }
     }
   ]
 }
