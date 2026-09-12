@@ -5,8 +5,16 @@ Both directories are complete, unedited artefacts from `scenarios/runner.py`, re
 touched). Re-score either one yourself, offline, with no AWS and no API key:
 
 ```bash
-python -m scenarios.score --run docs/bench/wave1-2026-09-11T155744Z
+python -m scenarios.score --run docs/bench/wave1-2026-09-11T155744Z \
+  --rubric docs/bench/wave1-2026-09-11T155744Z/grading/scoring.yaml
 ```
+
+**Use the `--rubric` flag.** Each bundle carries, under `grading/`, the exact rubric it was graded
+under — recovered from the commit its manifest records and verified by hash. `scenarios/scoring.yaml`
+is one file for every wave, so it moves on as later waves add fault classes; scoring an old run
+against today's copy raises the drift banner and produces numbers that are not the published ones.
+The frozen catalog sits beside it for inspection only: the scorer always reads scenario definitions
+from the working tree, and that is a limitation rather than a design choice.
 
 | | `wave1-2026-09-11T052533Z` | `wave1-2026-09-11T155744Z` |
 |---|---|---|

@@ -18,6 +18,7 @@ every disagreement between repeats. There is no path in this file that turns a f
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import re
@@ -72,6 +73,77 @@ def _account_from(run: pathlib.Path) -> str:
     return ""
 
 
+def _content_sha256(data: bytes) -> str:
+    """LF-normalised, exactly as scenarios/runner.py hashes it - see there for why."""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _from_commit(commit: str, repo_path: str) -> bytes:
+    out = subprocess.run(["git", "show", f"{commit}:{repo_path}"], cwd=ROOT,
+                         capture_output=True, check=False)
+    if out.returncode != 0:
+        raise SystemExit(
+            f"⛔ cannot read {repo_path} at commit {commit[:12]}: {out.stderr.decode(errors='replace').strip()}\n"
+            "   The bundle must carry the rubric the run was graded under. Publishing without it "
+            "would produce numbers nobody can reproduce."
+        )
+    return out.stdout
+
+
+def _freeze_grading_inputs(run: pathlib.Path, staging: pathlib.Path, account: str) -> list[str]:
+    """Copy the rubric and catalog AS OF THE RUN'S COMMIT into the bundle, and prove it by hash.
+
+    ⛔ WHY THIS EXISTS. `scenarios/scoring.yaml` is one file for every wave, so the day Wave 2 adds
+    a fault class, its hash stops matching every already-published run - and re-scoring those runs
+    raises "THE RUBRIC CHANGED AFTER THIS RUN", which is the loudest warning this project has. The
+    warning would be true and useless: the entries those runs were graded by had not changed at all.
+    A bundle that carries its own rubric can always be re-scored exactly:
+
+        python -m scenarios.score --run docs/bench/<run> --rubric docs/bench/<run>/grading/scoring.yaml
+
+    ⛔ FROM THE COMMIT, NOT THE WORKING TREE. Freezing whatever happens to be on disk at publish
+    time would silently ship a rubric the run was never graded under, which is the very substitution
+    the hash check exists to catch. The manifest records both the commit and the rubric's hash, so
+    the frozen bytes are verified against it and publishing REFUSES on a mismatch.
+    """
+    manifest = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+    commit = str(manifest.get("git_commit") or "")
+    if not commit:
+        raise SystemExit("⛔ the manifest records no git_commit, so the rubric cannot be frozen.")
+
+    frozen: list[str] = []
+    grading = staging / "grading"
+    grading.mkdir(parents=True, exist_ok=True)
+
+    rubric = _from_commit(commit, "scenarios/scoring.yaml")
+    recorded = str(manifest.get("scoring_sha256") or "")
+    actual = _content_sha256(rubric)
+    if recorded and actual != recorded:
+        raise SystemExit(
+            f"⛔ the rubric at commit {commit[:12]} hashes to {actual[:12]}, but the run recorded "
+            f"{recorded[:12]}. Refusing to publish a bundle whose rubric is not the one it was "
+            "graded under."
+        )
+    (grading / "scoring.yaml").write_text(
+        _redact(rubric.decode("utf-8", errors="replace"), account), encoding="utf-8")
+    frozen.append(f"grading/scoring.yaml ({actual[:12]}, verified against the manifest)")
+
+    # The catalog is frozen for INSPECTION, not for re-scoring: score.py always reads the catalog
+    # from the working tree. Said plainly here rather than implied, so nobody assumes otherwise.
+    for name, recorded_hash in (manifest.get("catalog_sha256") or {}).items():
+        blob = _from_commit(commit, f"scenarios/catalog/{name}")
+        got = _content_sha256(blob)
+        if recorded_hash and got != recorded_hash:
+            raise SystemExit(
+                f"⛔ catalog {name} at commit {commit[:12]} hashes to {got[:12]}, recorded "
+                f"{recorded_hash[:12]}. Refusing."
+            )
+        (grading / name).write_text(
+            _redact(blob.decode("utf-8", errors="replace"), account), encoding="utf-8")
+        frozen.append(f"grading/{name} ({got[:12]}, verified)")
+    return frozen
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -97,6 +169,8 @@ def main() -> int:
         shutil.rmtree(staging)
     copied = _redact_tree(run, staging, account)
     print(f"redacted: {copied} file(s) -> {staging}")
+    for line in _freeze_grading_inputs(run, staging, account):
+        print(f"  froze {line}")
 
     # ⛔ Verify INDEPENDENTLY, before anything enters the working tree.
     print("\nverifying the redacted copy with the repo's own scanner:")
