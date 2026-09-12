@@ -264,6 +264,37 @@ def test_a_failed_rollout_is_counted():
     assert out["deployments_in_flight"] == 2.0
 
 
+def test_tasks_dying_in_a_loop_are_visible_even_though_nothing_is_marked_failed():
+    """⛔ The gap a live account found, and the reason this metric exists.
+
+    ECS sets rolloutState=FAILED only when the deployment circuit breaker is enabled. Without it, a
+    revision whose tasks crash on startup is retried forever: the old tasks keep serving, so
+    runningCount == desiredCount, pendingCount is 0 and deployments_failed is 0. On a real benchmark
+    wave that evidence made a broken service look healthy, and the model answered "no action needed"
+    three times out of three on two different fault classes. `failedTasks` was in the same API
+    response the whole time.
+    """
+    deployments = [
+        {"status": "PRIMARY", "rolloutState": "IN_PROGRESS", "failedTasks": 10, "createdAt": NOW,
+         "taskDefinition": "arn:aws:ecs:eu-west-1:1:task-definition/checkout:7"},
+        {"status": "ACTIVE", "rolloutState": "COMPLETED", "failedTasks": 0, "createdAt": NOW,
+         "taskDefinition": "arn:aws:ecs:eu-west-1:1:task-definition/checkout:6"},
+    ]
+    service = _service(running=2, desired=2, pending=0, deployments=deployments)
+    out = _backend(ecs=FakeEcs(services=[service])).metrics(_alert())
+
+    assert out["deployments_failed"] == 0.0, "ECS marks nothing FAILED without the circuit breaker"
+    assert out["tasks_running"] == out["tasks_desired"], "the service still looks healthy by count"
+    assert out["deployment_failed_tasks"] == 10.0, "and this is the number that says it is not"
+
+
+def test_a_clean_rollout_reports_no_failed_tasks():
+    """The other side: a metric that always looked alarming would be as useless as one that never
+    did, and `failedTasks` is absent from the response entirely on a healthy deployment."""
+    out = _backend().metrics(_alert())
+    assert out["deployment_failed_tasks"] == 0.0
+
+
 def test_utilisation_is_omitted_never_zeroed_when_cloudwatch_has_no_datapoint():
     """A service that has published nothing is not a service at 0% CPU, and the difference decides
     whether the verifier sees evidence or an absence."""

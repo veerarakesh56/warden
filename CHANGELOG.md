@@ -50,6 +50,18 @@ The gate stops taking the model's word for anything that could loosen it.
   **Replaying the published reports through the new gate: 12 of those 14 are refused, 2 are not, and
   3 runs where `no_action` was correct now escalate.** All three numbers are in the README.
 
+- ⛔ **The ECS evidence could not see tasks dying in a loop.** `metrics()` derived
+  `deployments_failed` from `rolloutState == "FAILED"`, which ECS sets only when the deployment
+  circuit breaker is enabled — the proving ground does not enable it, so that metric was
+  structurally always 0. Meanwhile a revision whose tasks crash on startup is retried indefinitely:
+  the old tasks keep serving, so `runningCount == desiredCount`, nothing is pending, and nothing is
+  marked failed. On the published wave that evidence made a broken service look healthy and two
+  fault classes were answered "no action needed" 3/3 each. `deployment_failed_tasks` now sums
+  `failedTasks` across the deployments in the **same `DescribeServices` response** the backend
+  already reads — no extra API call, no extra IAM action, so the policy⇄code parity test is
+  untouched. ⚠ The published Wave 1 numbers were measured **before** this, and re-measuring means
+  rebuilding the proving ground and running the wave again; it has not been done.
+
 ### Added
 
 - `scripts/replay_gate.py` — re-decides published report JSONs with today's policy, by calling the

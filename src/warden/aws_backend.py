@@ -253,6 +253,23 @@ class AwsBackend:
         out["deployments_failed"] = float(
             sum(1 for d in deployments if d.get("rolloutState") == "FAILED")
         )
+        # ⛔ THE SIGNAL A REAL ACCOUNT PROVED WAS MISSING. `deployments_failed` above counts
+        # deployments ECS has marked FAILED — and ECS only ever sets that when the deployment
+        # circuit breaker is enabled, which the proving ground does not enable. So it was
+        # structurally always 0, while tasks that start, crash and are replaced forever leave
+        # `runningCount == desiredCount`, nothing pending and no failed deployment.
+        #
+        # The result: on a benchmark wave against a live account, two fault classes whose new tasks
+        # were dying in a loop (a bad secret reference, a failing container health check) were
+        # answered "no action needed" in all three runs each — because the evidence handed to the
+        # model said the service was at its desired count and nothing had failed.
+        #
+        # `failedTasks` rides in the SAME DescribeServices response this method already reads, so
+        # there is no extra API call and no extra IAM action. It is the number an operator reads off
+        # the console first. See docs/bench/wave1-2026-09-11T155744Z.
+        out["deployment_failed_tasks"] = float(
+            sum(int(d.get("failedTasks") or 0) for d in deployments)
+        )
 
         started = self._started_at(alert)
         stats = self._utilisation(alert, started)

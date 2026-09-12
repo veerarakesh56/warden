@@ -45,6 +45,17 @@ MUTATIONS = [
         ),
     ),
     (
+        "the ECS evidence stops counting failed tasks",
+        "aws_backend.py",
+        'sum(int(d.get("failedTasks") or 0) for d in deployments)',
+        "sum(0 for d in deployments)",
+        (
+            "the signal a live account proved was missing: without it a service whose tasks crash "
+            "and are replaced forever reports desired-count-reached, nothing pending and no failed "
+            "deployment - evidence that reads as healthy while the service is broken"
+        ),
+    ),
+    (
         "redaction leak check disabled",
         "redaction.py",
         "        if original and original in free_text:",

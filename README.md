@@ -459,12 +459,15 @@ The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
   uses `resources = ["*"]` because the services under diagnosis are not known ahead of time. The
   separate `terraform/proving-ground/` IS applied by hand for benchmark runs, under a permissions
   boundary, and destroyed afterwards.
-- **The AWS evidence is missing the clearest failure signal there is.** `aws_backend.py` reads
-  `rolloutState == "FAILED"`, which only ever becomes FAILED when the ECS deployment circuit breaker
-  is enabled, and it ignores the `failedTasks` count that `DescribeServices` returns per deployment
-  in the same response. During Wave 1 that meant a service whose new tasks were failing over and
-  over was reported as tasks-at-desired-count with `deployments_failed=0`. Fixing it and measuring
-  again is open work, not something done quietly before publishing.
+- **The AWS evidence was missing the clearest failure signal there is, and the published numbers
+  predate the fix.** `aws_backend.py` read only `rolloutState == "FAILED"`, which ECS sets solely
+  when the deployment circuit breaker is enabled, and ignored the `failedTasks` count
+  `DescribeServices` returns per deployment in the same response. During Wave 1 that meant a service
+  whose new tasks crashed and were replaced forever was reported as tasks-at-desired-count with
+  `deployments_failed=0` — evidence that reads as healthy. 0.8.0 adds `deployment_failed_tasks`
+  from that same response (no extra API call, no extra IAM permission). **It has not been
+  re-measured**: doing that means rebuilding the proving ground and running the wave again, so the
+  numbers in `docs/bench/` still describe a tool that could not see this.
 - **The gate could not catch "nothing is wrong", and now catches most of it.** `no_action` used to
   skip every evidence policy, so a wrong "nothing to do" was never refused and never needed
   approval: 14 of 42 Wave 1 runs landed exactly there, two of them at 0.25 confidence while WARDEN's
