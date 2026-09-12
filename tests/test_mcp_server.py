@@ -54,14 +54,32 @@ def test_verify_rejects_a_rollback_with_no_deploy_in_evidence():
     assert "P5-NO-DEPLOY-TO-ROLL-BACK" in out["policies_fired"]
 
 
-def test_verify_rejects_irreversible_production_actions():
+def test_verify_rejects_irreversible_production_actions_whatever_the_caller_claims():
+    """⛔ The MCP surface is the untrusted one: these fields come from a CLIENT, not from WARDEN's
+    own model. Until 2026-09-12 a caller got past P2 simply by sending "reversible": true. It now
+    reads the per-action table, so the claim buys nothing."""
+    out = _payload(call_tool("verify_remediation", {
+        "environment": "prod", "severity": "critical", "service": "checkout",
+        "action": "failover_replica", "target": "orders-db", "blast_radius": "single_pod",
+        "reversible": True, "confidence": 0.99, "log_lines": 5, "metric_count": 4, "has_recent_deploy": True,
+    }))
+    assert out["verdict"] == "rejected"
+    assert "P2-IRREVERSIBLE-IN-PROD" in out["policies_fired"]
+    assert out["reversible_by_table"] is False, "the response must show what was enforced"
+    assert out["blast_radius_enforced"] == "multi_service", "the floor overrides an understated claim"
+
+
+def test_a_caller_claiming_irreversible_gets_a_human_not_a_rejection():
+    """The other direction: a warning is not ignored, but it does not get to decide either. P10
+    escalates so a person reconciles it - and nothing runs either way."""
     out = _payload(call_tool("verify_remediation", {
         "environment": "prod", "severity": "critical", "service": "checkout",
         "action": "rollback_deploy", "target": "checkout", "blast_radius": "single_service",
         "reversible": False, "confidence": 0.99, "log_lines": 5, "metric_count": 4, "has_recent_deploy": True,
     }))
-    assert out["verdict"] == "rejected"
-    assert "P2-IRREVERSIBLE-IN-PROD" in out["policies_fired"]
+    assert out["verdict"] == "escalated"
+    assert "P10-CLAIM-CONTRADICTS-TABLE" in out["policies_fired"]
+    assert "P2-IRREVERSIBLE-IN-PROD" not in out["policies_fired"]
 
 
 def test_every_verdict_says_the_client_may_not_execute():
@@ -124,9 +142,9 @@ def test_gather_over_mcp_redacts_deploy_identifiers(monkeypatch):
     assert "<ACCOUNTID" in blob or "<EMAIL" in blob, "the deploy was returned, just scrubbed"
 
 
-def test_describe_policy_lists_all_nine():
+def test_describe_policy_lists_every_policy():
     out = _payload(call_tool("describe_policy", {}))
-    assert len(out["policies"]) == 9
+    assert len(out["policies"]) == 10, "P10 joined the gate on 2026-09-12"
     assert "prod" in out["environment_allowlist"]
 
 

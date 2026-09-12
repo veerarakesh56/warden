@@ -430,7 +430,11 @@ def node_propose(state: WardenState) -> WardenState:
             mock_factory=lambda: _mock_proposal(signals),
         )
         sp.set_attribute("warden.action", proposal.action.value)
+        # Both: the raw attribute keeps traces comparable across the 2026-09-12 gate change, and the
+        # effective one is what P6 actually weighed.
         sp.set_attribute("warden.blast_radius", proposal.blast_radius)
+        sp.set_attribute("warden.blast_radius_effective", proposal.effective_blast_radius)
+        sp.set_attribute("warden.reversible_by_table", proposal.table_reversible)
         record_model_call(sp, operation="chat", provider=llm.provider_name, model=llm.model,
                           input_tokens=llm.cost.input_tokens - before[0],
                           output_tokens=llm.cost.output_tokens - before[1],

@@ -35,6 +35,13 @@ prompt, no probability, no model call. It answers a different question from the 
 answers *"what would fix this?"*. The verifier answers *"is this allowed, proportionate, reversible,
 and supported by evidence?"* — and only the second question is safety-critical.
 
+⛔ **"Reversible" is answered by WARDEN, not asked of the model** — and it was not always so. Until
+2026-09-12 `P2` read a `reversible` boolean the *model* wrote, so a proposal could widen its own
+permissions by claiming its action could be undone, and two live models gave the identical operation
+opposite verdicts (`live-model-run-2026-09-06.md` §3). Reversibility is now a property of the
+operation, fixed in `models.py::ACTION_FACTS`, which the model cannot write and an operator cannot
+configure. The same field arriving from an MCP client — an untrusted caller — buys nothing either.
+
 ## What the verifier actually catches
 
 The policies are not hypothetical. Each one has a test that proves it can fire:
@@ -42,14 +49,15 @@ The policies are not hypothetical. Each one has a test that proves it can fire:
 | Policy | The failure it prevents |
 |---|---|
 | `P1-ENV-ALLOWLIST` | An action that is fine in dev being run in prod |
-| `P2-IRREVERSIBLE-IN-PROD` | Anything with no undo, at any confidence |
+| `P2-IRREVERSIBLE-IN-PROD` | Anything with no undo, at any confidence — classified by WARDEN's action table, never by the proposal |
 | `P3-NO-EVIDENCE` | Acting on a hypothesis formed from nothing |
 | `P4-LOW-CONFIDENCE` | Treating a guess as a plan |
 | `P5-NO-DEPLOY-TO-ROLL-BACK` | Rolling back a deploy that does not exist — the classic confident hallucination |
-| `P6-BLAST-RADIUS` | Unattended actions that cross service boundaries |
+| `P6-BLAST-RADIUS` | Unattended actions that cross service boundaries — measured as the wider of WARDEN's per-action floor and the claim, so understating it buys nothing |
 | `P7-DISPROPORTIONATE` | Failing over a database because of a `low` alert |
 | `P8-PARTIAL-CONTEXT` | Treating a partial picture as a complete one when a tool timed out |
 | `P9-THIN-EVIDENCE` | Acting on two log lines because the model *said* it was confident |
+| `P10-CLAIM-CONTRADICTS-TABLE` | Discarding a model's warning that something cannot be undone — it does not decide, but it is not ignored either |
 
 ⭐⭐ **`P9` is the one that came from evidence rather than reasoning.** Against a live model, all four
 bundled incidents came back at **confidence 0.85** — including the one whose entire evidence is two

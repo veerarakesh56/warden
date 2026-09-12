@@ -85,7 +85,8 @@ def _print_report(report, *, verbose: bool) -> None:
         print(f"  confidence         : {report.root_cause.confidence:.2f}")
     if report.proposal:
         print(f"  proposed action    : {report.proposal.action.value} -> {report.proposal.target}")
-        print(f"  blast radius       : {report.proposal.blast_radius}")
+        print(f"  blast radius       : {report.proposal.effective_blast_radius} (enforced; "
+              f"proposal claimed {report.proposal.blast_radius})")
     if v:
         print(f"  VERDICT            : {v.status.value.upper()}")
         if v.policy_ids:

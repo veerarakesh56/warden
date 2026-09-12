@@ -38,9 +38,12 @@ def test_demo_produces_the_expected_spread_of_verdicts(capsys):
     main(["demo"])
     out = capsys.readouterr().out
     assert "APPROVED_FOR_HUMAN" in out
-    assert "ESCALATED" in out
+    # Since 2026-09-12 inc-003 is REJECTED, not escalated: the action table classifies a promoted
+    # replica irreversible whatever the mock claims, so P2 fires in prod. Strictly stronger than the
+    # escalation it replaces - the demo now shows a hard no.
+    assert "REJECTED" in out
     assert out.count("AUTO_SAFE") == 1, "exactly one incident should be inert - fixtures missing?"
-    assert "P6-BLAST-RADIUS" in out
+    assert "P6-BLAST-RADIUS" in out, "P6 still fires on the same incident, alongside P2"
 
 
 def test_run_single_incident(capsys):

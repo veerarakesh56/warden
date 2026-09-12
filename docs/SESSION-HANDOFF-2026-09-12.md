@@ -19,6 +19,11 @@ Supersedes `SESSION-HANDOFF-2026-09-09.md`. Wave 1 is measured, published and to
    passive actions from every policy check (lines 91, 97, 126, 139), and `graph.py` routes
    `auto_safe` to `record_safe` ("approval: not required"). Two runs closed the incident at 0.25
    confidence with their own `tool_errors` recording that the logs could not be read.
+   > **FIXED the same day, in 0.8.0.** Only `escalate_to_human` is exempt from the evidence floor
+   > now; "nothing is wrong" is a claim about the evidence and must clear it. Replaying these
+   > reports: 12 of the 14 are refused, **2 still get through** (confident, well-evidenced and
+   > wrong), and 3 runs where `no_action` was correct now escalate. The numbers above stand as
+   > measured under 0.7.0 — see the note in `docs/bench/README.md`.
 2. **WARDEN's ECS evidence omits failing tasks.** `aws_backend.py::metrics` derives
    `deployments_failed` from `rolloutState == "FAILED"`, which requires the deployment circuit
    breaker (the proving ground does not enable it), and never reads the `failedTasks` field that

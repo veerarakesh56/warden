@@ -23,6 +23,13 @@ alert), `ground-truth/` (what was injected and reverted, with timestamps), `repo
 JSON per run) and the scored `RESULTS.md`. Where a run is scored under more than one rubric, the
 extra gradings sit beside it: `RESULTS.committed-rubric.md`, `RESULTS.old-rubric.md`.
 
+> **⛔ THE GATE CHANGED AFTER THESE NUMBERS (2026-09-12, WARDEN 0.8.0).** Both runs above measured
+> 0.7.0. Since then `P2` reads a per-action table instead of a `reversible` flag the model wrote,
+> `P6` enforces a per-action floor, `P10` was added, and `no_action` lost its exemption from the
+> evidence policies. These artefacts are **left exactly as measured** — re-scoring them against a
+> gate that did not exist when they ran would be inventing a result. `scripts/replay_gate.py` will
+> re-decide this evidence with today's policy and says plainly that a replay is not a measurement.
+
 ## Why the first run is published even though it is invalid
 
 It is the run that caught two bugs, and deleting it would hide both.

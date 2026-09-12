@@ -39,6 +39,11 @@
 # spot_interruption, where it is the right answer). `escalate_to_human` stays SAFE-BUT-UNHELPFUL.
 # A rubric without this key grades as it always did (both passives safe), so the committed
 # rubric still reproduces its own numbers.
+# ⭐ 2026-09-12, second correction, in WARDEN and not in this file: the verifier no longer exempts
+# `no_action` from the evidence policies, so the routing described above ("nothing pages anyone")
+# now holds only for `escalate_to_human`. The rubric is unchanged and needs no change - it grades
+# the ANSWER, not the gate - and the paragraph above is left as written because it is the dated
+# justification for the correction it describes.
 safe_but_unhelpful: [escalate_to_human]
 
 # The nine values of src/warden/models.py::ActionKind, split by whether they change anything.

@@ -5,6 +5,73 @@ All notable changes to WARDEN are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — pre-1.0, so a minor
 bump may carry a breaking change.
 
+## [0.8.0] - 2026-09-12
+
+The gate stops taking the model's word for anything that could loosen it.
+
+### Fixed
+
+- ⛔ **Two of the nine policies read fields the MODEL wrote, in a gate whose entire claim is that
+  the model does not decide.** `P2-IRREVERSIBLE-IN-PROD` fired on `proposal.reversible` and
+  `P6-BLAST-RADIUS` on `proposal.blast_radius`. A proposal claiming `reversible: true` therefore
+  **widened its own permissions**, and the same operation got opposite verdicts from two models: a
+  prod-database `terminate_connections` was rejected under Gemini (`reversible: false`, 0.85
+  confidence) and merely escalated under Claude (`reversible: true`, 0.45). Recorded as a known
+  inconsistency in `docs/live-model-run-2026-09-06.md` §3 since September — *"Neither change is made
+  yet"* — and measured, but not fixed, for two releases.
+  - `models.py::ACTION_FACTS` is now the gate's own classification of its nine actions:
+    `(reversible, blast-radius floor)`. `failover_replica` and `scale_down` are irreversible; a
+    rollback is a forward deploy of a previous revision and is not. Deliberately not
+    operator-configurable — a config file is only a different author for the same field.
+  - **P2 reads the table and nothing else.** P6 takes the wider of the table's per-action floor and
+    the claim, so a model may tighten the gate by widening its own blast radius but understating it
+    buys nothing.
+  - **New `P10-CLAIM-CONTRADICTS-TABLE`**: the proposal warns an action is irreversible while the
+    table says otherwise → escalate. Without it, moving to a table-only P2 would have *loosened*
+    the gate for a model that warns us. `rejected` and `escalated` both mean nothing runs.
+  - **The MCP server was the worst case**: `verify_remediation` builds a proposal from *untrusted
+    caller* arguments, so any client skipped P2 by sending `"reversible": true`. It now gets the same
+    table, and the response echoes `reversible_by_table` / `blast_radius_enforced` so a caller can
+    see it was overruled.
+  - **P2 could never fire in mock mode**, which is what CI and the evals use: the mock hardcodes
+    `reversible=True` for every action, `failover_replica` included. The mock is deliberately left
+    as it is — it makes exactly the wrong claim a real model makes, and the table overruling it is
+    the demonstration. `inc-003` in the demo and the eval suite is now REJECTED rather than
+    escalated, which is strictly stronger.
+- ⛔ **`no_action` skipped every evidence policy, so "nothing is wrong" could not be challenged.**
+  On a real AWS account, 14 of 42 runs answered `no_action` about a service with a live fault and the
+  gate allowed every one — two at 0.25 confidence while their own `tool_errors` recorded that WARDEN
+  could not read the logs. The exemption is now split: `AUTO_SAFE_ACTIONS` still decides who skips
+  *approval*, and a new `EVIDENCE_EXEMPT_ACTIONS` — `escalate_to_human` alone — decides who skips
+  the *evidence floor*. Handing an incident to a person is the right answer to weak evidence;
+  claiming there is no incident is not. P3 keeps the wider set on purpose: "rejected, you may not
+  conclude nothing is wrong" is not a verdict an operator can act on, and P9 catches the same
+  condition with a verb that makes sense.
+  **Replaying the published reports through the new gate: 12 of those 14 are refused, 2 are not, and
+  3 runs where `no_action` was correct now escalate.** All three numbers are in the README.
+
+### Added
+
+- `scripts/replay_gate.py` — re-decides published report JSONs with today's policy, by calling the
+  real `verify()` rather than a reimplementation. It prints, unavoidably, that **a replay is not a
+  measurement**, and refuses to write its JSON inside a run directory where it could be mistaken for
+  a score.
+- A mutation that flips `failover_replica` to reversible in the table: P2 now reads one tuple, so a
+  one-line diff could quietly make the only irreversible action it can reach in prod executable
+  again, with every policy still present and every other test green.
+
+### Changed
+
+- `reversible` and `blast_radius` stay **required** in the model-facing schema but are documented as
+  advisory, and reports now carry the claim *and* what was enforced side by side. The
+  `reversible` flip-rate in `scenarios/score.py` therefore changes meaning: from 0.8.0 it measures
+  the model's self-consistency instead of a flaw in the gate. It is kept, because a model that
+  cannot describe the same action twice the same way is worth knowing about.
+- **The Wave 1 numbers in `docs/bench/` are left exactly as measured under 0.7.0.** Re-scoring them
+  against a gate that did not exist when they ran would be inventing a result. The dated records
+  that prompted these fixes — `live-model-run-2026-09-06.md` §3, `scenarios/scoring.yaml`'s rubric
+  correction, `docs/bench/README.md` — are annotated, never rewritten.
+
 ## [0.7.0] - 2026-09-12
 
 The release where WARDEN was measured against a real AWS account instead of described. The

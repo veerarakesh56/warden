@@ -179,6 +179,11 @@ Added in the same table format, in the commit that adds each wave, **before** th
 2. **Confidence distribution.** `docs/live-model-run-2026-09-06.md` recorded the model returning
    **exactly 0.85 on all five** bundled incidents. At n=50 this becomes a histogram, and it is the
    evidence for whether `P4-LOW-CONFIDENCE` can ever fire in practice.
-3. **`reversible` flip-rate.** `P2-IRREVERSIBLE-IN-PROD` keys on a field the *model* fills in, so
-   the same action can receive opposite verdicts from two runs. Measured per `ActionKind` across all
-   scenarios. **This is a flaw in WARDEN's design and the benchmark is being used to size it.**
+3. **`reversible` flip-rate.** Measured per `ActionKind` across all scenarios: how often the model
+   contradicts itself about the same action.
+   ⛔ **Until 2026-09-12 this measured a flaw in WARDEN, not in the model.** `P2-IRREVERSIBLE-IN-PROD`
+   keyed on this field, so the same action could receive opposite verdicts from two runs — and the
+   published Wave 1 numbers were produced under that gate. `P2` now reads a per-action table
+   (`models.py::ACTION_FACTS`) and the field is advisory, so from 0.8.0 this figure measures the
+   model's self-consistency and no longer moves a verdict. It is kept because a model that cannot
+   describe the same action the same way twice is worth knowing about.

@@ -70,6 +70,25 @@ Neither change is made yet. Recording it here rather than in a private note, bec
 this project makes is that a deterministic gate beats a model's judgement, and two of the nine
 policies are currently taking the model's judgement as input.
 
+> **⛔ CLOSED 2026-09-12, and one sentence above is wrong.** The finding stands and the fix shipped
+> in 0.8.0: `P2` now reads `models.py::ACTION_FACTS` and nothing else, `P6` takes the wider of the
+> table's per-action floor and the claim, and a new `P10-CLAIM-CONTRADICTS-TABLE` escalates when the
+> proposal warns of something the table does not. What prompted it was this same incident repeating
+> on 2026-09-12 with a different model: Claude proposed `terminate_connections` on the same prod
+> database claiming `reversible: true` at 0.45 confidence, so `P4` escalated it where `P2` had
+> rejected Gemini's — the identical operation, two verdicts, again.
+>
+> **The correction:** this section says "terminating a database connection is irreversible whichever
+> model is asked". The table classifies it **reversible**, agreeing with `models.py:73-76`. `P2`
+> asks whether the *system* returns to its prior state: committed data is untouched, an in-flight
+> transaction is rolled back by the database doing what it guarantees, and the pool reconnects. The
+> irreversible entries are `failover_replica` (a promoted replica *is* the new primary) and
+> `scale_down`. The paragraph is left as written because it is the record that prompted the change,
+> and a record edited after the fact is not a record.
+>
+> The suggestion that blast radius be derived from *gathered evidence* is **not** built: the table
+> is a coarse per-action floor, and only the proposal can widen it. Still open work.
+
 ## 4. Cost, for reference
 
 Five runs, two calls each, **$0.0065–$0.0089 per incident** on `gemini-3.6-flash`. The mock's printed

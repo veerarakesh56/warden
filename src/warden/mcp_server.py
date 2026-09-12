@@ -28,6 +28,7 @@ from mcp.server.stdio import stdio_server
 
 from .environments import default_environment_policies
 from .models import (
+    BLAST_RADIUS_ORDER,
     ActionKind,
     Alert,
     ContextBundle,
@@ -42,7 +43,7 @@ from .verifier import MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
 _env_policies = default_environment_policies()
 
 SERVER_NAME = "warden"
-SERVER_VERSION = "0.7.0"
+SERVER_VERSION = "0.8.0"
 
 
 def _tools() -> list[types.Tool]:
@@ -75,11 +76,21 @@ def _tools() -> list[types.Tool]:
                         "description": "Closed set. Anything outside it is rejected by construction.",
                     },
                     "target": {"type": "string"},
+                    # ⚠ ADVISORY, both. WARDEN decides reversibility from a fixed per-action table
+                    # (models.py::ACTION_FACTS) and enforces a per-action blast-radius floor, so a
+                    # caller cannot widen its own permissions by claiming an action is reversible or
+                    # narrow. Claiming irreversible still sends the proposal to a human (P10).
                     "blast_radius": {
                         "type": "string",
-                        "enum": ["single_pod", "single_service", "multi_service", "region"],
+                        "enum": list(BLAST_RADIUS_ORDER),
+                        "description": "Your honest estimate. WARDEN enforces a per-action floor; "
+                                       "understating this cannot widen what is permitted.",
                     },
-                    "reversible": {"type": "boolean"},
+                    "reversible": {
+                        "type": "boolean",
+                        "description": "Advisory only. WARDEN classifies reversibility per action; "
+                                       "claiming true does not make an action permitted.",
+                    },
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     # Counts, not booleans. Policy P9 weighs how much evidence was actually
                     # gathered, and a boolean cannot express "two vague log lines" versus "a
@@ -138,7 +149,7 @@ def _tools() -> list[types.Tool]:
         types.Tool(
             name="describe_policy",
             title="Explain the WARDEN policy set",
-            description="Return the nine policies, the per-environment action allow-list and the confidence threshold.",
+            description="Return the ten policies, the per-environment action allow-list and the confidence threshold.",
             input_schema={"type": "object", "properties": {}},
         ),
     ]
@@ -193,6 +204,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                     "requires_approval": verdict.requires_approval,
                     "policies_fired": verdict.policy_ids,
                     "reasons": verdict.reasons,
+                    # What the gate actually enforced, so a caller can see it was overruled rather
+                    # than wondering why its "reversible": true was ignored.
+                    "blast_radius_enforced": proposal.effective_blast_radius,
+                    "reversible_by_table": proposal.table_reversible,
                     "may_execute": False,
                     "note": "WARDEN never executes. A human performs the action.",
                 }
@@ -246,16 +261,27 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 {
                     "policies": {
                         "P1-ENV-ALLOWLIST": "action must be permitted in this environment",
-                        "P2-IRREVERSIBLE-IN-PROD": "nothing irreversible in production, at any confidence",
+                        "P2-IRREVERSIBLE-IN-PROD": (
+                            "nothing irreversible in production, at any confidence - reversibility "
+                            "comes from WARDEN's per-action table, never from the caller's claim"
+                        ),
                         "P3-NO-EVIDENCE": "no logs, metrics or deploys gathered means no action",
                         "P4-LOW-CONFIDENCE": f"confidence below {MIN_CONFIDENCE} escalates",
                         "P5-NO-DEPLOY-TO-ROLL-BACK": "cannot roll back a deploy absent from the evidence",
-                        "P6-BLAST-RADIUS": "multi_service or region always needs a human",
+                        "P6-BLAST-RADIUS": (
+                            "multi_service or region always needs a human - measured as the wider "
+                            "of WARDEN's per-action floor and the claim, so understating it buys "
+                            "nothing"
+                        ),
                         "P7-DISPROPORTIONATE": "heavy actions on low/medium severity escalate",
                         "P8-PARTIAL-CONTEXT": "a failed context tool means incomplete evidence",
                         "P9-THIN-EVIDENCE": (
                             "too little evidence was gathered to justify acting, regardless of "
                             "stated confidence - counted by WARDEN, not claimed by the model"
+                        ),
+                        "P10-CLAIM-CONTRADICTS-TABLE": (
+                            "the proposal says the action is irreversible while WARDEN's table "
+                            "says it is not; a human reconciles that before anything runs"
                         ),
                     },
                     "environment_allowlist": {

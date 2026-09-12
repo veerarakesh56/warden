@@ -71,10 +71,16 @@ def test_p1_action_not_allowed_in_prod():
     assert "P1-ENV-ALLOWLIST" in v.policy_ids
 
 
-def test_p2_irreversible_in_prod_is_rejected_even_at_high_confidence():
-    v = verify(_alert(), _ctx(), _rc(confidence=0.99), _prop(reversible=False))
+def test_p2_reads_the_action_table_not_the_models_claim():
+    """⛔ The whole point of the table. The proposal claims a database failover is reversible;
+    WARDEN classifies a promoted replica as irreversible, and the table decides. Before
+    2026-09-12 this claim skipped P2 entirely, which is how two models got opposite verdicts for
+    the identical operation (docs/live-model-run-2026-09-06.md §3)."""
+    v = verify(_alert(), _ctx(), _rc(confidence=0.99),
+               _prop(action=ActionKind.failover_replica, reversible=True))
     assert v.status is VerdictStatus.rejected
     assert "P2-IRREVERSIBLE-IN-PROD" in v.policy_ids
+    assert "action table" in " ".join(v.reasons), "the reason must name what decided"
 
 
 def test_p3_refuses_to_act_without_evidence():
@@ -165,9 +171,20 @@ def test_p9_ignores_inert_actions():
 
 
 def test_only_no_action_and_escalate_are_auto_safe():
+    """Unchanged contract: only these two skip approval once policy has passed."""
     from warden.verifier import AUTO_SAFE_ACTIONS
 
     assert AUTO_SAFE_ACTIONS == {ActionKind.no_action, ActionKind.escalate_to_human}
+
+
+def test_only_escalate_to_human_is_exempt_from_the_evidence_floor():
+    """The narrower set, and the point of the split. Handing an incident to a person is the right
+    answer to weak evidence, so measuring evidence before allowing it would be circular. Saying
+    "nothing is wrong" is a claim ABOUT the evidence and gets no such exemption: 14 of 42 runs on a
+    real account closed a broken service with `no_action` and the gate allowed every one."""
+    from warden.verifier import EVIDENCE_EXEMPT_ACTIONS
+
+    assert EVIDENCE_EXEMPT_ACTIONS == {ActionKind.escalate_to_human}
 
 
 def test_clear_cache_in_prod_is_held_for_a_human_not_auto_run():
@@ -214,12 +231,96 @@ def test_p1_unknown_environment_fails_closed():
 
 
 def test_a_permitted_action_in_a_new_prod_tier_env_still_blocks_irreversible():
-    """P2 keys on the env TIER, not the literal string 'prod', so any prod-tier env blocks irreversible."""
+    """P2 keys on the env TIER, not the literal string 'prod', so any prod-tier env blocks
+    irreversible. Uses failover_replica because reversibility now comes from the action table -
+    `restart_pods` with a `reversible: false` claim is P10's business, not P2's."""
     v = verify(
         _alert(environment="prod"),
         _ctx(),
         _rc(confidence=0.99),
-        _prop(action=ActionKind.restart_pods, reversible=False),
+        _prop(action=ActionKind.failover_replica, reversible=True),
     )
     assert v.status is VerdictStatus.rejected
     assert "P2-IRREVERSIBLE-IN-PROD" in v.policy_ids
+
+
+# --------------------------------------------------------------------------- the action table
+# Added 2026-09-12. Two of the nine policies used to read fields the MODEL wrote, in a gate whose
+# entire claim is that the model does not decide. These tests are that hole, closed.
+
+
+def test_the_table_covers_every_action_kind():
+    """A missing entry would be a KeyError raised from inside the gate, mid-decision."""
+    from warden.models import ACTION_FACTS
+
+    assert set(ACTION_FACTS) == set(ActionKind)
+
+
+def test_p6_uses_the_table_floor_when_the_model_understates_the_radius():
+    """A failover claimed as single_pod is still multi_service. Run in `dev` so the tier is not
+    prod and P2 does not mask what P6 is doing."""
+    v = verify(_alert(environment="dev"), _ctx(), _rc(),
+               _prop(action=ActionKind.failover_replica, blast_radius="single_pod"))
+    assert v.status is VerdictStatus.escalated
+    assert "P6-BLAST-RADIUS" in v.policy_ids
+
+
+def test_p6_honours_a_model_that_widens_beyond_the_floor():
+    """Tightening is always allowed: a restart claimed as region-wide gets a human."""
+    v = verify(_alert(), _ctx(), _rc(),
+               _prop(action=ActionKind.restart_pods, blast_radius="region"))
+    assert v.status is VerdictStatus.escalated
+    assert "P6-BLAST-RADIUS" in v.policy_ids
+
+
+def test_a_model_claiming_irreversible_escalates_rather_than_being_rejected():
+    """P10. The table says a rollback can be undone; the proposal says it cannot. WARDEN does not
+    reject on the model's word - P2 exists so the model cannot decide - but it does not overrule a
+    warning either. Nothing runs either way; a human reconciles it."""
+    v = verify(_alert(), _ctx(), _rc(), _prop(reversible=False))
+    assert v.status is VerdictStatus.escalated
+    assert "P10-CLAIM-CONTRADICTS-TABLE" in v.policy_ids
+    assert "P2-IRREVERSIBLE-IN-PROD" not in v.policy_ids
+
+
+# ------------------------------------------------------------------- "nothing is wrong" is a claim
+
+
+def test_no_action_on_thin_evidence_escalates_rather_than_closing_the_incident():
+    thin = ContextBundle(logs=["one line"], metrics={}, recent_deploys=[])
+    v = verify(_alert(), thin, _rc(confidence=0.99), _prop(action=ActionKind.no_action))
+    assert v.status is VerdictStatus.escalated
+    assert "P9-THIN-EVIDENCE" in v.policy_ids
+
+
+def test_no_action_at_low_confidence_escalates():
+    v = verify(_alert(), _ctx(), _rc(confidence=0.25), _prop(action=ActionKind.no_action))
+    assert v.status is VerdictStatus.escalated
+    assert "P4-LOW-CONFIDENCE" in v.policy_ids
+
+
+def test_no_action_with_a_failed_tool_escalates():
+    """The case seen on a real account: WARDEN could not read the logs, recorded that in
+    tool_errors, and still closed the incident as auto_safe."""
+    v = verify(_alert(), _ctx(tool_errors=["logs: AccessDeniedException"]), _rc(),
+               _prop(action=ActionKind.no_action))
+    assert v.status is VerdictStatus.escalated
+    assert "P8-PARTIAL-CONTEXT" in v.policy_ids
+
+
+def test_no_action_with_no_evidence_escalates_rather_than_being_rejected():
+    """P3 still exempts the passive actions deliberately: "rejected - you may not conclude nothing
+    is wrong" is not a verdict an operator can act on. P9 catches the same condition with the verb
+    that makes sense, so the incident reaches a person either way."""
+    v = verify(_alert(), ContextBundle(), _rc(), _prop(action=ActionKind.no_action))
+    assert v.status is VerdictStatus.escalated
+    assert "P9-THIN-EVIDENCE" in v.policy_ids
+    assert "P3-NO-EVIDENCE" not in v.policy_ids
+
+
+def test_a_well_evidenced_confident_no_action_is_still_auto_safe():
+    """The other side of the change, so it is not simply "escalate everything": the tool looked
+    properly, found nothing wrong, and says so without needing a human."""
+    v = verify(_alert(), _ctx(), _rc(confidence=0.9), _prop(action=ActionKind.no_action))
+    assert v.status is VerdictStatus.auto_safe
+    assert v.requires_approval is False

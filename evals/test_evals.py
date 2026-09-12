@@ -31,8 +31,12 @@ CASES = [
      "clean signal, reversible, single service -> a human still has to press the button"),
     ("inc-002", ActionKind.scale_up, VerdictStatus.approved_for_human,
      "memory pressure with NO deploy present -> must not reach for rollback by reflex"),
-    ("inc-003", ActionKind.failover_replica, VerdictStatus.escalated,
-     "correct action but multi-service blast radius -> P6 must escalate it"),
+    ("inc-003", ActionKind.failover_replica, VerdictStatus.rejected,
+     ("right diagnosis, and still not runnable unattended: WARDEN's action table classifies a "
+      "promoted replica as irreversible AND multi_service, so P2 rejects it in a prod-tier "
+      "environment and P6 fires as well. ⭐ The mock proposes it with reversible=True - this row is "
+      "the proof that the TABLE decides and the proposal does not. Before 2026-09-12 the claim was "
+      "taken at face value and this case merely escalated")),
     ("inc-004", ActionKind.escalate_to_human, VerdictStatus.auto_safe,
      "thin evidence -> must decline rather than invent a plausible fix"),
     ("inc-005", ActionKind.terminate_connections, VerdictStatus.approved_for_human,
@@ -153,6 +157,23 @@ class _ScriptedProvider:
         text = self._responses[min(self.calls, len(self._responses) - 1)]
         self.calls += 1
         return self._Completion(text, 10, 5)
+
+
+def test_an_escalated_verdict_routes_to_escalate_end_to_end():
+    """Replaces the coverage inc-003 used to give. Since the action table rejects that failover
+    outright, no bundled incident escalates any more, and the escalated->escalate edge would go
+    unexercised through run(). A low-confidence restart does it without inventing a sixth fixture."""
+    rc = '{"hypothesis": "unclear", "confidence": 0.2, "evidence": ["e1", "e2"]}'
+    prop = (
+        '{"action": "restart_pods", "target": "checkout", "reasoning": "r", "expected_effect": "e", '
+        '"blast_radius": "single_pod", "reversible": true}'
+    )
+    llm = LLMClient(provider=_ScriptedProvider(rc, prop), mock=False)
+    report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=llm)
+
+    assert report.verdict.status is VerdictStatus.escalated
+    assert "P4-LOW-CONFIDENCE" in report.verdict.policy_ids
+    assert report.audit[-1]["node"] == "escalate", "an escalated verdict must reach node escalate"
 
 
 def test_a_rejected_verdict_routes_to_halt_end_to_end():

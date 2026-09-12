@@ -131,8 +131,16 @@ def build_report(
         data["proposal"] = {
             "action": proposal.action.value,
             "target": redact(proposal.target).text,
+            # ⚠ CLAIM vs ENFORCED, and both are published. The first two are what the MODEL said;
+            # the next two are what the gate actually used (models.py::ACTION_FACTS). Keeping the
+            # raw claims is deliberate: they are evidence about the model, and the benchmark's
+            # scorer measures how often it contradicts itself about the same action. An auditor
+            # must be able to see where the claim and the enforced value disagree.
             "blast_radius": proposal.blast_radius,
             "reversible": proposal.reversible,
+            "blast_radius_effective": proposal.effective_blast_radius,
+            "reversible_by_table": proposal.table_reversible,
+            "claim_contradicts_table": proposal.claim_contradicts_table,
             "expected_effect": redact(proposal.expected_effect).text,
         }
     if verdict:
@@ -183,7 +191,11 @@ def _render_markdown(d: dict) -> str:
         p = d["proposal"]
         lines.append("## Proposed action")
         lines.append(f"- **Action**: `{p['action']}` -> `{p['target']}`")
-        lines.append(f"- **Blast radius**: {p['blast_radius']} - reversible: {p['reversible']}")
+        lines.append(
+            f"- **Blast radius**: {p['blast_radius_effective']} (enforced; the proposal claimed "
+            f"{p['blast_radius']}) - reversible: {p['reversible_by_table']} per WARDEN's action "
+            f"table (the proposal claimed {p['reversible']})"
+        )
         lines.append(f"- **Expected effect**: {p['expected_effect']}")
         lines.append("")
 

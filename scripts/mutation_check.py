@@ -29,9 +29,20 @@ MUTATIONS = [
     (
         "P2 irreversible-in-prod removed",
         "verifier.py",
-        'if env.tier == "prod" and not proposal.reversible:',
+        'if env.tier == "prod" and not proposal.table_reversible:',
         "if False:",
         "an irreversible action would become executable in production",
+    ),
+    (
+        "the action table calls a database failover reversible",
+        "models.py",
+        'ActionKind.failover_replica: (False, "multi_service"),',
+        'ActionKind.failover_replica: (True, "multi_service"),',
+        (
+            "P2 reads this table and nothing else, so one flipped tuple silently makes the only "
+            "irreversible action P2 can reach in prod executable again - with every policy still "
+            "present and every other test green"
+        ),
     ),
     (
         "redaction leak check disabled",

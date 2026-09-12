@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from .environments import EnvironmentPolicies, default_environment_policies
 from .models import (
+    ACTION_FACTS,
     ActionKind,
     Alert,
     ContextBundle,
@@ -25,6 +26,18 @@ from .models import (
 # action and belongs behind approval like the others. The project's whole claim is "nothing risky
 # runs without a human"; this list is where that claim is enforced, so it stays as short as possible.
 AUTO_SAFE_ACTIONS = {ActionKind.no_action, ActionKind.escalate_to_human}
+
+# Actions exempt from the EVIDENCE floor (P4, P8, P9). Only escalating to a person: handing an
+# incident to a human is the right answer to weak evidence, so measuring the evidence before
+# allowing it would be circular.
+#
+# ⛔ `no_action` was in this set and is not any more. On a real AWS account, 14 of 42 runs answered
+# `no_action` about a service with a live fault and the gate allowed every one - two of them at 0.25
+# confidence while their own `tool_errors` recorded that WARDEN could not read the logs at all
+# (docs/bench/wave1-2026-09-11T155744Z). "Nothing is wrong" is a CLAIM ABOUT THE EVIDENCE, so it
+# must clear the same evidence floor as any other claim. A well-evidenced, confident `no_action` is
+# still auto_safe - the tool looked properly and found nothing.
+EVIDENCE_EXEMPT_ACTIONS = {ActionKind.escalate_to_human}
 
 # The per-environment allow-list is no longer hardcoded here — it lives in environments.yaml so an
 # operator can add an environment (qa-staging, pre-prod, qa-prod, ...) or tighten an allowlist without
@@ -82,10 +95,20 @@ def verify(
         )
 
     # P2 — nothing irreversible in a production-tier environment, ever, regardless of confidence.
-    if env.tier == "prod" and not proposal.reversible:
+    #
+    # ⛔ READS THE TABLE, NOT THE PROPOSAL. `proposal.reversible` is written by the model, and by
+    # any caller of the MCP server, so keying a rejection on it let a proposal widen its own
+    # permissions: two live models reported opposite values for the identical operation and got
+    # opposite verdicts (docs/live-model-run-2026-09-06.md §3). The claim is not discarded — P10
+    # escalates when it contradicts the table.
+    if env.tier == "prod" and not proposal.table_reversible:
         rejected = True
         policies.append("P2-IRREVERSIBLE-IN-PROD")
-        reasons.append("Irreversible action proposed against a production-tier environment.")
+        reasons.append(
+            f"{proposal.action.value} is classified irreversible in WARDEN's action table, and "
+            f"{alert.environment} is production-tier. The proposal claimed "
+            f"reversible={proposal.reversible}; the table decided, not the claim."
+        )
 
     # P3 — evidence is a precondition for action, not an optional extra.
     if context.is_empty() and proposal.action not in AUTO_SAFE_ACTIONS:
@@ -94,7 +117,7 @@ def verify(
         reasons.append("No logs, metrics or deploy history were gathered; refusing to act blind.")
 
     # P4 — a low-confidence hypothesis is a question, not a plan.
-    if root_cause.confidence < MIN_CONFIDENCE and proposal.action not in AUTO_SAFE_ACTIONS:
+    if root_cause.confidence < MIN_CONFIDENCE and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
         escalate = True
         policies.append("P4-LOW-CONFIDENCE")
         reasons.append(
@@ -107,11 +130,19 @@ def verify(
         policies.append("P5-NO-DEPLOY-TO-ROLL-BACK")
         reasons.append("Rollback proposed but no recent deploy appears in the gathered context.")
 
-    # P6 — wide blast radius is always a human's call.
-    if proposal.blast_radius in ("multi_service", "region"):
+    # P6 — wide blast radius is always a human's call. The table sets a FLOOR per action and the
+    # proposal may only ever widen it: a model asking for a human is always allowed to, while
+    # understating the reach of an action must buy it nothing.
+    effective_radius = proposal.effective_blast_radius
+    if effective_radius in ("multi_service", "region"):
         escalate = True
         policies.append("P6-BLAST-RADIUS")
-        reasons.append(f"Blast radius '{proposal.blast_radius}' exceeds the unattended limit.")
+        floor = ACTION_FACTS[proposal.action][1]
+        reasons.append(
+            f"Blast radius '{effective_radius}' exceeds the unattended limit (WARDEN's floor for "
+            f"{proposal.action.value} is '{floor}', the proposal claimed "
+            f"'{proposal.blast_radius}'; the wider of the two applies)."
+        )
 
     # P7 — proportionality. Don't fail over a database because something is 'low'.
     heavy = {ActionKind.failover_replica, ActionKind.rollback_deploy}
@@ -123,7 +154,7 @@ def verify(
         )
 
     # P8 — a tool failing means the picture is partial. Say so rather than pretending.
-    if context.tool_errors and proposal.action not in AUTO_SAFE_ACTIONS:
+    if context.tool_errors and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
         escalate = True
         policies.append("P8-PARTIAL-CONTEXT")
         reasons.append(f"{len(context.tool_errors)} context tool(s) failed; evidence is incomplete.")
@@ -136,12 +167,25 @@ def verify(
     # gate would be relying on a number the model has no incentive or ability to get right.
     #
     # This counts what was actually gathered. It cannot be talked around by a confident tone.
-    if proposal.action not in AUTO_SAFE_ACTIONS and not _evidence_is_substantial(context):
+    if proposal.action not in EVIDENCE_EXEMPT_ACTIONS and not _evidence_is_substantial(context):
         escalate = True
         policies.append("P9-THIN-EVIDENCE")
         reasons.append(
             f"Evidence is thin ({len(context.logs)} log line(s), {len(context.metrics)} metric(s), "
             f"{len(context.recent_deploys)} deploy(s)); a human should look before acting."
+        )
+
+    # P10 — the proposal warns that this cannot be undone while the table says it can.
+    #
+    # P2 reads the table so the model cannot decide; ignoring a warning is a different thing from
+    # refusing to obey one. `escalated` and `rejected` both mean nothing runs and both require a
+    # person, so escalating here preserves the warning without handing the decision back.
+    if proposal.claim_contradicts_table:
+        escalate = True
+        policies.append("P10-CLAIM-CONTRADICTS-TABLE")
+        reasons.append(
+            f"The proposal claims {proposal.action.value} is irreversible; WARDEN's action table "
+            "classifies it reversible. A human should reconcile that before anything runs."
         )
 
     if rejected:

@@ -56,7 +56,10 @@ jobs:
           out=$(warden demo)
           echo "$out"
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::no APPROVED_FOR_HUMAN verdict"; exit 1; }
-          echo "$out" | grep -q "ESCALATED"          || { echo "::error::no ESCALATED verdict"; exit 1; }
+          # inc-003 is REJECTED since 2026-09-12: WARDEN's action table classifies a promoted
+          # replica irreversible whatever the proposal claims, so P2 fires in prod. Stronger than
+          # the escalation this replaces - the demo now shows a hard no.
+          echo "$out" | grep -q "REJECTED"           || { echo "::error::no REJECTED verdict"; exit 1; }
           echo "$out" | grep -q "P6-BLAST-RADIUS"    || { echo "::error::P6 did not fire on inc-003"; exit 1; }
           test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::expected exactly one AUTO_SAFE - fixtures probably missing"; exit 1; }
 
@@ -73,7 +76,7 @@ jobs:
           out=$(docker run --rm -e WARDEN_MOCK=1 -e WARDEN_TRACE=0 warden:ci demo)
           echo "$out"
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
-          echo "$out" | grep -q "ESCALATED"          || { echo "::error::container produced no ESCALATED"; exit 1; }
+          echo "$out" | grep -q "REJECTED"           || { echo "::error::container produced no REJECTED"; exit 1; }
           test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::container: expected exactly one AUTO_SAFE - fixtures missing from the wheel?"; exit 1; }
 
   # Against a REAL cluster. Every step here was first done by hand and read by eye; this job
