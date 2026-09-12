@@ -42,7 +42,7 @@ from .verifier import MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
 _env_policies = default_environment_policies()
 
 SERVER_NAME = "warden"
-SERVER_VERSION = "0.6.2"
+SERVER_VERSION = "0.7.0"
 
 
 def _tools() -> list[types.Tool]:

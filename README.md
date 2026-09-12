@@ -7,9 +7,11 @@
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
 > Nothing here executes against infrastructure.**
 
-**Status:** v0.6.2 — working, tested and deployable. 393 tests (10 against a live Kubernetes
-cluster, 12 against five real database engines), a 31-case mutation check (31 caught, 0 survived),
-and CI that asserts the actual verdicts rather than the exit code.
+**Status:** v0.7.0 — working, tested, deployable, and now **measured against a real AWS account**:
+14 injected faults × 3 runs, scored in [`docs/bench/`](docs/bench/README.md), where the headline is
+14 runs the gate should have stopped and did not. 676 tests and 25 evals (10 against a live
+Kubernetes cluster, 12 against five real database engines), a 31-case mutation check (31 caught,
+0 survived), and CI that asserts the actual verdicts rather than the exit code.
 
 | | |
 |---|---|
@@ -214,7 +216,7 @@ Two deployment paths, both included:
   change is the image, which the demo hard-codes to `warden:local`. On EKS, push to ECR and set it:
   ```bash
   kubectl apply -k k8s/     # namespace, ServiceAccount, ClusterRole, RoleBinding — portable as-is
-  sed 's#warden:local#<acct>.dkr.ecr.<region>.amazonaws.com/warden:0.6.2#' k8s/job.yaml \
+  sed 's#warden:local#<acct>.dkr.ecr.<region>.amazonaws.com/warden:0.7.0#' k8s/job.yaml \
     | kubectl create -f -   # one diagnosis, image retargeted to your registry
   ```
 - **ECS / Fargate** — the `terraform/` module: a task with a **read-only task role** and **all Linux

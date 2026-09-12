@@ -5,6 +5,102 @@ All notable changes to WARDEN are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — pre-1.0, so a minor
 bump may carry a breaking change.
 
+## [0.7.0] - 2026-09-12
+
+The release where WARDEN was measured against a real AWS account instead of described. The
+benchmark found bugs in the tool, and two in itself, and everything below is published rather than
+summarised: both runs, their rubrics, their hashes and the scorer are in [`docs/bench/`](docs/bench/README.md).
+
+### The measurement
+
+14 fault classes injected into a real ECS Fargate service in `ap-south-2`, 3 runs each, Claude
+Sonnet through the `claude` CLI, every run as a 4-action read-only role. Evidence, diagnosis and the
+gate scored separately; the rubric committed before the run with its hash in the manifest.
+
+> **20 CORRECT · 5 SAFE-BUT-UNHELPFUL · 14 WRONG · 3 NO-EVIDENCE** — and the number that matters:
+> **14 runs proposed `no_action` on a service with a live fault, and the gate allowed every one.**
+
+- **The gate cannot catch "nothing is wrong."** `no_action` and `escalate_to_human` skip every
+  policy check by design, so a wrong `no_action` is never refused and never needs approval. Two runs
+  closed the incident at 0.25 confidence while their own `tool_errors` recorded that the logs could
+  not be read. Published as a design limit, not patched into a better number after the fact.
+- **The AWS evidence omits the clearest failure signal there is.** `aws_backend.metrics` derives
+  `deployments_failed` from `rolloutState == "FAILED"`, which only ever fires with the ECS
+  deployment circuit breaker enabled, and ignores the `failedTasks` count `DescribeServices` already
+  returns per deployment. So a service whose new tasks were dying in a loop was reported as
+  tasks-at-desired-count, nothing pending, nothing failed. **Open work**, named in the README.
+- **A completed rollout hides its own deploy.** Deploy detection compares images against the
+  replaced deployment; once a rollout finishes there is nothing to compare, so `ecs-08` scored
+  NO-EVIDENCE 3/3 rather than being graded as a model failure.
+- **The model is not deterministic.** 8 of 14 scenarios disagreed across three identical repeats,
+  including the healthy control, where one run escalated a service with nothing wrong.
+
+### Added
+
+- **`scenarios/` — the fault-injection benchmark.** Real faults (`ops.py`), a wave runner that
+  injects, measures, reverts and refuses to continue on a failed revert (`runner.py`), and an
+  offline scorer that never imports WARDEN and never reads the hypothesis text (`score.py`). The
+  rubric is data (`scoring.yaml`), argued in prose (`SCORING.md`), and a perfect score is stated to
+  be a bug report.
+- **`terraform/proving-ground/` — a throwaway account to break.** ECS Fargate (Spot optional), a
+  4-action reader role, a budget guard, and an operator IAM user with no console access. RDS and EKS
+  are opt-in and unused so far.
+- **A live AWS backend** (`aws_backend.py`): CloudWatch logs and metrics, ECS service state and
+  deploy detection, with every window and cap configurable and bounded.
+- **A `claude_cli` provider**, so a run can go through a Claude subscription instead of an API key —
+  with the operator's own config deliberately stripped from its environment.
+- **`scripts/`**: `publish_bench_run.py` (redact, verify with the repo's own scanner, then copy),
+  `teardown_sweep.py` (what Terraform never knew about), `check_iam_actions.py` and
+  `validate_policies.py` (AWS's own validator), `prove_boundary.py` and `apply_operator_policy.py`.
+- **A permissions boundary, proven live.** `prove_boundary.py` grants the operator, in its own
+  policy, the right to edit the boundary and to replace its own boundary — and both stay denied,
+  5/5, with a positive control so no denial can be mistaken for propagation delay.
+
+### Changed
+
+- ⛔ **The rubric was corrected after a run, in the open.** It graded `no_action` on a broken
+  service SAFE-BUT-UNHELPFUL because "a human gets it". That is false: the verifier exempts
+  `no_action` from every policy and the graph records it as `auto_safe`, "approval: not required" —
+  nobody is paged. `no_action` is now WRONG unless it is the right answer. Which passives count as
+  safe is rubric data, so a rubric predating the key still reproduces its own numbers, and the
+  affected run is published under **both** gradings.
+- **A wave now waits 18 minutes before every inject** and pins WARDEN's evidence window in its
+  environment, because scenarios were reading each other (below). A wave takes ~7 hours.
+
+### Fixed
+
+- **Scenarios read each other's evidence.** WARDEN reads logs 15 minutes around the alert; the
+  runner left 0.1–5 minutes between one scenario's revert and the next inject, so **39 of 42 runs**
+  in the first full run were graded partly on the previous scenario's fault and recovery. The runner
+  now isolates the evidence as well as the state, and the scorer flags any overlapping run. The
+  clean re-run has 0 of 42 — and shows the leak changed `ecs-09`'s answer and did *not* change
+  `ecs-06`'s, which guessing would have got wrong in both directions.
+- **Deploy detection compared revision N with N−1** instead of with the deployment actually being
+  replaced, so a rollback was proposed for a service whose rollout had simply not finished.
+- **The `claude` CLI was spoken to in the Windows code page**, so any prompt containing an em dash
+  or an arrow arrived garbled; every run before the fix was superseded and re-run.
+- **A diagnosis could be lost to `print`.** The CLI wrote its report *after* printing it, so a
+  console that could not encode a character threw away the result it had already paid for.
+- **An exhausted model provider was retried three times and then mistaken for a tool failure.**
+  `ProviderExhausted` is now fatal, recognised from the CLI's real wording ("session limit"), and
+  the wave stops cleanly and resumes with `--resume` instead of injecting faults it cannot measure.
+- **A redacted placeholder blinded the secret scanner to the real secret beside it.**
+- **Hashes differed between a CRLF and an LF checkout**, so a rubric that had not changed looked
+  tampered with. Content is hashed LF-normalised.
+- **`teardown_sweep` died on AWS throttling** after deregistering 38 of 45 revisions, leaving 7
+  behind and a traceback where the verdict should have been. Destructive calls now wait a throttle
+  out; anything that is not a throttle is still re-raised, so a permission error can never be
+  retried into looking like success.
+- **Six IAM and Terraform defects** a real apply found: a non-existent action name accepted by no
+  console, a global action under a region condition, a duplicate `Sid`, a missing tag permission,
+  `timestamp()` in `default_tags` breaking every saved-plan apply, and an example file that switched
+  EKS on.
+
+### Testing
+
+- **676 tests and 25 evals.** Every fix above was planted back out and its test watched go red
+  before being kept — including the ones that would otherwise pass against a fake.
+
 ## [0.6.2] - 2026-09-06
 
 ### Fixed
