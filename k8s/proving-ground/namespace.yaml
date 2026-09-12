@@ -1,0 +1,75 @@
+# The Kubernetes proving ground - Wave 2's throwaway workload.
+#
+# ⛔ THE LABEL IS THE SAFETY MECHANISM. `scenarios/ops_k8s.py` refuses to touch any namespace that
+# does not carry `project: warden-proving-ground`, and every injector checks it before it writes.
+# `default` exists in every cluster on earth and is one typo away from a scenario's namespace, so
+# the guard is the difference between a benchmark and an incident. Do not apply this to a cluster
+# you care about.
+#
+# Apply with:  kubectl apply -f k8s/proving-ground/
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: warden-pg
+  labels:
+    project: warden-proving-ground
+    # Pod Security: the workload below is an ordinary unprivileged container and must stay one.
+    pod-security.kubernetes.io/enforce: baseline
+---
+# The baseline workload every Wave 2 scenario starts from and returns to.
+#
+# ⚠ The image and command here ARE the baseline the injectors save and restore: `k8s_patch_variant`
+# records this container spec on first use and `k8s_restore_baseline` puts back exactly what it
+# saved, rather than reconstructing it from assumptions.
+#
+# The 48Mi limit is load-bearing rather than tidy: the `oom` variant allocates 900 MiB against it,
+# so the kernel does the killing and the kubelet records OOMKilled - which is the field
+# `k8s_backend.py::metrics` actually reads. A generous limit would turn a real OOM into a slow test.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: warden-pg
+  labels:
+    app: checkout
+    project: warden-proving-ground
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+        project: warden-proving-ground
+    spec:
+      # Nothing here needs to reach the API server; the benchmark drives the cluster from outside.
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: checkout
+          image: public.ecr.aws/docker/library/python:3.12-alpine
+          command:
+            - python
+            - -u
+            - -c
+            - |
+              import time
+              print('checkout: started, healthy', flush=True)
+              while True:
+                  print('checkout: heartbeat ok', flush=True)
+                  time.sleep(15)
+          resources:
+            limits:
+              memory: 48Mi
+              cpu: 200m
+            requests:
+              memory: 24Mi
+              cpu: 50m
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop: ["ALL"]

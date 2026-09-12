@@ -1,0 +1,64 @@
+# The identity WARDEN reads the proving ground as.
+#
+# ⛔ WHY THIS EXISTS SEPARATELY FROM k8s/rbac.yaml. That one binds the `warden` ServiceAccount to
+# the `default` namespace, for the deployed tool. The benchmark needs the same five reads scoped to
+# `warden-pg`, and scenario k8s-09 REMOVES one of them (`pods/log`) mid-run. Pointing the benchmark
+# at the deployed role would mean a scenario editing the production role, which is the kind of
+# convenience that turns a benchmark into an outage.
+#
+# ⭐ THE SCENARIO ONLY MEASURES ANYTHING BECAUSE OF THIS. If WARDEN ran under an admin kubeconfig,
+# removing `pods/log` from a role nobody was using would change nothing and the scenario would pass
+# while proving nothing - the exact trap Wave 1's IAM scenario documents. The harness runs WARDEN
+# with a kubeconfig bound to this ServiceAccount, so the revocation really bites.
+#
+# ⚠ Exactly five verbs, matching what src/warden/k8s_backend.py actually calls: list pods,
+# get pods/log, list events, get deployments, list replicasets. No writes, no secrets, no watch,
+# and nothing cluster-scoped.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: warden
+  namespace: warden-pg
+  labels:
+    project: warden-proving-ground
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: warden-pg-readonly
+  labels:
+    project: warden-proving-ground
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # ⛔ Scenario k8s-09 strips exactly this rule and puts it back. `k8s_revoke_log_access` REFUSES if
+  # the role never granted it, rather than reporting a fault it did not inject.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warden-pg-readonly
+  namespace: warden-pg
+  labels:
+    project: warden-proving-ground
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: warden-pg-readonly
+subjects:
+  - kind: ServiceAccount
+    name: warden
+    namespace: warden-pg

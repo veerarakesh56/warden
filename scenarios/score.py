@@ -350,10 +350,17 @@ def score_run_dir(run_dir: pathlib.Path, rubric_path: pathlib.Path = SCORING) ->
     # This is not hypothetical: seven scenarios had an impossible assertion corrected after the
     # first real run, so re-scoring that run today would quietly apply the NEW assertions to OLD
     # evidence and report a result nobody measured.
+    # ⚠ Compared FILE BY FILE, over the files this run recorded - not whole-dict equality against
+    # whatever is in the catalog directory now. Whole-dict equality meant that adding a later wave's
+    # catalog made every already-published run report drift, for a file those runs never read. A
+    # warning that fires for something harmless is a warning people learn to scroll past, and this
+    # one has to survive being believed. A recorded file that CHANGED still fires, which is the
+    # case that matters.
     recorded_catalog = manifest.get("catalog_sha256") or {}
     current_catalog = {p.name: _content_sha256(p)
                        for p in sorted(CATALOG.glob("*.yaml"))}
-    catalog_drift = bool(recorded_catalog) and recorded_catalog != current_catalog
+    catalog_drift = any(current_catalog.get(name) != digest
+                        for name, digest in recorded_catalog.items())
 
     rows: list[dict] = []
     incomplete: list[str] = []

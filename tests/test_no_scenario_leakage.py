@@ -158,15 +158,42 @@ def test_every_scenario_asserts_some_evidence():
     assert not thin, f"scenarios with no evidence assertions: {thin}"
 
 
+# Fault classes where the platform puts itself back, so a revert would be a no-op pretending to be
+# a safety measure: a reclaimed task and a deleted pod are both replaced by the orchestrator, and a
+# rollout restart completes on its own leaving the baseline spec in place.
+#
+# ⛔ Being on this list is NOT enough. A scenario that skips its revert must also say, in writing,
+# what puts the state back - otherwise "pick a self-healing fault class" becomes the way to dodge
+# the one rule that keeps this harness from leaving an account broken.
+SELF_HEALING_CLASSES = ("spot_interruption", "pod_deleted_externally", "healthy_control")
+
+
 def test_every_injected_scenario_declares_how_to_put_it_back():
-    """Except the two that need no revert: the healthy control injects nothing, and a stopped task
-    is replaced by ECS itself."""
     problems = [
         s["id"] for s in _scenarios()
         if (s.get("inject") or []) and not (s.get("revert") or [])
-        and s["fault_class"] not in ("spot_interruption",)
+        and s["fault_class"] not in SELF_HEALING_CLASSES
     ]
     assert not problems, f"scenarios that break something with no way back: {problems}"
+
+
+def test_a_scenario_skipping_its_revert_says_what_puts_it_back():
+    """The other half of the rule above. An exempt fault class explains why the platform heals it;
+    this asserts the SCENARIO says so too, so the exemption cannot be inherited silently.
+
+    ⚠ `wave1-ecs.yaml` is grandfathered, and not out of convenience: every published run records
+    that file's hash in its manifest, so adding a field to it would make already-published results
+    report catalog drift. The rule binds every catalog written from 2026-09-12 onward.
+    """
+    silent = [
+        s["id"] for s in _scenarios()
+        if (s.get("inject") or []) and not (s.get("revert") or [])
+        and "self_heals" not in s and s["_file"] != "wave1-ecs.yaml"
+    ]
+    assert not silent, (
+        "scenarios with no revert must carry a `self_heals:` note saying what restores the state: "
+        f"{silent}"
+    )
 
 
 def test_scenario_ids_are_unique():

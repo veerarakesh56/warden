@@ -379,6 +379,33 @@ def test_an_unchanged_rubric_says_nothing(tmp_path):
     assert "THE RUBRIC CHANGED" not in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
 
 
+def test_a_later_waves_catalog_does_not_taint_an_earlier_runs_results(tmp_path):
+    """⛔ Drift must fire for a file the run actually read, and stay silent for one it never saw.
+
+    Whole-dict equality meant that simply ADDING wave2-k8s.yaml made both published Wave 1 bundles
+    report "THE SCENARIO CATALOG CHANGED AFTER THIS RUN" - for a file those runs never read. A
+    warning that fires on something harmless is one people learn to scroll past, and this project
+    needs its warnings believed.
+    """
+    from scenarios import runner
+
+    runner.main(["--wave", "1", "--dry-run", "--repeat", "1", "--only", "ecs-01",
+                 "--out", str(tmp_path)])
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    # A wave that did not exist when this run happened: recorded nothing about it, so it cannot
+    # have changed what the run measured.
+    manifest["catalog_sha256"] = {"wave1-ecs.yaml": manifest["catalog_sha256"]["wave1-ecs.yaml"]}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert score.score_run_dir(tmp_path)["catalog_drift"] is False
+
+    # The case that must still fire: a file the run DID read, no longer what it was.
+    manifest["catalog_sha256"]["wave1-ecs.yaml"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert score.score_run_dir(tmp_path)["catalog_drift"] is True
+
+
 def test_both_gradings_sit_side_by_side_and_drift_is_judged_against_the_rubric_used(tmp_path):
     """"Show both": the run graded by the rubric it was committed against, next to the corrected
     one. The drift check must compare the manifest with the rubric ACTUALLY grading - comparing it
