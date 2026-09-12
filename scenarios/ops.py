@@ -482,19 +482,24 @@ OPS: dict[str, Callable[..., dict]] = {
 }
 
 
-def run_steps(clients: Clients, target: Target, steps: list[dict], *, account: str,
-              pause_s: float = 0.0) -> list[dict]:
+def run_steps(clients: Any, target: Any, steps: list[dict], *, account: str,
+              pause_s: float = 0.0, registry: dict[str, Callable[..., dict]] | None = None) -> list[dict]:
     """Execute a scenario's `inject` or `revert` list, in order, recording what each one did.
 
     The record is what ends up in the ground-truth file: not "scenario ecs-03 ran" but "these exact
     operations were performed against these exact resources, and this is what they returned."
+
+    `registry` selects the op table: the ECS ops in this module by default, or another wave's — see
+    `ops_k8s.OPS`. Dispatch, the performed-record and the unknown-op error live here once, because a
+    second copy of this loop would be a second place for those semantics to drift.
     """
+    table = OPS if registry is None else registry
     performed: list[dict] = []
     for step in steps:
         op_name = step.get("op")
-        fn = OPS.get(op_name or "")
+        fn = table.get(op_name or "")
         if fn is None:
-            raise OpError(f"unknown op {op_name!r}. Known: {sorted(OPS)}")
+            raise OpError(f"unknown op {op_name!r}. Known: {sorted(table)}")
         kwargs = {k: v for k, v in step.items() if k != "op"}
         result = fn(clients, target, account=account, **kwargs)
         performed.append({"op": op_name, "args": kwargs, "result": result})
