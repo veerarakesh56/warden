@@ -55,13 +55,14 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from typing import Any
 
 import yaml
 
-from . import ops
+from . import ops, ops_k8s
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -94,6 +95,30 @@ SYSTEM_ENV = ("PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "COMSPEC", "PAT
 LOG_LOOKBACK_M = 15
 METRIC_WINDOW_M = 10
 QUIET_SECONDS = (max(LOG_LOOKBACK_M, METRIC_WINDOW_M) + 3) * 60
+
+
+def describe_target(target: Any) -> dict[str, str]:
+    """What environment a run happened in, in terms that fit the backend it used.
+
+    ⛔ ONE definition, used by BOTH the manifest and the resume guard. They previously read
+    `target.cluster` in two places, which is an ECS field - so a Kubernetes wave crashed writing its
+    manifest, and a Kubernetes resume would have skipped the "same environment" check entirely. Two
+    copies of "which environment is this" is one copy too many: the guard has to mean exactly what
+    the manifest recorded.
+    """
+    if isinstance(target, ops_k8s.Target):
+        return {
+            "target_kind": "k8s",
+            "context": target.context,
+            "namespace": target.namespace,
+            "deployment": target.deployment,
+        }
+    return {
+        "target_kind": "ecs",
+        "cluster": target.cluster,
+        "service": target.service,
+        "region": target.region,
+    }
 
 
 def _evidence_isolation() -> dict[str, int]:
@@ -298,6 +323,16 @@ class Harness:
     baseline: Callable[[], list[str]]
     sleep: Callable[[float], None] = time.sleep
     stabilize: Callable[[], None] = lambda: None
+    # (creds, target, arm) -> the environment WARDEN runs with. A field rather than a hardcoded
+    # call, because a Kubernetes wave hands the tool a kubeconfig and no AWS credentials at all -
+    # and "which environment does the tool under test get" is exactly the decision that must be
+    # visible per wave rather than buried in the scenario loop.
+    build_env: Callable[..., dict[str, str]] = lambda creds, target, arm: warden_env(creds, target, arm)
+    # Which injector table a catalog's `op:` names are looked up in. A field, because the wave loop
+    # must not import one backend's registry directly: doing so made every Wave 2 scenario fail with
+    # "unknown op 'k8s_restore_baseline'" against the ECS table, which is the right error from the
+    # wrong place - the loop had no business deciding which cloud it was breaking.
+    registry: dict[str, Callable[..., dict]] = dataclasses.field(default_factory=lambda: ops.OPS)
 
 
 # --------------------------------------------------------------------------- running WARDEN
@@ -386,6 +421,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
     try:
         record["injected"] = ops.run_steps(
             harness.clients, harness.target, scenario.get("inject") or [], account=harness.account,
+            registry=harness.registry,
         )
         _write_json(ground_truth, record)
 
@@ -406,7 +442,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
             # it were this one, and nothing anywhere would look wrong.
             report.unlink(missing_ok=True)
             code, stderr_tail = harness.invoke_warden(
-                warden_env(creds, harness.target, arm), report,
+                harness.build_env(creds, harness.target, arm), report,
             )
             record["runs"].append(
                 {
@@ -439,7 +475,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
         try:
             record["reverted"] = ops.run_steps(
                 harness.clients, harness.target, scenario.get("revert") or [],
-                account=harness.account,
+                account=harness.account, registry=harness.registry,
             )
             record["revert_ok"] = True
         except Exception as exc:  # noqa: BLE001
@@ -590,6 +626,207 @@ def _live_harness(timeout_s: float) -> Harness:
     )
 
 
+# --------------------------------------------------------------------------- Kubernetes wiring
+#
+# Wave 2 runs against EKS. The ops speak the Kubernetes API (scenarios/ops_k8s.py); everything below
+# is the harness around them: what WARDEN's environment looks like, what "back to baseline" means
+# for a Deployment, and how the tool is given an identity that can only read.
+
+K8S_NAMESPACE = os.environ.get("WARDEN_BENCH_K8S_NAMESPACE", "warden-pg")
+K8S_DEPLOYMENT = os.environ.get("WARDEN_BENCH_K8S_DEPLOYMENT", "checkout")
+K8S_SERVICE_ACCOUNT = os.environ.get("WARDEN_BENCH_K8S_SA", "warden")
+K8S_CLUSTER_ROLE = os.environ.get("WARDEN_BENCH_K8S_ROLE", "warden-pg-readonly")
+K8S_REPLICAS = int(os.environ.get("WARDEN_BENCH_K8S_REPLICAS", "2"))
+
+
+def k8s_warden_env(creds: dict[str, str], target: ops_k8s.Target,
+                   arm: dict[str, str]) -> dict[str, str]:
+    """WARDEN's environment for a Kubernetes wave, built from nothing.
+
+    ⛔ NO AWS CREDENTIALS AT ALL, deliberately - not even the operator's. The only credential is a
+    kubeconfig holding a ServiceAccount token scoped to five reads in one namespace. If WARDEN ran
+    with the operator's kubeconfig, scenario k8s-09 would revoke a permission nobody was using and
+    pass while proving nothing, which is exactly the trap Wave 1's IAM scenario documents.
+    """
+    env = {key: os.environ[key] for key in SYSTEM_ENV if key in os.environ}
+    env.update({key: os.environ[key] for key in PASSTHROUGH if key in os.environ})
+    env.update(
+        {
+            "KUBECONFIG": creds["KUBECONFIG"],
+            "WARDEN_BACKEND": "k8s",
+            "WARDEN_K8S_NAMESPACE": target.namespace,
+            # A live cluster is slower than a fixture read, same as a live AWS account.
+            "WARDEN_TOOL_TIMEOUT": os.environ.get("WARDEN_TOOL_TIMEOUT", "15"),
+        }
+    )
+    env.update(arm)
+    return env
+
+
+def check_baseline_k8s(clients: ops_k8s.Clients, target: ops_k8s.Target, *,
+                       replicas: int = K8S_REPLICAS) -> list[str]:
+    """Is the cluster back at baseline? Empty list means yes.
+
+    ⛔ The gate, not a courtesy. The ECS version of this was written, documented and never called,
+    and a scenario then read its predecessor's rollout as evidence. The same failure is available
+    here: a Deployment mid-rollout, a liveness probe left behind by the previous variant, or an
+    RBAC rule still missing would all make the next scenario measure something nobody injected.
+    """
+    problems: list[str] = []
+    try:
+        dep = ops_k8s._read_deployment(clients, target)
+    except Exception as exc:  # noqa: BLE001 - any failure here means "do not start the next one"
+        return [f"cannot read deployment {target.deployment!r}: {type(exc).__name__}: {exc}"]
+
+    spec = dep.get("spec") or {}
+    status = dep.get("status") or {}
+    declared = int(spec.get("replicas") or 0)
+    if declared != replicas:
+        problems.append(f"replicas is {declared}, baseline is {replicas}")
+    for field, label in (("readyReplicas", "ready"), ("updatedReplicas", "updated")):
+        got = int(status.get(field) or 0)
+        if got != replicas:
+            problems.append(f"{label} replicas is {got}, expected {replicas}")
+    if int(status.get("unavailableReplicas") or 0):
+        problems.append(f"{status['unavailableReplicas']} replica(s) unavailable - rollout in flight")
+
+    containers = (spec.get("template") or {}).get("spec", {}).get("containers") or []
+    container = next((c for c in containers if c.get("name") == target.container), None)
+    if container is None:
+        problems.append(f"container {target.container!r} is missing from the pod template")
+    else:
+        if container.get("image") != target.baseline_image:
+            problems.append(
+                f"image is {container.get('image')!r}, baseline is {target.baseline_image!r}"
+            )
+        if container.get("livenessProbe"):
+            problems.append("a livenessProbe is still set - a previous variant was not reverted")
+
+    # ⛔ The reader role must be whole before the next scenario, or k8s-09's revocation would look
+    # like the tool's own blindness in every scenario that followed it.
+    try:
+        rules = ops_k8s._to_dict(clients.rbac.read_cluster_role(name=target.cluster_role)).get("rules") or []
+    except Exception as exc:  # noqa: BLE001
+        problems.append(f"cannot read ClusterRole {target.cluster_role!r}: {type(exc).__name__}")
+    else:
+        granted = {res for rule in rules for res in (rule.get("resources") or [])}
+        for needed in ("pods", "pods/log", "events"):
+            if needed not in granted:
+                problems.append(f"ClusterRole {target.cluster_role!r} no longer grants {needed}")
+    return problems
+
+
+def _subprocess_warden_k8s(target: ops_k8s.Target, timeout_s: float) -> Callable[..., tuple[int, str]]:
+    def invoke(env: dict[str, str], report_path: pathlib.Path) -> tuple[int, str]:
+        cmd = [
+            sys.executable, "-m", "warden.cli", "run",
+            "--alert", str(ALERT_FILE),
+            "--started-at", "now",
+            "--service", target.deployment,
+            # The labels k8s_backend.py reads to find the workload. `selector` is passed explicitly
+            # rather than left to default to `app=<service>`, so a renamed Deployment fails loudly
+            # instead of quietly diagnosing nothing.
+            "--label", f"namespace={target.namespace}",
+            "--label", f"deployment={target.deployment}",
+            "--label", f"selector=app={target.deployment}",
+            "--json", str(report_path),
+        ]
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(ROOT), env=env, capture_output=True, text=True,
+                timeout=timeout_s, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return 124, f"timed out after {timeout_s}s"
+        return proc.returncode, (proc.stderr or "")[-2000:]
+
+    return invoke
+
+
+def _kubectl(*args: str) -> str:
+    proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise RunnerError(f"kubectl {' '.join(args[:2])} failed: {proc.stderr.strip()[:300]}")
+    return proc.stdout
+
+
+def _k8s_live_harness(timeout_s: float) -> Harness:
+    try:
+        from kubernetes import client as kube
+        from kubernetes import config as kube_config
+    except ImportError as exc:  # pragma: no cover - an environment problem, not logic
+        raise RunnerError("the Kubernetes wave needs the client: pip install -e '.[k8s]'") from exc
+
+    kube_config.load_kube_config()
+    clients = ops_k8s.Clients(
+        core=kube.CoreV1Api(), apps=kube.AppsV1Api(), rbac=kube.RbacAuthorizationV1Api(),
+    )
+    context = (_kubectl("config", "current-context") or "").strip()
+    target = ops_k8s.Target(
+        context=context, namespace=K8S_NAMESPACE, deployment=K8S_DEPLOYMENT,
+        container=K8S_DEPLOYMENT, baseline_image="",
+        service_account=K8S_SERVICE_ACCOUNT, cluster_role=K8S_CLUSTER_ROLE,
+    )
+    # ⛔ Before anything else: is this the proving ground at all? The healthy control injects
+    # nothing, so without an explicit preflight the first scenario never checks.
+    ops_k8s._guard_namespace(clients, target)
+
+    # The baseline image is READ FROM THE CLUSTER rather than hardcoded, so the target describes
+    # what is actually running. A constant here would disagree with reality the first time the
+    # manifest changed, and check_baseline_k8s would then fail every scenario for the wrong reason.
+    live = ops_k8s._read_deployment(clients, target)
+    containers = ((live.get("spec") or {}).get("template") or {}).get("spec", {}).get("containers") or []
+    baseline = next((c for c in containers if c.get("name") == target.container), None)
+    if baseline is None:
+        raise RunnerError(
+            f"deployment {target.deployment!r} has no container named {target.container!r} - "
+            "apply k8s/proving-ground/ first"
+        )
+    target.baseline_image = baseline["image"]
+
+    def assume() -> dict[str, str]:
+        """Mint a short-lived ServiceAccount token and write a kubeconfig that can only read.
+
+        ⭐ Minted per run, not once per wave: k8s-09 strips a permission from this very role, and
+        "WARDEN ran with five reads and nothing else" is only a checkable claim if the identity it
+        ran as is re-derived each time and recorded in the artefact.
+        """
+        token = _kubectl("create", "token", target.service_account,
+                         "-n", target.namespace, "--duration=2h").strip()
+        base = yaml.safe_load(_kubectl("config", "view", "--raw", "--minify", "-o", "yaml"))
+        base["users"] = [{"name": "warden-bench", "user": {"token": token}}]
+        for ctx in base.get("contexts") or []:
+            ctx["context"]["user"] = "warden-bench"
+            ctx["context"]["namespace"] = target.namespace
+        handle, path = tempfile.mkstemp(prefix="warden-bench-kubeconfig-", suffix=".yaml")
+        with os.fdopen(handle, "w", encoding="utf-8") as fh:
+            yaml.safe_dump(base, fh)
+        return {
+            "KUBECONFIG": path,
+            "arn": f"serviceaccount:{target.namespace}:{target.service_account}",
+        }
+
+    def stabilize() -> None:
+        # The Kubernetes equivalent of waiting for services-stable. Best effort only: the GATE is
+        # check_baseline_k8s, which run_wave calls before every scenario.
+        attempts = int(os.environ.get("WARDEN_BENCH_STABILIZE_ATTEMPTS", "32"))
+        for _ in range(attempts):
+            if not check_baseline_k8s(clients, target):
+                return
+            time.sleep(15)
+        print(f"   (the Deployment did not settle in ~{attempts * 15}s. "
+              "The baseline check will decide whether to continue.)")
+
+    return Harness(
+        clients=clients, target=target, account="",
+        assume_reader=assume, invoke_warden=_subprocess_warden_k8s(target, timeout_s),
+        baseline=lambda: check_baseline_k8s(clients, target),
+        stabilize=stabilize,
+        build_env=k8s_warden_env,
+        registry=ops_k8s.OPS,
+    )
+
+
 # --------------------------------------------------------------------------- dry run
 #
 # ⚠ WHAT A DRY RUN PROVES, AND WHAT IT DOES NOT. It proves the wave loop, the environment allowlist,
@@ -717,6 +954,119 @@ def _dry_harness() -> Harness:
     )
 
 
+# --------------------------------------------------------------------------- dry run, Kubernetes
+
+_FAKE_K8S_RESPONSES: dict[str, Callable[[str], dict]] = {
+    "read_namespace": lambda image: {"metadata": {"labels": {"project": "warden-proving-ground"}}},
+    "read_namespaced_deployment": lambda image: {
+        "spec": {
+            "replicas": K8S_REPLICAS,
+            "template": {"spec": {"containers": [{
+                "name": K8S_DEPLOYMENT,
+                "image": image,
+                "command": ["python", "-u", "-c", "print('baseline')"],
+            }]}},
+        },
+        "status": {"readyReplicas": K8S_REPLICAS, "updatedReplicas": K8S_REPLICAS,
+                   "unavailableReplicas": 0},
+    },
+    "read_cluster_role": lambda image: {"rules": [
+        {"apiGroups": [""], "resources": ["pods"], "verbs": ["list"]},
+        {"apiGroups": [""], "resources": ["pods/log"], "verbs": ["get"]},
+        {"apiGroups": [""], "resources": ["events"], "verbs": ["list"]},
+        {"apiGroups": ["apps"], "resources": ["deployments"], "verbs": ["get"]},
+        {"apiGroups": ["apps"], "resources": ["replicasets"], "verbs": ["list"]},
+    ]},
+    "list_namespaced_pod": lambda image: {
+        "items": [{"metadata": {"name": f"{K8S_DEPLOYMENT}-fake-{n}"}} for n in range(K8S_REPLICAS)]
+    },
+}
+
+_DRY_IMAGE = "public.ecr.aws/docker/library/python:3.12-alpine"
+
+# ⚠ One canned report for every scenario, exactly as the ECS dry run does. Several Wave 2 evidence
+# assertions will NOT hold against it - k8s-04 wants fewer ready pods than total, k8s-07 and k8s-09
+# want a tool error - so those scenarios score NO-EVIDENCE in a dry run. That is correct and is the
+# point: a dry run proves the loop, the artefacts and the scorer, and proves nothing about a cluster.
+_DRY_REPORT_K8S: dict[str, Any] = {
+    "alert": {
+        "alert_id": "bench", "name": "ECSServiceAlarm", "severity": "high",
+        "service": K8S_DEPLOYMENT, "environment": "prod",
+        "summary": "CloudWatch alarm fired for ECS service checkout",
+        "started_at": "2026-01-01T00:00:00Z",
+        "labels": {"namespace": K8S_NAMESPACE, "deployment": K8S_DEPLOYMENT},
+    },
+    "redaction_map_size": 0,
+    "context": {
+        "logs": ["fake pod 0 OOMKilled", "fake line 2", "fake line 3"],
+        "metrics": {
+            "pods_total": float(K8S_REPLICAS), "pods_ready": float(K8S_REPLICAS),
+            "restart_count": 3.0, "oom_killed_containers": 1.0, "crashloop_containers": 1.0,
+            "memory_limit_mib": 48.0,
+        },
+        "recent_deploys": [{"service": K8S_DEPLOYMENT, "image": _DRY_IMAGE, "by": "dry-run"}],
+        "tool_errors": [],
+    },
+    "root_cause": {"hypothesis": "dry run", "confidence": 0.85, "evidence": [], "ruled_out": []},
+    "proposal": {
+        "action": "rollback_deploy", "target": K8S_DEPLOYMENT, "reasoning": "dry run",
+        "expected_effect": "dry run", "blast_radius": "single_service", "reversible": True,
+    },
+    "verdict": {
+        "status": "approved_for_human", "reasons": ["dry run"], "policy_ids": [],
+        "requires_approval": True,
+    },
+    "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0, "calls": 0},
+    "audit": [],
+    "halted_reason": None,
+}
+
+
+class _FakeK8s:
+    """Accepts every call, records it, returns the least surprising shape."""
+
+    def __init__(self, image: str = _DRY_IMAGE) -> None:
+        self.calls: list[tuple[str, dict]] = []
+        self._image = image
+
+    def __getattr__(self, name: str) -> Callable[..., dict]:
+        def call(**kwargs: Any) -> dict:
+            self.calls.append((name, kwargs))
+            return _FAKE_K8S_RESPONSES.get(name, lambda image: {})(self._image)
+
+        return call
+
+
+def _k8s_dry_harness() -> Harness:
+    shared = _FakeK8s()
+    clients = ops_k8s.Clients(core=shared, apps=shared, rbac=shared)
+    target = ops_k8s.Target(
+        context="dry-run", namespace=K8S_NAMESPACE, deployment=K8S_DEPLOYMENT,
+        container=K8S_DEPLOYMENT, baseline_image=_DRY_IMAGE,
+        service_account=K8S_SERVICE_ACCOUNT, cluster_role=K8S_CLUSTER_ROLE,
+    )
+
+    def invoke(env: dict[str, str], report_path: pathlib.Path) -> tuple[int, str]:
+        _write_json(report_path, _DRY_REPORT_K8S)
+        return 0, ""
+
+    return Harness(
+        clients=clients, target=target, account="",
+        assume_reader=lambda: {
+            "KUBECONFIG": "/dry-run/kubeconfig",
+            "arn": f"serviceaccount:{K8S_NAMESPACE}:{K8S_SERVICE_ACCOUNT}",
+        },
+        invoke_warden=invoke,
+        # ⭐ Unlike the ECS dry run, this one runs the REAL baseline gate against the fakes above.
+        # check_baseline_k8s is new code that decides whether a scenario is allowed to start, and a
+        # dry run that skipped it would leave it first exercised on a billed cluster.
+        baseline=lambda: check_baseline_k8s(clients, target),
+        sleep=lambda _seconds: None,
+        build_env=k8s_warden_env,
+        registry=ops_k8s.OPS,
+    )
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -807,6 +1157,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--arm", action="append", default=[], metavar="K=V",
                         help="extra env for WARDEN, e.g. --arm WARDEN_KNOWLEDGE_IN_PROMPT=1. "
                              "Recorded in the manifest")
+    parser.add_argument("--target", default="", choices=("", "ecs", "k8s"),
+                        help="which backend this wave runs against. Defaults to the `service:` the "
+                             "catalog declares, so it cannot silently disagree with the scenarios")
     parser.add_argument("--warden-timeout", type=float, default=300.0)
     parser.add_argument("--dry-run", action="store_true",
                         help="no AWS and no API key: exercises the loop and the artefacts, and "
@@ -841,7 +1194,16 @@ def main(argv: list[str] | None = None) -> int:
     out = pathlib.Path(args.out) if args.out else default_root / f"wave{args.wave}-{stamp}"
     out.mkdir(parents=True, exist_ok=True)
 
-    harness = _dry_harness() if args.dry_run else _live_harness(args.warden_timeout)
+    # ⛔ The target picks the whole backend: which ops registry dispatches, what "baseline" means,
+    # and what credential the tool under test is given. A wave's catalog declares its `service:`,
+    # so the default follows the catalog rather than asking the operator to keep two flags in sync.
+    target_kind = args.target or str(_doc.get("service") or "ecs")
+    if target_kind not in ("ecs", "k8s"):
+        raise SystemExit(f"--target must be ecs or k8s, got {target_kind!r}")
+    if args.dry_run:
+        harness = _k8s_dry_harness() if target_kind == "k8s" else _dry_harness()
+    else:
+        harness = (_k8s_live_harness if target_kind == "k8s" else _live_harness)(args.warden_timeout)
     alert = yaml.safe_load(ALERT_FILE.read_text(encoding="utf-8")) or {}
 
     manifest = {
@@ -858,9 +1220,7 @@ def main(argv: list[str] | None = None) -> int:
         "catalog_sha256": {p.name: _sha256(p) for p in sorted(CATALOG.glob("*.yaml"))},
         "scoring_sha256": _sha256(SCORING),
         "git_commit": _git_commit(),
-        "cluster": harness.target.cluster,
-        "service": harness.target.service,
-        "region": harness.target.region,
+        **describe_target(harness.target),
         "scenario_ids": [s["id"] for s in scenarios],
         "evidence_isolation": _evidence_isolation(),
     }
@@ -906,12 +1266,22 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
             f"differs from the runner's {_evidence_isolation()}. Start a new run instead."
         )
 
-    harness = _dry_harness() if manifest.get("dry_run") else _live_harness(warden_timeout)
-    # ⛔ One environment. A different cluster is a different fault instance entirely.
-    if harness.target.cluster != manifest.get("cluster"):
+    # The backend comes from the manifest, never from a flag: resuming a Kubernetes wave with the
+    # ECS harness would compare the wrong things and inject the wrong faults.
+    recorded_kind = str(manifest.get("target_kind") or "ecs")
+    if manifest.get("dry_run"):
+        harness = _k8s_dry_harness() if recorded_kind == "k8s" else _dry_harness()
+    else:
+        harness = (_k8s_live_harness if recorded_kind == "k8s" else _live_harness)(warden_timeout)
+
+    # ⛔ One environment. A different cluster - or namespace, or kubeconfig context - is a different
+    # fault instance entirely, so the whole descriptor must match what the run recorded.
+    now = describe_target(harness.target)
+    recorded = {k: manifest.get(k) for k in now}
+    if now != recorded:
         raise SystemExit(
-            f"--resume {out}: this run was on cluster {manifest.get('cluster')!r} and the proving "
-            f"ground is now {harness.target.cluster!r}. Start a new run instead."
+            f"--resume {out}: this run was in {recorded} and the proving ground is now {now}. "
+            "Start a new run instead."
         )
 
     repeat = int(manifest["repeat"])
