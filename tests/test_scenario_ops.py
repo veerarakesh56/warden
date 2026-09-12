@@ -376,42 +376,65 @@ def test_an_unknown_op_is_refused_before_anything_is_touched(clients, target):
     assert clients.ecs.calls == []
 
 
-def test_every_op_named_in_the_catalog_exists():
-    """A typo in a scenario's YAML would otherwise surface halfway through a live AWS run."""
+# Which injector module owns a catalog, keyed by the `service:` the catalog declares.
+#
+# ⛔ RESOLVED PER WAVE, NOT "ANYWHERE". Checking a name against both registries at once would let an
+# ECS scenario reference `k8s_scale` and still pass - the check would confirm the string exists
+# somewhere rather than that the wave can actually run it. Each catalog is validated against the
+# registry that will really dispatch it, so a typo in either wave still surfaces here rather than
+# halfway through a live run.
+def _registry_for(service: str):
+    from scenarios import ops_k8s
+
+    return {"ecs": (ops.OPS, ops._VARIANTS), "k8s": (ops_k8s.OPS, ops_k8s._VARIANTS)}.get(service)
+
+
+def _catalogs():
     import yaml
 
     root = pathlib.Path(__file__).resolve().parents[1]
     catalog = root / "scenarios" / "catalog"
     if not catalog.exists():
         pytest.skip("no catalog in this checkout")
-
-    missing: list[str] = []
     for path in sorted(catalog.glob("*.yaml")):
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        yield path, yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def test_every_catalog_declares_a_service_with_an_injector():
+    """A catalog whose `service:` nothing owns would silently skip both checks below."""
+    orphans = [
+        f"{path.name}: service={doc.get('service')!r}"
+        for path, doc in _catalogs() if _registry_for(str(doc.get("service") or "")) is None
+    ]
+    assert not orphans, f"catalogs with no injector module: {orphans}"
+
+
+def test_every_op_named_in_the_catalog_exists():
+    """A typo in a scenario's YAML would otherwise surface halfway through a live run."""
+    missing: list[str] = []
+    for path, doc in _catalogs():
+        registry = _registry_for(str(doc.get("service") or ""))
+        if registry is None:
+            continue  # reported by the test above
         for scenario in doc.get("scenarios") or []:
             for step in (scenario.get("inject") or []) + (scenario.get("revert") or []):
-                if step.get("op") not in ops.OPS:
-                    missing.append(f"{scenario['id']}: {step.get('op')}")
-    assert not missing, f"scenarios referencing ops that do not exist: {missing}"
+                if step.get("op") not in registry[0]:
+                    missing.append(f"{path.name}/{scenario['id']}: {step.get('op')}")
+    assert not missing, f"scenarios referencing ops their wave cannot run: {missing}"
 
 
 def test_every_variant_named_in_the_catalog_exists():
-    import yaml
-
-    root = pathlib.Path(__file__).resolve().parents[1]
-    catalog = root / "scenarios" / "catalog"
-    if not catalog.exists():
-        pytest.skip("no catalog in this checkout")
-
     missing: list[str] = []
-    for path in sorted(catalog.glob("*.yaml")):
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for path, doc in _catalogs():
+        registry = _registry_for(str(doc.get("service") or ""))
+        if registry is None:
+            continue
         for scenario in doc.get("scenarios") or []:
             for step in (scenario.get("inject") or []) + (scenario.get("revert") or []):
                 variant = step.get("variant")
-                if variant is not None and variant not in ops._VARIANTS:
-                    missing.append(f"{scenario['id']}: {variant}")
-    assert not missing, f"scenarios referencing variants that do not exist: {missing}"
+                if variant is not None and variant not in registry[1]:
+                    missing.append(f"{path.name}/{scenario['id']}: {variant}")
+    assert not missing, f"scenarios referencing variants their wave does not define: {missing}"
 
 
 # --------------------------------------------------------------------------- leaving nothing behind
