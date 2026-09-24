@@ -94,7 +94,32 @@ SYSTEM_ENV = ("PATH", "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "COMSPEC", "PAT
 # machine's clock against AWS's (measured at 103s ahead, which errs safe; behind would not).
 LOG_LOOKBACK_M = 15
 METRIC_WINDOW_M = 10
-QUIET_SECONDS = (max(LOG_LOOKBACK_M, METRIC_WINDOW_M) + 3) * 60
+
+# ⛔ How far back EACH BACKEND's evidence actually reaches, in minutes. The quiet period is derived
+# from it by one formula, so a new wave cannot quietly get a hand-picked wait.
+#
+# ECS reads CloudWatch: a 15-minute window either side of the alert, so the wait must outlast it.
+# KUBERNETES HAS NO TIME WINDOW - pod logs are 40-line tails, events are filtered to the pods that
+# exist now, and deploys() reports only the most recent image change. Its reach is therefore how far
+# back 40 lines of the baseline workload actually go: a heartbeat every 15s x 40 = ~10 minutes.
+# Waiting 18 minutes for that bought nothing and cost 3 of the 4 hours of a Wave 2 run.
+#
+# ⚠ The number is MEASURED, not assumed: each run records the oldest log timestamp per report, and
+# if any report reaches back further than this, the figure was wrong and the results must say so.
+EVIDENCE_REACH_M: dict[str, dict[str, int]] = {
+    "ecs": {"log_lookback_m": LOG_LOOKBACK_M, "metric_window_m": METRIC_WINDOW_M},
+    "k8s": {"log_lookback_m": 10, "metric_window_m": 0},
+}
+# The +3 is margin for this machine's clock against AWS's (measured 103s ahead, which errs safe).
+QUIET_MARGIN_M = 3
+
+
+def quiet_seconds_for(target_kind: str) -> int:
+    reach = EVIDENCE_REACH_M[target_kind]
+    return (max(reach["log_lookback_m"], reach["metric_window_m"]) + QUIET_MARGIN_M) * 60
+
+
+QUIET_SECONDS = quiet_seconds_for("ecs")
 
 
 def describe_target(target: Any) -> dict[str, str]:
@@ -121,9 +146,14 @@ def describe_target(target: Any) -> dict[str, str]:
     }
 
 
-def _evidence_isolation() -> dict[str, int]:
-    return {"log_lookback_m": LOG_LOOKBACK_M, "metric_window_m": METRIC_WINDOW_M,
-            "quiet_seconds_before_each_inject": QUIET_SECONDS}
+def _evidence_isolation(target_kind: str = "ecs") -> dict[str, int]:
+    """What isolation this wave ran under, recorded in the manifest and enforced on resume.
+
+    Per target kind, because a Kubernetes wave and an ECS wave do not read the same amount of the
+    past - and a resume must compare a run against the settings IT used, not against ECS's.
+    """
+    return {**EVIDENCE_REACH_M[target_kind],
+            "quiet_seconds_before_each_inject": quiet_seconds_for(target_kind)}
 
 
 class RunnerError(RuntimeError):
@@ -333,6 +363,10 @@ class Harness:
     # "unknown op 'k8s_restore_baseline'" against the ECS table, which is the right error from the
     # wrong place - the loop had no business deciding which cloud it was breaking.
     registry: dict[str, Callable[..., dict]] = dataclasses.field(default_factory=lambda: ops.OPS)
+    # How long to wait before every inject so no evidence window reaches earlier activity. A field
+    # for the same reason as `registry`: it is a property of the BACKEND's evidence reach, and the
+    # wave loop has no business knowing which cloud it is waiting on.
+    quiet_seconds: int = QUIET_SECONDS
 
 
 # --------------------------------------------------------------------------- running WARDEN
@@ -506,8 +540,9 @@ def run_wave(harness: Harness, scenarios: list[dict], out: pathlib.Path, *, repe
 
         # ⛔ Before EVERY scenario, the first included: a resume, or a repair by hand, is activity
         # the evidence window would read just as surely as a previous scenario. See QUIET_SECONDS.
-        log(f"   quiet {QUIET_SECONDS // 60} min, so no evidence window reaches earlier activity")
-        harness.sleep(QUIET_SECONDS)
+        log(f"   quiet {harness.quiet_seconds // 60} min, so no evidence window reaches earlier "
+            "activity")
+        harness.sleep(harness.quiet_seconds)
 
         # ⛔ Before EVERY scenario, not once per wave. The state a scenario inherits is whatever the
         # previous one's revert left, and a revert that "succeeded" can still leave a rollout in
@@ -824,6 +859,7 @@ def _k8s_live_harness(timeout_s: float) -> Harness:
         stabilize=stabilize,
         build_env=k8s_warden_env,
         registry=ops_k8s.OPS,
+        quiet_seconds=quiet_seconds_for("k8s"),
     )
 
 
@@ -1064,6 +1100,7 @@ def _k8s_dry_harness() -> Harness:
         sleep=lambda _seconds: None,
         build_env=k8s_warden_env,
         registry=ops_k8s.OPS,
+        quiet_seconds=quiet_seconds_for("k8s"),
     )
 
 
@@ -1222,7 +1259,7 @@ def main(argv: list[str] | None = None) -> int:
         "git_commit": _git_commit(),
         **describe_target(harness.target),
         "scenario_ids": [s["id"] for s in scenarios],
-        "evidence_isolation": _evidence_isolation(),
+        "evidence_isolation": _evidence_isolation(target_kind),
     }
     _write_json(out / "manifest.json", manifest)
     print(f"artefacts -> {out}")
@@ -1258,17 +1295,19 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
             f"--resume {out}: the scenario catalog or the rubric has changed since this run began. "
             "Resuming would grade one run under two rubrics. Start a new run instead."
         )
-    # ⛔ One evidence window too. Resuming a run from before the quiet period existed would give
-    # half its scenarios isolated evidence and half not, under one manifest.
-    if manifest.get("evidence_isolation") != _evidence_isolation():
-        raise SystemExit(
-            f"--resume {out}: this run's evidence isolation {manifest.get('evidence_isolation')} "
-            f"differs from the runner's {_evidence_isolation()}. Start a new run instead."
-        )
-
     # The backend comes from the manifest, never from a flag: resuming a Kubernetes wave with the
     # ECS harness would compare the wrong things and inject the wrong faults.
     recorded_kind = str(manifest.get("target_kind") or "ecs")
+
+    # ⛔ One evidence window too. Resuming a run from before the quiet period existed would give
+    # half its scenarios isolated evidence and half not, under one manifest. Compared against THIS
+    # run's backend: an ECS wave and a Kubernetes wave legitimately wait different amounts, and
+    # comparing a k8s run against ECS's numbers would refuse every resume of a correct run.
+    if manifest.get("evidence_isolation") != _evidence_isolation(recorded_kind):
+        raise SystemExit(
+            f"--resume {out}: this run's evidence isolation {manifest.get('evidence_isolation')} "
+            f"differs from the runner's {_evidence_isolation(recorded_kind)}. Start a new run."
+        )
     if manifest.get("dry_run"):
         harness = _k8s_dry_harness() if recorded_kind == "k8s" else _dry_harness()
     else:

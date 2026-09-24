@@ -392,6 +392,35 @@ def test_every_inject_waits_out_warden_s_evidence_window_first(tmp_path, target)
     assert runner.QUIET_SECONDS > window_m * 60, "the quiet period must outlast what WARDEN reads"
 
 
+def test_each_backend_waits_out_its_own_evidence_reach_and_no_longer():
+    """⛔ One formula, applied per backend - not a hand-picked number per wave.
+
+    ECS reads a 15-minute CloudWatch window, so it waits 18 minutes. Kubernetes has no time window
+    at all (40-line pod tails, events filtered to current pods), so waiting 18 minutes for it bought
+    nothing and cost 3 of the 4 hours of a Wave 2 run. Both must still outlast what that backend
+    actually reads, or the isolation this whole quiet period exists for is gone.
+    """
+    for kind in ("ecs", "k8s"):
+        reach = runner.EVIDENCE_REACH_M[kind]
+        quiet = runner.quiet_seconds_for(kind)
+        assert quiet > max(reach["log_lookback_m"], reach["metric_window_m"]) * 60, (
+            f"{kind}: the wait must outlast that backend's own reach"
+        )
+    assert runner.quiet_seconds_for("k8s") < runner.quiet_seconds_for("ecs"), (
+        "a backend with no time window must not wait as long as one with a 15-minute window"
+    )
+    # The harness carries it, so the wave loop never decides which cloud it is waiting on.
+    assert runner._k8s_dry_harness().quiet_seconds == runner.quiet_seconds_for("k8s")
+    assert runner._dry_harness().quiet_seconds == runner.quiet_seconds_for("ecs")
+
+
+def test_the_manifest_records_the_isolation_this_backend_actually_used():
+    """A resume compares against what the run recorded; if the manifest said ECS's numbers for a
+    Kubernetes wave, every correct resume would be refused."""
+    assert runner._evidence_isolation("k8s")["quiet_seconds_before_each_inject"] ==         runner.quiet_seconds_for("k8s")
+    assert runner._evidence_isolation("ecs")["log_lookback_m"] == runner.LOG_LOOKBACK_M
+
+
 def test_resume_refuses_a_run_from_before_evidence_isolation(tmp_path):
     _run(tmp_path)
     manifest_path = tmp_path / "manifest.json"
