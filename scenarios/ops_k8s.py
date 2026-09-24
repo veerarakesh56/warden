@@ -239,9 +239,10 @@ def op_k8s_patch_variant(clients: Clients, target: Target, *, variant: str, acco
     container["command"] = list(_COMMANDS[spec["command_key"]])
     # Explicitly cleared, not left behind: a probe from a previous variant would attribute the next
     # scenario's restarts to the wrong fault.
-    container.pop("livenessProbe", None)
-    if spec.get("liveness_probe"):
-        container["livenessProbe"] = copy.deepcopy(spec["liveness_probe"])
+    # ⛔ CLEARED WITH None, NOT BY LEAVING THE KEY OUT. This is a strategic-merge patch: containers
+    # merge BY NAME and every field the patch does not mention is KEPT. Only an explicit null deletes
+    # one. It used to `pop` the key here - which clears nothing on a real API server.
+    container["livenessProbe"] = copy.deepcopy(spec["liveness_probe"]) if spec.get("liveness_probe") else None
 
     patch = {"spec": {"template": {"spec": {"containers": [container]}}}}
     clients.apps.patch_namespaced_deployment(
@@ -258,7 +259,21 @@ def op_k8s_restore_baseline(clients: Clients, target: Target, *, account: str = 
     saved = target.saved.get("container")
     if saved is None:
         raise OpError("no saved container spec - refusing to guess what the baseline was")
-    patch = {"spec": {"template": {"spec": {"containers": [copy.deepcopy(saved)]}}}}
+    restore = copy.deepcopy(saved)
+    # ⛔ A field the FAULT added is not in the saved spec, and a strategic-merge patch keeps every
+    # field it does not mention - so re-sending the saved container alone reverts image and command
+    # and leaves, say, a failing livenessProbe in place. That is exactly how the first live Wave 2
+    # run stopped at k8s-07: k8s-06's revert reported success, the probe stayed, every pod kept
+    # being killed, and the baseline gate refused to start the next scenario. Every field the live
+    # container has and the saved one does not is therefore sent as null, which deletes it.
+    live = _read_deployment(clients, target)
+    current = live["spec"]["template"]["spec"]["containers"][
+        _container_index(live["spec"], target.container)
+    ]
+    for key in current:
+        if key not in restore:
+            restore[key] = None
+    patch = {"spec": {"template": {"spec": {"containers": [restore]}}}}
     clients.apps.patch_namespaced_deployment(
         name=target.deployment, namespace=target.namespace, body=patch,
     )

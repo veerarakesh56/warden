@@ -33,19 +33,46 @@ class FakeCore:
 
 
 class FakeApps:
+    """Applies patches the way the API server does, and keeps the resulting state.
+
+    ⛔ A fake that only RECORDED patches let a real bug through: the revert left a livenessProbe
+    on the live cluster, and the test asserted "livenessProbe is not in the patch" - which is the
+    bug, not the fix. A strategic-merge patch merges `containers` BY NAME and keeps every field the
+    patch does not mention; only an explicit null deletes one. Tests now assert on `container()`,
+    the state after the patch, which is what the next scenario actually runs against.
+    """
+
     def __init__(self):
         self.patches: list[dict] = []
         self.scales: list[int] = []
-
-    def read_namespaced_deployment(self, *, name, namespace, **_kw):
-        return {"spec": {"template": {"spec": {"containers": [
+        self.live = {"spec": {"template": {"spec": {"containers": [
             {"name": "checkout", "image": BASELINE_IMAGE,
-             "command": ["python", "-u", "-c", "print('healthy')"]},
+             "command": ["python", "-u", "-c", "print('healthy')"],
+             "imagePullPolicy": "IfNotPresent"},
         ]}}}}
 
+    def read_namespaced_deployment(self, *, name, namespace, **_kw):
+        import copy
+        return copy.deepcopy(self.live)
+
     def patch_namespaced_deployment(self, *, name, namespace, body):
-        self.patches.append(body)
+        import copy
+        self.patches.append(copy.deepcopy(body))
+        live = self.live["spec"]["template"]["spec"]["containers"]
+        for patch in body["spec"]["template"]["spec"]["containers"]:
+            current = next((c for c in live if c["name"] == patch["name"]), None)
+            if current is None:
+                live.append({k: v for k, v in patch.items() if v is not None})
+                continue
+            for key, value in patch.items():
+                if value is None:
+                    current.pop(key, None)
+                else:
+                    current[key] = copy.deepcopy(value)
         return {}
+
+    def container(self) -> dict:
+        return self.live["spec"]["template"]["spec"]["containers"][0]
 
     def patch_namespaced_deployment_scale(self, *, name, namespace, body):
         self.scales.append(body["spec"]["replicas"])
@@ -141,9 +168,9 @@ def test_a_probe_from_a_previous_variant_is_cleared_not_inherited():
     apps = FakeApps()
     target, clients = _target(), _clients(apps=apps)
     OPS["k8s_patch_variant"](clients, target, variant="bad_probe")
-    assert "livenessProbe" in apps.patches[0]["spec"]["template"]["spec"]["containers"][0]
+    assert "livenessProbe" in apps.container()
     OPS["k8s_patch_variant"](clients, target, variant="oom")
-    assert "livenessProbe" not in apps.patches[1]["spec"]["template"]["spec"]["containers"][0]
+    assert "livenessProbe" not in apps.container(), "the probe survived into the next variant"
 
 
 def test_an_unknown_variant_is_refused():
@@ -162,6 +189,37 @@ def test_the_revert_restores_what_was_saved_not_what_the_code_assumes():
     restored = apps.patches[-1]["spec"]["template"]["spec"]["containers"][0]
     assert restored["image"] == BASELINE_IMAGE
     assert restored["command"] == ["python", "-u", "-c", "print('healthy')"]
+
+
+def test_the_revert_removes_a_field_the_fault_added():
+    """⛔ THE BUG THAT STOPPED THE FIRST LIVE WAVE 2 RUN AT k8s-07. The bad_probe variant ADDS a
+    livenessProbe the baseline never had. Re-sending the saved container as a merge patch leaves
+    it in place - image and command revert, the probe stays, and every pod keeps being killed.
+    The baseline gate caught it; this catches it before a cluster exists."""
+    apps = FakeApps()
+    target, clients = _target(), _clients(apps=apps)
+    before = dict(apps.container())
+
+    OPS["k8s_patch_variant"](clients, target, variant="bad_probe")
+    OPS["k8s_restore_baseline"](clients, target)
+
+    assert "livenessProbe" not in apps.container(), "the revert left the fault's probe behind"
+    assert apps.container() == before, "the revert must leave the container exactly as it was"
+
+
+@pytest.mark.parametrize("variant", ["oom", "oom_same_image", "bad_image", "exit_one", "bad_probe"])
+def test_every_variant_reverts_to_exactly_the_baseline(variant):
+    """Each variant, injected and reverted, must leave the container byte-for-byte as it started.
+    Not just the one that failed live: any variant adding a field would fail the same way."""
+    apps = FakeApps()
+    target, clients = _target(), _clients(apps=apps)
+    before = dict(apps.container())
+
+    OPS["k8s_patch_variant"](clients, target, variant=variant)
+    assert apps.container() != before, "the variant did not change anything - not a fault"
+    OPS["k8s_restore_baseline"](clients, target)
+
+    assert apps.container() == before
 
 
 def test_restoring_without_a_saved_spec_refuses_rather_than_guessing():
