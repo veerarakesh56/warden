@@ -127,7 +127,8 @@
           "iam:AWSServiceName": [
             "ecs.amazonaws.com",
             "eks.amazonaws.com",
-            "eks-nodegroup.amazonaws.com"
+            "eks-nodegroup.amazonaws.com",
+            "rds.amazonaws.com"
           ]
         }
       }
@@ -184,6 +185,7 @@
         "eks:DescribeCluster",
         "eks:ListClusters",
         "eks:UpdateClusterConfig",
+        "eks:DescribeUpdate",
         "eks:CreateNodegroup",
         "eks:DeleteNodegroup",
         "eks:DescribeNodegroup",

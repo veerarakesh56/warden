@@ -9,7 +9,17 @@
 | Wave 2 (EKS) | **blocked** — see below. The cluster came up and was torn down again; the node group never created. |
 | Wave 3 (RDS) | **built, dry-run green, not yet run live.** 6 scenarios, 7 ops (5 injectors, 2 reverts), 32 tests, every guard plant-verified. All three waves dry-run and score end to end, and a partial `--resume` of Wave 3 was tested. |
 
-## ⛔ The one thing that needs your admin identity
+## ✅ Resolved 2026-09-24 — and the first fix was not enough on its own
+
+The boundary edit below was applied from the console. It **still** failed: IAM's access
+troubleshooter showed the request was evaluated against `role/AWSServiceRoleForAmazonEKSNodegroup`
+- the ARN **without** its `aws-service-role/eks-nodegroup.amazonaws.com/` path, because the role
+did not exist yet. `role/aws-service-role/*` cannot match that. Creating the service-linked role
+first (`iam:CreateServiceLinkedRole`, already allowed by both policies, and something EKS does on
+its own anyway) gave it a real, pathed ARN, and the same `GetRole` then succeeded. A role outside
+the proving ground is still refused. The step is now a comment above the node group in `eks.tf`.
+
+## ⛔ What was asked of your admin identity
 
 Creating an EKS **managed node group** calls `iam:GetRole` on
 `AWSServiceRoleForAmazonEKSNodegroup` to check whether that service-linked role exists. AWS's own
@@ -119,7 +129,7 @@ python -m scenarios.runner --wave 3 --only db-01-healthy-control --repeat 1
 
 ⛔ **The setup step is not optional and is not folded into the harness on purpose.** The injectors
 refuse to touch a database unless it contains a `warden_proving_ground` table. That table is the
-only thing standing between "open ~84 sessions and take an ACCESS EXCLUSIVE lock" and someone's real
+only thing standing between "open ~58 sessions and take an ACCESS EXCLUSIVE lock" and someone's real
 Postgres. If the harness created the mark when it was missing, the guard would bless whatever
 database it was handed - which is exactly the one you did not mean to point it at. So a human runs
 `setup_proving_ground_db.py --apply` against a DSN they chose, and it refuses twice: once on the

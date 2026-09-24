@@ -101,9 +101,10 @@ scenarios:
     notes: >
       Deliberately 80% and not 100%: at the ceiling WARDEN cannot connect either, and the scenario
       would measure a tool outage rather than a saturated pool - which is db-06's job.
-      On the db.t4g.micro this wave runs against, RDS sets max_connections to about 112, so this
-      opens roughly 84 sessions from the harness process and leaves about 23 free - enough for
-      WARDEN's own read, and for the baseline check that gates the next scenario.
+      On the db.t4g.micro this wave runs against, max_connections MEASURED 79 (2026-09-24; an
+      earlier estimate of ~112 from RDS's memory formula was wrong), so this opens roughly 58
+      sessions from the harness process and leaves about 16 free - enough for WARDEN's own read,
+      and for the baseline check that gates the next scenario.
       ⭐ The interesting wrong answer here is `scale_up`. Resizing the instance to accommodate
       sessions nobody is using is exactly the plausible, expensive, non-fix a tired human reaches
       for at 3am, which is why it is graded WRONG rather than merely unhelpful.

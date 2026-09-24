@@ -115,3 +115,9 @@ variable "permissions_boundary_name" {
   type        = string
   default     = ""
 }
+
+variable "eks_public_access_cidrs" {
+  description = "Override for who may reach the EKS API endpoint. Default null means [my_ip_cidr]. Set [\"0.0.0.0/0\"] only when the operator's public IP rotates faster than a run lasts: every request still needs the operator's IAM signature AND an EKS access entry, and this is AWS's own default. Changing it takes EKS several minutes, which is why a rotating IP cannot simply be followed."
+  type        = list(string)
+  default     = null
+}

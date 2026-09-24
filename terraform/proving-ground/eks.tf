@@ -44,9 +44,9 @@ resource "aws_eks_cluster" "this" {
     # nodes never touch the public allow-list. Shipped as `false` until 2026-09-24; never caught
     # because the node group never got far enough to try.
     endpoint_private_access = true
-    # The API endpoint is reachable from one address, not from the internet. This is the setting
-    # people leave at 0.0.0.0/0 without noticing.
-    public_access_cidrs = [var.my_ip_cidr]
+    # The API endpoint is reachable from one address by default, not from the internet. This is the
+    # setting people leave at 0.0.0.0/0 without noticing - so widening it is an explicit variable.
+    public_access_cidrs = coalesce(var.eks_public_access_cidrs, [var.my_ip_cidr])
   }
 
   access_config {
@@ -85,6 +85,17 @@ resource "aws_iam_role_policy_attachment" "eks_node" {
   policy_arn = each.value
 }
 
+# ⛔ ON A FRESH ACCOUNT, CREATE THE NODE-GROUP SERVICE-LINKED ROLE FIRST:
+#
+#     aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
+#
+# CreateNodegroup first calls iam:GetRole on AWSServiceRoleForAmazonEKSNodegroup, with the CALLER's
+# credentials. While that role does not exist, IAM evaluates the request against the path-less ARN
+# `role/AWSServiceRoleForAmazonEKSNodegroup` - which `role/aws-service-role/*` (the boundary's
+# CeilingReadServiceLinkedRoles) does not match - and the node group fails. Once the role exists
+# its real ARN carries the path and matches. Found 2026-09-24 with IAM's access troubleshooter,
+# which showed the path-less resource. Not a Terraform resource on purpose: the operator cannot
+# delete service-linked roles, so owning it here would make every destroy fail.
 resource "aws_eks_node_group" "this" {
   count           = var.enable_eks ? 1 : 0
   cluster_name    = aws_eks_cluster.this[0].name
