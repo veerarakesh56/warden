@@ -10,9 +10,9 @@
 **Status:** v0.8.0 — working, tested, deployable, and **measured against a real AWS account**:
 14 injected faults × 3 runs, scored in [`docs/bench/`](docs/bench/README.md), where the headline is
 14 runs the gate should have stopped and did not — measured under 0.7.0, and 12 of those 14 are
-refused by the gate as it stands now. 690 tests and 26 evals (10 against a live Kubernetes cluster,
-12 against five real database engines), a 32-case mutation check that breaks the code on purpose
-and requires the suite to notice each one (32 caught, 0 survived), and CI that asserts the actual
+refused by the gate as it stands now. 779 tests and 26 evals (10 against a live Kubernetes cluster,
+12 against five real database engines), a 33-case mutation check that breaks the code on purpose
+and requires the suite to notice each one (33 caught, 0 survived), and CI that asserts the actual
 verdicts rather than the exit code.
 
 | | |

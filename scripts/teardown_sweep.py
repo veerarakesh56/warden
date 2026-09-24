@@ -128,8 +128,49 @@ def apply(ecs: Any, logs: Any, todo: dict[str, list[str]],
         _with_retry(lambda n=name: logs.delete_log_group(logGroupName=n), sleep=sleep)
 
 
+def _billable_orphans(ec2: Any) -> dict[str, list[str]]:
+    """What EKS leaves behind that an ECS-shaped sweep never looked for.
+
+    ⛔ READ-ONLY, DELIBERATELY. A managed node group deletes its instances and can still leave an
+    ENI, a security group it created, an orphaned volume or - the expensive one - an Elastic IP
+    that bills BECAUSE it is unattached. None of them appears in Terraform state, and an ENI or a
+    security group can equally belong to something that has nothing to do with this project, so
+    this reports and never removes. A number other than 0 here is a prompt to go and look.
+    """
+    def _ids(call: str, key: str, path: str, **kw: Any) -> list[str]:
+        try:
+            return [r[path] for r in getattr(ec2, call)(**kw).get(key) or []]
+        except Exception as exc:  # noqa: BLE001 - a denied or missing API must not hide the rest
+            return [f"could not check: {type(exc).__name__}"]
+
+    return {
+        "orphan_enis": _ids("describe_network_interfaces", "NetworkInterfaces",
+                            "NetworkInterfaceId",
+                            Filters=[{"Name": "status", "Values": ["available"]}]),
+        # An EIP that is NOT associated is the one that costs money.
+        "unattached_eips": [a["AllocationId"] for a in
+                            (_raw(ec2, "describe_addresses", "Addresses") or [])
+                            if not a.get("AssociationId")],
+        "available_volumes": _ids("describe_volumes", "Volumes", "VolumeId",
+                                  Filters=[{"Name": "status", "Values": ["available"]}]),
+        "nat_gateways": [n["NatGatewayId"] for n in
+                         (_raw(ec2, "describe_nat_gateways", "NatGateways") or [])
+                         if n.get("State") in ("available", "pending")],
+        "project_security_groups": [g["GroupId"] for g in
+                                    (_raw(ec2, "describe_security_groups", "SecurityGroups") or [])
+                                    if g.get("GroupName") != "default"],
+    }
+
+
+def _raw(ec2: Any, call: str, key: str) -> list[dict] | None:
+    try:
+        return getattr(ec2, call)().get(key) or []
+    except Exception:  # noqa: BLE001 - reported as an empty list; _ids reports the failing ones
+        return None
+
+
 def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
-          cluster: str) -> dict[str, list[str]]:
+          cluster: str, ec2: Any = None) -> dict[str, list[str]]:
     """What is still there, by tag AND by name. Empty lists everywhere means clean."""
     tagged = [r["ResourceARN"] for r in tagging.get_resources(
         TagFilters=[{"Key": PROJECT[0], "Values": [PROJECT[1]]}],
@@ -151,6 +192,7 @@ def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
                        logs.describe_log_groups(logGroupNamePrefix=log_group).get("logGroups") or []
                        if g["logGroupName"] == log_group],
         "running_tasks": running,
+        **(_billable_orphans(ec2) if ec2 is not None else {}),
     }
 
 
@@ -189,18 +231,27 @@ def main(argv: list[str] | None = None, *, session: Any = None) -> int:
     if args.apply:
         apply(ecs, logs, todo)
 
-    left = sweep(ecs, logs, tagging, args.family, args.log_group, args.cluster)
+    left = sweep(ecs, logs, tagging, args.family, args.log_group, args.cluster,
+                 session.client("ec2"))
     print("\nwhat is still there:")
     for key, values in left.items():
         print(f"  {key:20s} {len(values)}" + (f"   {values[:5]}" if values else ""))
     print("\nkept on purpose: AWSServiceRoleForECS (account-wide; other ECS use depends on it)")
+    print("the orphan_* / *_eips / *_volumes / nat_gateways / *_security_groups rows are REPORTED,")
+    print("never removed: they can belong to something that is not this project. Go and look.")
 
     if not args.apply:
         print("\ndry run - nothing was removed. Re-run with --apply.")
         return 0
     # Revisions that were just deleted linger as INACTIVE / DELETE_IN_PROGRESS on AWS's schedule,
     # so "clean" is judged on what can still cost money or confuse a later sweep.
-    dirty = left["tagged"] or left["revisions_active"] or left["log_groups"] or left["running_tasks"]
+    # The orphan rows split in two. An unattached Elastic IP, a live NAT gateway and an available
+    # volume BILL, so they count as not-clean even though nothing here will remove them. An ENI and
+    # a security group are free and are reported for the human only: counting every non-default
+    # security group would make this permanently red in any account that has one.
+    dirty = (left["tagged"] or left["revisions_active"] or left["log_groups"]
+             or left["running_tasks"] or left.get("unattached_eips")
+             or left.get("nat_gateways") or left.get("available_volumes"))
     print("\n⛔ NOT CLEAN - see above." if dirty else "\nclean.")
     return 1 if dirty else 0
 

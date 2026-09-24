@@ -24,7 +24,11 @@ resource "aws_security_group" "db" {
   vpc_id      = aws_vpc.this.id
 
   ingress {
-    description = "PostgreSQL from the operator's own address, and nowhere else."
+    # ⚠ No apostrophe, deliberately. EC2 rejects any rule description outside
+    # [0-9A-Za-z_ .:/()#,@[]+=&;{}!$*-], and `terraform validate` does NOT catch it - it fails at
+    # plan against the live API. "operator's" shipped here once; tests/test_terraform_descriptions.py
+    # now fails before that can happen again.
+    description = "PostgreSQL from the operator address only, and nowhere else."
     from_port   = 5432
     to_port     = 5432
     protocol    = "tcp"
@@ -69,7 +73,7 @@ resource "aws_db_instance" "this" {
       # ⛔ Fails at plan time rather than creating a database with an empty master password. The
       # password has no default worth having, so the failure must be loud and early.
       condition     = length(var.db_password) >= 16
-      error_message = "enable_rds = true requires db_password (>= 16 chars), passed with -var. The harness generates one per run; never put it in a tfvars file."
+      error_message = "enable_rds = true requires db_password (>= 16 chars). Generate it into TF_VAR_db_password: export TF_VAR_db_password=\"$(python -c 'import secrets; print(secrets.token_urlsafe(24))')\". Never -var (shell history) and never a tfvars file."
     }
   }
 }

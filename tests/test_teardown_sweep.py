@@ -118,9 +118,27 @@ class FakeTagging:
         return {"ResourceTagMappingList": [{"ResourceARN": a} for a in self.arns]}
 
 
+class FakeEc2:
+    """A clean account: nothing available, nothing unattached, nothing but the default SG."""
+
+    def __init__(self, **overrides):
+        self._r = {
+            "NetworkInterfaces": [], "Addresses": [], "Volumes": [], "NatGateways": [],
+            "SecurityGroups": [{"GroupId": "sg-default", "GroupName": "default"}],
+        }
+        self._r.update(overrides)
+
+    def describe_network_interfaces(self, **_): return {"NetworkInterfaces": self._r["NetworkInterfaces"]}
+    def describe_addresses(self, **_): return {"Addresses": self._r["Addresses"]}
+    def describe_volumes(self, **_): return {"Volumes": self._r["Volumes"]}
+    def describe_nat_gateways(self, **_): return {"NatGateways": self._r["NatGateways"]}
+    def describe_security_groups(self, **_): return {"SecurityGroups": self._r["SecurityGroups"]}
+
+
 class Session:
-    def __init__(self, ecs, logs, tagging):
-        self._c = {"ecs": ecs, "logs": logs, "resourcegroupstaggingapi": tagging}
+    def __init__(self, ecs, logs, tagging, ec2=None):
+        self._c = {"ecs": ecs, "logs": logs, "resourcegroupstaggingapi": tagging,
+                   "ec2": ec2 or FakeEc2()}
 
     def client(self, name):
         return self._c[name]
@@ -210,3 +228,64 @@ def test_an_active_cluster_is_counted():
 def test_it_never_claims_to_remove_the_ecs_service_linked_role(capsys, arg):
     _run(FakeEcs(), FakeLogs(groups=()), FakeTagging(), *([arg] if arg else []))
     assert "kept on purpose: AWSServiceRoleForECS" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- EKS orphans
+
+
+def test_a_clean_account_reports_no_orphans():
+    """⛔ THE POSITIVE CONTROL for the orphan rows: they have to be able to read zero, or a red
+    sweep means nothing."""
+    assert ts._billable_orphans(FakeEc2()) == {
+        "orphan_enis": [], "unattached_eips": [], "available_volumes": [],
+        "nat_gateways": [], "project_security_groups": [],
+    }
+
+
+def test_the_orphans_eks_actually_leaves_are_reported():
+    """A node group can delete its instances and still leave these. None is in Terraform state,
+    and an unattached Elastic IP bills BECAUSE it is unattached."""
+    left = ts._billable_orphans(FakeEc2(
+        NetworkInterfaces=[{"NetworkInterfaceId": "eni-1"}],
+        Addresses=[{"AllocationId": "eipalloc-1"}, {"AllocationId": "eipalloc-2",
+                                                    "AssociationId": "eipassoc-9"}],
+        Volumes=[{"VolumeId": "vol-1"}],
+        NatGateways=[{"NatGatewayId": "nat-1", "State": "available"},
+                     {"NatGatewayId": "nat-2", "State": "deleted"}],
+        SecurityGroups=[{"GroupId": "sg-default", "GroupName": "default"},
+                        {"GroupId": "sg-eks", "GroupName": "eks-cluster-sg-warden-pg"}],
+    ))
+
+    assert left["orphan_enis"] == ["eni-1"]
+    assert left["unattached_eips"] == ["eipalloc-1"], "an ASSOCIATED address is not an orphan"
+    assert left["available_volumes"] == ["vol-1"]
+    assert left["nat_gateways"] == ["nat-1"], "a deleted NAT gateway no longer bills"
+    assert left["project_security_groups"] == ["sg-eks"]
+
+
+def test_an_api_that_is_denied_says_so_instead_of_reporting_clean():
+    """⛔ The failure that would matter most: a denied DescribeNetworkInterfaces reported as [] is
+    a sweep that says 'clean' about something it never looked at."""
+    class Denied(FakeEc2):
+        def describe_network_interfaces(self, **_):
+            raise RuntimeError("AccessDenied")
+
+    assert ts._billable_orphans(Denied())["orphan_enis"] == ["could not check: RuntimeError"]
+
+
+def test_a_billing_orphan_makes_the_sweep_not_clean():
+    """⛔ An unattached Elastic IP bills. Reporting it and still exiting 0 would let a teardown be
+    signed off as clean while it is quietly costing money."""
+    session = Session(FakeEcs(cluster_status="INACTIVE"), FakeLogs(groups=()), FakeTagging(),
+                      FakeEc2(Addresses=[{"AllocationId": "eipalloc-1"}]))
+
+    assert ts.main(["--cluster", "warden-pg-x", "--apply"], session=session) == 1
+
+
+def test_a_free_orphan_is_reported_without_failing_the_sweep():
+    """A non-default security group is free, and every account has some. Counting it would make
+    the sweep permanently red for something that is not this project's doing."""
+    session = Session(FakeEcs(cluster_status="INACTIVE"), FakeLogs(groups=()), FakeTagging(),
+                      FakeEc2(SecurityGroups=[{"GroupId": "sg-other", "GroupName": "someone-else"}]))
+
+    assert ts.main(["--cluster", "warden-pg-x", "--apply"], session=session) == 0

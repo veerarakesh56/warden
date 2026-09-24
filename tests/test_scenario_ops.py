@@ -384,9 +384,13 @@ def test_an_unknown_op_is_refused_before_anything_is_touched(clients, target):
 # registry that will really dispatch it, so a typo in either wave still surfaces here rather than
 # halfway through a live run.
 def _registry_for(service: str):
-    from scenarios import ops_k8s
+    from scenarios import ops_db, ops_k8s
 
-    return {"ecs": (ops.OPS, ops._VARIANTS), "k8s": (ops_k8s.OPS, ops_k8s._VARIANTS)}.get(service)
+    return {
+        "ecs": (ops.OPS, ops._VARIANTS),
+        "k8s": (ops_k8s.OPS, ops_k8s._VARIANTS),
+        "db": (ops_db.OPS, ops_db._VARIANTS),
+    }.get(service)
 
 
 def _catalogs():

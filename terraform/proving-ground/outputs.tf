@@ -102,3 +102,16 @@ output "estimated_hourly_usd" {
     0.0086 + (var.enable_rds ? 0.0210 : 0) + (var.enable_eks ? 0.1096 : 0)
   )
 }
+
+# The two facts the Wave 3 harness needs that are not in the DSN. Neither is sensitive: a security
+# group id and an instance name are not credentials, and db-06 has to revoke and restore ingress by
+# id. Empty unless enable_rds = true.
+output "db_security_group_id" {
+  description = "Security group in front of the proving-ground database. Empty unless enable_rds = true."
+  value       = var.enable_rds ? aws_security_group.db[0].id : ""
+}
+
+output "db_instance_id" {
+  description = "RDS instance identifier. Empty unless enable_rds = true."
+  value       = var.enable_rds ? aws_db_instance.this[0].identifier : ""
+}

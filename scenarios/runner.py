@@ -57,12 +57,13 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar, Self
 
 import yaml
 
-from . import ops, ops_k8s
+from . import ops, ops_db, ops_k8s
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -109,6 +110,11 @@ METRIC_WINDOW_M = 10
 EVIDENCE_REACH_M: dict[str, dict[str, int]] = {
     "ecs": {"log_lookback_m": LOG_LOOKBACK_M, "metric_window_m": METRIC_WINDOW_M},
     "k8s": {"log_lookback_m": 10, "metric_window_m": 0},
+    # A database is read by QUERYING IT: pg_stat_activity is the state right now, and problem_ops
+    # only lists sessions older than the terminate threshold. There is no window into the past at
+    # all, so the only wait needed is for the previous scenario's sessions to be gone - which
+    # check_baseline_db gates on anyway.
+    "db": {"log_lookback_m": 1, "metric_window_m": 0},
 }
 # The +3 is margin for this machine's clock against AWS's (measured 103s ahead, which errs safe).
 QUIET_MARGIN_M = 3
@@ -131,6 +137,15 @@ def describe_target(target: Any) -> dict[str, str]:
     copies of "which environment is this" is one copy too many: the guard has to mean exactly what
     the manifest recorded.
     """
+    if isinstance(target, ops_db.Target):
+        # ⛔ Host and database only. `target.dsn` carries the master password and this dict is
+        # written into the manifest, which is published.
+        return {
+            "target_kind": "db",
+            "host": target.host,
+            "database": target.database,
+            "instance_id": target.instance_id,
+        }
     if isinstance(target, ops_k8s.Target):
         return {
             "target_kind": "k8s",
@@ -863,6 +878,108 @@ def _k8s_live_harness(timeout_s: float) -> Harness:
     )
 
 
+# --------------------------------------------------------------------------- database wiring
+#
+# Wave 3 runs against RDS PostgreSQL. The tool needs no new code for it - RDS speaks the ordinary
+# Postgres wire protocol and `database.py` already reads it - so everything here is harness.
+
+DB_DATABASE = os.environ.get("WARDEN_BENCH_DB_NAME", "warden")
+
+
+def db_warden_env(creds: dict[str, str], target: ops_db.Target,
+                  arm: dict[str, str]) -> dict[str, str]:
+    """WARDEN's environment for a database wave, built from nothing.
+
+    ⛔ NO AWS CREDENTIALS. The tool under test reads one database over one connection; it has no
+    business holding keys to the account that database lives in.
+
+    ⛔ THE DSN GOES IN THE ENVIRONMENT, NEVER ON THE COMMAND LINE. It carries the master password,
+    and an argv is readable by every other process on the machine - and would land in any crash
+    dump or process listing captured alongside the artefacts.
+    """
+    env = {key: os.environ[key] for key in SYSTEM_ENV if key in os.environ}
+    env.update({key: os.environ[key] for key in PASSTHROUGH if key in os.environ})
+    env.update(
+        {
+            "WARDEN_BACKEND": "postgres",
+            "WARDEN_DB_DSN": creds["WARDEN_DB_DSN"],
+            "WARDEN_TOOL_TIMEOUT": os.environ.get("WARDEN_TOOL_TIMEOUT", "15"),
+        }
+    )
+    env.update(arm)
+    return env
+
+
+def check_baseline_db(clients: ops_db.Clients, target: ops_db.Target) -> list[str]:
+    """Is the database back at baseline? Empty list means yes.
+
+    ⛔ The gate before every scenario. A session the previous revert failed to close is exactly the
+    contamination this catches: the next scenario would read it as its own fault, and the healthy
+    control would report a pile-up nobody injected.
+    """
+    problems: list[str] = []
+    try:
+        conn = clients.connect()
+    except Exception as exc:  # noqa: BLE001 - unreachable means "do not start the next scenario"
+        return [f"cannot reach the database: {type(exc).__name__}: {exc}"]
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass(%s)", (ops_db.SENTINEL_TABLE,))
+            if cur.fetchone()[0] is None:
+                problems.append(f"the {ops_db.SENTINEL_TABLE} sentinel table is gone")
+            cur.execute("SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction'")
+            idle = int(cur.fetchone()[0])
+            if idle:
+                problems.append(f"{idle} session(s) still idle in transaction - a revert left them")
+            cur.execute("SELECT count(*) FROM pg_locks WHERE NOT granted")
+            waiting = int(cur.fetchone()[0])
+            if waiting:
+                problems.append(f"{waiting} lock waiter(s) still queued")
+            cur.execute("SELECT count(*) FROM pg_stat_activity WHERE state = 'active' "
+                        "AND now() - query_start > interval '60 seconds'")
+            long_q = int(cur.fetchone()[0])
+            if long_q:
+                problems.append(f"{long_q} query/queries still running from a previous scenario")
+    except Exception as exc:  # noqa: BLE001
+        problems.append(f"cannot read the database's state: {type(exc).__name__}: {exc}")
+    finally:
+        conn.close()
+    if ops_db._HELD or ops_db._LONG_QUERY:
+        # Named separately because they are released by different code paths: a long query is
+        # cancelled, held sessions are closed. "0 session(s)" while a query was still running would
+        # send whoever reads this at 3am to the wrong half of the revert.
+        still = [f"{len(ops_db._HELD)} held session(s)"] if ops_db._HELD else []
+        if ops_db._LONG_QUERY:
+            still.append("an uncancelled long query")
+        problems.append("the harness is still holding " + " and ".join(still)
+                        + " from a previous scenario")
+    return problems
+
+
+def _subprocess_warden_db(target: ops_db.Target, timeout_s: float) -> Callable[..., tuple[int, str]]:
+    def invoke(env: dict[str, str], report_path: pathlib.Path) -> tuple[int, str]:
+        # ⛔ No --label dsn=... : the DSN reaches WARDEN through the environment only. `database.py`
+        # falls back to $WARDEN_DB_DSN when the alert carries no dsn label, which is exactly the
+        # path taken here.
+        cmd = [
+            sys.executable, "-m", "warden.cli", "run",
+            "--alert", str(ALERT_FILE),
+            "--started-at", "now",
+            "--service", target.database,
+            "--json", str(report_path),
+        ]
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(ROOT), env=env, capture_output=True, text=True,
+                timeout=timeout_s, check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return 124, f"timed out after {timeout_s}s"
+        return proc.returncode, (proc.stderr or "")[-2000:]
+
+    return invoke
+
+
 # --------------------------------------------------------------------------- dry run
 #
 # ⚠ WHAT A DRY RUN PROVES, AND WHAT IT DOES NOT. It proves the wave loop, the environment allowlist,
@@ -1104,6 +1221,228 @@ def _k8s_dry_harness() -> Harness:
     )
 
 
+_DRY_REPORT_DB: dict[str, Any] = {
+    "alert": {
+        "alert_id": "bench", "name": "DatabaseAlarm", "severity": "high",
+        "service": DB_DATABASE, "environment": "prod",
+        "summary": "connection count high on the proving-ground database",
+        "started_at": "2026-01-01T00:00:00Z",
+        "labels": {"database": DB_DATABASE},
+    },
+    "redaction_map_size": 0,
+    "context": {
+        "logs": ["fake pid 4242 idle in transaction for 611s: SELECT 1"],
+        "metrics": {
+            "active_connections": 4.0, "idle_in_transaction": 12.0,
+            "long_running_queries": 0.0, "max_connections": 100.0,
+            "locks_waiting": 0.0, "connections_used_pct": 0.16,
+        },
+        # ⛔ EMPTY ON PURPOSE, and not an oversight in the fixture: database.py returns [] from
+        # deploys() for every engine. A dry report that invented a deploy here would hide the one
+        # structural difference that shapes this whole wave.
+        "recent_deploys": [],
+        "tool_errors": [],
+    },
+    "root_cause": {"hypothesis": "dry run", "confidence": 0.85, "evidence": [], "ruled_out": []},
+    "proposal": {
+        "action": "terminate_connections", "target": DB_DATABASE, "reasoning": "dry run",
+        "expected_effect": "dry run", "blast_radius": "single_service", "reversible": False,
+    },
+    "verdict": {
+        "status": "approved_for_human", "reasons": ["dry run"], "policy_ids": [],
+        "requires_approval": True,
+    },
+    "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0, "calls": 0},
+    "audit": [],
+    "halted_reason": None,
+}
+
+
+class _FakeDbCursor:
+    def __init__(self, conn: _FakeDbConn) -> None:
+        self._conn = conn
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def execute(self, sql: str, params: Any = None) -> _FakeDbCursor:
+        self._conn.last = sql
+        return self
+
+    def fetchone(self) -> tuple[Any]:
+        sql = self._conn.last
+        if "current_database()" in sql:
+            return (DB_DATABASE,)
+        if "to_regclass" in sql:
+            return (ops_db.SENTINEL_TABLE,)
+        if "max_connections" in sql:
+            return ("100",)
+        return (0,)
+
+
+class _FakeDbConn:
+    def __init__(self) -> None:
+        self.last = ""
+        self.closed = False
+        self.cancelled = False
+
+    def cursor(self) -> _FakeDbCursor:
+        return _FakeDbCursor(self)
+
+    def close(self) -> None:
+        self.closed = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
+class _FakeDbEc2:
+    """Just enough EC2 for db-06's revoke/restore to run end to end in a dry run.
+
+    It is tagged as the proving ground on purpose: a dry run whose fake failed the tag guard would
+    report "error" for db-06 every time and teach nobody anything about the scenario.
+    """
+
+    _RULES: ClassVar[list[dict]] = [
+        {"IpProtocol": "tcp", "FromPort": 5432, "ToPort": 5432,
+         "IpRanges": [{"CidrIp": "203.0.113.0/32", "Description": "dry run"}]},
+    ]
+
+    def describe_security_groups(self, **_kw: Any) -> dict:
+        return {"SecurityGroups": [{
+            "IpPermissions": self._RULES,
+            "Tags": [{"Key": "Project", "Value": "warden-proving-ground"}],
+        }]}
+
+    def revoke_security_group_ingress(self, **_kw: Any) -> dict:
+        return {}
+
+    def authorize_security_group_ingress(self, **_kw: Any) -> dict:
+        return {}
+
+
+def _db_live_harness(timeout_s: float) -> Harness:
+    """The live database harness.
+
+    ⛔ THE DSN COMES FROM THE ENVIRONMENT, NOT FROM `terraform output`. Shelling out to read a value
+    marked sensitive would print it into whatever captured the runner's output. The operator
+    exports it deliberately:
+
+        export WARDEN_BENCH_DB_DSN="$(terraform -chdir=terraform/proving-ground output -raw db_dsn)"
+        export WARDEN_BENCH_DB_SG="$(terraform -chdir=terraform/proving-ground output -raw db_security_group_id)"
+    """
+    dsn = os.environ.get("WARDEN_BENCH_DB_DSN", "").strip()
+    if not dsn:
+        raise RunnerError(
+            "set WARDEN_BENCH_DB_DSN from `terraform output -raw db_dsn` (apply with enable_rds=true)"
+        )
+    security_group_id = os.environ.get("WARDEN_BENCH_DB_SG", "").strip()
+    if not security_group_id:
+        raise RunnerError(
+            "set WARDEN_BENCH_DB_SG from `terraform output -raw db_security_group_id` - "
+            "db-06 revokes and restores that group and cannot guess it"
+        )
+    try:
+        import boto3
+        import psycopg
+    except ImportError as exc:  # pragma: no cover - an environment problem, not logic
+        raise RunnerError("the database wave needs the driver: pip install -e '.[postgres,aws]'") from exc
+
+    # The region is boto3's to resolve, not the runner's to hardcode. `terraform output -json`
+    # would answer it too, but that JSON carries db_dsn - the password included - and there is no
+    # reason to pull a secret into memory to learn the name of a region.
+    session = boto3.Session()
+    if not session.region_name:
+        raise RunnerError(
+            "no AWS region configured - export AWS_REGION; db-06 revokes a security group, "
+            "and a security group lives in a region"
+        )
+
+    parsed = urllib.parse.urlparse(dsn)
+    target = ops_db.Target(
+        dsn=dsn,
+        database=(parsed.path or "/").lstrip("/") or DB_DATABASE,
+        host=parsed.hostname or "",
+        instance_id=os.environ.get("WARDEN_BENCH_DB_INSTANCE", "").strip(),
+        security_group_id=security_group_id,
+    )
+    # connect_timeout matters here: db-06 revokes ingress, so the harness's OWN connections must
+    # fail fast rather than hang for the TCP default while the scenario clock runs.
+    clients = ops_db.Clients(
+        connect=lambda: psycopg.connect(dsn, connect_timeout=10, autocommit=True),
+        ec2=session.client("ec2"),
+    )
+    # ⛔ Same preflight as the Kubernetes harness: the healthy control injects nothing, so without
+    # this the first scenario would never check it is pointed at the proving ground at all.
+    ops_db._guard_database(clients, target)
+
+    def assume() -> dict[str, str]:
+        # ⛔ The ONLY credential WARDEN gets for this wave, and it is not an AWS one. The identity
+        # recorded in the artefact is the database user - never the DSN, which carries its password.
+        return {
+            "WARDEN_DB_DSN": dsn,
+            "arn": f"postgres:{parsed.username or 'unknown'}@{target.host}/{target.database}",
+        }
+
+    return Harness(
+        clients=clients, target=target, account="",
+        assume_reader=assume,
+        invoke_warden=_subprocess_warden_db(target, timeout_s),
+        baseline=lambda: check_baseline_db(clients, target),
+        # No `stabilize`: the default no-op is right here, not an omission. ECS waits for
+        # services-stable and Kubernetes waits for a rollout because both revert ASYNCHRONOUSLY -
+        # the API returns before the change lands. Closing a session and cancelling a query return
+        # when they are done, so there is nothing to wait for, and check_baseline_db is the gate
+        # either way.
+        build_env=db_warden_env,
+        registry=ops_db.OPS,
+        quiet_seconds=quiet_seconds_for("db"),
+    )
+
+
+def _db_dry_harness() -> Harness:
+    target = ops_db.Target(
+        # No password in the dry DSN, deliberately: check_publishable scans this repo for exactly that
+        # shape, and an allow-list entry would blunt the guard for the sake of a fixture.
+        dsn="postgresql://warden@dry-run.invalid:5432/" + DB_DATABASE,
+        database=DB_DATABASE, host="dry-run.invalid",
+        instance_id="dry-run", security_group_id="sg-dry-run",
+    )
+    clients = ops_db.Clients(connect=_FakeDbConn, ec2=_FakeDbEc2())
+
+    def invoke(env: dict[str, str], report_path: pathlib.Path) -> tuple[int, str]:
+        _write_json(report_path, _DRY_REPORT_DB)
+        return 0, ""
+
+    return Harness(
+        clients=clients, target=target, account="",
+        assume_reader=lambda: {
+            "WARDEN_DB_DSN": target.dsn,
+            "arn": f"postgres:warden@{target.host}/{target.database}",
+        },
+        invoke_warden=invoke,
+        # As in the Kubernetes dry run: the REAL baseline gate runs against the fake above, because
+        # check_baseline_db decides whether a scenario may start and must not first be exercised
+        # against a billed database.
+        baseline=lambda: check_baseline_db(clients, target),
+        sleep=lambda _seconds: None,
+        build_env=db_warden_env,
+        registry=ops_db.OPS,
+        quiet_seconds=quiet_seconds_for("db"),
+    )
+
+
+_LIVE_HARNESSES: dict[str, Callable[[float], Harness]] = {
+    "k8s": _k8s_live_harness, "db": _db_live_harness,
+}
+_DRY_HARNESSES: dict[str, Callable[[], Harness]] = {
+    "k8s": _k8s_dry_harness, "db": _db_dry_harness,
+}
+
+
 # --------------------------------------------------------------------------- entry point
 
 
@@ -1194,7 +1533,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--arm", action="append", default=[], metavar="K=V",
                         help="extra env for WARDEN, e.g. --arm WARDEN_KNOWLEDGE_IN_PROMPT=1. "
                              "Recorded in the manifest")
-    parser.add_argument("--target", default="", choices=("", "ecs", "k8s"),
+    parser.add_argument("--target", default="", choices=("", "ecs", "k8s", "db"),
                         help="which backend this wave runs against. Defaults to the `service:` the "
                              "catalog declares, so it cannot silently disagree with the scenarios")
     parser.add_argument("--warden-timeout", type=float, default=300.0)
@@ -1235,12 +1574,17 @@ def main(argv: list[str] | None = None) -> int:
     # and what credential the tool under test is given. A wave's catalog declares its `service:`,
     # so the default follows the catalog rather than asking the operator to keep two flags in sync.
     target_kind = args.target or str(_doc.get("service") or "ecs")
-    if target_kind not in ("ecs", "k8s"):
-        raise SystemExit(f"--target must be ecs or k8s, got {target_kind!r}")
+    # Checked against EVIDENCE_REACH_M rather than a literal list: a backend without a declared
+    # evidence reach has no defensible quiet period, so it is not runnable, and one list that can
+    # drift out of step with another is how a third backend gets forgotten here.
+    if target_kind not in EVIDENCE_REACH_M:
+        raise SystemExit(
+            f"--target must be one of {', '.join(sorted(EVIDENCE_REACH_M))}, got {target_kind!r}"
+        )
     if args.dry_run:
-        harness = _k8s_dry_harness() if target_kind == "k8s" else _dry_harness()
+        harness = _DRY_HARNESSES.get(target_kind, _dry_harness)()
     else:
-        harness = (_k8s_live_harness if target_kind == "k8s" else _live_harness)(args.warden_timeout)
+        harness = _LIVE_HARNESSES.get(target_kind, _live_harness)(args.warden_timeout)
     alert = yaml.safe_load(ALERT_FILE.read_text(encoding="utf-8")) or {}
 
     manifest = {
@@ -1309,9 +1653,9 @@ def _resume(out: pathlib.Path, warden_timeout: float, *, rerun: tuple[str, ...] 
             f"differs from the runner's {_evidence_isolation(recorded_kind)}. Start a new run."
         )
     if manifest.get("dry_run"):
-        harness = _k8s_dry_harness() if recorded_kind == "k8s" else _dry_harness()
+        harness = _DRY_HARNESSES.get(recorded_kind, _dry_harness)()
     else:
-        harness = (_k8s_live_harness if recorded_kind == "k8s" else _live_harness)(warden_timeout)
+        harness = _LIVE_HARNESSES.get(recorded_kind, _live_harness)(warden_timeout)
 
     # ⛔ One environment. A different cluster - or namespace, or kubeconfig context - is a different
     # fault instance entirely, so the whole descriptor must match what the run recorded.
