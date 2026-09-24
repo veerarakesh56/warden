@@ -1,0 +1,44 @@
+{
+  "scenario_id": "k8s-01-healthy-control",
+  "fault_class": "healthy_control",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 30,
+  "status": "ok",
+  "started_at": "2026-09-24T12:11:10.187521+00:00",
+  "injected": [],
+  "reverted": [],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-01-healthy-control.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T12:12:19.654997+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-01-healthy-control.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T12:13:44.368735+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-01-healthy-control.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T12:15:37.988427+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-24T12:11:40.189341+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-24T12:15:38.053551+00:00"
+}

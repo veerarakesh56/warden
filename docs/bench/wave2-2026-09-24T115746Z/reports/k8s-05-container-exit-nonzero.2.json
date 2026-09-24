@@ -1,0 +1,123 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T13:27:18.176514+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT BackOff Pod/checkout-c6c48965c-w5f9f: Back-off restarting failed container checkout in pod checkout-c6c48965c-w5f9f_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-c6c48965c-sgdt9: Back-off restarting failed container checkout in pod checkout-c6c48965c-sgdt9_warden-pg(<UUID_2>)",
+      "checkout-c6c48965c-sgdt9/checkout 2026-09-24T13:25:54.133131921Z checkout: fatal: configuration invalid",
+      "checkout-c6c48965c-w5f9f/checkout 2026-09-24T13:25:47.078254188Z checkout: fatal: configuration invalid"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 10.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 2.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "8",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-24T13:22:55+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Deploy revision 8 (image bump python:3.12-alpine -> 3.12.7-alpine) at 13:22:55 correlates directly with crashloop starting ~13:25; both pods fail fast with app-level 'fatal: configuration invalid' before reaching ready state. Not OOM/resource related (oom_killed_containers=0, restarts are config-validation crashes). Likely the new base image changed something (env defaults, installed packages, python patch behavior) that broke startup config validation, or an unrelated config value went bad at same deploy window and got surfaced by restart. Rollback to previous image/revision 7 is the fast mitigation to confirm.",
+    "confidence": 0.55,
+    "evidence": [
+      "Deploy timestamp 13:22:55 immediately precedes crashloop logs at 13:25:47/13:25:54 (~3 min gap, consistent with rollout+backoff cycle)",
+      "Both replicas (w5f9f, sgdt9) fail identically with same fatal message -> systemic/config issue, not node-specific",
+      "crashloop_containers=2, pods_ready=0 -> total service outage, matches full crashloop not partial degradation",
+      "oom_killed_containers=0 rules out memory pressure despite low memory_limit_mib=48"
+    ],
+    "ruled_out": [
+      "OOM kill as cause (oom_killed_containers=0)",
+      "Partial/single-pod failure (both pods crash identically)",
+      "Gradual degradation (abrupt onset tied to deploy timestamp)"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "checkout",
+    "reasoning": "Rev8 (python:3.12.7-alpine) deployed 13:22:55, crashloop 'fatal: configuration invalid' starts ~13:25 on both pods. No OOM, no resource issue. Config regression tied to new base image (env/package/interpreter behavior). Revert to rev7 known-good image restores service, confirms hypothesis.",
+    "expected_effect": "Pods pull previous_image (python:3.12-alpine), config validation passes, pods reach ready, crashloop stops, restart_count flattens.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1730,
+    "output_tokens": 725,
+    "usd": 0.016065000000000003,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 4,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.55,
+      "hypothesis": "Deploy revision 8 (image bump python:3.12-alpine -> 3.12.7-alpine) at 13:22:55 correlates directly with crashloop starting ~13:25; both pods fail fast with app-level 'fatal: configuration invalid' before reaching ready state. Not OOM/resource related (oom_killed_containers=0, restarts are config-validation crashes). Likely the new base image changed something (env defaults, installed packages, python patch behavior) that broke startup config validation, or an unrelated config value went bad at same deploy window and got surfaced by restart. Rollback to previous image/revision 7 is the fast mitigation to confirm."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "checkout"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

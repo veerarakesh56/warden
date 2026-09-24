@@ -1,0 +1,126 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T15:32:55.592784+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 2.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: logs: checkout-7bcd5ccbc9-8gnhn/checkout: (403)",
+      "logs: logs: checkout-7bcd5ccbc9-s4j44/checkout: (403)"
+    ]
+  },
+  "root_cause": {
+    "hypothesis": "Alarm likely false-positive or transient blip — metrics show service healthy (2/2 pods ready, 0 restarts, 0 OOM kills, 0 crashloop, no deploys, no logs). No metric here actually evidences failure. Possibly alarm on a metric not included (latency/5xx/CPU) or a brief flap that self-resolved before snapshot.",
+    "confidence": 0.2,
+    "evidence": [
+      "pods_ready == pods_total (2/2) — full capacity",
+      "restart_count 0, oom_killed_containers 0, crashloop_containers 0 — no crash signal",
+      "RECENT DEPLOYS empty — rules out bad deploy",
+      "LOGS empty — no error trace captured"
+    ],
+    "ruled_out": [
+      "OOM kill (oom_killed_containers=0)",
+      "Crashloop (crashloop_containers=0)",
+      "Bad recent deploy (no deploys listed)",
+      "Pod capacity shortfall (pods_ready=pods_total)"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "ecs-service/checkout",
+    "reasoning": "All reported metrics healthy: 2/2 pods ready, 0 restarts, 0 OOM, 0 crashloop, no recent deploys, no logs. No evidence of actual failure in given data. Alarm likely on metric not surfaced here (latency/5xx/CPU) or transient blip already resolved.",
+    "expected_effect": "No change to service. Avoids unnecessary disruption on unconfirmed alarm.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.20 is below the 0.55 threshold.",
+      "2 context tool(s) failed; evidence is incomplete.",
+      "Evidence is thin (0 log line(s), 6 metric(s), 0 deploy(s)); a human should look before acting."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE",
+      "P8-PARTIAL-CONTEXT",
+      "P9-THIN-EVIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1144,
+    "output_tokens": 431,
+    "usd": 0.009897,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 0,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": [
+        "logs: logs: checkout-7bcd5ccbc9-8gnhn/checkout: (403)",
+        "logs: logs: checkout-7bcd5ccbc9-s4j44/checkout: (403)"
+      ]
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.2,
+      "hypothesis": "Alarm likely false-positive or transient blip — metrics show service healthy (2/2 pods ready, 0 restarts, 0 OOM kills, 0 crashloop, no deploys, no logs). No metric here actually evidences failure. Possibly alarm on a metric not included (latency/5xx/CPU) or a brief flap that self-resolved before snapshot."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "ecs-service/checkout"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE",
+        "P8-PARTIAL-CONTEXT",
+        "P9-THIN-EVIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

@@ -1,0 +1,129 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T13:48:04.789201+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT Killing Pod/checkout-d79bb5b85-5xkkh: Container checkout failed liveness probe, will be restarted",
+      "EVENT Killing Pod/checkout-d79bb5b85-c2ql8: Container checkout failed liveness probe, will be restarted",
+      "EVENT Unhealthy Pod/checkout-d79bb5b85-5xkkh: Liveness probe failed:",
+      "EVENT Unhealthy Pod/checkout-d79bb5b85-c2ql8: Liveness probe failed:",
+      "EVENT BackOff Pod/checkout-d79bb5b85-5xkkh: Back-off restarting failed container checkout in pod checkout-d79bb5b85-5xkkh_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-d79bb5b85-c2ql8: Back-off restarting failed container checkout in pod checkout-d79bb5b85-c2ql8_warden-pg(<UUID_2>)",
+      "checkout-d79bb5b85-c2ql8/checkout 2026-09-24T13:46:22.152648773Z checkout: started, healthy",
+      "checkout-d79bb5b85-c2ql8/checkout 2026-09-24T13:46:22.152692558Z checkout: heartbeat ok",
+      "checkout-d79bb5b85-5xkkh/checkout 2026-09-24T13:46:02.114655042Z checkout: started, healthy",
+      "checkout-d79bb5b85-5xkkh/checkout 2026-09-24T13:46:02.114693678Z checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 12.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 2.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "10",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-24T13:42:45+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Deploy of checkout at 13:42:45 (python:3.12-alpine → 3.12.7-alpine) triggered crashloop via liveness-probe failures during container startup, not OOM. Both pods restarted repeatedly (restart_count 12, crashloop 2/2, pods_ready 0) right after the deploy, then recovered and reported healthy heartbeats ~3-4 min later. With a 48 MiB memory limit, app/interpreter startup likely runs slow/near the edge, so liveness probe (short initialDelay/timeout) kills pods before they finish booting; app itself is fine once past the probe window.",
+    "confidence": 0.55,
+    "evidence": [
+      "Alarm timing lines up tight with deploy at 2026-09-24T13:42:45Z",
+      "BackOff/Unhealthy/Killing events target liveness probe failures, not OOM",
+      "oom_killed_containers = 0 despite very low memory_limit_mib = 48",
+      "Both pods eventually log 'started, healthy' + 'heartbeat ok' at 13:46, ~3-4 min post-deploy",
+      "restart_count 12 across 2 pods = repeated probe-kill cycles before stabilizing"
+    ],
+    "ruled_out": [
+      "OOM kill as direct cause — oom_killed_containers is 0",
+      "Bad image / app crash — containers do reach healthy state, so binary runs fine once up"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "checkout",
+    "reasoning": "Deploy at 13:42:45 (python:3.12-alpine -> 3.12.7-alpine) time-correlates w/ crashloop start. Liveness probe kills both pods during slow startup under tight 48MiB limit; no OOM kill signal, so likely probe-timing regression from new image, not memory exhaustion. Pods self-recovered ~4min later per logs, but recurs each restart cycle (restart_count 12) til probe window widened. Safest fix: revert image to prior known-good 3.12-alpine.",
+    "expected_effect": "checkout reverts to prior image; startup behavior returns to previously stable profile, liveness probes stop killing pods before boot completes, pods_ready returns to 2/2, restart_count stabilizes.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 2034,
+    "output_tokens": 707,
+    "usd": 0.016707,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 10,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.55,
+      "hypothesis": "Deploy of checkout at 13:42:45 (python:3.12-alpine → 3.12.7-alpine) triggered crashloop via liveness-probe failures during container startup, not OOM. Both pods restarted repeatedly (restart_count 12, crashloop 2/2, pods_ready 0) right after the deploy, then recovered and reported healthy heartbeats ~3-4 min later. With a 48 MiB memory limit, app/interpreter startup likely runs slow/near the edge, so liveness probe (short initialDelay/timeout) kills pods before they finish booting; app itself is fine once past the probe window."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "checkout"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

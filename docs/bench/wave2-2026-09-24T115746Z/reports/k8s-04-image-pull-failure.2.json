@@ -1,0 +1,212 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T13:08:45.292538+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "EVENT Failed Pod/checkout-54c98c9f78-zfxf8: Failed to pull image \"public.ecr.aws/docker/library/python:this-tag-does-not-exist-9x8y7z\": rpc error: code = NotFound desc = failed to pull and unpack image \"public.ecr.aws/docker/library/python:this",
+      "EVENT Failed Pod/checkout-54c98c9f78-zfxf8: Error: ErrImagePull",
+      "EVENT BackOff Pod/checkout-54c98c9f78-zfxf8: Back-off pulling image \"public.ecr.aws/docker/library/python:this-tag-does-not-exist-9x8y7z\"",
+      "EVENT Failed Pod/checkout-54c98c9f78-zfxf8: Error: ImagePullBackOff",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T12:58:54.966764357Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T12:59:09.966941402Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T12:59:24.967052184Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T12:59:39.967260942Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T12:59:54.967415959Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:00:09.967505151Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:00:24.967606421Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:00:39.967751875Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:00:54.967913737Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:01:09.968000563Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:01:24.968094470Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:01:39.968211571Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:01:54.968348394Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:02:09.968493638Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:02:24.968590128Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:02:39.968749239Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:02:54.968877272Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:03:09.969015810Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:03:24.969184938Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:03:39.969368398Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:03:54.969473256Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:04:09.969682879Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:04:24.969902235Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:04:39.970168964Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:04:54.970283269Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:05:09.970436614Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:05:24.970537900Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:05:39.970694911Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:05:54.970852099Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:06:09.971006625Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:06:24.971137948Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:06:39.971288827Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:06:54.971394547Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:07:09.971623760Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:07:24.971717745Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:07:39.971847812Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:07:54.972036944Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:08:09.972282701Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:08:24.972458040Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5fwx6/checkout 2026-09-24T13:08:39.972595014Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T12:58:54.510953236Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T12:59:09.511109699Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T12:59:24.511237367Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T12:59:39.511385731Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T12:59:54.511568830Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:00:09.511717700Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:00:24.511941510Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:00:39.512208231Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:00:54.512327612Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:01:09.512484360Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:01:24.512690088Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:01:39.512837340Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:01:54.512981239Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:02:09.513121581Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:02:24.513328975Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:02:39.513551119Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:02:54.513737230Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:03:09.513886601Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:03:24.514096451Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:03:39.514243888Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:03:54.514345443Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:04:09.514524818Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:04:24.514667925Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:04:39.514801606Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:04:54.514950326Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:05:09.515072744Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:05:24.515242093Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:05:39.515368136Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:05:54.515496951Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:06:09.515663188Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:06:24.515814144Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:06:39.516040593Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:06:54.516146209Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:07:09.516301019Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:07:24.516498704Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:07:39.516721358Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:07:54.516934333Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:08:09.517067656Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:08:24.517206938Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-5z2rg/checkout 2026-09-24T13:08:39.517463274Z checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "pods_total": 3.0,
+      "pods_ready": 2.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "6",
+        "image": "public.ecr.aws/docker/library/python:this-tag-does-not-exist-9x8y7z",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-24T13:06:10+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": [
+      "logs: logs: checkout-54c98c9f78-zfxf8/checkout: (400)"
+    ]
+  },
+  "root_cause": {
+    "hypothesis": "Deploy revision 6 set an invalid image tag (python:this-tag-does-not-exist-9x8y7z) for checkout, causing ImagePullBackOff on new pod replica; old pods still running fine, so pods_ready(2)<pods_total(3) reflects one stuck pod, not app crash.",
+    "confidence": 0.95,
+    "evidence": [
+      "RECENT DEPLOYS shows revision 6 image tag 'this-tag-does-not-exist-9x8y7z', previous image was valid python:3.12-alpine",
+      "LOGS: ErrImagePull / ImagePullBackOff / BackOff events on Pod checkout-54c98c9f78-zfxf8, tag matches bad deploy",
+      "Two other pods (7bcd5ccbc9-5fwx6, -5z2rg) heartbeat ok continuously through incident window — old revision healthy",
+      "pods_total=3, pods_ready=2 matches: 2 old healthy pods + 1 new pod stuck pulling",
+      "oom_killed_containers=0, crashloop_containers=0, restart_count=0 rule out memory/crash causes"
+    ],
+    "ruled_out": [
+      "OOM kill (oom_killed_containers=0, memory_limit_mib irrelevant since pod never started)",
+      "Crash loop from app bug (crashloop_containers=0, restart_count=0)",
+      "Resource/capacity issue (old pods stable, no restarts)"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "checkout",
+    "reasoning": "Rev6 image tag bad (nonexistent), ImagePullBackOff on new pod. Old pods (7bcd5ccbc9) healthy, heartbeats ok. Rollback to prev image (python:3.12-alpine) restores 3/3 ready.",
+    "expected_effect": "checkout reverts to rev5 image, new pod pulls fine, pods_ready=3/3",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "1 context tool(s) failed; evidence is incomplete."
+    ],
+    "policy_ids": [
+      "P8-PARTIAL-CONTEXT"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 6376,
+    "output_tokens": 486,
+    "usd": 0.026418,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 84,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": [
+        "logs: logs: checkout-54c98c9f78-zfxf8/checkout: (400)"
+      ]
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.95,
+      "hypothesis": "Deploy revision 6 set an invalid image tag (python:this-tag-does-not-exist-9x8y7z) for checkout, causing ImagePullBackOff on new pod replica; old pods still running fine, so pods_ready(2)<pods_total(3) reflects one stuck pod, not app crash."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "checkout"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P8-PARTIAL-CONTEXT"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

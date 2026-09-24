@@ -1,0 +1,122 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T13:25:41.208582+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT BackOff Pod/checkout-c6c48965c-w5f9f: Back-off restarting failed container checkout in pod checkout-c6c48965c-w5f9f_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-c6c48965c-sgdt9: Back-off restarting failed container checkout in pod checkout-c6c48965c-sgdt9_warden-pg(<UUID_2>)",
+      "checkout-c6c48965c-sgdt9/checkout 2026-09-24T13:24:33.134003612Z checkout: fatal: configuration invalid",
+      "checkout-c6c48965c-w5f9f/checkout 2026-09-24T13:24:24.163612664Z checkout: fatal: configuration invalid"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 8.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "8",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-24T13:22:55+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Deploy revision 8 (image bump python:3.12-alpine -> python:3.12.7-alpine) triggered checkout container crash loop. New image causes 'fatal: configuration invalid' on startup, pods never ready, repeated BackOff restarts.",
+    "confidence": 0.65,
+    "evidence": [
+      "Deploy at 13:22:55Z, crash logs start 13:24:24Z — tight time correlation",
+      "pods_ready=0/2, restart_count=8, both pods in BackOff",
+      "Both pods log identical fatal: configuration invalid at startup (app-level fail, not infra)",
+      "oom_killed=0, crashloop_containers flag=0 despite active backoff — points to app config parse fail, not resource kill"
+    ],
+    "ruled_out": [
+      "OOM kill (oom_killed_containers=0, though memory_limit_mib=48 is suspiciously low — can't fully rule out mem-constrained failure w/o more logs)",
+      "Node/infra failure (pods scheduled fine, only container startup fails)"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "deployment/checkout (revision 8 -> 7, image public.ecr.aws/docker/library/python:3.12-alpine)",
+    "reasoning": "Revision 8 bumped image python:3.12-alpine -> python:3.12.7-alpine at 13:22:55Z. Both pods immediately crash loop with 'fatal: configuration invalid', 0/2 ready, 8 restarts, BackOff. No other deploys, no OOM/memory signal. New image config incompatibility is direct cause.",
+    "expected_effect": "Revert checkout deployment to prior working image (3.12-alpine), pods restart on old image, config valid, pods_ready returns to 2/2, restarts stop.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1596,
+    "output_tokens": 501,
+    "usd": 0.012303000000000001,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 4,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.65,
+      "hypothesis": "Deploy revision 8 (image bump python:3.12-alpine -> python:3.12.7-alpine) triggered checkout container crash loop. New image causes 'fatal: configuration invalid' on startup, pods never ready, repeated BackOff restarts."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "deployment/checkout (revision 8 -> 7, image public.ecr.aws/docker/library/python:3.12-alpine)"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

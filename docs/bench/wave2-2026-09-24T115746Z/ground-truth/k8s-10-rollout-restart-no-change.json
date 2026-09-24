@@ -1,0 +1,52 @@
+{
+  "scenario_id": "k8s-10-rollout-restart-no-change",
+  "fault_class": "healthy_control",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 90,
+  "status": "ok",
+  "started_at": "2026-09-24T15:46:32.224366+00:00",
+  "injected": [
+    {
+      "op": "k8s_rollout_restart",
+      "args": {},
+      "result": {
+        "restarted": "checkout"
+      }
+    }
+  ],
+  "reverted": [],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-10-rollout-restart-no-change.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T15:49:24.674091+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-10-rollout-restart-no-change.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T15:50:59.804947+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-10-rollout-restart-no-change.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T15:52:19.391510+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-24T15:48:02.380239+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-24T15:52:19.392535+00:00"
+}

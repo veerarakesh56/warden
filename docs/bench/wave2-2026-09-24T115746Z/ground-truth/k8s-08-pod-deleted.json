@@ -1,0 +1,53 @@
+{
+  "scenario_id": "k8s-08-pod-deleted",
+  "fault_class": "pod_deleted_externally",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 45,
+  "status": "ok",
+  "started_at": "2026-09-24T14:48:23.971497+00:00",
+  "injected": [
+    {
+      "op": "k8s_delete_one_pod",
+      "args": {},
+      "result": {
+        "deleted_pod": "checkout-7bcd5ccbc9-ld8z4",
+        "of": 2
+      }
+    }
+  ],
+  "reverted": [],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-08-pod-deleted.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T14:50:33.042266+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-08-pod-deleted.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T14:52:00.577516+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-08-pod-deleted.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T14:53:34.396669+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-24T14:49:09.154443+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-24T14:53:34.397968+00:00"
+}

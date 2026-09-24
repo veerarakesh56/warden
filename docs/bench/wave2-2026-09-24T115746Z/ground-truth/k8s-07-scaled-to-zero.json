@@ -1,0 +1,64 @@
+{
+  "scenario_id": "k8s-07-scaled-to-zero",
+  "fault_class": "replicas_scaled_to_zero",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 60,
+  "status": "ok",
+  "started_at": "2026-09-24T14:32:48.916362+00:00",
+  "injected": [
+    {
+      "op": "k8s_scale",
+      "args": {
+        "replicas": 0
+      },
+      "result": {
+        "replicas": 0
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "k8s_scale",
+      "args": {
+        "replicas": 2
+      },
+      "result": {
+        "replicas": 2
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-07-scaled-to-zero.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T14:34:10.900477+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-07-scaled-to-zero.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T14:34:36.888010+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-07-scaled-to-zero.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T14:35:05.257352+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-24T14:33:49.057186+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-24T14:35:05.539411+00:00"
+}

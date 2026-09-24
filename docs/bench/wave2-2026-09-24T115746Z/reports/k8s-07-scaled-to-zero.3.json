@@ -1,0 +1,100 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T14:34:41.534046+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: no live pods match 'app=checkout' in namespace 'warden-pg' (0 matched in total, 0 dead)",
+      "metrics: no live pods match 'app=checkout' in namespace 'warden-pg' (0 matched in total, 0 dead)"
+    ]
+  },
+  "root_cause": {
+    "hypothesis": "Alarm fired for checkout ECS service but no metrics, deploy events, or log lines were provided in evidence — insufficient data to determine root cause (e.g., CPU/memory spike, task crash loop, dependency failure, bad deploy).",
+    "confidence": 0.05,
+    "evidence": [],
+    "ruled_out": []
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "No metrics, deploy events, or logs in evidence. Cannot distinguish CPU/mem spike, crash loop, bad deploy, or dependency failure. Any state-changing action (restart/scale/rollback) is a blind guess with prod blast radius.",
+    "expected_effect": "Human pulls CloudWatch metrics, ECS task logs, and deploy history for checkout to diagnose before any action taken.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 1021,
+    "output_tokens": 289,
+    "usd": 0.007398,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 0,
+      "metrics": 0,
+      "deploys": 0,
+      "tool_errors": [
+        "logs: no live pods match 'app=checkout' in namespace 'warden-pg' (0 matched in total, 0 dead)",
+        "metrics: no live pods match 'app=checkout' in namespace 'warden-pg' (0 matched in total, 0 dead)"
+      ]
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.05,
+      "hypothesis": "Alarm fired for checkout ECS service but no metrics, deploy events, or log lines were provided in evidence — insufficient data to determine root cause (e.g., CPU/memory spike, task crash loop, dependency failure, bad deploy)."
+    },
+    {
+      "node": "propose",
+      "action": "escalate_to_human",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "escalate_to_human",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

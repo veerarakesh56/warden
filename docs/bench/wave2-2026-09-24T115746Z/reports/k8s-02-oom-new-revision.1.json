@@ -1,0 +1,126 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T12:31:22.516474+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT BackOff Pod/checkout-748c57d7fd-bmwck: Back-off restarting failed container checkout in pod checkout-748c57d7fd-bmwck_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-748c57d7fd-zrwc5: Back-off restarting failed container checkout in pod checkout-748c57d7fd-zrwc5_warden-pg(<UUID_2>)",
+      "checkout-748c57d7fd-zrwc5/checkout 2026-09-24T12:30:36.158401831Z checkout: started",
+      "checkout-748c57d7fd-zrwc5/checkout 2026-09-24T12:30:36.158450456Z checkout: WARN memory pressure rising",
+      "checkout-748c57d7fd-zrwc5/checkout 2026-09-24T12:30:38.158557472Z checkout: allocating 900MiB cache",
+      "checkout-748c57d7fd-bmwck/checkout 2026-09-24T12:30:22.145922958Z checkout: started",
+      "checkout-748c57d7fd-bmwck/checkout 2026-09-24T12:30:22.145962233Z checkout: WARN memory pressure rising",
+      "checkout-748c57d7fd-bmwck/checkout 2026-09-24T12:30:24.146165362Z checkout: allocating 900MiB cache"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 8.0,
+      "oom_killed_containers": 2.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "2",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-24T12:28:48+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "checkout container OOM-killed: app allocates ~900MiB cache on startup but pod memory_limit_mib is 48 — way undersized. Recent deploy (rev 2) only bumped python image tag (3.12-alpine → 3.12.7-alpine), unrelated to memory config, so deploy itself likely not root cause — the limit was already too low for this workload.",
+    "confidence": 0.75,
+    "evidence": [
+      "oom_killed_containers: 2, pods_ready: 0 — both pods down",
+      "memory_limit_mib: 48 vs log line 'allocating 900MiB cache' — ~19x over limit",
+      "restart_count 8, BackOff events on both pods — crash loop pattern consistent w/ repeat OOM+restart",
+      "both pods (bmwck, zrwc5) show identical WARN memory pressure rising → allocate 900MiB sequence before kill"
+    ],
+    "ruled_out": [
+      "Image/version change as direct cause — tag diff is patch-level (3.12→3.12.7 alpine), no known behavior change flagged in evidence",
+      "crashloop_containers metric shows 0, so orchestrator may not yet be labeling as full crashloop despite BackOff events — minor inconsistency, not enough to change hypothesis"
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "checkout",
+    "reasoning": "OOM kills: app allocates ~900MiB cache at startup, pod memory_limit_mib only 48. Deploy rev2 only bumped python patch tag, unrelated to memory config — limit was already undersized for workload. Raising memory limit addresses root cause.",
+    "expected_effect": "Pods stop OOM-killing, restart_count stabilizes, pods_ready returns to 2/2.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1877,
+    "output_tokens": 503,
+    "usd": 0.013176,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 8,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.75,
+      "hypothesis": "checkout container OOM-killed: app allocates ~900MiB cache on startup but pod memory_limit_mib is 48 — way undersized. Recent deploy (rev 2) only bumped python image tag (3.12-alpine → 3.12.7-alpine), unrelated to memory config, so deploy itself likely not root cause — the limit was already too low for this workload."
+    },
+    {
+      "node": "propose",
+      "action": "scale_up",
+      "target": "checkout"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

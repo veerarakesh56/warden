@@ -1,0 +1,117 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T12:51:03.387522+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT BackOff Pod/checkout-6796d89f8c-z6s8z: Back-off restarting failed container checkout in pod checkout-6796d89f8c-z6s8z_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-6796d89f8c-rlskd: Back-off restarting failed container checkout in pod checkout-6796d89f8c-rlskd_warden-pg(<UUID_2>)",
+      "checkout-6796d89f8c-rlskd/checkout 2026-09-24T12:49:25.156800149Z checkout: started",
+      "checkout-6796d89f8c-rlskd/checkout 2026-09-24T12:49:25.156824395Z checkout: WARN memory pressure rising",
+      "checkout-6796d89f8c-rlskd/checkout 2026-09-24T12:49:27.167236072Z checkout: allocating 900MiB cache",
+      "checkout-6796d89f8c-z6s8z/checkout 2026-09-24T12:49:25.143155072Z checkout: started",
+      "checkout-6796d89f8c-z6s8z/checkout 2026-09-24T12:49:25.143196996Z checkout: WARN memory pressure rising",
+      "checkout-6796d89f8c-z6s8z/checkout 2026-09-24T12:49:27.143304452Z checkout: allocating 900MiB cache"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 10.0,
+      "oom_killed_containers": 2.0,
+      "crashloop_containers": 2.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Container OOM-killed: app attempts to allocate ~900MiB cache but pod memory_limit_mib is only 48MiB, causing OOMKilled -> CrashLoopBackOff on both replicas. No recent deploy implicated; looks like a memory limit misconfiguration (or a cache-size regression) rather than a code deploy regression.",
+    "confidence": 0.75,
+    "evidence": [
+      "metrics show memory_limit_mib=48 vs log 'allocating 900MiB cache' on both pods",
+      "oom_killed_containers=2, crashloop_containers=2, pods_ready=0",
+      "WARN memory pressure rising immediately after start, both replicas, same pattern",
+      "RECENT DEPLOYS empty -> rules out a fresh bad deploy as trigger"
+    ],
+    "ruled_out": [
+      "Bad new deploy causing regression (deploy list empty)",
+      "Single-pod/node-local issue (both replicas z6s8z and rlskd show identical failure)"
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "ecs-service/checkout (prod)",
+    "reasoning": "Both replicas OOMKilled: app allocates ~900MiB cache but memory_limit_mib=48, so every restart repeats the crash. Root cause is the memory limit vs actual working-set, not a deploy (recent deploys empty). Bumping the memory limit lets the container survive its own cache allocation and breaks the crashloop; restart_pods alone would just loop again under same 48MiB cap.",
+    "expected_effect": "Task memory limit raised above ~900MiB+headroom, pods stop OOMKilling, restart_count and crashloop_containers drop to 0, pods_ready returns to 2/2.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1716,
+    "output_tokens": 497,
+    "usd": 0.012603,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 8,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.75,
+      "hypothesis": "Container OOM-killed: app attempts to allocate ~900MiB cache but pod memory_limit_mib is only 48MiB, causing OOMKilled -> CrashLoopBackOff on both replicas. No recent deploy implicated; looks like a memory limit misconfiguration (or a cache-size regression) rather than a code deploy regression."
+    },
+    {
+      "node": "propose",
+      "action": "scale_up",
+      "target": "ecs-service/checkout (prod)"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

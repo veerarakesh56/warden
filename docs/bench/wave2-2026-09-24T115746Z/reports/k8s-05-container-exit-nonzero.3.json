@@ -1,0 +1,122 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T13:28:33.126095+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT BackOff Pod/checkout-c6c48965c-sgdt9: Back-off restarting failed container checkout in pod checkout-c6c48965c-sgdt9_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-c6c48965c-w5f9f: Back-off restarting failed container checkout in pod checkout-c6c48965c-w5f9f_warden-pg(<UUID_2>)",
+      "checkout-c6c48965c-sgdt9/checkout 2026-09-24T13:25:54.133131921Z checkout: fatal: configuration invalid",
+      "checkout-c6c48965c-w5f9f/checkout 2026-09-24T13:28:31.077254845Z checkout: fatal: configuration invalid"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 11.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 1.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "8",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-24T13:22:55+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Deploy revision 8 bumped base image from python:3.12-alpine (floating tag) to python:3.12.7-alpine right before crash onset; new patch image likely changed default env/config handling (or picked up stricter validation / different installed config format) causing checkout's startup config validator to reject current config, triggering 'fatal: configuration invalid' and crashloop. Low memory_limit_mib (48) is suspicious but oom_killed_containers=0 rules out OOM as direct cause.",
+    "confidence": 0.55,
+    "evidence": [
+      "Deploy at 13:22:55 immediately precedes first crash log at 13:25:54 (~3min gap, consistent with restart backoff)",
+      "Both crashing pods (sgdt9, w5f9f) hit identical 'fatal: configuration invalid' error",
+      "Image tag changed 3.12-alpine -> 3.12.7-alpine same deploy event, no other deploy in window",
+      "crashloop_containers=1, restart_count=11, pods_ready=0 confirms total service outage tied to this revision"
+    ],
+    "ruled_out": [
+      "OOM kill as cause (oom_killed_containers=0 despite tiny 48MiB limit)",
+      "Gradual resource exhaustion/leak (failure is immediate 'fatal', not slow degradation)"
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "deployment/checkout (prod, revision 8 -> previous image python:3.12-alpine)",
+    "reasoning": "Crashloop started right after revision 8 swapped base image from floating python:3.12-alpine to pinned python:3.12.7-alpine. Both pods fail identically with 'fatal: configuration invalid', 100% correlated with deploy timing, not OOM (oom_killed=0). New patch image likely changed default env/config parsing, breaking checkout's config validator. Reverting to prior working image removes the triggering change.",
+    "expected_effect": "Pods pick up previous image, config validator passes, pods_ready returns to 2/2, restart_count stops climbing.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1684,
+    "output_tokens": 620,
+    "usd": 0.014352,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 4,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.55,
+      "hypothesis": "Deploy revision 8 bumped base image from python:3.12-alpine (floating tag) to python:3.12.7-alpine right before crash onset; new patch image likely changed default env/config handling (or picked up stricter validation / different installed config format) causing checkout's startup config validator to reject current config, triggering 'fatal: configuration invalid' and crashloop. Low memory_limit_mib (48) is suspicious but oom_killed_containers=0 rules out OOM as direct cause."
+    },
+    {
+      "node": "propose",
+      "action": "rollback_deploy",
+      "target": "deployment/checkout (prod, revision 8 -> previous image python:3.12-alpine)"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

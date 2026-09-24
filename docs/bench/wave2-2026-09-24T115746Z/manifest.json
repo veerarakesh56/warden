@@ -1,0 +1,88 @@
+{
+  "wave": 2,
+  "dry_run": false,
+  "started_at": "2026-09-24T11:58:08.702169+00:00",
+  "repeat": 3,
+  "arm": {},
+  "alert_file": "scenarios/alert.yaml",
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-01-01T00:00:00Z"
+  },
+  "environment_label": "prod",
+  "catalog_sha256": {
+    "wave1-ecs.yaml": "2a9feafa4d70af072d3e5e2a949ac41c227960aff3132a32b2f592b1b31d2811",
+    "wave2-k8s.yaml": "e0f5ca54d5cda572d5ca81fa499d11d9e725cc4db7c810397c6ae1aef8edd484",
+    "wave3-db.yaml": "00db9842d956dc04c1662f7ee7b4714b276d29589807bf9410e3d70e12e0fd98"
+  },
+  "scoring_sha256": "01efbce9b7ee05a4fe8b0003be5d1c8a34a7fcbfa21924ee949f1f75deab4bf9",
+  "git_commit": "feb6183781a29fdb2bd8acf5d0a4b610ae8a82d5",
+  "target_kind": "k8s",
+  "context": "warden-eks",
+  "namespace": "warden-pg",
+  "deployment": "checkout",
+  "scenario_ids": [
+    "k8s-01-healthy-control",
+    "k8s-02-oom-new-revision",
+    "k8s-03-oom-same-image",
+    "k8s-04-image-pull-failure",
+    "k8s-05-container-exit-nonzero",
+    "k8s-06-probe-failing",
+    "k8s-07-scaled-to-zero",
+    "k8s-08-pod-deleted",
+    "k8s-09-rbac-log-access-revoked",
+    "k8s-10-rollout-restart-no-change"
+  ],
+  "evidence_isolation": {
+    "log_lookback_m": 10,
+    "metric_window_m": 0,
+    "quiet_seconds_before_each_inject": 780
+  },
+  "ended_at": "2026-09-24T15:52:19.721788+00:00",
+  "scenarios_completed": [
+    "k8s-01-healthy-control",
+    "k8s-02-oom-new-revision",
+    "k8s-03-oom-same-image",
+    "k8s-04-image-pull-failure",
+    "k8s-05-container-exit-nonzero",
+    "k8s-06-probe-failing",
+    "k8s-07-scaled-to-zero",
+    "k8s-08-pod-deleted",
+    "k8s-09-rbac-log-access-revoked",
+    "k8s-10-rollout-restart-no-change"
+  ],
+  "errors": [],
+  "resumes": [
+    {
+      "at": "2026-09-24T14:19:45.704407+00:00",
+      "git_commit": "909073335a89d78f3240ac4aac01710c97c11192",
+      "rerun": [
+        "k8s-07-scaled-to-zero",
+        "k8s-08-pod-deleted",
+        "k8s-09-rbac-log-access-revoked",
+        "k8s-10-rollout-restart-no-change"
+      ],
+      "superseded": [],
+      "forced": [],
+      "reason": ""
+    },
+    {
+      "at": "2026-09-24T15:15:58.449627+00:00",
+      "git_commit": "f3f326a682c56b9afe28a2a6c18605e7bc40154a",
+      "rerun": [
+        "k8s-09-rbac-log-access-revoked",
+        "k8s-10-rollout-restart-no-change"
+      ],
+      "superseded": [
+        "ground-truth/superseded/k8s-09-rbac-log-access-revoked.attempt-1.json"
+      ],
+      "forced": [],
+      "reason": ""
+    }
+  ]
+}

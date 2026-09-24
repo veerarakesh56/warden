@@ -1,0 +1,69 @@
+{
+  "scenario_id": "k8s-06-probe-failing",
+  "fault_class": "health_check_failing",
+  "fidelity": "real",
+  "signature_covered": true,
+  "settle_seconds": 180,
+  "status": "ok",
+  "started_at": "2026-09-24T13:42:45.136577+00:00",
+  "injected": [
+    {
+      "op": "k8s_patch_variant",
+      "args": {
+        "variant": "bad_probe"
+      },
+      "result": {
+        "variant": "bad_probe",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "command": [
+          "python",
+          "-u",
+          "-c",
+          "<program>"
+        ]
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "k8s_restore_baseline",
+      "args": {},
+      "result": {
+        "restored": "public.ecr.aws/docker/library/python:3.12-alpine"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-06-probe-failing.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T13:47:18.328591+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-06-probe-failing.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T13:49:47.222356+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-06-probe-failing.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T13:51:29.487493+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-24T13:45:45.345933+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-24T13:51:29.893967+00:00"
+}

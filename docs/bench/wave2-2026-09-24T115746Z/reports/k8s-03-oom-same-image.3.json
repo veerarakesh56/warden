@@ -1,0 +1,118 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T12:52:14.882261+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT BackOff Pod/checkout-6796d89f8c-rlskd: Back-off restarting failed container checkout in pod checkout-6796d89f8c-rlskd_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-6796d89f8c-z6s8z: Back-off restarting failed container checkout in pod checkout-6796d89f8c-z6s8z_warden-pg(<UUID_2>)",
+      "checkout-6796d89f8c-rlskd/checkout 2026-09-24T12:52:15.066795224Z checkout: started",
+      "checkout-6796d89f8c-rlskd/checkout 2026-09-24T12:52:15.066838486Z checkout: WARN memory pressure rising",
+      "checkout-6796d89f8c-z6s8z/checkout 2026-09-24T12:52:08.142274738Z checkout: started",
+      "checkout-6796d89f8c-z6s8z/checkout 2026-09-24T12:52:08.142306796Z checkout: WARN memory pressure rising",
+      "checkout-6796d89f8c-z6s8z/checkout 2026-09-24T12:52:10.142394193Z checkout: allocating 900MiB cache"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 1.0,
+      "restart_count": 12.0,
+      "oom_killed_containers": 2.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "checkout container OOM-killed due to undersized memory limit (48 MiB) vs actual usage — logs show container allocating ~900MiB cache shortly after start, far exceeding limit, causing OOM kill and CrashLoopBackOff restarts",
+    "confidence": 0.85,
+    "evidence": [
+      "oom_killed_containers=2 matches pod count",
+      "memory_limit_mib=48 is extremely low",
+      "log line 'allocating 900MiB cache' directly precedes crash pattern",
+      "WARN memory pressure rising in both pods before restart",
+      "restart_count=12 consistent with repeated OOM/backoff cycle",
+      "BackOff events confirm CrashLoopBackOff-style restart, though crashloop_containers metric reads 0 (likely lag/threshold artifact)"
+    ],
+    "ruled_out": [
+      "bad deploy — RECENT DEPLOYS empty, no deploy correlation",
+      "node-level resource exhaustion — only checkout containers affected, not node-wide signal in evidence"
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "ecs-service/checkout (prod)",
+    "reasoning": "Memory limit set at 48 MiB, but container log shows allocating ~900MiB cache shortly after start. Both pods OOM-killed (oom_killed_containers=2), restart_count=12, CrashLoopBackOff. Root cause is undersized memory limit vs actual workload need, not a bad deploy (recent deploys empty) or transient load spike. Restarting pods alone won't fix it — they'll OOM again immediately.",
+    "expected_effect": "Increase task memory limit for checkout (e.g. to >=1024 MiB) so cache allocation fits; pods stop OOM-killing, restart_count stabilizes, pods_ready returns to 2/2.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1624,
+    "output_tokens": 528,
+    "usd": 0.012792000000000001,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 7,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.85,
+      "hypothesis": "checkout container OOM-killed due to undersized memory limit (48 MiB) vs actual usage — logs show container allocating ~900MiB cache shortly after start, far exceeding limit, causing OOM kill and CrashLoopBackOff restarts"
+    },
+    {
+      "node": "propose",
+      "action": "scale_up",
+      "target": "ecs-service/checkout (prod)"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

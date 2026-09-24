@@ -1,0 +1,200 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T12:14:12.356288+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:04:26.877367626Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:04:41.877496817Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:04:56.877640244Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:05:11.877775875Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:05:26.877910578Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:05:41.878114310Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:05:56.878249855Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:06:11.878418629Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:06:26.878546596Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:06:41.878676355Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:06:56.878816372Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:07:11.878976261Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:07:26.879098192Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:07:41.879317895Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:07:56.879535392Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:08:11.879676712Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:08:26.879891613Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:08:41.880015282Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:08:56.880265114Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:09:11.880454153Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:09:26.880597059Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:09:41.880779390Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:09:56.880958395Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:10:11.881066973Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:10:26.881319250Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:10:41.881431580Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:10:56.881713326Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:11:11.881773237Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:11:26.881894684Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:11:41.882247883Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:11:56.882327472Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:12:11.882459290Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:12:26.882641333Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:12:41.882889631Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:12:56.883019508Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:13:11.883288502Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:13:26.883442058Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:13:41.883554206Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:13:56.883657546Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-g5f8b/checkout 2026-09-24T12:14:11.883901501Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:04:26.916810008Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:04:41.917058550Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:04:56.917187784Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:05:11.917379215Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:05:26.917477145Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:05:41.917628725Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:05:56.917730289Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:06:11.917889181Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:06:26.918138641Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:06:41.918190834Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:06:56.918334590Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:07:11.918485429Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:07:26.918726049Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:07:41.918789770Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:07:56.918896146Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:08:11.919114732Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:08:26.919273741Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:08:41.919399321Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:08:56.919630222Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:09:11.919797358Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:09:26.919932786Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:09:41.920148013Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:09:56.920299187Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:10:11.920556030Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:10:26.920783472Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:10:41.920989571Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:10:56.921256607Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:11:11.921447928Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:11:26.921603552Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:11:41.921692629Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:11:56.921949366Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:12:11.922161955Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:12:26.922323285Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:12:41.922470149Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:12:56.922614196Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:13:11.922760178Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:13:26.922924281Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:13:41.923038837Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:13:56.923169679Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:14:11.923387550Z checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 2.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "1",
+        "image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "previous_image": "",
+        "at": "2026-09-24T11:40:06+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "No root cause identifiable in service health data. All health metrics (pods_ready=2/2, restart_count=0, oom_killed=0, crashloop=0) and 40 min of continuous heartbeat logs from both pods show checkout healthy with zero errors/restarts. Alarm likely false positive or triggered by a metric not included here (e.g. latency, error rate, external dependency) — evidence given doesn't show what actually tripped it. Note: memory_limit_mib=48 is unusually low for a checkout service; not causing failure now but a latent OOM risk if traffic/payload size grows.",
+    "confidence": 0.25,
+    "evidence": [
+      "pods_ready == pods_total (2/2), no crashloop_containers, no oom_killed_containers, restart_count=0",
+      "Both pods emit unbroken heartbeat ok logs every 15s from 12:04 to 12:14, no gaps or errors",
+      "Deploy revision 1 with empty previous_image suggests this may be initial/first deploy, not a regression-causing change",
+      "memory_limit_mib=48 is low but no OOM event recorded"
+    ],
+    "ruled_out": [
+      "Container crash/restart loop — restart_count=0, crashloop_containers=0",
+      "OOM kill — oom_killed_containers=0, logs show no memory errors",
+      "Pod availability/readiness failure — pods_ready equals pods_total throughout window"
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "checkout/prod",
+    "reasoning": "All health metrics nominal (2/2 ready, 0 restarts, 0 OOM, 0 crashloop) and 40min of clean heartbeat logs from both pods. No root cause visible in given data. Alarm likely tripped by metric not included here (latency, error rate, external dep) — can't diagnose blind, no safe automated fix to propose.",
+    "expected_effect": "Human investigates actual trigger metric (not in this data) before any remediation is applied. No change to running service.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 6093,
+    "output_tokens": 622,
+    "usd": 0.027609,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 80,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.25,
+      "hypothesis": "No root cause identifiable in service health data. All health metrics (pods_ready=2/2, restart_count=0, oom_killed=0, crashloop=0) and 40 min of continuous heartbeat logs from both pods show checkout healthy with zero errors/restarts. Alarm likely false positive or triggered by a metric not included here (e.g. latency, error rate, external dependency) — evidence given doesn't show what actually tripped it. Note: memory_limit_mib=48 is unusually low for a checkout service; not causing failure now but a latent OOM risk if traffic/payload size grows."
+    },
+    {
+      "node": "propose",
+      "action": "escalate_to_human",
+      "target": "checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "escalate_to_human",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

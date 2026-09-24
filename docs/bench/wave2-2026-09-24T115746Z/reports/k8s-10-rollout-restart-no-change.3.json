@@ -1,0 +1,160 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T15:51:40.134458+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:46:33.489140980Z checkout: started, healthy",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:46:33.489176838Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:46:48.489314993Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:03.489464986Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:18.489665047Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:33.489821140Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:48.490073873Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:48:03.490260735Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:48:18.490399252Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:48:33.490516092Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:48:48.490645900Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:49:03.490806164Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:49:18.491020006Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:49:33.491151301Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:49:48.491375338Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:50:03.491481585Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:50:18.491619308Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:50:33.491851796Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:50:48.492041496Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:51:03.492250153Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:51:18.492355008Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:51:33.492605782Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:46:33.951182958Z checkout: started, healthy",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:46:33.951226950Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:46:48.951370545Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:03.951510576Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:18.951699074Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:33.951941097Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:48.952148467Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:48:03.952400473Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:48:18.952587988Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:48:33.952784515Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:48:48.952951318Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:49:03.953029407Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:49:18.953188225Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:49:33.953392693Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:49:48.953530922Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:50:03.953749225Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:50:18.953872457Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:50:33.953995999Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:50:48.954223906Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:51:03.954361290Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:51:18.954566412Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:51:33.954644364Z checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 2.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "No real service degradation. Pods (2/2 ready), zero restarts/OOM/crashloop, and clean heartbeat logs for entire window (15:46-15:51) contradict an outage. Alarm likely false positive or misconfigured threshold — possibly tied to memory_limit_mib=48 (suspiciously low value, maybe misconfig or metric artifact) rather than actual resource exhaustion, since no OOM kills occurred.",
+    "confidence": 0.25,
+    "evidence": [
+      "pods_total=2, pods_ready=2 — full availability",
+      "restart_count=0, oom_killed_containers=0, crashloop_containers=0 — no crash signals",
+      "Both pods emit uninterrupted 'heartbeat ok' every ~15s through whole log window",
+      "RECENT DEPLOYS empty — rules out bad rollout",
+      "memory_limit_mib=48 is unusually low for a checkout service, flag for config review"
+    ],
+    "ruled_out": [
+      "OOM kill",
+      "Crashloop",
+      "Bad deploy",
+      "Pod readiness failure"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "2/2 pods ready, 0 restarts, 0 OOM kills, 0 crashloop, clean heartbeats entire 15:46-15:51 window. No real degradation signal. Alarm likely misconfigured threshold tied to memory_limit_mib=48 (suspicious low value) rather than actual resource exhaustion.",
+    "expected_effect": "No change to service. Alarm remains for human review of threshold/metric config.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.25 is below the 0.55 threshold."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 3783,
+    "output_tokens": 473,
+    "usd": 0.018444000000000002,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 44,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.25,
+      "hypothesis": "No real service degradation. Pods (2/2 ready), zero restarts/OOM/crashloop, and clean heartbeat logs for entire window (15:46-15:51) contradict an outage. Alarm likely false positive or misconfigured threshold — possibly tied to memory_limit_mib=48 (suspiciously low value, maybe misconfig or metric artifact) rather than actual resource exhaustion, since no OOM kills occurred."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

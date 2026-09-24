@@ -1,0 +1,168 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T14:51:10.121673+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:48:25.149811384Z checkout: started, healthy",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:48:25.149858676Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:48:40.149982784Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:48:55.150193713Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:49:10.150325520Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:49:25.150448157Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:49:40.150576001Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:49:55.150716362Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:50:10.150861171Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:50:25.150992832Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:50:40.151191333Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:50:55.151312028Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-8gnhn/checkout 2026-09-24T14:51:10.151443890Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:41:21.635627828Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:41:36.635714512Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:41:51.635952567Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:42:06.636137628Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:42:21.636364010Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:42:36.636529122Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:42:51.636738534Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:43:06.636934212Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:43:21.637080336Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:43:36.637317881Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:43:51.637431154Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:44:06.637576659Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:44:21.637702629Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:44:36.637860506Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:44:51.638118652Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:45:06.638269855Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:45:21.638380559Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:45:36.638536467Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:45:51.638646467Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:46:06.638775299Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:46:21.638908698Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:46:36.639097677Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:46:51.639168663Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:47:06.639342436Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:47:21.639446899Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:47:36.639668372Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:47:51.639788212Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:48:06.639935154Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:48:21.640077223Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:48:36.640276227Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:48:51.640511232Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:49:06.640708802Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:49:21.640906108Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:49:36.641113711Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:49:51.641332858Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:50:06.641554830Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:50:21.641725112Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:50:36.641839724Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:50:51.642114120Z checkout: heartbeat ok",
+      "checkout-7bcd5ccbc9-s4j44/checkout 2026-09-24T14:51:06.642251189Z checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 2.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "All available metrics and logs show checkout healthy (2/2 pods ready, zero restarts/OOM/crashloop, continuous heartbeat OK) with no deploys around alarm time. Evidence does not support a real service failure; likely a transient/self-resolved blip or a misconfigured/flapping CloudWatch alarm (e.g., threshold too tight, or alarm tracking a metric not included here like latency/error-rate/task-count during scaling) rather than an actual checkout outage.",
+    "confidence": 0.25,
+    "evidence": [
+      "pods_total=2, pods_ready=2 — full capacity healthy",
+      "restart_count=0, oom_killed_containers=0, crashloop_containers=0",
+      "RECENT DEPLOYS empty — rules out bad rollout",
+      "Both pod logs show unbroken heartbeat ok every ~15s across full window, no errors/warnings"
+    ],
+    "ruled_out": [
+      "OOM kill (oom_killed_containers=0, no memory errors in logs)",
+      "Crashloop (crashloop_containers=0)",
+      "Bad deploy causing regression (no recent deploys)",
+      "Container restarts (restart_count=0)"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "checkout",
+    "reasoning": "2/2 pods ready, 0 restarts/OOM/crashloop, continuous heartbeat OK, no recent deploys. Logs show healthy service throughout alarm window. No evidence support real failure.",
+    "expected_effect": "No change; service continues healthy. Alarm likely transient/misconfigured threshold.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.25 is below the 0.55 threshold."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 4340,
+    "output_tokens": 535,
+    "usd": 0.021045,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 53,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.25,
+      "hypothesis": "All available metrics and logs show checkout healthy (2/2 pods ready, zero restarts/OOM/crashloop, continuous heartbeat OK) with no deploys around alarm time. Evidence does not support a real service failure; likely a transient/self-resolved blip or a misconfigured/flapping CloudWatch alarm (e.g., threshold too tight, or alarm tracking a metric not included here like latency/error-rate/task-count during scaling) rather than an actual checkout outage."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "checkout"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

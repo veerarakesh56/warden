@@ -1,0 +1,127 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T12:31:49.803551+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "EVENT BackOff Pod/checkout-748c57d7fd-zrwc5: Back-off restarting failed container checkout in pod checkout-748c57d7fd-zrwc5_warden-pg(<UUID_1>)",
+      "EVENT BackOff Pod/checkout-748c57d7fd-bmwck: Back-off restarting failed container checkout in pod checkout-748c57d7fd-bmwck_warden-pg(<UUID_2>)",
+      "checkout-748c57d7fd-zrwc5/checkout 2026-09-24T12:30:36.158401831Z checkout: started",
+      "checkout-748c57d7fd-zrwc5/checkout 2026-09-24T12:30:36.158450456Z checkout: WARN memory pressure rising",
+      "checkout-748c57d7fd-zrwc5/checkout 2026-09-24T12:30:38.158557472Z checkout: allocating 900MiB cache",
+      "checkout-748c57d7fd-bmwck/checkout 2026-09-24T12:31:46.140691679Z checkout: started",
+      "checkout-748c57d7fd-bmwck/checkout 2026-09-24T12:31:46.140738812Z checkout: WARN memory pressure rising",
+      "checkout-748c57d7fd-bmwck/checkout 2026-09-24T12:31:48.140934130Z checkout: allocating 900MiB cache"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 9.0,
+      "oom_killed_containers": 2.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [
+      {
+        "deployment": "checkout",
+        "revision": "2",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "previous_image": "public.ecr.aws/docker/library/python:3.12-alpine",
+        "at": "2026-09-24T12:28:48+00:00",
+        "by": "kubernetes"
+      }
+    ],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "checkout pods OOMKilled: memory_limit_mib=48 far below app's ~900MiB cache alloc on startup. Logs show 'allocating 900MiB cache' right after 'memory pressure rising', both pods, then BackOff/CrashLoop. oom_killed_containers=2 matches pods_ready=0. Recent image bump (python:3.12-alpine → 3.12.7-alpine) coincides but unlikely cause itself — same base tier, no evidence of mem-limit change in that diff shown.",
+    "confidence": 0.8,
+    "evidence": [
+      "memory_limit_mib: 48 vs log line 'allocating 900MiB cache' — ~19x limit",
+      "oom_killed_containers: 2 = pods_total: 2, pods_ready: 0",
+      "WARN memory pressure rising precedes alloc line in both pods",
+      "BackOff events for both pod replicas, restart_count: 9"
+    ],
+    "ruled_out": [
+      "crashloop_containers: 0.0 — not yet in official crashloop state, still backoff/restart phase",
+      "image tag bump alone as root cause — no size/config change evidence tied to memory behavior; deploy timing correlates but mechanism unclear, kept as weak secondary factor not primary"
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "checkout/prod (ECS service, memory_limit_mib=48)",
+    "reasoning": "OOMKill root cause: memory_limit_mib=48 far below app's ~900MiB cache alloc at startup. Both pods die same way immediately after alloc, matches oom_killed_containers=2. No action in allowed set can raise the memory limit itself — restart_pods/scale_up/scale_down/rollback_deploy/failover_replica/clear_cache/terminate_connections don't touch the container memory limit config, so all would loop back into the same OOMKill. Recent image bump is coincidental per hypothesis, not the cause.",
+    "expected_effect": "Human raises memory_limit_mib (e.g. to >=1024MiB) or reduces app's startup cache alloc; no remediation action here changes the underlying resource limit.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false
+  },
+  "cost": {
+    "input_tokens": 1907,
+    "output_tokens": 635,
+    "usd": 0.015246,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 8,
+      "metrics": 6,
+      "deploys": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 2
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.8,
+      "hypothesis": "checkout pods OOMKilled: memory_limit_mib=48 far below app's ~900MiB cache alloc on startup. Logs show 'allocating 900MiB cache' right after 'memory pressure rising', both pods, then BackOff/CrashLoop. oom_killed_containers=2 matches pods_ready=0. Recent image bump (python:3.12-alpine → 3.12.7-alpine) coincides but unlikely cause itself — same base tier, no evidence of mem-limit change in that diff shown."
+    },
+    {
+      "node": "propose",
+      "action": "escalate_to_human",
+      "target": "checkout/prod (ECS service, memory_limit_mib=48)"
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    },
+    {
+      "node": "record_safe",
+      "action": "escalate_to_human",
+      "approval": "not required"
+    }
+  ],
+  "halted_reason": null
+}

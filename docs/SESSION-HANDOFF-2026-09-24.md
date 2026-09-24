@@ -1,13 +1,22 @@
 # Handoff — 2026-09-24
 
-## Where things stand
+## Where things stand (end of day, 2026-09-24)
 
 | | |
 |---|---|
-| **Cost right now** | **nothing is billing.** 28 resources destroyed and `terraform state list` is empty. Checked directly, not inferred: EKS clusters 0, RDS instances 0, EC2 instances 0, NAT gateways 0, Elastic IPs 0, volumes 0, ENIs 0, non-default VPCs 0, log groups 0. The tagging index still lists 6 rows for a while: the subnet returns `InvalidSubnetID.NotFound`, and the task definitions are `INACTIVE` (free; AWS never fully deletes them). ⚠ The `$` budget alarm was destroyed with everything else and comes back on the next apply. |
+| **Cost right now** | **nothing is billing.** State empty after a 29-resource destroy; checked directly: EKS 0, RDS 0, instances 0 (one `terminated`, free), NAT 0, EIPs 0, volumes 0, ENIs 0, VPCs 0, security groups 0, log groups 0, autoscaling groups 0, launch templates 0. |
 | Wave 1 (ECS) | measured and published, unchanged. |
-| Wave 2 (EKS) | **blocked** — see below. The cluster came up and was torn down again; the node group never created. |
-| Wave 3 (RDS) | **built, dry-run green, not yet run live.** 6 scenarios, 7 ops (5 injectors, 2 reverts), 32 tests, every guard plant-verified. All three waves dry-run and score end to end, and a partial `--resume` of Wave 3 was tested. |
+| **Wave 2 (EKS)** | **measured and published** - `docs/bench/wave2-2026-09-24T115746Z`, written up in `docs/bench/README.md`. 30 runs; 3 wrong diagnoses let through, all `scale_up` on an OOM kill. The run stopped itself twice on harness bugs, both fixed and disclosed. |
+| **Wave 3 (RDS)** | built, dry-run green, **run tomorrow**. The database was created, connected to (SSL, Postgres 16.13), given its sentinel table, then destroyed unused so it did not bill overnight. |
+
+### Tomorrow, Wave 3 in order
+1. Be on the home Wi-Fi (the ISP hotspot rotates its IP every few minutes; everything is IP-locked).
+2. Put the current IP in `terraform.tfvars` (`curl -s https://checkip.amazonaws.com`).
+3. `export TF_VAR_db_password="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"`
+4. plan + apply with `-var enable_rds=true` (~10 min). The RDS service-linked role now exists.
+5. `export WARDEN_BENCH_DB_DSN=... WARDEN_BENCH_DB_SG=...` (terraform output), then
+   `python scripts/setup_proving_ground_db.py --apply`.
+6. Smoke `--wave 3 --only db-01-healthy-control --repeat 1`, audit it, then the full wave detached.
 
 ## ✅ Resolved 2026-09-24 — and the first fix was not enough on its own
 

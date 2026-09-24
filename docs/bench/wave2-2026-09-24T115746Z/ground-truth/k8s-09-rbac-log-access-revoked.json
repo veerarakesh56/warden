@@ -1,0 +1,62 @@
+{
+  "scenario_id": "k8s-09-rbac-log-access-revoked",
+  "fault_class": "rbac_evidence_revoked",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 60,
+  "status": "ok",
+  "started_at": "2026-09-24T15:29:01.758396+00:00",
+  "injected": [
+    {
+      "op": "k8s_revoke_log_access",
+      "args": {},
+      "result": {
+        "removed": "pods/log",
+        "rules_before": 5,
+        "rules_after": 4
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "k8s_restore_log_access",
+      "args": {},
+      "result": {
+        "restored_rules": 5
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-09-rbac-log-access-revoked.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T15:31:19.358650+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-09-rbac-log-access-revoked.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T15:32:35.554397+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-09-rbac-log-access-revoked.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T15:33:30.620254+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-24T15:30:02.046456+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-24T15:33:30.856967+00:00"
+}

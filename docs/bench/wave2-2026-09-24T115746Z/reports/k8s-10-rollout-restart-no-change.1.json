@@ -1,0 +1,136 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T15:48:44.387754+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:46:33.489140980Z checkout: started, healthy",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:46:33.489176838Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:46:48.489314993Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:03.489464986Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:18.489665047Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:33.489821140Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:47:48.490073873Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:48:03.490260735Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:48:18.490399252Z checkout: heartbeat ok",
+      "checkout-64f887df64-9cx2l/checkout 2026-09-24T15:48:33.490516092Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:46:33.951182958Z checkout: started, healthy",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:46:33.951226950Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:46:48.951370545Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:03.951510576Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:18.951699074Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:33.951941097Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:47:48.952148467Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:48:03.952400473Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:48:18.952587988Z checkout: heartbeat ok",
+      "checkout-64f887df64-c6lbc/checkout 2026-09-24T15:48:33.952784515Z checkout: heartbeat ok"
+    ],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 2.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "No real service degradation found. Pods 2/2 ready, 0 restarts, 0 OOM kills, 0 crashloop, steady 15s heartbeats, no deploys. Likely false-positive/flapping alarm (e.g. transient CloudWatch metric blip, threshold misconfig, or brief latency spike outside log window) rather than an actual checkout failure.",
+    "confidence": 0.25,
+    "evidence": [
+      "pods_ready == pods_total (2/2), healthy",
+      "restart_count=0, oom_killed_containers=0, crashloop_containers=0",
+      "Both pods show continuous 'heartbeat ok' every 15s, no gaps/errors",
+      "RECENT DEPLOYS empty — rules out bad rollout",
+      "memory_limit_mib=48 present but no OOM signal tied to it"
+    ],
+    "ruled_out": [
+      "Crash/restart loop (restart_count=0)",
+      "OOM kill (oom_killed_containers=0)",
+      "Bad deploy (no recent deploys)",
+      "Pod unavailability (2/2 ready throughout log window)"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "ecs-service/checkout/prod",
+    "reasoning": "2/2 pods ready, 0 restarts, 0 OOM, 0 crashloop, steady 15s heartbeats both pods, no recent deploys. Logs show healthy service. Alarm contradicts evidence, likely metric blip/threshold misconfig.",
+    "expected_effect": "No change to service. Alarm should be reviewed for threshold tuning; monitor for recurrence.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.25 is below the 0.55 threshold."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 2334,
+    "output_tokens": 445,
+    "usd": 0.013677,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 20,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.25,
+      "hypothesis": "No real service degradation found. Pods 2/2 ready, 0 restarts, 0 OOM kills, 0 crashloop, steady 15s heartbeats, no deploys. Likely false-positive/flapping alarm (e.g. transient CloudWatch metric blip, threshold misconfig, or brief latency spike outside log window) rather than an actual checkout failure."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "ecs-service/checkout/prod"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

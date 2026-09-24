@@ -1,0 +1,126 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "ECSServiceAlarm",
+    "severity": "high",
+    "service": "checkout",
+    "environment": "prod",
+    "summary": "CloudWatch alarm fired for ECS service checkout",
+    "started_at": "2026-09-24T15:31:54.991137+00:00",
+    "labels": {
+      "namespace": "warden-pg",
+      "deployment": "checkout",
+      "selector": "app=checkout"
+    }
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [],
+    "metrics": {
+      "pods_total": 2.0,
+      "pods_ready": 2.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: logs: checkout-7bcd5ccbc9-8gnhn/checkout: (403)",
+      "logs: logs: checkout-7bcd5ccbc9-s4j44/checkout: (403)"
+    ]
+  },
+  "root_cause": {
+    "hypothesis": "Pod-health metrics all nominal (2/2 ready, 0 restarts, 0 OOM kills, 0 crashloops) and no recent deploys — alarm likely triggered by a metric outside this payload (e.g. latency, error rate, request count) or is a transient/flapping false positive. No log evidence provided to confirm. Note: memory_limit_mib=48 is unusually low for a prod checkout service, possibly misconfigured, but no OOM signal ties it to this alarm.",
+    "confidence": 0.15,
+    "evidence": [
+      "pods_ready == pods_total (2/2) — service fully available",
+      "restart_count = 0, crashloop_containers = 0, oom_killed_containers = 0 — no container-level failure",
+      "RECENT DEPLOYS empty — rules out deploy-triggered regression",
+      "LOGS empty — no supporting error trace"
+    ],
+    "ruled_out": [
+      "OOM kill as cause (oom_killed_containers = 0)",
+      "Crashloop as cause (crashloop_containers = 0)",
+      "Bad deploy as cause (no recent deploys listed)",
+      "Pod unavailability (2/2 ready)"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "ecs-service/checkout",
+    "reasoning": "Pods 2/2 ready, 0 restarts, 0 OOM, 0 crashloop, no recent deploys, no logs given. No evidence of real fault — likely transient/flapping alarm or metric outside payload (latency/error rate). Nothing here justifies disruptive action.",
+    "expected_effect": "No change. Alarm monitored; if it recurs or new metrics show real degradation, revisit.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.15 is below the 0.55 threshold.",
+      "2 context tool(s) failed; evidence is incomplete.",
+      "Evidence is thin (0 log line(s), 6 metric(s), 0 deploy(s)); a human should look before acting."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE",
+      "P8-PARTIAL-CONTEXT",
+      "P9-THIN-EVIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1182,
+    "output_tokens": 489,
+    "usd": 0.010881000000000002,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "kubernetes",
+      "logs": 0,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": [
+        "logs: logs: checkout-7bcd5ccbc9-8gnhn/checkout: (403)",
+        "logs: logs: checkout-7bcd5ccbc9-s4j44/checkout: (403)"
+      ]
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.15,
+      "hypothesis": "Pod-health metrics all nominal (2/2 ready, 0 restarts, 0 OOM kills, 0 crashloops) and no recent deploys — alarm likely triggered by a metric outside this payload (e.g. latency, error rate, request count) or is a transient/flapping false positive. No log evidence provided to confirm. Note: memory_limit_mib=48 is unusually low for a prod checkout service, possibly misconfigured, but no OOM signal ties it to this alarm."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "ecs-service/checkout"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE",
+        "P8-PARTIAL-CONTEXT",
+        "P9-THIN-EVIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

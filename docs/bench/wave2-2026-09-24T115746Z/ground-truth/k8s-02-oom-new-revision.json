@@ -1,0 +1,69 @@
+{
+  "scenario_id": "k8s-02-oom-new-revision",
+  "fault_class": "oom_from_new_revision",
+  "fidelity": "real",
+  "signature_covered": true,
+  "settle_seconds": 150,
+  "status": "ok",
+  "started_at": "2026-09-24T12:28:48.491105+00:00",
+  "injected": [
+    {
+      "op": "k8s_patch_variant",
+      "args": {
+        "variant": "oom"
+      },
+      "result": {
+        "variant": "oom",
+        "image": "public.ecr.aws/docker/library/python:3.12.7-alpine",
+        "command": [
+          "python",
+          "-u",
+          "-c",
+          "<program>"
+        ]
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "k8s_restore_baseline",
+      "args": {},
+      "result": {
+        "restored": "public.ecr.aws/docker/library/python:3.12-alpine"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-02-oom-new-revision.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T12:31:46.021468+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-02-oom-new-revision.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T12:32:18.998561+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "serviceaccount:warden-pg:warden",
+      "report": "reports/k8s-02-oom-new-revision.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-24T12:32:52.333714+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-24T12:31:18.773908+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-24T12:32:52.556506+00:00"
+}
