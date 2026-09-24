@@ -1,6 +1,17 @@
 """The operator editing its own policy - the self-edit the permissions boundary makes safe.
 
-    python scripts/apply_operator_policy.py [DOC.json]    # default: operator-policy.json
+    python scripts/apply_operator_policy.py [DOC.json] [POLICY_NAME]
+
+Defaults to operator-policy.json -> WardenProvingGroundOperator, run as the operator itself.
+To push the BOUNDARY instead, name both:
+
+    python scripts/apply_operator_policy.py \
+        terraform/proving-ground/operator-policy-boundary.json WardenProvingGroundBoundary
+
+⛔ THE SECOND FORM CANNOT BE RUN BY warden-operator, and that is the point. The boundary denies
+the operator every write to the boundary itself (`DenyTouchingThisBoundary`), so raising the
+ceiling requires an identity outside it. Run it with the admin credentials that created the
+boundary; running it as the operator fails with AccessDenied and changes nothing.
 
 Pushes the document as the new default version of WardenProvingGroundOperator and checks the live
 document is byte-for-byte the repo's. Run `pytest tests/test_operator_policy.py` and
@@ -21,7 +32,8 @@ DOC = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else (
     pathlib.Path(__file__).resolve().parents[1] / "terraform" / "proving-ground" / "operator-policy.json")
 s = boto3.Session(region_name="ap-south-2")
 iam = s.client("iam")
-arn = f"arn:aws:iam::{s.client('sts').get_caller_identity()['Account']}:policy/WardenProvingGroundOperator"
+POLICY = sys.argv[2] if len(sys.argv) > 2 else "WardenProvingGroundOperator"
+arn = f"arn:aws:iam::{s.client('sts').get_caller_identity()['Account']}:policy/{POLICY}"
 doc = json.loads(DOC.read_text(encoding="utf-8"))
 try:
     versions = iam.list_policy_versions(PolicyArn=arn)["Versions"]

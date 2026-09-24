@@ -108,6 +108,12 @@
       }
     },
     {
+      "Sid": "CeilingReadServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
+    },
+    {
       "Sid": "CeilingOnlyTheProvingGroundsOwnBudget",
       "Effect": "Allow",
       "Action": [

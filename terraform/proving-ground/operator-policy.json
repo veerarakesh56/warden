@@ -118,15 +118,25 @@
       }
     },
     {
-      "Sid": "TheEcsServiceLinkedRoleAFreshAccountDoesNotHaveYet",
+      "Sid": "TheServiceLinkedRolesAFreshAccountDoesNotHaveYet",
       "Effect": "Allow",
       "Action": "iam:CreateServiceLinkedRole",
       "Resource": "arn:aws:iam::*:role/aws-service-role/*",
       "Condition": {
         "StringEquals": {
-          "iam:AWSServiceName": "ecs.amazonaws.com"
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "eks.amazonaws.com",
+            "eks-nodegroup.amazonaws.com"
+          ]
         }
       }
+    },
+    {
+      "Sid": "ReadTheServiceLinkedRolesToSeeWhetherTheyExist",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     },
     {
       "Sid": "AssumeOnlyTheReaderRole",
@@ -196,6 +206,30 @@
       }
     },
     {
+      "Sid": "RdsForWave3",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:ModifyDBInstance",
+        "rds:CreateDBSubnetGroup",
+        "rds:DeleteDBSubnetGroup",
+        "rds:AddTagsToResource",
+        "rds:RemoveTagsFromResource",
+        "rds:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:rds:*:*:db:warden-pg-*",
+        "arn:aws:rds:*:*:subgrp:warden-pg-*"
+      ]
+    },
+    {
+      "Sid": "RdsReadsThatTakeNoResource",
+      "Effect": "Allow",
+      "Action": "rds:Describe*",
+      "Resource": "*"
+    },
+    {
       "Sid": "WhatEksManagedNodeGroupsNeedOnYourBehalf",
       "Effect": "Allow",
       "Action": [
@@ -211,20 +245,6 @@
       "Condition": {
         "StringEquals": {
           "aws:RequestedRegion": "ap-south-2"
-        }
-      }
-    },
-    {
-      "Sid": "TheEksServiceLinkedRolesAFreshAccountDoesNotHaveYet",
-      "Effect": "Allow",
-      "Action": "iam:CreateServiceLinkedRole",
-      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
-      "Condition": {
-        "StringEquals": {
-          "iam:AWSServiceName": [
-            "eks.amazonaws.com",
-            "eks-nodegroup.amazonaws.com"
-          ]
         }
       }
     },
