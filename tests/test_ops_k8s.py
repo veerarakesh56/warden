@@ -227,6 +227,64 @@ def test_restoring_without_a_saved_spec_refuses_rather_than_guessing():
         OPS["k8s_restore_baseline"](_clients(), _target())
 
 
+class ModelRbac:
+    """RBAC the way the REAL client returns it and the REAL server accepts it.
+
+    ⛔ `read_cluster_role` returns a kubernetes client MODEL, not a dict - and a model's
+    `to_dict()` uses Python attribute names (`api_groups`). Sent back unchanged, the API server
+    ignores those as unknown fields, sees no `apiGroups`, and rejects the ClusterRole with 422 -
+    which is exactly how k8s-09 failed on EKS. FakeRbac returns camelCase dicts, so it could never
+    show this; this one reproduces both halves.
+    """
+
+    def __init__(self):
+        from kubernetes import client as k
+        self._k = k
+        self.rules = [
+            k.V1PolicyRule(api_groups=[""], resources=["pods"], verbs=["list"]),
+            k.V1PolicyRule(api_groups=[""], resources=["pods/log"], verbs=["get"]),
+            k.V1PolicyRule(api_groups=[""], resources=["events"], verbs=["list"]),
+            k.V1PolicyRule(api_groups=["apps"], resources=["deployments"], verbs=["get"]),
+        ]
+        self.patched: list[list[dict]] = []
+
+    def read_cluster_role(self, *, name):
+        return self._k.V1ClusterRole(rules=list(self.rules))
+
+    def patch_cluster_role(self, *, name, body):
+        for i, rule in enumerate(body["rules"]):
+            if not isinstance(rule, dict) or "apiGroups" not in rule:
+                raise ValueError(f"422: rules[{i}].apiGroups: Required value (got keys {sorted(rule)})")
+        self.patched.append(body["rules"])
+        return {}
+
+
+def test_revoking_log_access_sends_rules_the_api_server_accepts():
+    """⛔ THE k8s-09 FAILURE ON EKS: rules read as a client model came back as `api_groups`."""
+    rbac = ModelRbac()
+    target, clients = _target(), _clients(rbac=rbac)
+
+    OPS["k8s_revoke_log_access"](clients, target)
+
+    sent = rbac.patched[-1]
+    assert all("apiGroups" in r for r in sent)
+    assert not any("pods/log" in r["resources"] for r in sent), "log access was not removed"
+    assert len(sent) == 3
+
+
+def test_restoring_log_access_puts_back_exactly_the_original_rules():
+    rbac = ModelRbac()
+    target, clients = _target(), _clients(rbac=rbac)
+
+    OPS["k8s_revoke_log_access"](clients, target)
+    OPS["k8s_restore_log_access"](clients, target)
+
+    restored = rbac.patched[-1]
+    assert all("apiGroups" in r for r in restored)
+    assert [r["resources"] for r in restored] == [["pods"], ["pods/log"], ["events"], ["deployments"]]
+    assert restored[3]["apiGroups"] == ["apps"]
+
+
 # --------------------------------------------------------------------------- the other ops
 
 

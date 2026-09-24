@@ -203,7 +203,14 @@ def _to_dict(obj: Any) -> dict:
     if isinstance(obj, dict):
         return obj
     if hasattr(obj, "to_dict"):
-        return obj.to_dict()
+        # ⛔ NOT `obj.to_dict()`. That returns Python ATTRIBUTE names (`api_groups`,
+        # `resource_names`), not the API's field names (`apiGroups`). Anything read here and sent
+        # back in a patch then reaches the server with fields it does not know: k8s-09's revoke
+        # patched a ClusterRole whose rules had no `apiGroups` and got a 422, on EKS, mid-wave.
+        # The client's own serializer is the one that maps attribute -> API name.
+        from kubernetes.client import ApiClient
+
+        return ApiClient().sanitize_for_serialization(obj)
     data = getattr(obj, "data", None)
     if data is not None:
         import json
