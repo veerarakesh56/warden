@@ -554,6 +554,7 @@ def run(alert: Alert, *, llm: LLMClient | None = None, backend: FixtureBackend |
     return RunReport(
         alert=final["alert"],
         redaction_map_size=len(final.get("redaction_map", {})),
+        redaction_map=dict(final.get("redaction_map", {})),
         context=final.get("context", ContextBundle()),
         root_cause=final.get("root_cause"),
         proposal=final.get("proposal"),

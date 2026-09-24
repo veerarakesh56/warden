@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 from datetime import UTC, datetime
@@ -133,6 +134,9 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
         verdict=report.verdict,
         remediation=remediation,
         signatures=matches,
+        context=report.context,
+        redaction_map=report.redaction_map,
+        backend=os.environ.get("WARDEN_BACKEND"),
     )
     print("\n" + built.markdown)
 

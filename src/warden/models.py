@@ -211,6 +211,11 @@ class RunReport(BaseModel):
 
     alert: Alert
     redaction_map_size: int
+    # ⛔ The placeholder -> original map, so the human-facing report can show the model's text
+    # with real identifiers where the operator allows it. EXCLUDED from every serialisation
+    # (model_dump / model_dump_json / the --json report file): it holds every secret the redactor
+    # caught, and a report file is exactly the kind of thing that gets attached to a ticket.
+    redaction_map: dict[str, str] = Field(default_factory=dict, exclude=True, repr=False)
     context: ContextBundle
     root_cause: RootCause | None = None
     proposal: RemediationProposal | None = None

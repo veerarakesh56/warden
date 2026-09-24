@@ -64,6 +64,10 @@ ALLOWED_PATHS: dict[str, str] = {
         "not resemble a secret proves nothing.",
     "tests/integration/test_live_database.py":
         "a docstring listing localhost dev DSNs for the optional live-database run.",
+    "tests/test_reporting_evidence.py":
+        "fabricated secrets (a key-shaped string, a password, an account id) that the report tests "
+        "assert are NEVER revealed, even with identifiers switched on. Same reason as "
+        "test_redaction.py: a secret that does not look like one would make the assertion vacuous.",
     "tests/test_runner_db.py":
         "a fabricated DSN password that three assertions are ABOUT: that it never reaches the "
         "manifest, never reaches an argv, and is masked by redact(). A fixture without a password "

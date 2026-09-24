@@ -12,7 +12,7 @@ scored in [`docs/bench/`](docs/bench/README.md). **ECS:** 14 injected faults × 
 headline is 14 runs the gate should have stopped and did not — measured under 0.7.0, and 12 of those
 14 are refused by the gate as it stands now. **Managed EKS:** 10 faults × 3 runs, where 3 wrong
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
-own bugs, both disclosed. 787 tests and 26 evals (10 against a live Kubernetes cluster,
+own bugs, both disclosed. 806 tests and 26 evals (10 against a live Kubernetes cluster,
 12 against five real database engines), a 33-case mutation check that breaks the code on purpose
 and requires the suite to notice each one (33 caught, 0 survived), and CI that asserts the actual
 verdicts rather than the exit code.
