@@ -34,9 +34,16 @@ resource "aws_eks_cluster" "this" {
   role_arn = aws_iam_role.eks_cluster[0].arn
 
   vpc_config {
-    subnet_ids              = aws_subnet.public[*].id
-    endpoint_public_access  = true
-    endpoint_private_access = false
+    subnet_ids             = aws_subnet.public[*].id
+    endpoint_public_access = true
+    # ⛔ MUST be true while public_access_cidrs is locked to one address. Nodes reach the API server
+    # through whichever endpoint they can: with private access off they go out through the internet
+    # gateway, arrive from THEIR OWN public IP, are refused by public_access_cidrs, and the node group
+    # fails with "instances failed to join the kubernetes cluster" after ~20 billed minutes. With it
+    # on, in-VPC DNS resolves the endpoint to private addresses (enable_dns_hostnames in main.tf) and
+    # nodes never touch the public allow-list. Shipped as `false` until 2026-09-24; never caught
+    # because the node group never got far enough to try.
+    endpoint_private_access = true
     # The API endpoint is reachable from one address, not from the internet. This is the setting
     # people leave at 0.0.0.0/0 without noticing.
     public_access_cidrs = [var.my_ip_cidr]

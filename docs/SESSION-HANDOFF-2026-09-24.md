@@ -42,8 +42,38 @@ python scripts/apply_operator_policy.py \
 ```
 
 Run as `warden-operator` it fails with AccessDenied and changes nothing, which is the correct
-outcome. After it succeeds, `terraform apply` with `enable_eks=true` picks up where it stopped —
-the cluster takes ~7 minutes, the node group ~3.
+outcome. This machine has no admin profile (`aws configure list-profiles` shows only `default`,
+which IS the operator), so the console is the easy route:
+
+> IAM → Policies → `WardenProvingGroundBoundary` → Edit → JSON → add this statement → Save
+> (if it says 5 versions exist, let it delete the oldest non-default one)
+>
+> ```json
+> { "Sid": "CeilingReadServiceLinkedRoles", "Effect": "Allow",
+>   "Action": "iam:GetRole", "Resource": "arn:aws:iam::*:role/aws-service-role/*" }
+> ```
+
+After that, `terraform apply` with `enable_eks=true` builds everything: ~7 minutes for the cluster,
+~3 for the node.
+
+### Why there is no way round this from inside the boundary - every route was checked
+
+| Route to a worker node | Blocked by |
+|---|---|
+| Managed node group (what `eks.tf` uses) | `CreateNodegroup` calls `iam:GetRole` on the node-group service-linked role with the CALLER's credentials; the ceiling caps `GetRole` to `warden-pg-*` |
+| Self-managed EC2 node | the ceiling denies `ec2:RunInstances` outright (`DenyTheComputeThatWouldMakeAStolenKeyWorthStealing`) - so a leaked operator key cannot launch compute. EKS launching nodes on the operator's behalf is the design's intended way round that, which is why it is a managed node group |
+| Fargate profile | needs the `eks-fargate` service-linked role, which the ceiling's `CreateServiceLinkedRole` list does not include; and Fargate on EKS needs private subnets, i.e. a NAT gateway this proving ground deliberately does not pay for |
+
+Widening the ceiling from inside it would make it not a ceiling - and "WARDEN's operator runs under
+a boundary it cannot edit" is a claim this repo makes in public.
+
+### Fixed while checking: the node would never have joined anyway
+
+`eks.tf` had `endpoint_private_access = false` with `public_access_cidrs` locked to your IP. A node
+reaches the API server from its OWN public IP, which the allow-list refuses, so the node group
+would have failed with "instances failed to join the kubernetes cluster" after ~20 billed minutes.
+Private access is now on (the VPC already has DNS hostnames enabled, which it needs); `terraform
+plan` accepts it.
 
 ## What was done without you
 
