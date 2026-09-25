@@ -23,10 +23,10 @@ verdicts rather than the exit code.
 |---|---|
 | **Pipeline** | LangGraph: alert → evidence → redaction → RCA → typed proposal → deterministic gate |
 | **Safety** | 12 policies, closed action enum, verified redaction, token/USD budget, real tool timeouts |
-| **Evidence** | recorded fixtures · a live Kubernetes cluster · PostgreSQL, MySQL, Redis, MongoDB, SQL Server |
+| **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
 | **Remediation** | dry-run by default; opt-in live backends (restart/scale a Deployment, terminate stuck DB connections) behind their own least-privilege credentials |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
-| **Reporting** | redacted Markdown/JSON report with a promotion plan → Slack, Teams or any webhook |
+| **Reporting** | an incident report for every team - impact, what was read and when, diagnosis, detected patterns, risks before steps, a runbook with real names, per-team follow-ups - redacted, → Slack, Teams or any webhook |
 | **Integrations** | MCP server · OpenTelemetry GenAI conventions · Terraform ECS module |
 | **Models** | provider-agnostic: Gemini (free tier), Ollama (local), Anthropic, OpenAI-compatible |
 
@@ -183,9 +183,9 @@ WARDEN_BACKEND=k8s warden run --incident inc-002      # reads the cluster your k
 
 | | From | Note |
 |---|---|---|
-| **metrics** | pod status: restart counts, `OOMKilled` terminations, `CrashLoopBackOff`, readiness, memory limits | **Not a metrics server.** k3d does not ship one, so these are counts the kubelet already records, not CPU/memory %. They are also what an on-call engineer reads first |
+| **metrics** | pod status: restart counts, `OOMKilled` terminations, `CrashLoopBackOff`, readiness, memory limits, and the Deployment's desired replicas | **Not a metrics server** - clusters, EKS included, do not ship one by default, so these are counts the kubelet already records, not CPU/memory %. They are also what an on-call engineer reads first. A Deployment that exists with zero pods is reported as `pods_total=0` - evidence - not as a failed read |
 | **logs** | the events stream (`OOMKilling`, `BackOff`, `Unhealthy`…) then container log tails | events first — they are the headline |
-| **deploys** | the Deployment's `deployment.kubernetes.io/revision` and last Progressing time | reported only inside a window, so policy P5 is handed real evidence |
+| **deploys** | the Deployment's ReplicaSets: the current revision's images against the previous one's | a `rollout restart` changes no image and is not a deploy; reported only inside a 6 h window, so policy P5 is handed real evidence |
 
 **Read-only by construction.** The module uses only `list_*`, `read_*` and
 `read_namespaced_pod_log`; a test greps the source for any write verb. And **RBAC enforces the same
@@ -228,10 +228,16 @@ Two deployment paths, both included:
 - **ECS / Fargate** — the `terraform/` module: a task with a **read-only task role** and **all Linux
   capabilities dropped**, mirroring the k8s Job.
 
-**Scope:** the portability that makes EKS work — strict `restricted` admission and no cloud-API
-dependency — is CI-verified on k3d, which enforces the identical Pod Security standard. It has not
-been run against a live EKS cluster: the manifests are compliant and cluster-agnostic, not
-field-tested on managed EKS.
+**Measured on managed EKS.** The Kubernetes backend has read a live **Amazon EKS** cluster
+(ap-south-2, 30 runs across 10 injected faults - `docs/bench/wave2-2026-09-24T115746Z`) through a
+ServiceAccount token proved beforehand to allow five reads in one namespace and nothing else:
+secrets, `kube-system`, delete and scale were all refused. CI additionally runs every commit against
+a real cluster (k3d) that enforces the same `restricted` Pod Security standard, including the
+in-cluster Job below.
+
+**What has not been run on EKS, precisely:** in the benchmark WARDEN ran *outside* the cluster with
+that token; the in-cluster Job (`k8s/job.yaml`) and live remediation (`k8s/remediation-rbac.yaml`)
+have been run on k3d in CI, not yet inside EKS. GKE and AKS have not been run at all.
 
 ## AWS — reading a live account (CloudWatch + ECS)
 
@@ -347,7 +353,8 @@ backend that can perform it — Kubernetes actions to `KubernetesRemediationBack
 rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`. Its
 permission is a separate `warden-remediator` ServiceAccount (`k8s/remediation-rbac.yaml`, not in the
 default deploy) that can patch deployments and nothing else — proven both ways by `kubectl auth can-i`
-in CI, and the restart/scale proven against a live k3d cluster. The four-way gate is unchanged.
+in CI, and the restart/scale proven against a live k3d cluster (not yet executed on EKS - the
+benchmark measures what WARDEN proposes, and never lets it act). The four-way gate is unchanged.
 
 ## Databases — PostgreSQL, MySQL, Redis, MongoDB, SQL Server
 
@@ -394,6 +401,14 @@ else:
 
 Every engine is exercised against a real server in CI, not a stub: the `db` job runs all five as
 service containers and asserts a stuck connection is selected, terminated and gone.
+
+**PostgreSQL is measured on Amazon RDS.** Six injected faults x 3 runs on RDS for PostgreSQL 16.13
+(`docs/bench/wave3-2026-09-25T044307Z`): stuck transactions, a saturated pool, a 15-minute query, lock
+contention, and the database cut off by its security group. WARDEN read it as its own database user
+over SSL with no AWS credentials; every fault op was first run for real against the instance by
+`scripts/preflight_db_ops.py`. What that does not cover: WARDEN *executing* a termination on RDS (the
+benchmark lets it propose, never act), and the other four engines or Cloud SQL / Azure SQL on a
+managed service.
 
 ## Architecture
 
@@ -658,18 +673,23 @@ The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
 
 ## Limits, stated plainly
 
-- Evidence comes from recorded fixtures, a live Kubernetes cluster, or a live database. Wiring to
-  Loki/CloudWatch/Datadog is one class each, not done here.
+- Evidence comes from live AWS (CloudWatch Logs and metrics for ECS), a live Kubernetes cluster
+  (measured on EKS), a live database (measured on RDS PostgreSQL), or recorded fixtures. **Not read:**
+  CloudWatch for EKS or RDS (no Container Insights, no EKS control-plane logs, no RDS log exports), RDS
+  Performance Insights, and any CPU/memory/IOPS figure for either - each report says what was and
+  was not read. Loki and Datadog are one backend class each, not done here.
 - Remediation is **dry-run by default**. Live backends ship for Kubernetes (restart/scale) and for
-  databases (terminate stuck connections), and CI exercises both against real infrastructure — a k3d
-  cluster and all five engines as service containers. They stay off unless armed *and* the four-way
+  databases (terminate stuck connections), and CI exercises both against real infrastructure - a real
+  Kubernetes cluster (k3d) and all five engines as service containers. Neither has been executed
+  against EKS or RDS: the benchmark there measures what WARDEN proposes and never lets it act. They stay off unless armed *and* the four-way
   gate passes, and they deliberately do only those things. No rollback, failover, delete, schema
   change or FLUSH: those escalate to a human by policy, or are absent from the action enum entirely.
 - **Oracle is not supported** (a licensed, heavy client), and no database *failover* or schema change
   is offered at any tier — by design, not omission.
-- The database work runs against **containers**, not managed cloud services (RDS, Cloud SQL, Azure
-  SQL). The catalog views and statements are the engines' own, so they transfer — but "tested on RDS"
-  is a claim this repo has not earned.
+- **Managed databases: PostgreSQL on RDS is measured** (reading, 18 runs). MySQL, Redis, MongoDB and
+  SQL Server are exercised against real servers in CI containers, not on a managed service; Cloud SQL
+  and Azure SQL have not been run. The catalog views are the engines' own, so they should transfer -
+  but only the RDS PostgreSQL claim is earned.
 - Redaction is regex-based — a strong control against accidental leakage, not a guarantee against a
   determined adversary.
 - The eval suite tests deterministic behaviour, **not** live model quality.
@@ -689,7 +709,8 @@ The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
   from that same response (no extra API call, no extra IAM permission). **It has not been
   re-measured**: doing that means rebuilding the proving ground and running the wave again, so the
   numbers in `docs/bench/` still describe a tool that could not see this.
-- **The gate could not catch "nothing is wrong", and now catches most of it.** `no_action` used to
+- **The gate could not catch "nothing is wrong", and now catches most of it** (and, since
+  2026-09-25, `P12` escalates "nothing to do" whenever the evidence counts a broken thing). `no_action` used to
   skip every evidence policy, so a wrong "nothing to do" was never refused and never needed
   approval: 14 of 42 Wave 1 runs landed exactly there, two of them at 0.25 confidence while WARDEN's
   own `tool_errors` recorded that it could not read the logs. Since 0.8.0 only `escalate_to_human`

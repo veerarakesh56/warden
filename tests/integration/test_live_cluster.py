@@ -96,8 +96,13 @@ def test_gather_reports_no_tool_errors_against_a_healthy_api(backend, alert):
     assert not ctx.is_empty()
 
 
-def test_end_to_end_reaches_scale_up_held_for_a_human(backend, alert):
-    """The whole claim of the project, against a real cluster, in one assertion block."""
+def test_end_to_end_scale_up_on_an_oom_crash_loop_is_escalated_by_p11(backend, alert):
+    """The whole claim of the project, against a real cluster, in one assertion block.
+
+    The workload is one pod OOM-killed at startup, so every pod is failing and scaling out cannot
+    help: since 2026-09-25 P11 escalates the scale_up the mock model proposes. This asserted
+    approved_for_human until then - the exact shape of all three EKS runs the gate wrongly allowed.
+    """
     report = run(alert, llm=LLMClient(mock=True), backend=backend)
     gather_step = next(s for s in report.audit if s["node"] == "gather")
 
@@ -105,6 +110,7 @@ def test_end_to_end_reaches_scale_up_held_for_a_human(backend, alert):
     assert gather_step["tool_errors"] == []
     assert "oom" in report.root_cause.hypothesis.lower()
     assert report.proposal.action is ActionKind.scale_up
-    assert report.verdict.status is VerdictStatus.approved_for_human
+    assert report.verdict.status is VerdictStatus.escalated
+    assert report.verdict.policy_ids == ["P11-ACTION-CONTRADICTS-EVIDENCE"], report.verdict.policy_ids
     assert report.verdict.requires_approval is True
-    assert report.audit[-1]["node"] == "await_approval"
+    assert report.audit[-1]["node"] == "escalate"
