@@ -184,8 +184,8 @@ def gather(
                         # Error TEXT is scrubbed: a backend exception (a connection error naming a
                         # host/IP, a k8s message with pod content) would otherwise put a raw
                         # identifier into tool_errors (the audit trail) AND the span attribute
-                        # (exported to a third-party tracing backend) unredacted. The model never
-                        # sees tool_errors, but those two surfaces still must not carry a secret.
+                        # (exported to a third-party tracing backend) unredacted - and, since
+                        # 2026-09-25, into the model's prompt as READ FAILURES (graph.py).
                         bundle.tool_errors.append(redact(f"{name}: {p[len(PARTIAL_PREFIX):]}").text)
                     sp.set_attribute("warden.tool.partial_failures", len(partial))
                 setattr(bundle, sink, result)

@@ -55,6 +55,7 @@ The `kubernetes` client is an optional extra (`pip install -e ".[k8s]"`), import
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import UTC, datetime, timedelta
 
@@ -80,6 +81,9 @@ EVENT_LIMIT = int(os.environ.get("WARDEN_K8S_EVENT_LIMIT", "500"))
 INTERESTING_EVENT_REASONS = {
     "OOMKilled", "OOMKilling", "BackOff", "CrashLoopBackOff", "Unhealthy", "Failed",
     "FailedScheduling", "Evicted", "Killing", "FailedMount", "Preempting", "FailedCreate",
+    # A scale event is the evidence for "scaled to zero": without it, a Deployment someone scaled
+    # down looks exactly like one whose pods vanished.
+    "ScalingReplicaSet",
 }
 DEAD_PHASES = {"Failed", "Succeeded"}
 
@@ -131,14 +135,32 @@ class KubernetesBackend:
         ).items
         live = [p for p in items if (p.status.phase or "") not in DEAD_PHASES]
         if not live:
-            # Zero matches is a misconfiguration or a deleted workload, not a healthy service.
-            # Raising puts it in tool_errors, where the verifier can see it.
+            # Zero matches is a misconfiguration or a deleted workload, not a healthy service -
+            # UNLESS the Deployment exists: then zero pods is the state of the workload itself
+            # (scaled to 0, or pods that cannot be created), and that is evidence to report, not a
+            # failed read. On EKS k8s-07 the Deployment had been scaled to 0 and WARDEN reported
+            # only "no live pods match" as a tool error, with no metrics at all.
+            # A namespace typo still has no Deployment there, so it still raises.
+            if self._desired_replicas(alert) is not None:
+                return []
             raise ToolError(
                 f"no live pods match '{sel}' in namespace '{ns}' "
                 f"({len(items)} matched in total, {len(items) - len(live)} dead)"
             )
         live.sort(key=lambda p: p.metadata.creation_timestamp or _EPOCH, reverse=True)
         return live
+
+    def _desired_replicas(self, alert: Alert) -> int | None:
+        """spec.replicas of the alert's Deployment, or None when there is no such Deployment."""
+        try:
+            dep = self._apps.read_namespaced_deployment(
+                self._deployment(alert), self._namespace(alert), _request_timeout=REQUEST_TIMEOUT
+            )
+        except Exception as exc:
+            if getattr(exc, "status", None) == 404:
+                return None
+            raise
+        return int(getattr(dep.spec, "replicas", None) or 0)
 
     # ------------------------------------------------------------------ the contract
 
@@ -161,7 +183,7 @@ class KubernetesBackend:
             ).items
         except Exception as exc:  # noqa: BLE001 - partial failure, reported as such
             events = []
-            lines.append(f"{PARTIAL_PREFIX}events: {_one_line(exc)}")
+            lines.append(f"{PARTIAL_PREFIX}events: {_api_error(exc)}")
 
         for ev in sorted(events, key=lambda e: (e.last_timestamp or e.event_time or _EPOCH)):
             if ev.reason not in INTERESTING_EVENT_REASONS:
@@ -192,7 +214,7 @@ class KubernetesBackend:
                     text = _log_text(resp)
                 except Exception as exc:  # noqa: BLE001
                     lines.append(
-                        f"{PARTIAL_PREFIX}logs: {pod.metadata.name}/{container.name}: {_one_line(exc)}"
+                        f"{PARTIAL_PREFIX}{pod.metadata.name}/{container.name}: {_api_error(exc)}"
                     )
                     continue
                 for raw in text.splitlines():
@@ -245,6 +267,14 @@ class KubernetesBackend:
         }
         if mem_limit_mib is not None:  # omitted, never 0 - zero looks like "no limit"
             out["memory_limit_mib"] = mem_limit_mib
+        # How many replicas the Deployment ASKS for, next to how many exist and are ready. Omitted
+        # for a workload with no Deployment (bare pods, StatefulSets) rather than guessed.
+        try:
+            desired = self._desired_replicas(alert)
+        except Exception:  # noqa: BLE001 - an unreadable spec must not cost the pod counts above
+            desired = None
+        if desired is not None:
+            out["replicas_desired"] = float(desired)
         return out
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
@@ -324,6 +354,25 @@ def _images(rs) -> list[str]:
     spec = rs.spec.template.spec
     containers = list(getattr(spec, "init_containers", None) or []) + list(spec.containers or [])
     return sorted(c.image or "" for c in containers)
+
+
+def _api_error(exc) -> str:
+    """An API failure with the server's own reason, not just its status code.
+
+    A log read on a container that never started returns 400 with a body saying WHY ("container
+    ... is waiting to start: trying and failing to pull image"). `_one_line` kept only "(400)", so
+    on EKS k8s-04 the reason was dropped and the read counted as a bare tool failure.
+    """
+    status = getattr(exc, "status", None)
+    body = getattr(exc, "body", None)
+    if status is not None and body:
+        try:
+            message = json.loads(body).get("message")
+        except (ValueError, TypeError, AttributeError):
+            message = None
+        if message:
+            return f"({status}) {_one_line(message)}"
+    return _one_line(exc)
 
 
 def _one_line(value) -> str:

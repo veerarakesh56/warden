@@ -113,8 +113,9 @@ def _rs(revision, images, *, created=None, owner_uid="dep-uid"):
 
 
 class FakeApps:
-    def __init__(self, deployment="present", replicasets=(), status=None):
+    def __init__(self, deployment="present", replicasets=(), status=None, replicas=2):
         self._dep, self._rs, self._status = deployment, list(replicasets), status
+        self._replicas = replicas
 
     def read_namespaced_deployment(self, name, ns, **kw):
         assert "_request_timeout" in kw
@@ -122,7 +123,8 @@ class FakeApps:
             raise _ApiErr(self._status)
         if self._dep is None:
             raise _ApiErr(404)
-        return NS(metadata=NS(uid="dep-uid"), spec=NS(selector=NS(match_labels={"app": "checkout"})))
+        return NS(metadata=NS(uid="dep-uid"),
+                  spec=NS(replicas=self._replicas, selector=NS(match_labels={"app": "checkout"})))
 
     def list_namespaced_replica_set(self, ns, label_selector=None, **kw):
         assert "_request_timeout" in kw
@@ -195,8 +197,11 @@ def test_dead_pods_are_not_the_workload():
 
 def test_no_matching_pods_is_an_error_not_a_clean_bill_of_health():
     """Review finding: a typo in the namespace yielded six zero metrics that the verifier read as
-    'inspected, fine'. Zero pods means the backend inspected NOTHING."""
-    b = _backend(FakeCore(pods=[]))
+    'inspected, fine'. Zero pods means the backend inspected NOTHING.
+
+    A typo'd namespace has no Deployment in it either - that is what keeps this an error now that a
+    Deployment which exists with zero pods is reported as evidence instead."""
+    b = _backend(FakeCore(pods=[]), FakeApps(deployment=None))
     with pytest.raises(ToolError, match="no live pods match"):
         b.metrics(_alert())
     with pytest.raises(ToolError):
@@ -204,7 +209,7 @@ def test_no_matching_pods_is_an_error_not_a_clean_bill_of_health():
 
 
 def test_no_pods_reaches_the_verifier_as_a_tool_error():
-    ctx = gather(_alert(), _backend(FakeCore(pods=[])), timeout=2.0)
+    ctx = gather(_alert(), _backend(FakeCore(pods=[]), FakeApps(deployment=None)), timeout=2.0)
     assert any("no live pods match" in e for e in ctx.tool_errors)
     assert ctx.is_empty()
 
@@ -568,3 +573,48 @@ def test_memory_quantities_parse(q, mib):
 @pytest.mark.parametrize("q", ["lots", "", None])
 def test_unparseable_quantity_is_none(q):
     assert _to_mib(q) is None
+
+
+
+# --------------------------------------------------------------------------- zero pods, API reasons
+
+
+def test_a_deployment_scaled_to_zero_is_evidence_not_a_failed_read():
+    """⛔ EKS k8s-07: the Deployment was scaled to 0 and WARDEN reported only "no live pods match" as
+    a tool error, with no metrics at all - "scaled to zero" and "outage" looked identical."""
+    b = _backend(FakeCore(pods=[], events=[_event("ScalingReplicaSet",
+                                                  "Scaled down replica set checkout-7b to 0 from 2",
+                                                  kind="Deployment", name="checkout")]),
+                 FakeApps(replicas=0))
+    m = b.metrics(_alert())
+    assert m["pods_total"] == 0 and m["pods_ready"] == 0 and m["replicas_desired"] == 0
+    lines = b.logs(_alert())
+    assert any("ScalingReplicaSet" in ln and "to 0" in ln for ln in lines), lines
+
+
+def test_desired_replicas_sit_next_to_the_pods_that_exist():
+    m = _backend(FakeCore(pods=[_pod()]), FakeApps(replicas=3)).metrics(_alert())
+    assert m["pods_total"] == 1 and m["replicas_desired"] == 3
+
+
+def test_an_api_failure_keeps_the_servers_reason():
+    """⛔ EKS k8s-04: a log read on a container that never started returned 400 with the reason in
+    the body; only "(400)" survived, so the read looked like a bare tool failure."""
+    from warden.k8s_backend import _api_error
+
+    class ApiException(Exception):
+        status = 400
+        body = ('{"kind":"Status","message":"container \\"checkout\\" in pod \\"checkout-54c9\\" is '
+                'waiting to start: trying and failing to pull image","reason":"BadRequest","code":400}')
+
+        def __str__(self):
+            return "(400)\nReason: Bad Request\nHTTP response headers: ..."
+
+    out = _api_error(ApiException())
+    assert out.startswith("(400) ") and "trying and failing to pull image" in out
+
+
+def test_a_failed_log_read_is_not_labelled_logs_twice():
+    core = FakeCore(pods=[_pod()], log_raises=True)
+    ctx = gather(_alert(), _backend(core), timeout=2.0)
+    assert ctx.tool_errors and not any("logs: logs:" in e for e in ctx.tool_errors), ctx.tool_errors
