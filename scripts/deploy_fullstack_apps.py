@@ -267,6 +267,10 @@ def bootstrap_db(stack: dict, aws, connect=None) -> None:
 # --------------------------------------------------------------------------- cli
 
 def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
+    # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", type=pathlib.Path, default=DEFAULT_OUT)
     p.add_argument("--stack", type=pathlib.Path, help="default: <out>/stack.json")

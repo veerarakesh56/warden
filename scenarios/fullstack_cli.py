@@ -851,6 +851,10 @@ def _parse_arm(pairs: list[str]) -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
+    # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     ap = argparse.ArgumentParser(prog="scenarios.fullstack_cli", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", default=os.environ.get("WARDEN_FS_RUN") or str(DEFAULT_RUN))
@@ -885,8 +889,6 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
     s.add_argument("--arm", action="append", default=[], metavar="K=V")
     sub.add_parser("_hold").add_argument("fault")
     args = ap.parse_args(argv)
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
     run = pathlib.Path(args.run).expanduser()
     run.mkdir(parents=True, exist_ok=True)

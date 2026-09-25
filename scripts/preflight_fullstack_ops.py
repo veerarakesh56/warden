@@ -31,6 +31,10 @@ DEFAULT_RUN = pathlib.Path.home() / "warden-bench-runs" / "wave4-preflight"
 
 
 def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
+    # ⛔ FIRST, before argparse can print: a Windows console is cp1252 and this output carries ⛔/⚠.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="really inject and revert (default: plan only)")
     ap.add_argument("--only", default="", help="comma-separated fault ids, e.g. fs-07,fs-19")

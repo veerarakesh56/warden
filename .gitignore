@@ -40,3 +40,6 @@ crash.*.log
 # out of place in a public repository. The engineering handoff that IS publishable lives at
 # docs/SESSION-HANDOFF-*.md and is committed.
 NEXT-SESSION-PROMPT.txt
+
+# Claude Code per-user settings (local permissions) - never committed.
+.claude/settings.local.json
