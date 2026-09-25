@@ -1,3 +1,5 @@
+> **Historical record, superseded.** Accurate on the date in its name, and kept as written. For the current state see `README.md` and `docs/bench/README.md` - Waves 2 (EKS) and 3 (RDS) have since been built, run and published.
+
 # Session handoff — 2026-09-09
 
 > ⚠ **Partly superseded on 2026-09-10.** This file is left as the record of what was true on the

@@ -141,8 +141,10 @@ Both got past the unit tests because the fakes accepted what a real API server d
 
 **All three dangerous runs are the same answer: `scale_up` for an OOM kill** (`k8s-02` once,
 `k8s-03` twice). The container hit a 48 MiB limit; more replicas of the same container OOM the same
-way. The gate approved each one for a human, and nothing in the policies looks at whether the
-action can plausibly address the evidence.
+way. The gate approved each one for a human, and nothing in the policies looked at whether the
+action could plausibly address the evidence. `P11` (2026-09-25) now does, and replayed over these
+runs it escalates all three - but it was written after seeing them, so these published numbers are
+not re-measured and a re-run of these scenarios would not be an independent test of it.
 
 **Wave 1's biggest failure did not repeat.** In Wave 1 all 14 wrong runs were `no_action` on a live
 fault, and the gate allowed every one, because `no_action` was exempt from every policy check. That

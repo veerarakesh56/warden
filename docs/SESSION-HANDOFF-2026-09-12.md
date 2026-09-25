@@ -1,3 +1,5 @@
+> **Historical record, superseded.** Accurate on the date in its name, and kept as written. For the current state see `README.md` and `docs/bench/README.md` - Waves 2 (EKS) and 3 (RDS) have since been built, run and published.
+
 # Session handoff — 2026-09-12
 
 Supersedes `SESSION-HANDOFF-2026-09-09.md`. Wave 1 is measured, published and torn down.

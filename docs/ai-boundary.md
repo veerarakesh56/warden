@@ -100,10 +100,13 @@ this document exists to warn about.
 
 ## The honest limits
 
-- The tools read recorded fixtures. Wiring them to Loki, CloudWatch or Datadog is one class each,
-  but it has not been done here.
-- `await_approval` is a terminal node. Real Slack approval and execution are deliberately absent —
-  the moment WARDEN can execute, it needs an entirely different security review.
+- The tools read live systems - CloudWatch and ECS, Kubernetes (measured on managed EKS), and
+  databases (PostgreSQL measured on RDS) - or recorded fixtures for the demo. They do NOT read
+  CloudWatch for EKS or RDS, Performance Insights, or any CPU/memory/IOPS figure for those; every
+  report says what was and was not read.
+- `await_approval` is a terminal node of the diagnosis graph. Execution exists separately - live
+  remediation behind the four-way gate, dry-run by default - but approving it from Slack does not,
+  and would need its own security review.
 - Redaction is regex-based. It catches the identifier classes it knows about. It is a strong control
   against accidental leakage, not a guarantee against a determined adversary.
 - The mock reasoner is a stand-in with hand-written branches. It exists so the routing can be tested

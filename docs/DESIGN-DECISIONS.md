@@ -158,9 +158,11 @@ validated on a clean runner.
 
 ## 15. What is next
 
-1. **Wire a real backend.** `FixtureBackend` → CloudWatch/Loki. One class; the boundary exists for it.
+1. ~~Wire a real backend.~~ Done: CloudWatch + ECS, Kubernetes and five database engines, measured
+   on ECS, managed EKS and RDS PostgreSQL (`docs/bench/`). Still open: CloudWatch for EKS and RDS
+   (Container Insights, control-plane logs, RDS log exports, Performance Insights), Loki, Datadog.
 2. **A scored nightly eval** against the live model, separate from the deterministic CI gate.
-3. **Slack approval + execution**, behind its own security review — the moment WARDEN can act, the
-   threat model changes completely.
+3. **Slack approval.** Execution exists (live remediation behind the four-way gate, dry-run by
+   default); approving it from Slack does not, and needs its own security review.
 4. **Narrow the IAM read policy** from `resources = ["*"]` with condition blocks.
 5. **Checkpointing.** LangGraph supports it; the graph is written for it but it is not enabled.

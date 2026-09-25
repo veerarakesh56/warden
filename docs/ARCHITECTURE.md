@@ -50,16 +50,20 @@ whole reason the boundary exists, and v0.5.0 cashed it in:
 | Backend | `WARDEN_BACKEND` | Reads | Proven by |
 |---|---|---|---|
 | `FixtureBackend` | `fixture` (default) | recorded incidents shipped as package data | the eval gate, every push |
-| `KubernetesBackend` | `k8s` | a live cluster — pod status, events, log tails, Deployment revision | the CI `k8s` job: a real k3d cluster, a pod that really OOM-kills, RBAC checked both ways, run from outside *and* inside the cluster |
+| `KubernetesBackend` | `k8s` | a live cluster — pod status, events, log tails, the Deployment's replicas and ReplicaSet images | **measured on managed EKS** (Wave 2, 30 runs, read-only ServiceAccount); and on every push, the CI `k8s` job: a real k3d cluster, a pod that really OOM-kills, RBAC checked both ways, run from outside *and* inside the cluster |
+| `AwsBackend` | `aws` | **CloudWatch Logs** (alert time ± 15 min), CloudWatch metrics (± 10 min), ECS service state, deployments and failed tasks, task-definition changes | **measured on a real AWS account** (Wave 1, ECS/Fargate) |
+| `DatabaseBackend` | `postgres` · `mysql` · `redis` · `mongo` · `mssql` | the engine's own session views: connections, idle-in-transaction, long queries, lock waits, replica lag; for PostgreSQL also the sessions behind the counts | **PostgreSQL measured on Amazon RDS** (Wave 3, 18 runs); all five engines against real servers in the CI `db` job |
 
-Adding Loki, CloudWatch or Datadog is the same shape: one class, three methods, passed to
-`run(alert, backend=...)`.
+Adding Loki or Datadog - or CloudWatch for EKS and RDS, which is not read today - is the same
+shape: one class, three methods, passed to `run(alert, backend=...)`.
 
 ### `KubernetesBackend` — what it is honest about
 
 - **Metrics are pod-status counts, not utilisation.** `restart_count`, `oom_killed_count`,
   `crashloop_count`, `pods_ready`, `pods_total`, `memory_limit_mib`. A metrics server would add
-  CPU/memory %, and k3d does not ship one. The counts are also what an on-call engineer reads first.
+  CPU/memory %, and clusters do not ship one by default - EKS included. The counts are also what an
+  on-call engineer reads first. `replicas_desired` sits next to them, and a Deployment that exists with
+  zero pods is reported as evidence (`pods_total = 0`), not as a failed read.
 - **Read-only by construction.** Only `list_*`, `read_*`, `read_namespaced_pod_log`. A test greps
   the module for any write verb. The mutation check adds a `delete_namespaced_pod` call and asserts
   the suite goes red.
