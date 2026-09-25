@@ -188,3 +188,14 @@ def test_a_kubernetes_rollback_names_the_real_namespace_and_deployment():
 def test_every_action_renders_without_error(action):
     rep = _report(show=False, action=action)[0]
     assert rep.markdown.startswith("# WARDEN incident report")
+
+
+def test_bare_placeholders_the_model_wrote_are_revealed_but_never_secrets():
+    """The model wrote `(EMAIL_1, EMAIL_2)` without brackets on a real run; the operator who asked
+    to see identifiers got placeholders anyway."""
+    from warden.reporting import reveal_identifiers
+
+    mapping = {"<EMAIL_1>": "a@corp.io", "<EMAIL_12>": "l@corp.io", "<SECRET_1>": "hunter2"}
+    text = "users EMAIL_1, EMAIL_12 and <EMAIL_1>; creds SECRET_1 / <SECRET_1>"
+    out = reveal_identifiers(text, mapping)
+    assert out == "users a@corp.io, l@corp.io and a@corp.io; creds SECRET_1 / <SECRET_1>"

@@ -221,13 +221,21 @@ def reveal_identifiers(obj, mapping: dict[str, str]):
     WARDEN_REPORT_SHOW_IDENTIFIERS did nothing at all in Slack.
     """
     reveal = {p: v for p, v in mapping.items() if p[1:].rsplit("_", 1)[0] in REVEALABLE}
+    # The model sometimes drops the angle brackets and writes `EMAIL_1`. Those bare forms are
+    # revealed too - whole words only, identifier labels only, so `<SECRET_1>` stays masked.
+    reveal.update({p[1:-1]: v for p, v in list(reveal.items())})
     return _reveal(obj, reveal) if reveal else obj
 
 
 def _reveal(obj, reveal: dict[str, str]):
     if isinstance(obj, str):
-        for placeholder, original in reveal.items():
-            obj = obj.replace(placeholder, original)
+        # Bracketed placeholders first, then bare ones on word boundaries: `EMAIL_1` must not match
+        # inside `EMAIL_12`, and must not eat the middle of an already-bracketed token.
+        for placeholder, original in sorted(reveal.items(), key=lambda kv: (not kv[0].startswith("<"), -len(kv[0]))):
+            if placeholder.startswith("<"):
+                obj = obj.replace(placeholder, original)
+            else:
+                obj = re.sub(rf"(?<![<\w]){re.escape(placeholder)}(?![\w>])", lambda _m, o=original: o, obj)
         return obj
     if isinstance(obj, list):
         return [_reveal(x, reveal) for x in obj]
@@ -469,7 +477,7 @@ def _render_markdown(d: dict) -> str:
                 lines.append("```")
                 lines.extend(rb[key])
                 lines.append("```")
-        if d["verdict"] and d["verdict"]["status"] != "auto_safe":
+        if rb["fix"] and d["verdict"] and d["verdict"]["status"] != "auto_safe":
             lines.append("_The gate did not clear this action on its own - a human decides whether to run the fix._")
         lines.append("")
 
