@@ -115,7 +115,34 @@ def symptoms(context) -> list[str]:
         out.append(f"{n} quer{'ies have' if n != 1 else 'y has'} been running over 60s")
     if m.get("replica_lag_seconds", 0) >= REPLICA_LAG_SYMPTOM_S:
         out.append(f"replica lag is {m['replica_lag_seconds']:.0f}s")
+    # The full stack (docs/WAVE4-CONTRACT.md B): counts of failures and explicit off states, each
+    # possibly suffixed `__<short>` per resource. Only counts > 0 and states == 0 - no thresholds.
+    for base, what, broken in _STACK_SYMPTOMS:
+        for key, value in m.items():
+            if (key == base or key.startswith(base + "__")) and broken(value):
+                who = f" ({key.split('__', 1)[1]})" if "__" in key else ""
+                out.append(f"{what}{who}: {value:.0f}")
     return out
+
+
+_POSITIVE, _OFF = (lambda v: v > 0), (lambda v: v == 0)
+_STACK_SYMPTOMS = (
+    ("lambda_errors", "Lambda errors", _POSITIVE),
+    ("lambda_throttles", "Lambda throttles", _POSITIVE),
+    ("lambda_reserved_concurrency", "Lambda reserved concurrency is", _OFF),
+    ("lambda_esm_enabled", "queue event source mapping enabled", _OFF),
+    ("dlq_visible", "messages in the dead-letter queue", _POSITIVE),
+    ("ddb_read_throttle_events", "DynamoDB read throttle events", _POSITIVE),
+    ("ddb_write_throttle_events", "DynamoDB write throttle events", _POSITIVE),
+    ("ddb_throttled_requests", "DynamoDB throttled requests", _POSITIVE),
+    ("alb_unhealthy_hosts", "unhealthy load balancer targets", _POSITIVE),
+    ("alb_target_5xx", "target 5xx responses", _POSITIVE),
+    ("apigw_5xx", "API Gateway 5xx responses", _POSITIVE),
+    ("rule_enabled", "scheduled rule enabled", _OFF),
+    ("redis_evictions", "cache evictions", _POSITIVE),
+    ("sns_notifications_failed", "failed SNS deliveries", _POSITIVE),
+    ("aurora_deadlocks", "Aurora deadlocks", _POSITIVE),
+)
 
 
 def _every_pod_failing(context) -> bool:

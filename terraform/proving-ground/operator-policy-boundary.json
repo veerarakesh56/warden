@@ -26,7 +26,9 @@
         "secretsmanager:GetSecretValue",
         "secretsmanager:ListSecrets",
         "kms:DescribeKey",
-        "kms:ListAliases"
+        "kms:ListAliases",
+        "elasticache:Describe*",
+        "apigateway:GET"
       ],
       "Resource": "*",
       "Condition": {
@@ -77,6 +79,45 @@
       "Resource": "arn:aws:iam::*:role/warden-pg-*"
     },
     {
+      "Sid": "CeilingFullstackServicesOnWardenPgFsOnly",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:*",
+        "sns:*",
+        "secretsmanager:*",
+        "elasticache:*",
+        "apigateway:*"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-pg-fs-*",
+        "arn:aws:sns:ap-south-2:*:warden-pg-fs-*",
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-pg-fs-*",
+        "arn:aws:elasticache:ap-south-2:*:*:warden-pg-fs-*",
+        "arn:aws:elasticache:ap-south-2:*:parametergroup:default.*",
+        "arn:aws:apigateway:ap-south-2::/apis*",
+        "arn:aws:apigateway:ap-south-2::/tags/*"
+      ]
+    },
+    {
+      "Sid": "CeilingKmsOnlyThroughSecretsManagerAndRds",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:CreateGrant"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "secretsmanager.ap-south-2.amazonaws.com",
+            "rds.ap-south-2.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
       "Sid": "CeilingEditOnlyTheOperatorsOwnPolicy",
       "Effect": "Allow",
       "Action": [
@@ -102,7 +143,8 @@
             "eks-nodegroup.amazonaws.com",
             "rds.amazonaws.com",
             "elasticloadbalancing.amazonaws.com",
-            "autoscaling.amazonaws.com"
+            "autoscaling.amazonaws.com",
+            "elasticache.amazonaws.com"
           ]
         }
       }
@@ -228,19 +270,30 @@
       ]
     },
     {
-      "Sid": "DenyDestroyingKeysSecretsTablesAndSnapshots",
+      "Sid": "DenyDestroyingKeysAndSnapshots",
       "Effect": "Deny",
       "Action": [
         "kms:ScheduleKeyDeletion",
         "kms:DisableKey",
-        "secretsmanager:DeleteSecret",
-        "secretsmanager:PutSecretValue",
-        "dynamodb:DeleteTable",
-        "rds:DeleteDBCluster",
         "rds:DeleteDBSnapshot",
         "rds:DeleteDBClusterSnapshot"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "DenyDestroyingSecretsTablesAndClustersThatAreNotOurs",
+      "Effect": "Deny",
+      "Action": [
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:PutSecretValue",
+        "dynamodb:DeleteTable",
+        "rds:DeleteDBCluster"
+      ],
+      "NotResource": [
+        "arn:aws:secretsmanager:*:*:secret:warden-pg-fs-*",
+        "arn:aws:dynamodb:*:*:table/warden-pg-fs-*",
+        "arn:aws:rds:*:*:cluster:warden-pg-fs-*"
+      ]
     },
     {
       "Sid": "DenyTheComputeThatWouldMakeAStolenKeyWorthStealing",

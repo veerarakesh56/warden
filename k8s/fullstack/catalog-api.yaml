@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-api
+  namespace: shop
+  labels:
+    app: catalog-api
+    project: warden-fullstack
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog-api
+  # One pod at a time and no surge: a rollout that cannot become ready shows as 1 of 2 ready
+  # instead of hiding behind the old pods.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  template:
+    metadata:
+      labels:
+        app: catalog-api
+        project: warden-fullstack
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: __IMAGE__
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ROLE
+              value: catalog-api
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-secret
+                  key: DB_PASSWORD
+          envFrom:
+            - configMapRef:
+                name: catalog-config
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-api
+  namespace: shop
+  labels:
+    project: warden-fullstack
+spec:
+  selector:
+    app: catalog-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: catalog-api
+  namespace: shop
+  labels:
+    project: warden-fullstack
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: catalog-api
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: catalog-api
+  namespace: shop
+  labels:
+    project: warden-fullstack
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: catalog-api

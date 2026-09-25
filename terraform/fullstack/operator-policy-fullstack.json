@@ -1,0 +1,267 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Ec2ReadCreateAndNodeGroupTemplatesInRegion",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ec2:CreateVpc",
+        "ec2:CreateSubnet",
+        "ec2:CreateInternetGateway",
+        "ec2:AttachInternetGateway",
+        "ec2:CreateRouteTable",
+        "ec2:CreateRoute",
+        "ec2:AssociateRouteTable",
+        "ec2:CreateVpcEndpoint",
+        "ec2:CreateSecurityGroup",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:CreateTags",
+        "ec2:CreateLaunchTemplate",
+        "ec2:CreateLaunchTemplateVersion",
+        "ec2:DeleteLaunchTemplate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "Ec2ChangeOnlyWhatCarriesTheProjectTag",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DeleteVpc",
+        "ec2:ModifyVpcAttribute",
+        "ec2:DeleteSubnet",
+        "ec2:ModifySubnetAttribute",
+        "ec2:DeleteInternetGateway",
+        "ec2:DetachInternetGateway",
+        "ec2:DeleteRouteTable",
+        "ec2:DeleteRoute",
+        "ec2:DisassociateRouteTable",
+        "ec2:DeleteVpcEndpoints",
+        "ec2:ModifyVpcEndpoint",
+        "ec2:DeleteSecurityGroup",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
+        "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
+        "ec2:DeleteTags"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Project": "warden-fullstack"
+        }
+      }
+    },
+    {
+      "Sid": "ReadsThatTakeNoResource",
+      "Effect": "Allow",
+      "Action": [
+        "rds:Describe*",
+        "elasticache:Describe*",
+        "elasticloadbalancing:Describe*",
+        "ecs:Describe*",
+        "ecs:List*",
+        "eks:Describe*",
+        "eks:List*",
+        "autoscaling:Describe*",
+        "logs:Describe*",
+        "cloudwatch:Describe*",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "lambda:List*",
+        "lambda:GetAccountSettings",
+        "ecr:GetAuthorizationToken",
+        "apigateway:GET",
+        "tag:GetResources"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "EventSourceMappingsAndTaskDefinitionsTakeNoName",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateEventSourceMapping",
+        "lambda:GetEventSourceMapping",
+        "lambda:UpdateEventSourceMapping",
+        "lambda:DeleteEventSourceMapping",
+        "ecs:RegisterTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:DeleteTaskDefinitions"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "FullControlOfWardenPgFsNamedResourcesOnly",
+      "Effect": "Allow",
+      "Action": [
+        "rds:*",
+        "elasticache:*",
+        "dynamodb:*",
+        "sqs:*",
+        "sns:*",
+        "secretsmanager:*",
+        "lambda:*",
+        "events:*",
+        "logs:*",
+        "cloudwatch:*",
+        "ecr:*",
+        "ecs:*",
+        "eks:*",
+        "elasticloadbalancing:*",
+        "apigateway:*"
+      ],
+      "Resource": [
+        "arn:aws:rds:ap-south-2:*:cluster:warden-pg-fs-*",
+        "arn:aws:rds:ap-south-2:*:db:warden-pg-fs-*",
+        "arn:aws:rds:ap-south-2:*:subgrp:warden-pg-fs-*",
+        "arn:aws:rds:ap-south-2:*:cluster-pg:default.*",
+        "arn:aws:rds:ap-south-2:*:pg:default.*",
+        "arn:aws:rds:ap-south-2:*:og:default:*",
+        "arn:aws:elasticache:ap-south-2:*:*:warden-pg-fs-*",
+        "arn:aws:elasticache:ap-south-2:*:parametergroup:default.*",
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-pg-fs-*",
+        "arn:aws:sqs:ap-south-2:*:warden-pg-fs-*",
+        "arn:aws:sns:ap-south-2:*:warden-pg-fs-*",
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-pg-fs-*",
+        "arn:aws:lambda:ap-south-2:*:function:warden-pg-fs-*",
+        "arn:aws:events:ap-south-2:*:rule/warden-pg-fs-*",
+        "arn:aws:logs:ap-south-2:*:log-group:/aws/lambda/warden-pg-fs-*",
+        "arn:aws:logs:ap-south-2:*:log-group:/ecs/warden-pg-fs-*",
+        "arn:aws:logs:ap-south-2:*:log-group:/aws/containerinsights/warden-pg-fs-*",
+        "arn:aws:cloudwatch:ap-south-2:*:alarm:warden-pg-fs-*",
+        "arn:aws:ecr:ap-south-2:*:repository/warden-pg-fs-*",
+        "arn:aws:ecs:ap-south-2:*:*/warden-pg-fs-*",
+        "arn:aws:eks:ap-south-2:*:*/warden-pg-fs-*",
+        "arn:aws:elasticloadbalancing:ap-south-2:*:*/warden-pg-fs-*",
+        "arn:aws:apigateway:ap-south-2::/apis*",
+        "arn:aws:apigateway:ap-south-2::/tags/*"
+      ]
+    },
+    {
+      "Sid": "IamOnlyForWardenPgFsRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePermissionsBoundary",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::*:role/warden-pg-fs-*"
+    },
+    {
+      "Sid": "PassWardenPgFsRolesOnlyToTheseServices",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/warden-pg-fs-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "ecs-tasks.amazonaws.com",
+            "eks.amazonaws.com",
+            "ec2.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "AssumeOnlyTheFullstackReader",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/warden-pg-fs-reader"
+    },
+    {
+      "Sid": "ServiceLinkedRolesAFreshAccountLacks",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "elasticache.amazonaws.com",
+            "rds.amazonaws.com",
+            "eks.amazonaws.com",
+            "eks-nodegroup.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "ecs.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
+    },
+    {
+      "Sid": "KmsOnlyThroughSecretsManagerAndRds",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:CreateGrant",
+        "kms:DescribeKey"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "secretsmanager.ap-south-2.amazonaws.com",
+            "rds.ap-south-2.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "WhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "TerraformStateAndStackJsonBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::warden-pg-fs-tfstate-*",
+        "arn:aws:s3:::warden-pg-fs-tfstate-*/*"
+      ]
+    }
+  ]
+}

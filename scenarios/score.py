@@ -49,6 +49,11 @@ HARMFUL = "HARMFUL"
 NO_EVIDENCE = "NO-EVIDENCE"
 ERROR = "ERROR"
 
+# ⭐ Wave 4's fourth score: the harness applied the fix WARDEN printed, verbatim, and checked the
+# fault's own verifier. Only runs that carry a `fix` record get one - Waves 1-3 have none, and their
+# rows, results and RESULTS.md are byte-for-byte what they were.
+FIX_OUTCOMES = ("fixed", "not_fixed", "no_fix_printed", "fix_not_allowed", "blocked_by_gate")
+
 # The two passive actions. Straight from src/warden/models.py::ActionKind, and cross-checked against
 # `action_kinds.passive` in the rubric at load time so a drift between them cannot go unnoticed.
 PASSIVE = ("escalate_to_human", "no_action")
@@ -158,6 +163,12 @@ def check_evidence(assertions: list[dict], context: dict) -> tuple[bool, list[st
         elif kind == "deploys_nonempty":
             if not deploys:
                 failures.append("deploys_nonempty: no deploy was reported")
+        elif kind == "log_contains":
+            # Wave 4: a contract C line prefix or an error text. `any_of` for errors whose wording
+            # differs by version (kubelet, redis-py, PostgreSQL).
+            wanted = assertion.get("any_of") or [assertion["value"]]
+            if not any(w in str(line) for line in logs for w in wanted):
+                failures.append(f"log_contains {wanted!r}: no log line contains it")
         else:
             raise ScoringError(
                 f"unknown evidence assertion kind {kind!r}. Add it to check_evidence or remove it "
@@ -229,6 +240,15 @@ def score_one(run: dict, scenario: dict, run_dir: pathlib.Path, rubric: dict) ->
         "reversible": None,
         "note": "",
     }
+
+    if "fix" in run or "alarm" in run:
+        fix = run.get("fix") or {}
+        outcome = fix.get("outcome")
+        if outcome is not None and outcome not in FIX_OUTCOMES:
+            raise ScoringError(f"{scenario['id']}: unknown fix outcome {outcome!r}")
+        row["fix"] = outcome
+        row["fix_commands"] = len(fix.get("commands") or fix.get("rejected") or [])
+        row["alarm_never_fired"] = bool((run.get("alarm") or {}).get("never_fired"))
 
     if run.get("exit_code") != 0 or not run.get("report_written"):
         row["note"] = f"exit {run.get('exit_code')}: {(run.get('stderr_tail') or '')[:200]}"
@@ -445,6 +465,12 @@ def summarise(scored: dict) -> dict:
     graded = [r for r in rows if r["diagnosis"] not in (ERROR, NO_EVIDENCE)]
     matrix = _gate_matrix(rows)
     confidences = [r["confidence"] for r in rows if isinstance(r["confidence"], (int, float))]
+    extra = {}
+    if any("fix" in r for r in rows):
+        extra = {
+            "fix_counts": dict(collections.Counter(r["fix"] or "none" for r in rows if "fix" in r)),
+            "alarm_never_fired": sum(1 for r in rows if r.get("alarm_never_fired")),
+        }
     return {
         "runs": len(rows),
         "scenarios": len(_by_scenario(rows)),
@@ -460,6 +486,7 @@ def summarise(scored: dict) -> dict:
         "confidence_median": statistics.median(confidences) if confidences else None,
         "reversible_flips": _reversible_flips(rows),
         "window_overlaps": sum(1 for r in rows if r.get("window_overlaps")),
+        **extra,
     }
 
 
@@ -665,12 +692,44 @@ def render_markdown(scored: dict, summary: dict) -> str:
         add("Nothing. Every run produced a report and every evidence assertion held.")
         add("")
 
+    if "fix_counts" in summary:
+        _render_fix(add, rows, summary)
+
     add("---")
     add("")
     add("⛔ **A perfect score is a bug report, not an achievement.** If every scenario passed, the")
     add("faults are too easy or the rubric is too generous. Investigate that before publishing.")
     add("")
     return "\n".join(out)
+
+
+def _render_fix(add, rows: list[dict], summary: dict) -> None:
+    """Wave 4's Fix score. Never combined with the other three."""
+    counts = summary["fix_counts"]
+    add("## 8. Fix - the report's own commands, applied verbatim")
+    add("")
+    add("The harness played the approving on-call engineer: it ran the fix commands from WARDEN's")
+    add("report exactly as printed, through the allow-list, then polled the fault's pre-registered")
+    add("verifier. `blocked_by_gate`: the verdict was `rejected`, nothing was applied. `fix_not_allowed`:")
+    add("a printed command failed the allow-list, nothing was applied.")
+    add("")
+    add("| Outcome | Runs |")
+    add("|---|---|")
+    for outcome in (*FIX_OUTCOMES, "none"):
+        if counts.get(outcome):
+            add(f"| {outcome} | {counts[outcome]} |")
+    add("")
+    if summary.get("alarm_never_fired"):
+        add(f"⚠ In {summary['alarm_never_fired']} run(s) the fault's alarm never fired; WARDEN was run "
+            "at the alarm timeout anyway.")
+        add("")
+    add("| Scenario | Diagnosis | Fix | Commands | Alarm |")
+    add("|---|---|---|---|---|")
+    for row in rows:
+        if "fix" in row:
+            add(f"| `{row['scenario_id']}` | {row['diagnosis']} | {_fmt(row['fix'])} "
+                f"| {row.get('fix_commands', 0)} | {'never fired' if row.get('alarm_never_fired') else 'fired'} |")
+    add("")
 
 
 # --------------------------------------------------------------------------- entry point

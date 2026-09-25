@@ -1,0 +1,16 @@
+# The `shop` namespace of Wave 4. Applied by the APPS pipeline, never by terraform:
+#
+#     python scripts/deploy_fullstack_apps.py deploy k8s
+#
+# which renders this with `kubectl kustomize`, replaces the __PLACEHOLDERS__ from stack.json and the
+# warden-pg-fs-db-app secret (values go over stdin, never argv), refuses to apply if any placeholder
+# is left, and also applies the ClusterRole `warden-readonly` from k8s/rbac.yaml (one source for
+# the six reads; kustomize will not load a file outside this directory).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - config.yaml
+  - catalog-api.yaml
+  - cart-worker.yaml
+  - warden-rbac.yaml

@@ -404,6 +404,9 @@ class AwsBackend:
             "revision": str(revision),
             "image": ",".join(current_images),
             "previous_image": ",".join(previous_images),
+            # family:revision of both sides, so a rollback command can be aimed without a lookup.
+            "task_definition": f"{family}:{revision}",
+            "previous_task_definition": previous_ref,
             # WHEN IT REACHED PRODUCTION. Deliberately the deployment's creation, not the task
             # definition's registration: the question policy P5 asks is "did something change in
             # front of users near this alert?", and a revision can sit registered for weeks.

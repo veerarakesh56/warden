@@ -272,7 +272,49 @@ def _reveal(obj, reveal: dict[str, str]):
 # --------------------------------------------------------------------------- evidence sources
 
 
-def _sources(alert: Alert, backend: str | None) -> list[str]:
+# What each stack reader reads (docs/WAVE4-FULLSTACK.md section 5), keyed by the alert label that names it.
+_STACK_READERS = (
+    ("lambda", ("lambda",), ("configuration, concurrency, aliases and versions, event source mappings, CloudWatch "
+                           "Errors/Throttles/Invocations/Duration, /aws/lambda logs, and the deployed source of a "
+                           "traceback frame")),
+    ("sqs", ("sqs",), "queue and DLQ attributes, age of the oldest message"),
+    ("dynamodb", ("dynamodb_table",), "table description, CloudWatch throttles and consumed capacity"),
+    ("elasticache", ("elasticache",), "replication group, nodes and events, CloudWatch memory/evictions/connections"),
+    ("aurora", ("aurora_cluster",), ("cluster, instances and events, CloudWatch, and pg_stat_activity on the writer "
+                                   "and reader as a pg_monitor user")),
+    ("alb", ("alb_target_group",), "target health and reasons, CloudWatch 5xx/unhealthy hosts/response time"),
+    ("apigw", ("apigw",), "API and integrations, CloudWatch 5xx/4xx/latency"),
+    ("ecs", ("ecs_service", "ecs_cluster"), "service, deployments, stopped tasks, task definitions, CloudWatch Logs"),
+    ("k8s", ("deployment", "namespace"), "pod status, events, container logs and previous logs, rollout history"),
+    ("secret", ("secret",), "secret METADATA only (last changed / rotated), never the value"),
+    ("sns", ("sns_topic",), "topic attributes, subscriptions, CloudWatch failed/delivered notifications"),
+    ("eventbridge", ("eventbridge_rule",), "rule state and schedule, invocations"),
+)
+
+
+def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
+    """Each component read, and each reader that failed (a failed reader is never silence - P8)."""
+    from .aws_backend import LOG_LOOKBACK, METRIC_WINDOW, RECENT_DEPLOY_WINDOW
+
+    errors = [e.removeprefix("TOOL-PARTIAL ") for e in ctx.tool_errors]
+    errors += [ln.removeprefix("TOOL-PARTIAL ") for ln in ctx.logs if ln.startswith("TOOL-PARTIAL ")]
+    out = [(f"Full-stack backend: one isolated reader per component the alert names. Logs: alert time ± "
+            f"{int(LOG_LOOKBACK.total_seconds() // 60)} min; CloudWatch metrics: alert time ± "
+            f"{int(METRIC_WINDOW.total_seconds() // 60)} min; deploys and secret changes: the last "
+            f"{int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h.")]
+    for reader, labels, what in _STACK_READERS:
+        names = ", ".join(f"`{alert.labels[k]}`" for k in labels if alert.labels.get(k))
+        if not names:
+            continue
+        # Reader names as the stack backend writes them: `lambda/<fn> logs`, `aurora-db-writer`, `sqs/<q>`.
+        failed = [e for e in errors if re.match(rf"{reader}\b", e)]
+        out.append(f"{reader} {names}: {what}" + (f" - **FAILED**: `{failed[0][:160]}`" if failed else " - read."))
+    out.append("Not read: Redis itself (VPC-only - through the ElastiCache API and CloudWatch only); the source of "
+               "container workloads (inside images WARDEN does not pull).")
+    return out
+
+
+def _sources(alert: Alert, backend: str | None, ctx: ContextBundle | None = None) -> list[str]:
     """Where the evidence came from and over what window - said in every report.
 
     The windows are the backends' own constants, imported rather than restated, so this cannot drift
@@ -281,6 +323,8 @@ def _sources(alert: Alert, backend: str | None) -> list[str]:
     leaves that unsaid lets a reader assume it did.
     """
     name = (backend or os.environ.get("WARDEN_BACKEND") or "fixture").lower()
+    if name == "stack":
+        return _stack_sources(alert, ctx or ContextBundle())
     started = _parse_ts(alert.started_at or "")
     if name in ("aws", "ecs"):
         from .aws_backend import LOG_LOOKBACK, METRIC_WINDOW, RECENT_DEPLOY_WINDOW
@@ -316,6 +360,43 @@ def _sources(alert: Alert, backend: str | None) -> list[str]:
             "Not read: database logs, CloudWatch, Performance Insights, CPU/memory/IOPS.",
         ]
     return ["A recorded demo incident (fixture) - not read from a live system."]
+
+
+_SQL = re.compile(r"(?i)^(SELECT|CREATE|ALTER|DO|WITH|SET)\b")
+# A shell variable set by an earlier step (`$NS`, `$PREV`): the command is not aimed on its own.
+_SHELL_VAR = re.compile(r"\$\{?[A-Za-z_]")
+
+
+def _fix_commands(commands: list[str], source: str) -> list[dict]:
+    """Contract E entries. A comment-only line is not a command; one that needs a variable an earlier
+    step sets cannot be run as printed, so it is not emitted (the runbook still shows it in context)."""
+    out = []
+    for cmd in commands:
+        # `$((CUR+1))` is shell arithmetic on a variable, not a lookup: blanking "$(" first let it through.
+        if cmd.lstrip().startswith(("--", "#")) or "$((" in cmd or _SHELL_VAR.search(cmd.replace("$(", "")):
+            continue
+        entry = {"kind": "sql" if _SQL.match(cmd.lstrip()) else "shell", "command": cmd, "source": source}
+        if entry["kind"] == "sql":
+            entry["target"] = "writer"
+        out.append(entry)
+    return out
+
+
+_CODE = re.compile(r"CODE (\S+) (\S+?):(\d+) in (\S+): (.*)")
+
+
+def _code_findings(logs: list[str]) -> list[dict]:
+    """Traceback frames the stack backend resolved into the deployed source (CODE + SOURCE lines)."""
+    found = []
+    for line in logs:
+        mt = _CODE.match(line)
+        if not mt:
+            continue
+        fn, path, lineno, func, exc = mt.groups()
+        prefix = f"SOURCE {fn} {path}:"
+        found.append({"function": fn, "file": path, "line": int(lineno), "in": func, "exception": exc,
+                      "source": [ln[len(prefix):] for ln in logs if ln.startswith(prefix)]})
+    return found
 
 
 _NEXT_STEP = {
@@ -369,7 +450,7 @@ def build_report(
             "summary": alert.summary,
             "started_at": alert.started_at,
         },
-        "sources": _sources(alert, backend),
+        "sources": _sources(alert, backend, ctx),
         "impact": symptoms(ctx),
         "error_lines": sum(1 for ln in ctx.logs if _IMPORTANT.search(ln)),
         "matched_signatures": [
@@ -379,6 +460,8 @@ def build_report(
             for m in signatures
         ],
         "patterns": [dataclasses.asdict(p) for p in patterns],
+        "code": _code_findings(ctx.logs),
+        "fix_commands": [],
         "root_cause": None,
         "evidence": {
             "metrics": dict(ctx.metrics),
@@ -431,6 +514,9 @@ def build_report(
         pids = [p for p, _ in affected.get("pid", [])]
         rb = build_runbook(alert, proposal.action, backend=backend, pids=pids, context=ctx)
         data["runbook"] = dataclasses.asdict(rb)
+        data["fix_commands"] = _fix_commands(rb.fix, "runbook")
+    for pat in patterns:
+        data["fix_commands"] += _fix_commands(pat.fix, f"pattern:{pat.key}")
     if verdict:
         data["verdict"] = {
             "status": verdict.status.value,
@@ -540,6 +626,17 @@ def _render_markdown(d: dict) -> str:
             lines.append(f"  {pat['likely_cause']}")
         lines.append("")
 
+    for c in d.get("code") or []:
+        lines.append(f"## Code-level finding  ({c['function']}, from its deployed package)")
+        lines.append(f"- **`{c['file']}:{c['line']}`** in `{c['in']}`: `{c['exception']}`")
+        if c["source"]:
+            lines.append("```python")
+            lines.extend(c["source"])
+            lines.append("```")
+        lines.append(f"- **Developers**: start at `{c['file']}:{c['line']}` in `{c['in']}` ({c['function']})"
+                     + (" - the line marked `>|` is the one that raised." if c["source"] else "."))
+        lines.append("")
+
     if d["matched_signatures"]:
         lines.append("## Known incident signatures that fit")
         for s in d["matched_signatures"]:
@@ -633,6 +730,14 @@ def _render_markdown(d: dict) -> str:
             elif key == "fix" and rb["confirm"]:
                 # Steps stay numbered 1-2-3: a runbook that jumped from 1 to 3 read as a lost page.
                 lines.append(f"**{title}** - no command printed; see the note at the top of this runbook.")
+        lines.append("")
+
+    if d.get("fix_commands"):
+        lines.append("## Fix - exact commands  (in order; nothing here has been run)")
+        for i, f in enumerate(d["fix_commands"], 1):
+            where = f" on the {f['target']}" if f.get("target") else ""
+            lines.append(f"{i}. `{f['source']}` - {f['kind']}{where}")
+            _code(lines, [f["command"]])
         lines.append("")
 
     # ---- follow-ups by team

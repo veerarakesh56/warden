@@ -1,0 +1,94 @@
+# APPS pipeline for the Wave 4 stack: the code that runs on it (Lambdas, the container image,
+# k8s/fullstack). Independent of the infra pipeline: it reads stack.json, never terraform.
+#
+# push / pull_request: lint, unit tests, build every artifact (zips + image). No credentials.
+# workflow_dispatch:   deploy lambdas | ecs | k8s | all through GitHub OIDC - see infra.yml for
+#                      the one-time owner setup (role warden-pg-fs-ci, bucket, `fullstack` env).
+#                      The EKS API must admit the runner: WARDEN_FS_EKS_PUBLIC_CIDRS, and the CI
+#                      role in WARDEN_FS_EKS_ADMINS (infra.yml).
+# bootstrap-db is NOT here: Aurora admits the operator IP only, so it runs from that machine.
+name: apps
+
+on:
+  push:
+    paths:
+      - "scenarios/fullstack/**"
+      - "k8s/fullstack/**"
+      - "scripts/deploy_fullstack_apps.py"
+      - "tests/test_deploy_fullstack_apps.py"
+      - "tests/test_fullstack_infra.py"
+      - ".github/workflows/apps.yml"
+  pull_request:
+    paths:
+      - "scenarios/fullstack/**"
+      - "k8s/fullstack/**"
+      - "scripts/deploy_fullstack_apps.py"
+      - "tests/test_deploy_fullstack_apps.py"
+      - "tests/test_fullstack_infra.py"
+      - ".github/workflows/apps.yml"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "what to deploy"
+        type: choice
+        options: [lambdas, ecs, k8s, all]
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apps-fullstack
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff pytest pyyaml "psycopg[binary]" redis boto3
+      - run: ruff check scenarios/fullstack scripts/deploy_fullstack_apps.py tests/test_deploy_fullstack_apps.py
+      - run: python -m compileall -q scenarios/fullstack
+      # test_fullstack_infra also checks the k8s manifests and the apps' SQL/handlers.
+      - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py -q
+      - name: build artifacts (zips + image)
+        run: python scripts/deploy_fullstack_apps.py --out "$RUNNER_TEMP/build" build --tag "${GITHUB_SHA::12}"
+      - name: render k8s/fullstack
+        run: kubectl kustomize k8s/fullstack > /dev/null
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    needs: check
+    runs-on: ubuntu-latest
+    environment: fullstack
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TARGET: ${{ inputs.target }}
+      BUCKET: ${{ vars.WARDEN_FS_STATE_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml "psycopg[binary]" boto3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.WARDEN_FS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-2
+      - name: fetch stack.json (published by the infra pipeline)
+        run: aws s3 cp "s3://$BUCKET/fullstack/stack.json" "$RUNNER_TEMP/build/stack.json" --only-show-errors
+      - name: build and deploy
+        run: |
+          OUT="$RUNNER_TEMP/build"
+          if [ "$TARGET" != "all" ]; then
+            python scripts/deploy_fullstack_apps.py --out "$OUT" build --tag "${GITHUB_SHA::12}"
+          fi
+          python scripts/deploy_fullstack_apps.py --out "$OUT" deploy "$TARGET" --tag "${GITHUB_SHA::12}"
+      - name: publish stack.json (deploy ecs adds ecs_baseline_task_definition for the harness)
+        if: env.TARGET == 'ecs' || env.TARGET == 'all'
+        run: aws s3 cp "$RUNNER_TEMP/build/stack.json" "s3://$BUCKET/fullstack/stack.json" --only-show-errors

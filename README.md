@@ -14,7 +14,7 @@ headline is 14 runs the gate should have stopped and did not — measured under 
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
 own bugs, both disclosed. **RDS PostgreSQL:** 6 scenarios (5 faults + 1 healthy control) × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
-count it. 1056 tests plus 23 opt-in live-infrastructure tests (10 against a live Kubernetes
+count it. 2007 tests plus 23 opt-in live-infrastructure tests (10 against a live Kubernetes
 cluster, 13 against five real database engines), 26 evals, a 35-case mutation check that breaks the code on purpose
 and requires the suite to notice each one (35 caught, 0 survived), and CI that asserts the actual
 verdicts rather than the exit code.
@@ -877,6 +877,8 @@ WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest tests/integra
 times as a four-action read-only role, and grades evidence, diagnosis and the gate **separately**.
 The rubric is committed before the run and its hash is recorded in each run's manifest. Both runs
 are in [`docs/bench/`](docs/bench/README.md) and the scorer is `scenarios/score.py` — re-score them offline, no AWS needed.
+
+**Wave 4 - the full stack - is designed and built, not yet run.** Aurora (writer + reader), EKS, ECS behind an ALB, Lambda behind API Gateway, SQS with DLQs, SNS, DynamoDB, ElastiCache Redis, Secrets Manager and EventBridge in one VPC, broken in 27 ways (code, configuration, capacity, IAM/network, database). It adds a fourth score: whether the fix WARDEN printed, applied exactly as printed, removes the fault. Fault list, pass criteria and scoring are registered in [`docs/WAVE4-FULLSTACK.md`](docs/WAVE4-FULLSTACK.md) before any run; no Wave 4 number exists yet.
 
 The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
 

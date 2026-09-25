@@ -23,8 +23,11 @@ from __future__ import annotations
 
 import math
 import os
+import re
+from collections import Counter
 from dataclasses import dataclass, field
 
+from . import playbook as pb
 from .models import ActionKind, Alert, ContextBundle
 
 # Which platform each WARDEN_BACKEND value reads from.
@@ -54,7 +57,14 @@ class Runbook:
 
 def platform_for(alert: Alert, action: ActionKind, backend: str | None = None,
                  context: ContextBundle | None = None) -> tuple[str, str]:
-    """(platform, basis) - kubernetes | ecs | postgres | unknown, and how that was decided."""
+    """(platform, basis) - kubernetes | ecs | postgres | unknown, and how that was decided.
+
+    For the full stack (Wave 4): also lambda | dynamodb | aurora | elasticache | sqs | sns | eventbridge |
+    alb | apigw, decided from the evidence - every alert of an application carries the same labels,
+    so the labels alone never say which component broke.
+    """
+    if _is_stack(alert, backend):
+        return _stack_platform(alert, action, context or ContextBundle())
     if action in (ActionKind.terminate_connections, ActionKind.failover_replica):
         return "postgres", f"{action.value} is a database action"
     name = (backend or os.environ.get("WARDEN_BACKEND") or "").lower()
@@ -71,9 +81,17 @@ def platform_for(alert: Alert, action: ActionKind, backend: str | None = None,
     return "unknown", "nothing in the alert or the evidence names the platform"
 
 
-def _current_replicas(context: ContextBundle | None) -> int | None:
+def _current_replicas(context: ContextBundle | None, platform: str, dep: str | None = None) -> int | None:
+    """The CURRENT count for this platform's workload, from the evidence - or None.
+
+    ⛔ Per platform: in a stack alert both an ECS service and Deployments are read, and ECS's count
+    must never be taken from a Deployment's (or the reverse). A Deployment's metrics carry the
+    `__<deployment>` suffix when several are read (contract B)."""
     m = context.metrics if context else {}
-    for key in ("replicas_desired", "tasks_desired", "pods_total"):
+    keys = (("tasks_desired",) if platform == "ecs" else
+            tuple(k for key in ("replicas_desired", "pods_total")
+                  for k in ((f"{key}__{dep}",) if dep else ()) + (key,)))
+    for key in keys:
         if key in m:
             return int(m[key])
     return None
@@ -82,12 +100,19 @@ def _current_replicas(context: ContextBundle | None) -> int | None:
 def build_runbook(alert: Alert, action: ActionKind, *, backend: str | None = None,
                   pids: list[str] | None = None, context: ContextBundle | None = None) -> Runbook:
     platform, basis = platform_for(alert, action, backend, context)
-    shown = platform if platform != "unknown" else "kubernetes"
+    stack = _is_stack(alert, backend)
+    shown = platform if platform != "unknown" or stack else "kubernetes"
     rb = Runbook(platform=platform, basis=basis)
+    ctx = context or ContextBundle()
     if platform == "unknown":
-        rb.note = ("The platform could not be identified from the alert or the evidence, so these "
+        rb.note = ("WARDEN could not tell which component of the stack failed, so it prints no runbook "
+                   "commands; the detected patterns' fix commands (if any) are aimed at what the evidence names."
+                   if stack else
+                   "The platform could not be identified from the alert or the evidence, so these "
                    "commands assume Kubernetes. Confirm that before running anything.")
-    if shown == "kubernetes":
+    if stack and shown in ("kubernetes", "ecs"):
+        (_stack_k8s if shown == "kubernetes" else _stack_ecs)(rb, alert, action, ctx, [])
+    elif shown == "kubernetes":
         _kubernetes(rb, alert, action, context)
         if (backend or os.environ.get("WARDEN_BACKEND") or "").lower() in ("k8s", "kubernetes"):
             # WARDEN read events, container status, the crashed containers' output and the rollout
@@ -100,6 +125,13 @@ def build_runbook(alert: Alert, action: ActionKind, *, backend: str | None = Non
         _ecs(rb, alert, action, context)
     elif shown == "postgres":
         _postgres(rb, alert, action, pids or [])
+    elif shown in _STACK_BUILDERS:
+        _STACK_BUILDERS[shown](rb, alert, action, ctx, pids or [])
+    elif shown != "unknown":
+        _reads_only(rb, alert, shown, action)
+    if stack:
+        for key in ("check", "fix", "confirm", "undo"):
+            setattr(rb, key, [pb.regioned(c) for c in getattr(rb, key)])
     return rb
 
 
@@ -147,7 +179,7 @@ def _kubernetes(rb: Runbook, alert: Alert, action: ActionKind, context: ContextB
         rb.fix = [f"{k} rollout restart deploy/{dep}"]
         rb.confirm = [f"{k} rollout status deploy/{dep} --timeout=5m", look[1]]
     elif action in (ActionKind.scale_up, ActionKind.scale_down):
-        cur = _current_replicas(context)
+        cur = _current_replicas(context, "kubernetes", dep)
         hpa = f"{k} get hpa -o wide   # if an HPA manages {dep}, change ITS min/max - a manual scale is overridden"
         if cur is not None:
             target = (max(cur + 1, math.ceil(cur * 1.5)) if action is ActionKind.scale_up
@@ -222,7 +254,7 @@ def _ecs(rb: Runbook, alert: Alert, action: ActionKind, context: ContextBundle |
         rb.fix = [f"aws ecs update-service --cluster {c} --service {svc} --force-new-deployment"]
         rb.confirm = [f"aws ecs wait services-stable {a}"]
     elif action in (ActionKind.scale_up, ActionKind.scale_down):
-        cur = _current_replicas(context)
+        cur = _current_replicas(context, "ecs")
         if cur is not None:
             target = max(cur + 1, math.ceil(cur * 1.5)) if action is ActionKind.scale_up else max(1, cur - 1)
             rb.fix = [(f"aws ecs update-service --cluster {c} --service {svc} --desired-count {target}"
@@ -305,3 +337,226 @@ def _postgres(rb: Runbook, alert: Alert, action: ActionKind, pids: list[str]) ->
                        "\"DBInstances[].[DBInstanceIdentifier,MultiAZ,ReadReplicaSourceDBInstanceIdentifier]\" "
                        "--output table")
         rb.confirm = ["SELECT pg_is_in_recovery();   -- false on the new primary"]
+
+
+# --------------------------------------------------------------------------- the full stack (Wave 4)
+#
+# One alert per application, the same labels whatever broke (docs/WAVE4-FULLSTACK.md section 4):
+# the component to act on is decided from the evidence - the deploy in the window, the throttling
+# metric, the component whose log lines carry the errors. Every aws command gets the region WARDEN
+# read (playbook.regioned); every name comes from a label or a contract line (docs/WAVE4-CONTRACT.md).
+
+_STACK_LABELS = frozenset({"lambda", "sqs", "dynamodb_table", "elasticache", "aurora_cluster", "alb_target_group",
+                           "apigw", "ecs_cluster", "sns_topic", "eventbridge_rule"})
+_KIND = {"lambda": "lambda", "ecs": "ecs", "k8s": "kubernetes"}
+_BAD = re.compile(r"(?i)error|exception|traceback|fail|timed out|denied|back-?off|oom|killed|refused|unhealthy")
+
+
+def _is_stack(alert: Alert, backend: str | None) -> bool:
+    name = (backend or os.environ.get("WARDEN_BACKEND") or "").lower()
+    return name == "stack" or bool(_STACK_LABELS & alert.labels.keys())
+
+
+def _failing(ctx: ContextBundle) -> Counter:
+    """(kind, name) of each component, by how many error-looking lines its logs carry."""
+    return Counter(src for ln in ctx.logs if _BAD.search(ln) and (src := pb._source_of(ln)))
+
+
+def _stack_platform(alert: Alert, action: ActionKind, ctx: ContextBundle) -> tuple[str, str]:
+    labels, m = alert.labels, ctx.metrics
+    if action in (ActionKind.terminate_connections, ActionKind.failover_replica):
+        if "aurora_cluster" in labels:
+            return "aurora", f"{action.value} is a database action; the alert names Aurora cluster {labels['aurora_cluster']}"
+        return "postgres", f"{action.value} is a database action"
+    if action is ActionKind.clear_cache and "elasticache" in labels:
+        return "elasticache", "clear_cache acts on the cache the alert names"
+    if action in (ActionKind.scale_up, ActionKind.scale_down):
+        if any(v > 0 for v in pb._ddb_throttles(m).values()):
+            return "dynamodb", "DynamoDB throttling is in the evidence"
+        if (any(v > 0 for _, v in pb._per(m, "lambda_throttles"))
+                or any(v == 0 for _, v in pb._per(m, "lambda_reserved_concurrency"))):
+            return "lambda", "Lambda throttling is in the evidence"
+    if action is ActionKind.rollback_deploy:
+        d = next((d for d in ctx.recent_deploys if d.get("kind") in _KIND), None)
+        if d:
+            return _KIND[d["kind"]], f"the deploy in the window is {d['kind']} `{d.get('service', '?')}`"
+    top = _failing(ctx).most_common(1)
+    if top:
+        (kind, name), n = top[0]
+        return _KIND[kind], f"most error lines ({n}) come from {kind} `{name}`"
+    for metric, plat in (("alb_unhealthy_hosts", "alb"), ("apigw_5xx", "apigw"), ("dlq_visible", "sqs"),
+                         ("sns_notifications_failed", "sns"), ("redis_evictions", "elasticache")):
+        if any(v > 0 for _, v in pb._per(m, metric)):
+            return plat, f"{metric} > 0 in the evidence"
+    if any(v == 0 for _, v in pb._per(m, "lambda_esm_enabled")) or pb._first(ctx, "ESM ", "State=Disabled"):
+        return "lambda", "a Lambda's queue event source mapping is disabled"
+    if any(v == 0 for _, v in pb._per(m, "rule_enabled")):
+        return "eventbridge", "rule_enabled = 0 in the evidence"
+    return "unknown", "nothing in the evidence says which component of the stack failed"
+
+
+def _stack_fn(alert: Alert, ctx: ContextBundle) -> str | None:
+    d = pb._deploy(ctx, "lambda")
+    if d:
+        return d.get("service")
+    for (kind, name), _ in _failing(ctx).most_common():
+        if kind == "lambda":
+            return name
+    for base in ("lambda_throttles", "lambda_reserved_concurrency"):
+        for short, v in pb._per(ctx.metrics, base):
+            if (v > 0) == (base == "lambda_throttles"):
+                return pb._named(alert, "lambda", short)
+    return pb._named(alert, "lambda", None)
+
+
+def _lambda(rb: Runbook, alert: Alert, action: ActionKind, ctx: ContextBundle, pids: list[str]) -> None:
+    fn = _stack_fn(alert, ctx)
+    if not fn:
+        rb.note = "WARDEN cannot tell which Lambda function to act on from the evidence, so it prints no commands."
+        return
+    rb.checked_by_warden = True   # the stack backend read configuration, versions and logs at alert time
+    rb.check = [(f"aws lambda get-function-configuration --function-name {fn} "
+                "--query '{Timeout:Timeout,Memory:MemorySize,Version:Version,State:State}'"),
+                f"aws lambda get-function-concurrency --function-name {fn}",
+                f"aws lambda list-aliases --function-name {fn}",
+                f"aws lambda list-versions-by-function --function-name {fn} --query 'Versions[-5:].[Version,LastModified]'"]
+    tail = f"aws logs tail /aws/lambda/{fn} --since 5m"
+    if action is ActionKind.rollback_deploy:
+        rb.risk = [("Moving an alias is instant and affects every new invocation through it; in-flight ones finish "
+                   "on the version they started on."),
+                   "Reversible: pointing the alias back at the version it left undoes it."]
+        rb.fix, why = pb._alias_rollback(ctx, fn)
+        d = pb._deploy(ctx, "lambda", fn) or {}
+        alias = pb._alias(pb._config(ctx, fn)) or d.get("alias")
+        if rb.fix and str(d.get("version", "")).isdigit():
+            rb.undo = [f"aws lambda update-alias --function-name {fn} --name {alias} --function-version {d['version']}"]
+        if not rb.fix:
+            rb.note = why
+        rb.confirm = [f"aws lambda get-alias --function-name {fn} --name {alias}" if alias else rb.check[2], tail]
+    elif action is ActionKind.scale_up:
+        rb.risk = [("Reserved concurrency is taken from the account's pool: other functions can be throttled if "
+                   "the account runs short. The account always keeps 10 unreserved."),
+                   "More concurrency means more load downstream (database connections, table capacity)."]
+        rb.fix, why, rb.undo = pb.lambda_concurrency(alert, ctx, fn)
+        rb.note = why
+        rb.confirm = [f"aws lambda get-function-concurrency --function-name {fn}", tail]
+    else:
+        rb.note = (f"`{action.value}` has no Lambda equivalent WARDEN prints: a function has no pods or replicas. "
+                   "The detected patterns' fix commands are aimed at the cause.")
+
+
+def _dynamodb(rb: Runbook, alert: Alert, action: ActionKind, ctx: ContextBundle, pids: list[str]) -> None:
+    tline = pb._first(ctx, "TABLE ")
+    table = tline.split()[1] if tline else alert.labels.get("dynamodb_table", "")
+    rb.checked_by_warden = True
+    describe = (f"aws dynamodb describe-table --table-name {table} "
+                "--query 'Table.[TableStatus,BillingModeSummary.BillingMode,ProvisionedThroughput]'")
+    rb.check = [describe] if table else []
+    if action is ActionKind.scale_up:
+        rb.risk = ["Higher provisioned throughput costs more for every hour it stays.",
+                   ("DynamoDB limits how many times a day capacity can be DECREASED: the undo below may be refused "
+                   "if decreases were used up today.")]
+        rb.fix, why, rb.undo = pb.ddb_capacity(ctx)
+        rb.note = why
+        rb.confirm = [describe]
+    else:
+        rb.note = f"`{action.value}` has no DynamoDB command WARDEN prints; raising capacity is `scale_up`."
+
+
+def _aurora(rb: Runbook, alert: Alert, action: ActionKind, ctx: ContextBundle, pids: list[str]) -> None:
+    _postgres(rb, alert, action, pids)
+    cl = pb._first(ctx, "CLUSTER aurora ")
+    kv = pb._kv(cl) if cl else {}
+    cluster = cl.split()[2] if cl else alert.labels.get("aurora_cluster", "")
+    members = (f"aws rds describe-db-clusters --db-cluster-identifier {cluster} "
+               "--query 'DBClusters[0].DBClusterMembers[].[DBInstanceIdentifier,IsClusterWriter]' --output table")
+    rb.check = [members, *rb.check]
+    if action is not ActionKind.failover_replica:
+        return
+    readers = [r for r in kv.get("readers", "[]").strip("[]").split(",") if r]
+    writer = kv.get("writer", "")
+    rb.risk = [
+        "Writes are unavailable for the switch (typically under a minute on Aurora); clients must reconnect.",
+        ("Aurora replicas share the cluster's storage: committed data is not lost. But the instances swap roles - "
+         "anything pinned to an INSTANCE endpoint (not the cluster endpoint) will then write to a reader."),
+        "Not reversible by a command: failing back is a second failover with the same costs.",
+    ]
+    rb.check = [members, "SELECT pg_is_in_recovery();   -- on each endpoint: true on readers"]
+    if cluster and len(readers) == 1 and writer:
+        rb.fix = [(f"aws rds failover-db-cluster --db-cluster-identifier {cluster} "
+                  f"--target-db-instance-identifier {readers[0]}")]
+        rb.undo = [(f"aws rds failover-db-cluster --db-cluster-identifier {cluster} "
+                   f"--target-db-instance-identifier {writer}")]
+        rb.note = ""
+    else:
+        rb.fix = []
+        rb.note = ("WARDEN prints no failover command: the CLUSTER line does not name exactly one reader to promote"
+                   + (f" (readers: {', '.join(readers)})" if readers else "") + ". An irreversible action is not "
+                   "aimed by guesswork.")
+    rb.confirm = [members]
+
+
+def _stack_k8s(rb: Runbook, alert: Alert, action: ActionKind, ctx: ContextBundle, pids: list[str]) -> None:
+    target = next(((n.split("/", 1)) for (k, n), _ in _failing(ctx).most_common() if k == "k8s" and "/" in n), None)
+    target = target or pb._k8s_target(alert, None)
+    if not target:
+        rb.note = "WARDEN cannot tell which Deployment failed from the evidence, so it prints no commands."
+        return
+    ns, dep = target
+    narrowed = alert.model_copy(update={"labels": {**alert.labels, "namespace": ns, "deployment": dep,
+                                                   "selector": alert.labels.get("selector", f"app={dep}")}})
+    metrics = {k: v for k, v in ctx.metrics.items() if "__" not in k}
+    metrics.update({k.split("__", 1)[0]: v for k, v in ctx.metrics.items() if k.endswith(f"__{dep}")})
+    _kubernetes(rb, narrowed, action, ctx.model_copy(update={"metrics": metrics}))
+    already = ("get events", "describe pods", "logs deploy/")
+    rb.check = [c for c in rb.check if not any(a in c for a in already)]
+    rb.checked_by_warden = True
+
+
+def _stack_ecs(rb: Runbook, alert: Alert, action: ActionKind, ctx: ContextBundle, pids: list[str]) -> None:
+    labels = alert.labels
+    cluster, svc = labels.get("ecs_cluster") or labels.get("cluster"), labels.get("ecs_service")
+    if not (cluster and svc):
+        rb.note = "The alert does not name the ECS cluster and service, so WARDEN prints no commands."
+        return
+    _ecs(rb, alert.model_copy(update={"labels": {**labels, "cluster": cluster}}), action, ctx)
+    rb.checked_by_warden = True
+    if action is ActionKind.rollback_deploy:
+        d = pb._deploy(ctx, "ecs") or {}
+        prev, cur = str(d.get("previous", "")), str(d.get("version", ""))
+        family_rev = re.compile(r"[\w-]+:\d+")
+        if family_rev.fullmatch(prev):
+            rb.fix = [f"aws ecs update-service --cluster {cluster} --service {svc} --task-definition {prev}"]
+            if family_rev.fullmatch(cur):
+                rb.undo = [f"aws ecs update-service --cluster {cluster} --service {svc} --task-definition {cur}"]
+            rb.check = [c for c in rb.check if not c.startswith("PREV=")]
+        else:
+            rb.fix = []
+            rb.note = ("No ECS deploy record gives the previous task definition (family:revision), so WARDEN "
+                       "prints no rollback command.")
+
+
+def _reads_only(rb: Runbook, alert: Alert, platform: str, action: ActionKind) -> None:
+    """Platforms no closed-set action changes: read-only checks, and the reason there is no fix here."""
+    labels = alert.labels
+    names = {k: [n.strip() for n in labels.get(k, "").split(",") if n.strip()] for k in labels}
+    reads = {
+        "sqs": [f"aws sqs get-queue-attributes --queue-url \"$(aws sqs get-queue-url --queue-name {q} --query QueueUrl "
+                "--output text)\" --attribute-names All" for q in names.get("sqs", [])],
+        "sns": [f"aws sns list-topics --query \"Topics[?ends_with(TopicArn, ':{t}')]\"" for t in names.get("sns_topic", [])],
+        "eventbridge": [f"aws events describe-rule --name {r}" for r in names.get("eventbridge_rule", [])],
+        "alb": [f"aws elbv2 describe-target-health --target-group-arn \"$(aws elbv2 describe-target-groups --names {t} "
+                "--query 'TargetGroups[0].TargetGroupArn' --output text)\"" for t in names.get("alb_target_group", [])],
+        "apigw": [f"aws apigatewayv2 get-apis --query \"Items[?Name=='{a}']\"" for a in names.get("apigw", [])],
+        "elasticache": [f"aws elasticache describe-replication-groups --replication-group-id {g}"
+                        for g in names.get("elasticache", [])],
+    }
+    rb.check = reads.get(platform, [])
+    rb.checked_by_warden = True
+    rb.note = (("WARDEN cannot flush Redis: ElastiCache is VPC-only and WARDEN has no Redis access. "
+                if platform == "elasticache" and action is ActionKind.clear_cache else "")
+               + f"No action in WARDEN's closed set changes {platform} directly; the detected patterns' fix "
+               "commands are aimed at the cause.")
+
+
+_STACK_BUILDERS = {"lambda": _lambda, "dynamodb": _dynamodb, "aurora": _aurora}

@@ -1,0 +1,502 @@
+# Wave 4 - the full stack (docs/WAVE4-FULLSTACK.md, section 7). 28 faults, one run each.
+#
+# Operator-driven, not a loop: `python -m scenarios.fullstack_cli inject|diagnose|fix|verify|revert
+# fs-NN`, one step at a time (see that module). Every fault's inject/revert/verifier is in
+# scenarios/ops_fullstack.py under the same fs-NN key.
+#
+# Per fault:
+#   alarm             the CloudWatch alarm whose ALARM state is the alert. WARDEN gets its name and
+#                     its DESCRIPTION (which names the symptom, never the cause), the catalog
+#                     severity, and the SAME full service map for every fault (contract A).
+#   expect_alarm      false only for the healthy control: nothing should fire.
+#   settle_seconds    minimum wait after the inject before the alarm is polled (IAM propagation,
+#                     a rollout starting, three SQS receives before the DLQ).
+#   alarm_timeout_s   how long to wait for ALARM. If it never fires, the ground truth says
+#                     `alarm_never_fired` and WARDEN is still run at the timeout - honestly.
+#   recover_within    how long the verifier ("fixed when", section 7) is polled after a fix.
+#   evidence_assertions  what WARDEN's context must contain, in contract B metric names and
+#                     contract C line prefixes. Metric names carry the `__<short>` suffix because
+#                     the service map names several functions / queues / Deployments.
+#
+# ⛔ Nothing here says what the answer is. Grading is scenarios/scoring.yaml, by fault class.
+
+wave: 4
+service: fullstack
+target_service: shop
+
+scenarios:
+  - id: fs-00-healthy-control
+    title: Nothing is broken
+    fault_class: healthy_control
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-api-5xx
+    expect_alarm: false
+    settle_seconds: 0
+    alarm_timeout_s: 0
+    recover_within: 60
+    inject: []
+    revert: []
+    evidence_assertions:
+      - kind: metric_present
+        name: lambda_invocations__checkout
+      - kind: metric_equal
+        left: dlq_visible__orders
+        right_value: 0
+    notes: >
+      The negative control. The alert is the API 5xx alarm's description while the alarm is OK.
+      Any mutating fix applied here is measured against the whole-stack baseline.
+
+  - id: fs-01-lambda-code-regression
+    title: checkout v(N+1) raises KeyError on a real payload field; alias live moved to it
+    fault_class: lambda_code_regression
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-api-5xx
+    settle_seconds: 60
+    alarm_timeout_s: 600
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-01}]
+    revert: [{op: fs_revert, fault: fs-01}]
+    evidence_assertions:
+      - {kind: log_contains, value: "CODE warden-pg-fs-checkout app.py:"}
+      - {kind: log_contains, value: "KeyError"}
+      - {kind: deploys_nonempty}
+    notes: >
+      The application flag CHECKOUT_PAYLOAD_SCHEMA (v1 at baseline) is set to v2 and published as a
+      new version, so the traceback frame is real deployed code and the alias move is a real deploy.
+
+  - id: fs-02-lambda-timeout-too-low
+    title: checkout timeout 1s while the DynamoDB path takes ~2s
+    fault_class: lambda_timeout_too_low
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-checkout-errors
+    settle_seconds: 60
+    alarm_timeout_s: 600
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-02}]
+    revert: [{op: fs_revert, fault: fs-02}]
+    evidence_assertions:
+      - {kind: log_contains, value: "Task timed out after 1.00 seconds"}
+      - {kind: metric_equal, left: lambda_timeout_s__checkout, right_value: 1}
+    notes: >
+      Published as a version and moved onto `live` (the API invokes the alias; a $LATEST-only
+      change would reach no traffic), so it is also a deploy.
+
+  - id: fs-03-lambda-throttled
+    title: checkout reserved concurrency set to 0
+    fault_class: lambda_throttled
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-checkout-throttles
+    settle_seconds: 60
+    alarm_timeout_s: 600
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-03}]
+    revert: [{op: fs_revert, fault: fs-03}]
+    evidence_assertions:
+      - {kind: metric_gte, left: lambda_throttles__checkout, right_value: 1}
+      - {kind: metric_equal, left: lambda_reserved_concurrency__checkout, right_value: 0}
+    notes: Function-level setting, not versioned - no deploy.
+
+  - id: fs-04-lambda-bad-env
+    title: checkout TABLE_NAME points at a table that does not exist
+    fault_class: lambda_bad_env
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-checkout-errors
+    settle_seconds: 60
+    alarm_timeout_s: 600
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-04}]
+    revert: [{op: fs_revert, fault: fs-04}]
+    evidence_assertions:
+      - {kind: log_contains, value: "ResourceNotFoundException"}
+      - {kind: log_contains, value: "CONFIG lambda warden-pg-fs-checkout"}
+    notes: Published as a version and moved onto `live`, as fs-02.
+
+  - id: fs-05-lambda-iam-missing
+    title: dynamodb:PutItem removed from checkout's role
+    fault_class: lambda_iam_missing
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-checkout-errors
+    settle_seconds: 90
+    alarm_timeout_s: 600
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-05}]
+    revert: [{op: fs_revert, fault: fs-05}]
+    evidence_assertions:
+      - {kind: log_contains, value: "AccessDeniedException"}
+      - {kind: log_contains, value: "dynamodb:PutItem"}
+    notes: IAM is eventually consistent; settle covers propagation.
+
+  - id: fs-06-sqs-poison-message
+    title: messages the processor cannot parse; the DLQ fills
+    fault_class: sqs_poison_message
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-orders-dlq-visible
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-06}]
+    revert: [{op: fs_revert, fault: fs-06}]
+    evidence_assertions:
+      - {kind: metric_gte, left: dlq_visible__orders, right_value: 1}
+      - {kind: log_contains, value: "CODE warden-pg-fs-order-processor"}
+    notes: >
+      20 non-JSON bodies; each is received maxReceiveCount (3) times, then dead-lettered. The
+      revert purges the source queue and the DLQ (the baseline DLQ is empty).
+
+  - id: fs-07-sqs-consumer-disabled
+    title: the orders event source mapping is disabled
+    fault_class: sqs_consumer_disabled
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-orders-age
+    settle_seconds: 60
+    alarm_timeout_s: 900
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-07}]
+    revert: [{op: fs_revert, fault: fs-07}]
+    evidence_assertions:
+      - {kind: log_contains, value: "State=Disabled"}
+      - {kind: metric_equal, left: lambda_esm_enabled__order-processor, right_value: 0}
+
+  - id: fs-08-sns-delivery-blocked
+    title: the notifications queue policy no longer allows the topic
+    fault_class: sns_delivery_blocked
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-sns-failed
+    settle_seconds: 60
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-08}]
+    revert: [{op: fs_revert, fault: fs-08}]
+    evidence_assertions:
+      - {kind: metric_gte, left: sns_notifications_failed, right_value: 1}
+      - {kind: log_contains, value: "allows_sns_topic=warden-pg-fs-order-events:no"}
+
+  - id: fs-09-dynamodb-throttling
+    title: carts table at 1 RCU / 1 WCU while traffic writes
+    fault_class: dynamodb_throttling
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-carts-throttles
+    settle_seconds: 60
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-09}]
+    revert: [{op: fs_revert, fault: fs-09}]
+    evidence_assertions:
+      - {kind: metric_gte, left: ddb_write_throttle_events, right_value: 1}
+      - {kind: metric_equal, left: ddb_provisioned_wcu, right_value: 1}
+    notes: DynamoDB limits capacity decreases per day; one decrease here and one increase back.
+
+  - id: fs-10-redis-unreachable
+    title: the app security groups removed from the Redis ingress
+    fault_class: redis_unreachable
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-reconciler-errors
+    settle_seconds: 60
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-10}]
+    revert: [{op: fs_revert, fault: fs-10}]
+    evidence_assertions:
+      - {kind: log_contains, value: "connecting to"}
+
+  - id: fs-11-redis-memory-pressure
+    title: the cache filled with filler keys
+    fault_class: redis_memory_pressure
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-redis-memory
+    settle_seconds: 60
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-11}]
+    revert: [{op: fs_revert, fault: fs-11}]
+    evidence_assertions:
+      - {kind: metric_gte, left: redis_memory_pct, right_value: 70}
+      - {kind: metric_present, name: redis_evictions}
+    notes: Filled through the harness-only warden-pg-fs-ops Lambda (prefix filler:).
+
+  - id: fs-12-aurora-connection-exhaustion
+    title: idle sessions opened until max_connections
+    fault_class: aurora_connection_exhaustion
+    fidelity: real
+    signature_covered: false
+    severity: critical
+    alarm: warden-pg-fs-aurora-connections
+    settle_seconds: 30
+    alarm_timeout_s: 600
+    recover_within: 300
+    inject: [{op: fs_inject, fault: fs-12}]
+    revert: [{op: fs_revert, fault: fs-12}]
+    evidence_assertions:
+      - {kind: metric_present, name: aurora_connections}
+      - {kind: log_contains, any_of: ["too many clients", "remaining connection slots"]}
+    notes: >
+      Held by a detached holder process (application_name warden-bench-hold-fs-12), three slots
+      given back so an operator can still connect; the apps' pools take them and hit the limit.
+
+  - id: fs-13-aurora-lock-contention
+    title: a transaction holds a lock the processor's INSERT needs
+    fault_class: aurora_lock_contention
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-processor-errors
+    settle_seconds: 30
+    alarm_timeout_s: 600
+    recover_within: 300
+    inject: [{op: fs_inject, fault: fs-13}]
+    revert: [{op: fs_revert, fault: fs-13}]
+    evidence_assertions:
+      - {kind: metric_gte, left: locks_waiting, right_value: 1}
+    notes: A SHARE lock on the orders table, held idle in a transaction by the holder process.
+
+  - id: fs-14-aurora-write-to-reader
+    title: processor DB_HOST set to the reader endpoint
+    fault_class: aurora_write_to_reader
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-processor-errors
+    settle_seconds: 60
+    alarm_timeout_s: 600
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-14}]
+    revert: [{op: fs_revert, fault: fs-14}]
+    evidence_assertions:
+      - {kind: log_contains, value: "cannot execute INSERT in a read-only transaction"}
+
+  - id: fs-15-aurora-failover-pinned-endpoint
+    title: processor pinned to the writer's instance endpoint, then a failover
+    fault_class: aurora_failover_pinned_endpoint
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-processor-errors
+    settle_seconds: 60
+    alarm_timeout_s: 900
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-15}]
+    revert: [{op: fs_revert, fault: fs-15}]
+    evidence_assertions:
+      - {kind: log_contains, value: "EVENT aurora warden-pg-fs-aurora"}
+      - {kind: log_contains, value: "read-only transaction"}
+    notes: The original writer is recorded; the revert fails back to it.
+
+  - id: fs-16-aurora-slow-query
+    title: a missing index and a query path that scans
+    fault_class: aurora_slow_query
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-reconciler-duration
+    settle_seconds: 300
+    alarm_timeout_s: 1200
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-16}]
+    revert: [{op: fs_revert, fault: fs-16}]
+    evidence_assertions:
+      - {kind: metric_gte, left: reader_long_running_queries, right_value: 1}
+    notes: >
+      The index's definition is read from pg_indexes before the drop; the revert recreates it
+      CONCURRENTLY from that text. RECONCILE_LOOKUP (by_id at baseline) selects the scanning path,
+      which runs on the READER endpoint - so the evidence is the reader's session metrics.
+
+  - id: fs-17-ecs-bad-image
+    title: orders-api task definition with an image tag that does not exist
+    fault_class: ecs_bad_image
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-alb-healthy-low
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-17}]
+    revert: [{op: fs_revert, fault: fs-17}]
+    evidence_assertions:
+      - {kind: log_contains, value: "CannotPullContainerError"}
+      - {kind: deploys_nonempty}
+
+  - id: fs-18-ecs-secret-access-denied
+    title: GetSecretValue removed from the execution role, deployment forced
+    fault_class: ecs_secret_access_denied
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-alb-healthy-low
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-18}]
+    revert: [{op: fs_revert, fault: fs-18}]
+    evidence_assertions:
+      - {kind: log_contains, value: "ResourceInitializationError"}
+
+  - id: fs-19-alb-health-check-wrong
+    title: target group health path /healthz (404)
+    fault_class: alb_health_check_wrong
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-alb-healthy-low
+    settle_seconds: 60
+    alarm_timeout_s: 600
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-19}]
+    revert: [{op: fs_revert, fault: fs-19}]
+    evidence_assertions:
+      - {kind: log_contains, value: "Target.ResponseCodeMismatch"}
+      - {kind: metric_gte, left: alb_unhealthy_hosts, right_value: 1}
+
+  - id: fs-20-ecs-oom
+    title: orders-api container limited to 256 MiB with an allocation flag
+    fault_class: ecs_oom
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-alb-healthy-low
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-20}]
+    revert: [{op: fs_revert, fault: fs-20}]
+    evidence_assertions:
+      - {kind: log_contains, any_of: ["OutOfMemory", "exit code 137", "exitCode=137", "Exit Code: 137"]}
+      - {kind: deploys_nonempty}
+    notes: ALLOC_MB (0 at baseline) makes the process really allocate 400 MiB.
+
+  - id: fs-21-secret-rotated-stale-credentials
+    title: the app DB password rotated (database and secret) without restarting orders-api
+    fault_class: secret_rotated_stale_credentials
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-alb-5xx
+    settle_seconds: 60
+    alarm_timeout_s: 900
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-21}]
+    revert: [{op: fs_revert, fault: fs-21}]
+    evidence_assertions:
+      - {kind: log_contains, value: "password authentication failed"}
+      - {kind: log_contains, value: "SECRET warden-pg-fs-db-app changed"}
+    notes: >
+      Running tasks keep the old password; new connections fail. The revert restores the old
+      password on both sides and restarts orders-api onto it.
+
+  - id: fs-22-k8s-config-crashloop
+    title: catalog-config gets an invalid value; rollout restart
+    fault_class: k8s_config_crashloop
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-catalog-errors
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-22}]
+    revert: [{op: fs_revert, fault: fs-22}]
+    evidence_assertions:
+      - {kind: log_contains, any_of: ["CrashLoopBackOff", "Back-off restarting"]}
+
+  - id: fs-23-k8s-missing-secret-key
+    title: catalog-secret loses a key the Deployment references
+    fault_class: k8s_missing_secret_key
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-catalog-errors
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-23}]
+    revert: [{op: fs_revert, fault: fs-23}]
+    evidence_assertions:
+      - {kind: log_contains, any_of: ["CreateContainerConfigError", "couldn't find key"]}
+
+  - id: fs-24-k8s-readiness-probe-wrong
+    title: catalog-api readiness probe on the wrong port
+    fault_class: k8s_readiness_probe_wrong
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-catalog-errors
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-24}]
+    revert: [{op: fs_revert, fault: fs-24}]
+    evidence_assertions:
+      - {kind: log_contains, value: "Readiness probe failed"}
+
+  - id: fs-25-k8s-unschedulable-requests
+    title: cart-worker requests 8 CPU on a 2-CPU node
+    fault_class: k8s_unschedulable_requests
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-cart-worker-stalled
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-25}]
+    revert: [{op: fs_revert, fault: fs-25}]
+    evidence_assertions:
+      - {kind: log_contains, value: "Insufficient cpu"}
+
+  - id: fs-26-k8s-image-pull
+    title: catalog-api image tag that does not exist
+    fault_class: k8s_image_pull
+    fidelity: real
+    signature_covered: false
+    severity: high
+    alarm: warden-pg-fs-catalog-errors
+    settle_seconds: 120
+    alarm_timeout_s: 900
+    recover_within: 600
+    inject: [{op: fs_inject, fault: fs-26}]
+    revert: [{op: fs_revert, fault: fs-26}]
+    evidence_assertions:
+      - {kind: log_contains, any_of: ["ImagePullBackOff", "ErrImagePull"]}
+      - {kind: deploys_nonempty}
+
+  - id: fs-27-eventbridge-rule-disabled
+    title: the reconcile rule disabled
+    fault_class: eventbridge_rule_disabled
+    fidelity: real
+    signature_covered: false
+    severity: medium
+    alarm: warden-pg-fs-reconciler-invocations-low
+    settle_seconds: 300
+    alarm_timeout_s: 1500
+    recover_within: 900
+    inject: [{op: fs_inject, fault: fs-27}]
+    revert: [{op: fs_revert, fault: fs-27}]
+    evidence_assertions:
+      - {kind: metric_equal, left: rule_enabled, right_value: 0}
+    notes: >
+      The alarm needs 10 minutes without an invocation (treat missing data as breaching), and the
+      rule only fires every 5, hence the long settle and timeout.

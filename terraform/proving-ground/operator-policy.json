@@ -290,13 +290,9 @@
         "s3:DeleteBucket",
         "s3:DeleteObject",
         "s3:PutBucketPolicy",
-        "dynamodb:DeleteTable",
         "kms:ScheduleKeyDeletion",
         "kms:DisableKey",
-        "secretsmanager:DeleteSecret",
-        "secretsmanager:PutSecretValue",
         "ec2:TerminateInstances",
-        "rds:DeleteDBCluster",
         "rds:DeleteDBSnapshot"
       ],
       "Resource": "*"

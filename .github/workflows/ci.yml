@@ -1,9 +1,25 @@
 name: ci
 
+# The TOOL pipeline. The full-stack infra and the apps that run on it have their own pipelines
+# (infra.yml, apps.yml) and do not trigger this one - each part can be used on its own.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "terraform/fullstack/**"
+      - "scenarios/fullstack/**"
+      - "k8s/fullstack/**"
+      - "scripts/deploy_fullstack_apps.py"
+      - ".github/workflows/infra.yml"
+      - ".github/workflows/apps.yml"
   pull_request:
+    paths-ignore:
+      - "terraform/fullstack/**"
+      - "scenarios/fullstack/**"
+      - "k8s/fullstack/**"
+      - "scripts/deploy_fullstack_apps.py"
+      - ".github/workflows/infra.yml"
+      - ".github/workflows/apps.yml"
 
 # Mock mode everywhere: CI must never need a key, and the eval gate must be deterministic.
 env:

@@ -803,6 +803,25 @@ def _kubectl(*args: str) -> str:
     return proc.stdout
 
 
+def mint_kubeconfig(service_account: str, namespace: str,
+                    kubectl: Callable[..., str] = _kubectl) -> str:
+    """Mint a short-lived ServiceAccount token and write a kubeconfig that holds ONLY that token.
+
+    Shared by the Wave 2 harness and the Wave 4 operator CLI, so there is one definition of "the
+    identity WARDEN reads the cluster as". Returns the kubeconfig path (a temp file).
+    """
+    token = kubectl("create", "token", service_account, "-n", namespace, "--duration=2h").strip()
+    base = yaml.safe_load(kubectl("config", "view", "--raw", "--minify", "-o", "yaml"))
+    base["users"] = [{"name": "warden-bench", "user": {"token": token}}]
+    for ctx in base.get("contexts") or []:
+        ctx["context"]["user"] = "warden-bench"
+        ctx["context"]["namespace"] = namespace
+    handle, path = tempfile.mkstemp(prefix="warden-bench-kubeconfig-", suffix=".yaml")
+    with os.fdopen(handle, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(base, fh)
+    return path
+
+
 def _k8s_live_harness(timeout_s: float) -> Harness:
     try:
         from kubernetes import client as kube
@@ -844,18 +863,8 @@ def _k8s_live_harness(timeout_s: float) -> Harness:
         "WARDEN ran with six reads and nothing else" is only a checkable claim if the identity it
         ran as is re-derived each time and recorded in the artefact.
         """
-        token = _kubectl("create", "token", target.service_account,
-                         "-n", target.namespace, "--duration=2h").strip()
-        base = yaml.safe_load(_kubectl("config", "view", "--raw", "--minify", "-o", "yaml"))
-        base["users"] = [{"name": "warden-bench", "user": {"token": token}}]
-        for ctx in base.get("contexts") or []:
-            ctx["context"]["user"] = "warden-bench"
-            ctx["context"]["namespace"] = target.namespace
-        handle, path = tempfile.mkstemp(prefix="warden-bench-kubeconfig-", suffix=".yaml")
-        with os.fdopen(handle, "w", encoding="utf-8") as fh:
-            yaml.safe_dump(base, fh)
         return {
-            "KUBECONFIG": path,
+            "KUBECONFIG": mint_kubeconfig(target.service_account, target.namespace),
             "arn": f"serviceaccount:{target.namespace}:{target.service_account}",
         }
 
@@ -1560,6 +1569,13 @@ def main(argv: list[str] | None = None) -> int:
         arm[key] = value
 
     _doc, scenarios = load_wave(args.wave)
+    if _doc.get("service") == "fullstack":
+        # ⛔ Wave 4 is operator-driven by the owner's decision (2026-09-25): no loop, no terraform,
+        # WARDEN run by hand one fault at a time. Refused here rather than half-supported.
+        raise SystemExit(
+            "Wave 4 is run step by step: python -m scenarios.fullstack_cli --help "
+            "(soak, inject fs-NN, diagnose fs-NN, fix fs-NN, verify fs-NN, revert fs-NN, watch)"
+        )
     if args.only:
         wanted = tuple(prefix.strip() for prefix in args.only.split(",") if prefix.strip())
         scenarios = [s for s in scenarios if s["id"].startswith(wanted)]

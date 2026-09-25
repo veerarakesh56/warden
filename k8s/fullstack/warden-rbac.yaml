@@ -1,0 +1,29 @@
+# WARDEN's Kubernetes identity for Wave 4: ServiceAccount `warden` in shop, bound by a namespaced
+# RoleBinding to the six-read ClusterRole `warden-readonly` defined in k8s/rbac.yaml (applied by the
+# deploy tool from that file). No ClusterRoleBinding: the reads reach this namespace only.
+# The harness mints a short-lived token (`kubectl create token warden -n shop`) for a token-only
+# kubeconfig; nothing mounts one.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: warden
+  namespace: shop
+  labels:
+    project: warden-fullstack
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: warden-readonly
+  namespace: shop
+  labels:
+    project: warden-fullstack
+subjects:
+  - kind: ServiceAccount
+    name: warden
+    namespace: shop
+roleRef:
+  kind: ClusterRole
+  name: warden-readonly
+  apiGroup: rbac.authorization.k8s.io

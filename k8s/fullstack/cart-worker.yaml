@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-worker
+  namespace: shop
+  labels:
+    app: cart-worker
+    project: warden-fullstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cart-worker
+  # Recreate: a pod that cannot be scheduled (fs-25) leaves no old pod running to hide it.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: cart-worker
+        project: warden-fullstack
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: __IMAGE__
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ROLE
+              value: cart-worker
+          envFrom:
+            - configMapRef:
+                name: catalog-config
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

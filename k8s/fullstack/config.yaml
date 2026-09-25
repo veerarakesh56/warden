@@ -1,0 +1,29 @@
+# fs-22 writes an invalid value into catalog-config; fs-23 removes a key from catalog-secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalog-config
+  namespace: shop
+  labels:
+    project: warden-fullstack
+data:
+  REDIS_HOST: "__REDIS_HOST__"
+  DB_HOST: "__DB_READER_HOST__"
+  DB_NAME: "__DB_NAME__"
+  CATALOG_PAGE_SIZE: "20"
+  CATALOG_CACHE_TTL_S: "60"
+  CART_WORKER_INTERVAL_S: "5"
+---
+# ⛔ A TEMPLATE. No real value is ever written here; the deploy tool fills it from the
+# warden-pg-fs-db-app secret at apply time.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalog-secret
+  namespace: shop
+  labels:
+    project: warden-fullstack
+type: Opaque
+stringData:
+  DB_USER: "__DB_USER__"
+  DB_PASSWORD: "__DB_PASSWORD__"

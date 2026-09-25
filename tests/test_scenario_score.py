@@ -207,7 +207,7 @@ def test_every_assertion_kind_the_catalog_uses_is_implemented():
     for kind in kinds:
         assert kind in (
             "metric_present", "metric_equal", "metric_lt", "metric_gte", "tool_error_contains",
-            "logs_empty", "deploys_nonempty",
+            "logs_empty", "deploys_nonempty", "log_contains",
         ), f"the catalog uses assertion kind {kind!r} and check_evidence does not implement it"
 
 
