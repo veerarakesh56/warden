@@ -144,7 +144,9 @@ def _affected(logs: list[str]) -> dict[str, list[tuple[str, int]]]:
         for a, b in _POD.findall(line):
             found.setdefault("pod", Counter())[a or b] += 1
     order = ("pod", "pid", *_AFFECTED_KEYS)
-    return {k: found[k].most_common(5) for k in order if k in found}
+    # Shown as the top 5 per key, with a count of the rest. The FULL list stays available: the runbook
+    # needs every pid, not the five most mentioned (see build_report).
+    return {k: found[k].most_common() for k in order if k in found}
 
 
 def _parse_ts(text: str) -> dt.datetime | None:
@@ -338,6 +340,8 @@ def build_report(
             "claim_contradicts_table": proposal.claim_contradicts_table,
             "expected_effect": proposal.expected_effect,
         }
+        # ⛔ EVERY pid in the evidence, not the five the "Affected" section displays. With twelve
+        # stuck sessions the first version terminated five and left seven holding the pool.
         pids = [p for p, _ in affected.get("pid", [])]
         rb = build_runbook(alert, proposal.action, backend=backend, pids=pids)
         data["runbook"] = {"platform": rb.platform, "note": rb.note, "check": rb.check,
@@ -423,7 +427,9 @@ def _render_markdown(d: dict) -> str:
     if ev["affected"]:
         lines.append("## Affected - as named in the evidence")
         for key, values in ev["affected"].items():
-            shown = ", ".join(f"`{v}` ({n} line{'s' if n != 1 else ''})" for v, n in values)
+            shown = ", ".join(f"`{v}` ({n} line{'s' if n != 1 else ''})" for v, n in values[:5])
+            if len(values) > 5:
+                shown += f" and {len(values) - 5} more"
             lines.append(f"- **{key}**: {shown}")
         if not d.get("identifiers_shown"):
             lines.append("_Identifiers are masked. Set `WARDEN_REPORT_SHOW_IDENTIFIERS=true` to show "

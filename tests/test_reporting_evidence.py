@@ -199,3 +199,19 @@ def test_bare_placeholders_the_model_wrote_are_revealed_but_never_secrets():
     text = "users EMAIL_1, EMAIL_12 and <EMAIL_1>; creds SECRET_1 / <SECRET_1>"
     out = reveal_identifiers(text, mapping)
     assert out == "users a@corp.io, l@corp.io and a@corp.io; creds SECRET_1 / <SECRET_1>"
+
+
+def test_the_fix_names_every_stuck_pid_not_just_the_five_displayed():
+    """⛔ Found rendering a real Wave 3 report: twelve sessions idle in a transaction, the Affected
+    section shows five, and the runbook took its pids from that - terminating five, leaving seven."""
+    pids = [str(3600 + i) for i in range(12)]
+    ctx = ContextBundle(logs=[f"postgres stuck connection: pid={p} idle in transaction for 336s: SELECT 1"
+                              for p in pids])
+    alert = Alert(alert_id="x", name="DatabaseAlarm", severity=Severity.high, service="warden",
+                  environment="prod", summary="alert", started_at="2026-09-25T04:47:40Z")
+    prop = RemediationProposal(action=ActionKind.terminate_connections, target="warden", reasoning="r",
+                               expected_effect="e", blast_radius="single_service", reversible=True)
+    rep = build_report(alert, proposal=prop, context=ctx, show_identifiers=False)
+    for p in pids:
+        assert f"SELECT pg_terminate_backend({p});" in rep.markdown, f"pid {p} missing from the fix"
+    assert "and 7 more" in rep.markdown, "the display should say how many it is not showing"
