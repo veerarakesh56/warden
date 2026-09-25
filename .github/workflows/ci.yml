@@ -83,7 +83,14 @@ jobs:
   # replays it so it cannot regress. Assertions are on OUTPUT and on the API server's own answers,
   # never on exit codes alone. An adversarial review of the first version of this job found five
   # ways it could go green while a README claim was false; each has a named assertion below.
+  #
+  # ⚠ WHY k3d AND NOT EKS. This is the per-commit REGRESSION check, not the measurement. The
+  # measurement is on managed EKS (EC2 node group, read-only ServiceAccount): Wave 2, 30 runs,
+  # docs/bench/wave2-2026-09-24T115746Z. EKS on every push would cost money and ~25 minutes per
+  # commit and put AWS credentials in a public repo's CI. k3d is a real API server - RBAC is really
+  # enforced, the kubelet really OOM-kills - so what this job proves holds on any conformant cluster.
   k8s:
+    name: k8s-regression (k3d, every push; measured on EKS in docs/bench)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
