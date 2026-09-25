@@ -136,6 +136,24 @@ def _key_log_lines(logs: list[str]) -> list[str]:
     return [ln if len(ln) <= _LINE_MAX else ln[:_LINE_MAX] + " ..." for ln in picked]
 
 
+def _checked(logs: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """Split out what WARDEN checked itself (k8s_backend: container status, the crashed containers'
+    own output, rollout history) from the ordinary log lines, so the report can show the RESULTS of
+    those checks as such - and not also repeat them among the key log lines."""
+    checked: dict[str, list[str]] = {"status": [], "previous": [], "rollout": []}
+    rest: list[str] = []
+    for line in logs:
+        if line.startswith("STATUS "):
+            checked["status"].append(line[len("STATUS "):])
+        elif line.startswith("ROLLOUT "):
+            checked["rollout"].append(line[len("ROLLOUT "):])
+        elif " (previous) " in line:
+            checked["previous"].append(line)
+        else:
+            rest.append(line)
+    return checked, rest
+
+
 def _affected(logs: list[str]) -> dict[str, list[tuple[str, int]]]:
     """Identifiers that appear in the evidence, with how many lines mention each."""
     found: dict[str, Counter] = {}
@@ -285,6 +303,8 @@ def _sources(alert: Alert, backend: str | None) -> list[str]:
         return [
             (f"Kubernetes API: pod status, events, and the last {LOG_TAIL_LINES} log lines per container "
             f"(up to {LOG_MAX_PODS} pods), read when the alert was handled."),
+            ("Also run by WARDEN, read-only: each restarted container's exit reason and code, its "
+            "previous (crashed) log, the rollout history, and any autoscaler that owns the replica count."),
             (f"Deployment and ReplicaSets: image changes in the last "
             f"{int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h."),
             "Not read: CloudWatch, Container Insights, node metrics, control-plane logs.",
@@ -336,6 +356,7 @@ def build_report(
 
     promotion = _promotion_targets(alert, proposal, pol) if proposal else []
     affected = _affected(ctx.logs)
+    checked, ordinary_logs = _checked(ctx.logs)
     patterns = detect_patterns(alert, ctx)
 
     data: dict = {
@@ -361,7 +382,8 @@ def build_report(
         "evidence": {
             "metrics": dict(ctx.metrics),
             "tool_errors": list(ctx.tool_errors),
-            "key_log_lines": _key_log_lines(ctx.logs),
+            "key_log_lines": _key_log_lines(ordinary_logs),
+            "checked": checked,
             "log_lines_read": len(ctx.logs),
             "recent_deploys": [dict(d) for d in ctx.recent_deploys],
             "timeline": _timeline(alert, ctx),
@@ -517,6 +539,21 @@ def _render_markdown(d: dict) -> str:
             lines.append(f"- `{s['id']}` **{s['title']}** ({s['category']}, score {s['score']}): {s['root_cause']}")
         lines.append("")
 
+    # ---- the read-only checks WARDEN ran itself
+    chk = ev.get("checked") or {}
+    if any(chk.values()):
+        lines.append("## Checked by WARDEN  (read-only, at alert time)")
+        if chk["status"]:
+            lines.append("**Container status** - how each failing container last died, and what it waits on now")
+            lines.extend(f"- `{c}`" for c in chk["status"])
+        if chk["previous"]:
+            lines.append("**The crashed containers' own last output** (`logs --previous`)")
+            _code(lines, chk["previous"][-12:])
+        if chk["rollout"]:
+            lines.append("**Rollout history** - newest first")
+            lines.extend(f"- `{r}`" for r in chk["rollout"])
+        lines.append("")
+
     # ---- the evidence itself
     if ev["metrics"]:
         lines.append("## Metrics at the time")
@@ -578,7 +615,10 @@ def _render_markdown(d: dict) -> str:
         lines.append(f"## Runbook - {rb['platform']}  ({rb['basis']})")
         if rb["note"]:
             lines.append(f"_{rb['note']}_")
-        for title, key in (("1. Check - read-only, confirm the diagnosis first", "check"), ("2. Fix", "fix"),
+        check_title = ("1. Re-check right before acting - WARDEN ran the diagnostics above at alert time; "
+                       "state may have moved since" if rb.get("checked_by_warden")
+                       else "1. Check - read-only, confirm the diagnosis first")
+        for title, key in ((check_title, "check"), ("2. Fix", "fix"),
                            ("3. Confirm it worked", "confirm"), ("4. If it made things worse", "undo")):
             if rb[key]:
                 lines.append(f"**{title}**")

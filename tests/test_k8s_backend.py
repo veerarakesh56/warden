@@ -488,7 +488,7 @@ def test_rbac_manifest_is_structurally_read_only():
 
     roles = {d["metadata"]["name"]: d for d in docs if d["kind"] == "ClusterRole"}
     allowed_verbs = {"get", "list"}
-    allowed_resources = {"pods", "pods/log", "events", "deployments", "replicasets"}
+    allowed_resources = {"pods", "pods/log", "events", "deployments", "replicasets", "horizontalpodautoscalers"}
     for name, role in roles.items():
         for rule in role["rules"]:
             assert set(rule["verbs"]) <= allowed_verbs, f"{name}: {rule}"
@@ -519,6 +519,7 @@ def test_rbac_grants_exactly_what_the_code_calls():
     if "list_namespaced_event(" in src: needed.add(("", "events", "list"))
     if "read_namespaced_deployment(" in src: needed.add(("apps", "deployments", "get"))
     if "list_namespaced_replica_set(" in src: needed.add(("apps", "replicasets", "list"))
+    if "list_namespaced_horizontal_pod_autoscaler(" in src: needed.add(("autoscaling", "horizontalpodautoscalers", "list"))
 
     docs = [d for d in yaml.safe_load_all((ROOT / "k8s" / "rbac.yaml").read_text(encoding="utf-8")) if d]
     granted = set()
@@ -644,3 +645,114 @@ def test_a_failed_log_read_is_not_labelled_logs_twice():
     core = FakeCore(pods=[_pod()], log_raises=True)
     ctx = gather(_alert(), _backend(core), timeout=2.0)
     assert ctx.tool_errors and not any("logs: logs:" in e for e in ctx.tool_errors), ctx.tool_errors
+
+
+# --------------------------------------------------------------------------- checks WARDEN runs itself
+
+
+class _CoreWithPrevious(FakeCore):
+    """Returns different text for the crashed container (`previous=True`), and can fail it."""
+
+    def __init__(self, *a, previous_text="fatal: out of memory", previous_status=None, **kw):
+        super().__init__(*a, **kw)
+        self.previous_calls: list[str] = []
+        self._prev_text, self._prev_status = previous_text, previous_status
+
+    def read_namespaced_pod_log(self, name, ns, container=None, **kw):
+        if kw.get("previous"):
+            self.previous_calls.append(f"{name}/{container}")
+            if self._prev_status:
+                exc = RuntimeError(f"({self._prev_status})")
+                exc.status = self._prev_status
+                raise exc
+            return NS(data=self._prev_text.encode())
+        return super().read_namespaced_pod_log(name, ns, container=container, **kw)
+
+
+def test_warden_reports_how_each_crashed_container_last_died():
+    """`kubectl describe pod`'s useful part, done by WARDEN from the pod status it already reads."""
+    pod = _pod(restarts=6, last_reason="OOMKilled", waiting="CrashLoopBackOff", ready=False)
+    pod.status.container_statuses[0].last_state.terminated.exit_code = 137
+    lines = _backend(_CoreWithPrevious(pods=[pod])).logs(_alert())
+    status = [ln for ln in lines if ln.startswith("STATUS ")]
+    assert status == [("STATUS checkout-abc/checkout: restarts 6; last exit: OOMKilled (code 137); "
+                      "now waiting: CrashLoopBackOff")], status
+
+
+def test_a_healthy_pod_adds_no_status_line_and_no_previous_read():
+    core = _CoreWithPrevious(pods=[_pod()])
+    lines = _backend(core).logs(_alert())
+    assert not any(ln.startswith("STATUS ") for ln in lines)
+    assert core.previous_calls == [], "a container that never restarted has no previous output to read"
+
+
+def test_the_crashed_containers_own_output_is_read():
+    """`kubectl logs --previous`: the fatal line is in the container that died, not the one restarted."""
+    core = _CoreWithPrevious(pods=[_pod(restarts=3, last_reason="Error")], previous_text="fatal: configuration invalid")
+    lines = _backend(core).logs(_alert())
+    assert core.previous_calls == ["checkout-abc/checkout"]
+    assert "checkout-abc/checkout (previous) fatal: configuration invalid" in lines
+
+
+def test_no_previous_container_is_the_normal_answer_not_a_failed_read():
+    core = _CoreWithPrevious(pods=[_pod(restarts=1, last_reason="Error")], previous_status=400)
+    ctx = gather(_alert(), _backend(core), timeout=2.0)
+    assert not any("(previous)" in e for e in ctx.tool_errors), ctx.tool_errors
+
+
+def test_a_forbidden_previous_read_is_reported_as_partial():
+    core = _CoreWithPrevious(pods=[_pod(restarts=1, last_reason="Error")], previous_status=403)
+    ctx = gather(_alert(), _backend(core), timeout=2.0)
+    assert any("(previous)" in e and "403" in e for e in ctx.tool_errors), ctx.tool_errors
+
+
+def test_rollout_history_lists_the_last_revisions_newest_first():
+    rs = [_rs(1, ["python:3.12-alpine"]), _rs(2, ["python:3.12.7-alpine"]), _rs(3, ["python:bad-tag"])]
+    lines = _backend(FakeCore(pods=[_pod()]), FakeApps(replicasets=rs)).logs(_alert())
+    history = [ln for ln in lines if ln.startswith("ROLLOUT ")]
+    assert [h.split(":")[0] for h in history] == [
+        "ROLLOUT revision 3 (current)", "ROLLOUT revision 2", "ROLLOUT revision 1"]
+    assert "python:bad-tag" in history[0]
+
+
+# --------------------------------------------------------------------------- HPA (sixth read)
+
+
+class FakeAutoscaling:
+    def __init__(self, hpas=(), raises=None):
+        self._hpas, self._raises = list(hpas), raises
+
+    def list_namespaced_horizontal_pod_autoscaler(self, ns, **kw):
+        assert "_request_timeout" in kw
+        if self._raises:
+            raise _ApiErr(self._raises)
+        return NS(items=self._hpas)
+
+
+def _hpa(target="checkout", kind="Deployment", lo=2, hi=10, cur=3, want=5):
+    return NS(spec=NS(scale_target_ref=NS(kind=kind, name=target), min_replicas=lo, max_replicas=hi),
+              status=NS(current_replicas=cur, desired_replicas=want))
+
+
+def test_hpa_owning_the_deployment_is_reported():
+    """A manual scale of an HPA-managed Deployment is undone within seconds - the report must know."""
+    b = KubernetesBackend(core=FakeCore(pods=[_pod()]), apps=FakeApps(),
+                          autoscaling=FakeAutoscaling([_hpa(target="other"), _hpa()]))
+    m = b.metrics(_alert())
+    assert (m["hpa_min_replicas"], m["hpa_max_replicas"]) == (2.0, 10.0)
+    assert (m["hpa_current_replicas"], m["hpa_desired_replicas"]) == (3.0, 5.0)
+
+
+def test_hpa_for_another_workload_or_kind_is_ignored():
+    b = KubernetesBackend(core=FakeCore(pods=[_pod()]), apps=FakeApps(),
+                          autoscaling=FakeAutoscaling([_hpa(target="other"), _hpa(kind="StatefulSet")]))
+    assert not any(k.startswith("hpa_") for k in b.metrics(_alert()))
+
+
+def test_hpa_forbidden_is_omitted_not_a_failed_read():
+    """An install without the sixth grant must not escalate every incident on a 403."""
+    b = KubernetesBackend(core=FakeCore(pods=[_pod()]), apps=FakeApps(),
+                          autoscaling=FakeAutoscaling(raises=403))
+    ctx = gather(_alert(), b, timeout=2.0)
+    assert ctx.tool_errors == []
+    assert not any(k.startswith("hpa_") for k in ctx.metrics)

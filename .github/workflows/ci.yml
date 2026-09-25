@@ -133,7 +133,7 @@ jobs:
           echo "rejected as expected:"; cat err.txt
 
       # RBAC from the API server's point of view, BOTH directions, MINIMAL not just read-only.
-      - name: RBAC must allow exactly the five reads the code makes
+      - name: RBAC must allow exactly the six reads the code makes
         run: |
           SA=system:serviceaccount:warden:warden
           allow() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
@@ -145,6 +145,7 @@ jobs:
           allow list events -n default
           allow get deployments.apps -n default
           allow list replicasets.apps -n default
+          allow list horizontalpodautoscalers.autoscaling -n default
 
       - name: RBAC must deny writes, unused read verbs, secrets, other namespaces and cluster scope
         run: |
@@ -160,17 +161,25 @@ jobs:
           deny update deployments.apps -n default
           deny delete deployments.apps -n default
           deny create secrets -n default
+          # the sixth grant is a READ: an autoscaler must not be changeable through it
+          deny patch horizontalpodautoscalers.autoscaling -n default
+          deny update horizontalpodautoscalers.autoscaling -n default
+          deny create horizontalpodautoscalers.autoscaling -n default
+          deny delete horizontalpodautoscalers.autoscaling -n default
           # "minimal": reads the code does not make must ALSO be denied
           deny watch pods -n default
           deny get pods -n default
           deny watch events -n default
           deny list deployments.apps -n default
           deny get replicasets.apps -n default
+          deny get horizontalpodautoscalers.autoscaling -n default
+          deny watch horizontalpodautoscalers.autoscaling -n default
           deny list events.events.k8s.io -n default
           # secrets, other namespaces, cluster scope
           deny get secrets -n default
           deny list secrets -n default
           deny list pods -n kube-system
+          deny list horizontalpodautoscalers.autoscaling -n kube-system
           deny list pods -n warden
           deny get nodes
           deny list namespaces

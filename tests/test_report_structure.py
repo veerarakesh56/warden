@@ -182,3 +182,44 @@ def test_oom_back_off_is_not_reported_as_a_separate_crash_loop():
     """The back-off after an OOM kill IS the OOM; a second pattern added irrelevant config advice."""
     keys = [p.key for p in detect(_alert(), OOM)]
     assert "oom" in keys and "crashloop" not in keys
+
+
+LIVE = ContextBundle(
+    logs=["STATUS checkout-748c-bmwck/checkout: restarts 6; last exit: OOMKilled (code 137); now waiting: CrashLoopBackOff",
+          "checkout-748c-bmwck/checkout (previous) 2026-09-24T12:30:24Z checkout: allocating 900MiB cache",
+          "ROLLOUT revision 2 (current): python:3.12.7-alpine created 2026-09-24T12:28:48Z",
+          "ROLLOUT revision 1: python:3.12-alpine created 2026-09-24T11:40:06Z",
+          "EVENT BackOff Pod/checkout-748c-bmwck: Back-off restarting failed container checkout"],
+    metrics={"oom_killed_containers": 1.0, "pods_ready": 0.0, "pods_total": 1.0, "replicas_desired": 1.0,
+             "memory_limit_mib": 48.0},
+)
+
+
+def test_the_checks_warden_ran_are_shown_as_results_not_as_homework():
+    """⛔ The owner: "why all kubectl commands in suggestions - aren't you using them yourself?" WARDEN
+    now reads container status, the crashed container's output and the rollout history itself, and
+    the report shows what it found."""
+    md = _report(ctx=LIVE, backend="k8s", namespace="shop", deployment="checkout").markdown
+    section = md[md.index("## Checked by WARDEN"):md.index("## Metrics at the time")]
+    assert "last exit: OOMKilled (code 137)" in section
+    assert "allocating 900MiB cache" in section
+    assert "revision 2 (current): python:3.12.7-alpine" in section
+    key = md[md.index("## Key log lines"):md.index("```", md.index("## Key log lines") + 20) + 400]
+    assert "ROLLOUT revision" not in key and "STATUS checkout" not in key, "a check result shown twice"
+
+
+def test_when_warden_read_the_cluster_the_runbook_only_rechecks_current_state():
+    md = _report(action=ActionKind.rollback_deploy, ctx=LIVE, backend="k8s",
+                 namespace="shop", deployment="checkout").markdown
+    step1 = md[md.index("**1. Re-check right before acting"):md.index("**2. Fix**")]
+    assert "state may have moved since" in step1
+    assert "get events" not in step1 and "describe pods" not in step1 and "logs deploy/" not in step1
+    assert "rollout history" in step1 and "get pods" in step1
+
+
+def test_a_demo_incident_keeps_the_full_check_list():
+    """Nothing was read live, so nothing was checked: the person still has to look."""
+    md = _report(action=ActionKind.rollback_deploy, ctx=OOM, backend=None, namespace="shop",
+                 deployment="checkout").markdown
+    assert "**1. Check - read-only, confirm the diagnosis first**" in md
+    assert "get events" in md

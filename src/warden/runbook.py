@@ -47,6 +47,9 @@ class Runbook:
     fix: list[str] = field(default_factory=list)
     confirm: list[str] = field(default_factory=list)
     undo: list[str] = field(default_factory=list)
+    # True when WARDEN itself already ran the read-only diagnostics (status, events, previous logs,
+    # rollout history) against the live system: `check` is then only a re-check right before acting.
+    checked_by_warden: bool = False
 
 
 def platform_for(alert: Alert, action: ActionKind, backend: str | None = None,
@@ -86,6 +89,13 @@ def build_runbook(alert: Alert, action: ActionKind, *, backend: str | None = Non
                    "commands assume Kubernetes. Confirm that before running anything.")
     if shown == "kubernetes":
         _kubernetes(rb, alert, action, context)
+        if (backend or os.environ.get("WARDEN_BACKEND") or "").lower() in ("k8s", "kubernetes"):
+            # WARDEN read events, container status, the crashed containers' output and the rollout
+            # history itself (k8s_backend.py); asking a person to run them again is the "doubt" the
+            # owner objected to. What stays is a re-check of the CURRENT state, which may have moved.
+            already = ("get events", "describe pods", "logs deploy/")
+            rb.check = [c for c in rb.check if not any(a in c for a in already)]
+            rb.checked_by_warden = True
     elif shown == "ecs":
         _ecs(rb, alert, action, context)
     elif shown == "postgres":

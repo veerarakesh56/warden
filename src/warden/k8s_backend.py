@@ -72,6 +72,10 @@ REQUEST_TIMEOUT = (
 # for before permitting a rollback.
 RECENT_DEPLOY_WINDOW = timedelta(hours=float(os.environ.get("WARDEN_K8S_DEPLOY_WINDOW_H", "6")))
 LOG_TAIL_LINES = int(os.environ.get("WARDEN_K8S_LOG_TAIL", "40"))
+# Lines of a CRASHED container's output (`logs --previous`). Its last lines hold the fatal message; the
+# restarted container's log usually shows only a fresh start.
+PREVIOUS_TAIL_LINES = int(os.environ.get("WARDEN_K8S_PREVIOUS_TAIL", "20"))
+ROLLOUT_HISTORY = 3
 # Log reads are O(pods x containers) and sequential; cap them so a 40-replica service cannot eat
 # the whole tool budget. Newest pods first — they are the ones crashing now.
 LOG_MAX_PODS = int(os.environ.get("WARDEN_K8S_LOG_MAX_PODS", "5"))
@@ -93,7 +97,7 @@ class KubernetesBackend:
 
     name = "kubernetes"
 
-    def __init__(self, *, core=None, apps=None, kubeconfig: str | None = None) -> None:
+    def __init__(self, *, core=None, apps=None, autoscaling=None, kubeconfig: str | None = None) -> None:
         # Injectable clients so the unit tests can stub the API without a cluster.
         if core is None or apps is None:
             from kubernetes import client, config
@@ -110,8 +114,11 @@ class KubernetesBackend:
                     ) from exc
             core = core or client.CoreV1Api()
             apps = apps or client.AppsV1Api()
+            autoscaling = autoscaling or client.AutoscalingV1Api()
         self._core = core
         self._apps = apps
+        # Optional: an injected test client may leave it out, and then no HPA is read.
+        self._autoscaling = autoscaling
 
     # ------------------------------------------------------------------ alert -> workload
 
@@ -199,6 +206,14 @@ class KubernetesBackend:
             tag = "NODE-EVENT" if kind == "Node" else "EVENT"
             lines.append(f"{tag} {ev.reason} {kind}/{name}: {_one_line(ev.message or '')}")
 
+        # ⭐ The read-only checks an on-call engineer would otherwise run by hand (kubectl describe,
+        # kubectl logs --previous, kubectl rollout history) - done here, with reads already granted, so
+        # the report shows their RESULTS instead of asking a person to go and look. Added 2026-09-25
+        # after the owner asked why the report listed kubectl commands WARDEN could run itself.
+        lines.extend(_container_status_lines(pods[:LOG_MAX_PODS]))
+        lines.extend(self._previous_logs(ns, pods[:LOG_MAX_PODS]))
+        lines.extend(self._rollout_history(alert))
+
         for pod in pods[:LOG_MAX_PODS]:
             containers = list(pod.spec.init_containers or []) + list(pod.spec.containers or [])
             for container in containers:
@@ -275,6 +290,86 @@ class KubernetesBackend:
             desired = None
         if desired is not None:
             out["replicas_desired"] = float(desired)
+        out.update(self._hpa(alert))
+        return out
+
+    def _hpa(self, alert: Alert) -> dict[str, float]:
+        """The autoscaler that manages this Deployment, if any: its min, max, current and desired.
+
+        A manual scale of a Deployment an HPA manages is overridden within seconds, so whether one
+        exists changes what `scale_up` even means. Read with one grant (`list
+        horizontalpodautoscalers`); where that grant is absent - an older install - the figures are
+        simply omitted rather than turned into a failed read that would escalate every incident.
+        """
+        if self._autoscaling is None:
+            return {}
+        try:
+            hpas = self._autoscaling.list_namespaced_horizontal_pod_autoscaler(
+                self._namespace(alert), _request_timeout=REQUEST_TIMEOUT
+            ).items
+        except Exception:  # noqa: BLE001 - supplementary evidence; its absence is not a failure
+            return {}
+        name = self._deployment(alert)
+        for h in hpas:
+            ref = h.spec.scale_target_ref
+            if getattr(ref, "kind", None) == "Deployment" and getattr(ref, "name", None) == name:
+                st = h.status
+                return {
+                    "hpa_min_replicas": float(h.spec.min_replicas or 1),
+                    "hpa_max_replicas": float(h.spec.max_replicas),
+                    "hpa_current_replicas": float(getattr(st, "current_replicas", 0) or 0),
+                    "hpa_desired_replicas": float(getattr(st, "desired_replicas", 0) or 0),
+                }
+        return {}
+
+    def _previous_logs(self, ns: str, pods: list) -> list[str]:
+        """The last lines of each CRASHED container - `kubectl logs --previous`, same pods/log read.
+
+        Only for containers that have restarted. A 400 here means there is no previous container to
+        read (it was never started, or its record was garbage-collected): that is the normal answer,
+        not a failed read, so it is not reported as one.
+        """
+        out: list[str] = []
+        for pod in pods:
+            statuses = list(pod.status.init_container_statuses or []) + list(pod.status.container_statuses or [])
+            for cs in statuses:
+                if not (getattr(cs, "restart_count", 0) or 0):
+                    continue
+                try:
+                    resp = self._core.read_namespaced_pod_log(
+                        pod.metadata.name, ns, container=cs.name, previous=True,
+                        tail_lines=PREVIOUS_TAIL_LINES, timestamps=True,
+                        _preload_content=False, _request_timeout=REQUEST_TIMEOUT,
+                    )
+                    text = _log_text(resp)
+                except Exception as exc:  # noqa: BLE001
+                    if getattr(exc, "status", None) != 400:
+                        out.append(f"{PARTIAL_PREFIX}{pod.metadata.name}/{cs.name} (previous): {_api_error(exc)}")
+                    continue
+                out.extend(f"{pod.metadata.name}/{cs.name} (previous) {raw}" for raw in text.splitlines() if raw.strip())
+        return out
+
+    def _rollout_history(self, alert: Alert) -> list[str]:
+        """`kubectl rollout history`, from the ReplicaSets deploys() already reads: revision, images, when."""
+        ns, name = self._namespace(alert), self._deployment(alert)
+        try:
+            dep = self._apps.read_namespaced_deployment(name, ns, _request_timeout=REQUEST_TIMEOUT)
+            match = (dep.spec.selector and dep.spec.selector.match_labels) or {}
+            selector = ",".join(f"{k}={v}" for k, v in sorted(match.items()))
+            rs_list = self._apps.list_namespaced_replica_set(
+                ns, label_selector=selector, _request_timeout=REQUEST_TIMEOUT
+            ).items
+        except Exception as exc:  # noqa: BLE001
+            if getattr(exc, "status", None) == 404:
+                return []  # no Deployment: nothing to have a history
+            return [f"{PARTIAL_PREFIX}rollout history: {_api_error(exc)}"]
+        owned = sorted((rs for rs in rs_list if _owned_by(rs, dep.metadata.uid)), key=_revision_of, reverse=True)
+        out = []
+        for i, rs in enumerate(owned[:ROLLOUT_HISTORY]):
+            created = _aware(rs.metadata.creation_timestamp)
+            when = created.strftime("%Y-%m-%dT%H:%M:%SZ") if created else "?"
+            out.append(f"ROLLOUT revision {_revision_of(rs)}{' (current)' if i == 0 else ''}: "
+                       f"{','.join(_images(rs))} created {when}")
         return out
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
@@ -330,6 +425,39 @@ def _aware(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _container_status_lines(pods: list) -> list[str]:
+    """`kubectl describe pod`'s useful part, from the pod status already read: per container that has
+    restarted or is not running - restarts, how it last died (reason, exit code, when), what it waits on.
+
+    Healthy running containers produce nothing, so a healthy service gains no evidence lines.
+    """
+    out: list[str] = []
+    for pod in pods:
+        statuses = list(pod.status.init_container_statuses or []) + list(pod.status.container_statuses or [])
+        for cs in statuses:
+            # getattr throughout: a status missing one field must cost that field, never the whole
+            # logs() read - a raise here would turn every log line into a partial-context failure.
+            restarts = getattr(cs, "restart_count", 0) or 0
+            last = getattr(cs.last_state, "terminated", None)
+            waiting = getattr(cs.state, "waiting", None)
+            now_term = getattr(cs.state, "terminated", None)
+            if not restarts and waiting is None and now_term is None:
+                continue
+            parts = [f"restarts {restarts}"]
+            if last is not None:
+                finished = _aware(getattr(last, "finished_at", None))
+                parts.append(f"last exit: {getattr(last, 'reason', None) or '?'} (code {getattr(last, 'exit_code', '?')})"
+                             + (f" at {finished:%Y-%m-%dT%H:%M:%SZ}" if finished else ""))
+            if waiting is not None:
+                msg = f" - {_one_line(waiting.message)}" if getattr(waiting, "message", None) else ""
+                parts.append(f"now waiting: {getattr(waiting, 'reason', None) or '?'}{msg}")
+            if now_term is not None:
+                parts.append(f"now terminated: {getattr(now_term, 'reason', None) or '?'} "
+                             f"(code {getattr(now_term, 'exit_code', '?')})")
+            out.append(f"STATUS {pod.metadata.name}/{getattr(cs, 'name', '?')}: " + "; ".join(parts))
+    return out
 
 
 def _owned_by(rs, deployment_uid: str | None) -> bool:

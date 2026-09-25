@@ -14,7 +14,7 @@ headline is 14 runs the gate should have stopped and did not — measured under 
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
 own bugs, both disclosed. **RDS PostgreSQL:** 6 faults × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
-count it. 1028 tests and 26 evals (10 against a live Kubernetes cluster,
+count it. 1040 tests and 26 evals (10 against a live Kubernetes cluster,
 12 against five real database engines), a 35-case mutation check that breaks the code on purpose
 and requires the suite to notice each one (35 caught, 0 survived), and CI that asserts the actual
 verdicts rather than the exit code.
@@ -171,7 +171,11 @@ Built on the official `mcp` Python SDK v2 (2026-07-28 spec, stateless core).
 ## Kubernetes — reading a live cluster
 
 Point WARDEN at a cluster and the evidence comes from the real thing — pod status, events, container
-log tails and Deployment rollout history — instead of recorded fixtures.
+log tails and Deployment rollout history — instead of recorded fixtures. WARDEN also runs, itself and
+read-only, the checks an on-call engineer would otherwise type: each restarted container's exit
+reason and code (`describe pod`), its crashed container's log (`logs --previous`), the rollout
+history, and whether an autoscaler owns the replica count. The report shows their results, not the
+commands. None of these can change anything: the ServiceAccount has six read grants and no writes.
 
 ```bash
 pip install -e ".[k8s]"

@@ -88,8 +88,9 @@ RoleBinding** in each namespace WARDEN may diagnose. Never a ClusterRoleBinding.
 a plain Role in the `warden` namespace — which cannot see pods in `default`, where workloads live.
 A Role only reaches its own namespace; caught before apply.
 
-CI asks the API server directly, both ways: the **exact five** reads the code makes must be `yes`
-(list pods, get pods/log, list events, get deployments, list replicasets); writes, unbound
+CI asks the API server directly, both ways: the **exact six** reads the code makes must be `yes`
+(list pods, get pods/log, list events, get deployments, list replicasets, list
+horizontalpodautoscalers); writes, unbound
 namespaces and cluster-scoped reads must each be `no`. Including `get pods` (only `list` is granted)
 and `get secrets` → `no`.
 
