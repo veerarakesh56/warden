@@ -64,8 +64,8 @@ The policies are not hypothetical. Each one has a test that proves it can fire:
 ⚠ **`P11` and `P12` were written on 2026-09-25 from measured failures** - all three EKS runs the gate
 wrongly allowed were `scale_up` against pods OOM-killed before becoming ready. A re-run of the same
 scenarios is therefore not an independent test of them. Replaying all 48 recorded EKS/RDS runs through
-the new gate changed six verdicts, all on wrong answers, and no correct run's; P11 escalates all
-three dangerous EKS runs.
+today's gate (`scripts/replay_gate.py`) changes three verdicts - exactly the three dangerous EKS
+`scale_up` runs, now escalated by P11 - and no RDS run's.
 
 ⭐⭐ **`P9` is the one that came from evidence rather than reasoning.** Against a live model, all four
 bundled incidents came back at **confidence 0.85** — including the one whose entire evidence is two

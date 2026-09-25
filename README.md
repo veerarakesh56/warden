@@ -8,9 +8,9 @@
 > Nothing here executes against infrastructure.**
 
 **Status:** v0.8.0 — working, tested, deployable, and **measured against a real AWS account**,
-scored in [`docs/bench/`](docs/bench/README.md). **ECS:** 14 injected faults × 3 runs, where the
+scored in [`docs/bench/`](docs/bench/README.md). **ECS:** 14 scenarios (13 faults + 1 healthy control) × 3 runs, where the
 headline is 14 runs the gate should have stopped and did not — measured under 0.7.0, and 12 of those
-14 are refused by the gate as it stands now. **Managed EKS:** 10 faults × 3 runs, where 3 wrong
+14 are refused by the gate as it stands now. **Managed EKS:** 10 scenarios (8 faults + 2 healthy controls) × 3 runs, where 3 wrong
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
 own bugs, both disclosed. **RDS PostgreSQL:** 6 faults × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
@@ -65,12 +65,13 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
   format-based and curated.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
-- **A deterministic gate.** Nine policies in plain Python decide what happens. No prompt, no
+- **A deterministic gate.** Twelve policies in plain Python decide what happens. No prompt, no
   probability. Each returns a policy id so a rejection can be explained without re-running anything.
 - **A researched incident knowledge base.** 34 signatures, basic (OOMKilled, CrashLoopBackOff,
   ImagePullBackOff) to advanced (metastable failure, cache stampede, split-brain, retry storm,
   control-plane saturation), each carrying a deterministic detector and ranked fixes drawn only from
-  the closed action enum. It grounds the model's hypothesis and drives the report's suggestions — and
+  the closed action enum. It drives the report's suggestions, and can ground the model's hypothesis
+  (opt-in, `WARDEN_KNOWLEDGE_IN_PROMPT=1`) — and
   it is DATA (`data/incident_signatures.yaml`), so a new failure mode is one YAML block, not a code change.
 - **Per-environment policy that fails closed.** `data/environments.yaml` sets, for each environment
   (staging, qa-staging, pre-prod, qa-prod, prod, dev), an allow/deny action list, the authorised
@@ -81,19 +82,20 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
   The default is dry-run (changes nothing, records what it would do). A **real Kubernetes backend**
   (`WARDEN_REMEDIATION=live`) restarts or scales a Deployment for real — restart/scale only, clamped
   (never to zero, never past a ceiling), behind a **separate write-RBAC** ServiceAccount that can
-  `patch deployments` and nothing else. Arming it is necessary, never sufficient: the gate still
+  `get` and `patch` deployments and nothing else. Arming it is necessary, never sufficient: the gate still
   decides. staging/qa-staging can auto-apply after approval; pre-prod and above always hand off.
 - **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
   promotion plan — the exact higher environments where the same fix is permitted — and push it to
   Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
-- **A budget that stops things.** Token and USD ceilings raise and halt the run.
+- **A budget that stops things.** A USD ceiling (tokens priced in) and a model-call ceiling raise and
+  halt the run.
 - **Real timeouts.** Every context tool runs under a wall-clock deadline. A hung logging backend
   during an incident is the normal case, not the edge case — and a timed-out tool becomes *visible
   partial context* (policy `P8`) rather than a gap that looks like completeness.
-- **OpenTelemetry tracing.** One span per node — `warden.run → tool.* → analyse → propose → verify` —
+- **OpenTelemetry tracing.** Spans for `warden.run → tool.* → analyse → propose → verify` —
   carrying confidence, action, blast radius, verdict, policies fired, and **token cost per step**.
-  Console exporter by default so it works with no collector; set `OTEL_EXPORTER_OTLP_ENDPOINT` to
-  ship to a real backend.
+  No exporter by default; `WARDEN_TRACE_CONSOLE=1` prints spans, `OTEL_EXPORTER_OTLP_ENDPOINT` ships
+  them to a real backend.
 - **A full audit trail.** Every node records what it saw and did.
 - **Terraform to deploy it.** ECS Fargate task with a **read-only task role** — WARDEN can inspect
   infrastructure but not change it — and the API key passed by Secrets Manager ARN so it never
@@ -134,11 +136,12 @@ WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY
 
 | `WARDEN_PROVIDER` | Key | Notes |
 |---|---|---|
-| `mock` | none | Deterministic, no network. Default in CI |
+| *(`WARDEN_MOCK=1`)* | none | Deterministic, no network, no provider at all. What CI runs |
 | `gemini` | `GEMINI_API_KEY` | **Free tier** |
 | `ollama` | none | **Fully local** — nothing leaves the machine |
 | `anthropic` | `ANTHROPIC_API_KEY` | |
 | `openai` / `groq` / `openrouter` | `OPENAI_API_KEY` | One OpenAI-shaped client covers all three |
+| `claude_cli` | none - the local `claude` CLI's own login | What the benchmark waves used |
 
 Providers report their own token usage; one that cannot is made to **over-estimate** rather than
 return zero, because a budget fed zeros never fires.
@@ -156,15 +159,15 @@ Any MCP client — Claude Desktop, an IDE agent, another orchestrator — gets f
 
 | Tool | What it does |
 |---|---|
-| **`verify_remediation`** | Runs the deterministic 9-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
+| **`verify_remediation`** | Runs the deterministic 12-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
 | `redact_text` | Masks identifiers and verifies its own output. Use before putting logs in any prompt |
-| `gather_incident_context` | Logs, metrics and deploys under a timeout — already redacted |
-| `describe_policy` | The ten policies and the per-environment allow-list |
+| `gather_incident_context` | Logs, metrics and deploys under a timeout — already redacted. Reads the bundled fixtures only |
+| `describe_policy` | Every gate policy (P1-P12) and the per-environment allow-list |
 
 So an agent with no safety layer of its own can ask whether the action it is about to take is
 allowed in production, and get an auditable answer with policy ids. The closed action enum is
 published in the tool schema, so a client cannot name an action outside the set, and every
-response carries `may_execute: false`.
+`verify_remediation` response carries `may_execute: false`.
 
 Built on the official `mcp` Python SDK v2 (2026-07-28 spec, stateless core).
 
@@ -233,11 +236,12 @@ Two deployment paths, both included:
   capabilities dropped**, mirroring the k8s Job.
 
 **Measured on managed EKS.** The Kubernetes backend has read a live **Amazon EKS** cluster
-(ap-south-2, 30 runs across 10 injected faults - `docs/bench/wave2-2026-09-24T115746Z`) through a
-ServiceAccount token proved beforehand to allow five reads in one namespace and nothing else:
+(ap-south-2, 30 runs across 10 scenarios - 8 injected faults and 2 healthy controls - `docs/bench/wave2-2026-09-24T115746Z`) through a
+ServiceAccount token proved beforehand to allow five reads in one namespace and nothing else (the
+sixth, `list horizontalpodautoscalers`, was added after that wave and is not yet measured on EKS):
 secrets, `kube-system`, delete and scale were all refused. CI additionally runs every commit against
-a real cluster (k3d) that enforces the same `restricted` Pod Security standard, including the
-in-cluster Job below.
+a real cluster (k3d) that enforces the same `restricted` Pod Security standard, including WARDEN
+running inside it as the in-cluster Job.
 
 **What has not been run on EKS, precisely:** in the benchmark WARDEN ran *outside* the cluster with
 that token; the in-cluster Job (`k8s/job.yaml`) and live remediation (`k8s/remediation-rbac.yaml`)
@@ -356,7 +360,7 @@ backend that can perform it — Kubernetes actions to `KubernetesRemediationBack
 `DatabaseRemediationBackend` — and refuses anything neither can do. On the cluster side it does a real
 rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`. Its
 permission is a separate `warden-remediator` ServiceAccount (`k8s/remediation-rbac.yaml`, not in the
-default deploy) that can patch deployments and nothing else — proven both ways by `kubectl auth can-i`
+default deploy) that can get and patch deployments and nothing else — proven both ways by `kubectl auth can-i`
 in CI, and the restart/scale proven against a live k3d cluster (not yet executed on EKS - the
 benchmark measures what WARDEN proposes, and never lets it act). The four-way gate is unchanged.
 
@@ -406,10 +410,11 @@ else:
 Every engine is exercised against a real server in CI, not a stub: the `db` job runs all five as
 service containers and asserts a stuck connection is selected, terminated and gone.
 
-**PostgreSQL is measured on Amazon RDS.** Six injected faults x 3 runs on RDS for PostgreSQL 16.13
+**PostgreSQL is measured on Amazon RDS.** Six scenarios (5 injected faults + 1 healthy control) x 3 runs on RDS for PostgreSQL 16.13
 (`docs/bench/wave3-2026-09-25T044307Z`): stuck transactions, a saturated pool, a 15-minute query, lock
-contention, and the database cut off by its security group. WARDEN read it as its own database user
-over SSL with no AWS credentials; every fault op was first run for real against the instance by
+contention, and the database cut off by its security group. WARDEN read it over SSL with no AWS
+credentials, as the instance's master user - not a least-privilege reader, see
+[diagram 9](#9-the-aws-proving-ground---what-the-benchmark-ran-against); every fault op was first run for real against the instance by
 `scripts/preflight_db_ops.py`. What that does not cover: WARDEN *executing* a termination on RDS (the
 benchmark lets it propose, never act), and the other four engines or Cloud SQL / Azure SQL on a
 managed service.
@@ -418,6 +423,97 @@ managed service.
 
 Every diagram below is drawn from the code it names, not from intent. If a box and the code disagree,
 the code is right and the diagram is a bug.
+
+### 0. The whole system on one page
+
+Every box is a module or file in this repository; every arrow is a call that exists in the code.
+Solid arrows run on every incident; dotted arrows are opt-in (a flag or an environment variable).
+
+```mermaid
+flowchart TB
+    subgraph IN[Ways in]
+        CLI[warden run / warden demo<br/><i>cli.py</i>]
+        JOB[Kubernetes Job<br/><i>k8s/job.yaml</i>]
+        TASK[ECS Fargate task<br/><i>terraform/</i>]
+        BENCH[benchmark harness<br/><i>scenarios/runner.py</i>]
+        MCP[warden-mcp<br/>MCP server over stdio<br/><i>mcp_server.py</i>]
+    end
+    JOB -->|runs| CLI
+    TASK -->|runs| CLI
+    BENCH -->|runs as a subprocess<br/>with a scoped identity| CLI
+
+    subgraph SRC[Evidence backends - read-only, picked by WARDEN_BACKEND<br/><i>tools.resolve_backend</i>]
+        FX[fixture<br/>5 recorded incidents]
+        AWSB[aws - <i>aws_backend.py</i><br/>CloudWatch Logs + metrics, ECS<br/>4 IAM read actions]
+        K8B[k8s - <i>k8s_backend.py</i><br/>pods, events, logs, crashed-container logs,<br/>Deployment, ReplicaSets, HPA<br/>6 RBAC read grants]
+        DBB[postgres / mysql / redis / mongo / mssql<br/><i>database.py</i><br/>session views: SELECT, SHOW, INFO,<br/>serverStatus, currentOp only]
+    end
+
+    subgraph GRAPH[Diagnosis graph - LangGraph StateGraph<br/><i>graph.py</i>]
+        N1[ingest] --> N2[gather<br/><i>tools.gather</i><br/>per-call timeout] --> N3[redact<br/><i>redaction.py</i>] --> N4[analyse<br/>LLM] --> N5[propose<br/>LLM] --> N6{verify<br/><i>verifier.py</i><br/>P1-P12}
+        N6 --> X1[halt] & X2[escalate] & X3[await_approval] & X4[record_safe]
+    end
+    CLI --> N1
+    N2 --> FX & AWSB & K8B & DBB
+
+    subgraph LLMBOX[Model access - the only way out to a model<br/><i>llm.LLMClient</i>]
+        BUD[USD + call-count budget, call timeout,<br/>typed reply: closed action enum<br/>WARDEN_MOCK=1: no provider at all]
+        PRV[<i>providers.py</i><br/>anthropic - gemini - claude_cli<br/>openai / groq / openrouter / ollama]
+        BUD --> PRV
+    end
+    N4 & N5 --> BUD
+
+    subgraph DATA[Data, not code - <i>src/warden/data/</i>]
+        KB[incident_signatures.yaml<br/>34 signatures<br/><i>knowledge.py</i>]
+        ENV[environments.yaml<br/>per-environment allow/deny,<br/>principals, auto-remediate<br/><i>environments.py</i>]
+    end
+    KB -.->|"opt-in: WARDEN_KNOWLEDGE_IN_PROMPT=1"| N4
+    ENV -->|P1 allow-list| N6
+
+    subgraph OUT[After the verdict - in <i>cli.py</i>, on request]
+        REM[decide_remediation<br/><i>remediation.py</i><br/>four-way gate]
+        REP[build_report<br/><i>reporting.py + playbook.py + runbook.py</i>]
+        NOT[notify<br/><i>chatops.py</i><br/>re-redact, mrkdwn, split]
+    end
+    X1 & X2 & X3 & X4 --> DONE([RunReport: verdict + audit trail])
+    DONE -.->|"flags: --report, --principal, --emit-chatops"| REP
+    DONE -.->|"flag: --principal<br/>any verdict but approved_for_human<br/>comes back blocked"| REM
+    ENV --> REM
+    REM --> REP
+    KB -->|patterns| REP
+    ENV -->|promotion plan| REP
+    REP -.->|"flag: --emit-chatops"| NOT
+    NOT --> SINKS([Slack - Teams - generic webhook<br/>dry-run unless WARDEN_CHATOPS_LIVE=1])
+    DONE -.->|"flag: --json"| JSON([RunReport JSON<br/>redaction map never serialised])
+
+    subgraph ACT[Writes - separate credentials, off by default]
+        DRY[DryRunBackend<br/>default: records, changes nothing]
+        RT[LiveRemediationRouter<br/>WARDEN_REMEDIATION=live<br/><i>remediation_k8s.py</i>]
+        KW[restart / scale one Deployment<br/>ServiceAccount warden-remediator:<br/>get + patch deployments only]
+        DW[terminate stuck sessions<br/><i>database_remediation.py</i><br/>WARDEN_DB_ADMIN_DSN, one grant]
+    end
+    REM --> DRY
+    REM -.-> RT
+    RT --> KW & DW
+
+    MCP -->|verify_remediation| N6
+    MCP -->|redact_text| N3
+    MCP -->|gather_incident_context<br/>fixture backend only| FX
+    MCP -->|describe_policy| ENV
+
+    GRAPH -.->|"OTel spans, GenAI conventions<br/><i>observability.py</i>"| OTEL([console or any OTLP collector<br/>Langfuse, Phoenix])
+```
+
+- **One path to a model.** `analyse` and `propose` are the only nodes that call a model, and only
+  through `LLMClient`, which enforces the budget and the timeout and rejects any action outside the
+  closed enum. Nothing reaches it that has not been through `redact`. With `WARDEN_MOCK=1` no
+  provider is built at all - that is what CI and the demo run.
+- **The MCP server shares the gate, not the graph.** It calls the same `verify()`, `redact()` and
+  environment policy, and every `verify_remediation` reply carries `may_execute: false`. Its `gather_incident_context`
+  reads the bundled fixtures only - it is not wired to a live backend.
+- **Writing is a different program path with different credentials.** The read backends cannot
+  write by construction (and a test parses each module for write verbs); the write backends are
+  reached only through `decide_remediation`, and only with `WARDEN_REMEDIATION=live`.
 
 ### 1. One incident, end to end
 
@@ -437,9 +533,10 @@ flowchart LR
     V -->|escalated| E[escalate<br/>to on-call]
     V -->|approved_for_human| W[await_approval]
     V -->|auto_safe| S[record_safe]
-    W -. principal + approval .-> RM[decide_remediation<br/><i>remediation.py</i>]
-    H & E & W & S & RM --> REP[build_report<br/><i>reporting.py</i>]
-    REP --> CH[notify<br/><i>chatops.py</i>] --> OUT([Slack · Teams · webhook])
+    H & E & W & S -.->|"--principal"| RM[decide_remediation<br/><i>remediation.py</i>]
+    H & E & W & S -.->|"--report"| REP[build_report<br/><i>reporting.py</i>]
+    RM --> REP
+    REP -.->|"--emit-chatops"| CH[notify<br/><i>chatops.py</i>] --> OUT([Slack · Teams · webhook])
 ```
 
 - **Evidence first.** `gather` runs before the model and the model cannot ask for more: choosing
@@ -522,8 +619,8 @@ applies is recorded, not just the first, so an auditor sees all the reasons.
 all three runs the EKS wave let through wrongly were `scale_up` against pods OOM-killed before they
 were ever ready (P11), and a confident "nothing to do" over symptomatic evidence had only ever been
 stopped by low confidence (P12). A re-run of the same scenarios is **not** an independent test of
-them. Replaying all 48 recorded EKS/RDS runs through the new gate changed 6 verdicts, all on wrong
-answers, and no correct run's; P11 now escalates all 3 dangerous EKS runs. Its first version keyed on
+them. Replaying all 48 recorded EKS/RDS runs through today's gate (`scripts/replay_gate.py`) changes 3
+verdicts - exactly the 3 dangerous EKS `scale_up` runs, now escalated by P11 - and no RDS run's. Its first version keyed on
 "no pod ready" and caught 2: a crash-looping pod with no readiness probe is marked Ready between
 crashes, and CI showed the same workload read ready=1 from outside the cluster and ready=0 from inside
 it seconds apart. It now keys on "every pod failing" - none ready, or every pod backing off.
@@ -554,7 +651,7 @@ flowchart LR
     Q5 -->|no| N5[awaiting_approval]
     Q5 -->|yes| B{backend}
     B -->|default| DR[dry-run: records what it would do]
-    B -->|WARDEN_REMEDIATION=live| LV[Kubernetes: restart / scale<br/>Postgres: terminate stuck sessions<br/>own least-privilege credentials]
+    B -->|WARDEN_REMEDIATION=live| LV[Kubernetes: restart / scale<br/>Database, 5 engines: terminate stuck sessions<br/>own least-privilege credentials]
 ```
 
 Production is never auto-remediated by default (`environments.yaml`); the report's promotion plan
@@ -565,7 +662,7 @@ says which higher environments permit the same action and what each requires.
 | Backend | Reads | Window |
 |---|---|---|
 | ECS (`aws_backend.py`) | **CloudWatch Logs** `filter_log_events`, CloudWatch metrics, `DescribeServices`, task definitions | logs **alert time ± 15 min**, metrics ± 10 min, deploys in the last 6 h |
-| Kubernetes (`k8s_backend.py`) | Kubernetes API: pod status, events, the **last 40 log lines** per container (5 pods), Deployment/ReplicaSets | newest lines at read time; **not CloudWatch** |
+| Kubernetes (`k8s_backend.py`) | Kubernetes API: pod status, events, the **last 40 log lines** per container (5 pods), and for each restarted container its exit reason/code and the **last 20 lines of the crashed run** (`--previous`); Deployment/ReplicaSets and rollout history; the HPA that owns the replica count | newest lines at read time; **not CloudWatch** |
 | PostgreSQL (`database.py`) | `pg_stat_activity`, `pg_locks`, and since 2026-09-25 the sessions behind the counts (pid, SQL, duration, blocker, who holds connections) | **live snapshot** at read time; **no database logs, no CloudWatch, no Performance Insights** |
 | MySQL / Redis / MongoDB / SQL Server | each engine's own session views | live snapshot |
 | Fixtures | recorded incidents | n/a |
@@ -580,9 +677,9 @@ flowchart TB
     RUB[scoring.yaml<br/>rubric, hashed into the manifest] -.-> SC
     PRE[preflight<br/>preflight_k8s_ops.py · preflight_db_ops.py<br/>every op against the REAL server first] --> LOOP
     subgraph LOOP[for each scenario]
+        Q[quiet period<br/>derived from the backend's evidence reach] --> B1
         B1{baseline gate<br/>proving ground clean?} -->|no| STOP[STOP the wave]
-        B1 -->|yes| Q[quiet period<br/>derived from the backend's evidence reach]
-        Q --> INJ[inject the fault]
+        B1 -->|yes| INJ[inject the fault]
         INJ --> SET[settle]
         SET --> RUN[run WARDEN as a subprocess<br/>scoped read-only identity<br/>its own platform's alert - names no cause]
         RUN --> REV[revert]
@@ -621,7 +718,7 @@ flowchart LR
     end
     H & PA --> R([report])
     NX & IM & SR & PT & EV & GV & RK & RB & TM --> R
-    R --> RD[redact once, with the pipeline's map] --> ID{identifiers<br/>opt-in?}
+    R --> RD[redacted, seeded with the pipeline's map;<br/>notify redacts again before sending] --> ID{identifiers<br/>opt-in?}
     ID -->|yes| SH[emails · tenant ids · IPs shown<br/>secrets still masked]
     ID -->|no| MK[all masked]
     SH & MK --> SL[Slack: mrkdwn, split under the limit<br/>never inside a command]
@@ -630,6 +727,113 @@ flowchart LR
 The runbook prints no command it cannot aim: an unknown namespace is found by a real command first
 (`NS=$(kubectl get deploy -A --field-selector metadata.name=...)`), and an irreversible failover with
 no identifiable primary prints no command at all - the report says why.
+
+### 8. Where WARDEN runs, and with which identity
+
+Each deployment reads with the narrowest credential that can see the evidence, and none of them can
+write. The write identities exist only for live remediation, which is off by default.
+
+```mermaid
+flowchart LR
+    subgraph K8S[Any Kubernetes cluster - EKS, GKE, AKS, k3d<br/><i>k8s/</i>]
+        J[Job, uid 10001, read-only root FS,<br/>all capabilities dropped,<br/>restricted Pod Security]
+        SA[ServiceAccount warden<br/>ClusterRole: 6 reads - list pods, get pods/log,<br/>list events, get deployments, list replicasets,<br/>list horizontalpodautoscalers<br/>bound per namespace by RoleBinding, never cluster-wide]
+        RSA[ServiceAccount warden-remediator<br/><i>remediation-rbac.yaml</i>, not in the default deploy<br/>get + patch deployments only]
+        J --> SA
+    end
+    subgraph AWS[AWS account<br/><i>terraform/</i>]
+        T[ECS Fargate task,<br/>all capabilities dropped]
+        TR[task role: 4 actions<br/>cloudwatch:GetMetricData, ecs:DescribeServices,<br/>ecs:DescribeTaskDefinition, logs:FilterLogEvents]
+        SM[model API key by Secrets Manager ARN<br/>never in Terraform state]
+        T --> TR
+        T --> SM
+    end
+    subgraph DB[Any database]
+        RD[WARDEN_DB_DSN<br/>a user that can read session views]
+        AD[WARDEN_DB_ADMIN_DSN, live remediation only<br/>one grant, e.g. pg_signal_backend]
+    end
+    subgraph LAP[An engineer's machine or CI]
+        C[warden CLI<br/>kubeconfig / AWS profile / DSN it is given]
+    end
+    SA -->|reads| PODS[(pods, events, logs,<br/>Deployments, HPAs)]
+    TR -->|reads| CW[(CloudWatch, ECS)]
+    RD -->|reads| SV[(pg_stat_activity, pg_locks, ...)]
+    RSA -. restart / scale .-> PODS
+    AD -. terminate idle-in-transaction .-> SV
+    C --> SA & TR & RD
+```
+
+On EKS the Job needs **no IRSA / IAM role**: it reads through in-cluster config and calls no cloud
+API. What has been run where is stated under [Kubernetes](#kubernetes--reading-a-live-cluster) and
+in [the benchmark](#the-benchmark--14-real-faults-a-real-aws-account-and-what-it-found).
+
+### 9. The AWS proving ground - what the benchmark ran against
+
+`terraform/proving-ground/`, created for a wave and destroyed after it. The ECS workload is always
+created; EKS and RDS are each behind a switch (`enable_eks`, `enable_rds`), so a wave pays only for
+what it measures. The harness runs on the operator's machine under a scoped IAM identity with a
+permissions boundary; WARDEN runs as a
+subprocess with only the identity for that wave.
+
+```mermaid
+flowchart TB
+    subgraph OP[Operator machine]
+        H[<i>scenarios/runner.py</i><br/>quiet, baseline gate, inject, settle,<br/>run WARDEN, revert<br/>scored after, by <i>scenarios/score.py</i>]
+        W1[WARDEN - Wave 1<br/>STS session of the reader role:<br/>the same 4 read actions]
+        W2[WARDEN - Wave 2<br/>kubeconfig bound to ServiceAccount<br/>warden in warden-pg: 5 reads then, 6 now]
+        W3[WARDEN - Wave 3<br/>DSN only, no AWS credentials]
+        H --> W1 & W2 & W3
+    end
+    subgraph VPC[VPC, 2 public subnets, internet gateway, no NAT<br/>inbound: none, or the operator's IP only]
+        subgraph E1[Wave 1 - ECS, 14 scenarios x 3 runs]
+            ECSS[ECS cluster, Fargate + Fargate Spot<br/>service checkout, 2 tasks,<br/>3 task-definition revisions]
+            LG[(CloudWatch log group)]
+            ECSS --> LG
+        end
+        subgraph E2[Wave 2 - EKS, 10 scenarios x 3 runs]
+            EKS[EKS control plane<br/>public endpoint locked to one IP]
+            NG[managed node group<br/>1 x t3.small EC2, Spot]
+            NS[namespace warden-pg<br/>Deployment checkout]
+            EKS --> NG --> NS
+        end
+        subgraph E3[Wave 3 - RDS, 6 scenarios x 3 runs]
+            RDS[(RDS for PostgreSQL 16<br/>db.t4g.micro, SSL<br/>security group: operator IP only)]
+        end
+    end
+    BUD[AWS Budget guard<br/>alerts on actual and forecast spend]
+    W1 --> ECSS & LG
+    W2 --> EKS
+    W3 --> RDS
+    H -. inject faults with the operator's own credentials .-> ECSS & NS & RDS
+```
+
+- **The tool under test never holds the injector's credentials.** Faults are injected with the
+  operator's identity; WARDEN gets only its read identity, so a scenario that revokes a permission
+  (`ecs-11`, `k8s-09`, and `db-06` cuts the database off) really bites.
+- **Wave 3's database user is the instance's master user (`warden`)**, not a least-privilege reader.
+  WARDEN only ran SELECTs over it (the backend cannot issue anything else), but the credential
+  itself could write. A dedicated `pg_monitor` reader is the right shape and has not been measured.
+- **Every fault op was run for real before its wave** (`scripts/preflight_k8s_ops.py`,
+  `scripts/preflight_db_ops.py`), and a baseline gate stops the wave if the proving ground is not
+  clean before a scenario.
+
+### 10. CI - what every push proves
+
+`.github/workflows/ci.yml`, five jobs, on every push to `main` and every pull request. None touches AWS: the measurements are the
+benchmark waves above; CI keeps what they measured from regressing.
+
+```mermaid
+flowchart LR
+    PUSH([push to main / pull request]) --> C1 & C2 & C3 & C4 & C5
+    C1[check<br/>ruff, unit tests, eval gate,<br/>publishable-content scan,<br/>demo verdicts, core imports without any SDK]
+    C2[docker<br/>build the image, assert its output]
+    C3[k8s-regression - k3d<br/>manifests against a real API server,<br/>Pod Security rejects a privileged pod,<br/>RBAC: exactly 6 reads yes, everything else no,<br/>remediator: get + patch only,<br/>real OOM crash loop, WARDEN outside and<br/>inside the cluster, P11 must escalate]
+    C4[db<br/>PostgreSQL, MySQL, Redis, MongoDB,<br/>SQL Server as real servers:<br/>a stuck session is found, terminated, gone]
+    C5[terraform<br/>fmt + validate, both modules]
+```
+
+Integration steps must **run, not skip**: each asserts a pass count, because a suite that silently
+skips against a missing cluster is green and proves nothing.
 
 ### Further reading
 

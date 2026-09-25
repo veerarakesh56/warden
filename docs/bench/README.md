@@ -94,13 +94,13 @@ nothing wrong.
 - Not a comparison between tools, and not evidence that WARDEN should be adopted.
 - Not reproducible by a stranger without the same subscription: the runs go through the `claude` CLI
   on a Max plan, so there is no per-call cost in the artefacts and no API key to hand over.
-- One model, one wave, 14 fault classes, 3 repeats. Waves 2 (EKS) and 3 (RDS) are below.
+- One model, one wave, 14 scenarios (13 faults + 1 healthy control), 3 repeats. Waves 2 (EKS) and 3 (RDS) are below.
 
 ---
 
 # Wave 2 on managed EKS — one run, stopped twice by its own gate
 
-`wave2-2026-09-24T115746Z`: 10 Kubernetes fault classes x 3 repeats on a managed EKS cluster (one
+`wave2-2026-09-24T115746Z`: 10 Kubernetes scenarios (8 faults + 2 healthy controls) x 3 repeats on a managed EKS cluster (one
 `t3.small` spot node, ap-south-2), same model as Wave 1 (Claude Sonnet through the `claude` CLI).
 Rubric and catalog are byte-identical to the ones the run started with; the scorer checks and
 reports that. WARDEN read the cluster as a ServiceAccount proved beforehand - through a real token -
@@ -180,7 +180,7 @@ different actions across three identical repeats, including the healthy control.
 ## What these numbers are not
 
 - Not a comparison between tools, and not evidence that WARDEN should be adopted.
-- One model, one cluster, one node, 10 fault classes, 3 repeats. The OOM result depends on the
+- One model, one cluster, one node, 10 scenarios (8 faults + 2 healthy controls), 3 repeats. The OOM result depends on the
   48 MiB limit the proving ground sets; it says what this model did with that evidence, not what
   it does in general.
 
@@ -188,11 +188,13 @@ different actions across three identical repeats, including the healthy control.
 
 # Wave 3 on RDS PostgreSQL — the first wave with its own platform's alert
 
-`wave3-2026-09-25T044307Z`: 6 PostgreSQL fault classes x 3 repeats on a `db.t4g.micro` RDS
+`wave3-2026-09-25T044307Z`: 6 PostgreSQL scenarios (5 faults + 1 healthy control) x 3 repeats on a `db.t4g.micro` RDS
 instance (Postgres 16.13, ap-south-2), same model. The first wave given its own platform's alert
 (`scenarios/alert-db.yaml`: "Alert fired for PostgreSQL database warden" - no cause). Rubric and
-catalog byte-identical to the ones the run started with. WARDEN read the database as its own
-database user over SSL, with no AWS credentials at all; the master password appears in none of the
+catalog byte-identical to the ones the run started with. WARDEN read the database over SSL, with no
+AWS credentials at all, as the instance's master user `warden` - not a least-privilege reader. It
+only ran SELECTs (its backend cannot issue anything else), but the credential could have written;
+a `pg_monitor` reader is the right shape and is not what was measured; the master password appears in none of the
 published files.
 
 Before the wave, every fault op was run for real against the database at minimum size
@@ -247,5 +249,5 @@ lines at all, so every run is "thin evidence" by construction.
 ## What these numbers are not
 
 - Not a comparison between tools, and not evidence that WARDEN should be adopted.
-- One model, one micro instance, 6 fault classes, 3 repeats. Nothing about CPU, memory, IOPS or
+- One model, one micro instance, 6 scenarios (5 faults + 1 healthy control), 3 repeats. Nothing about CPU, memory, IOPS or
   Performance Insights - the database backend reads none of it, so no scenario asks.

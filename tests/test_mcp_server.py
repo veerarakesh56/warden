@@ -5,7 +5,10 @@ standing up a client. The transport is the SDK's problem; the contract is ours.
 """
 
 import json
+import pathlib
+import re
 
+from warden import verifier
 from warden.mcp_server import _tools, build_server, call_tool
 
 
@@ -144,7 +147,12 @@ def test_gather_over_mcp_redacts_deploy_identifiers(monkeypatch):
 
 def test_describe_policy_lists_every_policy():
     out = _payload(call_tool("describe_policy", {}))
-    assert len(out["policies"]) == 10, "P10 joined the gate on 2026-09-12"
+    # Derived from the gate's own source, not a number: this test said `== 10` while the gate grew to
+    # twelve, and the MCP tool went on describing a gate without P11/P12 (found 2026-09-25).
+    src = pathlib.Path(verifier.__file__).read_text(encoding="utf-8")
+    gate_ids = set(re.findall(r'append\("(P\d+-[A-Z-]+)"\)', src))
+    assert len(gate_ids) >= 12
+    assert set(out["policies"]) == gate_ids
     assert "prod" in out["environment_allowlist"]
 
 

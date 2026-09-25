@@ -109,7 +109,7 @@ socket timeout so the thread actually ends.
 
 ## Tracing
 
-`observability.py` wires OpenTelemetry. One span per node —
+`observability.py` wires OpenTelemetry. Spans for the run, each tool call and the three decision nodes —
 `warden.run → tool.* → analyse → propose → verify` — with attributes for confidence, action, blast
 radius, verdict, policies fired, and **token/USD cost per step**.
 

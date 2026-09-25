@@ -1,6 +1,7 @@
 """OpenTelemetry tracing for the graph.
 
-One span per node, so a run is a tree an operator can read: which node was slow, which tool failed,
+Spans for the run, each tool call and analyse/propose/verify, so a run is a tree an operator can
+read: which node was slow, which tool failed,
 what the verdict was, and what the tokens cost. This is the difference between "the agent did
 something" and "here is exactly what it did, in order, with timings".
 

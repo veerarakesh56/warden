@@ -149,7 +149,7 @@ def _tools() -> list[types.Tool]:
         types.Tool(
             name="describe_policy",
             title="Explain the WARDEN policy set",
-            description="Return the ten policies, the per-environment action allow-list and the confidence threshold.",
+            description="Return every gate policy, the per-environment action allow-list and the confidence threshold.",
             input_schema={"type": "object", "properties": {}},
         ),
     ]
@@ -282,6 +282,15 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         "P10-CLAIM-CONTRADICTS-TABLE": (
                             "the proposal says the action is irreversible while WARDEN's table "
                             "says it is not; a human reconciles that before anything runs"
+                        ),
+                        "P11-ACTION-CONTRADICTS-EVIDENCE": (
+                            "the action cannot fix what the evidence shows - e.g. scale_up while "
+                            "every pod is OOM-killed and failing, restart_pods on an image pull "
+                            "error, failover_replica with no replica lag"
+                        ),
+                        "P12-NO-ACTION-WITH-SYMPTOMS": (
+                            "'nothing to do' while WARDEN counts a symptom in the evidence "
+                            "escalates; a quiet no_action cannot close a live incident"
                         ),
                     },
                     "environment_allowlist": {
