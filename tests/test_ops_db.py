@@ -256,3 +256,33 @@ def test_the_catalog_dispatches_through_the_shared_run_steps():
 def test_an_unknown_op_names_the_database_registry():
     with pytest.raises(OpError, match="db_open_idle_transactions"):
         run_steps(_clients(), _target(), [{"op": "ecs_deploy_variant"}], account="", registry=OPS)
+
+
+def test_the_blocking_lock_refuses_instead_of_hanging_when_the_table_is_already_locked():
+    """⛔ Found on the real RDS instance: a leaked session held a lock on the sentinel, and the
+    blocker's ACCESS EXCLUSIVE request waited on the harness's main thread forever."""
+
+    class Locked(FakeCursor):
+        def execute(self, sql, params=None):
+            super().execute(sql, params)
+            if sql.startswith("LOCK TABLE"):
+                raise RuntimeError("canceling statement due to lock timeout")
+            return self
+
+    class LockedConn(FakeConn):
+        def cursor(self):
+            return Locked(self)
+
+    class Factory(FakeFactory):
+        def __call__(self):
+            conn = LockedConn(self)
+            self.handed.append(conn)
+            return conn
+
+    factory = Factory()
+    with pytest.raises(OpError, match="not at baseline"):
+        OPS["db_take_blocking_lock"](_clients(factory), _target(), waiters=2)
+    blocker = factory.handed[-1]
+    assert any("lock_timeout" in s for s in blocker.statements), "the blocker must set a lock timeout"
+    assert blocker.closed, "a refused blocker must not be left open"
+    assert not _HELD, "nothing may be held after a refusal"

@@ -41,6 +41,8 @@ from .ops import OpError
 SENTINEL_TABLE = "warden_proving_ground"
 PROVING_GROUND_DB = "warden"
 PROJECT_TAG = ("Project", "warden-proving-ground")
+# How long the lock-contention blocker may wait for its own lock before refusing (see that op).
+LOCK_TIMEOUT_S = 15
 
 
 @dataclass
@@ -192,7 +194,21 @@ def op_db_take_blocking_lock(clients: Clients, target: Target, *, waiters: int =
     blocker = clients.connect()
     cur = blocker.cursor()
     cur.execute("BEGIN")
-    cur.execute("LOCK TABLE " + SENTINEL_TABLE + " IN ACCESS EXCLUSIVE MODE")
+    # ⛔ A TIMEOUT ON THE BLOCKER'S OWN LOCK. This runs on the harness's main thread; if anything
+    # still holds a lock on the sentinel - a session an earlier revert leaked - the ACCESS EXCLUSIVE
+    # request waits behind it forever and the whole wave hangs silently. Found on the real RDS
+    # instance by the preflight with its revert broken on purpose. SET LOCAL scopes it to this
+    # transaction; the WAITERS below deliberately have none, because waiting is their job.
+    cur.execute(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT_S}s'")
+    try:
+        cur.execute("LOCK TABLE " + SENTINEL_TABLE + " IN ACCESS EXCLUSIVE MODE")
+    except Exception as exc:
+        blocker.close()
+        raise OpError(
+            f"could not take the blocking lock within {LOCK_TIMEOUT_S}s - something else already holds "
+            f"a lock on {SENTINEL_TABLE}, which means the proving ground is not at baseline "
+            f"({type(exc).__name__})"
+        ) from exc
     _HELD.append(blocker)
 
     started = 0
