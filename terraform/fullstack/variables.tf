@@ -52,3 +52,14 @@ variable "eks_admin_principal_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "budget_usd" {
+  description = "Monthly cost budget for the account, in USD (the owner's cap for Wave 4: 50)."
+  type        = number
+  default     = 50
+}
+
+variable "budget_email" {
+  description = "Where the budget alarms go. Set it in terraform.tfvars (gitignored) - never in the repo."
+  type        = string
+}

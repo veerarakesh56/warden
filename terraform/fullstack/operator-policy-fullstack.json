@@ -262,6 +262,18 @@
         "arn:aws:s3:::warden-pg-fs-tfstate-*",
         "arn:aws:s3:::warden-pg-fs-tfstate-*/*"
       ]
+    },
+    {
+      "Sid": "TheStacksOwnBudget",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "budgets:ModifyBudget",
+        "budgets:TagResource",
+        "budgets:UntagResource",
+        "budgets:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:budgets::*:budget/warden-pg-fs-*"
     }
   ]
 }

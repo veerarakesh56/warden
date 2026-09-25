@@ -37,8 +37,9 @@ slightly), no free tier, idle load from the traffic Lambda. The budget alarm is 
 | DynamoDB 5 RCU / 5 WCU, 20 alarms, 2 secrets, Lambda/SQS/SNS/API calls | ~0.015 | |
 | **total** | **~0.45** | |
 
-**Budget:** the account budget lives in `terraform/proving-ground` (one budget, not two). The owner
-raises it to USD 50 there: `terraform -chdir=terraform/proving-ground apply -var budget_usd=50`.
+**Budget:** this stack carries its own alarm, `warden-pg-fs-guard` (USD 50 a month by default,
+`budget_usd`), emailing `budget_email` from your gitignored terraform.tfvars on forecast 60%/90% and
+actual 50%/100%. The proving ground's budget was destroyed with it.
 USD 50 is about four and a half days of this stack left running. Destroy it when a run ends.
 
 ## Before the first apply (owner, admin credentials)

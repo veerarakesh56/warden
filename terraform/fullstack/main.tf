@@ -220,3 +220,31 @@ locals {
     eks    = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
   }
 }
+
+# ⛔ THE SPENDING ALARM FOR THIS STACK. The proving ground's budget went with its teardown, so the
+# stack that costs ~USD 0.45/h carries its own. Forecast alarms fire first on purpose: by the time
+# ACTUAL spend crosses a line, the hours that caused it are already billed. The name is inside the
+# operator's budgets scope (budget/warden-pg-*).
+resource "aws_budgets_budget" "guard" {
+  name         = "${local.name}-guard"
+  budget_type  = "COST"
+  limit_amount = tostring(var.budget_usd)
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  dynamic "notification" {
+    for_each = [
+      { type = "FORECASTED", threshold = 60 },
+      { type = "FORECASTED", threshold = 90 },
+      { type = "ACTUAL", threshold = 50 },
+      { type = "ACTUAL", threshold = 100 },
+    ]
+    content {
+      comparison_operator        = "GREATER_THAN"
+      threshold                  = notification.value.threshold
+      threshold_type             = "PERCENTAGE"
+      notification_type          = notification.value.type
+      subscriber_email_addresses = [var.budget_email]
+    }
+  }
+}

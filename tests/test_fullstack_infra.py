@@ -403,3 +403,15 @@ def test_bootstrap_sql_placeholders_appear_only_where_passwords_go():
     for line in text.splitlines():
         if "{" in line:
             assert not line.lstrip().startswith("--") and "PASSWORD {" in line, line
+
+
+def test_the_stack_carries_its_own_budget_alarm():
+    """The proving ground's budget went with its teardown; a ~USD 0.45/h stack must not run unwatched."""
+    tf = (ROOT / "terraform" / "fullstack" / "main.tf").read_text(encoding="utf-8")
+    assert 'resource "aws_budgets_budget" "guard"' in tf and 'name         = "${local.name}-guard"' in tf
+    assert 'type = "FORECASTED"' in tf and 'type = "ACTUAL"' in tf
+    pol = json.loads((ROOT / "terraform" / "fullstack" / "operator-policy-fullstack.json").read_text(encoding="utf-8"))
+    budget = [s for s in pol["Statement"] if any(a.startswith("budgets:") for a in s["Action"])]
+    assert budget and all(s["Resource"] == "arn:aws:budgets::*:budget/warden-pg-fs-*" for s in budget)
+    wf = (ROOT / ".github" / "workflows" / "infra.yml").read_text(encoding="utf-8")
+    assert "TF_VAR_budget_email: ${{ secrets.WARDEN_FS_BUDGET_EMAIL }}" in wf
