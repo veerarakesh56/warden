@@ -1,0 +1,20 @@
+# The one alert every scenario in the Kubernetes wave is given. Byte-identical across that wave.
+#
+# Same rules as alert.yaml, which explains them: it must NOT name a cause, started_at is a
+# placeholder (the runner passes --started-at now), and environment is prod on purpose.
+#
+# ⚠ WHY A SEPARATE FILE PER PLATFORM (added 2026-09-25). Every wave used to get alert.yaml, written
+# for Wave 1: "CloudWatch alarm fired for ECS service checkout". On a Kubernetes or Postgres
+# scenario that names the WRONG PLATFORM, and the model noticed and spent reasoning on the mismatch
+# ("ECS alarm wired to wrong metric source"). Naming the platform and the resource tells the model
+# nothing about the fault - which is the line this file must not cross - and removes a distraction
+# that real alerts do not have. The published Wave 2 run used the ECS-worded alert; that is
+# disclosed with its results rather than re-run.
+
+alert_id: bench
+name: KubernetesWorkloadAlarm
+severity: high
+service: checkout
+environment: prod
+summary: Alert fired for Kubernetes deployment checkout
+started_at: "2026-01-01T00:00:00Z"

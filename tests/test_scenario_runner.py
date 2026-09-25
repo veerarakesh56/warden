@@ -268,20 +268,28 @@ def test_the_manifest_pins_the_rubric_and_the_catalog(tmp_path):
     assert manifest["alert"]["name"] == "ECSServiceAlarm"
 
 
-def test_the_benchmark_alert_names_no_cause():
+@pytest.mark.parametrize("wave,kind,platform", [(1, "ecs", "ecs"), (2, "k8s", "kubernetes"), (3, "db", "postgresql")])
+def test_each_waves_alert_names_no_cause_and_the_right_platform(wave, kind, platform):
     """⛔ `graph.py` puts the alert's name and summary straight into the reasoning prompt. An alert
     called `PodOOMKilled` hands the model the answer on every OOM scenario and misleads it on the
-    rest, so the one alert every scenario shares must not name a fault."""
+    rest, so the alert a wave shares must not name a fault.
+
+    ...and it must name the platform the wave actually runs on. Every wave used to share the Wave 1
+    alert ("ECS service checkout"); on Kubernetes and Postgres the model read that as a mismatch and
+    reasoned about it."""
     import yaml
 
-    alert = yaml.safe_load(runner.ALERT_FILE.read_text(encoding="utf-8"))
+    alert = yaml.safe_load(runner.ALERT_FILES[kind].read_text(encoding="utf-8"))
     blob = f"{alert['name']} {alert['summary']}".lower()
-    _doc, scenarios = runner.load_wave(1)
-    for word in ("oom", "memory", "crash", "pull", "secret", "route", "permission", "denied"):
-        assert word not in blob, f"the benchmark alert mentions {word!r} - it names the answer"
+    _doc, scenarios = runner.load_wave(wave)
+    for word in ("oom", "memory", "crash", "pull", "secret", "route", "permission", "denied", "idle",
+                 "lock", "saturat", "exhaust", "query", "unreachable", "revoke", "scale", "probe",
+                 "image", "restart", "delete", "zero", "connection"):
+        assert word not in blob, f"the wave {wave} alert mentions {word!r} - it names the answer"
     for scenario in scenarios:
         assert scenario["fault_class"] not in blob
         assert scenario["id"] not in blob
+    assert platform in blob, f"the wave {wave} alert does not say it is {platform}"
 
 
 def test_the_runner_does_not_import_the_tool_under_test():

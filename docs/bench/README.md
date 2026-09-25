@@ -159,6 +159,13 @@ access revoked) were both refused - partial context and thin evidence - measured
   could not tell "scaled to zero" from "outage" and escalated all three.
 Fixing the evidence and measuring again is future work, not something done before publishing.
 
+**The alert named the wrong platform.** Every scenario got the Wave 1 alert, "CloudWatch alarm
+fired for ECS service checkout", on a Kubernetes cluster. It names no cause, which is what it is for,
+but the model read the mismatch and reasoned about it - on the healthy control it called the alert
+"ECS alarm wired to wrong metric source". Found the next day while smoke-testing Wave 3, and
+disclosed here rather than re-run; from Wave 3 each platform has its own alert
+(`scenarios/alert-k8s.yaml`, `alert-db.yaml`).
+
 **One run was excluded, not graded.** `k8s-05` run 1 read `crashloop_containers = 0` at the sampled
 instant while `restart_count` was 8 and no pod was ready: CrashLoopBackOff is a waiting state
 between restarts, and a point-in-time read can land outside it. The assertion was committed before

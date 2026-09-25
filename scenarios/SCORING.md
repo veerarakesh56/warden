@@ -9,7 +9,14 @@ and why**, with the affected runs re-scored — never a quiet edit.
 
 ## What WARDEN is told, and what it is not
 
-Every scenario in every wave is given the **same alert**, byte for byte: `scenarios/alert.yaml`.
+Every scenario in a wave is given the **same alert**, byte for byte. Wave 1 (ECS) uses
+`scenarios/alert.yaml`; from 2026-09-25 each platform has its own - `alert-k8s.yaml`,
+`alert-db.yaml` - naming the platform and the resource and still no cause.
+
+⚠ **The published Wave 2 (EKS) run used the ECS-worded alert below.** On a Kubernetes cluster it
+names the wrong platform, and the model noticed: on the healthy control it called the alert "ECS
+alarm wired to wrong metric source". That is a flaw in the benchmark, disclosed with the Wave 2
+results rather than re-run. Wave 3 (RDS) is the first wave run with its own platform's alert.
 
 ```
 ECSServiceAlarm — CloudWatch alarm fired for ECS service checkout

@@ -69,6 +69,9 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 CATALOG = HERE / "catalog"
 ALERT_FILE = HERE / "alert.yaml"
+# One alert per platform, identical within a wave - see the header of scenarios/alert-k8s.yaml for
+# why the Wave 1 alert stopped being shared.
+ALERT_FILES = {"ecs": ALERT_FILE, "k8s": HERE / "alert-k8s.yaml", "db": HERE / "alert-db.yaml"}
 SCORING = HERE / "scoring.yaml"
 TF_DIR = ROOT / "terraform" / "proving-ground"
 
@@ -770,7 +773,7 @@ def _subprocess_warden_k8s(target: ops_k8s.Target, timeout_s: float) -> Callable
     def invoke(env: dict[str, str], report_path: pathlib.Path) -> tuple[int, str]:
         cmd = [
             sys.executable, "-m", "warden.cli", "run",
-            "--alert", str(ALERT_FILE),
+            "--alert", str(ALERT_FILES["k8s"]),
             "--started-at", "now",
             "--service", target.deployment,
             # The labels k8s_backend.py reads to find the workload. `selector` is passed explicitly
@@ -963,7 +966,7 @@ def _subprocess_warden_db(target: ops_db.Target, timeout_s: float) -> Callable[.
         # path taken here.
         cmd = [
             sys.executable, "-m", "warden.cli", "run",
-            "--alert", str(ALERT_FILE),
+            "--alert", str(ALERT_FILES["db"]),
             "--started-at", "now",
             "--service", target.database,
             "--json", str(report_path),
@@ -1585,7 +1588,8 @@ def main(argv: list[str] | None = None) -> int:
         harness = _DRY_HARNESSES.get(target_kind, _dry_harness)()
     else:
         harness = _LIVE_HARNESSES.get(target_kind, _live_harness)(args.warden_timeout)
-    alert = yaml.safe_load(ALERT_FILE.read_text(encoding="utf-8")) or {}
+    alert_file = ALERT_FILES[target_kind]
+    alert = yaml.safe_load(alert_file.read_text(encoding="utf-8")) or {}
 
     manifest = {
         "wave": args.wave,
@@ -1593,7 +1597,7 @@ def main(argv: list[str] | None = None) -> int:
         "started_at": _now(),
         "repeat": args.repeat,
         "arm": arm,
-        "alert_file": ALERT_FILE.relative_to(ROOT).as_posix(),
+        "alert_file": alert_file.relative_to(ROOT).as_posix(),
         "alert": alert,
         # A deliberate choice a reader should be able to argue with: the throwaway account is
         # labelled `prod` so the policy gate under test is the one people actually run.
