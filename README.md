@@ -503,13 +503,15 @@ applies is recorded, not just the first, so an auditor sees all the reasons.
 all three runs the EKS wave let through wrongly were `scale_up` against pods OOM-killed before they
 were ever ready (P11), and a confident "nothing to do" over symptomatic evidence had only ever been
 stopped by low confidence (P12). A re-run of the same scenarios is **not** an independent test of
-them. Replaying all 48 recorded EKS/RDS runs through the new gate changed 5 verdicts, all on wrong
-answers, and no correct run's. P11 caught 2 of the 3 dangerous runs; the third had one pod ready at
-the instant WARDEN read it, and the rule does not guess.
+them. Replaying all 48 recorded EKS/RDS runs through the new gate changed 6 verdicts, all on wrong
+answers, and no correct run's; P11 now escalates all 3 dangerous EKS runs. Its first version keyed on
+"no pod ready" and caught 2: a crash-looping pod with no readiness probe is marked Ready between
+crashes, and CI showed the same workload read ready=1 from outside the cluster and ready=0 from inside
+it seconds apart. It now keys on "every pod failing" - none ready, or every pod backing off.
 
 | P11 fires when | because |
 |---|---|
-| `scale_up` + OOM kills + **no pod ready** | nothing is serving traffic, so load is not filling memory; new replicas die at startup the same way |
+| `scale_up` + OOM kills + **every pod failing** (none ready, or all backing off) | nothing is serving traffic, so load is not filling memory; new replicas die at startup the same way |
 | `scale_down` + OOM kills | fewer replicas never lower any replica's memory |
 | `restart_pods` + `ErrImagePull`/`ImagePullBackOff` | a restart re-pulls the same image |
 | `terminate_connections` + only **active** long queries (nothing idle in a transaction, nothing blocked) | it destroys work in progress |

@@ -112,6 +112,29 @@ def symptoms(context) -> list[str]:
     return out
 
 
+def _every_pod_failing(context) -> bool:
+    """No pod is reliably serving: none is ready, or every pod has a crash-loop / back-off record.
+
+    ⛔ `pods_ready == 0` alone is a coin-flip for a crash-looping pod. With no readiness probe,
+    Kubernetes marks it Ready for the moments between crashes - in CI the same OOM workload read as
+    ready=1 from outside the cluster and ready=0 from inside it, seconds apart, and P11 fired on only
+    one of them. A pod Ready between crashes is not serving traffic; a pod with a back-off record is
+    failing whatever its readiness says at the instant it was sampled.
+    """
+    m = context.metrics
+    total = m.get("pods_total")
+    if not total:
+        return False
+    if m.get("pods_ready", total) == 0 or m.get("crashloop_containers", 0) >= total:
+        return True
+    backing_off = {
+        line.split("Pod/", 1)[1].split(":", 1)[0]
+        for line in context.logs
+        if line.startswith("EVENT ") and ("BackOff" in line or "CrashLoopBackOff" in line) and "Pod/" in line
+    }
+    return len(backing_off) >= total
+
+
 def _contradiction(proposal, context) -> str | None:
     """Why the proposed action cannot fix what the evidence shows - or None.
 
@@ -124,8 +147,8 @@ def _contradiction(proposal, context) -> str | None:
     # ready - then none is serving traffic, so load is not what fills memory, and every new replica
     # is killed at startup the same way (the EKS k8s-02/03 case: 900 MiB allocated at start, 48 MiB
     # limit). A first version flagged all scale_up-on-OOM and the inc-002 tests caught it.
-    if a is ActionKind.scale_up and _oom_seen(context) and m.get("pods_ready", -1) == 0:
-        return ("scale_up adds replicas, but no pod is ready: they are OOM-killed before serving "
+    if a is ActionKind.scale_up and _oom_seen(context) and _every_pod_failing(context):
+        return ("scale_up adds replicas, but every pod is failing: they are OOM-killed before serving "
                 "traffic, so load is not what fills memory and every new replica dies at startup the "
                 "same way. The per-replica memory limit or the application's memory use is the cause.")
     if a is ActionKind.scale_down and _oom_seen(context):

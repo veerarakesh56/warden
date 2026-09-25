@@ -391,9 +391,9 @@ def test_unreachable_api_becomes_partial_context_not_a_crash():
     assert ctx.is_empty()
 
 
-def _scale_up_verdict_on_oom(*, ready: bool):
+def _scale_up_verdict_on_oom(*, ready: bool, backoff: bool = True):
     pods = [_pod(restarts=6, last_reason="OOMKilled", ready=ready)]
-    events = [_event("BackOff", "Back-off restarting failed container")]
+    events = [_event("BackOff", "Back-off restarting failed container")] if backoff else []
     b = _backend(FakeCore(pods=pods, events=events, log_text="starting\nKilled"))
     ctx = gather(_alert(), b, timeout=2.0)
     assert ctx.metrics["oom_killed_containers"] == 1 and not ctx.is_empty()
@@ -416,9 +416,19 @@ def test_live_shaped_oom_evidence_reaches_scale_up_verdict():
 
 
 def test_scale_up_on_oom_still_passes_when_a_pod_is_serving():
-    """The other side, so P11 cannot quietly become "never scale on OOM": with a ready pod, memory can
-    grow with load and scaling out can relieve it."""
-    assert _scale_up_verdict_on_oom(ready=True).status is VerdictStatus.approved_for_human
+    """The other side, so P11 cannot quietly become "never scale on OOM": with a ready pod that is NOT
+    backing off, memory can grow with load and scaling out can relieve it."""
+    # Asserts the policy, not the final status: with the back-off event gone the evidence is thin and
+    # P9 escalates - correctly, and for a reason unrelated to this claim.
+    assert "P11-ACTION-CONTRADICTS-EVIDENCE" not in _scale_up_verdict_on_oom(ready=True, backoff=False).policy_ids
+
+
+def test_a_crash_looping_pod_that_is_ready_between_crashes_is_still_failing():
+    """⛔ CI, 2026-09-25: the same OOM workload read ready=1 from outside the cluster and ready=0 from
+    inside it seconds apart - a pod with no readiness probe is Ready between crashes - so P11 fired on
+    one run and not the other. A back-off record means failing, whatever readiness says."""
+    v = _scale_up_verdict_on_oom(ready=True, backoff=True)
+    assert "P11-ACTION-CONTRADICTS-EVIDENCE" in v.policy_ids
 
 
 # --------------------------------------------------------------------------- the invariants

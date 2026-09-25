@@ -58,13 +58,14 @@ The policies are not hypothetical. Each one has a test that proves it can fire:
 | `P8-PARTIAL-CONTEXT` | Treating a partial picture as a complete one when a tool timed out |
 | `P9-THIN-EVIDENCE` | Acting on two log lines because the model *said* it was confident |
 | `P10-CLAIM-CONTRADICTS-TABLE` | Discarding a model's warning that something cannot be undone — it does not decide, but it is not ignored either |
-| `P11-ACTION-CONTRADICTS-EVIDENCE` | An action that cannot fix what the evidence shows: `scale_up` on pods OOM-killed before they were ever ready, `scale_down` on OOM, `restart_pods` on an unpullable image, `terminate_connections` when the only long sessions are working queries, `failover_replica` with no lag |
+| `P11-ACTION-CONTRADICTS-EVIDENCE` | An action that cannot fix what the evidence shows: `scale_up` on OOM kills when every pod is failing, `scale_down` on OOM, `restart_pods` on an unpullable image, `terminate_connections` when the only long sessions are working queries, `failover_replica` with no lag |
 | `P12-NO-ACTION-WITH-SYMPTOMS` | "Nothing to do" waved through while the evidence counts broken things (OOM kills, crash loops, unready pods, stuck or blocked sessions, long queries, replica lag) |
 
 ⚠ **`P11` and `P12` were written on 2026-09-25 from measured failures** - all three EKS runs the gate
 wrongly allowed were `scale_up` against pods OOM-killed before becoming ready. A re-run of the same
 scenarios is therefore not an independent test of them. Replaying all 48 recorded EKS/RDS runs through
-the new gate changed five verdicts, all on wrong answers, and no correct run's.
+the new gate changed six verdicts, all on wrong answers, and no correct run's; P11 escalates all
+three dangerous EKS runs.
 
 ⭐⭐ **`P9` is the one that came from evidence rather than reasoning.** Against a live model, all four
 bundled incidents came back at **confidence 0.85** — including the one whose entire evidence is two
