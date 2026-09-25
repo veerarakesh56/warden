@@ -65,6 +65,85 @@ def _evidence_is_substantial(context) -> bool:
     return sum([has_logs, has_metrics, has_deploys]) >= 2
 
 
+def _log_has(context, *needles: str) -> bool:
+    return any(n in line for line in context.logs for n in needles)
+
+
+def _oom_seen(context) -> bool:
+    return context.metrics.get("oom_killed_containers", 0) > 0 or _log_has(context, "OOMKilled", "OOMKilling")
+
+
+REPLICA_LAG_SYMPTOM_S = 30.0
+
+
+def symptoms(context) -> list[str]:
+    """Things the EVIDENCE says are broken - counted, never judged from rates.
+
+    Each is a count of broken objects or an explicit failure state the backends emit, so none of
+    them depends on a threshold someone has to tune, except replica lag (named above). Used by P12
+    to stop "nothing is wrong" being waved through when the evidence says otherwise.
+    """
+    m = context.metrics
+    out: list[str] = []
+    if _oom_seen(context):
+        out.append("containers were OOM-killed")
+    if m.get("crashloop_containers", 0) > 0 or _log_has(context, "CrashLoopBackOff"):
+        out.append("containers are crash-looping")
+    if _log_has(context, "ErrImagePull", "ImagePullBackOff"):
+        out.append("an image cannot be pulled")
+    if "pods_total" in m and m.get("pods_ready", m["pods_total"]) < m["pods_total"]:
+        out.append(f"only {m.get('pods_ready', 0):.0f} of {m['pods_total']:.0f} pods are ready")
+    if "replicas_desired" in m and m.get("pods_ready", 0) < m["replicas_desired"]:
+        out.append(f"{m.get('pods_ready', 0):.0f} ready of {m['replicas_desired']:.0f} replicas desired")
+    if "tasks_desired" in m and m.get("tasks_running", 0) < m["tasks_desired"]:
+        out.append(f"{m.get('tasks_running', 0):.0f} of {m['tasks_desired']:.0f} tasks running")
+    if m.get("deployments_failed", 0) > 0 or m.get("deployment_failed_tasks", 0) > 0:
+        out.append("a deployment has failed tasks")
+    if _log_has(context, "stuck connection:"):
+        out.append("sessions have been idle inside a transaction past the stuck threshold")
+    if m.get("locks_waiting", 0) > 0:
+        n = int(m["locks_waiting"])
+        out.append(f"{n} session{'s are' if n != 1 else ' is'} waiting on a lock")
+    if m.get("long_running_queries", 0) > 0:
+        n = int(m["long_running_queries"])
+        out.append(f"{n} quer{'ies have' if n != 1 else 'y has'} been running over 60s")
+    if m.get("replica_lag_seconds", 0) >= REPLICA_LAG_SYMPTOM_S:
+        out.append(f"replica lag is {m['replica_lag_seconds']:.0f}s")
+    return out
+
+
+def _contradiction(proposal, context) -> str | None:
+    """Why the proposed action cannot fix what the evidence shows - or None.
+
+    Only contradictions that follow from how the action works, not from judgement: each is a case
+    where the action demonstrably leaves the evidenced cause in place, or harms what is working.
+    """
+    a, m = proposal.action, context.metrics
+    # scale_up on OOM is NOT always wrong: when memory grows with load, more replicas mean less load,
+    # and less memory, per replica (the bundled inc-002 is that case). It is wrong when no replica is
+    # ready - then none is serving traffic, so load is not what fills memory, and every new replica
+    # is killed at startup the same way (the EKS k8s-02/03 case: 900 MiB allocated at start, 48 MiB
+    # limit). A first version flagged all scale_up-on-OOM and the inc-002 tests caught it.
+    if a is ActionKind.scale_up and _oom_seen(context) and m.get("pods_ready", -1) == 0:
+        return ("scale_up adds replicas, but no pod is ready: they are OOM-killed before serving "
+                "traffic, so load is not what fills memory and every new replica dies at startup the "
+                "same way. The per-replica memory limit or the application's memory use is the cause.")
+    if a is ActionKind.scale_down and _oom_seen(context):
+        return ("scale_down with OOM kills in the evidence: fewer replicas cannot lower any replica's "
+                "memory use, and if memory grows with load it pushes more load onto each one.")
+    if a is ActionKind.restart_pods and _log_has(context, "ErrImagePull", "ImagePullBackOff"):
+        return "restart_pods re-pulls the same image, and the evidence shows that image cannot be pulled."
+    if (a is ActionKind.terminate_connections and "long_running_queries" in m
+            and m.get("long_running_queries", 0) > 0 and m.get("idle_in_transaction", 0) == 0
+            and m.get("locks_waiting", 0) == 0):
+        return ("terminate_connections with nothing idle in a transaction and nothing blocked: the only "
+                "long sessions in the evidence are ACTIVE queries, and terminating them destroys work "
+                "in progress.")
+    if a is ActionKind.failover_replica and m.get("replica_lag_seconds", 0) < 1:
+        return "failover_replica with no replica lag in the evidence - there is nothing lagging to fail over from."
+    return None
+
+
 def verify(
     alert: Alert,
     context: ContextBundle,
@@ -187,6 +266,32 @@ def verify(
             f"The proposal claims {proposal.action.value} is irreversible; WARDEN's action table "
             "classifies it reversible. A human should reconcile that before anything runs."
         )
+
+    # P11 — the action cannot fix what the evidence shows.
+    #
+    # ⛔ Added 2026-09-25 from measured failures, which is disclosed with it: all three runs the EKS
+    # wave let through wrongly were `scale_up` against `oom_killed_containers = 2` - more replicas of
+    # a container killed at 48 MiB are killed the same way - and nothing in P1-P10 read the evidence
+    # against the action. A re-run of the same scenarios is therefore NOT an independent test of this
+    # policy. Escalates, never rejects: the rules are how the actions work, but a human decides.
+    contradiction = _contradiction(proposal, context)
+    if contradiction:
+        escalate = True
+        policies.append("P11-ACTION-CONTRADICTS-EVIDENCE")
+        reasons.append(contradiction)
+
+    # P12 — "nothing to do" while the evidence shows something broken.
+    #
+    # no_action became subject to P4/P8/P9 after Wave 1, but a CONFIDENT no_action over plenty of
+    # evidence still went out auto_safe even with pods OOM-killed or not ready. In the measured runs
+    # low confidence happened to catch every such case; that was luck, not a rule. Same disclosure
+    # as P11: written after seeing the runs.
+    if proposal.action is ActionKind.no_action:
+        found = symptoms(context)
+        if found:
+            escalate = True
+            policies.append("P12-NO-ACTION-WITH-SYMPTOMS")
+            reasons.append("No action proposed, but the evidence shows: " + "; ".join(found) + ".")
 
     if rejected:
         return Verdict(

@@ -3,6 +3,8 @@
 A gate nobody has watched reject something is not a gate.
 """
 
+import pytest
+
 from warden.models import (
     ActionKind,
     Alert,
@@ -324,3 +326,109 @@ def test_a_well_evidenced_confident_no_action_is_still_auto_safe():
     v = verify(_alert(), _ctx(), _rc(confidence=0.9), _prop(action=ActionKind.no_action))
     assert v.status is VerdictStatus.auto_safe
     assert v.requires_approval is False
+
+
+# --------------------------------------------------------------------------- P11 / P12 (2026-09-25)
+#
+# Written after the EKS and RDS waves, from their failures - see the policy comments. Every rule has
+# a case where it MUST fire and a case where it must NOT, so it cannot drift into blocking the
+# correct answer. Replaying all 48 recorded EKS/RDS runs changed no correct run's verdict.
+
+P11, P12 = "P11-ACTION-CONTRADICTS-EVIDENCE", "P12-NO-ACTION-WITH-SYMPTOMS"
+
+
+def _fires(policy, action, **ctx):
+    v = verify(_alert(), _ctx(**ctx), _rc(), _prop(action=action))
+    return policy in v.policy_ids, v
+
+
+@pytest.mark.parametrize("action,ctx,why", [
+    (ActionKind.scale_up, dict(metrics={"oom_killed_containers": 2.0, "pods_ready": 0.0, "pods_total": 2.0}),
+     "no pod ready, OOM-killed at startup: new replicas die the same way (EKS k8s-02/03)"),
+    (ActionKind.scale_down, dict(logs=["kubelet OOMKilled pod=x", "err", "err"]),
+     "fewer replicas never lower memory per replica"),
+    (ActionKind.restart_pods, dict(logs=["EVENT Failed Pod/x: Error: ImagePullBackOff", "a", "b"]),
+     "a restart re-pulls the same unpullable image"),
+    (ActionKind.terminate_connections,
+     dict(metrics={"long_running_queries": 1.0, "idle_in_transaction": 0.0, "locks_waiting": 0.0}),
+     "only an ACTIVE query is long - terminating destroys work in progress (RDS db-04's harmful case)"),
+    (ActionKind.failover_replica, dict(metrics={"replica_lag_seconds": 0.0, "error_rate": 0.1}),
+     "nothing is lagging"),
+])
+def test_p11_escalates_an_action_that_cannot_fix_the_evidence(action, ctx, why):
+    fired, v = _fires(P11, action, **ctx)
+    assert fired, f"{why}: {v.policy_ids}"
+    # Held back either way: P11 escalates, and a stronger policy (P2 on an irreversible action in
+    # prod) may reject outright - rejection outranks escalation.
+    assert v.status in (VerdictStatus.escalated, VerdictStatus.rejected), v.status
+
+
+@pytest.mark.parametrize("action,ctx,why", [
+    (ActionKind.scale_up, dict(metrics={"oom_killed_containers": 1.0, "pods_ready": 1.0, "pods_total": 2.0}),
+     "a pod is serving: memory may grow with load, and scaling out can relieve it (inc-002's case)"),
+    (ActionKind.scale_up, dict(logs=["kubelet OOMKilled", "a", "b"], metrics={"memory_utilisation": 0.94, "rps": 1420.0}),
+     "no pod counts at all - the rule must not guess that none is ready"),
+    (ActionKind.restart_pods, dict(logs=["OOMKilled", "a", "b"]), "restart is not contradicted by OOM"),
+    (ActionKind.terminate_connections,
+     dict(metrics={"long_running_queries": 1.0, "idle_in_transaction": 3.0, "locks_waiting": 0.0}),
+     "sessions ARE stuck idle in a transaction - that is what terminate is for"),
+    (ActionKind.terminate_connections,
+     dict(metrics={"long_running_queries": 2.0, "idle_in_transaction": 1.0, "locks_waiting": 2.0}),
+     "lock contention (RDS db-05): the blocker must go"),
+    (ActionKind.failover_replica, dict(metrics={"replica_lag_seconds": 47.0, "error_rate": 0.1}),
+     "real lag (inc-003)"),
+])
+def test_p11_does_not_fire_where_the_action_can_help(action, ctx, why):
+    fired, v = _fires(P11, action, **ctx)
+    assert not fired, f"{why}: {v.reasons}"
+
+
+@pytest.mark.parametrize("ctx,symptom", [
+    (dict(metrics={"oom_killed_containers": 2.0, "pods_ready": 0.0, "pods_total": 2.0}), "OOM-killed"),
+    (dict(metrics={"crashloop_containers": 1.0, "error_rate": 0.0}), "crash-looping"),
+    (dict(logs=["EVENT Failed Pod/x: Error: ErrImagePull", "a", "b"]), "cannot be pulled"),
+    (dict(metrics={"pods_ready": 1.0, "pods_total": 2.0}), "1 of 2 pods are ready"),
+    (dict(metrics={"pods_total": 0.0, "pods_ready": 0.0, "replicas_desired": 2.0}), "0 ready of 2 replicas desired"),
+    (dict(metrics={"tasks_running": 0.0, "tasks_desired": 2.0}), "0 of 2 tasks running"),
+    (dict(logs=["postgres stuck connection: pid=1 idle in transaction for 400s: SELECT 1", "a", "b"]), "stuck threshold"),
+    (dict(metrics={"locks_waiting": 2.0, "x": 0.0}), "2 sessions are waiting on a lock"),
+    (dict(metrics={"long_running_queries": 1.0, "x": 0.0}), "1 query has been running over 60s"),
+    (dict(metrics={"replica_lag_seconds": 47.0, "x": 0.0}), "replica lag is 47s"),
+])
+def test_p12_escalates_no_action_when_the_evidence_shows_a_symptom(ctx, symptom):
+    fired, v = _fires(P12, ActionKind.no_action, **ctx)
+    assert fired and v.status is VerdictStatus.escalated
+    assert any(symptom in r for r in v.reasons), v.reasons
+
+
+@pytest.mark.parametrize("ctx", [
+    dict(metrics={"pods_ready": 2.0, "pods_total": 2.0, "restart_count": 0.0, "oom_killed_containers": 0.0,
+                  "crashloop_containers": 0.0, "replicas_desired": 2.0}, logs=["heartbeat ok"] * 3),
+    dict(metrics={"active_connections": 8.0, "idle_in_transaction": 0.0, "locks_waiting": 0.0,
+                  "long_running_queries": 0.0, "max_connections": 79.0}),
+    dict(metrics={"replica_lag_seconds": 2.0, "error_rate": 0.0}),
+])
+def test_p12_leaves_a_healthy_no_action_alone(ctx):
+    """The healthy controls of every wave: a confident no_action on clean evidence stays auto_safe."""
+    fired, v = _fires(P12, ActionKind.no_action, **ctx)
+    assert not fired, v.reasons
+
+
+def test_p12_does_not_touch_other_actions():
+    fired, _ = _fires(P12, ActionKind.escalate_to_human, metrics={"oom_killed_containers": 2.0, "x": 0.0})
+    assert not fired
+
+
+@pytest.mark.parametrize("action", list(ActionKind))
+@pytest.mark.parametrize("ctx", [
+    dict(metrics={"oom_killed_containers": 2.0, "pods_ready": 0.0, "pods_total": 2.0}, tool_errors=["logs: x"]),
+    dict(logs=[], metrics={}, recent_deploys=[]),
+    dict(metrics={"replica_lag_seconds": 0.0, "long_running_queries": 1.0, "idle_in_transaction": 0.0,
+                  "locks_waiting": 0.0}),
+])
+def test_every_policy_that_fires_has_exactly_one_reason_in_the_same_position(action, ctx):
+    """The report pairs reasons with policy ids by position to find the gate's own finding (P11) and
+    put it first under "Before you act". That only works if they stay aligned."""
+    v = verify(_alert(severity=Severity.low), _ctx(**ctx), _rc(confidence=0.3), _prop(action=action))
+    if v.policy_ids:
+        assert len(v.reasons) == len(v.policy_ids), (v.policy_ids, v.reasons)

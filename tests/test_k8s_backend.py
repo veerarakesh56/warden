@@ -391,18 +391,34 @@ def test_unreachable_api_becomes_partial_context_not_a_crash():
     assert ctx.is_empty()
 
 
-def test_live_shaped_oom_evidence_reaches_scale_up_verdict():
-    pods = [_pod(restarts=6, last_reason="OOMKilled", ready=False)]
+def _scale_up_verdict_on_oom(*, ready: bool):
+    pods = [_pod(restarts=6, last_reason="OOMKilled", ready=ready)]
     events = [_event("BackOff", "Back-off restarting failed container")]
     b = _backend(FakeCore(pods=pods, events=events, log_text="starting\nKilled"))
     ctx = gather(_alert(), b, timeout=2.0)
     assert ctx.metrics["oom_killed_containers"] == 1 and not ctx.is_empty()
-    verdict = verify(
+    return verify(
         _alert(), ctx, RootCause(hypothesis="OOM", confidence=0.74),
         RemediationProposal(action=ActionKind.scale_up, target="checkout", reasoning="r",
                             expected_effect="e", blast_radius="single_service", reversible=True),
     )
-    assert verdict.status is VerdictStatus.approved_for_human
+
+
+def test_live_shaped_oom_evidence_reaches_scale_up_verdict():
+    """The plumbing claim: live-shaped OOM evidence travels through gather() to a real verdict, not
+    a thin-evidence refusal. With the only pod OOM-killed and NOT ready, scaling out cannot help - no
+    replica serves traffic, so load is not filling memory - and since 2026-09-25 P11 escalates it.
+    That was the shape of all three EKS runs the gate wrongly let through; this test asserted
+    approved_for_human for it until then."""
+    verdict = _scale_up_verdict_on_oom(ready=False)
+    assert verdict.status is VerdictStatus.escalated
+    assert verdict.policy_ids == ["P11-ACTION-CONTRADICTS-EVIDENCE"], "only the contradiction may fire"
+
+
+def test_scale_up_on_oom_still_passes_when_a_pod_is_serving():
+    """The other side, so P11 cannot quietly become "never scale on OOM": with a ready pod, memory can
+    grow with load and scaling out can relieve it."""
+    assert _scale_up_verdict_on_oom(ready=True).status is VerdictStatus.approved_for_human
 
 
 # --------------------------------------------------------------------------- the invariants

@@ -20,6 +20,22 @@ SRC = ROOT / "src" / "warden"
 # (label, file, find, replace, why this mutation matters)
 MUTATIONS = [
     (
+        "P11 action-contradicts-evidence removed",
+        "verifier.py",
+        "    contradiction = _contradiction(proposal, context)",
+        "    contradiction = None",
+        ("scale_up against OOM-killed pods that never became ready - the exact shape of the EKS runs the "
+        "gate wrongly let through - would be approved for a human again with no warning"),
+    ),
+    (
+        "P12 no-action-with-symptoms removed",
+        "verifier.py",
+        "        found = symptoms(context)",
+        "        found = []",
+        ("a confident 'nothing to do' over evidence showing OOM kills or unready pods would go out "
+        "auto_safe - Wave 1's worst failure, caught since then only when confidence happened to be low"),
+    ),
+    (
         "P5 rollback guard removed",
         "verifier.py",
         "if proposal.action is ActionKind.rollback_deploy and not context.recent_deploys:",
@@ -171,17 +187,19 @@ MUTATIONS = [
         "a fix would apply with nobody having approved it - the last human checkpoint",
     ),
     (
-        "report stops redacting the incident summary",
+        "report stops redacting its data",
         "reporting.py",
-        '"summary": redact(alert.summary).text,',
-        '"summary": alert.summary,',
-        "a raw secret in the alert summary would leave in the report sent to Slack/Teams",
+        "    data, mapping = _scrub(data, dict(redaction_map or {}))",
+        "    mapping = dict(redaction_map or {})",
+        ("the report's structured data - summary, evidence, the model's text - would leave unredacted in "
+        "the JSON a webhook sends (the anchor moved when the report was rebuilt on 2026-09-24, and for a "
+        "day this mutation could not be applied at all)"),
     ),
     (
         "chatops stops redacting the transmitted payload",
         "chatops.py",
-        "    safe_text = redact(report.markdown).text",
-        "    safe_text = report.markdown",
+        "    safe_text, mapping = final.text, final.mapping",
+        "    safe_text, mapping = report.markdown, final.mapping",
         "the last redaction before data leaves the org - removing it is a direct external leak",
     ),
     (
