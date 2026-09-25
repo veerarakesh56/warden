@@ -102,7 +102,10 @@ def test_the_bytes_on_the_wire_carry_no_identifier(server):
     for request in RECEIVED:
         for secret in SECRETS:
             assert secret not in request["body"], f"{secret} crossed the wire in {request['path']}"
-        assert "<EMAIL_" in request["body"] or "<IPV4_" in request["body"], (
+        # Slack receives placeholders HTML-escaped (`&lt;EMAIL_1&gt;`): unescaped, Slack reads
+        # `<...>` as link syntax. The generic webhook's JSON carries them as they are.
+        masked = ("<EMAIL_", "<IPV4_", "&lt;EMAIL_", "&lt;IPV4_")
+        assert any(m in request["body"] for m in masked), (
             "nothing was masked at all - is this the right payload?"
         )
 

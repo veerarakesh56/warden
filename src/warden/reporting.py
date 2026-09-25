@@ -212,6 +212,18 @@ def _scrub(obj, mapping: dict[str, str]):
     return obj, mapping
 
 
+def reveal_identifiers(obj, mapping: dict[str, str]):
+    """Put back ONLY the identifier placeholders (REVEALABLE) found in `mapping`; secrets stay masked.
+
+    The one place this decision is made. build_report and chatops.notify both call it, because
+    notify re-redacts the finished report before it leaves the process - and until 2026-09-25 that
+    re-redaction silently re-masked every identifier the operator had asked to see, so
+    WARDEN_REPORT_SHOW_IDENTIFIERS did nothing at all in Slack.
+    """
+    reveal = {p: v for p, v in mapping.items() if p[1:].rsplit("_", 1)[0] in REVEALABLE}
+    return _reveal(obj, reveal) if reveal else obj
+
+
 def _reveal(obj, reveal: dict[str, str]):
     if isinstance(obj, str):
         for placeholder, original in reveal.items():
@@ -349,9 +361,8 @@ def build_report(
     final = redact(markdown, mapping=mapping)  # belt and braces: anything assembled unscrubbed
     markdown, mapping = final.text, final.mapping
     if reveal_ids:
-        reveal = {p: v for p, v in mapping.items() if p[1:].rsplit("_", 1)[0] in REVEALABLE}
-        data = _reveal(data, reveal)
-        markdown = _reveal(markdown, reveal)
+        data = reveal_identifiers(data, mapping)
+        markdown = reveal_identifiers(markdown, mapping)
     return Report(markdown=markdown, data=data, promotion=tuple(promotion))
 
 

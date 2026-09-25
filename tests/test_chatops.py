@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from warden.chatops import (
     ConsoleSink,
     GenericWebhookSink,
@@ -97,12 +99,104 @@ def test_console_sink_transmits_nothing():
 
 def test_the_transmitted_json_data_is_recursively_redacted():
     """The generic-webhook path sends report.data; every string in it is scrubbed before transmit."""
-    from warden.chatops import _redact_obj
+    from warden.reporting import _scrub
 
     cap = _CaptureSink()
     notify(_report(), sinks=[cap])
     blob = str(cap.data)
     assert "priya.nair@corp.io" not in blob and "10.2.3.4" not in blob
     # nested structures are walked, not just top-level keys
-    nested = _redact_obj({"x": ["ip 10.0.0.1", {"y": "u@e.io"}]})
+    nested, _ = _scrub({"x": ["ip 10.0.0.1", {"y": "u@e.io"}]}, {})
     assert "10.0.0.1" not in str(nested) and "u@e.io" not in str(nested)
+
+
+# --------------------------------------------------------------------------- identifiers + Slack format
+
+
+class _SlackCapture:
+    """The real SlackWebhookSink's formatting, without the network."""
+
+    name = "slack"
+
+    def __init__(self):
+        self.text = None
+
+    def send(self, text, data):
+        from warden.chatops import to_slack_mrkdwn
+
+        self.text = to_slack_mrkdwn(text)
+        self.data = data
+        from warden.chatops import Notification
+
+        return Notification(sink=self.name, delivered=True, detail="captured")
+
+
+def _evidence_report(show: bool):
+    from warden.models import ContextBundle
+    from warden.redaction import redact_many
+
+    ctx = ContextBundle(logs=[
+        ("2026-08-26T04:10:20Z payments ERROR could not acquire connection tenant_id=initech-4 "
+        "user=priya.nair@corp.io host=10.0.7.22"),
+        "2026-08-26T04:10:21Z payments WARN retry with password=hunter2-Sup3r-s3cret",
+    ])
+    _, mapping = redact_many(ctx.logs)
+    alert = Alert(alert_id="inc-005", name="DBConnectionsStuck", severity=Severity.high,
+                  service="payments", environment="prod", started_at="2026-08-26T04:10:00Z",
+                  summary="pool exhausted")
+    return build_report(
+        alert,
+        root_cause=RootCause(hypothesis="stuck transactions", confidence=0.7),
+        proposal=RemediationProposal(action=ActionKind.terminate_connections, target="payments-db",
+                                     reasoning="r", expected_effect="pool frees",
+                                     blast_radius="single_service", reversible=True),
+        context=ctx, redaction_map=mapping, show_identifiers=show,
+    )
+
+
+def test_identifiers_the_operator_asked_to_see_survive_the_trip_to_slack():
+    """⛔ notify() re-redacts before sending. Until 2026-09-25 that silently re-masked every identifier
+    WARDEN_REPORT_SHOW_IDENTIFIERS had revealed, so the switch did nothing in Slack."""
+    cap = _SlackCapture()
+    notify(_evidence_report(show=True), sinks=[cap])
+    for identifier in ("initech-4", "priya.nair@corp.io", "10.0.7.22"):
+        assert identifier in cap.text, f"{identifier} was re-masked on the way to Slack"
+        assert identifier in str(cap.data)
+
+
+def test_with_identifiers_off_slack_gets_none_of_them():
+    cap = _SlackCapture()
+    notify(_evidence_report(show=False), sinks=[cap])
+    for identifier in ("initech-4", "priya.nair@corp.io", "10.0.7.22"):
+        assert identifier not in cap.text and identifier not in str(cap.data)
+
+
+@pytest.mark.parametrize("show", [True, False])
+def test_a_secret_never_reaches_slack_whatever_the_setting(show):
+    cap = _SlackCapture()
+    notify(_evidence_report(show=show), sinks=[cap])
+    assert "hunter2-Sup3r-s3cret" not in cap.text and "hunter2-Sup3r-s3cret" not in str(cap.data)
+
+
+def test_slack_gets_mrkdwn_not_github_markdown():
+    """Slack showed `# heading` and `**bold**` as literal characters, and reads `<...>` as a link."""
+    from warden.chatops import to_slack_mrkdwn
+
+    md = "# Title\n## Section\n- **Service**: x <TENANT_1> & co\n```\nSELECT 1 WHERE a < 2;\n```"
+    out = to_slack_mrkdwn(md)
+    assert "**" not in out
+    assert not any(line.startswith("#") for line in out.splitlines())
+    assert "*Title*" in out and "*Section*" in out and "*Service*" in out
+    assert "&lt;TENANT_1&gt;" in out and "&amp; co" in out
+    assert "```\nSELECT 1 WHERE a &lt; 2;\n```" in out, "code blocks keep their lines (escaped)"
+
+
+def test_the_real_slack_sink_sends_mrkdwn(monkeypatch):
+    """The conversion must be wired into the sink that posts, not just exist."""
+    from warden import chatops
+
+    sent = {}
+    monkeypatch.setattr(chatops, "_post_json",
+                        lambda url, payload, sink: sent.update(payload) or chatops.Notification(sink, True, "ok"))
+    chatops.SlackWebhookSink("https://example.invalid/hook", live=True).send("## Heading\n**bold**", {})
+    assert sent["text"] == "*Heading*\n*bold*"

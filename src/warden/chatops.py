@@ -20,13 +20,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from .redaction import redact
-from .reporting import Report
+from .reporting import Report, _scrub, reveal_identifiers
 
 _TIMEOUT_S = 8.0
 
@@ -83,7 +84,7 @@ class SlackWebhookSink:
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
-        return _post_json(self._url, {"text": text}, self.name)
+        return _post_json(self._url, {"text": to_slack_mrkdwn(text)}, self.name)
 
 
 class TeamsWebhookSink:
@@ -140,16 +141,31 @@ def resolve_sinks() -> list[ChatOpsSink]:
     return sinks
 
 
-def _redact_obj(obj):
-    """Recursively redact every string in a JSON-shaped structure. Defence in depth for the webhook
-    path, which transmits the structured data (build_report already redacts it field-by-field)."""
-    if isinstance(obj, str):
-        return redact(obj).text
-    if isinstance(obj, dict):
-        return {k: _redact_obj(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_redact_obj(v) for v in obj]
-    return obj
+_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_HEADING = re.compile(r"^#{1,6}\s+(.*)$")
+
+
+def to_slack_mrkdwn(md: str) -> str:
+    """GitHub Markdown -> Slack mrkdwn, for the one sink that renders the latter.
+
+    Slack shows `# heading` and `**bold**` as literal characters (which is how the reports looked
+    in the channel), and reads `<...>` as link syntax - so a placeholder like `<TENANT_1>` must be
+    escaped. Order matters: escape first, so the `*` Slack uses for bold is never escaped away.
+    Code blocks and inline code are left alone; Slack renders both.
+    """
+    text = md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    out, in_code = [], False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            in_code = not in_code
+            out.append(line)
+            continue
+        if not in_code:
+            heading = _HEADING.match(line)
+            line = f"*{heading.group(1)}*" if heading else line
+            line = _BOLD.sub(r"*\1*", line)
+        out.append(line)
+    return "\n".join(out)
 
 
 def notify(report: Report, sinks: list[ChatOpsSink] | None = None) -> list[Notification]:
@@ -158,7 +174,16 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None) -> list[Notif
     # Both payloads that leave the process are re-redacted here: the text (Slack/Teams display) and
     # the structured JSON (a generic webhook). redact() is idempotent, so re-scrubbing an already
     # clean payload costs nothing and closes any upstream hole before data crosses the boundary.
-    safe_text = redact(report.markdown).text
-    safe_data = _redact_obj(report.data)
+    #
+    # ⛔ ...and then the operator's identifiers are put back IF the report was built to show them.
+    # Without this step the re-scrub masked them again, so WARDEN_REPORT_SHOW_IDENTIFIERS never
+    # reached Slack. One mapping for text and data so a tenant is the same placeholder in both, and
+    # reveal_identifiers is the same function build_report uses - secrets can never be revealed here.
+    final = redact(report.markdown)
+    safe_text, mapping = final.text, final.mapping
+    safe_data, mapping = _scrub(report.data, mapping)
+    if report.data.get("identifiers_shown"):
+        safe_text = reveal_identifiers(safe_text, mapping)
+        safe_data = reveal_identifiers(safe_data, mapping)
     results = [sink.send(safe_text, safe_data) for sink in sinks]
     return results
