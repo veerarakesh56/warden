@@ -95,3 +95,22 @@ def test_the_same_value_masks_consistently_across_logs_and_deploys():
     assert "alice@corp.io" not in blob
     # exactly one placeholder label for that email, used in both places
     assert blob.count("<EMAIL_1>") == 2
+
+
+def test_the_model_is_told_which_evidence_could_not_be_read():
+    """⛔ On RDS with its security group revoked WARDEN recorded "connection timeout expired" for every
+    read, but the model saw only empty fields and wrote "no metrics, deploys, or logs provided". A
+    failed read is the decisive fact there - and it must be redacted like every other line."""
+    alert = Alert(alert_id="x", name="DatabaseAlarm", severity=Severity.high, service="warden",
+                  environment="prod", summary="alert", started_at="2026-09-25T05:29:12Z")
+    ctx = ContextBundle(tool_errors=["metrics: connection to 10.0.7.22 timed out"])
+    state = {"alert": alert, "context": ctx}
+    state.update(node_redact(state))
+    blob = _evidence_blob(state)
+    assert "READ FAILURES:" in blob and "timed out" in blob
+    assert "10.0.7.22" not in blob, "a read failure reached the model unredacted"
+
+
+def test_no_read_failures_says_none_rather_than_nothing():
+    blob = _evidence_blob(_state_after_redact())
+    assert "READ FAILURES: none" in blob

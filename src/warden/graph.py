@@ -246,7 +246,9 @@ def _mock_proposal(s: Signals) -> RemediationProposal:
 SYSTEM_ANALYSE = (
     "You are an incident analyst. You are shown REDACTED evidence: identifiers appear as "
     "<TYPE_n> placeholders. Never ask for the real values. Produce a hypothesis and a calibrated "
-    "confidence. If the evidence does not support a conclusion, say so and score confidence low."
+    "confidence. If the evidence does not support a conclusion, say so and score confidence low. "
+    "READ FAILURES lists evidence that could not be collected: a failed read is not a healthy "
+    "signal, and an empty field next to a failed read means unknown, not zero."
 )
 
 SYSTEM_PROPOSE = (
@@ -383,6 +385,12 @@ def _evidence_blob(state: WardenState) -> str:
         f"SERVICE: {state['alert'].service} ENV: {state['alert'].environment}\n"
         f"METRICS: {ctx.metrics}\n"
         f"RECENT DEPLOYS: {state.get('redacted_deploys', [])}\n"
+        # ⛔ What WARDEN tried to read and COULD NOT. Until 2026-09-25 this never reached the model:
+        # on a database cut off by its security group WARDEN recorded "connection timeout expired"
+        # for every read, and the model was shown empty fields and wrote "no metrics, deploys, or
+        # logs provided" - the one decisive fact of that incident, withheld. Already redacted in
+        # gather(); the whole blob is redacted again below.
+        f"READ FAILURES: {'; '.join(ctx.tool_errors) if ctx.tool_errors else 'none'}\n"
         f"LOGS:\n" + "\n".join(state.get("redacted_logs", []))
         + _knowledge_block(state)
     )
