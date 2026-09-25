@@ -1,0 +1,111 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "DatabaseAlarm",
+    "severity": "high",
+    "service": "warden",
+    "environment": "prod",
+    "summary": "Alert fired for PostgreSQL database warden",
+    "started_at": "2026-09-25T05:22:46.536986+00:00",
+    "labels": {}
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "postgres stuck connection: pid=4934 idle in transaction for 333s: LOCK TABLE warden_proving_ground IN ACCESS EXCLUSIVE MODE"
+    ],
+    "metrics": {
+      "active_connections": 11.0,
+      "idle_in_transaction": 1.0,
+      "long_running_queries": 2.0,
+      "max_connections": 79.0,
+      "locks_waiting": 2.0,
+      "connections_used_pct": 0.13924050632911392
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Idle-in-transaction session (pid <PID_1>) holding/requesting ACCESS EXCLUSIVE lock on warden_proving_ground for 333s, causing lock queue backup (2 waiters) and long-running queries. Root cause: app/worker opened txn, issued LOCK TABLE, never committed/rolled back (crashed thread, missing timeout, or manual migration left open).",
+    "confidence": 0.7,
+    "evidence": [
+      "idle_in_transaction=1, matches log pid=4934 idle 333s",
+      "locks_waiting=2 consistent with blocked queries behind ACCESS EXCLUSIVE",
+      "long_running_queries=2 likely queries stuck waiting on lock, not slow by themselves",
+      "connections_used_pct low (0.14) rules out connection pool exhaustion as trigger",
+      "no recent deploys, so likely a stuck job/migration/manual session not new code"
+    ],
+    "ruled_out": [
+      "Connection exhaustion (usage only 14% of max)",
+      "New deploy causing regression (deploy list empty)"
+    ]
+  },
+  "proposal": {
+    "action": "terminate_connections",
+    "target": "pid=4934",
+    "reasoning": "pid 4934 idle-in-transaction 333s holding/requesting ACCESS EXCLUSIVE lock on warden_proving_ground. Blocks 2 waiters, causes long-running queries. No recent deploy to roll back. Kill session to release lock, unblock queue.",
+    "expected_effect": "Lock released, waiting queries proceed, active_connections/locks_waiting drop back to normal.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Evidence is thin (1 log line(s), 6 metric(s), 0 deploy(s)); a human should look before acting."
+    ],
+    "policy_ids": [
+      "P9-THIN-EVIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1248,
+    "output_tokens": 450,
+    "usd": 0.010494,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "database",
+      "logs": 1,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.7,
+      "hypothesis": "Idle-in-transaction session (pid <PID_1>) holding/requesting ACCESS EXCLUSIVE lock on warden_proving_ground for 333s, causing lock queue backup (2 waiters) and long-running queries. Root cause: app/worker opened txn, issued LOCK TABLE, never committed/rolled back (crashed thread, missing timeout, or manual migration left open)."
+    },
+    {
+      "node": "propose",
+      "action": "terminate_connections",
+      "target": "pid=4934"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P9-THIN-EVIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

@@ -1,0 +1,44 @@
+{
+  "scenario_id": "db-01-healthy-control",
+  "fault_class": "healthy_control",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 30,
+  "status": "ok",
+  "started_at": "2026-09-25T04:47:09.307905+00:00",
+  "injected": [],
+  "reverted": [],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-01-healthy-control.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T04:48:00.241197+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-01-healthy-control.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T04:48:19.040816+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-01-healthy-control.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T04:48:40.076563+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-25T04:47:39.309927+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-25T04:48:40.077127+00:00"
+}

@@ -1,0 +1,63 @@
+{
+  "scenario_id": "db-04-long-running-query",
+  "fault_class": "long_running_query",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 90,
+  "status": "ok",
+  "started_at": "2026-09-25T05:10:27.053676+00:00",
+  "injected": [
+    {
+      "op": "db_run_long_query",
+      "args": {
+        "seconds": 900
+      },
+      "result": {
+        "long_query_seconds": 900
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "db_release_everything",
+      "args": {},
+      "result": {
+        "closed_sessions": 0,
+        "cancelled_long_queries": 1
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-04-long-running-query.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:12:22.160234+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-04-long-running-query.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:12:49.842862+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-04-long-running-query.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:13:13.193749+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-25T05:11:57.789262+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-25T05:13:13.281555+00:00"
+}

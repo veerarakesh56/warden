@@ -34,6 +34,11 @@ def _redact(text: str, account: str) -> str:
         text = text.replace(account, "<ACCOUNT>")
     text = re.sub(r"\b\d{12}\b", "<ACCOUNT>", text)
     text = re.sub(r"(?<=://)([^:/@\s]+):([^@/\s]+)(?=@)", r"\1:********", text)
+    # An RDS endpoint's middle label (`<id>.c1a2b3.<region>.rds.amazonaws.com`) is fixed per account
+    # and region - an account-linked identifier, if not the account id itself. Wave 3's manifest,
+    # ground truth and reports all carried it until 2026-09-25. Instance name and region are kept.
+    text = re.sub(r"\b([a-z0-9-]+)\.[a-z0-9]+\.([a-z0-9-]+)\.rds\.amazonaws\.com\b",
+                  r"\1.<RDS-ACCOUNT-ID>.\2.rds.amazonaws.com", text)
     return text
 
 

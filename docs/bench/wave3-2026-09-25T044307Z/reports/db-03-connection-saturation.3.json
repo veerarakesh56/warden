@@ -1,0 +1,115 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "DatabaseAlarm",
+    "severity": "high",
+    "service": "warden",
+    "environment": "prod",
+    "summary": "Alert fired for PostgreSQL database warden",
+    "started_at": "2026-09-25T05:06:00.302732+00:00",
+    "labels": {}
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [],
+    "metrics": {
+      "active_connections": 63.0,
+      "idle_in_transaction": 0.0,
+      "long_running_queries": 0.0,
+      "max_connections": 79.0,
+      "locks_waiting": 0.0,
+      "connections_used_pct": 0.7974683544303798
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Connection count near max_connections (63/79, ~80%) triggered alarm. No idle-in-transaction, no long-running queries, no lock waits, no deploys — rules out query leaks, stuck transactions, deploy-induced regression. Points to organic load/traffic increase or under-provisioned connection pooling (app-side pool size or missing pgbouncer) rather than a code/query pathology.",
+    "confidence": 0.35,
+    "evidence": [
+      "connections_used_pct ~0.797 (63/79) — near threshold",
+      "idle_in_transaction: 0.0 — no stuck txns",
+      "long_running_queries: 0.0 — no runaway queries",
+      "locks_waiting: 0.0 — no lock contention",
+      "RECENT DEPLOYS: [] — no deploy correlation",
+      "LOGS: empty — no error/log signal to confirm cause"
+    ],
+    "ruled_out": [
+      "Connection leak via idle-in-transaction sessions",
+      "Long-running query blocking pool",
+      "Lock contention causing connection pileup",
+      "Deploy-triggered regression"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "warden-prod-db",
+    "reasoning": "63/79 conns (~80%), zero idle-in-transaction, zero long queries, zero lock waits, no deploys. No pathology to fix — just headroom shrinking, likely organic load or pool sizing. No safe automated action (restart/scale/rollback/terminate) addresses a config/capacity issue.",
+    "expected_effect": "No change now. Flags connection pool/max_connections sizing for human capacity review before it hits ceiling.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.35 is below the 0.55 threshold.",
+      "Evidence is thin (0 log line(s), 6 metric(s), 0 deploy(s)); a human should look before acting."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE",
+      "P9-THIN-EVIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1181,
+    "output_tokens": 537,
+    "usd": 0.011598,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "database",
+      "logs": 0,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.35,
+      "hypothesis": "Connection count near max_connections (63/79, ~80%) triggered alarm. No idle-in-transaction, no long-running queries, no lock waits, no deploys — rules out query leaks, stuck transactions, deploy-induced regression. Points to organic load/traffic increase or under-provisioned connection pooling (app-side pool size or missing pgbouncer) rather than a code/query pathology."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "warden-prod-db"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

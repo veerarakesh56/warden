@@ -1,0 +1,118 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "DatabaseAlarm",
+    "severity": "high",
+    "service": "warden",
+    "environment": "prod",
+    "summary": "Alert fired for PostgreSQL database warden",
+    "started_at": "2026-09-25T04:58:43.913158+00:00",
+    "labels": {}
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "postgres stuck connection: pid=3615 idle in transaction for 363s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3616 idle in transaction for 363s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3618 idle in transaction for 362s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3619 idle in transaction for 362s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3620 idle in transaction for 361s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3621 idle in transaction for 361s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3624 idle in transaction for 361s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3629 idle in transaction for 360s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3630 idle in transaction for 360s: SELECT count(*) FROM warden_proving_ground",
+      "postgres stuck connection: pid=3632 idle in transaction for 359s: SELECT count(*) FROM warden_proving_ground"
+    ],
+    "metrics": {
+      "active_connections": 20.0,
+      "idle_in_transaction": 12.0,
+      "long_running_queries": 0.0,
+      "max_connections": 79.0,
+      "locks_waiting": 0.0,
+      "connections_used_pct": 0.25316455696202533
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "App-side connection/transaction leak: code path issuing SELECT count(*) FROM warden_proving_ground opens transaction but never commits/rolls back or returns connection to pool, leaving idle-in-transaction sessions to accumulate. Not a deploy regression (empty deploy list) and not lock contention or connection exhaustion (locks_waiting=0, usage only 25%) — early-stage leak, not yet critical.",
+    "confidence": 0.7,
+    "evidence": [
+      "10 pids idle_in_transaction 359-363s, all same query text — same code path repeatedly leaking",
+      "long_running_queries=0 — query itself completes fast, transaction just never closes",
+      "locks_waiting=0 — no blocking contention yet, consistent with early/slow leak",
+      "connections_used_pct=0.25 — not yet connection-pool exhaustion, but trending toward it",
+      "RECENT DEPLOYS empty — rules out a bad release as trigger"
+    ],
+    "ruled_out": [
+      "Deploy-induced regression (no deploys recorded)",
+      "Lock contention causing stalls (locks_waiting=0)",
+      "Slow/expensive query causing pileup (long_running_queries=0, query is a simple count)",
+      "Connection pool exhaustion as root cause (usage only 25%, though risk if trend continues)"
+    ]
+  },
+  "proposal": {
+    "action": "terminate_connections",
+    "target": "warden prod postgres: idle-in-transaction sessions running SELECT count(*) FROM warden_proving_ground (pids 3615,3616,3618,3619,3620,3621,3624,3629,3630,3632)",
+    "reasoning": "10 idle-in-transaction sessions stuck 359-363s on same query, no locks waiting, usage only 25%, no deploy correlation. App-side leak not committing/rolling back. Killing stuck backends frees them immediately; underlying leak still needs code fix.",
+    "expected_effect": "Stuck backends terminated, connections returned to pool, idle_in_transaction count drops to ~0. Does not fix root cause — leak will recur until app code patched.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1915,
+    "output_tokens": 645,
+    "usd": 0.01542,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "database",
+      "logs": 10,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.7,
+      "hypothesis": "App-side connection/transaction leak: code path issuing SELECT count(*) FROM warden_proving_ground opens transaction but never commits/rolls back or returns connection to pool, leaving idle-in-transaction sessions to accumulate. Not a deploy regression (empty deploy list) and not lock contention or connection exhaustion (locks_waiting=0, usage only 25%) — early-stage leak, not yet critical."
+    },
+    {
+      "node": "propose",
+      "action": "terminate_connections",
+      "target": "warden prod postgres: idle-in-transaction sessions running SELECT count(*) FROM warden_proving_ground (pids 3615,3616,3618,3619,3620,3621,3624,3629,3630,3632)"
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    },
+    {
+      "node": "await_approval",
+      "waiting_on": "operator"
+    }
+  ],
+  "halted_reason": null
+}

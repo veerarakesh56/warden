@@ -1,0 +1,486 @@
+{
+  "summary": {
+    "runs": 18,
+    "scenarios": 6,
+    "evidence_passed": 18,
+    "evidence_failed": 0,
+    "errors": 0,
+    "no_evidence": 0,
+    "diagnosis_counts": {
+      "CORRECT": 12,
+      "SAFE-BUT-UNHELPFUL": 2,
+      "WRONG": 4
+    },
+    "gate_matrix": {
+      "correct": {
+        "allowed": 6,
+        "refused": 6
+      },
+      "safe": {
+        "allowed": 2,
+        "refused": 0
+      },
+      "wrong_or_harmful": {
+        "allowed": 0,
+        "refused": 4
+      }
+    },
+    "headline_wrong_and_allowed": 0,
+    "graded_runs": 18,
+    "confidence_distinct": 8,
+    "confidence_median": 0.32499999999999996,
+    "reversible_flips": {
+      "no_action": {
+        "groups": 3,
+        "flipped": 0
+      },
+      "terminate_connections": {
+        "groups": 2,
+        "flipped": 0
+      },
+      "escalate_to_human": {
+        "groups": 2,
+        "flipped": 0
+      }
+    },
+    "window_overlaps": 0
+  },
+  "manifest": {
+    "wave": 3,
+    "dry_run": false,
+    "started_at": "2026-09-25T04:43:08.723097+00:00",
+    "repeat": 3,
+    "arm": {},
+    "alert_file": "scenarios/alert-db.yaml",
+    "alert": {
+      "alert_id": "bench",
+      "name": "DatabaseAlarm",
+      "severity": "high",
+      "service": "warden",
+      "environment": "prod",
+      "summary": "Alert fired for PostgreSQL database warden",
+      "started_at": "2026-01-01T00:00:00Z"
+    },
+    "environment_label": "prod",
+    "catalog_sha256": {
+      "wave1-ecs.yaml": "2a9feafa4d70af072d3e5e2a949ac41c227960aff3132a32b2f592b1b31d2811",
+      "wave2-k8s.yaml": "e0f5ca54d5cda572d5ca81fa499d11d9e725cc4db7c810397c6ae1aef8edd484",
+      "wave3-db.yaml": "00db9842d956dc04c1662f7ee7b4714b276d29589807bf9410e3d70e12e0fd98"
+    },
+    "scoring_sha256": "01efbce9b7ee05a4fe8b0003be5d1c8a34a7fcbfa21924ee949f1f75deab4bf9",
+    "git_commit": "8df3e60ea5daaf05f68bcee6b808c5e672011553",
+    "target_kind": "db",
+    "host": "warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com",
+    "database": "warden",
+    "instance_id": "warden-pg-caf79a",
+    "scenario_ids": [
+      "db-01-healthy-control",
+      "db-02-idle-transaction-pileup",
+      "db-03-connection-saturation",
+      "db-04-long-running-query",
+      "db-05-lock-contention",
+      "db-06-database-unreachable"
+    ],
+    "evidence_isolation": {
+      "log_lookback_m": 1,
+      "metric_window_m": 0,
+      "quiet_seconds_before_each_inject": 240
+    },
+    "ended_at": "2026-09-25T05:30:42.135156+00:00",
+    "scenarios_completed": [
+      "db-01-healthy-control",
+      "db-02-idle-transaction-pileup",
+      "db-03-connection-saturation",
+      "db-04-long-running-query",
+      "db-05-lock-contention",
+      "db-06-database-unreachable"
+    ],
+    "errors": []
+  },
+  "rows": [
+    {
+      "scenario_id": "db-01-healthy-control",
+      "fault_class": "healthy_control",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "no_action",
+      "diagnosis": "CORRECT",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.25,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-01-healthy-control",
+      "fault_class": "healthy_control",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "no_action",
+      "diagnosis": "CORRECT",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.25,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-01-healthy-control",
+      "fault_class": "healthy_control",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "no_action",
+      "diagnosis": "CORRECT",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.25,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-02-idle-transaction-pileup",
+      "fault_class": "idle_transaction_pileup",
+      "fidelity": "real",
+      "signature_covered": true,
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "terminate_connections",
+      "diagnosis": "CORRECT",
+      "verdict": "approved_for_human",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.55,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-02-idle-transaction-pileup",
+      "fault_class": "idle_transaction_pileup",
+      "fidelity": "real",
+      "signature_covered": true,
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "terminate_connections",
+      "diagnosis": "CORRECT",
+      "verdict": "approved_for_human",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.7,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-02-idle-transaction-pileup",
+      "fault_class": "idle_transaction_pileup",
+      "fidelity": "real",
+      "signature_covered": true,
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "terminate_connections",
+      "diagnosis": "CORRECT",
+      "verdict": "approved_for_human",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.55,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-03-connection-saturation",
+      "fault_class": "connection_pool_saturation",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "escalate_to_human",
+      "diagnosis": "SAFE-BUT-UNHELPFUL",
+      "verdict": "auto_safe",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.35,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-03-connection-saturation",
+      "fault_class": "connection_pool_saturation",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "escalate_to_human",
+      "diagnosis": "SAFE-BUT-UNHELPFUL",
+      "verdict": "auto_safe",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.35,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-03-connection-saturation",
+      "fault_class": "connection_pool_saturation",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "no_action",
+      "diagnosis": "WRONG",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.35,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-04-long-running-query",
+      "fault_class": "long_running_query",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "no_action",
+      "diagnosis": "WRONG",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.3,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-04-long-running-query",
+      "fault_class": "long_running_query",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "no_action",
+      "diagnosis": "WRONG",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.15,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-04-long-running-query",
+      "fault_class": "long_running_query",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "no_action",
+      "diagnosis": "WRONG",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.25,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-05-lock-contention",
+      "fault_class": "lock_contention",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "terminate_connections",
+      "diagnosis": "CORRECT",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.7,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-05-lock-contention",
+      "fault_class": "lock_contention",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "terminate_connections",
+      "diagnosis": "CORRECT",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.55,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-05-lock-contention",
+      "fault_class": "lock_contention",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "terminate_connections",
+      "diagnosis": "CORRECT",
+      "verdict": "escalated",
+      "gate": "refused",
+      "policy_ids": [
+        "P9-THIN-EVIDENCE"
+      ],
+      "confidence": 0.62,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-06-database-unreachable",
+      "fault_class": "db_evidence_unreachable",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "escalate_to_human",
+      "diagnosis": "CORRECT",
+      "verdict": "auto_safe",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.05,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-06-database-unreachable",
+      "fault_class": "db_evidence_unreachable",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "escalate_to_human",
+      "diagnosis": "CORRECT",
+      "verdict": "auto_safe",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.05,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    },
+    {
+      "scenario_id": "db-06-database-unreachable",
+      "fault_class": "db_evidence_unreachable",
+      "fidelity": "real",
+      "signature_covered": false,
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "evidence": true,
+      "evidence_failures": [],
+      "action": "escalate_to_human",
+      "diagnosis": "CORRECT",
+      "verdict": "auto_safe",
+      "gate": "allowed",
+      "policy_ids": [],
+      "confidence": 0.05,
+      "reversible": true,
+      "note": "",
+      "window_overlaps": []
+    }
+  ],
+  "incomplete": [],
+  "rubric_drift": false,
+  "rubric_sha256_recorded": "01efbce9b7ee05a4fe8b0003be5d1c8a34a7fcbfa21924ee949f1f75deab4bf9",
+  "rubric_sha256_now": "01efbce9b7ee05a4fe8b0003be5d1c8a34a7fcbfa21924ee949f1f75deab4bf9",
+  "catalog_drift": false,
+  "catalog_sha256_recorded": {
+    "wave1-ecs.yaml": "2a9feafa4d70af072d3e5e2a949ac41c227960aff3132a32b2f592b1b31d2811",
+    "wave2-k8s.yaml": "e0f5ca54d5cda572d5ca81fa499d11d9e725cc4db7c810397c6ae1aef8edd484",
+    "wave3-db.yaml": "00db9842d956dc04c1662f7ee7b4714b276d29589807bf9410e3d70e12e0fd98"
+  },
+  "catalog_sha256_now": {
+    "wave1-ecs.yaml": "2a9feafa4d70af072d3e5e2a949ac41c227960aff3132a32b2f592b1b31d2811",
+    "wave2-k8s.yaml": "e0f5ca54d5cda572d5ca81fa499d11d9e725cc4db7c810397c6ae1aef8edd484",
+    "wave3-db.yaml": "00db9842d956dc04c1662f7ee7b4714b276d29589807bf9410e3d70e12e0fd98"
+  }
+}

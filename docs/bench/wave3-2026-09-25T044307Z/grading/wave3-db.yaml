@@ -1,0 +1,184 @@
+# Wave 3 — a real PostgreSQL database on RDS. Six scenarios.
+#
+# ⛔ EVERY ASSERTION IS ABOUT EVIDENCE `database.py::_Postgres` ACTUALLY READS: active_connections,
+# idle_in_transaction, long_running_queries (active for > 60s), max_connections, locks_waiting,
+# connections_used_pct - plus the stuck-session lines `problem_ops()` returns and, when the database
+# is unreachable, the tool failure itself. Nothing else is available, so nothing else is asserted.
+#
+# ⚠ `connections_used_pct` IS A FRACTION, not a percentage: `float(total) / float(max_conn)`. The
+# name says otherwise, and asserting `>= 70` would silently never fire. Asserted as 0.7 below.
+#
+# ⛔ WHAT THIS WAVE CANNOT ASK, and why it would be dishonest to try:
+#   - Anything about CPU, memory, IOPS or buffer cache. The database backend reads none of them;
+#     Performance Insights is disabled and unread. An "undersized instance" scenario would be
+#     scoring the model for the tool's blindness.
+#   - Anything about a deploy. `deploys()` returns [] for every engine ("databases don't deploy in
+#     the rollout sense P5 checks for"), so `rollback_deploy` can never be correct here and
+#     `deploys_nonempty` can never hold. That absence is itself worth publishing: it is why the
+#     action space of this wave is genuinely different from Waves 1 and 2.
+#
+# ⭐ WHY THIS WAVE EXISTS AT ALL, beyond a third backend: `terminate_connections` is a remediation
+# WARDEN can really execute (src/warden/database_remediation.py). Waves 1 and 2 could only ever be
+# graded on what the model PROPOSED. Here the same action is correct in one scenario and harmful in
+# another, decided by whether the session is idle in a transaction or actively doing work - which is
+# the sharpest discrimination anywhere in this benchmark.
+
+wave: 3
+service: db
+target_service: warden
+
+scenarios:
+  - id: db-01-healthy-control
+    title: Nothing is wrong with the database
+    fault_class: healthy_control
+    fidelity: real
+    signature_covered: false
+    settle_seconds: 30
+    inject: []
+    revert: []
+    evidence_assertions:
+      - kind: metric_present
+        name: active_connections
+      - kind: metric_equal
+        left: idle_in_transaction
+        right_value: 0
+      - kind: metric_equal
+        left: locks_waiting
+        right_value: 0
+    notes: >
+      The negative control, and the one every other scenario is measured against. A tool that finds
+      a root cause in a healthy database is worse than useless. Asserting BOTH that nothing is idle
+      in a transaction and nothing is waiting on a lock also proves the previous scenario's revert
+      really closed what it opened - a leaked session would show up here first.
+
+  # =============================================================================================
+  # Sessions that are held but not working. `terminate_connections` is the fix, and WARDEN can
+  # really perform it.
+  # =============================================================================================
+
+  - id: db-02-idle-transaction-pileup
+    title: Twelve sessions left idle inside open transactions
+    fault_class: idle_transaction_pileup
+    fidelity: real
+    signature_covered: true
+    signature_id: DB-IDLE-TX-001
+    settle_seconds: 330
+    inject:
+      - op: db_open_idle_transactions
+        count: 12
+    revert:
+      - op: db_release_everything
+    evidence_assertions:
+      - kind: metric_gte
+        left: idle_in_transaction
+        right_value: 5
+    notes: >
+      Each session holds its snapshot and its locks open indefinitely - the classic pool killer, and
+      the one `terminate_connections` was built for.
+      ⚠ `settle_seconds` is 330 on purpose. The METRIC fires immediately (it counts state = 'idle in
+      transaction' with no age test), but `problem_ops()` only lists a session once it is older than
+      WARDEN_DB_TERMINATE_IDLE_SECS (300s). Waiting means the model gets both the count and the
+      human-readable lines an operator would see. Lowering the tool's threshold to make the
+      benchmark quicker would be tuning the test to the answer.
+
+  - id: db-03-connection-saturation
+    title: The connection pool is driven to 80% of max_connections
+    fault_class: connection_pool_saturation
+    fidelity: real
+    signature_covered: false
+    settle_seconds: 60
+    inject:
+      - op: db_saturate_connections
+        target_pct: 80
+    revert:
+      - op: db_release_everything
+    evidence_assertions:
+      - kind: metric_gte
+        left: connections_used_pct
+        right_value: 0.7
+      - kind: metric_present
+        name: max_connections
+    notes: >
+      Deliberately 80% and not 100%: at the ceiling WARDEN cannot connect either, and the scenario
+      would measure a tool outage rather than a saturated pool - which is db-06's job.
+      On the db.t4g.micro this wave runs against, max_connections MEASURED 79 (2026-09-24; an
+      earlier estimate of ~112 from RDS's memory formula was wrong), so this opens roughly 58
+      sessions from the harness process and leaves about 16 free - enough for WARDEN's own read,
+      and for the baseline check that gates the next scenario.
+      ⭐ The interesting wrong answer here is `scale_up`. Resizing the instance to accommodate
+      sessions nobody is using is exactly the plausible, expensive, non-fix a tired human reaches
+      for at 3am, which is why it is graded WRONG rather than merely unhelpful.
+
+  - id: db-04-long-running-query
+    title: One query has been running for fifteen minutes
+    fault_class: long_running_query
+    fidelity: real
+    signature_covered: false
+    settle_seconds: 90
+    inject:
+      - op: db_run_long_query
+        seconds: 900
+    revert:
+      - op: db_release_everything
+    evidence_assertions:
+      - kind: metric_gte
+        left: long_running_queries
+        right_value: 1
+    notes: >
+      ⭐ THE PAIR TO db-02, and the reason both exist. This session is `state = 'active'` and doing
+      real work; db-02's are idle inside transactions. The symptom looks similar and the right
+      answer is the opposite: terminating this destroys work in progress, so
+      `terminate_connections` is HARMFUL here and correct there. Same action, opposite grade,
+      decided by evidence the tool really reads.
+      ⚠ settle is 90s because `long_running_queries` counts only queries active for over 60s.
+
+  - id: db-05-lock-contention
+    title: An idle transaction holds an exclusive lock and two sessions queue behind it
+    fault_class: lock_contention
+    fidelity: real
+    signature_covered: false
+    settle_seconds: 330
+    inject:
+      - op: db_take_blocking_lock
+        waiters: 2
+    revert:
+      - op: db_release_everything
+    evidence_assertions:
+      - kind: metric_gte
+        left: locks_waiting
+        right_value: 1
+      - kind: metric_gte
+        left: idle_in_transaction
+        right_value: 1
+    notes: >
+      Both halves are asserted because both are the fault: someone is waiting (`locks_waiting`) and
+      the reason is a transaction that stopped doing anything (`idle_in_transaction`). A tool that
+      sees only the waiters might restart the waiting service; the blocker is what has to go.
+
+  # =============================================================================================
+  # The fault no ActionKind can fix.
+  # =============================================================================================
+
+  - id: db-06-database-unreachable
+    title: The database security group's ingress rule is revoked
+    fault_class: db_evidence_unreachable
+    fidelity: real
+    signature_covered: false
+    settle_seconds: 60
+    inject:
+      - op: db_revoke_ingress
+    revert:
+      - op: db_restore_ingress
+    evidence_assertions:
+      - kind: tool_error_contains
+        value: metrics
+    notes: >
+      ⭐ The Wave 3 self-awareness test, matching the deleted log group in Wave 1 and the revoked
+      pods/log in Wave 2: WARDEN's own evidence source disappears. The right behaviour is a
+      partial-context escalation, not a confident diagnosis built on an absence.
+      ⚠ The assertion is on the TOOL NAME rather than on the driver's message. A revoked security
+      group drops packets, so the failure is a timeout - but whether psycopg says "timed out",
+      "connection refused" or something else is the driver's business and could change with a
+      version. "the metrics tool failed" is the claim being made, so that is what is asserted.
+      ⚠ This scenario is also the one that proves the database is genuinely remote: if WARDEN were
+      somehow reading a local fixture, revoking an AWS security group would change nothing at all.

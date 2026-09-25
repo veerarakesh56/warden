@@ -1,0 +1,64 @@
+{
+  "scenario_id": "db-05-lock-contention",
+  "fault_class": "lock_contention",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 330,
+  "status": "ok",
+  "started_at": "2026-09-25T05:17:13.831715+00:00",
+  "injected": [
+    {
+      "op": "db_take_blocking_lock",
+      "args": {
+        "waiters": 2
+      },
+      "result": {
+        "blocker": 1,
+        "waiters": 2
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "db_release_everything",
+      "args": {},
+      "result": {
+        "closed_sessions": 3,
+        "cancelled_long_queries": 0
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-05-lock-contention.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:23:13.088624+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-05-lock-contention.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:23:37.221706+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-05-lock-contention.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:24:09.553809+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-25T05:22:45.274594+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-25T05:24:09.554943+00:00"
+}

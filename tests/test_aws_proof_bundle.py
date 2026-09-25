@@ -175,3 +175,19 @@ def test_plain_text_artefacts_in_reports_are_redacted(bundle):
     nodes.write_text(f"node arn:aws:eks:ap-south-1:{ACCOUNT}:nodegroup/x\n", encoding="utf-8")
     bundle.render()
     assert ACCOUNT not in nodes.read_text(encoding="utf-8")
+
+
+def test_an_rds_endpoints_account_segment_is_masked():
+    """The middle label of an RDS endpoint is fixed per account and region; Wave 3's artefacts all
+    carried it. The instance name and region stay readable."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("aws_proof_bundle", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    _redact = mod._redact
+
+    host = "warden-pg-2f486c.c7x9k2qabcde.ap-south-2.rds.amazonaws.com"
+    out = _redact(f"postgres:warden@{host}/warden", "")
+    assert "c7x9k2qabcde" not in out
+    assert out == "postgres:warden@warden-pg-2f486c.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden"

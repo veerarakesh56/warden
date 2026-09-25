@@ -7,7 +7,7 @@
 | **Cost right now** | **nothing is billing.** State empty after a 29-resource destroy; checked directly: EKS 0, RDS 0, instances 0 (one `terminated`, free), NAT 0, EIPs 0, volumes 0, ENIs 0, VPCs 0, security groups 0, log groups 0, autoscaling groups 0, launch templates 0. |
 | Wave 1 (ECS) | measured and published, unchanged. |
 | **Wave 2 (EKS)** | **measured and published** - `docs/bench/wave2-2026-09-24T115746Z`, written up in `docs/bench/README.md`. 30 runs; 3 wrong diagnoses let through, all `scale_up` on an OOM kill. The run stopped itself twice on harness bugs, both fixed and disclosed. |
-| **Wave 3 (RDS)** | built, dry-run green, **run tomorrow**. The database was created, connected to (SSL, Postgres 16.13), given its sentinel table, then destroyed unused so it did not bill overnight. |
+| **Wave 3 (RDS)** | **measured and published 2026-09-25** - `docs/bench/wave3-2026-09-25T044307Z`. 18 runs, 0 wrong diagnoses let through; two evidence gaps named. Torn down and verified per service. |
 
 ### Tomorrow, Wave 3 in order
 1. Be on the home Wi-Fi (the ISP hotspot rotates its IP every few minutes; everything is IP-locked).

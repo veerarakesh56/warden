@@ -1,0 +1,112 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "DatabaseAlarm",
+    "severity": "high",
+    "service": "warden",
+    "environment": "prod",
+    "summary": "Alert fired for PostgreSQL database warden",
+    "started_at": "2026-09-25T05:23:14.335745+00:00",
+    "labels": {}
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "postgres stuck connection: pid=4934 idle in transaction for 360s: LOCK TABLE warden_proving_ground IN ACCESS EXCLUSIVE MODE"
+    ],
+    "metrics": {
+      "active_connections": 11.0,
+      "idle_in_transaction": 1.0,
+      "long_running_queries": 2.0,
+      "max_connections": 79.0,
+      "locks_waiting": 2.0,
+      "connections_used_pct": 0.13924050632911392
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "App transaction acquired ACCESS EXCLUSIVE lock on warden_proving_ground then stalled mid-transaction (idle in transaction, pid=4934, 360s), blocking 2 other queries waiting on that lock. No deploy correlates — likely app bug/missing commit-rollback or stuck client, not schema migration.",
+    "confidence": 0.55,
+    "evidence": [
+      "idle_in_transaction=1 matches pid=4934 log entry",
+      "locks_waiting=2 consistent with queries blocked behind ACCESS EXCLUSIVE hold",
+      "long_running_queries=2 likely same blocked queries",
+      "connections_used_pct low (13.9%) — rules out connection exhaustion as root cause",
+      "RECENT DEPLOYS empty — rules out deploy-triggered migration/lock"
+    ],
+    "ruled_out": [
+      "connection pool exhaustion",
+      "recent deploy/migration causing lock",
+      "high overall load (active_connections only 11)"
+    ]
+  },
+  "proposal": {
+    "action": "terminate_connections",
+    "target": "pid=4934 on warden (prod)",
+    "reasoning": "pid 4934 idle-in-transaction 360s holding ACCESS EXCLUSIVE lock on warden_proving_ground, blocking 2 queries. No deploy correlation, no resource exhaustion (13.9% conns used) — isolated stuck client/txn, not systemic. Killing offending backend releases lock directly, root cause not symptom.",
+    "expected_effect": "pid 4934 terminated, txn rolled back, ACCESS EXCLUSIVE lock released, 2 waiting queries unblock, locks_waiting drops to 0.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Evidence is thin (1 log line(s), 6 metric(s), 0 deploy(s)); a human should look before acting."
+    ],
+    "policy_ids": [
+      "P9-THIN-EVIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1234,
+    "output_tokens": 465,
+    "usd": 0.010676999999999999,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "database",
+      "logs": 1,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.55,
+      "hypothesis": "App transaction acquired ACCESS EXCLUSIVE lock on warden_proving_ground then stalled mid-transaction (idle in transaction, pid=4934, 360s), blocking 2 other queries waiting on that lock. No deploy correlates — likely app bug/missing commit-rollback or stuck client, not schema migration."
+    },
+    {
+      "node": "propose",
+      "action": "terminate_connections",
+      "target": "pid=4934 on warden (prod)"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P9-THIN-EVIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}

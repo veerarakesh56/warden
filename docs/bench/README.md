@@ -94,7 +94,7 @@ nothing wrong.
 - Not a comparison between tools, and not evidence that WARDEN should be adopted.
 - Not reproducible by a stranger without the same subscription: the runs go through the `claude` CLI
   on a Max plan, so there is no per-call cost in the artefacts and no API key to hand over.
-- One model, one wave, 14 fault classes, 3 repeats. Wave 2 is below; Wave 3 (RDS) is built and not yet run.
+- One model, one wave, 14 fault classes, 3 repeats. Waves 2 (EKS) and 3 (RDS) are below.
 
 ---
 
@@ -181,3 +181,69 @@ different actions across three identical repeats, including the healthy control.
 - One model, one cluster, one node, 10 fault classes, 3 repeats. The OOM result depends on the
   48 MiB limit the proving ground sets; it says what this model did with that evidence, not what
   it does in general.
+
+---
+
+# Wave 3 on RDS PostgreSQL — the first wave with its own platform's alert
+
+`wave3-2026-09-25T044307Z`: 6 PostgreSQL fault classes x 3 repeats on a `db.t4g.micro` RDS
+instance (Postgres 16.13, ap-south-2), same model. The first wave given its own platform's alert
+(`scenarios/alert-db.yaml`: "Alert fired for PostgreSQL database warden" - no cause). Rubric and
+catalog byte-identical to the ones the run started with. WARDEN read the database as its own
+database user over SSL, with no AWS credentials at all; the master password appears in none of the
+published files.
+
+Before the wave, every fault op was run for real against the database at minimum size
+(`scripts/preflight_db_ops.py`), each checked to have landed and to revert to a clean baseline.
+Planting a broken revert into that preflight found a hang - a leaked session's lock made the
+lock-contention op wait on the harness's main thread forever - fixed with a lock timeout before the
+wave ran.
+
+| | gate let it through | gate refused or escalated |
+|---|---|---|
+| diagnosis correct | 6 | 6 - over-refusal |
+| diagnosis wrong or harmful | **0** | 4 ✅ |
+
+18 runs: 12 CORRECT · 2 SAFE-BUT-UNHELPFUL · 4 WRONG · 0 NO-EVIDENCE. Every evidence check passed,
+every revert ran, and the run never stopped. Only `db-03` gave different answers across its three
+repeats.
+
+## What the measurement says
+
+**No wrong diagnosis got through.** All four wrong answers were `no_action` - three on the long
+active query, one on the saturated pool - and the gate refused every one (low confidence, thin
+evidence).
+
+**Where WARDEN could see the problem, the model was right every time.**
+`db-02`, twelve sessions idle inside open transactions: `terminate_connections` 3/3, approved for a
+human. `db-05`, a stuck transaction holding an exclusive lock with two sessions queued behind it:
+`terminate_connections` 3/3. `db-06`, the security group revoked so WARDEN could not reach the
+database at all: `escalate_to_human` 3/3, with WARDEN's own read failures named in the evidence.
+
+**Where it could only count the problem, it was not.** Two evidence gaps, found by this run and
+not fixed before publishing:
+- `db-04`, one query actively running for 15 minutes: WARDEN reports `long_running_queries = 1`
+  and nothing else - no pid, no query text, no duration. `problem_ops()` only lists sessions idle
+  in a transaction. The model said "nothing to do" 3/3.
+- `db-03`, the pool driven to 80% by idle sessions: WARDEN reports how MANY connections are in use,
+  never WHO holds them (application, client address, state). Leak and legitimate load look the
+  same; the model escalated twice and said "nothing to do" once.
+
+**The discrimination this wave was built for was only half exercised.** `terminate_connections` is
+correct in `db-02` and harmful in `db-04` - same action, opposite grade, decided by whether the
+session is idle or working. The model got `db-02` right, but in `db-04` it never proposed
+terminating anything, so the harmful case never came up. Nothing here shows it would have told
+the two apart.
+
+**A metric counts the wrong thing.** In `db-05` `long_running_queries = 2`: the two sessions waiting
+on the lock are `active` for over 60 seconds, so waiters are counted as long queries.
+
+**The gate is still over-cautious.** 6 of 12 correct diagnoses were escalated - including all three
+`no_action` runs on the healthy database, where the database backend returns metrics and no log
+lines at all, so every run is "thin evidence" by construction.
+
+## What these numbers are not
+
+- Not a comparison between tools, and not evidence that WARDEN should be adopted.
+- One model, one micro instance, 6 fault classes, 3 repeats. Nothing about CPU, memory, IOPS or
+  Performance Insights - the database backend reads none of it, so no scenario asks.

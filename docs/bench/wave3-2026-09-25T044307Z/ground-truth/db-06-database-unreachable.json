@@ -1,0 +1,60 @@
+{
+  "scenario_id": "db-06-database-unreachable",
+  "fault_class": "db_evidence_unreachable",
+  "fidelity": "real",
+  "signature_covered": false,
+  "settle_seconds": 60,
+  "status": "ok",
+  "started_at": "2026-09-25T05:28:10.122922+00:00",
+  "injected": [
+    {
+      "op": "db_revoke_ingress",
+      "args": {},
+      "result": {
+        "revoked_rules": 1
+      }
+    }
+  ],
+  "reverted": [
+    {
+      "op": "db_restore_ingress",
+      "args": {},
+      "result": {
+        "restored_rules": 1
+      }
+    }
+  ],
+  "runs": [
+    {
+      "index": 1,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-06-database-unreachable.1.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:29:36.874447+00:00"
+    },
+    {
+      "index": 2,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-06-database-unreachable.2.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:30:06.310309+00:00"
+    },
+    {
+      "index": 3,
+      "assumed_role_arn": "postgres:warden@warden-pg-caf79a.<RDS-ACCOUNT-ID>.ap-south-2.rds.amazonaws.com/warden",
+      "report": "reports/db-06-database-unreachable.3.json",
+      "exit_code": 0,
+      "report_written": true,
+      "stderr_tail": "",
+      "at": "2026-09-25T05:30:41.445564+00:00"
+    }
+  ],
+  "error": null,
+  "settled_at": "2026-09-25T05:29:11.476028+00:00",
+  "revert_ok": true,
+  "ended_at": "2026-09-25T05:30:42.134463+00:00"
+}

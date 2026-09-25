@@ -1,0 +1,115 @@
+{
+  "alert": {
+    "alert_id": "bench",
+    "name": "DatabaseAlarm",
+    "severity": "high",
+    "service": "warden",
+    "environment": "prod",
+    "summary": "Alert fired for PostgreSQL database warden",
+    "started_at": "2026-09-25T05:11:59.058946+00:00",
+    "labels": {}
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [],
+    "metrics": {
+      "active_connections": 9.0,
+      "idle_in_transaction": 0.0,
+      "long_running_queries": 1.0,
+      "max_connections": 79.0,
+      "locks_waiting": 0.0,
+      "connections_used_pct": 0.11392405063291139
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  },
+  "root_cause": {
+    "hypothesis": "Alarm appears to be a false/low-severity trigger: connection usage is only ~11% of max, no idle-in-transaction sessions, no lock contention, and just one long-running query with no recent deploys. Most likely a single long-running query (e.g., batch job, report, or maintenance task) briefly tripped a monitoring threshold rather than indicating real DB distress.",
+    "confidence": 0.3,
+    "evidence": [
+      "connections_used_pct ~0.114 (9/79) — far from exhaustion",
+      "idle_in_transaction: 0.0 — no leaked transactions",
+      "locks_waiting: 0.0 — no blocking/contention",
+      "long_running_queries: 1.0 — one query flagged, consistent with the alarm trigger",
+      "RECENT DEPLOYS empty — rules out deploy-induced regression",
+      "LOGS empty — no corroborating error/log evidence"
+    ],
+    "ruled_out": [
+      "Connection pool exhaustion (usage too low)",
+      "Deploy-induced regression (no deploys listed)",
+      "Lock contention / deadlock (locks_waiting = 0)",
+      "Transaction leak (idle_in_transaction = 0)"
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "warden",
+    "reasoning": "Conn usage 11%, zero idle-in-txn, zero lock wait, one long query, no deploys. No distress signal.",
+    "expected_effect": "No change. Alarm self-resolves when long query ends.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.30 is below the 0.55 threshold.",
+      "Evidence is thin (0 log line(s), 6 metric(s), 0 deploy(s)); a human should look before acting."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE",
+      "P9-THIN-EVIDENCE"
+    ],
+    "requires_approval": true
+  },
+  "cost": {
+    "input_tokens": 1177,
+    "output_tokens": 421,
+    "usd": 0.009846,
+    "calls": 2
+  },
+  "audit": [
+    {
+      "node": "ingest",
+      "alert_id": "bench",
+      "env": "prod"
+    },
+    {
+      "node": "gather",
+      "backend": "database",
+      "logs": 0,
+      "metrics": 6,
+      "deploys": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "redact",
+      "identifiers_masked": 0
+    },
+    {
+      "node": "analyse",
+      "confidence": 0.3,
+      "hypothesis": "Alarm appears to be a false/low-severity trigger: connection usage is only ~11% of max, no idle-in-transaction sessions, no lock contention, and just one long-running query with no recent deploys. Most likely a single long-running query (e.g., batch job, report, or maintenance task) briefly tripped a monitoring threshold rather than indicating real DB distress."
+    },
+    {
+      "node": "propose",
+      "action": "no_action",
+      "target": "warden"
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE",
+        "P9-THIN-EVIDENCE"
+      ]
+    },
+    {
+      "node": "escalate",
+      "to": "oncall"
+    }
+  ],
+  "halted_reason": null
+}
