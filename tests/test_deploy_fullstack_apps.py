@@ -175,6 +175,9 @@ def test_render_refuses_a_leftover_placeholder():
 
 
 def test_bootstrap_db_fills_the_passwords_as_sql_literals(monkeypatch):
+    # The driver is the apps pipeline's dependency (apps.yml installs it and runs this for real);
+    # the tool CI installs no database driver on purpose.
+    pytest.importorskip("psycopg")
     monkeypatch.setenv("WARDEN_FS_DB_MASTER_PASSWORD", "master-SENTINEL")
     secrets = {"warden-pg-fs-db-app": {"password": "a'pp"}, "warden-pg-fs-db-warden-ro": {"password": "ro-pw"},
                "warden-pg-fs-db-catalog": {"password": "cat-pw"}}

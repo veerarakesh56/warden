@@ -240,15 +240,16 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
 
 
 def bootstrap_db(stack: dict, aws, connect=None) -> None:
+    # The password first: a missing one is refused before any driver is needed or any secret is read.
+    master = os.environ.get("WARDEN_FS_DB_MASTER_PASSWORD") or os.environ.get("TF_VAR_db_master_password")
+    if not master:
+        raise SystemExit("set WARDEN_FS_DB_MASTER_PASSWORD (or TF_VAR_db_master_password)")
     from psycopg import sql
 
     if connect is None:
         import psycopg
 
         connect = psycopg.connect
-    master = os.environ.get("WARDEN_FS_DB_MASTER_PASSWORD") or os.environ.get("TF_VAR_db_master_password")
-    if not master:
-        raise SystemExit("set WARDEN_FS_DB_MASTER_PASSWORD (or TF_VAR_db_master_password)")
     app = secret_json(aws, stack["db_app_secret_name"])
     ro = secret_json(aws, stack["db_warden_ro_secret_name"])
     catalog = secret_json(aws, stack["db_catalog_secret_name"])
