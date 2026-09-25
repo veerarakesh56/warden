@@ -242,7 +242,7 @@ jobs:
           grep -qE ' skipped' it.txt && { echo "::error::integration tests skipped with the opt-in set"; exit 1; }
           echo "integration tests ran for real"
 
-      - name: WARDEN from OUTSIDE the cluster must reach scale_up / APPROVED_FOR_HUMAN
+      - name: WARDEN from OUTSIDE the cluster - scale_up on an OOM crash loop is ESCALATED by P11
         env:
           WARDEN_BACKEND: k8s
           WARDEN_MOCK: "1"
@@ -252,14 +252,32 @@ jobs:
           echo "$out"
           echo "$out" | grep -q '"backend": "kubernetes"'   || { echo "::error::evidence did not come from the cluster"; exit 1; }
           echo "$out" | grep -q 'scale_up'                   || { echo "::error::expected scale_up"; exit 1; }
-          echo "$out" | grep -q 'APPROVED_FOR_HUMAN'         || { echo "::error::expected APPROVED_FOR_HUMAN"; exit 1; }
+          # The workload is a single pod OOM-killed at startup: every pod is failing, so scaling out
+          # cannot help and P11 escalates. Until 2026-09-25 this asserted APPROVED_FOR_HUMAN; the
+          # first P11 keyed on pods_ready == 0 and fired here only when the read landed between
+          # crashes (ready=1 outside the cluster, ready=0 inside, seconds apart). It now keys on
+          # "every pod failing", which a back-off record proves whatever readiness says.
+          echo "$out" | grep -q 'VERDICT            : ESCALATED'    || { echo "::error::expected ESCALATED"; exit 1; }
+          echo "$out" | grep -q 'P11-ACTION-CONTRADICTS-EVIDENCE'   || { echo "::error::expected P11 to fire"; exit 1; }
           echo "$out" | grep -q '"tool_errors": \[\]'        || { echo "::error::a context tool failed or partially failed"; exit 1; }
           echo "$out" | grep -q 'TOOL-PARTIAL' && { echo "::error::a partial failure leaked into the output"; exit 1; } || true
 
       - name: Build the image and load it into the cluster
         run: |
           docker build -t warden:local .
-          k3d image import warden:local -c warden-ci
+          # ⛔ k3d's exit code is not proof. On two runs (d0bb8a4, f8fb972) `k3d image import` logged
+          # "ERRO failed to import images in node 'k3d-warden-ci-server-0'", then "Successfully
+          # imported" and exit 0 - the step went green with no image in the cluster, and the failure
+          # surfaced three steps later as ErrImagePull on the posture probe. So: look in the node's own
+          # container runtime, retry, and fail HERE, at the cause, if the image never arrives.
+          present() { docker exec k3d-warden-ci-server-0 crictl images | grep -qE 'warden[[:space:]]+local'; }
+          for attempt in 1 2 3; do
+            k3d image import warden:local -c warden-ci || true
+            if present; then echo "warden:local is in the node (attempt $attempt)"; break; fi
+            echo "::warning::k3d reported the import but the image is not in the node (attempt $attempt)"
+            sleep 3
+          done
+          present || { echo "::error::warden:local never reached the cluster node"; docker exec k3d-warden-ci-server-0 crictl images; exit 1; }
 
       - name: Runtime posture probe - what uid does the PROCESS run as, and can it write?
         run: |
@@ -280,7 +298,8 @@ jobs:
           echo "$out"
           echo "$out" | grep -q '"backend": "kubernetes"' || { echo "::error::in-cluster run did not use the cluster backend"; exit 1; }
           echo "$out" | grep -q 'scale_up'                 || { echo "::error::in-cluster run did not propose scale_up"; exit 1; }
-          echo "$out" | grep -q 'APPROVED_FOR_HUMAN'       || { echo "::error::in-cluster verdict wrong"; exit 1; }
+          echo "$out" | grep -q 'VERDICT            : ESCALATED' || { echo "::error::in-cluster verdict wrong"; exit 1; }
+          echo "$out" | grep -q 'P11-ACTION-CONTRADICTS-EVIDENCE' || { echo "::error::in-cluster run: P11 did not fire"; exit 1; }
           echo "$out" | grep -q '"tool_errors": \[\]'      || { echo "::error::in-cluster run had tool errors"; exit 1; }
           # A second diagnosis must be creatable without deleting the first (the immutability finding).
           job2=$(kubectl create -f k8s/job.yaml -o jsonpath='{.metadata.name}')
