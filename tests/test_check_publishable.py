@@ -202,3 +202,21 @@ def test_a_single_line_json_report_is_scanned_all_the_way_along(tmp_path):
     assert code != 0
     assert "AKIA" in out, "the key later in the line was not reached"
     assert "dsn-password" in out, "the DSN password even later in the line was not reached"
+
+
+def test_new_files_not_yet_git_added_are_scanned(monkeypatch):
+    """Run before `git add` (the documented order), the scan used to skip every NEW file: a fixture
+    password in a new test reached CI that way (2026-09-25)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cp_untracked", SCRIPT)
+    cp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cp)
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    cp._tracked_files(staged=False)
+    assert seen["cmd"][:2] == ["git", "ls-files"]
+    assert "--others" in seen["cmd"] and "--exclude-standard" in seen["cmd"]

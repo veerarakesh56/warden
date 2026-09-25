@@ -68,6 +68,9 @@ ALLOWED_PATHS: dict[str, str] = {
         "fabricated secrets (a key-shaped string, a password, an account id) that the report tests "
         "assert are NEVER revealed, even with identifiers switched on. Same reason as "
         "test_redaction.py: a secret that does not look like one would make the assertion vacuous.",
+    "tests/test_runner_fullstack.py":
+        "a fabricated password with @, / and : in it, asserting the harness percent-encodes it into "
+        "WARDEN's DSN. A password without those characters would make the encoding assertion vacuous.",
     "tests/test_runner_db.py":
         "a fabricated DSN password that three assertions are ABOUT: that it never reaches the "
         "manifest, never reaches an argv, and is masked by redact(). A fixture without a password "
@@ -138,8 +141,11 @@ TEXT_SUFFIXES = {
 
 
 def _tracked_files(staged: bool) -> list[pathlib.Path]:
+    # ⛔ `--others --exclude-standard`: new files not yet `git add`-ed are scanned too. Without them a
+    # check run BEFORE `git add` - the documented order - skipped every new file, and a fixture
+    # password in a new test reached CI (2026-09-25).
     cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"] if staged else \
-          ["git", "ls-files"]
+          ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True).stdout
     return [ROOT / line for line in out.splitlines() if line.strip()]
 
