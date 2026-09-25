@@ -82,6 +82,52 @@ def test_postgres_metrics_come_back_from_a_real_server():
 
 
 @needs_pg
+def test_postgres_activity_names_a_blocked_session_and_its_blocker_on_a_real_server(monkeypatch):
+    """The session-level evidence added after RDS Wave 3, against a real catalog: pg_blocking_pids,
+    host(client_addr) and the pool breakdown must parse and return real rows, not just pass a stub."""
+    import threading
+
+    import psycopg
+
+    import warden.database as db
+
+    monkeypatch.setattr(db, "POOL_PRESSURE", 0.0)  # always list who holds the connections
+    admin = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    blocker = psycopg.connect(PG_DSN, autocommit=False)
+    waiter = psycopg.connect(PG_DSN, autocommit=False)
+    with admin.cursor() as cur:
+        cur.execute("CREATE TABLE IF NOT EXISTS warden_activity_probe (id int)")
+    try:
+        with blocker.cursor() as cur:
+            cur.execute("LOCK TABLE warden_activity_probe IN ACCESS EXCLUSIVE MODE")
+        blocker_pid = blocker.info.backend_pid
+
+        def wait():
+            with contextlib.suppress(Exception), waiter.cursor() as cur:
+                cur.execute("LOCK TABLE warden_activity_probe IN ACCESS EXCLUSIVE MODE")
+
+        threading.Thread(target=wait, daemon=True).start()
+        waiter_pid = waiter.info.backend_pid
+        lines: list[str] = []
+        for _ in range(20):
+            lines = _Postgres.activity(admin)
+            if any(f"pid={waiter_pid} " in ln for ln in lines):
+                break
+            time.sleep(0.25)
+        assert any(f"pid={waiter_pid} " in ln and f"on pid(s) {blocker_pid}" in ln for ln in lines), lines
+        assert any("postgres connections held:" in ln for ln in lines), lines
+    finally:
+        blocker.rollback()
+        blocker.close()
+        with contextlib.suppress(Exception):
+            waiter.rollback()
+        waiter.close()
+        with admin.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS warden_activity_probe")
+        admin.close()
+
+
+@needs_pg
 def test_postgres_terminate_actually_removes_the_stuck_connection():
     """The whole claim, against a real server: a connection left idle-in-transaction is selected and
     then genuinely disappears from pg_stat_activity."""

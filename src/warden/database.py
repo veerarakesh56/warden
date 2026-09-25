@@ -28,6 +28,8 @@ CONNECT_TIMEOUT = float(os.environ.get("WARDEN_DB_CONNECT_TIMEOUT", "4.0"))
 # A connection counts as "stuck" (terminate-eligible, and evidence in its own right) once it has been
 # idle-in-transaction / idle / a long-running op for this many seconds.
 IDLE_SECS = int(os.environ.get("WARDEN_DB_TERMINATE_IDLE_SECS", "300"))
+# Share of max_connections at which the evidence names who holds the connections.
+POOL_PRESSURE = float(os.environ.get("WARDEN_DB_POOL_PRESSURE", "0.5"))
 PROBLEM_OP_LIMIT = int(os.environ.get("WARDEN_DB_PROBLEM_LIMIT", "10"))
 
 # DSN scheme -> engine key. The engine key selects the adapter here and the terminate adapter there.
@@ -79,8 +81,11 @@ class _Postgres:
         r = cls._rows
         total = r(conn, "SELECT count(*) FROM pg_stat_activity")[0][0]
         idle_tx = r(conn, "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction'")[0][0]
+        # Lock WAITERS are excluded: they are `active` too, and on RDS db-05 two sessions queued
+        # behind a lock were counted as two long-running queries. They are `locks_waiting`.
         long_q = r(conn, "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' "
-                         "AND now() - query_start > interval '60 seconds'")[0][0]
+                         "AND now() - query_start > interval '60 seconds' "
+                         "AND wait_event_type IS DISTINCT FROM 'Lock'")[0][0]
         max_conn = int(r(conn, "SHOW max_connections")[0][0])
         waiting = r(conn, "SELECT count(*) FROM pg_locks WHERE NOT granted")[0][0]
         out = {
@@ -111,6 +116,55 @@ class _Postgres:
             for pid, state, age, q in rows
         ]
         return lines + cls._unageable(conn)
+
+    @classmethod
+    def activity(cls, conn) -> list[str]:
+        """The sessions behind the counts - what an operator needs to act on, not just a number.
+
+        On RDS the model was wrong exactly where WARDEN could only COUNT: a 15-minute query showed as
+        `long_running_queries = 1` with no pid, text or duration, and a pool at 80% showed how many
+        connections were in use but never who held them. Each line here names the session.
+        Query text is redacted like every other line; client addresses are redacted downstream.
+        """
+        r = cls._rows
+        lines: list[str] = []
+        for pid, user, app, client, secs, query in r(
+            conn,
+            "SELECT pid, coalesce(usename, '?'), coalesce(nullif(application_name, ''), '(none)'), "
+            "coalesce(host(client_addr), 'local'), EXTRACT(EPOCH FROM (now() - query_start))::int, "
+            "left(query, 120) FROM pg_stat_activity "
+            "WHERE state = 'active' AND now() - query_start > interval '60 seconds' "
+            "AND wait_event_type IS DISTINCT FROM 'Lock' AND pid <> pg_backend_pid() "
+            "ORDER BY query_start LIMIT %s",
+            (PROBLEM_OP_LIMIT,),
+        ):
+            lines.append(f"postgres long-running query: pid={pid} running {secs}s user={user} "
+                         f"app={app} client={client}: {redact(str(query or '')).text}")
+        for pid, blockers, secs, query in r(
+            conn,
+            "SELECT pid, pg_blocking_pids(pid), EXTRACT(EPOCH FROM (now() - query_start))::int, "
+            "left(query, 120) FROM pg_stat_activity "
+            "WHERE cardinality(pg_blocking_pids(pid)) > 0 ORDER BY query_start LIMIT %s",
+            (PROBLEM_OP_LIMIT,),
+        ):
+            blocked_by = ",".join(str(b) for b in (blockers or []))
+            lines.append(f"postgres blocked session: pid={pid} waiting {secs}s on pid(s) {blocked_by}: "
+                         f"{redact(str(query or '')).text}")
+        # Who holds the connections - only when the pool is under pressure, so a healthy database
+        # does not gain evidence lines (the gate's thin-evidence policy counts them).
+        pool = r(conn, "SELECT count(*), current_setting('max_connections')::int FROM pg_stat_activity")
+        total, max_conn = pool[0] if pool else (0, 0)
+        if max_conn and total / max_conn >= POOL_PRESSURE:
+            for app, client, state, n in r(
+                conn,
+                "SELECT coalesce(nullif(application_name, ''), '(none)'), "
+                "coalesce(host(client_addr), 'local'), coalesce(state, '(none)'), count(*) "
+                "FROM pg_stat_activity WHERE backend_type = 'client backend' "
+                "GROUP BY 1, 2, 3 ORDER BY 4 DESC LIMIT 5",
+            ):
+                lines.append(f"postgres connections held: {n} {state} from app={app} client={client} "
+                             f"({total}/{max_conn} in use)")
+        return lines
 
     @classmethod
     def _unageable(cls, conn) -> list[str]:
@@ -431,10 +485,18 @@ class DatabaseBackend:
         # An adapter may report a PARTIAL of its own (e.g. connections whose age cannot be judged
         # because of clock skew). Those must reach `gather()` with the prefix INTACT — prefixing them
         # as evidence would turn "I could not measure this" into a log line the verifier counts.
-        return [
+        lines = [
             line if line.startswith(PARTIAL_PREFIX) else f"{adapter.engine} stuck connection: {line}"
             for line in ops
         ]
+        # Engines that can name the sessions behind their counts (Postgres, so far). Own try: a
+        # failure here must not cost the stuck-connection lines above.
+        if hasattr(adapter, "activity"):
+            try:
+                lines += adapter.activity(conn)
+            except Exception as exc:  # noqa: BLE001 - partial, reported as such
+                lines.append(f"{PARTIAL_PREFIX}activity: {_one_line(exc)}")
+        return lines
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
         # Databases don't "deploy" in the rollout sense P5 checks for.

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import typing
 
 import pytest
 
@@ -526,3 +527,80 @@ def test_a_partial_from_the_adapter_reaches_gather_with_its_prefix_intact():
     assert len(lines) == 1
     assert lines[0].startswith(PARTIAL_PREFIX), f"prefix was mangled: {lines[0]!r}"
     assert "stuck connection" not in lines[0]
+
+
+# --------------------------------------------------------------------------- the sessions behind the counts
+
+
+class _ActivityStub:
+    """Answers each activity query by a distinctive fragment of its SQL."""
+
+    def __init__(self, *, long=(), blocked=(), pool=(10, 100), holders=()):
+        self.answers = [
+            ("wait_event_type is distinct from 'lock' and pid <> pg_backend_pid()", list(long)),
+            ("pg_blocking_pids(pid), extract", list(blocked)),
+            ("current_setting('max_connections')::int", [pool]),
+            ("group by 1, 2, 3", list(holders)),
+        ]
+
+    def cursor(self):
+        stub = self
+
+        class Cur:
+            rows: typing.ClassVar[list] = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=()):
+                low = sql.lower()
+                self.rows = next((rows for frag, rows in stub.answers if frag in low), [])
+
+            def fetchall(self):
+                return self.rows
+
+        return Cur()
+
+
+def test_a_long_active_query_is_named_not_just_counted():
+    """⛔ RDS db-04: a 15-minute query showed as long_running_queries = 1 - no pid, no text, no
+    duration - and the model said "nothing to do" 3/3."""
+    lines = _Postgres.activity(_ActivityStub(long=[(4242, "warden", "report-job", "10.0.0.5", 540,
+                                                    "SELECT pg_sleep(900)")]))
+    # The client address is raw here on purpose: every evidence line is redacted downstream
+    # (gather/graph), the same as a log line - not twice, differently, in each backend.
+    assert lines == [("postgres long-running query: pid=4242 running 540s user=warden app=report-job "
+                     "client=10.0.0.5: SELECT pg_sleep(900)")], lines
+
+
+def test_a_blocked_session_names_its_blocker():
+    lines = _Postgres.activity(_ActivityStub(blocked=[(5001, [4934], 310, "LOCK TABLE t IN ACCESS EXCLUSIVE MODE")]))
+    assert any("pid=5001 waiting 310s on pid(s) 4934" in ln for ln in lines), lines
+
+
+def test_who_holds_the_connections_only_when_the_pool_is_under_pressure():
+    """RDS db-03: 63 of 79 connections in use, and nothing said who held them."""
+    holders = [("(none)", "10.0.0.9", "idle", 55)]
+    busy = _Postgres.activity(_ActivityStub(pool=(63, 79), holders=holders))
+    assert any("55 idle from app=(none)" in ln and "(63/79 in use)" in ln for ln in busy), busy
+    calm = _Postgres.activity(_ActivityStub(pool=(8, 79), holders=holders))
+    assert not any("connections held" in ln for ln in calm), "a healthy pool must not add evidence lines"
+
+
+def test_a_lock_waiter_is_not_counted_as_a_long_running_query():
+    """RDS db-05: two sessions queued behind a lock were reported as long_running_queries = 2."""
+    captured = []
+
+    class Stub(_SqlStub):
+        def _answer(self, sql):
+            captured.append(sql)
+            return super()._answer(sql)
+
+    conn = Stub({"pg_stat_activity": [(0,)], "show max_connections": [("100",)], "pg_locks": [(0,)],
+                 "pg_last_xact_replay_timestamp": [(None,)]})
+    _Postgres.metrics(conn)
+    long_q = next(q for q in captured if "60 seconds" in q)
+    assert "wait_event_type IS DISTINCT FROM 'Lock'" in long_q
