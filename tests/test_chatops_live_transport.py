@@ -98,16 +98,17 @@ def test_the_bytes_on_the_wire_carry_no_identifier(server):
         GenericWebhookSink(server, live=True),
     ])
     assert all(n.delivered for n in notes), notes
-    assert len(RECEIVED) == 2
+    # One request for the generic webhook, and one per part for Slack: a long report is split so
+    # Slack cannot cut a command in half. EVERY request - every part - is checked.
+    assert len(RECEIVED) >= 2
     for request in RECEIVED:
         for secret in SECRETS:
             assert secret not in request["body"], f"{secret} crossed the wire in {request['path']}"
-        # Slack receives placeholders HTML-escaped (`&lt;EMAIL_1&gt;`): unescaped, Slack reads
-        # `<...>` as link syntax. The generic webhook's JSON carries them as they are.
-        masked = ("<EMAIL_", "<IPV4_", "&lt;EMAIL_", "&lt;IPV4_")
-        assert any(m in request["body"] for m in masked), (
-            "nothing was masked at all - is this the right payload?"
-        )
+    # Slack receives placeholders HTML-escaped (`&lt;EMAIL_1&gt;`): unescaped, Slack reads `<...>`
+    # as link syntax. Checked across all bodies: a later part may legitimately contain none.
+    everything = " ".join(r["body"] for r in RECEIVED)
+    masked = ("<EMAIL_", "<IPV4_", "&lt;EMAIL_", "&lt;IPV4_")
+    assert any(m in everything for m in masked), "nothing was masked at all - is this the right payload?"
 
 
 def test_a_non_2xx_is_reported_undelivered_not_raised(server):

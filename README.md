@@ -14,7 +14,7 @@ headline is 14 runs the gate should have stopped and did not — measured under 
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
 own bugs, both disclosed. **RDS PostgreSQL:** 6 faults × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
-count it. 837 tests and 26 evals (10 against a live Kubernetes cluster,
+count it. 1025 tests and 26 evals (10 against a live Kubernetes cluster,
 12 against five real database engines), a 33-case mutation check that breaks the code on purpose
 and requires the suite to notice each one (33 caught, 0 survived), and CI that asserts the actual
 verdicts rather than the exit code.
@@ -22,7 +22,7 @@ verdicts rather than the exit code.
 | | |
 |---|---|
 | **Pipeline** | LangGraph: alert → evidence → redaction → RCA → typed proposal → deterministic gate |
-| **Safety** | 9 policies, closed action enum, verified redaction, token/USD budget, real tool timeouts |
+| **Safety** | 12 policies, closed action enum, verified redaction, token/USD budget, real tool timeouts |
 | **Evidence** | recorded fixtures · a live Kubernetes cluster · PostgreSQL, MySQL, Redis, MongoDB, SQL Server |
 | **Remediation** | dry-run by default; opt-in live backends (restart/scale a Deployment, terminate stuck DB connections) behind their own least-privilege credentials |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
@@ -396,6 +396,221 @@ Every engine is exercised against a real server in CI, not a stub: the `db` job 
 service containers and asserts a stuck connection is selected, terminated and gone.
 
 ## Architecture
+
+Every diagram below is drawn from the code it names, not from intent. If a box and the code disagree,
+the code is right and the diagram is a bug.
+
+### 1. One incident, end to end
+
+The model is one step in the middle. Everything before it is deterministic evidence collection and
+redaction; everything after it is a deterministic gate. The node names are the real ones in
+`src/warden/graph.py::build_graph`.
+
+```mermaid
+flowchart LR
+    A([Alert<br/>Alertmanager-shaped]) --> I[ingest]
+    I --> G[gather<br/><i>tools.py</i><br/>logs · metrics · deploys<br/>each call isolated behind a hard timeout]
+    G -->|raw evidence<br/>+ read failures| R[redact<br/><i>redaction.py</i>]
+    R -->|placeholders only| AN[analyse<br/><b>LLM</b><br/>hypothesis + confidence]
+    AN --> P[propose<br/><b>LLM</b><br/>ONE action from a closed set]
+    P --> V{verify<br/><i>verifier.py</i><br/>P1–P12<br/>no model call}
+    V -->|rejected| H[halt]
+    V -->|escalated| E[escalate<br/>to on-call]
+    V -->|approved_for_human| W[await_approval]
+    V -->|auto_safe| S[record_safe]
+    W -. principal + approval .-> RM[decide_remediation<br/><i>remediation.py</i>]
+    H & E & W & S & RM --> REP[build_report<br/><i>reporting.py</i>]
+    REP --> CH[notify<br/><i>chatops.py</i>] --> OUT([Slack · Teams · webhook])
+```
+
+- **Evidence first.** `gather` runs before the model and the model cannot ask for more: choosing
+  what to look at is choosing the answer.
+- **The model proposes, the gate decides.** `verify` is plain Python over typed data. It never sees
+  the model's confidence as a reason to act, only as a reason to stop (P4).
+- **Four exits, one per verdict** (`route_after_verify`). No two statuses share a route, so the
+  audit trail can never say "waiting for an operator" about something that needs none.
+
+### 2. The data boundary — what the model can and cannot see
+
+```mermaid
+flowchart TB
+    subgraph SRC[Evidence sources - raw]
+        L[log lines]
+        M[metrics<br/>numbers only]
+        D[deploy records]
+        T[read failures<br/>tool_errors]
+        AL[alert name, summary, labels]
+    end
+    subgraph R1[Pass 1 - each item, one shared mapping]
+        RED[redact&#40;&#41;<br/>emails · IPs · tenant/user ids · account ids · ARNs<br/>API keys · tokens · JWTs · DSN passwords · UUIDs<br/>cards · IBANs · phone numbers · private keys · webhooks]
+    end
+    L --> RED
+    D --> RED
+    AL --> RED
+    T -->|already redacted in gather&#40;&#41;| BLOB
+    M --> BLOB
+    RED --> BLOB[evidence blob<br/>ALERT · METRICS · DEPLOYS · READ FAILURES · LOGS]
+    BLOB --> R2[Pass 2 - the whole assembled prompt<br/>redacted again with the same mapping]
+    R2 --> LLM[(model)]
+    RED -. placeholder → original map .-> MAP[(redaction map<br/>in memory only<br/>never serialised)]
+    MAP -. opt-in, identifiers only .-> REPORT[human-facing report]
+```
+
+- **Two passes before the model.** Every line, deploy field, alert name and label is scrubbed, then
+  the fully assembled prompt is scrubbed again as a backstop (`graph.py::_evidence_blob`).
+- **PIDs, pod names and hostnames are not masked.** They are not secrets, and they are what an
+  operator acts on. The phone-number rule was narrowed on 2026-09-25 because it was masking exactly
+  these (`ip-10-0-3-22`) and merging log lines.
+- **The map never leaves the process.** `RunReport.redaction_map` is excluded from every
+  serialisation. A human report may put back **identifiers only** (email, tenant id, IPv4/IPv6)
+  when `WARDEN_REPORT_SHOW_IDENTIFIERS=true`; secrets stay masked either way.
+
+### 3. The gate — twelve policies, and which verdict wins
+
+```mermaid
+flowchart TB
+    IN([proposal + evidence + environment]) --> REJ
+    subgraph REJ[Reject - nothing runs, no override]
+        P1[P1 action not allowed in this environment]
+        P2[P2 irreversible action in production<br/>read from WARDEN's action table, never the model's claim]
+        P3[P3 no evidence at all]
+        P5[P5 rollback with no deploy in the evidence]
+    end
+    REJ --> ESC
+    subgraph ESC[Escalate - a human decides]
+        P4[P4 confidence below 0.55]
+        P6[P6 blast radius wider than one service]
+        P7[P7 heavy action for a low/medium alert]
+        P8[P8 a read failed - evidence is partial]
+        P9[P9 thin evidence, counted by WARDEN]
+        P10[P10 the model's reversibility claim contradicts the table]
+        P11[P11 the action cannot fix what the evidence shows]
+        P12[P12 'no action' while the evidence shows a symptom]
+    end
+    ESC --> D{any reject?}
+    D -->|yes| RJ[rejected]
+    D -->|no| D2{any escalate?}
+    D2 -->|yes| EC[escalated]
+    D2 -->|no| D3{no_action or<br/>escalate_to_human?}
+    D3 -->|yes| AS[auto_safe]
+    D3 -->|no| AP[approved_for_human<br/>still needs a person]
+```
+
+**Precedence:** `rejected` > `escalated` > `auto_safe` > `approved_for_human`. Every policy that
+applies is recorded, not just the first, so an auditor sees all the reasons.
+
+**P11 and P12 were written on 2026-09-25 from measured failures**, which is why they are marked:
+all three runs the EKS wave let through wrongly were `scale_up` against pods OOM-killed before they
+were ever ready (P11), and a confident "nothing to do" over symptomatic evidence had only ever been
+stopped by low confidence (P12). A re-run of the same scenarios is **not** an independent test of
+them. Replaying all 48 recorded EKS/RDS runs through the new gate changed 5 verdicts, all on wrong
+answers, and no correct run's. P11 caught 2 of the 3 dangerous runs; the third had one pod ready at
+the instant WARDEN read it, and the rule does not guess.
+
+| P11 fires when | because |
+|---|---|
+| `scale_up` + OOM kills + **no pod ready** | nothing is serving traffic, so load is not filling memory; new replicas die at startup the same way |
+| `scale_down` + OOM kills | fewer replicas never lower any replica's memory |
+| `restart_pods` + `ErrImagePull`/`ImagePullBackOff` | a restart re-pulls the same image |
+| `terminate_connections` + only **active** long queries (nothing idle in a transaction, nothing blocked) | it destroys work in progress |
+| `failover_replica` + no replica lag | nothing is lagging |
+
+### 4. From approval to a change — the remediation gate
+
+The order below is the order of the checks in `remediation.py::decide_remediation`.
+
+```mermaid
+flowchart LR
+    V([verdict]) --> Q1{approved_for_human?}
+    Q1 -->|no| N1[blocked - reported, not applied]
+    Q1 -->|yes| Q2{action permitted in<br/>this environment?}
+    Q2 -->|no| N2[blocked]
+    Q2 -->|yes| Q3{principal authorised<br/>for this environment?}
+    Q3 -->|no| N3[unauthorized]
+    Q3 -->|yes| Q4{environment allows<br/>auto-remediation?}
+    Q4 -->|no| N4[not_auto_remediable:<br/>promotion plan, a human applies it]
+    Q4 -->|yes| Q5{explicitly approved?}
+    Q5 -->|no| N5[awaiting_approval]
+    Q5 -->|yes| B{backend}
+    B -->|default| DR[dry-run: records what it would do]
+    B -->|WARDEN_REMEDIATION=live| LV[Kubernetes: restart / scale<br/>Postgres: terminate stuck sessions<br/>own least-privilege credentials]
+```
+
+Production is never auto-remediated by default (`environments.yaml`); the report's promotion plan
+says which higher environments permit the same action and what each requires.
+
+### 5. Where evidence comes from, and over what window
+
+| Backend | Reads | Window |
+|---|---|---|
+| ECS (`aws_backend.py`) | **CloudWatch Logs** `filter_log_events`, CloudWatch metrics, `DescribeServices`, task definitions | logs **alert time ± 15 min**, metrics ± 10 min, deploys in the last 6 h |
+| Kubernetes (`k8s_backend.py`) | Kubernetes API: pod status, events, the **last 40 log lines** per container (5 pods), Deployment/ReplicaSets | newest lines at read time; **not CloudWatch** |
+| PostgreSQL (`database.py`) | `pg_stat_activity`, `pg_locks`, and since 2026-09-25 the sessions behind the counts (pid, SQL, duration, blocker, who holds connections) | **live snapshot** at read time; **no database logs, no CloudWatch, no Performance Insights** |
+| MySQL / Redis / MongoDB / SQL Server | each engine's own session views | live snapshot |
+| Fixtures | recorded incidents | n/a |
+
+Every backend is read-only by construction, and its identity is scoped to reads.
+
+### 6. The benchmark harness
+
+```mermaid
+flowchart TB
+    CAT[catalog/waveN.yaml<br/>scenarios + evidence assertions] --> PRE
+    RUB[scoring.yaml<br/>rubric, hashed into the manifest] -.-> SC
+    PRE[preflight<br/>preflight_k8s_ops.py · preflight_db_ops.py<br/>every op against the REAL server first] --> LOOP
+    subgraph LOOP[for each scenario]
+        B1{baseline gate<br/>proving ground clean?} -->|no| STOP[STOP the wave]
+        B1 -->|yes| Q[quiet period<br/>derived from the backend's evidence reach]
+        Q --> INJ[inject the fault]
+        INJ --> SET[settle]
+        SET --> RUN[run WARDEN as a subprocess<br/>scoped read-only identity<br/>its own platform's alert - names no cause]
+        RUN --> REV[revert]
+    end
+    LOOP --> SC[score<br/>evidence · diagnosis · gate 2x2<br/>refuses to grade a run whose evidence failed]
+    SC --> PUB[publish_bench_run.py<br/>redact → verify with the repo scanner → copy in]
+    PUB --> POST[post_bench_reports.py<br/>same report path as production → Slack]
+```
+
+The harness writes raw artefacts **outside** the repository; only the redacted, verified copy is
+committed. A stop is published, not tidied away: both Wave 2 stops are in its `runner.stderr.log`.
+
+### 7. The incident report - which parts come from the model
+
+Everything a person acts on is deterministic. The model contributes one hypothesis and one proposed
+action, both labelled as its own; the gate, the evidence, the detected patterns, the runbook and the
+team follow-ups are computed from the evidence by fixed code (`reporting.py`, `runbook.py`,
+`playbook.py`, `verifier.py`).
+
+```mermaid
+flowchart LR
+    subgraph MODEL[From the model - labelled as such]
+        H[diagnosis + confidence<br/>what it relied on, what it ruled out]
+        PA[proposed action<br/>from a closed set]
+    end
+    subgraph CODE[Deterministic - fixed code over the evidence]
+        NX[next step, from the verdict]
+        IM[impact: counted symptoms]
+        SR[what was read + time window<br/>from the backends' own constants]
+        PT[patterns detected, each with<br/>the evidence line that triggered it]
+        EV[metrics · UTC timeline · affected<br/>pods / pids / hosts / tenants · key log lines]
+        GV[gate verdict + every reason]
+        RK[before you act - risks FIRST]
+        RB[runbook: check read-only, fix, confirm, undo<br/>real names, computed values, no placeholders]
+        TM[follow-ups: on-call · developers ·<br/>platform/DevOps · DBA · prevention]
+    end
+    H & PA --> R([report])
+    NX & IM & SR & PT & EV & GV & RK & RB & TM --> R
+    R --> RD[redact once, with the pipeline's map] --> ID{identifiers<br/>opt-in?}
+    ID -->|yes| SH[emails · tenant ids · IPs shown<br/>secrets still masked]
+    ID -->|no| MK[all masked]
+    SH & MK --> SL[Slack: mrkdwn, split under the limit<br/>never inside a command]
+```
+
+The runbook prints no command it cannot aim: an unknown namespace is found by a real command first
+(`NS=$(kubectl get deploy -A --field-selector metadata.name=...)`), and an irreversible failover with
+no identifiable primary prints no command at all - the report says why.
+
+### Further reading
 
 - [`docs/ai-boundary.md`](docs/ai-boundary.md) — **why the model never decides**, the policy table,
   and the honest limits.

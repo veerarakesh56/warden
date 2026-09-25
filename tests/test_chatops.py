@@ -200,3 +200,56 @@ def test_the_real_slack_sink_sends_mrkdwn(monkeypatch):
                         lambda url, payload, sink: sent.update(payload) or chatops.Notification(sink, True, "ok"))
     chatops.SlackWebhookSink("https://example.invalid/hook", live=True).send("## Heading\n**bold**", {})
     assert sent["text"] == "*Heading*\n*bold*"
+
+
+# --------------------------------------------------------------------------- splitting for Slack
+
+
+def _long_report_text() -> str:
+    body = ["# Report", "## Runbook"] + [f"context line {i} " + "x" * 60 for i in range(40)]
+    code = ["```"] + [f"SELECT pg_terminate_backend({4000 + i});   -- named in the evidence" for i in range(80)] + ["```"]
+    return "\n".join(body + code + ["## Promotion", "- done"])
+
+
+def test_a_long_message_is_split_under_slacks_limit_without_cutting_a_command():
+    """⛔ Slack cut a real report at ~4,000 characters in the middle of a code block: `2. Fix` in one
+    message, its SQL in the next, the closing fence swallowed."""
+    from warden.chatops import SLACK_PART_CHARS, split_for_slack
+
+    text = _long_report_text()
+    parts = split_for_slack(text)
+    assert len(parts) > 1
+    for i, part in enumerate(parts, 1):
+        assert len(part) <= SLACK_PART_CHARS, f"part {i} is {len(part)} chars"
+        assert part.startswith(f"_(part {i}/{len(parts)})_")
+        fences = sum(1 for ln in part.splitlines() if ln.startswith("```"))
+        assert fences % 2 == 0, f"part {i} leaves a code block open"
+        for ln in part.splitlines():
+            assert not (ln.startswith("SELECT") and not ln.endswith("evidence")), f"a command was cut: {ln!r}"
+    # Nothing lost or reordered: the content lines come back in order once part headers and the
+    # fences added at the boundaries are removed.
+    content = [ln for part in parts for ln in part.splitlines()[1:] if ln != "```"]
+    assert content == [ln for ln in text.splitlines() if ln != "```"]
+
+
+def test_a_short_message_is_sent_as_it_is():
+    from warden.chatops import split_for_slack
+
+    assert split_for_slack("short") == ["short"]
+
+
+def test_the_slack_sink_posts_every_part_and_fails_if_any_part_fails(monkeypatch):
+    from warden import chatops
+
+    sent, calls = [], {"n": 0}
+
+    def post(url, payload, sink):
+        calls["n"] += 1
+        sent.append(payload["text"])
+        ok = calls["n"] != 2  # the second part fails
+        return chatops.Notification(sink, ok, "HTTP 200" if ok else "HTTP 500")
+
+    monkeypatch.setattr(chatops, "_post_json", post)
+    note = chatops.SlackWebhookSink("https://example.invalid/hook", live=True).send(_long_report_text(), {})
+    assert len(sent) > 1 and all(t.startswith("_(part ") for t in sent)
+    assert note.delivered is False and "1 of" in note.detail and "HTTP 500" in note.detail

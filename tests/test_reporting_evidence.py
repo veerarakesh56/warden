@@ -10,6 +10,7 @@ model's text containing exactly that kind of glued-on placeholder.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -159,7 +160,7 @@ def test_the_redaction_map_never_serialises():
 def test_the_report_carries_the_evidence_not_just_the_conclusion():
     md = _report(show=False)[0].markdown
     assert "## Metrics at the time" in md and "`idle_in_transaction` = **25**" in md
-    assert "## ⚠ What WARDEN could NOT read" in md and "(403)" in md
+    assert "**⚠ What WARDEN could NOT read**" in md and "(403)" in md
     assert "**Based on:**" in md and "**Ruled out:**" in md
     assert "## Key log lines" in md and "connection pool exhausted" in md
 
@@ -174,7 +175,9 @@ def test_pids_named_in_the_evidence_become_the_exact_fix():
     """A generic "kill the idle sessions" asks the reader to find them; the PID is in the evidence."""
     rep = _report(show=False)[0]
     assert rep.data["evidence"]["affected"]["pid"] == [["4242", 1]]
-    assert "SELECT pg_terminate_backend(4242);" in rep.markdown
+    # Guarded: terminates the named pid only if it is STILL idle in a transaction when run - a pid
+    # from the evidence may have been reused by a new session since.
+    assert "WHERE pid IN (4242) AND state = 'idle in transaction'" in rep.markdown
 
 
 def test_a_kubernetes_rollback_names_the_real_namespace_and_deployment():
@@ -212,6 +215,8 @@ def test_the_fix_names_every_stuck_pid_not_just_the_five_displayed():
     prop = RemediationProposal(action=ActionKind.terminate_connections, target="warden", reasoning="r",
                                expected_effect="e", blast_radius="single_service", reversible=True)
     rep = build_report(alert, proposal=prop, context=ctx, show_identifiers=False)
-    for p in pids:
-        assert f"SELECT pg_terminate_backend({p});" in rep.markdown, f"pid {p} missing from the fix"
+    fix = next(ln for ln in rep.markdown.splitlines() if "pg_terminate_backend" in ln and "pid IN (" in ln)
+    listed = re.search(r"pid IN \(([^)]*)\)", fix).group(1).split(", ")
+    assert listed == pids, f"the fix must name every stuck pid: {listed}"
+    assert "AND state = 'idle in transaction'" in fix
     assert "and 7 more" in rep.markdown, "the display should say how many it is not showing"

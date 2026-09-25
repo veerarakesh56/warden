@@ -84,7 +84,14 @@ class SlackWebhookSink:
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
-        return _post_json(self._url, {"text": to_slack_mrkdwn(text)}, self.name)
+        parts = split_for_slack(to_slack_mrkdwn(text))
+        notes = [_post_json(self._url, {"text": part}, self.name) for part in parts]
+        failed = [n for n in notes if not n.delivered]
+        if failed:
+            return Notification(sink=self.name, delivered=False,
+                                detail=f"{len(failed)} of {len(parts)} part(s) failed: {failed[0].detail}")
+        return Notification(sink=self.name, delivered=True,
+                            detail=notes[0].detail + (f" ({len(parts)} parts)" if len(parts) > 1 else ""))
 
 
 class TeamsWebhookSink:
@@ -166,6 +173,36 @@ def to_slack_mrkdwn(md: str) -> str:
             line = _BOLD.sub(r"*\1*", line)
         out.append(line)
     return "\n".join(out)
+
+
+SLACK_PART_CHARS = 3500
+
+
+def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
+    """Split a long message into numbered parts Slack will not cut for us.
+
+    Slack splits long messages itself (at about 4,000 characters) wherever the limit falls - on a real
+    report that was the middle of a code block, so `2. Fix` ended up in one message and its SQL in
+    the next. Here the split happens at line boundaries, and a code block that straddles a boundary is
+    closed at the end of one part and reopened at the start of the next, so a command is never cut.
+    """
+    if len(text) <= limit:
+        return [text]
+    parts: list[list[str]] = [[]]
+    size, in_code = 0, False
+    for line in text.split("\n"):
+        fence = line.startswith("```")
+        if size + len(line) + 1 > limit - 16 and parts[-1]:
+            if in_code:
+                parts[-1].append("```")
+            parts.append(["```"] if in_code else [])
+            size = 4 if in_code else 0
+        parts[-1].append(line)
+        size += len(line) + 1
+        if fence:
+            in_code = not in_code
+    total = len(parts)
+    return [f"_(part {i}/{total})_\n" + "\n".join(lines) for i, lines in enumerate(parts, 1)]
 
 
 def notify(report: Report, sinks: list[ChatOpsSink] | None = None) -> list[Notification]:
