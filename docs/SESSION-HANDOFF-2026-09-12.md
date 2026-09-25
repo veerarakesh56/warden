@@ -34,7 +34,7 @@ Supersedes `SESSION-HANDOFF-2026-09-09.md`. Wave 1 is measured, published and to
    loop. **This is the single highest-value fix left**, and it needs a re-run to measure.
 3. **`ecs-08` still scores NO-EVIDENCE 3/3.** A completed rollout leaves nothing to compare images
    against, so `deploys_nonempty` fails and the diagnosis is voided rather than graded.
-4. **The model is not deterministic.** 8 of 14 scenarios disagreed across three identical repeats,
+4. **The model is not deterministic.** 8 (7 - recounted from results.json 2026-09-25) of 14 scenarios disagreed across three identical repeats,
    including the healthy control.
 
 ## Two bugs the benchmark found in itself first

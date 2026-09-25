@@ -99,6 +99,12 @@ def symptoms(context) -> list[str]:
         out.append(f"{m.get('tasks_running', 0):.0f} of {m['tasks_desired']:.0f} tasks running")
     if m.get("deployments_failed", 0) > 0 or m.get("deployment_failed_tasks", 0) > 0:
         out.append("a deployment has failed tasks")
+    # A full pool is an explicit state, not a rate: every connection the server (or the app's pool)
+    # allows is taken. Live backends report `connections_used_pct`; recorded incidents the pool pair.
+    # Added 2026-09-25: inc-005's report said "no failing component" beside a 100/100 pool.
+    pool_size = m.get("connection_pool_size", 0)
+    if m.get("connections_used_pct", 0) >= 1.0 or (pool_size and m.get("connection_pool_used", 0) >= pool_size):
+        out.append("the connection pool is full")
     if _log_has(context, "stuck connection:"):
         out.append("sessions have been idle inside a transaction past the stuck threshold")
     if m.get("locks_waiting", 0) > 0:
@@ -144,7 +150,8 @@ def _contradiction(proposal, context) -> str | None:
     a, m = proposal.action, context.metrics
     # scale_up on OOM is NOT always wrong: when memory grows with load, more replicas mean less load,
     # and less memory, per replica (the bundled inc-002 is that case). It is wrong when no replica is
-    # ready - then none is serving traffic, so load is not what fills memory, and every new replica
+    # failing (none ready, or every pod crash-looping / backing off - see _every_pod_failing) - then
+    # none is reliably serving traffic, so load is not what fills memory, and every new replica
     # is killed at startup the same way (the EKS k8s-02/03 case: 900 MiB allocated at start, 48 MiB
     # limit). A first version flagged all scale_up-on-OOM and the inc-002 tests caught it.
     if a is ActionKind.scale_up and _oom_seen(context) and _every_pod_failing(context):
@@ -162,7 +169,10 @@ def _contradiction(proposal, context) -> str | None:
         return ("terminate_connections with nothing idle in a transaction and nothing blocked: the only "
                 "long sessions in the evidence are ACTIVE queries, and terminating them destroys work "
                 "in progress.")
-    if a is ActionKind.failover_replica and m.get("replica_lag_seconds", 0) < 1:
+    # ⛔ Only when lag was MEASURED. An absent metric is not zero lag: ECS, Kubernetes and Redis report
+    # none, and the MCP gate got none at all, so until 2026-09-25 every failover proposal from those
+    # escalated with a false reason ("no replica lag in the evidence").
+    if a is ActionKind.failover_replica and "replica_lag_seconds" in m and m["replica_lag_seconds"] < 1:
         return "failover_replica with no replica lag in the evidence - there is nothing lagging to fail over from."
     return None
 
@@ -263,8 +273,9 @@ def verify(
 
     # P9 — evidence measured by US, not confidence reported by the model.
     #
-    # Added after running against a live model: it returned confidence 0.85 on ALL FOUR bundled
-    # incidents, including the one whose entire evidence is two vague log lines. A model's
+    # Added after running against a live model: it returned confidence 0.85 on ALL the bundled
+    # incidents (four then; five in the recorded run, docs/live-model-run-2026-09-06.md), including
+    # the one whose entire evidence is two vague log lines. A model's
     # self-reported confidence is not calibrated, so P4 alone would essentially never fire — the
     # gate would be relying on a number the model has no incentive or ability to get right.
     #

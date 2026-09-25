@@ -37,8 +37,8 @@ data "aws_iam_policy_document" "reader" {
     effect = "Allow"
 
     # ⭐ EXACTLY the four calls src/warden/aws_backend.py makes, and the same four the deployment
-    # module one directory up grants. tests/test_aws_backend.py asserts set equality against that
-    # module in both directions, so this list cannot silently drift from the code either.
+    # module one directory up grants. tests/test_aws_backend.py asserts set equality with the code for
+    # BOTH lists, in both directions (this one since 2026-09-25), so neither can drift silently.
     actions = [
       "cloudwatch:GetMetricData",
       "ecs:DescribeServices",

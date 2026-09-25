@@ -1,3 +1,5 @@
+> **Historical record.** Measured under 0.6.0 (committed with that release); P2 and P6 changed in 0.8.0 - see the note closing section 3 - and P11/P12 were added 2026-09-25.
+
 # A recorded run against a live model — 2026-09-06
 
 Every other number in this repository comes from its own test suite. This file exists because two

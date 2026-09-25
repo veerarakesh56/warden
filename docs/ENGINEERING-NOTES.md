@@ -35,7 +35,7 @@ Four independent reviewers each tried to refute one claim about the Kubernetes w
 was attacked by a second reviewer, and the upheld ones were fixed, not noted:
 
 - **RBAC was read-only but not minimal** — 12 of 16 granted verb/resource pairs had no caller. Cut
-  to the exact five the code makes; CI now asserts `watch pods` and `get pods` are *denied*.
+  to the exact five the code makes (six since 2026-09-25, with `list horizontalpodautoscalers`); CI now asserts `watch pods` and `get pods` are *denied*.
 - **The RBAC unit test passed with `roleRef: cluster-admin`.** Now a structural check, not a grep.
 - **The Job could hang forever** (no deadline; a stalled read left a thread joined at exit —
   reproduced live) and **deleted its own evidence** after an hour. Fixed with socket timeouts, a Job
@@ -50,6 +50,12 @@ was attacked by a second reviewer, and the upheld ones were fixed, not noted:
 Every test here runs in mock mode. That is correct for CI — but it means the design was, until it
 was actually run, an argument rather than a result. Running all four incidents against a live
 **Gemini** model produced three findings the mocks could never have surfaced.
+
+⚠ **Provenance.** This section describes an earlier run over the then-four bundled incidents, not
+recorded as an artefact - its figures below (the `restart_pods` on `inc-003`, the 7 identifiers,
+~$0.009) cannot be re-checked. The recorded run, [`live-model-run-2026-09-06.md`](live-model-run-2026-09-06.md),
+covers five and shows the same 0.85 on all; there the live model proposed `terminate_connections`
+on `inc-003`, not `restart_pods`, at $0.0065-$0.0089 per incident.
 
 **1. ⚠ The model's self-reported confidence is not calibrated — and that breaks a policy.**
 It returned **confidence 0.85 on all four incidents**, including `inc-004`, whose entire evidence is
@@ -88,7 +94,8 @@ every context tool failed, the evidence came back empty, and **all four incident
 
 ⛔ **The CI docker job never noticed, because it ran `docker run … demo` and checked only the exit
 code.** It asked *"did it run?"* when the question was *"was it right?"* Fixtures are now package
-data, and **both CI jobs assert on the output** — the exact verdicts and that `P6` fires.
+data, and **both CI jobs assert on the output** — the expected verdicts in both, and in the `check`
+job also that `P6` fires (the `docker` job checks verdicts only).
 
 **1. Every incident produced the same hypothesis.** The mock reasoner branched on substrings of the
 rendered prompt — which contains field labels like `RECENT DEPLOYS:` and metric keys like
@@ -152,7 +159,10 @@ CI creates a **k3d** cluster on every push and:
 3. Deploys `k8s/test/oom-workload.yaml` — a pod that **actually OOM-kills itself** (300 MiB into a
    48Mi limit) — and waits for the kubelet to record `lastState.terminated.reason: OOMKilled`.
 4. Runs WARDEN against it from outside and asserts the *output*: `"backend": "kubernetes"`,
-   `scale_up`, `APPROVED_FOR_HUMAN`, `"tool_errors": []`.
+   `scale_up`, `VERDICT : ESCALATED`, `P11-ACTION-CONTRADICTS-EVIDENCE`, `"tool_errors": []`, and
+   no `TOOL-PARTIAL` line. (Until 2026-09-25, when P11 was added, it asserted `APPROVED_FOR_HUMAN`.)
 5. Imports the image and runs WARDEN **inside** the cluster as the Job, under the read-only
-   ServiceAccount, and asserts the same verdict from its logs — plus that it ran as `user=10001`
-   with `readOnlyRootFilesystem`.
+   ServiceAccount, and asserts the same `scale_up` / `ESCALATED` / P11 / empty-`tool_errors` from its
+   logs. That the process runs as uid 10001 on a read-only root filesystem is asserted separately,
+   by a posture-probe pod (`k8s/test/posture-probe.yaml`) whose log must read `uid=10001` and
+   `rootfs=READONLY`.

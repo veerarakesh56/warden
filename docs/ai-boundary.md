@@ -69,7 +69,9 @@ today's gate (`scripts/replay_gate.py`) changes three verdicts - exactly the thr
 
 ⭐⭐ **`P9` is the one that came from evidence rather than reasoning.** Against a live model, all four
 bundled incidents came back at **confidence 0.85** — including the one whose entire evidence is two
-vague log lines. `P4` escalates below 0.55, so with that model it would never fire.
+vague log lines. `P4` escalates below 0.55, so with that model it would never fire. (That was an earlier run
+over the then-four bundled incidents, not recorded as an artefact; the recorded run,
+`docs/live-model-run-2026-09-06.md`, covers five and shows the same 0.85 on all.)
 
 **A model's self-reported confidence is not a measurement.** It is a token sequence that looks like
 one. `P9` counts what was actually gathered — log lines, distinct metrics, deploys — because a

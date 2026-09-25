@@ -103,7 +103,7 @@ resource "aws_eks_node_group" "this" {
   node_role_arn   = aws_iam_role.eks_node[0].arn
   subnet_ids      = aws_subnet.public[*].id
 
-  # One small spot node. The workload under test is a single pod that OOMs on purpose; anything
+  # One small spot node. The workload under test is a two-replica Deployment (k8s/proving-ground/namespace.yaml); anything
   # larger is money spent on idle capacity.
   instance_types = ["t3.small"]
   capacity_type  = "SPOT"

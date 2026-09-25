@@ -7,8 +7,8 @@ boundary was drawn there precisely so this swap would be one class.
 Things that are deliberate, most of them learned from an adversarial review of the first version:
 
 1. **Read-only.** The client calls are `list_namespaced_pod`, `list_namespaced_event`,
-   `read_namespaced_pod_log`, `read_namespaced_deployment`, `list_namespaced_replica_set`. Nothing
-   else. A test greps this module for write-shaped calls — but that grep is a tripwire, not the
+   `read_namespaced_pod_log`, `read_namespaced_deployment`, `list_namespaced_replica_set`,
+   `list_namespaced_horizontal_pod_autoscaler` (the sixth, 2026-09-25). Nothing else. A test walks this module's AST for write-shaped calls — but that check is a tripwire, not the
    boundary. **RBAC is the boundary**: the ServiceAccount in `k8s/` cannot mutate anything, so a bug
    here cannot either. Outside the cluster, with a developer kubeconfig, the boundary is whatever
    that kubeconfig allows — say so rather than pretend otherwise.

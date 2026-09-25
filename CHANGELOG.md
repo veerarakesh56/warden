@@ -111,7 +111,7 @@ gate scored separately; the rubric committed before the run with its hash in the
 - **A completed rollout hides its own deploy.** Deploy detection compares images against the
   replaced deployment; once a rollout finishes there is nothing to compare, so `ecs-08` scored
   NO-EVIDENCE 3/3 rather than being graded as a model failure.
-- **The model is not deterministic.** 8 of 14 scenarios disagreed across three identical repeats,
+- **The model is not deterministic.** 8 (7 - recounted from results.json 2026-09-25) of 14 scenarios disagreed across three identical repeats,
   including the healthy control, where one run escalated a service with nothing wrong.
 
 ### Added

@@ -440,3 +440,17 @@ def test_every_policy_that_fires_has_exactly_one_reason_in_the_same_position(act
     v = verify(_alert(severity=Severity.low), _ctx(**ctx), _rc(confidence=0.3), _prop(action=action))
     if v.policy_ids:
         assert len(v.reasons) == len(v.policy_ids), (v.policy_ids, v.reasons)
+
+
+@pytest.mark.parametrize("metrics,full", [
+    ({"connection_pool_used": 100.0, "connection_pool_size": 100.0}, True),
+    ({"connection_pool_used": 99.0, "connection_pool_size": 100.0}, False),
+    ({"connections_used_pct": 1.0}, True),
+    ({"connections_used_pct": 0.97}, False),
+    ({}, False),
+])
+def test_a_full_connection_pool_is_a_symptom(metrics, full):
+    """inc-005's report said "no failing component" beside a 100/100 pool."""
+    from warden.models import ContextBundle
+    from warden.verifier import symptoms
+    assert ("the connection pool is full" in symptoms(ContextBundle(metrics=metrics))) is full

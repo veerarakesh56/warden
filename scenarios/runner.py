@@ -6,7 +6,7 @@
 
 ⭐ THE SHAPE THAT MATTERS. For each scenario: inject once, wait `settle_seconds`, run WARDEN
 `--repeat` times back to back, revert once, wait for the service to stabilise. Repeating the *model*
-against a single injected state costs two extra API calls and no extra AWS time, and it is the only
+against a single injected state costs two extra WARDEN runs (four model calls) and no extra AWS time, and it is the only
 way to tell a stable answer from a coin flip.
 
 ⛔ WARDEN RUNS AS A SUBPROCESS UNDER AN ASSUMED READER ROLE, WITH AN ENVIRONMENT BUILT FROM NOTHING.
@@ -697,7 +697,7 @@ def k8s_warden_env(creds: dict[str, str], target: ops_k8s.Target,
     """WARDEN's environment for a Kubernetes wave, built from nothing.
 
     ⛔ NO AWS CREDENTIALS AT ALL, deliberately - not even the operator's. The only credential is a
-    kubeconfig holding a ServiceAccount token scoped to five reads in one namespace. If WARDEN ran
+    kubeconfig holding a ServiceAccount token scoped to six reads in one namespace (five in Wave 2). If WARDEN ran
     with the operator's kubeconfig, scenario k8s-09 would revoke a permission nobody was using and
     pass while proving nothing, which is exactly the trap Wave 1's IAM scenario documents.
     """
@@ -841,7 +841,7 @@ def _k8s_live_harness(timeout_s: float) -> Harness:
         """Mint a short-lived ServiceAccount token and write a kubeconfig that can only read.
 
         ⭐ Minted per run, not once per wave: k8s-09 strips a permission from this very role, and
-        "WARDEN ran with five reads and nothing else" is only a checkable claim if the identity it
+        "WARDEN ran with six reads and nothing else" is only a checkable claim if the identity it
         ran as is re-derived each time and recorded in the artefact.
         """
         token = _kubectl("create", "token", target.service_account,

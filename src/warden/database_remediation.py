@@ -9,10 +9,11 @@ Why terminating connections is the safe database action, and the only one here:
     and the pool slot plus any row locks it held are released. That is the standard on-call fix.
   - it is bounded, and reversible in the way that matters: the application reconnects.
   - everything else a database incident might want — failover, promotion, schema change, FLUSH, DROP —
-    is either irreversible or high blast radius, so it stays with a human (`failover_replica` escalates
-    by policy; the rest are not in the action enum at all).
+    is either irreversible or high blast radius, so it stays with a human (`failover_replica` is rejected
+    in prod by P2 and by the staging / pre-prod allow-lists, and escalated by P6 in dev; the rest are not in the action enum at all).
 
-Three clamps, enforced in the SQL *and* again in Python so a broken query cannot widen them:
+Three clamps in each engine's selection; the count ceiling (2) is enforced AGAIN in Python
+(`candidates[:MAX_TERMINATE]`), so a broken LIMIT cannot widen it:
   1. only connections idle/running beyond WARDEN_DB_TERMINATE_IDLE_SECS (default 300s),
   2. at most WARDEN_DB_TERMINATE_MAX of them (default 20),
   3. NEVER its own connection (pg_backend_pid() / CONNECTION_ID() / client_id() / @@SPID).
@@ -22,13 +23,15 @@ It never runs unless the four-way gate in `remediation.py` passed AND live remed
 anything — and in that mode `live` is False, so the audit records a dry run, not a change.
 
 Its credential is a SEPARATE least-privilege database role — the DB twin of the write-RBAC
-ServiceAccount. The grant each engine needs (the health-reading role needs none of these, and this
-role needs nothing else):
-    PostgreSQL  GRANT pg_signal_backend      — signal other backends; implies no data rights
-    MySQL       CONNECTION_ADMIN             — KILL other sessions
-    SQL Server  ALTER ANY CONNECTION         — KILL other sessions
-    Redis       an ACL user permitted CLIENT|KILL
-    MongoDB     killop
+ServiceAccount. What each engine needs - to KILL, and to SEE other users' sessions (without the
+second the selection finds nothing):
+    PostgreSQL  pg_signal_backend       + pg_read_all_stats
+    MySQL       CONNECTION_ADMIN        + PROCESS
+    SQL Server  ALTER ANY CONNECTION    + VIEW SERVER STATE
+    Redis       ACL CLIENT|KILL         + CLIENT|ID, CLIENT|LIST
+    MongoDB     killop                  + inprog
+⚠ The see-column was missing until 2026-09-25. CI does not exercise these least-privilege roles (its
+db job connects as each server's superuser); the grants follow each engine's documentation.
 """
 
 from __future__ import annotations

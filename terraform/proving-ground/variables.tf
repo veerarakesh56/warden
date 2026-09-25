@@ -5,7 +5,7 @@ variable "region" {
 }
 
 variable "name" {
-  description = "Name prefix. Also the ECS cluster name WARDEN reads evidence from."
+  description = "Name prefix. A random suffix is appended (the ECS cluster is <name>-<hex>; see output ecs_cluster)."
   type        = string
   default     = "warden-pg"
 }

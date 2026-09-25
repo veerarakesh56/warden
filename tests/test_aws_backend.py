@@ -610,3 +610,17 @@ def test_it_falls_back_to_the_previous_revision_when_the_service_is_steady():
     })
     out = _backend(ecs=ecs).deploys(_alert())
     assert len(out) == 1 and out[0]["previous_image"] == "repo/checkout:v1"
+
+
+def test_the_proving_ground_reader_grants_exactly_what_the_code_calls():
+    """The benchmark's reader role carries its own copy of the list, and its comment claimed this
+    test covered it while only terraform/main.tf was read (found 2026-09-25). Now both are."""
+    text = (ROOT / "terraform" / "proving-ground" / "iam.tf").read_text(encoding="utf-8")
+    block = re.search(r'sid\s*=\s*"ReadObservabilitySignals".*?actions\s*=\s*\[(.*?)\]', text, re.DOTALL)
+    assert block, "ReadObservabilitySignals statement not found in terraform/proving-ground/iam.tf"
+    granted = set(re.findall(r'"([^"]+)"', block.group(1)))
+    called = {_iam_action(attr, method) for attr, method in _api_calls()}
+    assert called == granted, (
+        f"code calls but reader does not grant: {sorted(called - granted)}; "
+        f"reader grants but code never calls: {sorted(granted - called)}"
+    )

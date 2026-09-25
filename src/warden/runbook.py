@@ -259,8 +259,12 @@ def _postgres(rb: Runbook, alert: Alert, action: ActionKind, pids: list[str]) ->
     rb.check = [_STUCK, _BLOCKED, _LONG, _POOL]
     if action is ActionKind.terminate_connections:
         rb.risk = [
-            ("IRREVERSIBLE. Each terminated session's open transaction is rolled back and the client sees "
-            "an error; that work must be retried by the application."),
+            # ⚠ Not "IRREVERSIBLE": WARDEN's action table calls terminate_connections reversible (nothing
+            # committed is lost; the application reconnects), and the report printed both side by side
+            # until 2026-09-25. What cannot be undone is the rolled-back work, and that is what this says.
+            ("The rolled-back work cannot be restored. Each terminated session's open transaction is "
+            "rolled back (nothing committed is lost) and the client sees an error; that work must be "
+            "retried by the application."),
             ("Terminate only sessions that are IDLE in a transaction. A session that is `active` is doing "
             "work - terminating it destroys that work (check the long-running query list first)."),
             ("PIDs are reused by new sessions. The fix below re-checks the state at the moment it runs "

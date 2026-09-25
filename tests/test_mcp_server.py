@@ -185,3 +185,34 @@ def test_thin_evidence_escalates_over_mcp_even_at_high_confidence():
     }))
     assert out["verdict"] == "escalated"
     assert "P9-THIN-EVIDENCE" in out["policies_fired"]
+
+
+def _scale_up(**extra):
+    return {
+        "environment": "prod", "severity": "critical", "service": "checkout",
+        "action": "scale_up", "target": "checkout", "blast_radius": "single_service",
+        "reversible": True, "confidence": 0.9, "log_lines": 5, "metric_count": 4, **extra,
+    }
+
+
+def test_p11_is_evaluable_over_mcp_when_the_caller_passes_the_evidence():
+    """Until 2026-09-25 the MCP gate built anonymous zero metrics, so P11/P12 could never see evidence."""
+    out = _payload(call_tool("verify_remediation", _scale_up(
+        metrics={"oom_killed_containers": 2, "pods_ready": 0, "pods_total": 2})))
+    assert out["verdict"] == "escalated"
+    assert "P11-ACTION-CONTRADICTS-EVIDENCE" in out["policies_fired"]
+
+
+def test_a_failover_with_no_lag_metric_is_not_called_lag_free():
+    """An ABSENT lag metric is not zero lag: P11 used to fire on every failover sent over MCP."""
+    args = {**_scale_up(), "action": "failover_replica", "environment": "staging"}
+    assert "P11-ACTION-CONTRADICTS-EVIDENCE" not in _payload(call_tool("verify_remediation", args))["policies_fired"]
+    measured = _payload(call_tool("verify_remediation", {**args, "metrics": {"replica_lag_seconds": 0}}))
+    assert "P11-ACTION-CONTRADICTS-EVIDENCE" in measured["policies_fired"]
+
+
+def test_named_metrics_count_toward_metric_count_not_on_top_of_it():
+    """One real metric plus metric_count=1 must still be one metric: P9 must see thin evidence."""
+    out = _payload(call_tool("verify_remediation", {
+        **_scale_up(), "metric_count": 1, "log_lines": 5, "metrics": {"oom_killed_containers": 2}}))
+    assert "P9-THIN-EVIDENCE" in out["policies_fired"]

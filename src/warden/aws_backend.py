@@ -27,7 +27,7 @@ cluster taught the Kubernetes backend:
    botocore's default is up to three tries with exponential backoff, which turns one stalled API
    read into a multiple of the tool budget. `gather()` stops waiting after its deadline and the
    abandoned thread then blocks the interpreter at exit — the failure mode reproduced live against
-   Kubernetes. ⚠ Connect + read still sum to slightly over the default 5s tool budget in the worst
+   Kubernetes. ⚠ Connect + read (2 s + 3 s) sum to the whole default 5 s tool budget in the worst
    case; a single very slow call can therefore consume the whole budget for that tool. That is a
    real limit, not a hidden one — raise `WARDEN_TOOL_TIMEOUT` for large log groups.
 

@@ -66,26 +66,27 @@ Guessing which way that would go would have been easy and wrong, in both directi
 ## What the measurement says
 
 **14 of 42 runs proposed `no_action` on a service with a live fault, and the gate allowed every
-one of them.** Not one was refused, and none needed human approval. `verifier.py` exempts
-`no_action` and `escalate_to_human` from every policy check — empty context, low confidence, tool
-errors, thin evidence — so a tool that says "nothing is wrong" is never stopped by the thing built
-to stop it. Two of those runs said "nothing to do" at 0.25 confidence while their own
+one of them.** Not one was refused, and none needed human approval. In 0.7.0, the version
+measured, `verifier.py` exempted `no_action` and `escalate_to_human` from every policy check — empty
+context, low confidence, tool errors, thin evidence — so a tool that said "nothing is wrong" was never
+stopped by the thing built to stop it. (Since 0.8.0 `no_action` is subject to the evidence policies;
+see the banner above.) Two of those runs said "nothing to do" at 0.25 confidence while their own
 `tool_errors` recorded that WARDEN could not read the logs at all.
 
 **The model was often not shown the failure.** In `ecs-06` and `ecs-07` the new tasks were failing
 repeatedly, and the evidence said: tasks at desired count, nothing pending, `deployments_failed=0`.
 ECS returns `failedTasks` per deployment in the same `DescribeServices` response WARDEN already
-calls, and `aws_backend.py` does not read it; it reads only `rolloutState == "FAILED"`, which
-requires the deployment circuit breaker, which this proving ground does not enable. So that metric
-is structurally always 0 here. Fixing the evidence and measuring again is named future work, not
-something quietly done before publishing.
+calls, and `aws_backend.py` did not read it at the time; it read only `rolloutState == "FAILED"`,
+which requires the deployment circuit breaker, which this proving ground does not enable. So that
+metric was structurally always 0 here. `failedTasks` has been read since `e545d40` (2026-09-12),
+after this run; Wave 1 has not been re-measured with it, and these numbers stand as measured.
 
 **`ecs-08` never got a diagnosis score at all.** Its CPU-starvation rollout completes, so WARDEN's
 image-comparison deploy detection reports no deploy, the evidence assertion fails, and all 3 runs
 are NO-EVIDENCE rather than graded. A backend that cannot see a change is a backend bug, and
 scoring it as a model failure would have been the easiest way to cheat here.
 
-**The model is not deterministic.** 8 of 14 scenarios in the clean run gave different answers across
+**The model is not deterministic.** 7 of 14 scenarios in the clean run gave different answers across
 three identical repeats — including the healthy control, where one run escalated a service with
 nothing wrong.
 
@@ -93,7 +94,9 @@ nothing wrong.
 
 - Not a comparison between tools, and not evidence that WARDEN should be adopted.
 - Not reproducible by a stranger without the same subscription: the runs go through the `claude` CLI
-  on a Max plan, so there is no per-call cost in the artefacts and no API key to hand over.
+  on a Max plan, so there is no API key to hand over. Each report does carry a `cost.usd`, but it is
+  notional - the CLI reports no tokens, so they are estimated from text length and priced at the
+  configured `WARDEN_PRICE_IN`/`WARDEN_PRICE_OUT` rates - not money billed.
 - One model, one wave, 14 scenarios (13 faults + 1 healthy control), 3 repeats. Waves 2 (EKS) and 3 (RDS) are below.
 
 ---
@@ -153,13 +156,15 @@ access revoked) were both refused - partial context and thin evidence - measured
 
 **Twice the tool, not the model, stood in the way - by reporting a symptom as its own failure.**
 - `k8s-04` image pull: reading logs of a container that never started returns HTTP 400 with a body
-  that says why. `k8s_backend._one_line` keeps the first line of the exception - `(400)` - and drops
-  the reason, so the read counts as a tool failure and `P8-PARTIAL-CONTEXT` escalated all three
+  that says why. `k8s_backend._one_line` kept the first line of the exception - `(400)` - and dropped
+  the reason, so the read counted as a tool failure and `P8-PARTIAL-CONTEXT` escalated all three
   `rollback_deploy` runs, each of which the rubric grades CORRECT.
-- `k8s-07` scaled to zero: WARDEN reports "no live pods match" as a tool error for both logs and
-  metrics and returns **no metrics at all**, although `spec.replicas: 0` is one read away. The model
+- `k8s-07` scaled to zero: WARDEN reported "no live pods match" as a tool error for both logs and
+  metrics and returned **no metrics at all**, although `spec.replicas: 0` is one read away. The model
   could not tell "scaled to zero" from "outage" and escalated all three.
-Fixing the evidence and measuring again is future work, not something done before publishing.
+Both were fixed after the run, in `f8fb972` (2026-09-25): the server's reason is kept, and a
+Deployment that exists with zero pods is reported as evidence (`pods_total = 0`,
+`replicas_desired`). Neither fix has been re-measured; the numbers above are as published.
 
 **The alert named the wrong platform.** Every scenario got the Wave 1 alert, "CloudWatch alarm
 fired for ECS service checkout", on a Kubernetes cluster. It names no cause, which is what it is for,
@@ -225,12 +230,12 @@ human. `db-05`, a stuck transaction holding an exclusive lock with two sessions 
 database at all: `escalate_to_human` 3/3, with WARDEN's own read failures named in the evidence.
 
 **Where it could only count the problem, it was not.** Two evidence gaps, found by this run and
-not fixed before publishing:
-- `db-04`, one query actively running for 15 minutes: WARDEN reports `long_running_queries = 1`
-  and nothing else - no pid, no query text, no duration. `problem_ops()` only lists sessions idle
+not fixed before publishing (both fixed after it, in `baf81c8` - see below - and not re-measured):
+- `db-04`, one query actively running for 15 minutes: WARDEN reported `long_running_queries = 1`
+  and nothing else - no pid, no query text, no duration. `problem_ops()` only listed sessions idle
   in a transaction. The model said "nothing to do" 3/3.
-- `db-03`, the pool driven to 80% by idle sessions: WARDEN reports how MANY connections are in use,
-  never WHO holds them (application, client address, state). Leak and legitimate load look the
+- `db-03`, the pool driven to 80% by idle sessions: WARDEN reported how MANY connections were in use,
+  never WHO held them (application, client address, state). Leak and legitimate load look the
   same; the model escalated twice and said "nothing to do" once.
 
 **The discrimination this wave was built for was only half exercised.** `terminate_connections` is
@@ -240,7 +245,12 @@ terminating anything, so the harmful case never came up. Nothing here shows it w
 the two apart.
 
 **A metric counts the wrong thing.** In `db-05` `long_running_queries = 2`: the two sessions waiting
-on the lock are `active` for over 60 seconds, so waiters are counted as long queries.
+on the lock were `active` for over 60 seconds, so waiters were counted as long queries.
+
+Since `baf81c8` (2026-09-25, after this run) the PostgreSQL backend names each long active query
+(pid, running time, user, application, client, SQL), each blocked session and its blocker, and -
+when the pool is at least half used - who holds the connections; `long_running_queries` no longer
+counts lock waiters. Wave 3 has not been re-measured with it and stands as published.
 
 **The gate is still over-cautious.** 6 of 12 correct diagnoses were escalated - including all three
 `no_action` runs on the healthy database, where the database backend returns metrics and no log

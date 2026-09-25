@@ -73,7 +73,7 @@ def test_the_warning_comes_before_the_command_it_warns_about():
                                    metrics={"idle_in_transaction": 1.0})).markdown
     assert "## ⚠ Before you act" in md
     assert md.index("## ⚠ Before you act") < md.index("**2. Fix**")
-    assert "IRREVERSIBLE" in md[:md.index("**2. Fix**")]
+    assert "cannot be restored" in md[:md.index("**2. Fix**")]
 
 
 @pytest.mark.parametrize("backend,must,must_not", [
@@ -223,3 +223,31 @@ def test_a_demo_incident_keeps_the_full_check_list():
                  deployment="checkout").markdown
     assert "**1. Check - read-only, confirm the diagnosis first**" in md
     assert "get events" in md
+
+
+def test_the_risk_text_never_contradicts_the_action_table():
+    """The report printed "reversible: True per WARDEN's action table" and "IRREVERSIBLE" in one page."""
+    from warden.models import ACTION_FACTS
+    for action in ActionKind:
+        reversible, _ = ACTION_FACTS.get(action, (None, None))
+        if not reversible:
+            continue
+        for backend in ("k8s", "aws", "postgres", "mysql", "redis", "mongo", "mssql", None):
+            md = _report(action=action, backend=backend).markdown
+            assert "IRREVERSIBLE" not in md, (action, backend)
+
+
+def test_error_lines_are_impact_even_when_nothing_is_counted_broken():
+    """inc-001 said "no failing component" above four HTTP 500 lines."""
+    ctx = ContextBundle(logs=["2026-08-21T10:02:11Z checkout ERROR 500 upstream timeout"])
+    md = _report(action=ActionKind.rollback_deploy, ctx=ctx).markdown
+    assert "1 error line(s)" in md
+    assert "no failing component" not in md
+
+
+def test_runbook_steps_never_skip_a_number():
+    """A failover with no identifiable primary prints no fix command; the steps still read 1, 2, 3."""
+    md = _report(action=ActionKind.failover_replica, backend="postgres",
+                 ctx=ContextBundle(metrics={"replica_lag_seconds": 47.0})).markdown
+    assert "**3. Confirm it worked**" in md
+    assert "**2. Fix** - no command printed" in md

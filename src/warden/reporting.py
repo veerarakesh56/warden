@@ -371,6 +371,7 @@ def build_report(
         },
         "sources": _sources(alert, backend),
         "impact": symptoms(ctx),
+        "error_lines": sum(1 for ln in ctx.logs if _IMPORTANT.search(ln)),
         "matched_signatures": [
             {"id": m.signature.id, "title": m.signature.title, "score": m.score,
              "category": m.signature.category, "maturity": m.signature.maturity,
@@ -492,8 +493,14 @@ def _render_markdown(d: dict) -> str:
         lines.append("- **Impact seen in the evidence**: " + "; ".join(d["impact"]) + ".")
     elif ev["tool_errors"] and not ev["metrics"]:
         lines.append("- **Impact**: unknown - WARDEN could not read the system (see below).")
+    elif d.get("error_lines"):
+        # ⚠ inc-001 said "no failing component" above four HTTP 500 lines until 2026-09-25. Errors are
+        # impact; they are just not a COUNTED broken object (crashed, unready, saturated).
+        lines.append(f"- **Impact seen in the evidence**: {d['error_lines']} error line(s); no crashed, "
+                     "unready or saturated component counted.")
     else:
-        lines.append("- **Impact seen in the evidence**: no failing component in what WARDEN read.")
+        lines.append("- **Impact seen in the evidence**: no errors and no failing component in what "
+                     "WARDEN read.")
     if d["root_cause"]:
         lines.append(f"- **Diagnosis** (confidence {d['root_cause']['confidence']:.2f}): "
                      f"{d['root_cause']['hypothesis']}")
@@ -623,6 +630,9 @@ def _render_markdown(d: dict) -> str:
             if rb[key]:
                 lines.append(f"**{title}**")
                 _code(lines, rb[key])
+            elif key == "fix" and rb["confirm"]:
+                # Steps stay numbered 1-2-3: a runbook that jumped from 1 to 3 read as a lost page.
+                lines.append(f"**{title}** - no command printed; see the note at the top of this runbook.")
         lines.append("")
 
     # ---- follow-ups by team

@@ -8,8 +8,9 @@ was done, because nothing else *can* be.
 Three rules this module exists to enforce:
 
 1. **It only touches the proving ground.** Every call is scoped to the cluster, service, security
-   group and roles created by `terraform/proving-ground/`, and `_guard()` refuses any resource that
-   is not tagged `Project=warden-proving-ground`. A fault injector that can reach production is not
+   group and roles created by `terraform/proving-ground/`: `_guard_cluster()` refuses any cluster
+   not tagged `Project=warden-proving-ground`, and role operations refuse names without the
+   `warden-` prefix. A fault injector that can reach production is not
    a test harness, it is an outage waiting for a typo.
 
 2. **Everything is reversible, and the reverse is declared next to the break.** `revert` is not

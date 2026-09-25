@@ -13,8 +13,11 @@ I create in AWS, and with what permissions?**
 | **The reader** (`warden-pg-*-reader`) | **Terraform**, every apply | **Four read actions and nothing else** | ⭐ WARDEN runs as this, so "read-only" is enforced by IAM during a run rather than asserted about the source code |
 
 ⛔ **Do not create the reader role by hand.** `terraform/proving-ground/iam.tf` creates it, and
-`tests/test_aws_backend.py` asserts its four actions are exactly the four API calls
-`src/warden/aws_backend.py` makes — in *both* directions, so it cannot drift from the code. A
+`tests/test_aws_backend.py` asserts both the deployment module's task role (`terraform/main.tf`)
+and the proving-ground reader (`terraform/proving-ground/iam.tf`) grant exactly the calls
+`src/warden/aws_backend.py` makes — in *both* directions, so neither can drift from the code. (Until
+2026-09-25 only `terraform/main.tf` was under that test, although the reader's comment said
+otherwise.) A
 hand-made copy would drift on the first change and nothing would notice.
 
 ---
@@ -151,10 +154,11 @@ reading the `.tf` files" was never the same thing as "tested", and this is what 
 grant, because the resource needing it does not appear anywhere in the configuration. It is scoped
 with an `iam:AWSServiceName` condition so it can create that one service-linked role and no other.
 
-⚠ **The RDS and EKS blocks are still untested** and were derived the same way. **The EKS block is
-the least certain part** — managed node groups are the one place where AWS does the most work on
-your behalf, and the required caller permissions are easy to under-specify. Expect it to need at
-least one round of exactly the above.
+⚠ **When this was written, the RDS and EKS blocks were untested** and had been derived the same
+way, with the EKS block called the least certain part. Both have since been applied against a real
+account - EKS for Wave 2 and RDS for Wave 3, 2026-09-24/25 - and the fixes that took are in the
+commits `feb6183` (two service-linked roles and an IP) and `8ceb9dd` (EKS nodes reaching an API
+endpoint locked to one address).
 
 ⭐ Before pasting any policy, run `python scripts/check_iam_actions.py`. It checks every action
 against AWS's own published list — it would have caught `budgets:DescribeBudget`, which was in this

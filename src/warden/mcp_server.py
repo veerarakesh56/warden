@@ -107,6 +107,20 @@ def _tools() -> list[types.Tool]:
                         "description": "How many distinct metrics were gathered.",
                     },
                     "has_recent_deploy": {"type": "boolean", "default": False},
+                    # Named evidence, so the evidence-aware policies can be evaluated here too: P11
+                    # (e.g. oom_killed_containers + pods_ready/pods_total for scale_up,
+                    # replica_lag_seconds for failover_replica) and P12 (any counted symptom). Without
+                    # it those two policies see no evidence and stay silent.
+                    "metrics": {
+                        "type": "object",
+                        "additionalProperties": {"type": "number"},
+                        "description": "Optional named metrics as the backends report them, e.g. "
+                                       "replica_lag_seconds, oom_killed_containers, pods_ready, "
+                                       "pods_total, crashloop_containers, idle_in_transaction, "
+                                       "locks_waiting, long_running_queries, connections_used_pct. "
+                                       "P11 and P12 read these; without them they cannot fire. "
+                                       "They count toward metric_count.",
+                    },
                     "tool_errors": {"type": "integer", "default": 0},
                 },
                 "required": [
@@ -182,9 +196,15 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 summary="submitted via MCP",
                 started_at="1970-01-01T00:00:00Z",
             )
+            named = {str(k): float(v) for k, v in (args.get("metrics") or {}).items()}
             context = ContextBundle(
                 logs=["evidence line"] * int(args.get("log_lines", 0)),
-                metrics={f"m{i}": 0.0 for i in range(int(args.get("metric_count", 0)))},
+                # Named metrics COUNT TOWARD metric_count; only the gap is padded with anonymous zeros.
+                # Adding both double-counted the evidence and let P9 pass on half of it.
+                metrics={
+                    **{f"m{i}": 0.0 for i in range(max(0, int(args.get("metric_count", 0)) - len(named)))},
+                    **named,
+                },
                 recent_deploys=[{"sha": "unknown"}] if args.get("has_recent_deploy") else [],
                 tool_errors=["upstream tool failed"] * int(args.get("tool_errors", 0)),
             )
@@ -209,7 +229,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                     "blast_radius_enforced": proposal.effective_blast_radius,
                     "reversible_by_table": proposal.table_reversible,
                     "may_execute": False,
-                    "note": "WARDEN never executes. A human performs the action.",
+                    "note": "This MCP server never executes anything. A human performs the action.",
                 }
             )
 
@@ -233,9 +253,9 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 r = redact(line, mapping=mapping)
                 mapping = r.mapping
                 redacted.append(r.text)
-            # recent_deploys must be scrubbed too — on the k8s backend a deploy `image` is an ECR
-            # ref whose host embeds the AWS account id, and `role`/ARN fields carry identifiers. This
-            # payload goes to the external MCP client/model; returning deploys raw was the same leak
+            # recent_deploys must be scrubbed too. This handler reads the bundled fixtures only, whose
+            # deploys carry identifiers; a live backend's would carry ECR refs (the host embeds the
+            # account id) and role ARNs. This payload goes to the external MCP client/model; returning deploys raw was the same leak
             # the graph path had (fixed there), on a second code path. tool_errors are already
             # scrubbed by gather(); metrics are floats.
             redacted_deploys = []
@@ -324,7 +344,7 @@ def build_server() -> Server:
         instructions=(
             "WARDEN exposes a deterministic safety gate for infrastructure remediation. Call "
             "verify_remediation before acting on any production system; it returns a binding "
-            "verdict with policy ids. WARDEN never executes actions itself."
+            "verdict with policy ids. This server never executes anything; may_execute is always false."
         ),
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,

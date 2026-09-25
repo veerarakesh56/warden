@@ -12,10 +12,10 @@ scored in [`docs/bench/`](docs/bench/README.md). **ECS:** 14 scenarios (13 fault
 headline is 14 runs the gate should have stopped and did not — measured under 0.7.0, and 12 of those
 14 are refused by the gate as it stands now. **Managed EKS:** 10 scenarios (8 faults + 2 healthy controls) × 3 runs, where 3 wrong
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
-own bugs, both disclosed. **RDS PostgreSQL:** 6 faults × 3 runs, where no wrong diagnosis got
+own bugs, both disclosed. **RDS PostgreSQL:** 6 scenarios (5 faults + 1 healthy control) × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
-count it. 1040 tests and 26 evals (10 against a live Kubernetes cluster,
-12 against five real database engines), a 35-case mutation check that breaks the code on purpose
+count it. 1056 tests plus 23 opt-in live-infrastructure tests (10 against a live Kubernetes
+cluster, 13 against five real database engines), 26 evals, a 35-case mutation check that breaks the code on purpose
 and requires the suite to notice each one (35 caught, 0 survived), and CI that asserts the actual
 verdicts rather than the exit code.
 
@@ -72,18 +72,18 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
   control-plane saturation), each carrying a deterministic detector and ranked fixes drawn only from
   the closed action enum. It drives the report's suggestions, and can ground the model's hypothesis
   (opt-in, `WARDEN_KNOWLEDGE_IN_PROMPT=1`) — and
-  it is DATA (`data/incident_signatures.yaml`), so a new failure mode is one YAML block, not a code change.
-- **Per-environment policy that fails closed.** `data/environments.yaml` sets, for each environment
+  it is DATA (`src/warden/data/incident_signatures.yaml`), so a new failure mode is one YAML block, not a code change.
+- **Per-environment policy that fails closed.** `src/warden/data/environments.yaml` sets, for each environment
   (staging, qa-staging, pre-prod, qa-prod, prod, dev), an allow/deny action list, the authorised
   principals, and whether WARDEN may auto-remediate at all. An unrecognised environment resolves to a
   restrictive default that can only escalate — widening the environment set can never loosen safety.
-- **A four-way remediation gate.** A fix is applied only when *verdict × environment auto-remediate ×
-  authorised principal × explicit approval* all hold — and even then only through a pluggable backend.
+- **A four-way remediation gate.** A fix is applied only when *verdict × environment (permits the action
+  and auto-remediates) × authorised principal × explicit approval* all hold — and even then only through a pluggable backend.
   The default is dry-run (changes nothing, records what it would do). A **real Kubernetes backend**
   (`WARDEN_REMEDIATION=live`) restarts or scales a Deployment for real — restart/scale only, clamped
   (never to zero, never past a ceiling), behind a **separate write-RBAC** ServiceAccount that can
   `get` and `patch` deployments and nothing else. Arming it is necessary, never sufficient: the gate still
-  decides. staging/qa-staging can auto-apply after approval; pre-prod and above always hand off.
+  decides. dev/staging/qa-staging can auto-apply after approval; pre-prod and above always hand off.
 - **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
   promotion plan — the exact higher environments where the same fix is permitted — and push it to
   Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
@@ -95,7 +95,7 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
 - **OpenTelemetry tracing.** Spans for `warden.run → tool.* → analyse → propose → verify` —
   carrying confidence, action, blast radius, verdict, policies fired, and **token cost per step**.
   No exporter by default; `WARDEN_TRACE_CONSOLE=1` prints spans, `OTEL_EXPORTER_OTLP_ENDPOINT` ships
-  them to a real backend.
+  them to a real backend (install the `otlp` extra; without it WARDEN falls back to the console).
 - **A full audit trail.** Every node records what it saw and did.
 - **Terraform to deploy it.** ECS Fargate task with a **read-only task role** — WARDEN can inspect
   infrastructure but not change it — and the API key passed by Secrets Manager ARN so it never
@@ -195,7 +195,7 @@ WARDEN_BACKEND=k8s warden run --incident inc-002      # reads the cluster your k
 | **deploys** | the Deployment's ReplicaSets: the current revision's images against the previous one's | a `rollout restart` changes no image and is not a deploy; reported only inside a 6 h window, so policy P5 is handed real evidence |
 
 **Read-only by construction.** The module uses only `list_*`, `read_*` and
-`read_namespaced_pod_log`; a test greps the source for any write verb. And **RBAC enforces the same
+`read_namespaced_pod_log`; a test walks the module's AST for any write-shaped call. And **RBAC enforces the same
 thing from the cluster's side** — see below.
 
 ### Deploying into the cluster it diagnoses
@@ -252,7 +252,9 @@ have been run on k3d in CI, not yet inside EKS. GKE and AKS have not been run at
 ```bash
 pip install -e ".[aws]"
 export WARDEN_AWS_CLUSTER=prod-cluster
-WARDEN_BACKEND=aws warden run --incident inc-002    # reads whatever your AWS credentials can see
+WARDEN_BACKEND=aws warden run --incident inc-002 --service <ecs-service> --started-at now
+# reads whatever your AWS credentials can see. Without --started-at the bundled alert's fixed date
+# is used, and an empty window reads exactly like a healthy service.
 ```
 
 **`AwsBackend`** satisfies the same three-method contract as the fixture and Kubernetes backends,
@@ -262,7 +264,7 @@ so nothing above it changed. It reads:
 |---|---|---|
 | **metrics** | `ecs:DescribeServices` for running / desired / pending task counts and failed rollouts; `cloudwatch:GetMetricData` for CPU and memory | The counts are **exact**; utilisation is sampled, and is **omitted rather than zeroed** when CloudWatch has no datapoint — a service that has published nothing is not a service at 0% CPU |
 | **logs** | `logs:FilterLogEvents` on the service's log group, bounded by both a time window and an event cap | A missing log group is a **partial failure**, not silence |
-| **deploys** | the PRIMARY deployment's task definition, compared image-by-image with revision *N−1* | `--force-new-deployment` is ECS's `kubectl rollout restart`: a new deployment record with the **same** images. It is **not** reported as a deploy, so policy P5 cannot approve a rollback that could not possibly help |
+| **deploys** | the PRIMARY deployment's task definition, compared image-by-image with the deployment it is replacing (revision *N−1* only when no other deployment exists) | `--force-new-deployment` is ECS's `kubectl rollout restart`: a new deployment record with the **same** images. It is **not** reported as a deploy, so policy P5 cannot approve a rollback that could not possibly help |
 
 **Four API calls, and the IAM policy grants exactly those four.**
 
@@ -295,6 +297,7 @@ tool can read and traces only this project could: **[Langfuse](https://langfuse.
 
 ```bash
 WARDEN_TRACE_CONSOLE=1 warden run --incident inc-001     # see the spans
+pip install -e ".[otlp]"
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006 warden run   # ship to Phoenix
 ```
 
@@ -328,6 +331,7 @@ authorised principals, and whether WARDEN may auto-remediate:
 
 | environment | auto-remediate | example allow | denies |
 |---|---|---|---|
+| `dev` | yes (after approval) | anything | — |
 | `staging`, `qa-staging` | yes (after approval) | restart, scale, rollback, clear-cache | DB failover |
 | `pre-prod`, `qa-prod` | no — human applies | restart, scale-up, rollback | scale-down, cache, failover |
 | `prod` | never | restart, scale-up, rollback, failover | scale-down |
@@ -353,6 +357,9 @@ kubectl apply -f k8s/remediation-rbac.yaml            # the separate write-RBAC,
 WARDEN_REMEDIATION=live WARDEN_BACKEND=k8s \
   warden run --incident inc-002 --environment staging --principal svc:warden-staging --approve
 #   -> Remediation: applied  "scaled deployment/checkout in default from 1 to 2 replica(s)"
+# It acts as whatever identity your kubeconfig (or the pod's in-cluster config) holds - bind that to
+# the warden-remediator ServiceAccount for the least-privilege boundary. On a workload whose every
+# pod is OOM-killed (the one k8s/test/ ships), P11 now escalates this scale_up instead.
 ```
 
 **Live remediation** (`WARDEN_REMEDIATION=live`) arms a router that sends each approved action to the
@@ -360,8 +367,9 @@ backend that can perform it — Kubernetes actions to `KubernetesRemediationBack
 `DatabaseRemediationBackend` — and refuses anything neither can do. On the cluster side it does a real
 rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`. Its
 permission is a separate `warden-remediator` ServiceAccount (`k8s/remediation-rbac.yaml`, not in the
-default deploy) that can get and patch deployments and nothing else — proven both ways by `kubectl auth can-i`
-in CI, and the restart/scale proven against a live k3d cluster (not yet executed on EKS - the
+default deploy) that can get and patch deployments and nothing else — that boundary is proven both ways
+by `kubectl auth can-i`; the live restart/scale test itself ran with the CI runner's k3d admin
+kubeconfig, not as that ServiceAccount. The restart/scale is proven against a live k3d cluster (not yet executed on EKS - the
 benchmark measures what WARDEN proposes, and never lets it act). The four-way gate is unchanged.
 
 ## Databases — PostgreSQL, MySQL, Redis, MongoDB, SQL Server
@@ -373,15 +381,15 @@ does exactly one safe thing.
 `DatabaseBackend` reports connection and transaction health as evidence: active connections against the
 maximum, **idle-in-transaction** count, long-running queries, lock waits, replica lag; for Redis,
 clients/blocked/evictions/memory; for Mongo, connections and long-running ops. It is **read-only by
-construction** — every statement is a SELECT/SHOW/INFO/serverStatus/currentOp, and a test parses the
+construction** — every statement is a SELECT/SHOW/INFO/CONFIG GET/CLIENT LIST/serverStatus/currentOp, and a test parses the
 module's AST and fails if a write verb reaches anything it could execute. Query text is redacted
 before it becomes evidence, because a query can carry PII.
 
 **Write — one action: `terminate_connections`.** Connections stuck *idle in transaction* hold pool
 slots and row locks; killing them is the standard on-call fix and destroys no data (the transaction
 rolls back, the application reconnects). Per engine: `pg_terminate_backend` · `KILL` · `CLIENT KILL` ·
-`killOp` · `KILL` (SQL Server). Three clamps, enforced in the SQL **and again in Python** so one broken
-`WHERE` cannot widen them:
+`killOp` · `KILL` (SQL Server). Three clamps in each engine's selection; the count ceiling is enforced **again in Python**, so a
+broken `LIMIT` cannot widen it:
 
 | clamp | value |
 |---|---|
@@ -392,20 +400,23 @@ rolls back, the application reconnects). Per engine: `pg_terminate_backend` · `
 `WARDEN_DB_DRY_RUN=1` selects the candidates and reports the count **without killing anything** — and
 in that mode the backend reports itself as not-live, so the audit records a dry run rather than a
 change. Everything else a database incident might want — failover, promotion, schema change, FLUSH,
-DROP — is deliberately absent: `failover_replica` escalates to a human by policy, and the rest are not
+DROP — is deliberately absent: `failover_replica` is rejected by policy in prod (P2) and by the staging / qa-staging / pre-prod / qa-prod allow-lists; in dev, P6 escalates it, and the rest are not
 in the action enum at all.
 
 Its credential is a **separate least-privilege role** (`WARDEN_DB_ADMIN_DSN`), the database twin of the
 write-RBAC ServiceAccount. The role that reads health needs none of these, and this role needs nothing
 else:
 
-| engine | the only grant it needs |
-|---|---|
-| PostgreSQL | `GRANT pg_signal_backend` |
-| MySQL | `CONNECTION_ADMIN` |
-| SQL Server | `ALTER ANY CONNECTION` |
-| Redis | an ACL user permitted `CLIENT\|KILL` |
-| MongoDB | `killop` |
+| engine | to kill | to SEE other users' sessions (without it the selection finds nothing) |
+|---|---|---|
+| PostgreSQL | `pg_signal_backend` | `pg_read_all_stats` |
+| MySQL | `CONNECTION_ADMIN` | `PROCESS` |
+| SQL Server | `ALTER ANY CONNECTION` | `VIEW SERVER STATE` |
+| Redis | ACL `CLIENT\|KILL` | ACL `CLIENT\|ID`, `CLIENT\|LIST` |
+| MongoDB | `killop` | `inprog` |
+
+⚠ The read column was missing until 2026-09-25, and CI does not exercise these least-privilege roles:
+its `db` job connects as each server's superuser. The grants above follow each engine's documentation.
 
 Every engine is exercised against a real server in CI, not a stub: the `db` job runs all five as
 service containers and asserts a stuck connection is selected, terminated and gone.
@@ -856,27 +867,29 @@ invariants, cost, budget, audit trail). Live-infrastructure suites are opt-in:
 
 ```bash
 WARDEN_K8S_INTEGRATION=1 pytest tests/integration/test_live_cluster.py   # needs a cluster
-WARDEN_DB_INTEGRATION=1  pytest tests/integration/test_live_database.py  # needs a database
+WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest tests/integration/test_live_database.py
+# one WARDEN_TEST_<ENGINE>_DSN per engine; an engine without one is skipped
 ```
 
-## The benchmark — 14 real faults, a real AWS account, and what it found
+## The benchmark — 13 real faults and a healthy control, a real AWS account, and what it found
 
-`scenarios/` breaks a throwaway ECS service in 14 specific ways, runs WARDEN against each one three
+`scenarios/` breaks a throwaway ECS service in 13 specific ways, plus a healthy control, runs WARDEN against each one three
 times as a four-action read-only role, and grades evidence, diagnosis and the gate **separately**.
 The rubric is committed before the run and its hash is recorded in each run's manifest. Both runs
-and the scorer are in [`docs/bench/`](docs/bench/README.md) — re-score them offline, no AWS needed.
+are in [`docs/bench/`](docs/bench/README.md) and the scorer is `scenarios/score.py` — re-score them offline, no AWS needed.
 
 The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
 
 - **14 runs proposed `no_action` on a service with a live fault, and the gate allowed every one.**
-  `verifier.py` exempts `no_action` and `escalate_to_human` from every policy check, so the one
-  answer the gate cannot catch is "nothing is wrong". Two of those runs closed the incident at 0.25
+  Under 0.7.0, `verifier.py` exempted `no_action` and `escalate_to_human` from the evidence
+  policies, so the one answer the gate could not catch was "nothing is wrong" (since changed - see
+  Limits). Two of those runs closed the incident at 0.25
   confidence while their own `tool_errors` said WARDEN could not read the logs.
 - **The benchmark found two bugs in itself before it found anything about the model**: a rubric that
   called `no_action` "safe" on the grounds that a human would pick it up (nothing pages anyone), and
   a harness that let 39 of 42 runs read the *previous* scenario's logs as evidence. Both are fixed,
   both are documented with dates, and the invalid run is published next to the clean one.
-- **A perfect score would have been a bug report.** It was not perfect, and 8 of 14 scenarios gave
+- **A perfect score would have been a bug report.** It was not perfect, and 7 of 14 scenarios gave
   different answers across three identical repeats.
 
 ## Limits, stated plainly
@@ -890,8 +903,9 @@ The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
   databases (terminate stuck connections), and CI exercises both against real infrastructure - a real
   Kubernetes cluster (k3d) and all five engines as service containers. Neither has been executed
   against EKS or RDS: the benchmark there measures what WARDEN proposes and never lets it act. They stay off unless armed *and* the four-way
-  gate passes, and they deliberately do only those things. No rollback, failover, delete, schema
-  change or FLUSH: those escalate to a human by policy, or are absent from the action enum entirely.
+  gate passes, and they deliberately do only those things. No live backend performs a rollback or
+  clear_cache (the router refuses them); failover is rejected by policy in prod (P2) and by the staging / qa-staging / pre-prod / qa-prod allow-lists; in dev, P6 escalates it; delete, schema change and
+  FLUSH are not in the action enum at all.
 - **Oracle is not supported** (a licensed, heavy client), and no database *failover* or schema change
   is offered at any tier — by design, not omission.
 - **Managed databases: PostgreSQL on RDS is measured** (reading, 18 runs). MySQL, Redis, MongoDB and

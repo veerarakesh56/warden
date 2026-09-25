@@ -10,12 +10,12 @@ variable "image" {
 }
 
 variable "cluster_arn" {
-  description = "Existing ECS cluster to run the task in. Not created here - clusters are shared infrastructure and should outlive this module."
+  description = "Existing ECS cluster the task is meant to run in - pass it to `aws ecs run-task`. Not referenced by any resource here: this module creates the task definition and its roles only; clusters are shared infrastructure and should outlive it."
   type        = string
 }
 
 variable "subnet_ids" {
-  description = "PRIVATE subnet IDs. WARDEN reads logs and metrics; it has no reason to sit in a public subnet."
+  description = "PRIVATE subnet IDs to pass to `aws ecs run-task` (not referenced by any resource here). WARDEN reads logs and metrics; it has no reason to sit in a public subnet."
   type        = list(string)
 
   validation {

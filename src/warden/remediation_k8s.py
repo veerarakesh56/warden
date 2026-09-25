@@ -7,8 +7,8 @@ the one place WARDEN can actually change a cluster. It is kept small, separate, 
     refuses every other action loudly. No delete, no rollback, no failover, no cache flush: those are
     either irreversible or high-blast-radius, and this backend does not know how to do them on purpose.
   - it never runs unless `resolve_remediation_backend()` is explicitly armed (`WARDEN_REMEDIATION=live`),
-    AND the four-way gate in remediation.py already passed (env auto-remediates × authorised principal
-    × approval × an admissible action). Arming it is necessary, never sufficient.
+    AND the four-way gate in remediation.py already passed (admissible verdict × environment permits
+    the action and auto-remediates × authorised principal × explicit approval). Arming it is necessary, never sufficient.
   - its write permission is a SEPARATE ServiceAccount (`k8s/remediation-rbac.yaml`) that can `patch`
     deployments and nothing else — the RBAC, not this code, is the real boundary, exactly as it is for
     the read path. The read-only `warden` SA is untouched.

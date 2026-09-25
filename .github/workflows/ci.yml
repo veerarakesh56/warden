@@ -119,8 +119,8 @@ jobs:
           kubectl apply -k k8s/
           # The command the README tells users to run. A broken kustomization.yaml used to ship green.
           kubectl kustomize k8s/ | kubectl apply --dry-run=server -f -
-          # The workload and the probe (client dry-run - the Job uses generateName, which
-          # `apply --dry-run` rejects; oom-workload and posture-probe are ordinary named objects).
+          # The workload and the probe (server dry-run - the Job uses generateName, which
+          # `apply` rejects; oom-workload and posture-probe are ordinary named objects).
           kubectl apply --dry-run=server -f k8s/test/oom-workload.yaml -f k8s/test/posture-probe.yaml
           # A Job with generateName cannot be `apply`-ed at all; `create --dry-run` is its check.
           kubectl create --dry-run=server -f k8s/job.yaml >/dev/null || { echo "::error::job.yaml failed server-side validation"; exit 1; }
@@ -326,8 +326,8 @@ jobs:
         if: always()
         run: k3d cluster delete warden-ci || true
 
-  # Real databases, not stubs. Service containers give every push a PostgreSQL, MySQL, Redis and
-  # MongoDB to run against, so "it terminates a stuck connection" is proven against the servers'
+  # Real databases, not stubs. Service containers give every push a PostgreSQL, MySQL, Redis,
+  # MongoDB and SQL Server to run against, so "it terminates a stuck connection" is proven against the servers'
   # actual grammar and catalog views rather than against a recorded string.
   db:
     runs-on: ubuntu-latest
@@ -370,9 +370,9 @@ jobs:
           MSSQL_SA_PASSWORD: "Warden!Passw0rd1"
           MSSQL_PID: Developer
         ports: ["1433:1433"]
-        # SQL Server takes ~30s to come up and its image ships no health binary on PATH under
-        # /opt/mssql-tools18 in every tag, so the readiness gate is the TCP port plus the wait step
-        # below - the tests themselves FAIL (never skip) if it is not answering by then.
+        # SQL Server takes ~30s to come up: the health check runs sqlcmd from /opt/mssql-tools18 with a
+        # 30s start period and 30 retries, and the tests themselves FAIL (never skip) if it is not
+        # answering by then.
         options: >-
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Warden!Passw0rd1' -C -Q 'SELECT 1' || exit 1"
           --health-interval 10s --health-timeout 5s --health-retries 30 --health-start-period 30s

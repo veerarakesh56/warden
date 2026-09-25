@@ -9,7 +9,7 @@ things a loop does not:
    one, not by scrolling a prompt log.
 2. **Typed state at every boundary.** Each node returns a partial state update that is merged, so no
    node can quietly mutate something it does not own.
-3. **A place to put the gate.** `verify` is a node with one inbound edge and three outbound ones.
+3. **A place to put the gate.** `verify` is a node with one inbound edge and four outbound ones.
    There is exactly one path from "the model said something" to "something happens", and it goes
    through code that has no model in it.
 
@@ -18,7 +18,8 @@ things a loop does not:
 ```
 START → ingest → gather → redact → analyse → propose → verify ─┬→ halt           → END
                                                                ├→ escalate       → END
-                                                               └→ await_approval → END
+                                                               ├→ await_approval → END
+                                                               └→ record_safe    → END
 ```
 
 | Node | Model involved? | Responsibility |
@@ -29,7 +30,7 @@ START → ingest → gather → redact → analyse → propose → verify ─┬
 | `analyse` | **yes** | Hypothesis + calibrated confidence (`RootCause`) |
 | `propose` | **yes** | One action from a closed enum (`RemediationProposal`) |
 | `verify` | no | The binding decision (`Verdict`) |
-| `halt` / `escalate` / `await_approval` | no | Terminal outcomes |
+| `halt` / `escalate` / `await_approval` / `record_safe` | no | Terminal outcomes (`record_safe` records an `AUTO_SAFE` verdict - `no_action` or `escalate_to_human`, the only inert actions - with no approval required) |
 
 Ordering is deliberate: **`gather` precedes `redact` precedes `analyse`.** Evidence is collected
 before the model exists in the process at all, so the model cannot influence what evidence is
@@ -50,7 +51,7 @@ whole reason the boundary exists, and v0.5.0 cashed it in:
 | Backend | `WARDEN_BACKEND` | Reads | Proven by |
 |---|---|---|---|
 | `FixtureBackend` | `fixture` (default) | recorded incidents shipped as package data | the eval gate, every push |
-| `KubernetesBackend` | `k8s` | a live cluster — pod status, events, log tails, the Deployment's replicas and ReplicaSet images | **measured on managed EKS** (Wave 2, 30 runs, read-only ServiceAccount); and on every push, the CI `k8s` job: a real k3d cluster, a pod that really OOM-kills, RBAC checked both ways, run from outside *and* inside the cluster |
+| `KubernetesBackend` | `k8s` | a live cluster — pod status, events, log tails, the previous (crashed) container's last lines, the Deployment's replicas, ReplicaSet images and rollout history, and the HorizontalPodAutoscaler's min/max/current/desired replicas (since 2026-09-25) | **measured on managed EKS** (Wave 2, 30 runs, read-only ServiceAccount); and on every push, the CI `k8s` job: a real k3d cluster, a pod that really OOM-kills, RBAC checked both ways, run from outside *and* inside the cluster |
 | `AwsBackend` | `aws` | **CloudWatch Logs** (alert time ± 15 min), CloudWatch metrics (± 10 min), ECS service state, deployments and failed tasks, task-definition changes | **measured on a real AWS account** (Wave 1, ECS/Fargate) |
 | `DatabaseBackend` | `postgres` · `mysql` · `redis` · `mongo` · `mssql` | the engine's own session views: connections, idle-in-transaction, long queries, lock waits, replica lag; for PostgreSQL also the sessions behind the counts | **PostgreSQL measured on Amazon RDS** (Wave 3, 18 runs); all five engines against real servers in the CI `db` job |
 
@@ -59,13 +60,17 @@ shape: one class, three methods, passed to `run(alert, backend=...)`.
 
 ### `KubernetesBackend` — what it is honest about
 
-- **Metrics are pod-status counts, not utilisation.** `restart_count`, `oom_killed_count`,
-  `crashloop_count`, `pods_ready`, `pods_total`, `memory_limit_mib`. A metrics server would add
+- **Metrics are pod-status counts, not utilisation.** `restart_count`, `oom_killed_containers`,
+  `crashloop_containers`, `pods_ready`, `pods_total`, `memory_limit_mib`, and - where an HPA
+  targets the Deployment - `hpa_min_replicas`, `hpa_max_replicas`, `hpa_current_replicas`,
+  `hpa_desired_replicas`. A metrics server would add
   CPU/memory %, and clusters do not ship one by default - EKS included. The counts are also what an
   on-call engineer reads first. `replicas_desired` sits next to them, and a Deployment that exists with
   zero pods is reported as evidence (`pods_total = 0`), not as a failed read.
-- **Read-only by construction.** Only `list_*`, `read_*`, `read_namespaced_pod_log`. A test greps
-  the module for any write verb. The mutation check adds a `delete_namespaced_pod` call and asserts
+- **Read-only by construction.** Only `list_*`, `read_*`, `read_namespaced_pod_log`. A test walks
+  the module's AST for any write-shaped call (`create_`/`patch_`/`delete_`/`replace_`/`connect_post_`...),
+  escape hatch (`call_api`, `getattr` on the client) or `subprocess` import - structural, not the
+  text grep it replaced. The mutation check adds a `delete_namespaced_pod` call and asserts
   the suite goes red.
 - **Logs are read raw.** `_preload_content=False`, then `_log_text()` decodes. The client's default
   path returned the repr of bytes as a str against a real k3s cluster — one line, literal `\n`.

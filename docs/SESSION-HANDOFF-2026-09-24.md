@@ -1,3 +1,5 @@
+> **Historical record, superseded.** Accurate on the date in its name, and kept as written. For the current state see `README.md` and `docs/bench/README.md` - Wave 3 (RDS) has since been run and published.
+
 # Handoff — 2026-09-24
 
 ## Where things stand (end of day, 2026-09-24)

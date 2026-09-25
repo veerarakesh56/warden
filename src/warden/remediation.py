@@ -1,11 +1,13 @@
 """Deciding whether an approved fix may actually be APPLIED — and, in the low environments, applying it.
 
 The verifier decides whether an action is *admissible*. This layer decides whether it may be
-*executed*, here, now, by this principal — the four-way gate the owner asked for:
+*executed*, here, now, by this principal — the four-way gate:
 
-    auto-remediate  x  authorised principal  x  explicit approval  x  a live backend
+    admissible verdict  x  environment (permits the action AND auto-remediates)
+    x  authorised principal  x  explicit approval
 
-Only when all four hold does anything touch infrastructure, and even then only through a pluggable
+`decide_remediation` checks them in this order: verdict, environment permits the action, principal,
+environment auto-remediates, approval. Only when all of them hold does anything touch infrastructure, and even then only through a pluggable
 `RemediationBackend`. The DEFAULT is `DryRunBackend`, which changes nothing and records what it
 *would* do, so an unconfigured WARDEN mutates nothing. Two real backends also ship and are opt-in
 behind `WARDEN_REMEDIATION=live`: `remediation_k8s.KubernetesRemediationBackend` (restart or scale
@@ -18,7 +20,7 @@ An operator wanting different behaviour supplies their own backend; the gate abo
 either way.
 
 The environment gradient (from environments.yaml) does the heavy lifting:
-  - staging / qa-staging : auto_remediate = true  -> with an authorised approval, WARDEN applies.
+  - dev / staging / qa-staging : auto_remediate = true  -> with an authorised approval, WARDEN applies.
   - pre-prod / qa-prod / prod / unknown : auto_remediate = false -> WARDEN never applies; a human does.
 """
 
@@ -83,8 +85,8 @@ class RemediationBackend(Protocol):
 
 
 class DryRunBackend:
-    """The default. Touches nothing; reports what a real backend would have done. WARDEN's core
-    guarantee — this codebase does not execute against infrastructure — lives here."""
+    """The default. Touches nothing; reports what a real backend would have done. An unarmed WARDEN
+    changes nothing - the live backends exist only behind WARDEN_REMEDIATION=live."""
 
     live = False
 

@@ -173,7 +173,7 @@ def main() -> int:
         "| ECS -> service -> **Tasks**, filter *Stopped* | stopped reason: `OutOfMemoryError: Container killed due to memory usage` | task ARNs contain the account id |",
         "| CloudWatch -> **Log groups** -> `/ecs/checkout` | the allocation lines, then the container dying | — |",
         "| CloudWatch -> **Metrics** -> ECS -> ClusterName, ServiceName | the CPU/memory series WARDEN read | — |",
-        "| IAM -> Roles -> `warden-task` -> the inline policy | **exactly four actions** | account id in the ARN |",
+        "| IAM -> Roles -> `warden-pg-<suffix>-reader` -> inline policy `warden-readonly` | **exactly four actions** | account id in the ARN |",
         "| EKS -> cluster -> **Compute** | one node, `SPOT` | account id |",
         "| RDS -> databases | `db.t4g.micro`, `available` | endpoint contains the account id |",
         "| **Billing -> Budgets** | the $5 budget that guards the run | — |",

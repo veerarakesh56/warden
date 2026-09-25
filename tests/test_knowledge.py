@@ -189,3 +189,17 @@ def test_an_incident_the_catalog_does_not_cover_adds_nothing(monkeypatch):
     state = {"alert": _alert(name="AllGood", summary="nominal"), "context": quiet,
              "redacted_logs": list(quiet.logs), "redacted_deploys": [], "redaction_map": {}}
     assert "KNOWN PATTERNS" not in _evidence_blob(state)
+
+
+@pytest.mark.parametrize("text", ["pool exhausted, no replica lag", "not replica lag related", "without replica lag"])
+def test_a_negated_term_is_not_a_match(text):
+    """inc-005's summary said "no replica lag" and REPLICA-LAG-001 was listed as fitting, at lag 0."""
+    ids = [m.signature.id for m in default_knowledge_base().match(
+        _alert(name="DBConnectionsStuck", summary=text), ContextBundle(metrics={"replica_lag_seconds": 0.0}))]
+    assert "REPLICA-LAG-001" not in ids
+
+
+def test_the_same_term_affirmed_elsewhere_still_matches():
+    ids = [m.signature.id for m in default_knowledge_base().match(
+        _alert(name="DBSlow", summary="no replica lag at 04:00; replica lag 90s at 04:10"), ContextBundle())]
+    assert "REPLICA-LAG-001" in ids

@@ -68,7 +68,9 @@ Three, all found by running it, all now regression tests:
 Three findings:
 
 1. **Confidence came back at 0.85 on all four incidents** — including the one whose evidence is two
-   vague log lines. `P4` escalates below 0.55, so with that model it would never fire. **A model's
+   vague log lines. (That was an earlier run over the then-four bundled incidents, not recorded as
+   an artefact; the recorded run, `docs/live-model-run-2026-09-06.md`, covers five and shows the
+   same 0.85 on all.) `P4` escalates below 0.55, so with that model it would never fire. **A model's
    self-reported confidence is a token sequence that looks like a measurement.** That is why `P9`
    exists: it counts gathered evidence, which the model cannot influence by sounding sure.
 2. **The live model picked a different action from the mock** on the replica incident. So the eval
@@ -82,7 +84,8 @@ Four independent reviewers each tried to *refute* one claim about the Kubernetes
 was then attacked by a second reviewer; the upheld ones were fixed rather than filed.
 
 - **RBAC was read-only but not *minimal*** — 12 of 16 granted verb/resource pairs had no caller. Cut
-  to the exact five the code makes, and CI now asserts the unused verbs (`watch pods`, `get pods`)
+  to the exact five the code makes (six since 2026-09-25, when `list horizontalpodautoscalers` was
+  added), and CI now asserts the unused verbs (`watch pods`, `get pods`)
   are *denied*, not just that writes are.
 - **The RBAC test passed with `roleRef: cluster-admin`** — it was a grep for the word "delete". Now
   a structural check: the binding must point at the ClusterRole in the file, verbs ⊆ {get, list}.
@@ -99,7 +102,8 @@ rewritten, not because of test holes; they were re-anchored and are now caught. 
 survived that **was** a genuine hole in a test: the AST tripwire asserting this module is read-only
 was collecting zero statements out of `database.py` — every adapter hands its SQL to a helper rather
 than to `.execute()` directly — so the test asserted `not []` and had always been green. The checker
-now follows that indirection, two tests pin it, and a full re-run reports 31 caught, 0 survived.
+now follows that indirection, two tests pin it, and a full re-run then reported 31 caught, 0 survived (the list has since grown to 35, all
+caught on a run on 2026-09-25).
 
 ## 10. What broke while building against a real cluster
 
@@ -119,8 +123,9 @@ the exact defect shape the rest of the project exists to catch: a claim the code
 
 Now a `KubernetesBackend` reads pod status, events, log tails and Deployment revisions; CI spins up a
 **real k3d cluster** on every push, deploys a pod that **really OOM-kills itself**, and asserts
-WARDEN reaches `scale_up` / `APPROVED_FOR_HUMAN` — run from **outside** the cluster *and* from
-**inside** it as a Job under a read-only ServiceAccount.
+WARDEN proposes `scale_up` and that `P11-ACTION-CONTRADICTS-EVIDENCE` escalates it (`ESCALATED`) —
+run from **outside** the cluster *and* from **inside** it as a Job under a read-only
+ServiceAccount. Until 2026-09-25, when P11 was added, the asserted verdict was `APPROVED_FOR_HUMAN`.
 
 ⭐ **Two bugs only the real cluster could surface:**
 - The "OOM workload" **wasn't OOMing**. busybox `head -c 300M` rejects the `M` suffix; nothing was

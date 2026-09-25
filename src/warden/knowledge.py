@@ -100,6 +100,22 @@ def _compile(sig_id: str, detect: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# "no replica lag", "not OOMKilled", "without errors": the term is present and the evidence says the
+# opposite. inc-005's summary ("... no replica lag") matched REPLICA-LAG-001 at lag 0 until
+# 2026-09-25, and the report listed it as a fitting signature beside a diagnosis that ruled it out.
+_NEGATED = re.compile(r"(?:\bno|\bnot|\bwithout|\bzero|\bnever)\s+$")
+
+
+def _affirmed(term: str, corpus: str) -> bool:
+    """True when `term` occurs at least once NOT directly preceded by a negation."""
+    start = corpus.find(term)
+    while start != -1:
+        if not _NEGATED.search(corpus[max(0, start - 12):start]):
+            return True
+        start = corpus.find(term, start + 1)
+    return False
+
+
 class KnowledgeBase:
     def __init__(self, signatures: list[Signature]) -> None:
         if not signatures:
@@ -207,7 +223,7 @@ class KnowledgeBase:
             terms = [t.lower() for t in d.get("event_reason", [])] + [
                 t.lower() for t in d.get("log_contains", [])
             ]
-            hits = [t for t in terms if t in corpus]
+            hits = [t for t in terms if _affirmed(t, corpus)]
             if hits:
                 signals.append(f"log/event:{hits[0]}")
 

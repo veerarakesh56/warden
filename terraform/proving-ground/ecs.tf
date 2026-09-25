@@ -15,7 +15,8 @@
 # It is also the most common thing that actually happens in a pipeline: **CI re-registers a task
 # definition on every run whether or not anything changed.** Revision 2 is that, exactly.
 #
-# `scripts/aws_proof.sh` then stages three situations, and the middle one is the point:
+# `scripts/aws_proof.sh` then stages three ECS situations (A-C; D and E are EKS and RDS), and the
+# middle one is the point:
 #
 #   A  healthy, on revision 2  -> real task counts and real CloudWatch metrics, and NO deploy:
 #                                 revision 2 is a re-registration of revision 1, not a change
