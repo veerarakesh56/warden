@@ -294,3 +294,38 @@ def test_grouped_credit_card_is_masked_whole():
         r = redact(f"charge {pan} declined")
         assert pan not in r.text, f"card leaked: {pan}"
         assert "<CREDITCARD_1>" in r.text
+
+
+# --------------------------------------------------------------------------- PHONE false positives
+
+
+@pytest.mark.parametrize("text", [
+    # Exactly what reached Slack on 2026-09-25 - hostnames and a run id eaten, and two log lines
+    # joined, because the PHONE pattern crossed the newline between them.
+    "kubelet OOMKilled pod=checkout-7d9f8 node=ip-10-0-3-22\n2026-08-21T14:12:03Z kubelet OOMKilled",
+    "orders ERROR connection pool exhausted (50/50) db=orders-db-ro-1\n2026-08-21T03:20:04Z orders ERROR",
+    "WARDEN benchmark - wave2-2026-09-24T115746Z",
+    "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:10:56.921256607Z checkout: heartbeat ok",
+])
+def test_identifiers_and_timestamps_are_not_masked_as_phone_numbers(text):
+    """⛔ Evidence corrupted by the redactor is evidence lost: a node name, a replica name and a
+    timestamp are what an operator greps for, and a merged pair of log lines misstates what happened."""
+    r = redact(text)
+    assert "<PHONE_" not in r.text, f"masked as a phone: {r.text!r}"
+    assert r.text.count("\n") == text.count("\n"), "a line break was swallowed"
+
+
+@pytest.mark.parametrize("text,number", [
+    ("call +1 415-555-0132 now", "415-555-0132"),
+    ("phone=4155550132 retry", "4155550132"),
+    ("tel: +91 98765 43210", "98765 43210"),
+    ("contact +91-98765-43210 asap", "98765-43210"),
+])
+def test_real_phone_numbers_are_still_masked(text, number):
+    r = redact(text)
+    assert number not in r.text and "<PHONE_" in r.text, r.text
+
+
+def test_a_contiguous_card_number_is_still_masked():
+    """CREDITCARD leaves the contiguous 16-digit form to PHONE; narrowing PHONE must not unmask it."""
+    assert "4111111111111111" not in redact("card 4111111111111111 declined").text

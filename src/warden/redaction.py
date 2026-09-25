@@ -98,7 +98,16 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("CREDITCARD", re.compile(r"\b\d{4}[ \-]\d{4}[ \-]\d{4}[ \-]\d{4}\b")),
     # The negative lookahead stops an ISO-8601 date (YYYY-MM-DD, which every log line starts with)
     # being masked as a phone number — that was masking timestamps and losing evidence.
-    ("PHONE", re.compile(r"(?<![\d.])(?!\d{4}-\d\d-\d\d)\+?\d[\d\s\-]{8,14}\d(?![\d.])")),
+    #
+    # ⛔ Two more guards, added 2026-09-25 after reports reached Slack reading
+    # `node=ip-<PHONE_1>-08-21T14:12:03Z` and `wave<PHONE_1>T115746Z`:
+    #   - the separator class is `[ \-]`, not `\s` - `\s` matched the NEWLINE between two log lines,
+    #     so one "phone number" swallowed the end of one line and the timestamp of the next;
+    #   - it may not start inside an identifier: not after a letter, digit, `_`, `-` or `.`. The
+    #     digits in `ip-10-0-3-22`, `orders-db-ro-1` and `wave2-2026-...` are names, not numbers.
+    # A phone number written as a phone number (`+1 415-555-0132`, `phone=4155550132`) still starts
+    # at a boundary and is still masked; so is a contiguous card number, which relies on this rule.
+    ("PHONE", re.compile(r"(?<![\w.\-])(?!\d{4}-\d\d-\d\d)\+?\d[\d \-]{8,14}\d(?![\d.])")),
     # password=..., secret: ..., aws_secret_access_key="...": the value after a credential-ish key.
     # Runs LAST so anything already masked (a placeholder starting with `<`, excluded from the value
     # class) is left alone. The bounded [\w.\-] prefix/suffix lets the sensitive word sit INSIDE a
