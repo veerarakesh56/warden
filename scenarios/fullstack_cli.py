@@ -796,17 +796,24 @@ def step_revert(env: Env, run: pathlib.Path, key: str, *, settle_s: float = 1200
 
 def step_soak(env: Env, run: pathlib.Path, *, min_s: float = 1800, max_s: float = 3 * 3600,
               every_s: float = 60) -> bool:
-    """Wait until every component is healthy AND at least `min_s` has passed since start."""
+    """Wait until every component has been healthy for `min_s` WITHOUT a break; give up after `max_s`.
+
+    Any unhealthy check restarts the healthy streak: "healthy at minute 30" is not a soak.
+    """
     open_run(env, run)
     start = env.clock()
+    healthy_since = None
     while True:
         problems = stack_problems(env)
-        elapsed = env.clock() - start
-        env.log(f"soak {elapsed / 60:5.1f} min: " + ("healthy" if not problems else "; ".join(problems)))
-        if not problems and elapsed >= min_s:
+        now = env.clock()
+        healthy_since = None if problems else (now if healthy_since is None else healthy_since)
+        streak = 0.0 if healthy_since is None else now - healthy_since
+        env.log(f"soak {(now - start) / 60:5.1f} min: " + (f"healthy for {streak / 60:.1f} min" if not problems
+                                                           else "; ".join(problems)))
+        if not problems and streak >= min_s:
             _set_state(run, soaked_at=_now())
             return True
-        if elapsed >= max_s:
+        if now - start >= max_s:
             return False
         env.sleep(every_s)
 

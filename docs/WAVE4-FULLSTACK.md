@@ -335,3 +335,28 @@ gateway (fs-15 pins `DB_HOST` to one); `FailoverDBCluster` works on an express c
 **Found by review before the apply (2026-09-26):** the EKS Pod Identity agent calls
 `eks-auth:AssumeRoleForPodIdentity` with the node role, a separate service prefix the boundary did not
 allow - catalog-api would have had no AWS credentials at baseline. The boundary now allows it.
+
+**Checked on the first apply (2026-09-26, before any fault ran).** Answers to the list above:
+
+- Endpoints follow `<cluster>.cluster-<id>` and `.cluster-ro-<id>` - yes.
+- A boundary-limited role can use `rds-db:connect`, and Pod Identity credentials reach a pod that does not mount its token - yes: catalog-api reads the Aurora reader with an IAM token from its Pod Identity role.
+- `Tags` on `CreateDBCluster` - accepted.
+- `DatabaseName` - **rejected**. The database is created by the apps pipeline's `bootstrap-db` step, which connects to `postgres` first.
+- `ModifyDBCluster` of the capacity - accepted (0.5-2 ACU).
+- The writer is named `<cluster>-instance-1` - inside the operator's `db:warden-pg-fs-*` scope.
+- The reader was created in a different AZ from the writer - yes.
+- **Still unverified until the preflight:** an instance endpoint reached through the gateway (fs-15), and `FailoverDBCluster` on an express cluster (fs-15).
+
+Found by the first real deploy, each fixed with a test (commits `d669cf0`, `fb4583a`, `1f5e603`):
+
+- `CreateDBCluster` in express configuration is authorised against `subgrp:default` and needs `rds:EnableInternetAccessGateway`, an action AWS's policy validators do not list.
+- Terraform's `default_tags` make event-source-mapping creation call `lambda:TagResource` on `event-source-mapping:*`.
+- The CloudWatch Observability add-on injected an OpenTelemetry agent into catalog-api, which the restricted Pod Security namespace refused. The pods now opt out by annotation.
+- The Lambda zips lacked `typing_extensions`: pip evaluated markers for the local Python, not 3.12. The build now checks the dependency closure for 3.12.
+- The harness read `~/.kube/config`, not the apps pipeline's kubeconfig.
+
+**Alarms, measured on the idle stack.**
+
+- The `aurora-cpu` alarm used the cluster's per-minute *Maximum*. On the idle express cluster that spikes to 100 from Aurora's own processes while the average is about 22, and it went to ALARM twice with no fault injected. It now uses the writer's *Average* (`Role=WRITER`).
+- The Container Insights metrics `pod_status_ready` and `pod_status_running` exist with `{ClusterName, Namespace, PodName}` and arrive every minute.
+- The `soak` step now needs an unbroken healthy streak of the minimum length. Before, it accepted "healthy at minute 30" after an earlier break.

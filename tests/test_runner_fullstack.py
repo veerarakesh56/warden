@@ -365,7 +365,17 @@ def test_soak_needs_health_and_the_minimum_time(tmp_path):
     env = dataclasses.replace(fake_env([], alarm_state="OK"), sleep=clock.sleep, clock=clock,
                               baseline=lambda: next(unhealthy, []))
     assert cli.step_soak(env, tmp_path, min_s=1800, every_s=60) is True
-    assert clock.t >= 1800
+    assert clock.t >= 180 + 1800  # unhealthy at t=0/60/120 s: the streak starts at the first healthy check
+
+
+def test_a_break_mid_soak_restarts_the_healthy_streak(tmp_path):
+    """Healthy for 20 min, one bad minute, then healthy: the soak ends 30 min after the break, not at 30."""
+    clock = Clock()
+    checks = iter([[]] * 20 + [["alarm x is ALARM"]])
+    env = dataclasses.replace(fake_env([], alarm_state="OK"), sleep=clock.sleep, clock=clock,
+                              baseline=lambda: next(checks, []))
+    assert cli.step_soak(env, tmp_path, min_s=1800, every_s=60) is True
+    assert clock.t >= 21 * 60 + 1800
 
 
 def test_soak_gives_up_at_its_maximum(tmp_path):

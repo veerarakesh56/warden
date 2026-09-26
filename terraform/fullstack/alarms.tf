@@ -88,9 +88,12 @@ locals {
       dims = { DBClusterIdentifier = local.aurora_cluster }, # created by aurora_express.py
       desc = "Database connection count is above normal."
     }
+    # The writer's per-minute AVERAGE. Measured on the idle express cluster (2026-09-26): the per-minute
+    # Maximum spikes to 100 from Aurora's own processes while the average sits near 22, and the
+    # Maximum-based alarm went to ALARM twice with no fault injected - a red herring in WARDEN's evidence.
     aurora-cpu = {
-      ns   = "AWS/RDS", metric = "CPUUtilization", stat = "Maximum", threshold = 70, periods = 3,
-      dims = { DBClusterIdentifier = local.aurora_cluster }, # created by aurora_express.py
+      ns   = "AWS/RDS", metric = "CPUUtilization", stat = "Average", threshold = 70, periods = 3,
+      dims = { DBClusterIdentifier = local.aurora_cluster, Role = "WRITER" }, # created by aurora_express.py
       desc = "Database CPU usage is above normal."
     }
     alb-5xx = {
@@ -115,9 +118,9 @@ locals {
       desc    = "Orders API has fewer healthy targets than desired."
     }
     # ContainerInsights (amazon-cloudwatch-observability add-on). PodName is the workload name.
-    # ⚠ Metric names as documented for Container Insights with enhanced observability; not yet seen
-    # on this cluster - verify with `aws cloudwatch list-metrics --namespace ContainerInsights`
-    # after the first apply.
+    # Verified on the live cluster (2026-09-26, `aws cloudwatch list-metrics --namespace ContainerInsights`):
+    # both metrics exist with {ClusterName, Namespace, PodName} and arrive every minute, so treating
+    # missing data as breaching does not flap while the pods run.
     catalog-errors = {
       ns      = "ContainerInsights", metric = "pod_status_ready", stat = "Sum", threshold = 2, op = "LessThanThreshold",
       periods = 3, missing = "breaching",
