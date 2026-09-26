@@ -637,3 +637,18 @@ def test_a_mid_run_isolation_change_and_a_hand_repair_are_printed_in_the_results
     results = (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
     assert "Evidence isolation changed" in results and "deploy_window_m" in results
     assert "rolled catalog-api back by hand" in results
+
+
+def test_the_fix_is_rebuilt_with_the_region_warden_ran_in(tmp_path, monkeypatch):
+    """fs-01: the harness rebuilt WARDEN's fix without AWS_REGION, the commands came out without
+    `--region`, and the allow-list refused WARDEN's fix - a harness artefact charged to WARDEN."""
+    seen = {}
+
+    def fake_run(cmd, *, env, **kw):
+        seen.update(env)
+        pathlib.Path(cmd[-1]).write_text('{"fix_commands": []}', encoding="utf-8")
+        return type("P", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    cli._subprocess_extract(tmp_path / "r.json", tmp_path / "b.json", "ap-south-2")
+    assert seen["AWS_REGION"] == "ap-south-2"

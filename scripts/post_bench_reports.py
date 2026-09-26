@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import pathlib
 import sys
 
@@ -46,6 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     results = json.loads((run / "results.json").read_text(encoding="utf-8"))
     rows = {(r["scenario_id"], r["index"]): r for r in results["rows"]}
     backend = _BACKEND.get(manifest.get("target_kind", "ecs"))
+    if manifest.get("region"):
+        # The printed commands carry `--region` from AWS_REGION, as they did for WARDEN's own run.
+        os.environ.setdefault("AWS_REGION", manifest["region"])
     s = results["summary"]
 
     reports = []

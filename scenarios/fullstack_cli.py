@@ -245,13 +245,18 @@ def _subprocess_warden(timeout_s: float) -> Callable[..., tuple[int, str]]:
     return invoke
 
 
-def _subprocess_extract(report: pathlib.Path, built: pathlib.Path) -> dict:
+def _subprocess_extract(report: pathlib.Path, built: pathlib.Path, region: str = "") -> dict:
     """build_report over the saved RunReport, in a SUBPROCESS: this harness never imports warden.
 
     Identifiers are shown (the fix must name real resources); the run directory is outside the
     repository and is redacted by the publish step like every other artefact."""
     env = {k: os.environ[k] for k in SYSTEM_ENV if k in os.environ}
     env["WARDEN_REPORT_SHOW_IDENTIFIERS"] = "1"
+    if region:
+        # ⛔ build_report puts `--region` on every aws command from AWS_REGION, as WARDEN's own run
+        # had it. Without it fs-01's fix came out region-less and the allow-list refused it - a
+        # harness artefact charged to WARDEN (2026-09-26).
+        env["AWS_REGION"] = env["AWS_DEFAULT_REGION"] = region
     proc = subprocess.run([sys.executable, "-c", _EXTRACT, str(report), str(built)], cwd=str(ROOT),
                           env=env, capture_output=True, text=True, timeout=120, check=False)
     if proc.returncode != 0:
@@ -347,7 +352,8 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
 
     return Env(
         clients=c, target=target, alarm=alarm, assume_reader=assume,
-        invoke_warden=_subprocess_warden(warden_timeout), extract_fix=_subprocess_extract,
+        invoke_warden=_subprocess_warden(warden_timeout),
+        extract_fix=lambda report, built: _subprocess_extract(report, built, target.region),
         execute=lambda cmds: fs.execute_fix(cmds, sql=sql), stack_ids=stack_ids,
     )
 
