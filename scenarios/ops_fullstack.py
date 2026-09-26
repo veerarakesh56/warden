@@ -265,14 +265,20 @@ def _poll(t: Target, check: Callable[[], bool], *, tries: int = 60, every: float
 
 def _cw(c: Clients, ns: str, metric: str, dims: dict[str, str], minutes: int,
         stat: str = "Sum") -> float | None:
-    """A CloudWatch statistic over the last `minutes`. None = no datapoint at all."""
+    """A CloudWatch statistic over the last `minutes`. None = no datapoint at all.
+
+    ⛔ GetMetricData, not GetMetricStatistics: the operator is granted only the former. The first
+    measured verify (fs-01, 2026-09-26) died on AccessDenied - every metric-based verifier would have
+    called a working fix "not fixed"."""
     end = _now()
-    resp = c.cw.get_metric_statistics(
-        Namespace=ns, MetricName=metric,
-        Dimensions=[{"Name": k, "Value": v} for k, v in dims.items()],
-        StartTime=end - dt.timedelta(minutes=minutes), EndTime=end, Period=60, Statistics=[stat],
+    resp = c.cw.get_metric_data(
+        MetricDataQueries=[{"Id": "m", "ReturnData": True, "MetricStat": {
+            "Metric": {"Namespace": ns, "MetricName": metric,
+                       "Dimensions": [{"Name": k, "Value": v} for k, v in dims.items()]},
+            "Period": 60, "Stat": stat}}],
+        StartTime=end - dt.timedelta(minutes=minutes), EndTime=end,
     )
-    points = [p.get(stat, 0.0) for p in resp.get("Datapoints") or []]
+    points = [float(v) for r in resp.get("MetricDataResults") or [] for v in r.get("Values") or []]
     if not points:
         return None
     return max(points) if stat == "Maximum" else float(sum(points))

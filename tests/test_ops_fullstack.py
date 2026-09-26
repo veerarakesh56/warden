@@ -429,9 +429,10 @@ class Cw:
     def __init__(self, values=None):
         self.values = values or {}
 
-    def get_metric_statistics(self, MetricName, Statistics, **_kw):
-        v = self.values.get(MetricName)
-        return {"Datapoints": [] if v is None else [{Statistics[0]: v}]}
+    def get_metric_data(self, MetricDataQueries, **_kw):
+        (q,) = MetricDataQueries
+        v = self.values.get(q["MetricStat"]["Metric"]["MetricName"])
+        return {"MetricDataResults": [{"Id": q["Id"], "Values": [] if v is None else [v]}]}
 
 
 class Cur:
