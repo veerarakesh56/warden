@@ -579,3 +579,31 @@ def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
     assert mod.main(["--run", str(tmp_path), "--print"]) == 0
     out = capsys.readouterr().out
     assert "assume Kubernetes" not in out
+
+
+def test_only_a_diagnose_that_wrote_no_report_may_be_retried_and_it_stays_on_record(tmp_path):
+    """fs-00's first measured diagnose died on the provider's 45 s ceiling with no report. One run
+    per fault means one ANSWER: a crash before any answer may be retried, with a reason, and is kept
+    and listed; a written report never is."""
+    env = fake_env([], alarm_state="OK")
+    cli.step_inject(env, tmp_path, "fs-00", wait_alarm=False)
+    answered = env.invoke_warden
+
+    def crash(env_vars, alert, report):
+        return 1, "warden.llm.ModelRefused: RootCause not produced after 3 attempts: claude CLI exceeded 45s"
+
+    env = dataclasses.replace(env, invoke_warden=crash)
+    cli.step_diagnose(env, tmp_path, "fs-00")
+    with pytest.raises(cli.StepError, match="--retry-reason"):
+        cli.step_diagnose(env, tmp_path, "fs-00")
+    env = dataclasses.replace(env, invoke_warden=answered)
+    rec = cli.step_diagnose(env, tmp_path, "fs-00", retry_reason="provider timeout, fixed in the provider")
+    assert rec["runs"][0]["report_written"] is True
+    kept = rec["attempts_without_report"]
+    assert len(kept) == 1 and kept[0]["exit_code"] == 1 and "45s" in kept[0]["stderr_tail"]
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert "provider timeout" in manifest["resumes"][-1]["reason"]
+    with pytest.raises(cli.StepError, match="one run per fault"):
+        cli.step_diagnose(env, tmp_path, "fs-00", retry_reason="a better answer, please")
+    assert cli.main(["--run", str(tmp_path), "--dry-run", "score"]) == 0
+    assert "provider timeout" in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")

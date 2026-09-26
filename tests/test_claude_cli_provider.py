@@ -269,3 +269,30 @@ def test_the_real_session_limit_message_is_recognised(provider, monkeypatch):
     monkeypatch.setattr(subprocess, "run", rec)
     with pytest.raises(ProviderExhausted):
         provider.complete(system="s", user="u")
+
+
+def test_a_claude_cli_call_gets_a_ceiling_long_enough_for_a_real_diagnosis(monkeypatch):
+    """At the shared 45 s ceiling every attempt of a real Wave 4 call timed out (the first measured
+    run got no report); the full diagnosis takes ~69 s over three calls. The CLI's own default is
+    180 s, the LLMClient backstop follows it, and WARDEN_LLM_TIMEOUT still wins when set."""
+    from warden import providers
+    from warden.llm import LLMClient
+
+    monkeypatch.delenv("WARDEN_LLM_TIMEOUT", raising=False)
+    cli = providers.ClaudeCliProvider.__new__(providers.ClaudeCliProvider)
+    assert providers.call_timeout_s(cli) == 180.0
+    assert LLMClient(provider=cli, mock=False).call_timeout_s == 180.0
+    assert providers.call_timeout_s(object()) == 45.0  # an HTTP provider keeps the socket default
+    monkeypatch.setenv("WARDEN_LLM_TIMEOUT", "30")
+    assert providers.call_timeout_s(cli) == 30.0
+    assert LLMClient(provider=cli, mock=False).call_timeout_s == 30.0
+
+
+def test_the_cli_process_itself_is_given_that_ceiling(provider, monkeypatch):
+    monkeypatch.delenv("WARDEN_LLM_TIMEOUT", raising=False)
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    assert rec.kwargs["timeout"] == 180.0
+    rec = _Recorder(raises=subprocess.TimeoutExpired("claude", 180))
+    with pytest.raises(Exception, match="exceeded 180s"):
+        _run(provider, rec, monkeypatch)

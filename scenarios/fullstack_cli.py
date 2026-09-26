@@ -664,13 +664,32 @@ def _require(run: pathlib.Path, sid: str, *, active: bool = True) -> dict:
     return record
 
 
-def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] | None = None) -> dict:
+def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] | None = None,
+                  retry_reason: str | None = None) -> dict:
     scenario = scenario_for(key)
     sid = scenario["id"]
     open_run(env, run)
     record = _require(run, sid)
     if record.get("runs"):
-        raise StepError(f"{sid} already has WARDEN's report; one run per fault")
+        prior = record["runs"][0]
+        if prior.get("report_written"):
+            raise StepError(f"{sid} already has WARDEN's report; one run per fault")
+        if not retry_reason:
+            raise StepError(f"{sid}: WARDEN wrote no report (exit {prior.get('exit_code')}). One run per "
+                            "fault means one ANSWER: a retry is allowed only with --retry-reason, and the "
+                            "failed attempt stays on record and in RESULTS.md section 7.")
+        # ⛔ Kept, never replaced: in the record, and listed where a reader of the results sees it.
+        # Only an attempt WITHOUT a report may be retried - re-asking until the answer improves is
+        # how a benchmark cheats; a crash before any answer measures the tool, not the diagnosis.
+        record.setdefault("attempts_without_report", []).append({**prior, "retry_reason": retry_reason})
+        record["runs"] = []
+        manifest_path = run / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest.setdefault("resumes", []).append({
+            "at": _now(), "git_commit": _git_commit(), "rerun": [sid], "superseded": [],
+            "forced": [], "reason": f"{sid}: {retry_reason} (the failed attempt is kept in its record)"})
+        _write_json(manifest_path, manifest)
+        _save_record(run, record)
     live_alarm = env.alarm(scenario.get("alarm") or "")
     alarm = record.setdefault("alarm", {"name": scenario.get("alarm"),
                                         "expected": scenario.get("expect_alarm", True)})
@@ -915,6 +934,8 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
     s = sub.add_parser("diagnose")
     s.add_argument("fault")
     s.add_argument("--arm", action="append", default=[], metavar="K=V")
+    s.add_argument("--retry-reason", default=None,
+                   help="re-run a diagnose that wrote NO report; the failed attempt is kept and listed")
     sub.add_parser("fix").add_argument("fault")
     s = sub.add_parser("verify")
     s.add_argument("fault")
@@ -948,7 +969,7 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
         if args.cmd == "inject":
             step_inject(env, run, args.fault, skip_quiet=args.skip_quiet, wait_alarm=not args.no_wait)
         elif args.cmd == "diagnose":
-            step_diagnose(env, run, args.fault, arm=_parse_arm(args.arm))
+            step_diagnose(env, run, args.fault, arm=_parse_arm(args.arm), retry_reason=args.retry_reason)
         elif args.cmd == "fix":
             step_fix(env, run, args.fault)
         elif args.cmd == "verify":

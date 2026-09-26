@@ -111,8 +111,7 @@ def _estimate_tokens(text: str) -> int:
 def _sdk_timeout_s() -> float:
     """Seconds a single provider request may take before its own socket times out.
 
-    Read from the SAME env var as llm.LLM_CALL_TIMEOUT_S (read directly here to avoid a
-    providers<-llm import cycle). This is the bound that actually MATTERS: it makes the SDK's own
+    Read from the SAME env var as the LLMClient's per-call ceiling (`call_timeout_s`). This is the bound that actually MATTERS: it makes the SDK's own
     socket give up, so the worker thread ends and the process can exit. Without it, a hung request
     (a just-rotated key made the client retry endlessly) blocks the run past every higher-level
     deadline, because a thread stuck in a blocking C call cannot be force-killed. Each provider is
@@ -120,6 +119,16 @@ def _sdk_timeout_s() -> float:
     the wall-clock a slow endpoint costs.
     """
     return float(os.environ.get("WARDEN_LLM_TIMEOUT", "45.0"))
+
+
+def call_timeout_s(provider: Any = None) -> float:
+    """The per-call ceiling for `provider`: WARDEN_LLM_TIMEOUT when set, else the provider's own
+    default (`default_timeout_s`), else 45 s. One place, so the provider's inner bound and the
+    LLMClient's outer backstop can never disagree."""
+    env = os.environ.get("WARDEN_LLM_TIMEOUT")
+    if env:
+        return float(env)
+    return float(getattr(provider, "default_timeout_s", 45.0))
 
 
 # --------------------------------------------------------------------------- anthropic
@@ -303,6 +312,11 @@ class ClaudeCliProvider:
     """
 
     name = "claude_cli"
+    # ⛔ Measured, not guessed (Wave 4, 2026-09-26): a real full-stack diagnosis (analyse + propose +
+    # verify, ~12k input tokens each) took 69 s end to end, and at the shared 45 s ceiling every
+    # attempt of one call timed out - the first measured run got no report at all. A `claude -p`
+    # call is a whole process plus the full answer, not a socket read. 180 s is ~3x the need.
+    default_timeout_s = 180.0
 
     def __init__(self, model: str | None = None) -> None:
         import shutil
@@ -380,7 +394,7 @@ class ClaudeCliProvider:
                 # a reply; encoding a Python str as UTF-8 cannot fail.
                 encoding="utf-8",
                 errors="replace",
-                timeout=_sdk_timeout_s(),
+                timeout=call_timeout_s(self),
                 check=False,
                 env=env,
                 # ⛔ Outside the repository. Combined with --disallowed-tools, the answer key is out
@@ -388,7 +402,7 @@ class ClaudeCliProvider:
                 cwd=tempfile.gettempdir(),
             )
         except subprocess.TimeoutExpired as exc:
-            raise ProviderError(f"claude CLI exceeded {_sdk_timeout_s():.0f}s") from exc
+            raise ProviderError(f"claude CLI exceeded {call_timeout_s(self):.0f}s") from exc
         if proc.returncode != 0:
             # ⛔ BOTH streams. The CLI writes its reason for refusing - including "usage limit
             # reached" - to STDOUT, and this used to report stderr only. So when the limit was hit

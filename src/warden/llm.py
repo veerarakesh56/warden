@@ -37,7 +37,8 @@ PRICE_PER_MTOK_OUT = float(os.environ.get("WARDEN_PRICE_OUT", "15.00"))
 # it a slow, retrying or hung provider hangs the whole run forever — observed live: a Gemini key
 # that had just been rotated made the SDK retry past every internal timeout, and `warden run` never
 # returned. The tools already have this (tools.py); the model call did not, which was the gap.
-LLM_CALL_TIMEOUT_S = float(os.environ.get("WARDEN_LLM_TIMEOUT", "45.0"))
+# The ceiling itself is providers.call_timeout_s(provider): WARDEN_LLM_TIMEOUT, else the provider's
+# own default, else 45 s.
 
 
 class BudgetExceeded(RuntimeError):
@@ -91,10 +92,14 @@ class LLMClient:
     ) -> None:
         self.max_usd = float(os.environ.get("WARDEN_MAX_USD", max_usd))
         self.max_calls = max_calls
-        self.call_timeout_s = LLM_CALL_TIMEOUT_S if call_timeout_s is None else call_timeout_s
         self.cost = CostRecord()
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
         self._provider = provider if provider is not None else (None if self.mock else resolve())
+        if call_timeout_s is None:
+            # Function-level import: providers must not import llm at module load (cycle).
+            from .providers import call_timeout_s as _provider_timeout
+            call_timeout_s = _provider_timeout(self._provider)
+        self.call_timeout_s = call_timeout_s
 
     @property
     def provider_name(self) -> str:
