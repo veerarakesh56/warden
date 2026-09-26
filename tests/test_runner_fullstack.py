@@ -32,6 +32,18 @@ class Clock:
         self.t += s
 
 
+def _soaked(run: pathlib.Path) -> None:
+    run.mkdir(parents=True, exist_ok=True)
+    (run / "state.json").write_text(json.dumps({"active": None, "soaked_at": "2026-01-01T00:00:00+00:00"}),
+                                    encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _every_run_dir_is_soaked(tmp_path):
+    """Inject refuses a run with no soak (the owner's order); the tests start after one."""
+    _soaked(tmp_path)
+
+
 def fake_env(events: list, *, alarm_state="ALARM", verdict="approved_for_human",
              commands=None, verify_ok=True, baseline=None, inject_raises=None,
              firing_before=False) -> cli.Env:
@@ -252,6 +264,7 @@ def test_the_alert_carries_the_alarm_and_the_same_service_map_for_every_fault(tm
     for fid in ("fs-01", "fs-19"):
         env = fake_env([], alarm_state="OK")
         run = tmp_path / fid
+        _soaked(run)
         cli.step_inject(env, run, fid, wait_alarm=False)
         cli.step_diagnose(env, run, fid)
         alert = yaml.safe_load(env.last_alert.read_text(encoding="utf-8"))
@@ -357,6 +370,12 @@ def test_the_harness_does_not_import_the_tool_under_test():
 
 
 # --------------------------------------------------------------------------- soak / watch / status
+
+
+def test_no_fault_is_injected_before_a_soak(tmp_path):
+    fresh = tmp_path / "never-soaked"
+    with pytest.raises(cli.StepError, match="run `soak` first"):
+        cli.step_inject(fake_env([], alarm_state="OK"), fresh, "fs-03", wait_alarm=False)
 
 
 def test_soak_needs_health_and_the_minimum_time(tmp_path):

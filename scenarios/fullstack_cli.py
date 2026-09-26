@@ -577,6 +577,9 @@ def step_inject(env: Env, run: pathlib.Path, key: str, *, skip_quiet: bool = Fal
     state = _state(run)
     if state.get("active"):
         raise StepError(f"{state['active']} is still injected - revert it first")
+    if not state.get("soaked_at"):
+        # ⛔ The owner's order: soak (every component healthy for 30 unbroken minutes) BEFORE any fault.
+        raise StepError("no soak recorded for this run - run `soak` first")
     existing = _record(run, sid)
     if existing and existing.get("runs"):
         raise StepError(f"{sid} already has a measured run; one run per fault (the owner's choice)")

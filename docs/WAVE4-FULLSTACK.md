@@ -360,3 +360,28 @@ Found by the first real deploy, each fixed with a test (commits `d669cf0`, `fb45
 - The `aurora-cpu` alarm used the cluster's per-minute *Maximum*. On the idle express cluster that spikes to 100 from Aurora's own processes while the average is about 22, and it went to ALARM twice with no fault injected. It now uses the writer's *Average* (`Role=WRITER`).
 - The Container Insights metrics `pod_status_ready` and `pod_status_running` exist with `{ClusterName, Namespace, PodName}` and arrive every minute.
 - The `soak` step now needs an unbroken healthy streak of the minimum length. Before, it accepted "healthy at minute 30" after an earlier break.
+
+**Preflight on the real stack (2026-09-26, 10:37-11:28 UTC).** Every fault fs-01..fs-27 was injected and
+reverted once, and the whole-stack baseline was clean after each revert. What it found and settled:
+
+- **fs-12 failed the first time, and the cause was the harness.**
+  - One IAM-token TLS login through the express gateway takes ~0.26 s. Opening 844 sessions in series
+    took 3.7 minutes, past the inject's 180 s ready timeout.
+  - The revert then raced a holder that was still opening sessions.
+  - The holder stopped at its own count (`max_connections`), which never proved the server was full.
+  - Now it opens sessions in parallel and pushes past `max_connections` until it is refused. The revert
+    polls. Measured on the rerun: 835 sessions accepted, then **59 refused** by the server (the real
+    ceiling is below `max_connections` = 844), 832 held.
+- **fs-15:** `FailoverDBCluster` works on an express cluster and fails back. The writer moved to
+  `warden-pg-fs-aurora-2`, and the revert restored `-instance-1`. The pinned instance endpoint is
+  exercised by the measured run.
+- **fs-06 and fs-11** showed no symptom inside the preflight's check, as expected:
+  - fs-06: the DLQ receives the poison message only after 3 receives x 120 s visibility.
+  - fs-11: the preflight fills 50 MB. The measured run fills 400 MiB against a measured `maxmemory` of
+    384 MiB, which crosses the 80% alarm.
+- The preflight's own recovery path was wrong. `fullstack_cli revert` refuses a preflight fault, because
+  the preflight records no inject step. It has `--revert --only fs-NN` now, and that path was used for real.
+- `inject` now refuses a run with no recorded soak, so the owner's order is enforced, not remembered.
+  **Evidence isolation across run directories is still manual.** The measured run does not know about
+  the preflight's activity, so its first inject waits 18 minutes after the preflight's last revert (the
+  same quiet gap it enforces between its own faults).
