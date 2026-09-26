@@ -259,7 +259,13 @@ def load_kubeconfig(kube_config, default: pathlib.Path | None = None) -> str:
     kubeconfig = os.environ.get("KUBECONFIG") or (str(default) if default.is_file() else None)
     try:
         kube_config.load_kube_config(config_file=kubeconfig)
-        return kube_config.list_kube_config_contexts(config_file=kubeconfig)[1]["name"]
+        context = kube_config.list_kube_config_contexts(config_file=kubeconfig)[1]["name"]
+        if kubeconfig:
+            # ⛔ The same file for every `kubectl` this process starts (mint_kubeconfig's
+            # `create token`): without it kubectl read ~/.kube/config and dialled localhost:8080
+            # in the first measured diagnose (2026-09-26).
+            os.environ["KUBECONFIG"] = kubeconfig
+        return context
     except Exception as exc:  # any kubeconfig problem is an operator setup error
         raise StepError(f"no usable kubeconfig ({type(exc).__name__}: {exc}). Run `python "
                         "scripts/deploy_fullstack_apps.py deploy k8s` (it writes "

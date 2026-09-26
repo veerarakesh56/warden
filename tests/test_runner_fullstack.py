@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import pathlib
 
 import pytest
@@ -555,6 +556,8 @@ def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatc
         "contexts:\n- name: warden-pg-fs-eks\n  context: {cluster: c, user: u}\n", encoding="utf-8")
     monkeypatch.delenv("KUBECONFIG", raising=False)
     assert cli.load_kubeconfig(kube.config, default=cfg) == "warden-pg-fs-eks"
+    # kubectl subprocesses (mint_kubeconfig) must use the same file, not ~/.kube/config.
+    assert os.environ["KUBECONFIG"] == str(cfg)
     monkeypatch.setenv("KUBECONFIG", str(tmp_path / "missing"))
     with pytest.raises(cli.StepError, match="no usable kubeconfig"):
         cli.load_kubeconfig(kube.config, default=cfg)
