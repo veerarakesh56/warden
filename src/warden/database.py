@@ -96,7 +96,14 @@ class _Postgres:
             "locks_waiting": float(waiting),
             "connections_used_pct": float(total) / float(max_conn) if max_conn else 0.0,
         }
-        lag = r(conn, "SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))")[0][0]
+        # ⛔ Best effort, LAST, on its own: Aurora refuses this function ("currently not supported for
+        # Aurora"), and raising here threw away every count above - Wave 4 (2026-09-26) read no database
+        # metrics at all on any fault, and every verdict carried P8-PARTIAL-CONTEXT. Aurora's replica
+        # lag comes from CloudWatch (AuroraReplicaLag) instead. Autocommit: the failure poisons nothing.
+        try:
+            lag = r(conn, "SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))")[0][0]
+        except Exception:  # noqa: BLE001 - an engine without the function has no lag to report here
+            lag = None
         if lag is not None:  # NULL on a primary — omit rather than report 0 (which reads as "no lag")
             out["replica_lag_seconds"] = float(lag)
         return out

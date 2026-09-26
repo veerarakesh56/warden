@@ -624,3 +624,33 @@ def test_the_proving_ground_reader_grants_exactly_what_the_code_calls():
         f"code calls but reader does not grant: {sorted(called - granted)}; "
         f"reader grants but code never calls: {sorted(granted - called)}"
     )
+
+
+def test_a_long_window_keeps_the_newest_lines_and_the_older_errors():
+    """fs-05 (2026-09-26): the first 120 lines of the window were kept - all from before the fault -
+    and the AccessDenied lines that named the cause were the ones dropped."""
+    ts = int(NOW.timestamp() * 1000)
+    old = [{"logStreamName": "s", "timestamp": ts - 600_000 + i, "message": f"ok {i}"} for i in range(300)]
+    old[5]["message"] = "ERROR early failure"
+    new = [{"logStreamName": "s", "timestamp": ts - 1000 + i,
+            "message": f"AccessDeniedException: not authorized to perform dynamodb:PutItem {i}"} for i in range(20)]
+    lines = _backend(logs=FakeLogs(events=old + new)).logs(_alert())
+    kept = [x for x in lines if not x.startswith(PARTIAL_PREFIX)]
+    assert sum("AccessDeniedException" in x for x in kept) == 20, "the newest lines - the fault - are kept"
+    assert any("ERROR early failure" in x for x in kept), "an older error survives the cut"
+    assert "ok 0" not in " ".join(kept)
+    assert any("dropped" in x for x in lines if x.startswith(PARTIAL_PREFIX))
+
+
+def test_every_page_of_the_window_is_read():
+    ts = int(NOW.timestamp() * 1000)
+
+    class Paged(FakeLogs):
+        def filter_log_events(self, **kwargs):
+            self.calls.append(kwargs)
+            page = 1 if kwargs.get("nextToken") else 0
+            return {"events": [{"logStreamName": "s", "timestamp": ts + page, "message": f"page {page}"}],
+                    **({"nextToken": "t"} if page == 0 else {})}
+
+    lines = _backend(logs=Paged()).logs(_alert())
+    assert "page 1" in " ".join(lines), "the newest page is the one that matters"

@@ -111,6 +111,8 @@ class _SqlStub:
         self.asked.append(" ".join(sql.split()))
         for needle, rows in self.answers.items():
             if needle.lower() in sql.lower():
+                if isinstance(rows, Exception):
+                    raise rows
                 return rows
         raise AssertionError(f"stub has no answer for: {sql}")
 
@@ -166,6 +168,24 @@ def test_postgres_reports_replica_lag_when_it_is_a_replica():
         "pg_last_xact_replay_timestamp": [(12.5,)],
     })
     assert _Postgres.metrics(conn)["replica_lag_seconds"] == 12.5
+
+
+def test_aurora_refusing_the_replay_function_loses_no_other_metric():
+    """Wave 4 (2026-09-26): Aurora answers "Function pg_last_xact_replay_timestamp() is currently not
+    supported for Aurora", and that one error threw away every count - no database metrics on any
+    fault, and every verdict carried P8-PARTIAL-CONTEXT."""
+    conn = _SqlStub({
+        "count(*) from pg_stat_activity where state = 'idle in transaction'": [(1,)],
+        "count(*) from pg_stat_activity where state = 'active'": [(0,)],
+        "count(*) from pg_stat_activity": [(830,)],
+        "show max_connections": [("844",)],
+        "pg_locks": [(0,)],
+        "pg_last_xact_replay_timestamp": RuntimeError(
+            "Function pg_last_xact_replay_timestamp() is currently not supported for Aurora"),
+    })
+    m = _Postgres.metrics(conn)
+    assert m["active_connections"] == 830.0 and m["max_connections"] == 844.0
+    assert "replica_lag_seconds" not in m
 
 
 def test_postgres_problem_ops_excludes_own_backend_and_redacts_query_text():

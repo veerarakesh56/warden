@@ -72,6 +72,7 @@ Mapping from an alert to a workload:
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime, timedelta
 
 from .models import Alert
@@ -90,6 +91,10 @@ METRIC_WINDOW = timedelta(minutes=float(os.environ.get("WARDEN_AWS_METRIC_WINDOW
 # Hard caps. FilterLogEvents pages; without a cap one busy group eats the whole tool budget.
 LOG_EVENT_LIMIT = int(os.environ.get("WARDEN_AWS_LOG_LIMIT", "200"))
 LOG_MAX_LINES = int(os.environ.get("WARDEN_AWS_LOG_MAX_LINES", "120"))
+LOG_MAX_PAGES = int(os.environ.get("WARDEN_AWS_LOG_MAX_PAGES", "10"))
+# Older error-looking events kept on top of the newest LOG_MAX_LINES when a window is truncated.
+LOG_ERROR_EXTRA = 30
+_ERRORISH = re.compile(r"(?i)error|exception|traceback|denied|not authorized|fail|timed out|refused|throttl")
 # CloudWatch period in seconds. 60 is the finest granularity ECS service metrics are published at.
 METRIC_PERIOD_S = int(os.environ.get("WARDEN_AWS_METRIC_PERIOD_S", "60"))
 
@@ -212,26 +217,41 @@ class AwsBackend:
         if prefix:
             kwargs["logStreamNamePrefix"] = prefix
 
+        # ⛔ The WHOLE window, then the NEWEST lines. filter_log_events pages oldest-first, and this
+        # used to keep the first page's first 120 lines: in Wave 4 (fs-05, 2026-09-26) every kept line
+        # predated the fault, and the AccessDenied lines that named the cause were the ones dropped.
+        events: list[dict] = []
+        partial: list[str] = []
         try:
-            resp = self._logs.filter_log_events(**kwargs)
+            for page in range(LOG_MAX_PAGES):
+                resp = self._logs.filter_log_events(**kwargs)
+                events += resp.get("events") or []
+                token = resp.get("nextToken")
+                if not token:
+                    break
+                kwargs["nextToken"] = token
+                if page == LOG_MAX_PAGES - 1:
+                    partial.append(f"{PARTIAL_PREFIX}logs: stopped after {LOG_MAX_PAGES} pages "
+                                   "(raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)")
         except Exception as exc:  # noqa: BLE001 - a missing group is data, not a crash
-            return [f"{PARTIAL_PREFIX}logs: {group}: {_one_line(exc)}"]
+            if not events:
+                return [f"{PARTIAL_PREFIX}logs: {group}: {_one_line(exc)}"]
+            partial.append(f"{PARTIAL_PREFIX}logs: {group}: {_one_line(exc)}")
 
         lines: list[str] = []
-        for event in resp.get("events") or []:
+        for event in sorted(events, key=lambda e: e.get("timestamp") or 0):
             message = str(event.get("message", "")).rstrip()
-            if not message:
-                continue
-            stream = event.get("logStreamName", "?")
-            stamp = _ms_to_iso(event.get("timestamp"))
-            lines.append(f"{stream} {stamp} {message}")
-            if len(lines) >= LOG_MAX_LINES:
-                lines.append(
-                    f"{PARTIAL_PREFIX}logs: truncated at {LOG_MAX_LINES} lines "
-                    f"(raise WARDEN_AWS_LOG_MAX_LINES to see more)"
-                )
-                break
-        return lines
+            if message:
+                lines.append(f"{event.get('logStreamName', '?')} {_ms_to_iso(event.get('timestamp'))} {message}")
+        if len(lines) > LOG_MAX_LINES:
+            cut = len(lines) - LOG_MAX_LINES
+            older_errors = [ln for ln in lines[:cut] if _ERRORISH.search(ln)][-LOG_ERROR_EXTRA:]
+            dropped = cut - len(older_errors)
+            lines = older_errors + lines[cut:]
+            partial.append(f"{PARTIAL_PREFIX}logs: truncated: kept the newest {LOG_MAX_LINES} lines and "
+                           f"{len(older_errors)} older error line(s), dropped {dropped} "
+                           "(raise WARDEN_AWS_LOG_MAX_LINES to see more)")
+        return lines + partial
 
     def metrics(self, alert: Alert) -> dict[str, float]:
         """Task counts from ECS (exact) and utilisation from CloudWatch (sampled).

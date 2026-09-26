@@ -438,3 +438,18 @@ below is also printed in the run's RESULTS.md section 7.
     exact command.
   - A change to print it was tried and withdrawn rather than weaken a deliberate safety rule mid-run.
     On an account with a normal limit (1000), WARDEN's printed fix applies.
+- **fs-04 (15:46-15:58 UTC) was the first full success.** WARDEN rolled back to version 3 (the
+  version that had served traffic) and the verifier confirmed the fix after 167 s.
+- **After fs-05 (16:31-16:42 UTC): two WARDEN evidence bugs, each wrong since before Wave 4.**
+  - *Logs kept the wrong end.* `filter_log_events` pages oldest-first, and the reader kept the first
+    120 lines. On fs-05 every kept line predated the fault, and the `AccessDenied ... dynamodb:PutItem`
+    lines that named the cause were dropped. WARDEN escalated at confidence 0.25, calling it an
+    application error.
+    - The reader now reads every page of the window (bounded, and it says so if the bound is hit). It
+      keeps the newest 120 lines plus up to 30 older error lines, and says how many it dropped.
+    - Checked live on fs-05's window: 44 `AccessDenied` lines are now kept; before, none were.
+  - *No database metrics on any fault.* The Postgres reader's last query,
+    `pg_last_xact_replay_timestamp()`, is refused by Aurora, and the error discarded every count read
+    before it. Every verdict so far carried `P8-PARTIAL-CONTEXT` because of it. The query is now best
+    effort; Aurora's replica lag comes from CloudWatch.
+  - fs-00 to fs-05 were measured with both bugs. From fs-06 on, both are fixed.
