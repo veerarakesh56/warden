@@ -215,3 +215,15 @@ def test_bootstrap_db_needs_the_master_password(monkeypatch):
     monkeypatch.delenv("TF_VAR_db_master_password", raising=False)
     with pytest.raises(SystemExit):
         tool.bootstrap_db(STACK, lambda s: None, connect=lambda **k: None)
+
+
+def test_run_decodes_tool_output_as_utf8_not_the_locale(monkeypatch):
+    """docker's build output is UTF-8; decoding it as cp1252 crashed a real build (2026-09-26)."""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        return tool.subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+    monkeypatch.setattr(tool.subprocess, "run", fake_run)
+    tool.run(["docker", "build"])
+    assert seen.get("encoding") == "utf-8" and seen.get("errors") == "replace"

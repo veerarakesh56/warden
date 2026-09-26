@@ -51,7 +51,10 @@ ZIP_DATE = (2026, 1, 1, 0, 0, 0)  # fixed, so an unchanged function builds a byt
 def run(cmd: list[str], *, input: str | None = None) -> str:
     """Run a command; stdin carries anything secret. Only the command is echoed."""
     print("+", " ".join(cmd), flush=True)
-    done = subprocess.run(cmd, input=input, text=True, capture_output=True, check=False)
+    # ⛔ UTF-8, not the locale: on Windows `text=True` decodes as cp1252 and docker's build output
+    # (progress glyphs) crashed the reader thread mid-build (2026-09-26).
+    done = subprocess.run(cmd, input=input, capture_output=True, check=False,
+                          encoding="utf-8", errors="replace")
     if done.returncode:
         raise SystemExit(f"{cmd[0]} exited {done.returncode}:\n{done.stderr[-2000:]}")
     return done.stdout
