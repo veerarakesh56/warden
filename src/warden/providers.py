@@ -349,6 +349,14 @@ class ClaudeCliProvider:
             "--model", self.model,
             "--system-prompt", system,
             "--disallowed-tools", *self._NO_TOOLS,
+            # ⛔ The deny list alone left 25 tools callable on the owner's machine (Skill, Workflow,
+            # CronCreate, the claude.ai Docs MCP *write* tools...) and still loaded the operator's
+            # CLAUDE.md, hooks and skills - the CLI finds the profile without HOME/USERPROFILE, so
+            # stripping env did not hide it (found 2026-09-26 building Helios's copy of this
+            # provider). An empty tool list, no MCP servers and no setting sources close all three.
+            "--tools", "",
+            "--strict-mcp-config",
+            "--setting-sources", "",
         ]
         try:
             proc = subprocess.run(

@@ -62,6 +62,18 @@ def test_every_tool_is_disabled(provider, monkeypatch):
         assert tool in disallowed, f"{tool} is not disabled - it can reach the answer key"
 
 
+
+def test_no_tool_no_mcp_server_and_no_operator_setting_is_loaded(provider, monkeypatch):
+    """⛔ The deny list alone left 25 tools (incl. MCP write tools) and the operator's CLAUDE.md and
+    hooks active on a real machine. The CLI must get an EMPTY tool list, no MCP servers and no
+    setting sources - each flag closes a different hole."""
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    cmd = rec.cmd
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert "--strict-mcp-config" in cmd and "--mcp-config" not in cmd
+    assert cmd[cmd.index("--setting-sources") + 1] == ""
+
 def test_it_runs_outside_the_repository(provider, monkeypatch):
     """⛔ The second, independent defence. One would be an assumption."""
     rec = _Recorder()
