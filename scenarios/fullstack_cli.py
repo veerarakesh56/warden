@@ -248,6 +248,24 @@ def _subprocess_extract(report: pathlib.Path, built: pathlib.Path) -> dict:
     return json.loads(built.read_text(encoding="utf-8"))
 
 
+def load_kubeconfig(kube_config, default: pathlib.Path | None = None) -> str:
+    """Load the kubeconfig and return its current context name.
+
+    The apps pipeline writes its kubeconfig next to stack.json; use it unless KUBECONFIG says otherwise.
+    The default ~/.kube/config may have no current context at all - that crashed the first real `status`
+    with a raw ConfigException (2026-09-26); passing a Path instead of a str crashed the second.
+    """
+    default = default or DEFAULT_KUBECONFIG
+    kubeconfig = os.environ.get("KUBECONFIG") or (str(default) if default.is_file() else None)
+    try:
+        kube_config.load_kube_config(config_file=kubeconfig)
+        return kube_config.list_kube_config_contexts(config_file=kubeconfig)[1]["name"]
+    except Exception as exc:  # any kubeconfig problem is an operator setup error
+        raise StepError(f"no usable kubeconfig ({type(exc).__name__}: {exc}). Run `python "
+                        "scripts/deploy_fullstack_apps.py deploy k8s` (it writes "
+                        f"{default}) or set KUBECONFIG.") from exc
+
+
 def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
     try:
         import boto3
@@ -263,17 +281,7 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
     rds = session.client("rds")
     master = stack.get("db_master_username") or "postgres"
     port = stack.get("aurora_port") or 5432
-    # The apps pipeline writes its kubeconfig next to stack.json; use it unless KUBECONFIG says
-    # otherwise. The default ~/.kube/config may have no current context at all - that crashed the first
-    # real `status` with a raw ConfigException (2026-09-26).
-    kubeconfig = os.environ.get("KUBECONFIG") or (DEFAULT_KUBECONFIG if DEFAULT_KUBECONFIG.is_file() else None)
-    try:
-        kube_config.load_kube_config(config_file=kubeconfig)
-        context = kube_config.list_kube_config_contexts(config_file=kubeconfig)[1]["name"]
-    except Exception as exc:
-        raise StepError(f"no usable kubeconfig ({type(exc).__name__}: {exc}). Run `python "
-                        "scripts/deploy_fullstack_apps.py deploy k8s` (it writes "
-                        f"{DEFAULT_KUBECONFIG}) or set KUBECONFIG.") from exc
+    context = load_kubeconfig(kube_config)
     if stack["eks_cluster_name"] not in context:
         raise StepError(f"kubectl's current context is {context!r}, not the {stack['eks_cluster_name']} "
                         "cluster. Switch context first (aws eks update-kubeconfig ...).")

@@ -507,3 +507,20 @@ def test_the_stack_file_supplies_the_writer_instance_express_chose():
              "aurora_writer_instance": "warden-pg-fs-aurora-instance-1"}
     assert cli.target_from_stack(stack).writer_instance == "warden-pg-fs-aurora-instance-1"
     assert cli.target_from_stack({**stack, "aurora_writer_instance": ""}).writer_instance == "warden-pg-fs-aurora-1"
+
+
+def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatch):
+    """Two real crashes: ~/.kube/config with no current context, then a Path where the client needs str.
+    This goes through the REAL kubernetes loader with a real file."""
+    kube = pytest.importorskip("kubernetes")
+    cfg = tmp_path / "kubeconfig"
+    cfg.write_text(
+        "apiVersion: v1\nkind: Config\ncurrent-context: warden-pg-fs-eks\n"
+        "clusters:\n- name: c\n  cluster: {server: 'https://example.invalid'}\n"
+        "users:\n- name: u\n  user: {token: fake}\n"
+        "contexts:\n- name: warden-pg-fs-eks\n  context: {cluster: c, user: u}\n", encoding="utf-8")
+    monkeypatch.delenv("KUBECONFIG", raising=False)
+    assert cli.load_kubeconfig(kube.config, default=cfg) == "warden-pg-fs-eks"
+    monkeypatch.setenv("KUBECONFIG", str(tmp_path / "missing"))
+    with pytest.raises(cli.StepError, match="no usable kubeconfig"):
+        cli.load_kubeconfig(kube.config, default=cfg)
