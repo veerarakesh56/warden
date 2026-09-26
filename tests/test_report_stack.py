@@ -189,3 +189,22 @@ def test_ecs_and_kubernetes_counts_never_stand_in_for_each_other():
     assert _current_replicas(both, "ecs") == 2
     assert _current_replicas(both, "kubernetes", "cart-worker") == 1
     assert _current_replicas(ctx(metrics={"replicas_desired": 3.0}), "ecs") is None
+
+
+def test_no_rollout_undo_while_every_pod_of_that_deployment_is_ready():
+    """Wave 4's healthy control (2026-09-26): 2/2 pods Ready, start-up readiness failures in the
+    evidence, two revisions - and the probe pattern printed `rollout undo`, which rolled catalog-api
+    back onto the previous revision's broken image when the harness applied it."""
+    lines = [('LOG k8s/shop/catalog-api EVENT Unhealthy Pod/catalog-api-86d495f875-svtj2: Readiness probe '
+              'failed: Get "http://10.0.1.5:8080/ready": dial tcp 10.0.1.5:8080: connect: connection refused'),
+             "LOG k8s/shop/catalog-api ROLLOUT revision 10 (current): app:v1 created 2026-09-26T11:24:50Z",
+             "LOG k8s/shop/catalog-api ROLLOUT revision 9: app:does-not-exist created 2026-09-26T11:26:50Z"]
+
+    def undo(ready):
+        r = build_report(alert(), context=ctx(lines, {"pods_total__catalog-api": 2.0,
+                                                      "pods_ready__catalog-api": ready}),
+                         backend="stack", show_identifiers=True)
+        return [f for f in r.data["fix_commands"] if "rollout undo" in f["command"]]
+
+    assert undo(2.0) == []
+    assert undo(1.0), "a revision that is failing NOW is still rolled back"

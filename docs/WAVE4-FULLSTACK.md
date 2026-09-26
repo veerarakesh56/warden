@@ -385,3 +385,29 @@ reverted once, and the whole-stack baseline was clean after each revert. What it
   **Evidence isolation across run directories is still manual.** The measured run does not know about
   the preflight's activity, so its first inject waits 18 minutes after the preflight's last revert (the
   same quiet gap it enforces between its own faults).
+
+**The measured run, fs-00 (2026-09-26, 12:07-12:29 UTC), and what changed because of it.** Every item
+below is also printed in the run's RESULTS.md section 7.
+
+- **The first diagnose produced no report.** Every attempt of one model call hit the claude_cli
+  provider's 45 s ceiling. The real three-call diagnosis takes ~69 s (measured once with a higher limit;
+  that report was deleted unread). The claude_cli provider now defaults to 180 s. The retry was allowed
+  only because no report existed. The failed attempt is kept in the record (`attempts_without_report`)
+  and in the manifest's `resumes`.
+- **The answer that was graded read another incident's evidence.** WARDEN's Kubernetes events and live
+  pod logs had no time window, and its deploy history was 6 hours. So the healthy control read the
+  preflight's rollouts and start-up readiness failures, and concluded (confidence 0.40, escalated) that
+  an incident had already happened. Its action was `no_action`. That answer stands as recorded; it is
+  not re-asked.
+- **WARDEN's printed fix broke a healthy service, and the harness applied it, as the protocol says.**
+  The probe pattern printed `kubectl -n shop rollout undo deploy/catalog-api` while 2/2 pods were Ready.
+  The previous revision was the preflight's `does-not-exist` image, so catalog-api went to 1/2 ready.
+  `verify` recorded it not fixed. fs-00 has no fault revert, and the harness undoes only SQL fix
+  effects, so the operator rolled catalog-api back to revision 10 by hand. That repair is recorded as
+  an operator note.
+- **Changed before fs-01**, each with a test that fails without it:
+  - WARDEN's k8s events and live pod logs reach back 15 min, like its CloudWatch reads.
+  - `rollout undo` is printed only while the Deployment is failing now.
+  - The harness pins every evidence window in WARDEN's environment: 15 min logs, 10 metrics,
+    **30 deploy history**. The quiet gap between faults is therefore 33 minutes.
+  - The change of isolation settings is written to the manifest and printed in the results.

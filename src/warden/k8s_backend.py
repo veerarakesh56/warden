@@ -71,6 +71,11 @@ REQUEST_TIMEOUT = (
 # How far back a template change counts as "recent" — this window IS the evidence policy P5 asks
 # for before permitting a rollback.
 RECENT_DEPLOY_WINDOW = timedelta(hours=float(os.environ.get("WARDEN_K8S_DEPLOY_WINDOW_H", "6")))
+# How far back events and live container logs are read - the same reach as the AWS side's CloudWatch
+# window. Before this, both were unbounded (every event the API still held, the last N log lines):
+# Wave 4's healthy-control run read readiness-probe failures and start-up logs from an hour earlier
+# and proposed rolling catalog-api back onto a broken image (2026-09-26).
+LOG_LOOKBACK = timedelta(minutes=float(os.environ.get("WARDEN_K8S_LOG_LOOKBACK_M", "15")))
 LOG_TAIL_LINES = int(os.environ.get("WARDEN_K8S_LOG_TAIL", "40"))
 # Lines of a CRASHED container's output (`logs --previous`). Its last lines hold the fatal message; the
 # restarted container's log usually shows only a fresh start.
@@ -192,9 +197,13 @@ class KubernetesBackend:
             events = []
             lines.append(f"{PARTIAL_PREFIX}events: {_api_error(exc)}")
 
+        oldest = datetime.now(UTC) - LOG_LOOKBACK
         for ev in sorted(events, key=lambda e: (e.last_timestamp or e.event_time or _EPOCH)):
             if ev.reason not in INTERESTING_EVENT_REASONS:
                 continue
+            when = _aware(ev.last_timestamp or ev.event_time)
+            if when is not None and when < oldest:
+                continue  # an earlier incident's event, not this one's
             obj = ev.involved_object
             kind, name = obj.kind, obj.name
             if kind == "Pod" and name not in pod_names:
@@ -221,6 +230,7 @@ class KubernetesBackend:
                     resp = self._core.read_namespaced_pod_log(
                         pod.metadata.name, ns, container=container.name,
                         tail_lines=LOG_TAIL_LINES, timestamps=True,
+                        since_seconds=int(LOG_LOOKBACK.total_seconds()),
                         # Read the raw response. The client's own deserialisation returned the
                         # REPR of bytes as a str against a real k3s cluster - one line, literal \n.
                         _preload_content=False,

@@ -607,3 +607,33 @@ def test_only_a_diagnose_that_wrote_no_report_may_be_retried_and_it_stays_on_rec
         cli.step_diagnose(env, tmp_path, "fs-00", retry_reason="a better answer, please")
     assert cli.main(["--run", str(tmp_path), "--dry-run", "score"]) == 0
     assert "provider timeout" in (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+
+
+def test_every_evidence_window_is_pinned_and_the_quiet_gap_outlasts_the_longest():
+    """fs-00 read the preflight's rollouts: WARDEN's deploy history was its 6 h default."""
+    creds = {"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "s", "AWS_SESSION_TOKEN": "t",
+             "KUBECONFIG": "k", "WARDEN_STACK_DB_WRITER_DSN": "w", "WARDEN_STACK_DB_READER_DSN": "r"}
+    env = cli.fullstack_warden_env(creds, {}, "ap-south-2")
+    assert env["WARDEN_AWS_DEPLOY_WINDOW_H"] == env["WARDEN_K8S_DEPLOY_WINDOW_H"] == "0.5"
+    assert env["WARDEN_AWS_LOG_LOOKBACK_M"] == env["WARDEN_K8S_LOG_LOOKBACK_M"] == "15"
+    assert cli.QUIET_SECONDS == (30 + 3) * 60
+
+
+def test_a_mid_run_isolation_change_and_a_hand_repair_are_printed_in_the_results(tmp_path):
+    env = cli.dry_env()
+    cli.step_inject(env, tmp_path, "fs-03", wait_alarm=False)
+    manifest_path = tmp_path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["evidence_isolation"] = {"log_lookback_m": 15, "metric_window_m": 10}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    cli.step_diagnose(env, tmp_path, "fs-03")  # opens the run again: the change is recorded
+    history = json.loads(manifest_path.read_text(encoding="utf-8"))["evidence_isolation_history"]
+    assert history[-1]["to"]["deploy_window_m"] == 30
+    gt = tmp_path / "ground-truth" / "fs-03-lambda-throttled.json"
+    record = json.loads(gt.read_text(encoding="utf-8"))
+    record["operator_notes"] = [{"at": "2026-09-26T12:28:28+00:00", "note": "rolled catalog-api back by hand"}]
+    gt.write_text(json.dumps(record), encoding="utf-8")
+    assert cli.main(["--run", str(tmp_path), "--dry-run", "score"]) == 0
+    results = (tmp_path / "RESULTS.md").read_text(encoding="utf-8")
+    assert "Evidence isolation changed" in results and "deploy_window_m" in results
+    assert "rolled catalog-api back by hand" in results

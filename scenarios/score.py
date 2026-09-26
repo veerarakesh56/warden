@@ -384,9 +384,11 @@ def score_run_dir(run_dir: pathlib.Path, rubric_path: pathlib.Path = SCORING) ->
 
     rows: list[dict] = []
     incomplete: list[str] = []
+    operator_notes: list[tuple[str, dict]] = []
     for gt_path in sorted((run_dir / "ground-truth").glob("*.json")):
         ground_truth = json.loads(gt_path.read_text(encoding="utf-8"))
         scenario_id = ground_truth["scenario_id"]
+        operator_notes += [(scenario_id, n) for n in ground_truth.get("operator_notes") or []]
         scenario = catalog.get(scenario_id)
         if scenario is None:
             raise ScoringError(
@@ -410,6 +412,7 @@ def score_run_dir(run_dir: pathlib.Path, rubric_path: pathlib.Path = SCORING) ->
         "manifest": manifest,
         "rows": rows,
         "incomplete": incomplete,
+        "operator_notes": operator_notes,
         "rubric_drift": rubric_drift,
         "rubric_sha256_recorded": recorded,
         "rubric_sha256_now": current,
@@ -673,6 +676,14 @@ def render_markdown(scored: dict, summary: dict) -> str:
             add(f"| {str(entry.get('at', ''))[:19]} | `{str(entry.get('git_commit', ''))[:7]}` "
                 f"| {len(entry.get('rerun') or [])} | {', '.join(entry.get('forced') or []) or '—'} "
                 f"| {entry.get('reason') or '— (only incomplete scenarios)'} |")
+        add("")
+    # ⛔ Anything the operator did by hand, and every change to what WARDEN could read, mid-run.
+    for change in manifest.get("evidence_isolation_history") or []:
+        add(f"- **Evidence isolation changed** at {str(change.get('at', ''))[:19]} (`{str(change.get('git_commit', ''))[:7]}`): "
+            f"`{change.get('from')}` -> `{change.get('to')}`. Runs before it read under the old setting.")
+    for sid, note in scored.get("operator_notes") or []:
+        add(f"- **Operator, by hand** (`{sid}`, {str(note.get('at', ''))[:19]}): {note.get('note', '')}")
+    if manifest.get("evidence_isolation_history") or scored.get("operator_notes"):
         add("")
     if scored["incomplete"]:
         add("Scenarios that did not complete cleanly:")

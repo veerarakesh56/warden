@@ -538,6 +538,14 @@ def _rollout_undo(alert: Alert, ctx: ContextBundle, line: str | None) -> list[st
     revs = [ln for ln in ctx.logs if "ROLLOUT revision" in ln and (ln.startswith(tag) or not ln.startswith("LOG "))]
     if not any("(current)" in r for r in revs) or len(revs) < 2:
         return []
+    # ⛔ Only while the CURRENT revision is failing. Wave 4's healthy control (2026-09-26) had 2/2
+    # pods Ready, matched start-up readiness failures, and printed this undo - which rolled
+    # catalog-api back onto the previous revision: a broken image from an earlier fault.
+    m = ctx.metrics
+    ready = m.get(f"pods_ready__{dep}", m.get("pods_ready"))
+    total = m.get(f"pods_total__{dep}", m.get("pods_total"))
+    if ready is not None and total and ready >= total:
+        return []
     return [f"kubectl -n {ns} rollout undo deploy/{dep}"]
 
 

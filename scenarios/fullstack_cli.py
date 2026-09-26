@@ -88,12 +88,22 @@ STACK_KEYS = {
                  "checkout_role", "ecs_exec_role", "slow_index", "orders_sql_table", "config_key"),
 }
 
-# Evidence reach of the stack backend: 15 min of logs, 10 of metrics (src/warden/aws_stack.py). The
-# quiet period before each inject outlasts it by the same 3-minute margin as runner.QUIET_MARGIN_M.
-LOG_LOOKBACK_M, METRIC_WINDOW_M, QUIET_MARGIN_M = 15, 10, 3
-QUIET_SECONDS = (max(LOG_LOOKBACK_M, METRIC_WINDOW_M) + QUIET_MARGIN_M) * 60
+# Evidence reach of the stack backend, PINNED in WARDEN's environment (fullstack_warden_env), not left
+# to WARDEN's defaults: 15 min of logs and k8s events, 10 of metrics, 30 of deploy history. The quiet
+# period before each inject outlasts the longest by the same 3-minute margin as runner.QUIET_MARGIN_M.
+# ⛔ The deploy window was WARDEN's 6 h default until after fs-00 (2026-09-26): that control run read
+# the preflight's rollouts. 30 min still covers every fault's own change (worst case fs-16: the
+# reconciler's config change, alarm up to 25 min later).
+LOG_LOOKBACK_M, METRIC_WINDOW_M, DEPLOY_WINDOW_M, QUIET_MARGIN_M = 15, 10, 30, 3
+QUIET_SECONDS = (max(LOG_LOOKBACK_M, METRIC_WINDOW_M, DEPLOY_WINDOW_M) + QUIET_MARGIN_M) * 60
 EVIDENCE_ISOLATION = {"log_lookback_m": LOG_LOOKBACK_M, "metric_window_m": METRIC_WINDOW_M,
+                      "deploy_window_m": DEPLOY_WINDOW_M,
                       "quiet_seconds_before_each_inject": QUIET_SECONDS}
+WARDEN_EVIDENCE_ENV = {
+    "WARDEN_AWS_LOG_LOOKBACK_M": str(LOG_LOOKBACK_M), "WARDEN_AWS_METRIC_WINDOW_M": str(METRIC_WINDOW_M),
+    "WARDEN_K8S_LOG_LOOKBACK_M": str(LOG_LOOKBACK_M),
+    "WARDEN_AWS_DEPLOY_WINDOW_H": str(DEPLOY_WINDOW_M / 60), "WARDEN_K8S_DEPLOY_WINDOW_H": str(DEPLOY_WINDOW_M / 60),
+}
 ALARM_POLL_S = 30
 VERIFY_POLL_S = 20
 HOLD_MAX_S = 3 * 3600  # an orphaned holder closes its sessions by itself after this
@@ -214,6 +224,7 @@ def fullstack_warden_env(creds: dict[str, str], arm: dict[str, str], region: str
         "WARDEN_STACK_DB_WRITER_DSN": creds["WARDEN_STACK_DB_WRITER_DSN"],
         "WARDEN_STACK_DB_READER_DSN": creds["WARDEN_STACK_DB_READER_DSN"],
         "WARDEN_BACKEND": "stack",
+        **WARDEN_EVIDENCE_ENV,
         # One gather reads every labelled component plus a Lambda code download (builder A).
         "WARDEN_TOOL_TIMEOUT": os.environ.get("WARDEN_TOOL_TIMEOUT", "30"),
     })
@@ -494,6 +505,13 @@ def open_run(env: Env, run: pathlib.Path) -> dict:
         if bool(manifest.get("dry_run")) != env.dry_run:
             raise StepError(f"{run}: dry_run={manifest.get('dry_run')} run, this command is "
                             f"dry_run={env.dry_run}. Use a different --run directory.")
+        if manifest.get("evidence_isolation") != EVIDENCE_ISOLATION:
+            # Never silent: the change, when and at which commit, is kept and printed in RESULTS.md.
+            manifest.setdefault("evidence_isolation_history", []).append({
+                "at": _now(), "git_commit": _git_commit(),
+                "from": manifest.get("evidence_isolation"), "to": EVIDENCE_ISOLATION})
+            manifest["evidence_isolation"] = EVIDENCE_ISOLATION
+            _write_json(path, manifest)
         return manifest
     template = yaml.safe_load(ALERT_TEMPLATE.read_text(encoding="utf-8"))
     manifest = {
@@ -596,7 +614,7 @@ def step_inject(env: Env, run: pathlib.Path, key: str, *, skip_quiet: bool = Fal
         idle = (dt.datetime.now(dt.UTC) - dt.datetime.fromisoformat(last)).total_seconds()
         if idle < QUIET_SECONDS:
             raise StepError(f"only {idle / 60:.0f} min since the last fault's revert; WARDEN reads "
-                            f"{LOG_LOOKBACK_M} min back. Wait {(QUIET_SECONDS - idle) / 60:.0f} more "
+                            f"up to {max(LOG_LOOKBACK_M, METRIC_WINDOW_M, DEPLOY_WINDOW_M)} min back. Wait {(QUIET_SECONDS - idle) / 60:.0f} more "
                             "minutes, or pass --skip-quiet (recorded in the ground truth).")
     problems = stack_problems(env)
     if problems:

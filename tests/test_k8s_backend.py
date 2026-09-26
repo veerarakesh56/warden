@@ -96,6 +96,7 @@ class FakeCore:
         assert kw.get("_preload_content") is False, "logs must be read raw - see _log_text()"
         assert "_request_timeout" in kw
         self.calls.append(f"read_namespaced_pod_log {ns}/{name}/{container}")
+        self.log_kwargs = getattr(self, "log_kwargs", []) + [kw]
         if self._log_raises:
             raise RuntimeError("(400)\nReason: Bad Request\nHTTP response headers: secret-ish")
         return self._log
@@ -756,3 +757,19 @@ def test_hpa_forbidden_is_omitted_not_a_failed_read():
     ctx = gather(_alert(), b, timeout=2.0)
     assert ctx.tool_errors == []
     assert not any(k.startswith("hpa_") for k in ctx.metrics)
+
+
+def test_an_earlier_incidents_events_and_logs_are_not_this_ones_evidence():
+    """Wave 4's healthy control read readiness-probe failures and start-up logs from an hour before
+    the alert (another fault's rollout) and proposed rolling catalog-api back onto a broken image.
+    Events and live container logs now reach back LOG_LOOKBACK only, like the AWS side."""
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    events = [_event("Unhealthy", "an hour ago", ts=now - timedelta(hours=1)),
+              _event("Unhealthy", "just now", ts=now - timedelta(minutes=2))]
+    core = FakeCore(pods=[_pod()], events=events)
+    joined = " | ".join(_backend(core).logs(_alert()))
+    assert "just now" in joined and "an hour ago" not in joined
+    live = [kw for kw in core.log_kwargs if not kw.get("previous")]
+    assert live and all(kw.get("since_seconds") == 15 * 60 for kw in live)
