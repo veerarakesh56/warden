@@ -718,3 +718,33 @@ def test_the_only_database_login_the_reader_role_holds_is_warden_ro():
     block = re.search(r'statement \{\s*sid\s*=\s*"ConnectAsWardenRo"(.*?)\n  \}', text, re.DOTALL).group(1)
     assert re.findall(r'"(arn:[^"]+)"', block) == [
         "arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/warden_ro"]
+
+
+def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numerically_previous(dsns):
+    """Wave 4 rolled checkout back onto the previous fault's broken version twice (fs-01 -> 6,
+    fs-02 -> 7) while version 3 had served the traffic for hours."""
+    def served(MetricDataQueries, **_):
+        out = []
+        for q in MetricDataQueries:
+            dims = {d["Name"]: d["Value"] for d in q.get("MetricStat", {}).get("Metric", {}).get("Dimensions", [])}
+            v = dims.get("ExecutedVersion")
+            out.append({"Id": q["Id"], "Values": [900.0] if v == "3" else [4.0] if v == "6" else []})
+        return {"MetricDataResults": out}
+
+    def t(delta):
+        return (NOW - delta).strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+
+    lam = _lambda(list_versions_by_function={"Versions": [
+        {"Version": "3", "LastModified": t(timedelta(days=5))}, {"Version": "6", "LastModified": t(timedelta(hours=3))},
+        {"Version": "7", "LastModified": t(timedelta(minutes=4))}]})
+    d = next(x for x in _backend(_clients(**{"lambda": lam, "cloudwatch": Fake(get_metric_data=served)}))
+             .deploys(_full_alert()) if x["kind"] == "lambda")
+    assert d["version"] == "7" and d["previous"] == "3"
+    assert d["previous_basis"].startswith("served live traffic")
+
+    def silent(MetricDataQueries, **_):
+        return {"MetricDataResults": [{"Id": q["Id"], "Values": []} for q in MetricDataQueries]}
+
+    d = next(x for x in _backend(_clients(**{"lambda": lam, "cloudwatch": Fake(get_metric_data=silent)}))
+             .deploys(_full_alert()) if x["kind"] == "lambda")
+    assert d["previous"] == "6" and d["previous_basis"].startswith("numerically previous")

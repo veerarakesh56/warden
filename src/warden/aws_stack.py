@@ -41,7 +41,7 @@ import threading
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from .aws_backend import (
     CONNECT_TIMEOUT,
@@ -74,6 +74,10 @@ NAME_PREFIX = "warden-pg-fs-"
 CODE_MAX_BYTES = int(os.environ.get("WARDEN_STACK_CODE_MAX_BYTES", str(20 * 1024 * 1024)))
 SOURCE_CONTEXT_LINES = 3
 MAX_CODE_FRAMES = 3  # distinct tracebacks per function turned into CODE/SOURCE lines
+# Lambda rollback target: the version that served `live` traffic in this long before the current
+# version was published, among the newest SERVED_CANDIDATES older versions (_served_before).
+SERVED_LOOKBACK = timedelta(hours=6)
+SERVED_CANDIDATES = 10
 
 _TRACEBACK = "Traceback (most recent call last):"
 _FRAME = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
@@ -415,6 +419,33 @@ class StackBackend:
                                  max(values) / METRIC_PERIOD_S if stat == "Sum/s" else max(values))
         return got
 
+    def _served_before(self, fn: str, candidates: list[str], before: datetime) -> str:
+        """The version that served the most `live` traffic in the SERVED_LOOKBACK before `before`
+        (the current version's publish time), or "" when no candidate shows any.
+
+        ⛔ Not "the numerically previous version". A version that was deployed and rolled back is
+        still the newest older one: Wave 4 (2026-09-26) rolled checkout back onto the previous
+        fault's broken version twice (fs-01 -> 6, fs-02 -> 7) while version 3 had served the traffic
+        for hours. Lambda keeps no alias history; its ExecutedVersion metric does.
+        """
+        cands = candidates[-SERVED_CANDIDATES:]
+        if not cands:
+            return ""
+        specs = [{"Id": f"v{i}", "ReturnData": True, "MetricStat": {
+            "Metric": {"Namespace": "AWS/Lambda", "MetricName": "Invocations", "Dimensions": [
+                {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:live"},
+                {"Name": "ExecutedVersion", "Value": v}]},
+            "Period": 300, "Stat": "Sum"}} for i, v in enumerate(cands)]
+        try:
+            resp = self._cw.get_metric_data(MetricDataQueries=specs, StartTime=before - SERVED_LOOKBACK,
+                                            EndTime=before)
+        except Exception:  # noqa: BLE001 - no traffic data: the caller falls back, and says so
+            return ""
+        served = {cands[int(r["Id"][1:])]: sum(r.get("Values") or [])
+                  for r in resp.get("MetricDataResults") or [] if str(r.get("Id", "")).startswith("v")}
+        best, calls = max(served.items(), key=lambda kv: (kv[1], int(kv[0])), default=("", 0.0))
+        return best if calls > 0 else ""
+
     def _in_window(self, alert: Alert, at: datetime | None) -> bool:
         return at is not None and at >= AwsBackend._started_at(alert) - RECENT_DEPLOY_WINDOW
 
@@ -475,8 +506,12 @@ class StackBackend:
         at = _parse_time(target.get("LastModified")) if target else None
         if target and self._in_window(alert, at):
             older = [v["Version"] for v in versions if int(v["Version"]) < int(target["Version"])]
+            served = self._served_before(fn, older, at) if live else ""
             out.deploys.append({"kind": "lambda", "service": fn, "at": _z(at),
-                                "version": target["Version"], "previous": older[-1] if older else ""})
+                                "version": target["Version"],
+                                "previous": served or (older[-1] if older else ""),
+                                "previous_basis": ("served live traffic before this version" if served
+                                                   else "numerically previous version (no per-version traffic)")})
 
         dims = {"FunctionName": fn}
         out.metrics.update(self._cw_read(out, f"lambda/{fn}", alert, {

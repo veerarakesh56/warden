@@ -411,3 +411,19 @@ below is also printed in the run's RESULTS.md section 7.
   - The harness pins every evidence window in WARDEN's environment: 15 min logs, 10 metrics,
     **30 deploy history**. The quiet gap between faults is therefore 33 minutes.
   - The change of isolation settings is written to the manifest and printed in the results.
+- **After fs-02 (13:56 UTC): the Lambda rollback target.**
+  - WARDEN took "previous" to be the numerically previous version. Each injected fault publishes one,
+    so fs-01's fix aimed at version 6 (the preflight's fs-04 version). fs-02's fix aimed at 7, fs-01's
+    broken version. It was applied and did not fix it: 27 of 27 invocations still erred.
+  - Version 3 had served the traffic for hours. Lambda keeps no alias history, but its
+    `ExecutedVersion` metric records it. The deploy record's `previous` is now the version that served
+    the most `live` traffic in the 6 h before the current version was published.
+  - The record says which basis it used. When no per-version traffic exists, it falls back to the
+    numerically previous version.
+  - Checked live: it gives 3 for both fs-01 and fs-02.
+- **Harness fixes found by fs-01**, both with tests:
+  - The verifiers called `cloudwatch:GetMetricStatistics`, which the operator is not granted. They now
+    use `GetMetricData`. All 28 verifiers were run against the live baseline and return "fixed".
+  - WARDEN's fix was rebuilt without `AWS_REGION`, so it came out without `--region` and the
+    allow-list refused it. fs-01's `fix_not_allowed` is therefore a harness artefact; its record says
+    so, and what the fix would have done.
