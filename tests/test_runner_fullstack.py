@@ -558,3 +558,21 @@ def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatc
     monkeypatch.setenv("KUBECONFIG", str(tmp_path / "missing"))
     with pytest.raises(cli.StepError, match="no usable kubeconfig"):
         cli.load_kubeconfig(kube.config, default=cfg)
+
+
+def test_a_wave4_report_is_posted_as_the_stack_it_ran_on(tmp_path, capsys):
+    """WARDEN ran with WARDEN_BACKEND=stack. The Slack re-render had no mapping for Wave 4's
+    target_kind, so a report without stack labels fell back to "assume Kubernetes" commands."""
+    import importlib.util
+
+    env = cli.dry_env()
+    cli.step_inject(env, tmp_path, "fs-03", wait_alarm=False)
+    cli.step_diagnose(env, tmp_path, "fs-03")
+    assert cli.main(["--run", str(tmp_path), "--dry-run", "score"]) == 0
+    spec = importlib.util.spec_from_file_location("post", runner.ROOT / "scripts" / "post_bench_reports.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    capsys.readouterr()
+    assert mod.main(["--run", str(tmp_path), "--print"]) == 0
+    out = capsys.readouterr().out
+    assert "assume Kubernetes" not in out

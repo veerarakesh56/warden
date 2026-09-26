@@ -30,7 +30,7 @@ from warden.models import RunReport
 from warden.redaction import redact
 from warden.reporting import build_report
 
-_BACKEND = {"k8s": "k8s", "db": "postgres", "ecs": "aws"}
+_BACKEND = {"k8s": "k8s", "db": "postgres", "ecs": "aws", "fullstack": "stack"}  # WARDEN_BACKEND each wave ran with
 
 
 def main(argv: list[str] | None = None) -> int:
