@@ -427,3 +427,14 @@ below is also printed in the run's RESULTS.md section 7.
   - WARDEN's fix was rebuilt without `AWS_REGION`, so it came out without `--region` and the
     allow-list refused it. fs-01's `fix_not_allowed` is therefore a harness artefact; its record says
     so, and what the fix would have done.
+- **fs-03 (14:29-14:52 UTC), an account limit, not a WARDEN defect.**
+  - WARDEN diagnosed it correctly: reserved concurrency 0.
+  - It printed `put-function-concurrency ... 4`, with its standing caveat that AWS keeps 10 concurrent
+    executions unreserved. AWS refused it with `InvalidParameterValueException`. This Free-plan
+    account's whole Lambda limit is 10, all of it the unreserved minimum, so no positive reservation
+    exists here. Verify recorded it not fixed.
+  - The fix that works on this account, `delete-function-concurrency`, is deliberately outside the
+    allow-list: it lifts the function's cap, and section 6's "never `delete-*`" is tested with that
+    exact command.
+  - A change to print it was tried and withdrawn rather than weaken a deliberate safety rule mid-run.
+    On an account with a normal limit (1000), WARDEN's printed fix applies.
