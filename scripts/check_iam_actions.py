@@ -57,6 +57,13 @@ def actions_in(paths: list[pathlib.Path]) -> dict[str, list[str]]:
     return found
 
 
+# Real actions IAM enforces that AWS's validators do not list yet. Each entry is PROVEN, not assumed:
+# rds:EnableInternetAccessGateway - Aurora express configuration (AWS doc "Create with express
+#   configuration", Prerequisites). On 2026-09-26 CreateDBCluster with express was refused with
+#   CreateDBCluster + CreateDBInstance granted on subgrp:default, and accepted once this was added.
+KNOWN_UNLISTED = {"rds:EnableInternetAccessGateway"}
+
+
 def main() -> int:
     # FIRST, before argparse can print: the help text carries marks a cp1252 console cannot encode.
     for stream in (sys.stdout, sys.stderr):
@@ -97,6 +104,8 @@ def main() -> int:
                 findings.append(f"{action}: wildcard matches NOTHING   [{where}]")
         elif name in service:
             confirmed += 1
+        elif action in KNOWN_UNLISTED:
+            print(f"  {action}: not in AWS's list yet - known and proven (see KNOWN_UNLISTED)")
         else:
             near = sorted(k for k in service if k.lower().startswith(name.lower()[:6]))[:4]
             findings.append(

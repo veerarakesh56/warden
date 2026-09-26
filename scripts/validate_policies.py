@@ -31,6 +31,13 @@ DEFAULT_GLOB = "terraform/proving-ground/operator-policy*.json"
 LEVELS = ("ERROR", "SECURITY_WARNING", "WARNING", "SUGGESTION")
 
 
+# Real actions IAM enforces that AWS's validators do not list yet. Each entry is PROVEN, not assumed:
+# rds:EnableInternetAccessGateway - Aurora express configuration (AWS doc "Create with express
+#   configuration", Prerequisites). On 2026-09-26 CreateDBCluster with express was refused with
+#   CreateDBCluster + CreateDBInstance granted on subgrp:default, and accepted once this was added.
+KNOWN_UNLISTED = {"rds:EnableInternetAccessGateway"}
+
+
 def main(argv: list[str] | None = None, *, client=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -63,6 +70,9 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
             for page in pager.paginate(policyDocument=path.read_text(encoding="utf-8"),
                                        policyType="IDENTITY_POLICY"):
                 findings += page.get("findings") or []
+            findings = [f for f in findings if not (
+                f.get("issueCode") == "INVALID_ACTION"
+                and any(a in f.get("findingDetails", "") for a in KNOWN_UNLISTED))]
         except Exception as exc:  # noqa: BLE001 - a permission or network failure is not a finding
             print(f"{path.name}: could not validate ({type(exc).__name__}: {exc})")
             return 2

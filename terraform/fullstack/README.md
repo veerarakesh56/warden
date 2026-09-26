@@ -75,7 +75,7 @@ USD 50 is about four days of this stack left running. Destroy it when a run ends
        python scripts/apply_operator_policy.py \
            terraform/proving-ground/operator-policy.json WardenProvingGroundOperator
 
-   2026-09-26 added `AuroraIamLoginAsPostgres` (`rds-db:connect` on `dbuser:*/postgres`): the
+   2026-09-26 added `PgLogin` (`rds-db:connect` on `dbuser:*/postgres`): the
    master-user login `bootstrap-db` and the harness's admin connection sign with the operator's own
    credentials. 6,136 of 6,144 characters.
 4. **Service-linked roles** on a fresh account (the Wave 2 lesson: the calls that need them check

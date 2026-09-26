@@ -274,7 +274,7 @@ def test_the_boundary_allows_the_new_services_only_on_our_names():
 def test_only_the_operator_may_log_in_as_postgres_and_the_ceiling_allows_it():
     """bootstrap-db and the harness's admin connection sign a token as the master user with the
     operator's own credentials. Nothing else in the repository may be granted that login."""
-    st = next(s for s in _stmts(OPERATOR) if s["Sid"] == "AuroraIamLoginAsPostgres")
+    st = next(s for s in _stmts(OPERATOR) if s["Sid"] == "PgLogin")
     assert (st["Effect"], st["Action"], st["Resource"]) == (
         "Allow", "rds-db:connect", "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres")
     assert len(json.dumps(json.loads(OPERATOR.read_text(encoding="utf-8")), separators=(",", ":"))) <= POLICY_LIMIT
@@ -601,7 +601,7 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
     found = ax.create(rds, sm, stack, log=lambda *_: None)
     create = next(kw for n, kw in rds.calls if n == "create_db_cluster")
     assert create == {"DBClusterIdentifier": "warden-pg-fs-aurora", "Engine": "aurora-postgresql",
-                      "WithExpressConfiguration": True, "DatabaseName": "shop", "Tags": ax.TAGS}
+                      "WithExpressConfiguration": True, "Tags": ax.TAGS}
     assert {"Key": "Project", "Value": "warden-fullstack"} in ax.TAGS
     assert ("modify_db_cluster", {"DBClusterIdentifier": "warden-pg-fs-aurora", "ApplyImmediately": True,
                                   "ServerlessV2ScalingConfiguration": {"MinCapacity": 0.5, "MaxCapacity": 2.0}}) in rds.calls

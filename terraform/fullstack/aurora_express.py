@@ -106,7 +106,9 @@ def create(rds, sm, stack: pathlib.Path, cluster: str = CLUSTER, log=print) -> d
     if describe(rds, cluster) is None:
         log(f"creating {cluster} (express configuration, database {DB_NAME})")
         rds.create_db_cluster(DBClusterIdentifier=cluster, Engine="aurora-postgresql",
-                              WithExpressConfiguration=True, DatabaseName=DB_NAME, Tags=TAGS)
+                              # No DatabaseName: express refuses it (InvalidParameterCombination, seen
+                              # 2026-09-26, despite the doc) - bootstrap-db creates DB_NAME instead.
+                              WithExpressConfiguration=True, Tags=TAGS)
     else:
         log(f"{cluster} exists - refreshing the secret and stack.json only")
     c = _wait_cluster(rds, cluster)

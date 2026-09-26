@@ -174,33 +174,55 @@ def test_render_refuses_a_leftover_placeholder():
         tool.render("image: __IMAGE__\nhost: __NEW_THING__", {"IMAGE": "x"})
 
 
-def test_bootstrap_db_logs_in_as_postgres_with_an_iam_token_and_sends_the_file_as_is():
-    """No password exists (Aurora express configuration): the token is signed with the operator's
-    credentials, and bootstrap.sql is sent unchanged - it has no placeholders."""
-    seen = {}
+def _bootstrap(db_exists: bool):
+    """Run bootstrap_db against fake connections; return (connections opened, statements per db)."""
+    opened, statements = [], {}
 
     class Conn:
+        def __init__(self, db):
+            self.db = db
+
         def __enter__(self):
             return self
 
         def __exit__(self, *a):
             return False
 
-        def execute(self, query):
-            seen["sql"] = query
+        def execute(self, query, params=None):
+            text = query if isinstance(query, str) else query.as_string(None)
+            statements.setdefault(self.db, []).append(text)
+            return type("R", (), {"fetchone": lambda _self: (1,) if db_exists else None})()
 
     def connect(**kw):
-        seen["kw"] = kw
-        return Conn()
+        opened.append(kw)
+        return Conn(kw["dbname"])
 
     clients = {"rds": Fake({"generate_db_auth_token": "token-SENTINEL"})}
     tool.bootstrap_db(STACK, aws_factory(clients), connect=connect)
     assert clients["rds"].calls == [("generate_db_auth_token", {
         "DBHostname": "writer.internal", "Port": 5432, "DBUsername": "postgres", "Region": "ap-south-2"})]
-    assert seen["kw"]["user"] == "postgres" and seen["kw"]["password"] == "token-SENTINEL"
-    assert seen["kw"]["host"] == "writer.internal" and seen["kw"]["sslmode"] == "require"
-    assert seen["sql"] == (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     assert "secretsmanager" not in clients
+    return opened, statements
+
+
+def test_bootstrap_db_logs_in_as_postgres_with_an_iam_token_and_sends_the_file_as_is():
+    """No password exists (Aurora express configuration): the token is signed with the operator's
+    credentials, and bootstrap.sql is sent unchanged to the application database."""
+    opened, statements = _bootstrap(db_exists=True)
+    assert [kw["dbname"] for kw in opened] == ["postgres", STACK["db_name"]]
+    for kw in opened:
+        assert kw["user"] == "postgres" and kw["password"] == "token-SENTINEL"
+        assert kw["host"] == "writer.internal" and kw["sslmode"] == "require"
+    assert not any("CREATE DATABASE" in q for q in statements["postgres"])
+    assert statements[STACK["db_name"]] == [
+        (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")]
+
+
+def test_bootstrap_db_creates_the_database_express_could_not():
+    """Aurora express refuses an initial database name (seen 2026-09-26), so bootstrap creates it."""
+    pytest.importorskip("psycopg")  # the apps pipeline installs it; the tool CI does not
+    _, statements = _bootstrap(db_exists=False)
+    assert any(q.startswith("CREATE DATABASE") and STACK["db_name"] in q for q in statements["postgres"])
 
 
 def test_run_decodes_tool_output_as_utf8_not_the_locale(monkeypatch):

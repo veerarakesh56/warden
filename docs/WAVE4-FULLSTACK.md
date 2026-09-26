@@ -261,7 +261,7 @@ after the script runs, so the user name is the scope):
 | `app` | order-processor Lambda role; orders-api's NEW ECS task role `warden-pg-fs-orders-api-task` | `lambda.tf` (Sid `ConnectAsApp`), `ecs.tf` |
 | `catalog` | reconciler Lambda role (it reads the reader); catalog-api through EKS Pod Identity, role `warden-pg-fs-catalog-pod` | `lambda.tf` (Sid `ConnectAsCatalog`), `eks.tf` |
 | `warden_ro` | WARDEN - the token is signed by the harness with the assumed `warden-pg-fs-reader` credentials | `reader.tf` (the reader-policy test's one named exception: not an API call) |
-| `postgres` | the operator only: `bootstrap-db` and the harness's admin connection | `terraform/proving-ground/operator-policy.json` (Sid `AuroraIamLoginAsPostgres`) |
+| `postgres` | the operator only: `bootstrap-db` and the harness's admin connection | `terraform/proving-ground/operator-policy.json` (Sid `PgLogin`) |
 
 The permissions boundary gained `rds-db:connect` (the owner applies it) - every `warden-pg-fs-*`
 role carries it, so without it none of these grants would take effect.

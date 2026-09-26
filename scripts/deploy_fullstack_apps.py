@@ -255,6 +255,16 @@ def bootstrap_db(stack: dict, aws, connect=None) -> None:
 
         connect = psycopg.connect
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
+    # Aurora express cannot create an initial database, so it is created here - from the always-present
+    # `postgres` database, idempotently (CREATE DATABASE has no IF NOT EXISTS).
+    with connect(host=host, dbname="postgres", user=user, password=token, port=5432,
+                 sslmode="require", connect_timeout=10, autocommit=True) as conn:
+        exists = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (stack["db_name"],)).fetchone()
+        if not exists:
+            from psycopg import sql
+
+            conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(stack["db_name"])))
+            print(f"created database {stack['db_name']}", flush=True)
     with connect(host=host, dbname=stack["db_name"], user=user, password=token, port=5432,
                  sslmode="require", connect_timeout=10, autocommit=True) as conn:
         conn.execute(text)
