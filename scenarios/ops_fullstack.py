@@ -527,21 +527,34 @@ def _holders_left(c: Clients, fid: str) -> int:
 # open; the caller keeps them open until told to stop.
 
 
-def hold_connections(c: Clients, t: Target, fid: str, *, headroom: int = 3) -> tuple[list, dict]:
+def hold_connections(c: Clients, t: Target, fid: str, *, headroom: int = 3,
+                     workers: int = 16) -> tuple[list, dict]:
     """fs-12: open sessions until the server refuses, then give `headroom` back so an operator (and
-    WARDEN's read) can still get in - the apps' pools grab them and hit the limit."""
+    WARDEN's read) can still get in - the apps' pools grab them and hit the limit.
+
+    ⛔ Measured in the preflight (2026-09-26): one IAM-token TLS login through the express gateway
+    takes ~0.26 s, so 844 in series took 3.7 minutes - past the inject's ready timeout, and the
+    revert then raced a holder that was still opening sessions. So: in parallel. And past
+    `max_connections` on purpose (+50 attempts): stopping at our own count (the old loop did, with
+    `stopped_by` empty) is not proof the SERVER is full; a refusal is."""
+    from concurrent.futures import ThreadPoolExecutor
+
     max_conn = int(_sql_scalar(c, "SHOW max_connections"))
-    held: list = []
-    stopped = ""
-    while len(held) < max_conn:
+
+    def one(_: int) -> tuple[Any, str]:
         try:
-            held.append(c.sql(application_name=HOLD_APP_PREFIX + fid))
+            return c.sql(application_name=HOLD_APP_PREFIX + fid), ""
         except Exception as exc:  # noqa: BLE001 - the server refusing IS the result here
-            stopped = type(exc).__name__
-            break
+            return None, type(exc).__name__
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(one, range(max_conn + 50)))
+    held = [conn for conn, _ in results if conn is not None]
+    errors = [err for _, err in results if err]
     for _ in range(min(headroom, len(held))):
         held.pop().close()
-    return held, {"max_connections": max_conn, "held": len(held), "stopped_by": stopped}
+    return held, {"max_connections": max_conn, "held": len(held), "refused": len(errors),
+                  "stopped_by": max(set(errors), key=errors.count) if errors else ""}
 
 
 def hold_lock(c: Clients, t: Target, fid: str) -> tuple[list, dict]:
@@ -575,15 +588,23 @@ def _inject_held(c: Clients, t: Target, fid: str) -> dict:
     return {k: v for k, v in ready.items() if k != "ok"}
 
 
-def _revert_held(c: Clients, t: Target, fid: str) -> dict:
+def _revert_held(c: Clients, t: Target, fid: str, *, attempts: int = 12) -> dict:
+    """Stop the holder, then end its sessions until none is left. A terminated backend leaves
+    `pg_stat_activity` a moment later, and a holder still opening sessions adds more, so the count
+    is polled (terminate again each time) before the revert is called failed."""
     if t.stop_holder is not None:
         t.stop_holder(fid)
-    ended = _terminate_holders(c, fid)
-    left = _holders_left(c, fid)
-    if left:
-        raise OpError(f"{left} held session(s) for {fid} are still open after pg_terminate_backend")
-    _done(t, fid)
-    return {"terminated_backends": ended}
+    ended = 0
+    for attempt in range(attempts):
+        ended += _terminate_holders(c, fid)
+        left = _holders_left(c, fid)
+        if not left:
+            _done(t, fid)
+            return {"terminated_backends": ended}
+        if attempt < attempts - 1:
+            t.sleep(5)
+    raise OpError(f"{left} held session(s) for {fid} are still open after pg_terminate_backend "
+                  f"({attempts} tries, 5 s apart)")
 
 
 # =========================================================================== the faults

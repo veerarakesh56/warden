@@ -1077,3 +1077,79 @@ def test_fs11_revert_refuses_while_a_resize_is_still_running():
     with pytest.raises(fs.OpError, match="still 'modifying'"):
         fs.FAULTS["fs-11"].revert(c, t)
     assert "fs-11" in t.saved                                              # can be run again
+
+
+# --------------------------------------------------------------------------- fs-12 holder, as measured
+
+
+class _LimitedServer:
+    """A server that accepts `limit` held sessions, then refuses - from any thread."""
+
+    def __init__(self, max_connections: int, limit: int):
+        import threading
+        self.max_connections, self.limit, self.open = max_connections, limit, 0
+        self.lock = threading.Lock()
+
+    def sql(self, **kw):
+        server = self
+
+        class _Cur:
+            description = ("col",)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, *a):
+                pass
+
+            def fetchone(self):
+                return (str(server.max_connections),)
+
+        class _Conn:
+            def cursor(self):
+                return _Cur()
+
+            def close(self):
+                if kw.get("application_name"):
+                    with server.lock:
+                        server.open -= 1
+
+        if kw.get("application_name"):
+            with server.lock:
+                if self.open >= self.limit:
+                    raise RuntimeError("FATAL: remaining connection slots are reserved")
+                self.open += 1
+        return _Conn()
+
+
+def test_fs12_holds_until_the_server_refuses_not_until_its_own_count():
+    # The server's real ceiling (40) is below max_connections (50): reserved slots, other users.
+    # Stopping at max_connections would never be refused; the holder must push until it is.
+    server = _LimitedServer(max_connections=50, limit=40)
+    c = fs.Clients(**{**{f: None for f in fs.Clients.__dataclass_fields__}, "sql": server.sql})
+    held, info = fs.hold_connections(c, None, "fs-12", headroom=3, workers=8)
+    assert info["held"] == len(held) == 37 == server.open
+    assert info["refused"] == 50 + 50 - 40 and info["stopped_by"] == "RuntimeError"
+
+
+def test_fs12_revert_waits_out_backends_that_are_still_exiting(monkeypatch):
+    _w, c, t = make()
+    counts = iter([2, 1, 0])  # terminated backends leave pg_stat_activity a moment later
+    monkeypatch.setattr(fs, "_terminate_holders", lambda c, fid: 0)
+    monkeypatch.setattr(fs, "_holders_left", lambda c, fid: next(counts))
+    t.saved["fs-12"] = {"app_name": fs.HOLD_APP_PREFIX + "fs-12"}
+    fs._revert_held(c, t, "fs-12")
+    assert "fs-12" not in t.saved
+
+
+def test_fs12_revert_still_fails_loudly_when_sessions_never_go(monkeypatch):
+    _w, c, t = make()
+    monkeypatch.setattr(fs, "_terminate_holders", lambda c, fid: 0)
+    monkeypatch.setattr(fs, "_holders_left", lambda c, fid: 2)
+    t.saved["fs-12"] = {"app_name": fs.HOLD_APP_PREFIX + "fs-12"}
+    with pytest.raises(fs.OpError, match="2 held session"):
+        fs._revert_held(c, t, "fs-12", attempts=3)
+    assert "fs-12" in t.saved  # nothing marked done: a later revert can still end them

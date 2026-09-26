@@ -482,6 +482,11 @@ def test_preflight_plans_by_default_and_applies_every_fault_on_request(tmp_path,
     assert mod.main(["--apply", "--run", str(tmp_path)], env=cli.dry_env()) == 0
     out = capsys.readouterr().out
     assert out.count("OK   fs-") == len(fs.FAULTS) - 1
+    # An interrupted preflight is finished by its own --revert (fullstack_cli's revert refuses it).
+    with pytest.raises(SystemExit, match="--revert needs --only"):
+        mod.main(["--revert", "--run", str(tmp_path)], env=cli.dry_env())
+    assert mod.main(["--revert", "--only", "fs-12", "--run", str(tmp_path)], env=cli.dry_env()) == 0
+    assert "revert fs-12" in capsys.readouterr().out
 
 
 def test_warden_ro_tokens_are_signed_with_the_assumed_reader_role_never_the_operator():

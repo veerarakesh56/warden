@@ -3,6 +3,7 @@
     python scripts/preflight_fullstack_ops.py                   # prints the plan, touches nothing
     python scripts/preflight_fullstack_ops.py --apply           # inject + revert each fault
     python scripts/preflight_fullstack_ops.py --apply --only fs-07,fs-19
+    python scripts/preflight_fullstack_ops.py --revert --only fs-12  # finish an interrupted one
 
 For each fault: the stack must be at baseline, the inject runs at minimum size (small cache fill,
 no alarm wait, no WARDEN), the fault's own area must then SHOW the fault (reported - a CloudWatch-
@@ -13,7 +14,8 @@ failure.
 ⛔ WHY (the lesson of scripts/preflight_db_ops.py and preflight_k8s_ops.py): fakes accept what the
 real APIs reject. A revert that fails for the first time in the middle of a measured run leaves the
 stack broken under every later fault. The state is written to its own run directory, so an
-interrupted preflight is reverted with `fullstack_cli --run <dir> revert fs-NN`.
+interrupted preflight is reverted with `--revert --only fs-NN` (fullstack_cli's own `revert` refuses:
+the preflight records no inject step in the run state).
 """
 
 from __future__ import annotations
@@ -40,6 +42,8 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
     ap.add_argument("--only", default="", help="comma-separated fault ids, e.g. fs-07,fs-19")
     ap.add_argument("--run", default=str(DEFAULT_RUN))
     ap.add_argument("--settle-minutes", type=float, default=15)
+    ap.add_argument("--revert", action="store_true",
+                    help="only revert the --only faults from their saved state, then wait for baseline")
     args = ap.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -48,7 +52,9 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
     faults = [fid for fid in fs.FAULTS if fid != "fs-00" and (not wanted or fid.startswith(wanted))]
     if not faults:
         raise SystemExit(f"--only {args.only!r} matched no fault")
-    if not args.apply:
+    if args.revert and not wanted:
+        raise SystemExit("--revert needs --only: say which fault to put back")
+    if not args.apply and not args.revert:
         print("PLAN (nothing touched; add --apply):")
         for fid in faults:
             sc = cli.scenario_for(fid)
@@ -61,6 +67,14 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
     env = env or cli.live_env(run)
     env.target.redis_fill_mb = 50  # minimum size: proves fill + flush, not the memory alarm
     cli._bind_saved(env, run)
+    if args.revert:
+        for fid in faults:
+            print(f"revert {fid}: {env.faults[fid].revert(env.clients, env.target)}")
+        deadline = time.monotonic() + args.settle_minutes * 60
+        while (left := cli.stack_problems(env)) and time.monotonic() < deadline:
+            env.sleep(30)
+        print("baseline clean" if not left else f"NOT AT BASELINE: {left}")
+        return 1 if left else 0
     problems = cli.stack_problems(env)
     if problems:
         print(f"NOT AT BASELINE before starting: {problems}")
@@ -79,8 +93,9 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
         try:
             fault.revert(env.clients, env.target)
         except Exception as exc:  # noqa: BLE001
-            print(f"FAIL {fid}: REVERT raised {type(exc).__name__}: {exc} - stopping; the stack is "
-                  f"not at baseline (saved state: {run / 'saved' / (fid + '.json')})")
+            print(f"FAIL {fid}: {error + '; then ' if error else ''}REVERT raised "
+                  f"{type(exc).__name__}: {exc} - stopping; the stack is not at baseline "
+                  f"(saved state: {run / 'saved' / (fid + '.json')})")
             return 1
         deadline = time.monotonic() + args.settle_minutes * 60
         while (left := cli.stack_problems(env)) and time.monotonic() < deadline:

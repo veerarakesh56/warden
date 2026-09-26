@@ -368,7 +368,9 @@ def _wire_holder(t: fs.Target, run: pathlib.Path) -> None:
     def stop(fid: str) -> None:
         hold.mkdir(parents=True, exist_ok=True)
         (hold / f"{fid}.stop").write_text(_now(), encoding="utf-8")
-        deadline = time.monotonic() + 30
+        # A holder still opening its sessions sees the stop only when it has finished: wait for it,
+        # or the revert terminates sessions while new ones are still arriving.
+        deadline = time.monotonic() + 180
         while time.monotonic() < deadline and not (hold / f"{fid}.exited").exists():
             time.sleep(1)
 
