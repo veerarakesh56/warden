@@ -11,7 +11,6 @@ from __future__ import annotations
 import copy
 import io
 import json
-import re
 
 import pytest
 from scenarios import ops_fullstack as fs
@@ -53,6 +52,9 @@ class World:
             "warden-pg-fs-ecs-exec": {"secrets": {"Version": "2012-10-17", "Statement": [
                 {"Effect": "Allow", "Action": "secretsmanager:GetSecretValue",
                  "Resource": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-pg-fs-db-app"}]}},
+            "warden-pg-fs-orders-api-task": {"warden-pg-fs-db-connect": {"Version": "2012-10-17", "Statement": [
+                {"Sid": "ConnectAsApp", "Effect": "Allow", "Action": ["rds-db:connect"],
+                 "Resource": ["arn:aws:rds-db:ap-south-2:111122223333:dbuser:*/app"]}]}},
         }
         self.queues = {
             "warden-pg-fs-orders": {"visible": 0, "Policy": None},
@@ -75,8 +77,7 @@ class World:
                                                             "environment": [{"name": "ALLOC_MB", "value": "0"}]}]}}
         self.forced = 0
         self.tg_path = "/health"
-        self.secret = json.dumps({"username": "shop_app", "password": "old-pass", "host": "h"})
-        self.db_password = {"shop_app": "old-pass"}
+        self.secret = json.dumps({"username": "app", "dbname": "shop", "port": 5432, "host": "h", "reader": "r"})
         self.indexes = {"orders_customer_id_idx": "CREATE INDEX orders_customer_id_idx ON public.orders USING btree (customer_id)"}
         self.held_apps: list[str] = []
         self.rule = "ENABLED"
@@ -105,7 +106,7 @@ class World:
             "esm": {k: v["State"] for k, v in self.esm.items()}, "iam": self.iam,
             "queues": self.queues, "table": self.table, "sg": self.sg_rules, "redis": self.redis_used,
             "writer": self.writer, "ecs_td": self.ecs_td, "tg": self.tg_path, "secret": self.secret,
-            "db_password": self.db_password, "indexes": self.indexes, "held": self.held_apps,
+            "indexes": self.indexes, "held": self.held_apps,
             "rule": self.rule, "configmap": self.configmap, "k8s_secret": self.k8s_secret, "deps": deps,
         })
 
@@ -458,10 +459,6 @@ class Cur:
             name = s.split()[6]
             w.indexes.setdefault(name, s.replace("CONCURRENTLY IF NOT EXISTS ", ""))
             self.description = None
-        elif s.startswith("ALTER ROLE"):
-            m = re.match(r'ALTER ROLE "(.+)" WITH PASSWORD \'(.*)\'$', s)
-            w.db_password[m.group(1)] = m.group(2).replace("''", "'")
-            self.description = None
         elif "count(pg_terminate_backend" in s:
             n = w.held_apps.count(params[0])
             w.held_apps = [a for a in w.held_apps if a != params[0]]
@@ -569,7 +566,7 @@ def test_the_prior_state_is_persisted_before_the_first_write(fid):
         for name in names:
             spy(obj, name)
     fs.FAULTS[fid].inject(c, t)
-    if fid in ("fs-12", "fs-13", "fs-16", "fs-21"):  # SQL/holder faults: saved before the session opens
+    if fid in ("fs-12", "fs-13", "fs-16"):  # SQL/holder faults: saved before the session opens
         assert persisted and persisted[0] == fid
     else:
         assert real_patch.get("first_write_persisted") is True, fid
@@ -603,14 +600,43 @@ def test_failover_records_the_original_writer_and_fails_back():
     assert w.writer == "warden-pg-fs-aurora-1"
 
 
-def test_secret_rotation_changes_both_sides_and_the_revert_restores_both():
+def test_iam_auth_revoke_removes_the_task_roles_db_login_and_the_revert_puts_it_back():
+    """fs-21 (db_iam_auth_revoked): the task role's only policy grants only rds-db:connect, so the
+    policy goes (IAM refuses an empty one); a deployment is forced both ways."""
     w, c, t = make()
+    before = copy.deepcopy(w.iam["warden-pg-fs-orders-api-task"])
+    assert fs.check_baseline(c, t, ["ecs"]) == []
     fs.FAULTS["fs-21"].inject(c, t)
-    new = json.loads(w.secret)["password"]
-    assert new != "old-pass" and w.db_password["shop_app"] == new
+    assert w.iam["warden-pg-fs-orders-api-task"] == {} and w.forced == 1
+    assert "warden-pg-fs-orders-api-task no longer grants rds-db:connect" in fs.check_baseline(c, t, ["ecs"])
+    assert w.iam["warden-pg-fs-ecs-exec"], "the execution role is fs-18's, not this fault's"
     fs.FAULTS["fs-21"].revert(c, t)
-    assert json.loads(w.secret)["password"] == "old-pass" == w.db_password["shop_app"]
-    assert w.forced, "tasks started by a fix hold the rotated password - the revert must restart them"
+    assert w.iam["warden-pg-fs-orders-api-task"] == before and w.forced == 2
+    assert "fs-21" not in t.saved
+
+
+def test_an_iam_revert_removes_the_policy_a_fix_added():
+    """WARDEN's fix puts its OWN policy (warden-restore-*); after the revert re-puts the original,
+    the role must hold exactly what it held before the inject - not both."""
+    w, c, t = make()
+    before = copy.deepcopy(w.iam)
+    fs.FAULTS["fs-21"].inject(c, t)
+    w.iam["warden-pg-fs-orders-api-task"]["warden-restore-rds-db-connect"] = {"Statement": [{"Action": "rds-db:connect"}]}
+    out = fs.FAULTS["fs-21"].revert(c, t)
+    assert out["removed_extra"] == ["warden-restore-rds-db-connect"]
+    assert w.iam == before
+
+
+def test_an_empty_db_host_is_the_processors_baseline():
+    """Terraform cannot know the Aurora endpoints (express configuration): DB_HOST "" means the code
+    uses the metadata secret's host. fs-14 / fs-15 set it; their reverts put "" back."""
+    w, c, t = make()
+    w.lambdas["warden-pg-fs-order-processor"]["Environment"]["Variables"]["DB_HOST"] = ""
+    assert fs.check_baseline(c, t, ["processor"]) == []
+    fs.FAULTS["fs-14"].inject(c, t)
+    assert fs.check_baseline(c, t, ["processor"])
+    fs.FAULTS["fs-14"].revert(c, t)
+    assert w.lambdas["warden-pg-fs-order-processor"]["Environment"]["Variables"]["DB_HOST"] == ""
 
 
 def test_the_slow_query_index_is_recreated_concurrently_from_its_own_definition():
@@ -739,7 +765,7 @@ def test_a_clean_stack_is_at_baseline_and_each_fault_breaks_its_area():
         _w, c, t = make()
         assert fs.check_baseline(c, t) == [], fid
         fs.FAULTS[fid].inject(c, t)
-        if fid not in ("fs-06", "fs-12", "fs-13", "fs-21"):  # visible only through traffic / sessions
+        if fid not in ("fs-06", "fs-12", "fs-13"):  # visible only through traffic / sessions
             assert fs.check_baseline(c, t, [fs.FAULTS[fid].area]), f"{fid} is invisible to its baseline"
 
 
@@ -793,6 +819,17 @@ IAM_OK = ("aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-na
               "Effect": "Allow", "Action": ["dynamodb:PutItem"],
               "Resource": "arn:aws:dynamodb:ap-south-2:111122223333:table/warden-pg-fs-carts"}]}) + f"' {R}")
 
+
+
+def _db_grant(role: str, resource: str, action: str = "rds-db:connect") -> str:
+    doc = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": action,
+                                                              "Resource": resource}]}, separators=(",", ":"))
+    return f"aws iam put-role-policy --role-name {role} --policy-name warden-restore-rds-db-connect --policy-document '{doc}' {R}"
+
+
+# fs-21's fix: rds-db:connect is scoped by DATABASE USER (the cluster id in the ARN is masked: `*`).
+DB_GRANT_OK = _db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/app")
+
 STACK_IDS = frozenset({"uuid-orders", "sg-redis", "sg-app1"})
 
 REJECTED = [
@@ -842,6 +879,14 @@ REJECTED = [
                                   "Resource": "arn:aws:iam::111122223333:role/warden-pg-fs-x"}]}) + f"' {R}", "IAM action"),
     ("aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name p --policy-document '"
      + json.dumps({"Statement": [{"Effect": "Allow", "Action": "dynamodb:PutItem", "Resource": "*"}]}) + f"' {R}", "not a stack resource"),
+    # a database login: only the application users, only rds-db:connect, only this region
+    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres"), "outside the stack"),
+    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_ro"), "outside the stack"),
+    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/*"), "outside the stack"),
+    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:us-east-1:*:dbuser:*/app"), "outside the stack"),
+    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/app", "rds:DeleteDBCluster"),
+     "only be granted rds-db:connect"),
+    (_db_grant("admin", "arn:aws:rds-db:ap-south-2:*:dbuser:*/app"), "not a warden-pg-fs-"),
     # other programs
     ("bash -c 'aws events enable-rule'", "not an allowed program"),
     ("curl http://169.254.169.254/latest/meta-data/", "not an allowed program"),
@@ -893,7 +938,8 @@ SQL_BAD = [
 ]
 
 
-@pytest.mark.parametrize("command", [*ALLOWED, IAM_OK])
+@pytest.mark.parametrize("command", [*ALLOWED, IAM_OK, DB_GRANT_OK,
+                                     _db_grant("warden-pg-fs-catalog-pod", "arn:aws:rds-db:ap-south-2:*:dbuser:*/catalog")])
 def test_allowed_fix_commands(command):
     reason = fs.check_command({"kind": S, "command": command},
                               stack_ids=STACK_IDS)

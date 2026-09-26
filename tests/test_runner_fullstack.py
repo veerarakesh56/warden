@@ -310,14 +310,13 @@ def test_warden_gets_only_the_reader_identity(tmp_path, monkeypatch):
     monkeypatch.setenv("AWS_PROFILE", "admin")
     monkeypatch.setenv("HOME", "/home/operator")
     monkeypatch.setenv("USERPROFILE", "C:/Users/operator")
-    monkeypatch.setenv("WARDEN_FS_DB_MASTER_PASSWORD", "master-pw-not-real")
     monkeypatch.setenv("WARDEN_PROVIDER", "claude_cli")
     env = fake_env([], alarm_state="OK")
     cli.step_inject(env, tmp_path, "fs-27", wait_alarm=False)
     cli.step_diagnose(env, tmp_path, "fs-27", arm={"WARDEN_KNOWLEDGE_IN_PROMPT": "1"})
     got = env.last_env
     assert got["AWS_ACCESS_KEY_ID"] == "ASIADRY", "the assumed reader's key, not the operator's"
-    for leaked in ("AWS_PROFILE", "HOME", "USERPROFILE", "WARDEN_FS_DB_MASTER_PASSWORD"):
+    for leaked in ("AWS_PROFILE", "HOME", "USERPROFILE"):
         assert leaked not in got
     assert OPERATOR_KEY not in json.dumps(got)
     assert got["WARDEN_BACKEND"] == "stack"
@@ -475,23 +474,36 @@ def test_preflight_plans_by_default_and_applies_every_fault_on_request(tmp_path,
     assert out.count("OK   fs-") == len(fs.FAULTS) - 1
 
 
-def test_dsns_come_from_the_cluster_and_the_ro_secret_never_from_the_stack_file(monkeypatch):
-    class Rds:
-        def describe_db_clusters(self, DBClusterIdentifier):
-            return {"DBClusters": [{"MasterUsername": "shop_admin"}]}
+def test_warden_ro_tokens_are_signed_with_the_assumed_reader_role_never_the_operator():
+    """No password exists (Aurora express configuration). WARDEN's DSNs carry an IAM token signed
+    with the ASSUMED reader role's credentials, so the reader role's rds-db:connect is what lets
+    WARDEN in; the token is percent-encoded into the URL."""
+    made = []
 
-    class Sm:
-        def get_secret_value(self, SecretId):
-            assert SecretId == "warden-pg-fs-db-warden-ro"
-            return {"SecretString": json.dumps({"username": "warden_ro", "password": "p@ss/w:rd"})}
+    class Rds:
+        meta = type("M", (), {"region_name": "ap-south-2"})
+
+        def generate_db_auth_token(self, **kw):
+            return f"{kw['DBHostname']}:5432/?Action=connect&DBUser={kw['DBUsername']}&X-Amz-Signature=ab/c"
+
+    def make_client(service, **kw):
+        made.append((service, kw))
+        return Rds()
 
     t = fs.Target(writer_endpoint="warden-pg-fs-aurora.cluster-x",
                   reader_endpoint="warden-pg-fs-aurora.cluster-ro-x")
-    monkeypatch.delenv("WARDEN_FS_DB_MASTER_PASSWORD", raising=False)
-    with pytest.raises(cli.StepError, match="WARDEN_FS_DB_MASTER_PASSWORD"):
-        cli.stack_dsns({}, t, Rds(), Sm())
-    monkeypatch.setenv("WARDEN_FS_DB_MASTER_PASSWORD", "m")
-    d = cli.stack_dsns({}, t, Rds(), Sm())
-    assert d["ro_reader"] == ("postgresql://warden_ro:p%40ss%2Fw%3Ard@warden-pg-fs-aurora.cluster-ro-x"
-                              ":5432/shop?sslmode=require")
-    assert d["admin"].startswith("postgresql://shop_admin:m@warden-pg-fs-aurora.cluster-x:")
+    creds = {"AccessKeyId": "ASIAREADER", "SecretAccessKey": "s", "SessionToken": "tok"}
+    d = cli.warden_dsns(creds, t, 5432, make_client)
+    assert made == [("rds", {"region_name": "ap-south-2", "aws_access_key_id": "ASIAREADER",
+                             "aws_secret_access_key": "s", "aws_session_token": "tok"})]
+    assert d["WARDEN_STACK_DB_READER_DSN"].startswith(
+        "postgresql://warden_ro:warden-pg-fs-aurora.cluster-ro-x%3A5432%2F%3FAction%3Dconnect%26DBUser%3Dwarden_ro")
+    assert d["WARDEN_STACK_DB_READER_DSN"].endswith("@warden-pg-fs-aurora.cluster-ro-x:5432/shop?sslmode=require")
+    assert "@warden-pg-fs-aurora.cluster-x:5432/shop" in d["WARDEN_STACK_DB_WRITER_DSN"]
+
+
+def test_the_stack_file_supplies_the_writer_instance_express_chose():
+    stack = {"aurora_writer_endpoint": "w", "aurora_reader_endpoint": "r", "redis_security_group_id": "sg-1",
+             "aurora_writer_instance": "warden-pg-fs-aurora-instance-1"}
+    assert cli.target_from_stack(stack).writer_instance == "warden-pg-fs-aurora-instance-1"
+    assert cli.target_from_stack({**stack, "aurora_writer_instance": ""}).writer_instance == "warden-pg-fs-aurora-1"

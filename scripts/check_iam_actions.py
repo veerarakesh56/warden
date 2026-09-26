@@ -58,12 +58,15 @@ def actions_in(paths: list[pathlib.Path]) -> dict[str, list[str]]:
 
 
 def main() -> int:
+    # FIRST, before argparse can print: the help text carries marks a cp1252 console cannot encode.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--glob", default=DEFAULT_GLOB)
     args = parser.parse_args()
 
-    sys.stdout.reconfigure(encoding="utf-8")  # a Windows console is cp1252 and cannot print findings
     paths = sorted(ROOT.glob(args.glob))
     if not paths:
         print(f"no policy files matched {args.glob!r}")

@@ -1,111 +1,38 @@
-# The data layer: Aurora PostgreSQL, ElastiCache Redis, DynamoDB, and the application's secrets.
+# The data layer: ElastiCache Redis, DynamoDB, and the application's connection metadata.
 #
-# ⛔ The schema, the app user and warden_ro are NOT created here: they are SQL, applied by
-# `scripts/deploy_fullstack_apps.py bootstrap-db` from scenarios/fullstack/sql/bootstrap.sql.
+# ⛔ AURORA IS NOT HERE (changed 2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints"). The
+# account is on the AWS Free plan, which only creates Aurora clusters in EXPRESS configuration, and
+# the AWS provider cannot create one. `aurora_express.py create` (this directory, the INFRA
+# pipeline) creates cluster warden-pg-fs-aurora after `terraform apply`; `destroy` removes it
+# before `terraform destroy`. Express clusters take IAM database authentication only: there are no
+# database passwords anywhere in this stack.
+#
+# ⛔ The schema and the roles app / catalog / warden_ro are NOT created here: they are SQL, applied
+# by `scripts/deploy_fullstack_apps.py bootstrap-db` from scenarios/fullstack/sql/bootstrap.sql.
 
-# --------------------------------------------------------------------------- Aurora
-
-resource "aws_db_subnet_group" "aurora" {
-  name       = "${local.name}-aurora"
-  subnet_ids = aws_subnet.public[*].id # publicly accessible: no NAT and no bastion, bounded by the SG
-}
-
-resource "aws_security_group" "aurora" {
-  name        = "${local.name}-aurora"
-  description = "Aurora. PostgreSQL from the operator address and the application security groups."
-  vpc_id      = aws_vpc.this.id
-}
-
-resource "aws_vpc_security_group_ingress_rule" "aurora_operator" {
-  security_group_id = aws_security_group.aurora.id
-  description       = "PostgreSQL from the operator address"
-  cidr_ipv4         = var.my_ip_cidr
-  ip_protocol       = "tcp"
-  from_port         = 5432
-  to_port           = 5432
-}
-
-resource "aws_vpc_security_group_ingress_rule" "aurora_apps" {
-  for_each                     = local.app_security_groups
-  security_group_id            = aws_security_group.aurora.id
-  description                  = "PostgreSQL from ${each.key}"
-  referenced_security_group_id = each.value
-  ip_protocol                  = "tcp"
-  from_port                    = 5432
-  to_port                      = 5432
-}
-
-resource "aws_rds_cluster" "aurora" {
-  cluster_identifier     = "${local.name}-aurora"
-  engine                 = "aurora-postgresql"
-  engine_mode            = "provisioned"
-  engine_version         = var.aurora_engine_version
-  database_name          = "shop"
-  master_username        = "warden_admin"
-  master_password        = var.db_master_password
-  db_subnet_group_name   = aws_db_subnet_group.aurora.name
-  vpc_security_group_ids = [aws_security_group.aurora.id]
-  storage_encrypted      = true
-
-  serverlessv2_scaling_configuration {
-    min_capacity = 0.5
-    max_capacity = 2
+locals {
+  aurora_cluster = "${local.name}-aurora" # created by aurora_express.py, not by terraform
+  # rds-db:connect is scoped by DATABASE USER. The cluster's resource id (the middle of the ARN) is
+  # only known after aurora_express.py runs, so it is `*`: the user name is the scope.
+  dbuser_arn = { for u in ["app", "catalog"] :
+    u => "arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/${u}"
   }
-
-  backup_retention_period = 1    # Aurora's minimum
-  skip_final_snapshot     = true # ⛔ without it a destroy FAILS and the bill keeps running
-  deletion_protection     = false
-  apply_immediately       = true
-}
-
-# Instance 1 is created first and so becomes the writer; instance 2 joins as the reader.
-resource "aws_rds_cluster_instance" "aurora_1" {
-  identifier                   = "${local.name}-aurora-1"
-  cluster_identifier           = aws_rds_cluster.aurora.id
-  instance_class               = "db.serverless"
-  engine                       = aws_rds_cluster.aurora.engine
-  engine_version               = aws_rds_cluster.aurora.engine_version
-  publicly_accessible          = true
-  promotion_tier               = 0
-  performance_insights_enabled = false
-  apply_immediately            = true
-}
-
-resource "aws_rds_cluster_instance" "aurora_2" {
-  identifier                   = "${local.name}-aurora-2"
-  cluster_identifier           = aws_rds_cluster.aurora.id
-  instance_class               = "db.serverless"
-  engine                       = aws_rds_cluster.aurora.engine
-  engine_version               = aws_rds_cluster.aurora.engine_version
-  publicly_accessible          = true
-  promotion_tier               = 1
-  performance_insights_enabled = false
-  apply_immediately            = true
-  depends_on                   = [aws_rds_cluster_instance.aurora_1]
 }
 
 # --------------------------------------------------------------------------- secrets
 #
 # recovery_window_in_days = 0: a destroyed stack must be re-creatable at once under the same name.
-
-resource "random_password" "app" {
-  length  = 32
-  special = false # the value ends up in DSNs; no URL escaping to get wrong
-}
-
-resource "random_password" "catalog" {
-  length  = 32
-  special = false
-}
-
-resource "random_password" "warden_ro" {
-  length  = 32
-  special = false
-}
+#
+# ONE secret, and it holds connection METADATA, not a credential (IAM tokens replace passwords).
+# Kept because (a) the in-VPC Lambdas fall back to its host/reader when DB_HOST is empty - terraform
+# cannot know the endpoints - and (b) orders-api's task definition injects a value from it, so the
+# execution role still resolves a secret at task start and fs-18 stays the fault it was designed as.
+# The catalog and warden_ro secrets were removed: with no password there was nothing in them that
+# stack.json and the ConfigMap do not already carry.
 
 resource "aws_secretsmanager_secret" "db_app" {
   name                    = "${local.name}-db-app"
-  description             = "Application Aurora credentials (user app)."
+  description             = "Aurora connection metadata for user app (no password: IAM authentication)."
   recovery_window_in_days = 0
 }
 
@@ -113,56 +40,15 @@ resource "aws_secretsmanager_secret_version" "db_app" {
   secret_id = aws_secretsmanager_secret.db_app.id
   secret_string = jsonencode({
     username = "app"
-    password = random_password.app.result
-    host     = aws_rds_cluster.aurora.endpoint
+    dbname   = "shop"
     port     = 5432
-    dbname   = aws_rds_cluster.aurora.database_name
+    host     = "" # filled by aurora_express.py create (the cluster endpoint)
+    reader   = "" # and the reader endpoint
   })
-  # fs-21 rotates the value outside terraform; the harness restores it. A re-apply must not fight.
+  # aurora_express.py writes the endpoints; a re-apply must not blank them.
   lifecycle {
     ignore_changes = [secret_string]
   }
-}
-
-# ⛔ catalog-api has its OWN database user. It used to share `app` with orders-api, so fs-21 (rotate
-# the app password, leave orders-api on the old one) also broke catalog-api through its static copy
-# in a Kubernetes Secret - a second, unplanned victim the fault's verifier never looked at. One user
-# per service is also what least privilege asks for: catalog-api only ever reads.
-resource "aws_secretsmanager_secret" "db_catalog" {
-  name                    = "${local.name}-db-catalog"
-  description             = "catalog-api's read-only application credentials (user catalog)."
-  recovery_window_in_days = 0
-}
-
-resource "aws_secretsmanager_secret_version" "db_catalog" {
-  secret_id = aws_secretsmanager_secret.db_catalog.id
-  secret_string = jsonencode({
-    username = "catalog"
-    password = random_password.catalog.result
-    host     = aws_rds_cluster.aurora.reader_endpoint
-    port     = 5432
-    dbname   = aws_rds_cluster.aurora.database_name
-  })
-}
-
-# warden_ro's credentials: read by the harness (to build WARDEN's DSNs) and by bootstrap-db. WARDEN
-# itself never reads any secret value.
-resource "aws_secretsmanager_secret" "db_warden_ro" {
-  name                    = "${local.name}-db-warden-ro"
-  description             = "Read-only monitoring credentials (user warden_ro, pg_monitor only)."
-  recovery_window_in_days = 0
-}
-
-resource "aws_secretsmanager_secret_version" "db_warden_ro" {
-  secret_id = aws_secretsmanager_secret.db_warden_ro.id
-  secret_string = jsonencode({
-    username = "warden_ro"
-    password = random_password.warden_ro.result
-    host     = aws_rds_cluster.aurora.endpoint
-    reader   = aws_rds_cluster.aurora.reader_endpoint
-    port     = 5432
-    dbname   = aws_rds_cluster.aurora.database_name
-  })
 }
 
 # --------------------------------------------------------------------------- ElastiCache Redis

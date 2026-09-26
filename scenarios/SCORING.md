@@ -240,12 +240,18 @@ the commands the report printed, applied verbatim, removed the fault.
 | `alb_health_check_wrong` | `escalate_to_human` | every mutating action except `scale_up` (WRONG) |
 | `ecs_oom` | `rollback_deploy` | `scale_up`, `restart_pods` |
 | `secret_rotated_stale_credentials` | `restart_pods` | `rollback_deploy`, `failover_replica`, `terminate_connections`, `scale_down` |
+| `db_iam_auth_revoked` ⭐ 2026-09-26 | `escalate_to_human` | every mutating action |
 | `k8s_config_crashloop` | `escalate_to_human` | every mutating action except `rollback_deploy` (WRONG) |
 | `k8s_missing_secret_key` | `escalate_to_human` | every mutating action except `rollback_deploy` (WRONG) |
 | `k8s_readiness_probe_wrong` | `rollback_deploy` | `restart_pods`, `scale_up` |
 | `k8s_unschedulable_requests` | `rollback_deploy` | `scale_up`, `restart_pods` |
 | `k8s_image_pull` | `rollback_deploy` | `scale_up`, `restart_pods` |
 | `eventbridge_rule_disabled` | `escalate_to_human` | every mutating action |
+
+⭐ **2026-09-26, before any Wave 4 fault ran:** fs-21 now injects `db_iam_auth_revoked` (Aurora in
+express configuration - the AWS Free plan - has IAM authentication only, so there is no password to
+rotate; see docs/WAVE4-FULLSTACK.md "Free-plan constraints"). The `secret_rotated_stale_credentials`
+row stays, unused, so nothing graded under it changes on a re-score.
 
 **4. Fix** (Wave 4 only; runs without a `fix` record - every earlier wave - render exactly as
 before): `fixed` / `not_fixed` (the printed commands ran, the verifier decided), `no_fix_printed`,

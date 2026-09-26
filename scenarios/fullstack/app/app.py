@@ -1,13 +1,18 @@
 """The one container image of the Wave 4 stack. APP_ROLE picks what it is:
 
-  orders-api   ECS behind the ALB. GET /orders reads the Aurora WRITER (DB_* from Secrets Manager),
-               cached in Redis for 30 s. GET /health answers without touching a dependency.
-  catalog-api  EKS. GET /catalog reads Redis + the Aurora READER. /health and /ready on 8080.
-               Validates its config at start and exits with a clear error on a bad value (fs-22).
+  orders-api   ECS behind the ALB. GET /orders reads the Aurora WRITER as user app, cached in Redis
+               for 30 s. GET /health answers without touching a dependency.
+  catalog-api  EKS. GET /catalog reads Redis + the Aurora READER as user catalog. /health and /ready
+               on 8080. Validates its config at start and exits with a clear error on a bad value
+               (fs-22). Needs CATALOG_SIGNING_KEY (from Secret catalog-secret) to start (fs-23).
+
+Database logins are IAM tokens (Aurora express configuration has no passwords): boto3 signs one
+with the workload's own role - the ECS task role, or catalog-api's EKS Pod Identity role - for
+DB_USER on DB_HOST, and it is reused for 9 of its 15 minutes.
   cart-worker  EKS. Touches Redis in a loop; /health on 8080 for its probes.
 
 Fault flags (env): ALLOC_MB - allocate and hold this much memory at start (fs-20).
-Framework-free on purpose: http.server from the stdlib, psycopg, redis. Nothing else.
+Framework-free on purpose: http.server from the stdlib, psycopg, redis, boto3. Nothing else.
 """
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import ClassVar
 
+import boto3
 import psycopg
 import redis
 
@@ -27,6 +33,9 @@ ROLE = os.environ.get("APP_ROLE", "orders-api")
 log = logging.getLogger(ROLE)
 
 _held: list[bytearray] = []  # fs-20: memory that is never released
+TOKEN_REUSE_S = 540  # an IAM token is valid for 15 min; never hand out one older than 9
+_tokens: dict[tuple[str, str], tuple[str, float]] = {}
+_token_lock = threading.Lock()
 
 
 def setup_logging() -> None:
@@ -56,13 +65,23 @@ def cache() -> redis.Redis:
                        socket_connect_timeout=2, decode_responses=True)
 
 
+def db_token(host: str, user: str) -> str:
+    with _token_lock:
+        hit = _tokens.get((host, user))
+        if hit and time.monotonic() - hit[1] < TOKEN_REUSE_S:
+            return hit[0]
+        rds = boto3.client("rds", region_name=os.environ["AWS_REGION"])
+        token = rds.generate_db_auth_token(DBHostname=host, Port=5432, DBUsername=user)
+        _tokens[(host, user)] = (token, time.monotonic())
+        return token
+
+
 def db_connect() -> psycopg.Connection:
-    # A connection per request, deliberately: credentials are checked on every connect, so a
-    # rotated password (fs-21) and a full pool (fs-12) show up on the next request.
-    return psycopg.connect(host=os.environ["DB_HOST"], dbname=os.environ.get("DB_NAME", "shop"),
-                           user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"],
-                           port=int(os.environ.get("DB_PORT", "5432")), connect_timeout=5,
-                           sslmode="require")
+    # A connection per request, deliberately: the login is checked on every connect, so a revoked
+    # rds-db:connect grant (fs-21) and a full pool (fs-12) show up on the next request.
+    host, user = os.environ["DB_HOST"], os.environ["DB_USER"]
+    return psycopg.connect(host=host, dbname=os.environ.get("DB_NAME", "shop"), user=user,
+                           password=db_token(host, user), port=5432, connect_timeout=5, sslmode="require")
 
 
 def recent_orders() -> list[dict]:
@@ -149,6 +168,10 @@ def main() -> None:
     if ROLE == "orders-api":
         Handler.routes = {**health, "/orders": recent_orders}
     elif ROLE == "catalog-api":
+        if len(os.environ.get("CATALOG_SIGNING_KEY", "")) < 16:
+            log.error("invalid configuration: CATALOG_SIGNING_KEY is missing or shorter than 16 characters; "
+                      "refusing to start")
+            sys.exit(2)
         page_size = int_setting("CATALOG_PAGE_SIZE", 20, 1, 100)
         ttl = int_setting("CATALOG_CACHE_TTL_S", 60, 1, 3600)
         Handler.routes = {**health, "/ready": ready, "/catalog": lambda: catalog(page_size, ttl)}

@@ -14,8 +14,12 @@
 #   - repository variables WARDEN_FS_DEPLOY_ROLE_ARN, WARDEN_FS_STATE_BUCKET, WARDEN_FS_MY_IP_CIDR,
 #     optional WARDEN_FS_EKS_PUBLIC_CIDRS (JSON list) and WARDEN_FS_EKS_ADMINS (JSON list of ARNs);
 #   - an environment `fullstack` (add required reviewers there) with the secret
-#     WARDEN_FS_DB_MASTER_PASSWORD (the Aurora master password; not an AWS credential) and
 #     WARDEN_FS_BUDGET_EMAIL (where the budget alarms go - a secret because it is personal).
+#     There is no database password: Aurora runs in express configuration with IAM authentication
+#     only (docs/WAVE4-FULLSTACK.md "Free-plan constraints", 2026-09-26).
+#
+# Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
+# provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
 name: infra
 
 on:
@@ -73,7 +77,6 @@ jobs:
       ACTION: ${{ inputs.action }}
       BUCKET: ${{ vars.WARDEN_FS_STATE_BUCKET }}
       TF_VAR_my_ip_cidr: ${{ vars.WARDEN_FS_MY_IP_CIDR }}
-      TF_VAR_db_master_password: ${{ secrets.WARDEN_FS_DB_MASTER_PASSWORD }}
       TF_VAR_budget_email: ${{ secrets.WARDEN_FS_BUDGET_EMAIL }}
       TF_IN_AUTOMATION: "1"
     steps:
@@ -85,6 +88,10 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install boto3 # aurora_express.py: stdlib + boto3 only
       - name: optional variables
         env:
           CIDRS: ${{ vars.WARDEN_FS_EKS_PUBLIC_CIDRS }}
@@ -109,10 +116,14 @@ jobs:
           # stack.json: every output EXCEPT the sensitive ones.
           terraform -chdir=terraform/fullstack output -json \
             | jq 'with_entries(select(.value.sensitive | not))' > "$RUNNER_TEMP/stack.json"
+          # Aurora (express configuration) after the VPC exists; it merges its keys into stack.json.
+          python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json"
           aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/fullstack/stack.json" --only-show-errors
       - name: destroy
         if: env.ACTION == 'destroy'
         run: |
+          # Aurora first: terraform does not know it exists.
+          python terraform/fullstack/aurora_express.py destroy
           terraform -chdir=terraform/fullstack destroy -input=false -auto-approve -no-color
           aws s3 rm "s3://$BUCKET/fullstack/stack.json" --only-show-errors || true
           aws resourcegroupstaggingapi get-resources --region ap-south-2 \

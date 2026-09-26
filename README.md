@@ -878,7 +878,7 @@ times as a four-action read-only role, and grades evidence, diagnosis and the ga
 The rubric is committed before the run and its hash is recorded in each run's manifest. Both runs
 are in [`docs/bench/`](docs/bench/README.md) and the scorer is `scenarios/score.py` — re-score them offline, no AWS needed.
 
-**Wave 4 - the full stack - is designed and built, not yet run.** Aurora (writer + reader), EKS, ECS behind an ALB, Lambda behind API Gateway, SQS with DLQs, SNS, DynamoDB, ElastiCache Redis, Secrets Manager and EventBridge in one VPC, broken in 27 ways (code, configuration, capacity, IAM/network, database). It adds a fourth score: whether the fix WARDEN printed, applied exactly as printed, removes the fault. Fault list, pass criteria and scoring are registered in [`docs/WAVE4-FULLSTACK.md`](docs/WAVE4-FULLSTACK.md) before any run; no Wave 4 number exists yet.
+**Wave 4 - the full stack - is designed and built, not yet run.** Aurora (writer + reader), EKS, ECS behind an ALB, Lambda behind API Gateway, SQS with DLQs, SNS, DynamoDB, ElastiCache Redis, Secrets Manager and EventBridge in one VPC (Aurora outside it, reached through its internet access gateway), on the AWS Free plan: Aurora in express configuration (IAM database authentication only, no passwords), broken in 27 ways (code, configuration, capacity, IAM/network, database). It adds a fourth score: whether the fix WARDEN printed, applied exactly as printed, removes the fault. Fault list, pass criteria and scoring are registered in [`docs/WAVE4-FULLSTACK.md`](docs/WAVE4-FULLSTACK.md) before any run; no Wave 4 number exists yet.
 
 The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
 

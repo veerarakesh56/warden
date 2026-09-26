@@ -104,14 +104,18 @@ resource "aws_iam_role_policy_attachment" "eks_node" {
   policy_arn = each.value
 }
 
-# 1 x t3.medium ON_DEMAND. t3.small takes 11 pods, too few for system pods + shop + a rollout;
-# Spot would add an unplanned second fault mid-run.
+# 1 x m7i-flex.large ON_DEMAND (2 vCPU, 8 GiB, 29 pods). Changed 2026-09-26 from t3.medium: the
+# account is on the AWS Free plan, which refuses instance types that are not Free Tier eligible
+# (in ap-south-2: t3/t4g/t8i micro+small, c7i-flex.large, m7i-flex.large). t3.small takes 11 pods,
+# too few for system pods + shop + a rollout; m7i-flex.large is the eligible type with room.
+# Still 2 vCPU, so fs-25 (8 CPU requested) stays unschedulable. Spot would add an unplanned second
+# fault mid-run.
 resource "aws_eks_node_group" "this" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${local.name}-eks-ng"
   node_role_arn   = aws_iam_role.eks_node.arn
   subnet_ids      = aws_subnet.public[*].id
-  instance_types  = ["t3.medium"]
+  instance_types  = ["m7i-flex.large"]
   capacity_type   = "ON_DEMAND"
   disk_size       = 20
 
@@ -136,6 +140,8 @@ resource "aws_eks_addon" "this" {
     kube-proxy     = null
     coredns        = null
     metrics-server = null
+    # EKS Pod Identity: catalog-api's pods get the warden-pg-fs-catalog-pod role (below).
+    eks-pod-identity-agent = null
     # Pod-level metrics for the shop alarms; container log shipping off (it is billed per GB and
     # WARDEN reads pod logs through the Kubernetes API anyway).
     amazon-cloudwatch-observability = jsonencode({ containerLogs = { enabled = false } })
@@ -153,4 +159,44 @@ resource "aws_eks_addon" "this" {
 resource "aws_cloudwatch_log_group" "container_insights" {
   name              = "/aws/containerinsights/${aws_eks_cluster.this.name}/performance"
   retention_in_days = 1
+}
+
+# --------------------------------------------------------------------------- catalog-api's identity
+#
+# catalog-api signs IAM database tokens as user catalog (read-only). EKS Pod Identity hands the
+# role to pods of ServiceAccount shop/catalog-api (k8s/fullstack/catalog-api.yaml) - no node-wide
+# grant, no long-lived key.
+
+resource "aws_iam_role" "catalog_pod" {
+  name                 = "${local.name}-catalog-pod"
+  permissions_boundary = local.permissions_boundary
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Principal = { Service = "pods.eks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "catalog_pod_db" {
+  name = "${local.name}-db-connect"
+  role = aws_iam_role.catalog_pod.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "ConnectAsCatalog"
+      Effect   = "Allow"
+      Action   = ["rds-db:connect"]
+      Resource = [local.dbuser_arn["catalog"]]
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "catalog" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "shop"
+  service_account = "catalog-api"
+  role_arn        = aws_iam_role.catalog_pod.arn
 }

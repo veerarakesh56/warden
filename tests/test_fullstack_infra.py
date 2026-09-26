@@ -71,7 +71,7 @@ def test_every_resource_name_carries_the_warden_pg_fs_prefix():
 
 def test_every_iam_role_carries_the_permissions_boundary():
     roles = _blocks("aws_iam_role")
-    assert len(roles) >= 5  # lambda (for_each over six), ecs exec, eks cluster, eks node, reader
+    assert len(roles) >= 7  # lambda (six), ecs exec + task, eks cluster + node, catalog pod, reader
     missing = [name for _, name, body in roles if not re.search(r"^\s+permissions_boundary\s*=", body, re.MULTILINE)]
     assert not missing, f"roles without a permissions boundary (CreateRole is denied): {missing}"
     variables = (TF / "variables.tf").read_text(encoding="utf-8")
@@ -79,10 +79,65 @@ def test_every_iam_role_carries_the_permissions_boundary():
                      variables, re.DOTALL)
 
 
-def test_the_master_password_has_no_default():
-    block = re.search(r'variable "db_master_password" \{(.*?)^\}',
-                      (TF / "variables.tf").read_text(encoding="utf-8"), re.DOTALL | re.MULTILINE).group(1)
-    assert "sensitive   = true" in block and not re.search(r"^\s+default\s*=", block, re.MULTILINE)
+def _tf_text() -> str:
+    return "".join(f.read_text(encoding="utf-8") for f in TF_FILES)
+
+
+def test_aurora_is_not_terraform_and_no_database_password_exists():
+    """2026-09-26: the Free plan creates Aurora only in express configuration, which the provider
+    cannot do and which has IAM authentication only (aurora_express.py creates it)."""
+    text = _tf_text()
+    for gone in ('resource "aws_rds_cluster', 'resource "aws_db_subnet_group"', 'resource "random_password"',
+                 'resource "aws_security_group" "aurora"', 'variable "db_master_password"', "master_password"):
+        assert gone not in text, gone
+    assert not re.search(r"(?i)\w*password\w*\s*=", text), "a password attribute in terraform"
+    alarms = (TF / "alarms.tf").read_text(encoding="utf-8")
+    assert alarms.count("DBClusterIdentifier = local.aurora_cluster") == 2
+    assert 'aurora_cluster = "${local.name}-aurora"' in (TF / "data.tf").read_text(encoding="utf-8")
+
+
+def test_the_node_type_is_free_tier_eligible():
+    eks = (TF / "eks.tf").read_text(encoding="utf-8")
+    assert re.findall(r"instance_types\s*=\s*\[(.*?)\]", eks) == ['"m7i-flex.large"']
+
+
+def test_catalog_api_gets_its_role_through_pod_identity():
+    eks = (TF / "eks.tf").read_text(encoding="utf-8")
+    assert "eks-pod-identity-agent = null" in eks
+    assoc = next(b for _, n, b in _blocks("aws_eks_pod_identity_association") if n == "catalog")
+    assert 'namespace       = "shop"' in assoc and 'service_account = "catalog-api"' in assoc
+    assert "aws_iam_role.catalog_pod.arn" in assoc
+    role = next(b for _, n, b in _blocks("aws_iam_role") if n == "catalog_pod")
+    assert 'Principal = { Service = "pods.eks.amazonaws.com" }' in role and "sts:TagSession" in role
+    sa = next(d for d in _k8s_docs() if d["kind"] == "ServiceAccount" and d["metadata"]["name"] == "catalog-api")
+    assert sa["metadata"]["namespace"] == "shop"
+    dep = next(d for d in _k8s_docs() if d["kind"] == "Deployment" and d["metadata"]["name"] == "catalog-api")
+    assert dep["spec"]["template"]["spec"]["serviceAccountName"] == "catalog-api"
+
+
+def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
+    text = _tf_text()
+    assert "dbuser:*/${u}" in text and 'for u in ["app", "catalog"]' in text
+    assert text.count('"rds-db:connect"') == 5, "one grant per identity: processor, reconciler, task, pod, reader"
+    assert not re.search(r"dbuser:[^\s\"]*/\*", text), "a grant for every database user"
+    lam = (TF / "lambda.tf").read_text(encoding="utf-8")
+    assert re.search(r'Sid = "ConnectAsApp".*local\.dbuser_arn\["app"\]', lam)
+    assert re.search(r'Sid = "ConnectAsCatalog".*local\.dbuser_arn\["catalog"\]', lam)
+    grants = {n: b for _, n, b in _blocks("aws_iam_role_policy") if "rds-db:connect" in b}
+    assert 'local.dbuser_arn["app"]' in grants["ecs_task_db"]
+    assert 'local.dbuser_arn["catalog"]' in grants["catalog_pod_db"]
+    reader = (TF / "reader.tf").read_text(encoding="utf-8")
+    assert 'dbuser:*/warden_ro"]' in reader and reader.count('"rds-db:connect"') == 1
+
+
+def test_one_nat_gateway_gives_the_private_subnets_their_way_out():
+    main = (TF / "main.tf").read_text(encoding="utf-8")
+    assert len(_blocks("aws_nat_gateway")) == 1 and len(_blocks("aws_eip")) == 1
+    nat = _blocks("aws_nat_gateway")[0][2]
+    assert "subnet_id     = aws_subnet.public[0].id" in nat and "aws_eip.nat.id" in nat
+    private = next(b for _, n, b in _blocks("aws_route_table") if n == "private")
+    assert 'cidr_block     = "0.0.0.0/0"' in private and "nat_gateway_id = aws_nat_gateway.this.id" in private
+    assert "single-AZ" in main  # the known weakness is said where the NAT is
 
 
 def test_code_fields_belong_to_the_apps_pipeline():
@@ -161,7 +216,10 @@ def _list(v):
     return [v] if isinstance(v, str) else list(v or [])
 
 
-@pytest.mark.parametrize("path", [BOUNDARY, OPERATOR_FS], ids=lambda p: p.name)
+OPERATOR = ROOT / "terraform" / "proving-ground" / "operator-policy.json"
+
+
+@pytest.mark.parametrize("path", [BOUNDARY, OPERATOR_FS, OPERATOR], ids=lambda p: p.name)
 def test_policy_is_valid_and_under_the_managed_policy_limit(path):
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert doc["Version"] == "2012-10-17"
@@ -211,6 +269,24 @@ def test_the_boundary_allows_the_new_services_only_on_our_names():
         assert "warden-pg-fs-" in r or r.endswith(("parametergroup:default.*", "/apis*", "/tags/*")), r
     slr = next(s for s in _stmts(BOUNDARY) if s["Sid"] == "CeilingServiceLinkedRolesForTheseServicesOnly")
     assert "elasticache.amazonaws.com" in slr["Condition"]["StringEquals"]["iam:AWSServiceName"]
+
+
+def test_only_the_operator_may_log_in_as_postgres_and_the_ceiling_allows_it():
+    """bootstrap-db and the harness's admin connection sign a token as the master user with the
+    operator's own credentials. Nothing else in the repository may be granted that login."""
+    st = next(s for s in _stmts(OPERATOR) if s["Sid"] == "AuroraIamLoginAsPostgres")
+    assert (st["Effect"], st["Action"], st["Resource"]) == (
+        "Allow", "rds-db:connect", "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres")
+    assert len(json.dumps(json.loads(OPERATOR.read_text(encoding="utf-8")), separators=(",", ":"))) <= POLICY_LIMIT
+    assert any("rds-db:connect" in _list(s["Action"]) for s in _stmts(BOUNDARY) if s["Effect"] == "Allow")
+    assert "dbuser:*/postgres" not in _tf_text()
+
+
+def test_the_fullstack_operator_policy_can_build_the_nat_and_pass_the_pod_role():
+    actions = {a for s in _stmts(OPERATOR_FS) if s["Effect"] == "Allow" for a in _list(s["Action"])}
+    assert {"ec2:AllocateAddress", "ec2:CreateNatGateway", "ec2:DeleteNatGateway", "ec2:ReleaseAddress"} <= actions
+    passed = next(s for s in _stmts(OPERATOR_FS) if s["Sid"] == "PassWardenPgFsRolesOnlyToTheseServices")
+    assert "pods.eks.amazonaws.com" in passed["Condition"]["StringEquals"]["iam:PassedToService"]
 
 
 def test_the_fullstack_operator_policy_fits_inside_the_boundary():
@@ -276,6 +352,11 @@ def test_secret_is_a_template_with_no_real_value():
     assert secret["metadata"]["name"] == "catalog-secret"
     assert all(re.fullmatch(r"__[A-Z_]+__", v) for v in secret["stringData"].values())
     assert "data" not in secret
+    # No password (IAM login); the one key is what catalog-api refuses to start without (fs-23).
+    assert list(secret["stringData"]) == ["CATALOG_SIGNING_KEY"]
+    assert '"CATALOG_SIGNING_KEY"' in (APPS / "app" / "app.py").read_text(encoding="utf-8")
+    manifests = "".join(f.read_text(encoding="utf-8") for f in K8S.glob("*.yaml"))
+    assert not re.search(r"(?i)password", re.sub(r"#[^\n]*", "", manifests))
 
 
 def test_hpa_pdb_and_readiness():
@@ -353,13 +434,11 @@ def test_the_bootstrap_gives_warden_ro_pg_monitor_and_nothing_more():
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
     mentions = [" ".join(s.split()) for s in re.split(r";", code) if "warden_ro" in s]
-    allowed = [r"^GRANT pg_monitor TO warden_ro$",
-               r"^ALTER ROLE warden_ro WITH LOGIN PASSWORD \{ro_password\}$"]
+    allowed = [r"^GRANT pg_monitor TO warden_ro$", r"^GRANT rds_iam TO app, catalog, warden_ro$"]
     grants = [m for m in mentions if m.upper().startswith(("GRANT", "ALTER"))]
     assert "GRANT pg_monitor TO warden_ro" in grants
     assert all(any(re.match(a, g) for a in allowed) for g in grants), grants
     assert "CREATE ROLE warden_ro LOGIN" in code
-    assert set(re.findall(r"\{(\w+)\}", code)) == {"app_password", "ro_password", "catalog_password"}
 
 
 # --------------------------------------------------------------------------- pipelines
@@ -393,20 +472,20 @@ def test_apps_workflow_triggers_only_on_app_code_and_deploys_only_on_dispatch():
     assert "aws-access-key-id" not in text
 
 
-def test_bootstrap_sql_placeholders_appear_only_where_passwords_go():
-    """sql.SQL(...).format fills EVERY brace pair - one inside a comment would put a password into
-    the statement text sent to the server (found 2026-09-25)."""
-    import re as _re
+def test_bootstrap_sql_has_no_password_and_no_placeholder():
+    """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause and no
+    placeholder of any kind remains (the file is sent as it is)."""
     text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
-    holes = _re.findall(r"\{(\w+)\}", text)
-    assert sorted(holes) == ["app_password", "catalog_password", "ro_password"], holes
-    for line in text.splitlines():
-        if "{" in line:
-            assert not line.lstrip().startswith("--") and "PASSWORD {" in line, line
+    code = re.sub(r"--[^\n]*", "", text)
+    assert "{" not in text and "}" not in text and "__" not in code
+    assert not re.search(r"(?i)\bpassword\b", code)
+    assert "GRANT rds_iam TO app, catalog, warden_ro" in code
+    for role in ("app", "catalog", "warden_ro"):
+        assert f"CREATE ROLE {role} LOGIN" in code
 
 
 def test_the_stack_carries_its_own_budget_alarm():
-    """The proving ground's budget went with its teardown; a ~USD 0.45/h stack must not run unwatched."""
+    """The proving ground's budget went with its teardown; a ~USD 0.50/h stack must not run unwatched."""
     tf = (ROOT / "terraform" / "fullstack" / "main.tf").read_text(encoding="utf-8")
     assert 'resource "aws_budgets_budget" "guard"' in tf and 'name         = "${local.name}-guard"' in tf
     assert 'type = "FORECASTED"' in tf and 'type = "ACTUAL"' in tf
@@ -415,3 +494,230 @@ def test_the_stack_carries_its_own_budget_alarm():
     assert budget and all(s["Resource"] == "arn:aws:budgets::*:budget/warden-pg-fs-*" for s in budget)
     wf = (ROOT / ".github" / "workflows" / "infra.yml").read_text(encoding="utf-8")
     assert "TF_VAR_budget_email: ${{ secrets.WARDEN_FS_BUDGET_EMAIL }}" in wf
+
+
+# --------------------------------------------------------------------------- aurora_express.py
+#
+# The Free plan's Aurora is created by a script, not by terraform. These run it against a fake RDS
+# client: the calls it makes, idempotency, the guard, and what lands in the secret and stack.json.
+
+
+def _aurora():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("aurora_express", TF / "aurora_express.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _NotFound(Exception):
+    pass
+
+
+class FakeRds:
+    """Just enough RDS: a cluster, its instances, waiters that settle the state at once."""
+
+    def __init__(self, cluster=None):
+        self.cluster, self.instances, self.calls = cluster, {}, []
+        self.exceptions = type("E", (), {"DBClusterNotFoundFault": _NotFound})
+
+    def _log(self, name, **kw):
+        self.calls.append((name, kw))
+
+    def describe_db_clusters(self, DBClusterIdentifier):
+        if self.cluster is None:
+            raise _NotFound(DBClusterIdentifier)
+        members = [{"DBInstanceIdentifier": i, "IsClusterWriter": d["writer"]} for i, d in self.instances.items()]
+        return {"DBClusters": [{**self.cluster, "DBClusterMembers": members}]}
+
+    def describe_db_instances(self, Filters):
+        return {"DBInstances": [{"DBInstanceIdentifier": i, "DBInstanceStatus": d["status"],
+                                 "AvailabilityZone": d["az"], "Endpoint": {"Address": f"{i}.x.rds.example"}}
+                                for i, d in self.instances.items()]}
+
+    def create_db_cluster(self, **kw):
+        self._log("create_db_cluster", **kw)
+        self.cluster = {"DBClusterIdentifier": kw["DBClusterIdentifier"], "Status": "creating",
+                        "Endpoint": "warden-pg-fs-aurora.cluster-x.rds.example",
+                        "ReaderEndpoint": "warden-pg-fs-aurora.cluster-ro-x.rds.example",
+                        "AvailabilityZones": ["az-a", "az-b", "az-c"]}
+        self.instances["warden-pg-fs-aurora-instance-1"] = {"writer": True, "status": "creating", "az": "az-a"}
+
+    def modify_db_cluster(self, **kw):
+        self._log("modify_db_cluster", **kw)
+        if "ServerlessV2ScalingConfiguration" in kw:
+            self.cluster["ServerlessV2ScalingConfiguration"] = kw["ServerlessV2ScalingConfiguration"]
+        if "DeletionProtection" in kw:
+            self.cluster["DeletionProtection"] = kw["DeletionProtection"]
+
+    def create_db_instance(self, **kw):
+        self._log("create_db_instance", **kw)
+        self.instances[kw["DBInstanceIdentifier"]] = {"writer": False, "status": "creating", "az": kw.get("AvailabilityZone")}
+
+    def delete_db_instance(self, **kw):
+        self._log("delete_db_instance", **kw)
+        self.instances[kw["DBInstanceIdentifier"]]["status"] = "deleting"
+
+    def delete_db_cluster(self, **kw):
+        self._log("delete_db_cluster", **kw)
+        self.cluster["Status"] = "deleting"
+
+    def get_waiter(self, name):
+        rds = self
+
+        class W:
+            def wait(self, **kw):
+                rds._log("wait:" + name, **kw)
+                if name == "db_cluster_available":
+                    rds.cluster["Status"] = "available"
+                elif name == "db_instance_available":
+                    for d in rds.instances.values():
+                        d["status"] = "available"
+                elif name == "db_instance_deleted":
+                    rds.instances.pop(kw["DBInstanceIdentifier"], None)
+                elif name == "db_cluster_deleted":
+                    rds.cluster = None
+        return W()
+
+
+class FakeSm:
+    def __init__(self):
+        self.puts = []
+
+    def put_secret_value(self, SecretId, SecretString):
+        self.puts.append((SecretId, json.loads(SecretString)))
+
+
+def _wrapped_stack(tmp_path):
+    path = tmp_path / "stack.json"
+    path.write_text(json.dumps({"region": {"value": "ap-south-2", "sensitive": False, "type": "string"}}),
+                    encoding="utf-8")
+    return path
+
+
+def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp_path):
+    ax, rds, sm, stack = _aurora(), FakeRds(), FakeSm(), _wrapped_stack(tmp_path)
+    found = ax.create(rds, sm, stack, log=lambda *_: None)
+    create = next(kw for n, kw in rds.calls if n == "create_db_cluster")
+    assert create == {"DBClusterIdentifier": "warden-pg-fs-aurora", "Engine": "aurora-postgresql",
+                      "WithExpressConfiguration": True, "DatabaseName": "shop", "Tags": ax.TAGS}
+    assert {"Key": "Project", "Value": "warden-fullstack"} in ax.TAGS
+    assert ("modify_db_cluster", {"DBClusterIdentifier": "warden-pg-fs-aurora", "ApplyImmediately": True,
+                                  "ServerlessV2ScalingConfiguration": {"MinCapacity": 0.5, "MaxCapacity": 2.0}}) in rds.calls
+    reader = next(kw for n, kw in rds.calls if n == "create_db_instance")
+    assert reader["DBInstanceIdentifier"] == "warden-pg-fs-aurora-2" and reader["PromotionTier"] == 1
+    assert reader["DBInstanceClass"] == "db.serverless" and reader["AvailabilityZone"] == "az-b"  # not the writer's
+    assert not any("Password" in k for _, kw in rds.calls for k in kw), "express has no password"
+    assert found["aurora_writer_instance"] == "warden-pg-fs-aurora-instance-1"  # whatever express named it
+    assert sm.puts == [("warden-pg-fs-db-app", {
+        "username": "app", "dbname": "shop", "port": 5432,
+        "host": "warden-pg-fs-aurora.cluster-x.rds.example", "reader": "warden-pg-fs-aurora.cluster-ro-x.rds.example"})]
+    raw = json.loads(stack.read_text(encoding="utf-8"))
+    assert raw["region"]["value"] == "ap-south-2"   # kept, in the file's own (wrapped) format
+    assert raw["aurora_writer_endpoint"]["value"] == "warden-pg-fs-aurora.cluster-x.rds.example"
+    assert raw["aurora_instance_endpoints"]["value"] == {
+        "warden-pg-fs-aurora-instance-1": "warden-pg-fs-aurora-instance-1.x.rds.example",
+        "warden-pg-fs-aurora-2": "warden-pg-fs-aurora-2.x.rds.example"}
+    assert (raw["db_name"]["value"], raw["db_master_username"]["value"]) == ("shop", "postgres")
+
+
+def test_aurora_create_twice_changes_nothing_and_refreshes_the_records(tmp_path):
+    ax, rds, stack = _aurora(), FakeRds(), _wrapped_stack(tmp_path)
+    ax.create(rds, FakeSm(), stack, log=lambda *_: None)
+    rds.calls.clear()
+    stack.write_text("{}", encoding="utf-8")   # e.g. `terraform output -json` rewrote it
+    sm = FakeSm()
+    ax.create(rds, sm, stack, log=lambda *_: None)
+    assert not [n for n, _ in rds.calls if n.startswith(("create", "modify", "delete"))], rds.calls
+    assert json.loads(stack.read_text(encoding="utf-8"))["aurora_cluster"] == "warden-pg-fs-aurora"
+    assert len(sm.puts) == 1
+
+
+def test_aurora_destroy_deletes_instances_then_the_cluster_without_a_snapshot():
+    ax, rds = _aurora(), FakeRds()
+    rds.create_db_cluster(DBClusterIdentifier="warden-pg-fs-aurora")
+    rds.create_db_instance(DBInstanceIdentifier="warden-pg-fs-aurora-2")
+    rds.cluster.update(Status="available", DeletionProtection=True)
+    rds.calls.clear()
+    ax.destroy(rds, log=lambda *_: None)
+    names = [n for n, _ in rds.calls]
+    assert names.index("modify_db_cluster") < names.index("delete_db_instance")
+    assert names.count("delete_db_instance") == 2
+    assert max(i for i, n in enumerate(names) if n == "wait:db_instance_deleted") < names.index("delete_db_cluster")
+    assert ("delete_db_cluster", {"DBClusterIdentifier": "warden-pg-fs-aurora", "SkipFinalSnapshot": True}) in rds.calls
+    assert names[-1] == "wait:db_cluster_deleted" and rds.cluster is None
+    rds.calls.clear()
+    ax.destroy(rds, log=lambda *_: None)   # already gone: nothing to do
+    assert rds.calls == []
+
+
+@pytest.mark.parametrize("cmd", ["create", "status", "destroy"])
+def test_aurora_script_refuses_a_cluster_outside_the_stack(cmd, tmp_path):
+    ax, rds = _aurora(), FakeRds()
+    with pytest.raises(SystemExit, match="refusing"):
+        ax.main([cmd, "--cluster", "prod-db", "--stack", str(tmp_path / "s.json")],
+                clients={"rds": rds, "secretsmanager": FakeSm()})
+    with pytest.raises(SystemExit, match="refusing"):
+        getattr(ax, cmd)(rds, *([FakeSm(), tmp_path / "s.json"] if cmd == "create" else []), "prod-db")
+    assert rds.calls == []
+
+
+def test_aurora_status_says_whether_the_cluster_is_up():
+    ax, rds = _aurora(), FakeRds()
+    lines = []
+    assert ax.status(rds, log=lines.append) is False and "does not exist" in lines[0]
+    rds.create_db_cluster(DBClusterIdentifier="warden-pg-fs-aurora")
+    rds.cluster["Status"] = "available"
+    assert ax.status(rds, log=lines.append) is True
+
+
+def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
+    text = (ROOT / ".github" / "workflows" / "infra.yml").read_text(encoding="utf-8")
+    assert text.index("terraform/fullstack apply") < text.index("aurora_express.py create") < text.index("aws s3 cp")
+    assert text.index("aurora_express.py destroy") < text.index("terraform/fullstack destroy")
+    assert "MASTER_PASSWORD" not in text and "db_master_password" not in text
+
+
+def test_aurora_create_waits_until_the_capacity_change_has_landed(tmp_path, monkeypatch):
+    """The available-waiter can answer before the modify starts; adding the reader then fails."""
+    ax, rds, sm = _aurora(), FakeRds(), FakeSm()
+    monkeypatch.setattr(ax.time, "sleep", lambda _s: None)
+    real_modify, polls = rds.modify_db_cluster, {"n": 0}
+
+    def modify(**kw):
+        real_modify(**kw)
+        rds.cluster["Status"] = "modifying"
+    rds.modify_db_cluster = modify
+    real_describe = rds.describe_db_clusters
+
+    def describe(DBClusterIdentifier):
+        if rds.cluster and rds.cluster.get("Status") == "modifying":
+            polls["n"] += 1
+            if polls["n"] >= 3:
+                rds.cluster["Status"] = "available"
+        return real_describe(DBClusterIdentifier)
+    rds.describe_db_clusters = describe
+    ax.create(rds, sm, _wrapped_stack(tmp_path), log=lambda *_: None)
+    names = [n for n, _ in rds.calls]
+    assert polls["n"] >= 3 and names.index("modify_db_cluster") < names.index("create_db_instance")
+
+
+def test_aurora_reader_is_named_after_the_cluster_it_joins(tmp_path):
+    ax, rds, sm = _aurora(), FakeRds(), FakeSm()
+    ax.create(rds, sm, _wrapped_stack(tmp_path), cluster="warden-pg-fs-other", log=lambda *_: None)
+    created = [kw for n, kw in rds.calls if n == "create_db_instance"]
+    assert created and created[0]["DBInstanceIdentifier"] == "warden-pg-fs-other-2"
+    assert created[0]["DBClusterIdentifier"] == "warden-pg-fs-other"
+
+
+def test_aurora_destroy_waits_for_an_instance_still_being_created():
+    """An interrupted create leaves an instance in `creating`; RDS refuses to delete it until it settles."""
+    ax, rds = _aurora(), FakeRds()
+    rds.create_db_cluster(DBClusterIdentifier="warden-pg-fs-aurora")
+    rds.create_db_instance(DBInstanceIdentifier="warden-pg-fs-aurora-2")   # still "creating"
+    rds.cluster.update(Status="available")
+    rds.calls.clear()
+    ax.destroy(rds, log=lambda *_: None)
+    names = [n for n, _ in rds.calls]
+    assert names.index("wait:db_instance_available") < names.index("delete_db_instance")

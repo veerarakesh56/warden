@@ -388,9 +388,13 @@ scenarios:
       - {kind: deploys_nonempty}
     notes: ALLOC_MB (0 at baseline) makes the process really allocate 400 MiB.
 
-  - id: fs-21-secret-rotated-stale-credentials
-    title: the app DB password rotated (database and secret) without restarting orders-api
-    fault_class: secret_rotated_stale_credentials
+  # Redesigned 2026-09-26, BEFORE any fault ran: Aurora in express configuration (the AWS Free
+  # plan) authenticates with IAM only, so there is no password to rotate. The old class
+  # secret_rotated_stale_credentials stays in scoring.yaml, unused, so earlier gradings re-score
+  # byte-identically.
+  - id: fs-21-db-iam-auth-revoked
+    title: rds-db:connect removed from orders-api's task role, deployment forced
+    fault_class: db_iam_auth_revoked
     fidelity: real
     signature_covered: false
     severity: high
@@ -401,11 +405,12 @@ scenarios:
     inject: [{op: fs_inject, fault: fs-21}]
     revert: [{op: fs_revert, fault: fs-21}]
     evidence_assertions:
-      - {kind: log_contains, value: "password authentication failed"}
-      - {kind: log_contains, value: "SECRET warden-pg-fs-db-app changed"}
+      - {kind: log_contains, value: "PAM authentication failed for user"}
+      - {kind: log_contains, value: "TASKROLE ecs/warden-pg-fs-orders-api role=warden-pg-fs-orders-api-task"}
     notes: >
-      Running tasks keep the old password; new connections fail. The revert restores the old
-      password on both sides and restarts orders-api onto it.
+      The task still starts and answers /health; every new database login as `app` is refused, so
+      /orders returns 500 behind the ALB. The revert re-puts the policy, removes any policy a fix
+      added, and forces a deployment.
 
   - id: fs-22-k8s-config-crashloop
     title: catalog-config gets an invalid value; rollout restart

@@ -311,7 +311,7 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
 # WARDEN's own structured lines (contract C) - facts about configuration, not application output.
 _STRUCTURED = ("CONFIG ", "ESM ", "CODE ", "SOURCE ", "QUEUE ", "POLICY ", "TABLE ", "CLUSTER ", "TARGET",
                "RULE ", "SECRET ", "EVENT elasticache ", "EVENT aurora ", "TOOL-PARTIAL ",
-               "REPLGROUP ", "SG ", "APPSG ")
+               "REPLGROUP ", "SG ", "APPSG ", "TASKROLE ")
 
 
 def _sg_list(text: str) -> list[str]:
@@ -492,6 +492,30 @@ def _grant(line: str) -> tuple[list[str], str]:
             f"Grants {action.group(1)} on {resource} to role {role.group(1)} - exactly what the denial names.")
 
 
+def db_iam_grant(ctx: ContextBundle, line: str) -> tuple[list[str], str]:
+    """put-role-policy giving back rds-db:connect for the refused database user, to the role that
+    signs the workload's tokens - only when the evidence NAMES that role (a TASKROLE line)."""
+    user = re.search(r'PAM authentication failed for user "?([A-Za-z0-9_]+)', line)
+    src = _source_of(line)
+    tline = _first(ctx, f"TASKROLE ecs/{src[1]} ") if src and src[0] == "ecs" else None
+    role = _kv(tline).get("role") if tline else None
+    if not (user and role):
+        needed = ([] if user else ["the refused user in the PAM line"]) + ([] if role else [
+            "a `TASKROLE ecs/<service> role=<name>` line for the failing ECS service" if src and src[0] == "ecs"
+            else "the identity that signs the tokens (WARDEN names it only for an ECS service, from its "
+                 "task definition: a `TASKROLE ecs/<service> role=<name>` line)"])
+        return [], f"No command: the evidence does not carry {' and '.join(needed)}."
+    # The cluster's resource id (the ARN's middle) and the account are masked in reports: `*`.
+    resource = f"arn:aws:rds-db:{region() or '*'}:*:dbuser:*/{user.group(1)}"
+    doc = json.dumps({"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "rds-db:connect", "Resource": resource}]}, separators=(",", ":"))
+    return ([regioned(f"aws iam put-role-policy --role-name {role} --policy-name warden-restore-rds-db-connect "
+                      f"--policy-document '{doc}'")],
+            (f"Grants rds-db:connect as database user {user.group(1)} to {role}, the task role of {src[1]} "
+             "(its TASKROLE line) - the identity that signs its database tokens. New connections succeed at "
+             "once; nothing needs a restart."))
+
+
 def _k8s_target(alert: Alert, line: str | None) -> tuple[str, str] | None:
     src = _source_of(line or "")
     if src and src[0] == "k8s" and "/" in src[1]:
@@ -661,7 +685,7 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
 
     # ---- Lambda: code regression - a traceback frame in code that shipped in the window.
     infra = ("ResourceNotFoundException", "AccessDenied", "read-only transaction", "password authentication",
-             "too many clients", "Timeout", "timed out")
+             "PAM authentication failed", "too many clients", "Timeout", "timed out")
     for code in (ln for ln in ctx.logs if ln.startswith("CODE ")):
         mt = re.match(r"CODE (\S+) (\S+):(\d+) in (\S+): (.*)", code)
         if not mt or any(i in code for i in infra) or not _deploy(ctx, "lambda", mt.group(1)):
@@ -996,6 +1020,17 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             "uses the one it read at start.", cmds, why,
             developers=["Re-read the secret on authentication failure instead of only at start."],
             platform=["Make rotation restart its consumers (or use dual-user rotation)."])
+
+    # ---- IAM database authentication refused (Aurora: the signing identity lost rds-db:connect)
+    pam = next((ln for ln in ctx.logs if "PAM authentication failed for user" in ln), None)
+    if pam:
+        cmds, why = db_iam_grant(ctx, pam)
+        add("db_iam_auth_refused", "Database refuses the application's IAM login", pam[-160:],
+            "Aurora refused an IAM database token: the identity that signed it is no longer allowed "
+            "rds-db:connect for that database user (a policy change removed it), or the user lost rds_iam.",
+            cmds, why,
+            platform=["Keep rds-db:connect in the workload role's policy in infrastructure code; review diffs that remove it."],
+            prevention=["Alarm on `PAM authentication failed` in application logs; it never fixes itself."])
 
     # ---- Kubernetes: missing secret key, unschedulable
     cfgerr = _has(ctx, "CreateContainerConfigError", "couldn't find key")

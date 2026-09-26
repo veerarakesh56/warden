@@ -14,6 +14,10 @@ comma-separated), `dynamodb_table`, `elasticache` (replication group id), `auror
 Environment given to WARDEN by the harness (never on argv): assumed-role AWS credentials of
 `warden-pg-fs-reader`, `AWS_REGION=ap-south-2`, `KUBECONFIG` (token-only, SA `warden` in `shop`),
 `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN` (user `warden_ro`, sslmode=require).
+Since 2026-09-26 (Aurora express configuration, IAM authentication only) the DSN's password is an
+IAM database token - valid 15 minutes for NEW connections, percent-encoded - that the harness signs
+with the ASSUMED `warden-pg-fs-reader` credentials, so the reader role's `rds-db:connect` on
+`dbuser:*/warden_ro` is the grant that admits WARDEN. No database password exists anywhere.
 
 ## B. Metrics the stack backend emits (floats)
 
@@ -67,6 +71,8 @@ EVENT elasticache warden-pg-fs-redis 2026-...Z <message>
 REPLGROUP warden-pg-fs-redis node_type=cache.t4g.micro sgs=[sg-..]
 SG sg-.. ingress tcp/6379 from=[sg-..]                       (the cache security group's sources)
 APPSG ecs/warden-pg-fs-orders-api sgs=[sg-..]
+TASKROLE ecs/warden-pg-fs-orders-api role=warden-pg-fs-orders-api-task   (the task definition's task role - the
+                                                identity that signs the service's IAM DB tokens; absent when none. 2026-09-26)
 APPSG eks/warden-pg-fs-eks sgs=[sg-..]
 EVENT aurora warden-pg-fs-aurora 2026-...Z <message>        (DescribeEvents: failover, reboot, ...)
 CLUSTER aurora warden-pg-fs-aurora writer=warden-pg-fs-aurora-1 readers=[warden-pg-fs-aurora-2] status=available
@@ -109,6 +115,9 @@ knows what it may print:
 - SQL: one statement, optionally `;` and one trailing `-- comment`. Kills are
   `SELECT [pid,] pg_terminate_backend|pg_cancel_backend(pid) FROM pg_stat_activity [alias] WHERE ...`;
   the only subquery a WHERE may hold is `(SELECT unnest(pg_blocking_pids(w.pid)) FROM pg_stat_activity w)`.
+- `aws iam put-role-policy`: every `Resource` must be a `warden-pg-fs-*` ARN, except an Aurora login
+  `arn:aws:rds-db:ap-south-2:*:dbuser:*/app` or `.../catalog`, which may be granted `rds-db:connect`
+  and nothing else (the cluster id in it is masked; never `postgres` or `warden_ro`). 2026-09-26.
 - `aws ec2 authorize-security-group-ingress`: every `sg-...` named must belong to the stack (the
   cache SG or an application SG from `stack.json`). `aws elasticache modify-replication-group`:
   only `--replication-group-id warden-pg-fs-*`, `--cache-node-type`, `--apply-immediately`, `--region`.

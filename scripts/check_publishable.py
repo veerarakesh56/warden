@@ -68,9 +68,6 @@ ALLOWED_PATHS: dict[str, str] = {
         "fabricated secrets (a key-shaped string, a password, an account id) that the report tests "
         "assert are NEVER revealed, even with identifiers switched on. Same reason as "
         "test_redaction.py: a secret that does not look like one would make the assertion vacuous.",
-    "tests/test_runner_fullstack.py":
-        "a fabricated password with @, / and : in it, asserting the harness percent-encodes it into "
-        "WARDEN's DSN. A password without those characters would make the encoding assertion vacuous.",
     "tests/test_runner_db.py":
         "a fabricated DSN password that three assertions are ABOUT: that it never reaches the "
         "manifest, never reaches an argv, and is masked by redact(). A fixture without a password "

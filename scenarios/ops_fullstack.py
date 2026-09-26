@@ -96,10 +96,10 @@ class Target:
     ecs_cluster: str = "warden-pg-fs-ecs"
     ecs_service: str = "warden-pg-fs-orders-api"
     ecs_exec_role: str = "warden-pg-fs-ecs-exec"
+    ecs_task_role: str = "warden-pg-fs-orders-api-task"   # signs orders-api's IAM DB tokens (fs-21)
     ecs_baseline_td: str = ""
     target_group: str = "warden-pg-fs-orders"
     health_path: str = "/health"
-    secret: str = "warden-pg-fs-db-app"
     rule: str = "warden-pg-fs-reconcile-5m"
     namespace: str = "shop"
     catalog: str = "catalog-api"
@@ -136,8 +136,9 @@ class Clients:
     ec: Any = None        # elasticache (fs-11 revert undoes a node-type change)
     apps: Any = None      # kubernetes AppsV1Api
     core: Any = None      # kubernetes CoreV1Api
-    # (**kw) -> a NEW autocommit psycopg connection to the Aurora WRITER as the admin user, with
-    # connect_timeout and statement/lock timeouts set. kw may carry application_name.
+    # (**kw) -> a NEW autocommit psycopg connection to the Aurora WRITER as the admin user (a fresh
+    # IAM token each time), with connect_timeout and statement/lock timeouts set. kw may carry
+    # application_name.
     sql: Callable[..., Any] | None = None
     # The same, on the READER endpoint (fs-16's slow query runs there).
     sql_reader: Callable[..., Any] | None = None
@@ -380,7 +381,7 @@ def _iam_remove_action(c: Clients, t: Target, fid: str, role: str, action: str, 
                 if any(action in _actions(s) for s in d.get("Statement") or [])}
     if not granting:
         raise OpError(f"no inline policy of {role} grants {action} explicitly - nothing to remove")
-    _save(t, fid, {"role": role, "docs": copy.deepcopy(granting), **(extra or {})})
+    _save(t, fid, {"role": role, "docs": copy.deepcopy(granting), "policies": sorted(docs), **(extra or {})})
     for name, doc in granting.items():
         shrunk = copy.deepcopy(doc)
         kept = []
@@ -394,7 +395,8 @@ def _iam_remove_action(c: Clients, t: Target, fid: str, role: str, action: str, 
             c.iam.put_role_policy(RoleName=role, PolicyName=name, PolicyDocument=json.dumps(shrunk))
         else:
             # ⛔ IAM refuses a policy with no statements (MalformedPolicyDocument). fs-18's execution-role
-            # policy grants ONLY GetSecretValue, so removing it removes the policy; revert re-puts it.
+            # policy grants ONLY GetSecretValue and fs-21's task-role policy ONLY rds-db:connect, so
+            # removing the action removes the policy; revert re-puts it.
             c.iam.delete_role_policy(RoleName=role, PolicyName=name)
     return {"role": role, "removed": action, "policies": sorted(granting)}
 
@@ -405,7 +407,16 @@ def _iam_restore(c: Clients, t: Target, fid: str) -> dict:
         return {"nothing_saved": True}
     for name, doc in s["docs"].items():
         c.iam.put_role_policy(RoleName=s["role"], PolicyName=name, PolicyDocument=json.dumps(doc))
-    return {"role": s["role"], "restored": sorted(s["docs"])}
+    # ⛔ EXACT prior state: WARDEN's fix adds its OWN inline policy (warden-restore-*). Every inline
+    # policy the role did not have before the inject goes, or the next fault starts with an extra
+    # grant. (A state saved before this list existed has no "policies" key: nothing is removed.)
+    extra: list[str] = []
+    if "policies" in s:
+        now = c.iam.list_role_policies(RoleName=s["role"]).get("PolicyNames") or []
+        extra = sorted(set(now) - set(s["policies"]))
+        for name in extra:
+            c.iam.delete_role_policy(RoleName=s["role"], PolicyName=name)
+    return {"role": s["role"], "restored": sorted(s["docs"]), "removed_extra": extra}
 
 
 # --------------------------------------------------------------------------- ecs
@@ -1050,19 +1061,28 @@ def fs17_verify(c, t):
     return _ecs_steady(c, t, not_td=(t.saved.get("fs-17") or {}).get("fault_task_definition", ""))
 
 
-def fs18_inject(c, t):
+def _iam_ecs_inject(c, t, fid: str, role: str, action: str) -> dict:
+    """Remove one action from an orders-api role, then force a deployment onto the change."""
     _guard(c, t, "ecs", t.ecs_service)
-    out = _iam_remove_action(c, t, "fs-18", t.ecs_exec_role, "secretsmanager:GetSecretValue")
+    out = _iam_remove_action(c, t, fid, role, action)
     c.ecs.update_service(cluster=t.ecs_cluster, service=t.ecs_service, forceNewDeployment=True)
     return out
 
 
-def fs18_revert(c, t):
-    out = _iam_restore(c, t, "fs-18")
+def _iam_ecs_revert(c, t, fid: str) -> dict:
+    out = _iam_restore(c, t, fid)
     if not out.get("nothing_saved"):
         c.ecs.update_service(cluster=t.ecs_cluster, service=t.ecs_service, forceNewDeployment=True)
-        _done(t, "fs-18")
+        _done(t, fid)
     return out
+
+
+def fs18_inject(c, t):
+    return _iam_ecs_inject(c, t, "fs-18", t.ecs_exec_role, "secretsmanager:GetSecretValue")
+
+
+def fs18_revert(c, t):
+    return _iam_ecs_revert(c, t, "fs-18")
 
 
 def ecs_steady(c, t):
@@ -1120,30 +1140,14 @@ def fs20_verify(c, t):
 
 
 def fs21_inject(c, t):
-    _guard(c, t, "secret", t.secret)
-    _guard_db(c, t)
-    old = c.secrets.get_secret_value(SecretId=t.secret)["SecretString"]
-    user = json.loads(old)["username"]
-    # ⚠ The saved state holds the OLD password: persisted under saved/, deleted on revert, never
-    # published (fullstack_cli keeps saved/ out of the ground truth).
-    _save(t, "fs-21", {"secret_string": old})
-    new = secrets.token_hex(16)
-    _sql_scalar(c, f"ALTER ROLE {_quote_ident(user)} WITH PASSWORD {_quote_literal(new)}")
-    c.secrets.put_secret_value(SecretId=t.secret, SecretString=json.dumps({**json.loads(old), "password": new}))
-    return {"rotated_user": user}
+    """db_iam_auth_revoked (redesigned 2026-09-26, before any fault ran: Aurora express has no
+    passwords to rotate). orders-api's task role loses rds-db:connect; every new login as `app` is
+    refused with `PAM authentication failed for user "app"` while the task itself stays healthy."""
+    return _iam_ecs_inject(c, t, "fs-21", t.ecs_task_role, "rds-db:connect")
 
 
 def fs21_revert(c, t):
-    s = t.saved.get("fs-21")
-    if not s:
-        return {"nothing_saved": True}
-    old = json.loads(s["secret_string"])
-    _sql_scalar(c, f"ALTER ROLE {_quote_ident(old['username'])} WITH PASSWORD {_quote_literal(old['password'])}")
-    c.secrets.put_secret_value(SecretId=t.secret, SecretString=s["secret_string"])
-    # Tasks started by a fix hold the rotated password; restart them onto the restored one.
-    c.ecs.update_service(cluster=t.ecs_cluster, service=t.ecs_service, forceNewDeployment=True)
-    _done(t, "fs-21")
-    return {"restored_user": old["username"]}
+    return _iam_ecs_revert(c, t, "fs-21")
 
 
 def fs21_verify(c, t):
@@ -1361,7 +1365,8 @@ def _b_checkout(c, t) -> list[str]:
 def _b_processor(c, t) -> list[str]:
     p = []
     env = _lambda_env(_lambda_cfg(c, t.processor))
-    if t.writer_endpoint and env.get("DB_HOST") != t.writer_endpoint:
+    # "" is the baseline (the code then uses the metadata secret's host = the cluster endpoint).
+    if env.get("DB_HOST") not in ("", t.writer_endpoint):
         p.append(f"processor DB_HOST is {env.get('DB_HOST')!r}, not the cluster writer endpoint")
     state = _orders_esm(c, t).get("State")
     if state != "Enabled":
@@ -1438,6 +1443,10 @@ def _b_ecs(c, t) -> list[str]:
             for n in c.iam.list_role_policies(RoleName=t.ecs_exec_role).get("PolicyNames") or []]
     if "secretsmanager:GetSecretValue" not in json.dumps(docs):
         p.append(f"{t.ecs_exec_role} no longer grants secretsmanager:GetSecretValue")
+    docs = [c.iam.get_role_policy(RoleName=t.ecs_task_role, PolicyName=n)["PolicyDocument"]
+            for n in c.iam.list_role_policies(RoleName=t.ecs_task_role).get("PolicyNames") or []]
+    if "rds-db:connect" not in json.dumps(docs):
+        p.append(f"{t.ecs_task_role} no longer grants rds-db:connect")
     return p
 
 
@@ -1671,12 +1680,17 @@ def _names_stack(value: str, stack_ids: frozenset[str]) -> bool:
 
 _ARN = re.compile(r"arn:aws[\w-]*:[^\s,\"'}\]]+")
 _ROOT = re.compile(r"arn:aws:iam::\d+:root")
+# rds-db:connect is scoped by DATABASE USER: the ARN's middle is the cluster's resource id, which a
+# report masks (`*`). Only the application users - never postgres (the master) or warden_ro.
+DB_APP_USERS = ("app", "catalog")
+_DBUSER = re.compile(rf"arn:aws:rds-db:{re.escape(REGION)}:(?:\*|\d{{12}}):dbuser:(?:\*|cluster-[A-Za-z0-9]+)/"
+                     rf"(?:{'|'.join(DB_APP_USERS)})")
 
 
 def _foreign_arn(value: str) -> str | None:
     """Any ARN ANYWHERE in an argument (JSON, shorthand, plain) must name the stack."""
     for arn in _ARN.findall(value):
-        if not (_names_stack(arn, frozenset()) or _ROOT.fullmatch(arn)):
+        if not (_names_stack(arn, frozenset()) or _ROOT.fullmatch(arn) or _DBUSER.fullmatch(arn)):
             return arn
     return None
 
@@ -1709,11 +1723,16 @@ def _check_policy_document(value: str) -> str | None:
         return "--policy-document is not inline JSON"
     for s in doc.get("Statement") or []:
         actions = s.get("Action") or []
-        for a in [actions] if isinstance(actions, str) else actions:
+        actions = [actions] if isinstance(actions, str) else actions
+        for a in actions:
             if "*" in a.split(":")[-1] or a.lower().startswith("iam:") or a == "*":
                 return f"policy grants a wildcard or IAM action: {a}"
         resources = s.get("Resource") or []
         for r in [resources] if isinstance(resources, str) else resources:
+            if _DBUSER.fullmatch(str(r)):
+                if actions != ["rds-db:connect"]:
+                    return f"a database user may only be granted rds-db:connect, not {actions}"
+                continue
             if not (str(r).startswith("arn:") and _names_stack(str(r), frozenset())):
                 return f"policy resource is not a stack resource: {r}"
     return None

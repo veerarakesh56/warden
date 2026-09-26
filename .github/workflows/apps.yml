@@ -6,7 +6,8 @@
 #                      the one-time owner setup (role warden-pg-fs-ci, bucket, `fullstack` env).
 #                      The EKS API must admit the runner: WARDEN_FS_EKS_PUBLIC_CIDRS, and the CI
 #                      role in WARDEN_FS_EKS_ADMINS (infra.yml).
-# bootstrap-db is NOT here: Aurora admits the operator IP only, so it runs from that machine.
+# bootstrap-db is NOT here: it logs in as the master user postgres with an IAM token signed by the
+# OPERATOR's own identity (rds-db:connect on dbuser:*/postgres), a grant the CI role does not have.
 name: apps
 
 on:

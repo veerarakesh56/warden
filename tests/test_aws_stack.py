@@ -128,13 +128,15 @@ def _ecs():
     return Fake(
         describe_services={"services": [{
             "status": "ACTIVE", "runningCount": 2, "desiredCount": 2, "pendingCount": 0,
+            "taskDefinition": arn + "8",
             "networkConfiguration": {"awsvpcConfiguration": {"securityGroups": ["sg-0ecs"]}},
             "deployments": [
                 {"status": "PRIMARY", "createdAt": NOW - timedelta(minutes=3), "taskDefinition": arn + "8"},
                 {"status": "ACTIVE", "createdAt": NOW - timedelta(days=1), "taskDefinition": arn + "7"},
             ]}], "failures": []},
-        describe_task_definition=lambda taskDefinition: {"taskDefinition": {"containerDefinitions": [
-            {"image": f"app:{taskDefinition.rsplit(':', 1)[1]}"}]}},
+        describe_task_definition=lambda taskDefinition: {"taskDefinition": {
+            "taskRoleArn": "arn:aws:iam::1:role/warden-pg-fs-orders-api-task",
+            "containerDefinitions": [{"image": f"app:{taskDefinition.rsplit(':', 1)[1]}"}]}},
     )
 
 
@@ -626,9 +628,18 @@ def _granted() -> set[str]:
     return {a for chunk in lists for a in re.findall(r'"([^"]+)"', chunk)}
 
 
+# ⭐ The ONE grant that is not a call in the code. rds-db:connect is not an AWS API WARDEN invokes:
+# the harness signs WARDEN's warden_ro database token with this role's assumed credentials
+# (scenarios/fullstack_cli.py warden_dsns), and Aurora checks the grant when WARDEN connects. So the
+# reader role must hold it, as warden_ro only (terraform/fullstack/reader.tf), and nothing in
+# aws_stack.py / aws_backend.py calls it. Named here so it cannot grow into a general loophole.
+NOT_A_CALL = {"rds-db:connect"}
+
+
 def test_iam_policy_grants_exactly_what_the_code_calls():
     called = {_iam_action(a, m) for a, m in _api_calls()}
-    granted = _granted()
+    granted = _granted() - NOT_A_CALL
+    assert NOT_A_CALL <= _granted(), "the harness signs WARDEN's database token with the reader role"
     assert len(called) > 20, "the AST walk found too few calls - the test itself has rotted"
     assert called == granted, (
         f"IAM policy and code disagree.\n"
@@ -638,7 +649,7 @@ def test_iam_policy_grants_exactly_what_the_code_calls():
 
 
 def test_every_granted_action_is_a_read():
-    for action in _granted():
+    for action in _granted() - NOT_A_CALL:
         verb = action.split(":", 1)[1]
         assert action == "apigateway:GET" or verb.startswith(("Describe", "Get", "List", "Filter")), action
     for forbidden in ("secretsmanager:GetSecretValue", "s3:GetObject", "ssm:GetParameter"):
@@ -697,4 +708,13 @@ def test_the_cache_network_path_is_evidence(dsns):
     assert f"REPLGROUP {P}redis node_type=cache.t4g.micro sgs=[sg-0redis]" in lines
     assert "SG sg-0redis ingress tcp/6379 from=[sg-0lambda]" in lines, [x for x in lines if x.startswith("SG")]
     assert f"APPSG ecs/{P}orders-api sgs=[sg-0ecs]" in lines
+    # The task role (not the execution role): what a refused IAM database login is granted back to.
+    assert f"TASKROLE ecs/{P}orders-api role={P}orders-api-task" in lines
     assert f"APPSG eks/{P}eks sgs=[sg-0eks]" in lines
+
+
+def test_the_only_database_login_the_reader_role_holds_is_warden_ro():
+    text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    block = re.search(r'statement \{\s*sid\s*=\s*"ConnectAsWardenRo"(.*?)\n  \}', text, re.DOTALL).group(1)
+    assert re.findall(r'"(arn:[^"]+)"', block) == [
+        "arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/warden_ro"]

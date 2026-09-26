@@ -16,7 +16,6 @@ terraform {
   required_version = ">= 1.5"
   required_providers {
     aws     = { source = "hashicorp/aws", version = ">= 5.80" }
-    random  = { source = "hashicorp/random", version = ">= 3.6" }
     archive = { source = "hashicorp/archive", version = ">= 2.4" }
   }
   # No backend block on purpose: a local apply keeps local state. CI writes a backend_override.tf
@@ -54,14 +53,17 @@ locals {
 
 # --------------------------------------------------------------------------- network
 #
-# Public subnets for everything that needs the internet (ALB, ECS tasks with public IPs, EKS nodes,
-# Aurora). Private subnets for ElastiCache and the in-VPC Lambdas. No NAT gateway: the private side
-# reaches AWS APIs through endpoints only.
+# Public subnets for everything that needs the internet (ALB, ECS tasks with public IPs, EKS nodes).
+# Private subnets for ElastiCache and the in-VPC Lambdas, which reach the internet through ONE NAT
+# gateway in public[0]: Aurora in express configuration is outside the VPC, reachable only through
+# its internet access gateway (changed 2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints").
+# ⚠ One NAT is a single-AZ dependency: if that AZ fails, the in-VPC Lambdas lose the database.
+# Accepted for a benchmark stack; a production stack runs one NAT per AZ.
 
 resource "aws_vpc" "this" {
   cidr_block           = "10.42.0.0/16"
   enable_dns_support   = true
-  enable_dns_hostnames = true # interface endpoints with private DNS, EKS private endpoint, Aurora
+  enable_dns_hostnames = true # interface endpoints with private DNS, EKS private endpoint
   tags                 = { Name = local.name }
 }
 
@@ -99,9 +101,25 @@ resource "aws_route_table" "public" {
   tags = { Name = "${local.name}-public" }
 }
 
+resource "aws_eip" "nat" {
+  domain = "vpc"
+  tags   = { Name = "${local.name}-nat" }
+}
+
+resource "aws_nat_gateway" "this" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[0].id # ⚠ single AZ, see the header
+  tags          = { Name = local.name }
+  depends_on    = [aws_internet_gateway.this]
+}
+
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.this.id
-  tags   = { Name = "${local.name}-private" } # no default route: there is no NAT, by design
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.this.id # the in-VPC Lambdas reach Aurora's internet gateway
+  }
+  tags = { Name = "${local.name}-private" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -212,8 +230,8 @@ resource "aws_security_group" "lambda" {
 }
 
 locals {
-  # The application security groups: what may reach the database and the cache. EKS pods use the
-  # cluster security group (VPC CNI puts pods on the node ENIs).
+  # The application security groups: what may reach the cache. EKS pods use the cluster security
+  # group (VPC CNI puts pods on the node ENIs). Aurora has no security group: it is not in the VPC.
   app_security_groups = {
     ecs    = aws_security_group.ecs.id
     lambda = aws_security_group.lambda.id
@@ -222,7 +240,7 @@ locals {
 }
 
 # ⛔ THE SPENDING ALARM FOR THIS STACK. The proving ground's budget went with its teardown, so the
-# stack that costs ~USD 0.45/h carries its own. Forecast alarms fire first on purpose: by the time
+# stack that costs ~USD 0.50/h carries its own. Forecast alarms fire first on purpose: by the time
 # ACTUAL spend crosses a line, the hours that caused it are already billed. The name is inside the
 # operator's budgets scope (budget/warden-pg-*).
 resource "aws_budgets_budget" "guard" {

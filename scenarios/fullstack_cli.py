@@ -23,12 +23,14 @@
 
 ⛔ The run directory has the layout `scenarios.score` reads (manifest.json, ground-truth/, reports/),
 plus two private folders that must NEVER be published: `saved/` (the exact prior state each inject
-replaced - fs-21's holds the old database password until its revert deletes it) and `hold/` (the
-session holder's control files).
+replaced - IAM policy documents, queue policies, ConfigMap/Secret data) and `hold/` (the session
+holder's control files).
 
 ⛔ WARDEN runs with ONLY the reader identity: the assumed role warden-pg-fs-reader, a token-only
-kubeconfig for ServiceAccount warden in shop, and DSNs for warden_ro - built from nothing, as in
-every earlier wave (scenarios/runner.py explains why). The provider comes from the operator's
+kubeconfig for ServiceAccount warden in shop, and DSNs for warden_ro whose IAM token is signed with
+THAT role's credentials (its rds-db:connect grant is what lets WARDEN in) - built from nothing, as
+in every earlier wave (scenarios/runner.py explains why). There are no database passwords: Aurora
+runs in express configuration, IAM authentication only (2026-09-26). The provider comes from the operator's
 environment (WARDEN_PROVIDER=claude_cli for a Claude subscription).
 """
 
@@ -72,15 +74,15 @@ DEFAULT_STACK = pathlib.Path.home() / "warden-fullstack-build" / "stack.json"
 
 # What the stack description file must / may carry: `terraform output -json` of terraform/fullstack,
 # either wrapped {"k": {"value": v}} or flat {"k": v}, plus `ecs_baseline_task_definition`, which
-# `scripts/deploy_fullstack_apps.py deploy ecs` adds. NO PASSWORD is in it:
-#   - the master user's name comes from DescribeDBClusters, its password from the operator's env
-#     WARDEN_FS_DB_MASTER_PASSWORD (the harness's admin connection - never given to WARDEN);
-#   - warden_ro's credentials come from the Secrets Manager secret `warden-pg-fs-db-warden-ro`,
-#     read with the operator's identity (WARDEN's reader role cannot read secret values).
+# `scripts/deploy_fullstack_apps.py deploy ecs` adds, plus the Aurora keys that
+# `terraform/fullstack/aurora_express.py create` merges in. NO PASSWORD exists anywhere:
+#   - the harness's admin connection is the master user (db_master_username, `postgres`) with an
+#     IAM token signed by the OPERATOR's credentials, fresh for every connection - never given to WARDEN;
+#   - WARDEN's warden_ro token is signed with the ASSUMED READER ROLE's credentials (warden_dsns).
 STACK_KEYS = {
     "required": ("reader_role_arn", "aurora_writer_endpoint", "aurora_reader_endpoint",
                  "redis_security_group_id", "eks_cluster_name", "ecs_baseline_task_definition"),
-    "optional": ("region", "aurora_database", "aurora_port",
+    "optional": ("region", "aurora_database", "aurora_port", "aurora_writer_instance", "db_master_username",
                  # any ops_fullstack.Target field name overrides that default, e.g.:
                  "checkout_role", "ecs_exec_role", "slow_index", "orders_sql_table", "config_key"),
 }
@@ -142,7 +144,9 @@ def load_stack(path: pathlib.Path) -> dict[str, Any]:
     flat = {k: (v.get("value") if isinstance(v, dict) and "value" in v else v) for k, v in raw.items()}
     missing = [k for k in STACK_KEYS["required"] if not flat.get(k)]
     if missing:
-        raise StepError(f"{path} is missing {missing}")
+        hint = (" - the aurora_* keys come from `python terraform/fullstack/aurora_express.py create`"
+                if any(k.startswith("aurora_") for k in missing) else "")
+        raise StepError(f"{path} is missing {missing}{hint}")
     return flat
 
 
@@ -155,6 +159,8 @@ def target_from_stack(stack: dict) -> fs.Target:
         ecs_baseline_td=stack.get("ecs_baseline_task_definition") or "",
         database=stack.get("aurora_database") or stack.get("db_name") or "shop",
     )
+    if stack.get("aurora_writer_instance"):  # express configuration names the writer itself
+        t.writer_instance = stack["aurora_writer_instance"]
     names = {f.name for f in dataclasses.fields(fs.Target)} - {"saved", "persist", "sleep"}
     for key in names & set(stack):
         if key not in ("region", "writer_endpoint", "reader_endpoint", "redis_sg_id") and stack[key]:
@@ -162,7 +168,7 @@ def target_from_stack(stack: dict) -> fs.Target:
     return t
 
 
-RO_SECRET = "warden-pg-fs-db-warden-ro"
+RO_USER = "warden_ro"
 
 
 def pg_dsn(user: str, password: str, host: str, database: str, port: int | str = 5432) -> str:
@@ -173,23 +179,23 @@ def pg_dsn(user: str, password: str, host: str, database: str, port: int | str =
             f"{database}?sslmode=require")
 
 
-def stack_dsns(stack: dict, target: fs.Target, rds: Any, secrets: Any) -> dict[str, str]:
-    """Admin (writer, reader) and warden_ro (writer, reader) DSNs, built at run time."""
-    password = os.environ.get("WARDEN_FS_DB_MASTER_PASSWORD", "")
-    if not password:
-        raise StepError("set WARDEN_FS_DB_MASTER_PASSWORD (the Aurora master password) - the harness "
-                        "needs its own admin connection for the database faults and reverts")
-    cluster = rds.describe_db_clusters(DBClusterIdentifier=target.aurora_cluster)["DBClusters"][0]
-    master = cluster["MasterUsername"]
-    ro = json.loads(secrets.get_secret_value(SecretId=RO_SECRET)["SecretString"])
-    port = stack.get("aurora_port") or 5432
-    w, r, db = target.writer_endpoint, target.reader_endpoint, target.database
-    return {
-        "admin": pg_dsn(master, password, w, db, port),
-        "admin_reader": pg_dsn(master, password, r, db, port),
-        "ro_writer": pg_dsn(ro["username"], ro["password"], w, db, port),
-        "ro_reader": pg_dsn(ro["username"], ro["password"], r, db, port),
-    }
+def iam_dsn(rds: Any, user: str, host: str, database: str, port: int | str = 5432) -> str:
+    """A DSN whose password is an IAM database token (valid 15 min for NEW connections) signed
+    locally with `rds`'s credentials. Aurora then checks that identity's rds-db:connect."""
+    token = rds.generate_db_auth_token(DBHostname=host, Port=int(port), DBUsername=user,
+                                       Region=rds.meta.region_name)
+    return pg_dsn(user, token, host, database, port)
+
+
+def warden_dsns(creds: dict[str, str], target: fs.Target, port: int | str,
+                make_client: Callable[..., Any]) -> dict[str, str]:
+    """WARDEN's warden_ro DSNs, signed with the ASSUMED READER ROLE's credentials (`creds` is the
+    AssumeRole `Credentials`), never the operator's: the reader role's rds-db:connect is the grant
+    that is exercised, so a WARDEN that can read the database is one whose role says it may."""
+    rds = make_client("rds", region_name=target.region, aws_access_key_id=creds["AccessKeyId"],
+                      aws_secret_access_key=creds["SecretAccessKey"], aws_session_token=creds["SessionToken"])
+    return {"WARDEN_STACK_DB_WRITER_DSN": iam_dsn(rds, RO_USER, target.writer_endpoint, target.database, port),
+            "WARDEN_STACK_DB_READER_DSN": iam_dsn(rds, RO_USER, target.reader_endpoint, target.database, port)}
 
 
 def fullstack_warden_env(creds: dict[str, str], arm: dict[str, str], region: str) -> dict[str, str]:
@@ -253,27 +259,30 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
     stack = load_stack(pathlib.Path(os.environ.get("WARDEN_FS_STACK") or DEFAULT_STACK))
     target = target_from_stack(stack)
     session = boto3.Session(region_name=target.region)
-    dsns = stack_dsns(stack, target, session.client("rds"), session.client("secretsmanager"))
+    rds = session.client("rds")
+    master = stack.get("db_master_username") or "postgres"
+    port = stack.get("aurora_port") or 5432
     kube_config.load_kube_config()
     context = kube_config.list_kube_config_contexts()[1]["name"]
     if stack["eks_cluster_name"] not in context:
         raise StepError(f"kubectl's current context is {context!r}, not the {stack['eks_cluster_name']} "
                         "cluster. Switch context first (aws eks update-kubeconfig ...).")
 
-    def connector(dsn: str) -> Callable[..., Any]:
-        # ⛔ Timeouts on every harness session: a revert must never wait on a lock forever.
+    def connector(host: str) -> Callable[..., Any]:
+        # A fresh token per connection (signing is local): a revert hours after the inject still
+        # gets in. ⛔ Timeouts on every harness session: a revert must never wait on a lock forever.
         return lambda **kw: psycopg.connect(
-            dsn, connect_timeout=10, autocommit=True,
+            iam_dsn(rds, master, host, target.database, port), connect_timeout=10, autocommit=True,
             options="-c statement_timeout=60000 -c lock_timeout=15000", **kw)
 
-    sql = connector(dsns["admin"])
+    sql = connector(target.writer_endpoint)
 
     c = fs.Clients(**{name: session.client(svc) for name, svc in (
         ("lam", "lambda"), ("sqs", "sqs"), ("ddb", "dynamodb"), ("ec2", "ec2"), ("rds", "rds"),
         ("ecs", "ecs"), ("elbv2", "elbv2"), ("iam", "iam"), ("events", "events"),
         ("secrets", "secretsmanager"), ("cw", "cloudwatch"), ("ec", "elasticache"))},
         apps=kube.AppsV1Api(), core=kube.CoreV1Api(), sql=sql,
-        sql_reader=connector(dsns["admin_reader"]))
+        sql_reader=connector(target.reader_endpoint))
     _wire_holder(target, run)
     sts = session.client("sts")
 
@@ -284,8 +293,7 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
             "AWS_ACCESS_KEY_ID": cr["AccessKeyId"], "AWS_SECRET_ACCESS_KEY": cr["SecretAccessKey"],
             "AWS_SESSION_TOKEN": cr["SessionToken"],
             "KUBECONFIG": mint_kubeconfig("warden", target.namespace),
-            "WARDEN_STACK_DB_WRITER_DSN": dsns["ro_writer"],
-            "WARDEN_STACK_DB_READER_DSN": dsns["ro_reader"],
+            **warden_dsns(cr, target, port, boto3.client),
             "arn": resp["AssumedRoleUser"]["Arn"],
         }
 

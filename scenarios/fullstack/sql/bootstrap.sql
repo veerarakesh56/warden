@@ -1,9 +1,10 @@
 -- Wave 4 schema + roles. Applied by `python scripts/deploy_fullstack_apps.py bootstrap-db` as the
--- master user (warden_admin), NOT by terraform. Idempotent: safe to run again.
+-- master user postgres (an IAM token from the operator's own identity), NOT by terraform.
+-- Idempotent: safe to run again.
 --
--- The two PASSWORD values below are psycopg.sql placeholders, filled with sql.Literal from the
--- warden-pg-fs-db-app / warden-pg-fs-db-warden-ro secrets. No other braces may appear in this file -
--- not even in a comment: a placeholder in a comment would put the password into the statement text.
+-- ⛔ NO PASSWORDS (2026-09-26). Aurora in express configuration authenticates with IAM only: every
+-- role below logs in with a token its AWS identity signs, which rds_iam requires. The file is sent
+-- as it is - it has no placeholders, and none may be added.
 
 CREATE TABLE IF NOT EXISTS orders (
     order_id    text PRIMARY KEY,
@@ -40,17 +41,20 @@ BEGIN
 END
 $$;
 
--- The application: exactly the tables it reads and writes.
-ALTER ROLE app WITH LOGIN PASSWORD {app_password};
+-- IAM authentication for all three (express configuration refuses password logins anyway).
+GRANT rds_iam TO app, catalog, warden_ro;
+
+-- The application: exactly the tables it reads and writes. Signed in by the order-processor
+-- Lambda's role and orders-api's ECS task role (rds-db:connect on dbuser:*/app).
 GRANT USAGE ON SCHEMA public TO app;
 GRANT SELECT, INSERT ON orders TO app;
 
--- catalog-api: its own user, read-only (fs-21 rotates `app`; catalog-api must not be a second victim).
-ALTER ROLE catalog WITH LOGIN PASSWORD {catalog_password};
+-- catalog-api (EKS Pod Identity) and the reconciler: their own user, read-only. fs-21 revokes
+-- orders-api's login as `app`; nothing that logs in as catalog may be a second victim.
 GRANT USAGE ON SCHEMA public TO catalog;
 GRANT SELECT ON orders TO catalog;
 
 -- WARDEN: pg_monitor and nothing more (Wave 3 read as the master user; this closes that gap).
--- CONNECT comes from PUBLIC's default; it gets no grant on any table.
-ALTER ROLE warden_ro WITH LOGIN PASSWORD {ro_password};
+-- CONNECT comes from PUBLIC's default; it gets no grant on any table. Its token is signed with the
+-- warden-pg-fs-reader role's credentials - the role WARDEN runs as.
 GRANT pg_monitor TO warden_ro;

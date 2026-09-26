@@ -733,6 +733,12 @@ class StackBackend:
                          .get("securityGroups") or [])
         if ecs_sgs:
             out.lines.append(f"APPSG ecs/{service} sgs=[{','.join(ecs_sgs)}]")
+        # The identity the service's code runs as (not the execution role): what a denied database
+        # login or API call must be granted back to. Absent when the task definition has none.
+        if svc.get("taskDefinition"):
+            td = self._ecs.describe_task_definition(taskDefinition=svc["taskDefinition"]).get("taskDefinition") or {}
+            if td.get("taskRoleArn"):
+                out.lines.append(f"TASKROLE ecs/{service} role={td['taskRoleArn'].rsplit('/', 1)[-1]}")
         for d in self._aws.deploys(a):
             if isinstance(d, str):
                 out.lines.append(_partial("ecs deploys", d))

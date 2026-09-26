@@ -1,3 +1,15 @@
+# catalog-api's identity. EKS Pod Identity (terraform/fullstack/eks.tf, association shop/catalog-api)
+# gives its pods role warden-pg-fs-catalog-pod, whose one grant is rds-db:connect as database user
+# catalog. No Kubernetes API token is mounted: the Pod Identity agent injects its own.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: catalog-api
+  namespace: shop
+  labels:
+    project: warden-fullstack
+automountServiceAccountToken: false
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,6 +36,7 @@ spec:
         app: catalog-api
         project: warden-fullstack
     spec:
+      serviceAccountName: catalog-api
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10
       securityContext:
@@ -41,16 +54,12 @@ spec:
           env:
             - name: APP_ROLE
               value: catalog-api
-            - name: DB_USER
+            # Required at start (scenarios/fullstack/app/app.py); fs-23 removes the key.
+            - name: CATALOG_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
                   name: catalog-secret
-                  key: DB_USER
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: catalog-secret
-                  key: DB_PASSWORD
+                  key: CATALOG_SIGNING_KEY
           envFrom:
             - configMapRef:
                 name: catalog-config

@@ -2,8 +2,8 @@
 #
 # ⛔ Terraform registers only a PLACEHOLDER task definition (a public image answering 200 on every
 # path, so the service is healthy before any app exists). The APPS pipeline pushes the real image
-# and registers the real revision - with the DB credentials injected from Secrets Manager - and
-# `task_definition` is ignored here so a re-apply never rolls it back.
+# and registers the real revision - with the task role below and one value injected from the
+# metadata secret - and `task_definition` is ignored here so a re-apply never rolls it back.
 
 resource "aws_ecr_repository" "app" {
   name                 = "${local.name}-app"
@@ -65,6 +65,36 @@ resource "aws_iam_role_policy" "ecs_execution_secret" {
       Effect   = "Allow"
       Action   = ["secretsmanager:GetSecretValue"]
       Resource = [aws_secretsmanager_secret.db_app.arn]
+    }]
+  })
+}
+
+# orders-api's OWN identity (the task role, not the execution role): it signs IAM database tokens
+# as user app. Its only grant is its own inline policy, so fs-21 can remove exactly it and the
+# harness can put it back.
+resource "aws_iam_role" "ecs_task" {
+  name                 = "${local.name}-orders-api-task"
+  permissions_boundary = local.permissions_boundary
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_task_db" {
+  name = "${local.name}-db-connect"
+  role = aws_iam_role.ecs_task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "ConnectAsApp"
+      Effect   = "Allow"
+      Action   = ["rds-db:connect"]
+      Resource = [local.dbuser_arn["app"]]
     }]
   })
 }
@@ -153,7 +183,7 @@ resource "aws_ecs_service" "orders_api" {
   network_configuration {
     subnets          = aws_subnet.public[*].id
     security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = true # no NAT gateway
+    assign_public_ip = true # public subnets: tasks pull images and reach AWS directly, not via the NAT
   }
 
   load_balancer {

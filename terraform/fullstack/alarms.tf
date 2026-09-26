@@ -85,12 +85,12 @@ locals {
     }
     aurora-connections = {
       ns   = "AWS/RDS", metric = "DatabaseConnections", stat = "Maximum", threshold = 50,
-      dims = { DBClusterIdentifier = aws_rds_cluster.aurora.cluster_identifier },
+      dims = { DBClusterIdentifier = local.aurora_cluster }, # created by aurora_express.py
       desc = "Database connection count is above normal."
     }
     aurora-cpu = {
       ns   = "AWS/RDS", metric = "CPUUtilization", stat = "Maximum", threshold = 70, periods = 3,
-      dims = { DBClusterIdentifier = aws_rds_cluster.aurora.cluster_identifier },
+      dims = { DBClusterIdentifier = local.aurora_cluster }, # created by aurora_express.py
       desc = "Database CPU usage is above normal."
     }
     alb-5xx = {

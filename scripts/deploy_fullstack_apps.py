@@ -12,15 +12,17 @@ it and never calls terraform; WARDEN's own CI is a third. Everything lands OUTSI
                 container image (docker build).
   deploy lambdas  update-function-code for each function; checkout also gets publish-version +
                 update-alias live.
-  deploy ecs    ECR login + push, register a task definition revision (DB credentials injected
-                from Secrets Manager), update-service, wait until stable. Records the revision in
-                stack.json as `ecs_baseline_task_definition` - the revision the harness reverts to.
-  deploy k8s    kubectl kustomize k8s/fullstack, fill the placeholders from stack.json and the
-                app secret (over stdin, never argv), apply with the ClusterRole from k8s/rbac.yaml,
-                wait for both rollouts.
+  deploy ecs    ECR login + push, register a task definition revision (the task role that signs
+                IAM database tokens as user app; DB_USER injected from the metadata secret),
+                update-service, wait until stable. Records the revision in stack.json as
+                `ecs_baseline_task_definition` - the revision the harness reverts to.
+  deploy k8s    kubectl kustomize k8s/fullstack, fill the placeholders from stack.json and a
+                generated signing key (over stdin, never argv), apply with the ClusterRole from
+                k8s/rbac.yaml, wait for both rollouts.
   deploy all    build, then lambdas, ecs, k8s.
-  bootstrap-db  scenarios/fullstack/sql/bootstrap.sql as the master user. The master password
-                comes from WARDEN_FS_DB_MASTER_PASSWORD (or TF_VAR_db_master_password).
+  bootstrap-db  scenarios/fullstack/sql/bootstrap.sql as the master user postgres, logged in with
+                an IAM token signed by YOUR credentials (rds-db:connect on dbuser:*/postgres,
+                terraform/proving-ground/operator-policy.json). There is no database password.
 
 stack.json is `terraform output -json` with the sensitive entries removed (README).
 """
@@ -29,9 +31,9 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import os
 import pathlib
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -155,6 +157,8 @@ def task_definition(stack: dict, image: str) -> dict:
         "cpu": "256",
         "memory": "512",
         "executionRoleArn": stack["ecs_execution_role_arn"],
+        # Signs orders-api's IAM database tokens (rds-db:connect as app; fs-21 removes it).
+        "taskRoleArn": stack["ecs_task_role_arn"],
         "containerDefinitions": [{
             "name": "orders-api",
             "image": image,
@@ -163,15 +167,17 @@ def task_definition(stack: dict, image: str) -> dict:
             "environment": [
                 {"name": "APP_ROLE", "value": "orders-api"},
                 {"name": "REDIS_HOST", "value": stack["redis_primary_endpoint"]},
+                {"name": "DB_HOST", "value": stack["aurora_writer_endpoint"]},
                 {"name": "DB_NAME", "value": stack["db_name"]},
+                {"name": "AWS_REGION", "value": stack["region"]},
                 # Fault flag at its baseline value (scenarios/ops_fullstack.py FLAGS, fs-20).
                 {"name": "ALLOC_MB", "value": "0"},
             ],
-            # Resolved by the EXECUTION role at task start (fs-18 removes that grant).
+            # DB_USER (= app) comes from the metadata secret on purpose: no password exists any
+            # more, but the EXECUTION role must still resolve a secret at task start, or fs-18
+            # (that grant removed) would no longer stop anything.
             "secrets": [
-                {"name": "DB_HOST", "valueFrom": f"{secret}:host::"},
                 {"name": "DB_USER", "valueFrom": f"{secret}:username::"},
-                {"name": "DB_PASSWORD", "valueFrom": f"{secret}:password::"},
             ],
             "logConfiguration": {"logDriver": "awslogs", "options": {
                 "awslogs-group": stack["ecs_log_group"],
@@ -201,10 +207,6 @@ def record_in_stack(path: pathlib.Path, key: str, value: str) -> None:
     path.write_text(json.dumps(raw, indent=1), encoding="utf-8")
 
 
-def secret_json(aws, name: str) -> dict:
-    return json.loads(aws("secretsmanager").get_secret_value(SecretId=name)["SecretString"])
-
-
 def render(manifest: str, values: dict[str, str]) -> str:
     for key, value in values.items():
         manifest = manifest.replace(f"__{key}__", value)
@@ -226,15 +228,15 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
     kubeconfig = str(out / "kubeconfig")
     run(["aws", "eks", "update-kubeconfig", "--name", stack["eks_cluster_name"],
          "--region", stack["region"], "--kubeconfig", kubeconfig])
-    # catalog-api reads with its own user (see terraform/fullstack/data.tf db_catalog).
-    creds = secret_json(aws, stack["db_catalog_secret_name"])
+    # catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
+    # value is its signing key, generated here and sent over stdin. fs-23 removes it.
     manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S)]), {
         "IMAGE": f"{stack['ecr_repository_url']}:{tag}",
         "REDIS_HOST": stack["redis_primary_endpoint"],
         "DB_READER_HOST": stack["aurora_reader_endpoint"],
         "DB_NAME": stack["db_name"],
-        "DB_USER": creds["username"],
-        "DB_PASSWORD": creds["password"],
+        "REGION": stack["region"],
+        "CATALOG_SIGNING_KEY": secrets.token_hex(32),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
     for deployment in ("catalog-api", "cart-worker"):
@@ -243,27 +245,19 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
 
 
 def bootstrap_db(stack: dict, aws, connect=None) -> None:
-    # The password first: a missing one is refused before any driver is needed or any secret is read.
-    master = os.environ.get("WARDEN_FS_DB_MASTER_PASSWORD") or os.environ.get("TF_VAR_db_master_password")
-    if not master:
-        raise SystemExit("set WARDEN_FS_DB_MASTER_PASSWORD (or TF_VAR_db_master_password)")
-    from psycopg import sql
-
+    """bootstrap.sql as the master user, with an IAM token signed by the operator's credentials."""
+    host, user = stack["aurora_writer_endpoint"], stack["db_master_username"]
+    # Local signing, no API call: a missing rds-db:connect grant shows as PAM authentication failed.
+    token = aws("rds").generate_db_auth_token(DBHostname=host, Port=5432, DBUsername=user,
+                                              Region=stack["region"])
     if connect is None:
         import psycopg
 
         connect = psycopg.connect
-    app = secret_json(aws, stack["db_app_secret_name"])
-    ro = secret_json(aws, stack["db_warden_ro_secret_name"])
-    catalog = secret_json(aws, stack["db_catalog_secret_name"])
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
-    query = sql.SQL(text).format(app_password=sql.Literal(app["password"]),
-                                 ro_password=sql.Literal(ro["password"]),
-                                 catalog_password=sql.Literal(catalog["password"]))
-    with connect(host=stack["aurora_writer_endpoint"], dbname=stack["db_name"],
-                 user=stack["db_master_username"], password=master, port=5432,
+    with connect(host=host, dbname=stack["db_name"], user=user, password=token, port=5432,
                  sslmode="require", connect_timeout=10, autocommit=True) as conn:
-        conn.execute(query)
+        conn.execute(text)
     print("bootstrap.sql applied", flush=True)
 
 

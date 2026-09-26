@@ -26,16 +26,14 @@ STACK = {
     "ecs_service": "warden-pg-fs-orders-api",
     "db_app_secret_arn": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-pg-fs-db-app-AbC",
     "db_app_secret_name": "warden-pg-fs-db-app",
-    "db_warden_ro_secret_name": "warden-pg-fs-db-warden-ro",
-    "db_catalog_secret_name": "warden-pg-fs-db-catalog",
     "db_name": "shop",
-    "db_master_username": "warden_admin",
+    "db_master_username": "postgres",
+    "ecs_task_role_arn": "arn:aws:iam::111122223333:role/warden-pg-fs-orders-api-task",
     "redis_primary_endpoint": "redis.internal",
     "aurora_writer_endpoint": "writer.internal",
     "aurora_reader_endpoint": "reader.internal",
     "eks_cluster_name": "warden-pg-fs-eks",
 }
-APP_PW = "app-pw-SENTINEL"
 
 
 class Fake:
@@ -119,16 +117,16 @@ def test_out_inside_the_repo_is_refused():
         tool.main(["--out", str(ROOT / "build-here"), "build", "--skip-image"])
 
 
-def test_ecs_task_definition_injects_the_db_credentials_from_the_secret():
+def test_ecs_task_definition_logs_in_with_the_task_role_and_still_resolves_a_secret():
     td = tool.task_definition(STACK, "repo:tag")
     c = td["containerDefinitions"][0]
     assert c["image"] == "repo:tag" and td["family"] == STACK["ecs_task_family"]
-    assert {s["name"]: s["valueFrom"] for s in c["secrets"]} == {
-        "DB_HOST": STACK["db_app_secret_arn"] + ":host::",
-        "DB_USER": STACK["db_app_secret_arn"] + ":username::",
-        "DB_PASSWORD": STACK["db_app_secret_arn"] + ":password::",
-    }
-    assert "DB_PASSWORD" not in json.dumps(c["environment"])
+    assert td["taskRoleArn"] == STACK["ecs_task_role_arn"]   # signs the IAM tokens; fs-21 revokes it
+    env = {e["name"]: e["value"] for e in c["environment"]}
+    assert (env["DB_HOST"], env["DB_NAME"], env["AWS_REGION"]) == ("writer.internal", "shop", "ap-south-2")
+    # The execution role still resolves one value at task start, so fs-18 still stops the task.
+    assert c["secrets"] == [{"name": "DB_USER", "valueFrom": STACK["db_app_secret_arn"] + ":username::"}]
+    assert "PASSWORD" not in json.dumps(td)
     assert {"name": "ALLOC_MB", "value": "0"} in c["environment"]
     assert c["logConfiguration"]["options"]["awslogs-group"] == "/ecs/warden-pg-fs-orders-api"
 
@@ -149,23 +147,25 @@ def test_deploy_ecs_logs_in_over_stdin_and_updates_the_service():
                                "taskDefinition": "arn:td:9"}) in clients["ecs"].calls
 
 
-def test_deploy_k8s_fills_every_placeholder_and_keeps_secrets_off_argv(tmp_path):
+def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(tmp_path):
+    import yaml
+
     rendered = "\n---\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "k8s" / "fullstack").glob("*.yaml"))
                               if p.name != "kustomization.yaml")
     run = Runner({"kustomize": rendered})
-    asked = []
-
-    def secret(SecretId):
-        asked.append(SecretId)
-        return {"SecretString": json.dumps({"username": "catalog", "password": APP_PW})}
-    clients = {"secretsmanager": Fake({"get_secret_value": secret})}
+    clients = {}
     tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run)
-    assert asked == ["warden-pg-fs-db-catalog"], "catalog-api must not run as the shared app user (fs-21)"
+    assert clients == {}, "no secret is read: catalog-api logs in with an IAM token (Pod Identity)"
     applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c)
     assert not tool.PLACEHOLDER.search(applied)
-    assert APP_PW in applied and STACK["ecr_repository_url"] + ":abc123" in applied
+    assert STACK["ecr_repository_url"] + ":abc123" in applied
     assert "kind: ClusterRole" in applied and "name: warden-readonly" in applied
-    assert all(APP_PW not in " ".join(c) for c in run.cmds)
+    docs = [d for d in yaml.safe_load_all(applied) if d]
+    key = next(d for d in docs if d["kind"] == "Secret")["stringData"]["CATALOG_SIGNING_KEY"]
+    config = next(d for d in docs if d["kind"] == "ConfigMap")["data"]
+    assert len(key) == 64 and (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
+        "catalog", "reader.internal", "ap-south-2")
+    assert all(key not in " ".join(c) for c in run.cmds)
     assert sum("rollout" in c for c in run.cmds) == 2
 
 
@@ -174,18 +174,9 @@ def test_render_refuses_a_leftover_placeholder():
         tool.render("image: __IMAGE__\nhost: __NEW_THING__", {"IMAGE": "x"})
 
 
-def test_bootstrap_db_fills_the_passwords_as_sql_literals(monkeypatch):
-    # The driver is the apps pipeline's dependency (apps.yml installs it and runs this for real);
-    # the tool CI installs no database driver on purpose.
-    pytest.importorskip("psycopg")
-    monkeypatch.setenv("WARDEN_FS_DB_MASTER_PASSWORD", "master-SENTINEL")
-    secrets = {"warden-pg-fs-db-app": {"password": "a'pp"}, "warden-pg-fs-db-warden-ro": {"password": "ro-pw"},
-               "warden-pg-fs-db-catalog": {"password": "cat-pw"}}
-
-    class SM:
-        def get_secret_value(self, SecretId):
-            return {"SecretString": json.dumps(secrets[SecretId])}
-
+def test_bootstrap_db_logs_in_as_postgres_with_an_iam_token_and_sends_the_file_as_is():
+    """No password exists (Aurora express configuration): the token is signed with the operator's
+    credentials, and bootstrap.sql is sent unchanged - it has no placeholders."""
     seen = {}
 
     class Conn:
@@ -196,25 +187,20 @@ def test_bootstrap_db_fills_the_passwords_as_sql_literals(monkeypatch):
             return False
 
         def execute(self, query):
-            seen["sql"] = query.as_string(None)
+            seen["sql"] = query
 
     def connect(**kw):
         seen["kw"] = kw
         return Conn()
 
-    tool.bootstrap_db(STACK, lambda s: SM(), connect=connect)
-    assert seen["kw"]["user"] == "warden_admin" and seen["kw"]["password"] == "master-SENTINEL"
+    clients = {"rds": Fake({"generate_db_auth_token": "token-SENTINEL"})}
+    tool.bootstrap_db(STACK, aws_factory(clients), connect=connect)
+    assert clients["rds"].calls == [("generate_db_auth_token", {
+        "DBHostname": "writer.internal", "Port": 5432, "DBUsername": "postgres", "Region": "ap-south-2"})]
+    assert seen["kw"]["user"] == "postgres" and seen["kw"]["password"] == "token-SENTINEL"
     assert seen["kw"]["host"] == "writer.internal" and seen["kw"]["sslmode"] == "require"
-    assert "PASSWORD 'a''pp'" in seen["sql"] and "PASSWORD 'ro-pw'" in seen["sql"]
-    assert "ROLE catalog WITH LOGIN PASSWORD 'cat-pw'" in seen["sql"]
-    assert "{app_password}" not in seen["sql"]
-
-
-def test_bootstrap_db_needs_the_master_password(monkeypatch):
-    monkeypatch.delenv("WARDEN_FS_DB_MASTER_PASSWORD", raising=False)
-    monkeypatch.delenv("TF_VAR_db_master_password", raising=False)
-    with pytest.raises(SystemExit):
-        tool.bootstrap_db(STACK, lambda s: None, connect=lambda **k: None)
+    assert seen["sql"] == (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
+    assert "secretsmanager" not in clients
 
 
 def test_run_decodes_tool_output_as_utf8_not_the_locale(monkeypatch):

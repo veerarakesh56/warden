@@ -1,8 +1,6 @@
 # Copy to terraform.tfvars (gitignored) and fill in. curl -s https://checkip.amazonaws.com -> your IP.
 #
-# ⛔ db_master_password is NOT set here, ever. Generate it into the environment:
-#   export TF_VAR_db_master_password="$(python -c 'import secrets; print(secrets.token_urlsafe(24))')"
-# Keep the same value for every apply of the same stack (changing it changes the Aurora password).
+# No database password exists: Aurora is created by aurora_express.py with IAM authentication only.
 
 region     = "ap-south-2"
 my_ip_cidr = "203.0.113.7/32" # YOUR IP. 0.0.0.0/0 is rejected.

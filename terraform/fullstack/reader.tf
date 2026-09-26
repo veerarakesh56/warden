@@ -10,7 +10,7 @@
 # drift ahead of it (a standing grant nothing uses). Every action is a read. Deliberately absent:
 # secretsmanager:GetSecretValue (DescribeSecret is metadata only), s3:GetObject (the Lambda package
 # comes through the pre-signed URL lambda:GetFunction returns, which needs no S3 grant), and
-# ssm:GetParameter*.
+# ssm:GetParameter*. One grant is not an API call: rds-db:connect as warden_ro (see its statement).
 
 data "aws_iam_policy_document" "fs_reader_assume" {
   statement {
@@ -60,6 +60,17 @@ data "aws_iam_policy_document" "fs_reader" {
       "sts:GetCallerIdentity",
     ]
     resources = ["*"]
+  }
+
+  # ⭐ NOT a call WARDEN makes. The harness signs WARDEN's warden_ro database token with THIS role's
+  # credentials (scenarios/fullstack_cli.py), so the database login WARDEN uses is authorised by the
+  # role WARDEN runs as - and by nothing else. tests/test_aws_stack.py names it as the one exception
+  # to "grant exactly what the code calls". User warden_ro holds pg_monitor only (bootstrap.sql).
+  statement {
+    sid       = "ConnectAsWardenRo"
+    effect    = "Allow"
+    actions   = ["rds-db:connect"]
+    resources = ["arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/warden_ro"]
   }
 
   # API Gateway v2 has no per-API read action: `GetApis` is apigateway:GET on the /apis resource.

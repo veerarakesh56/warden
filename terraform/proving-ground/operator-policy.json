@@ -232,6 +232,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "AuroraIamLoginAsPostgres",
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres"
+    },
+    {
       "Sid": "WhatEksManagedNodeGroupsNeedOnYourBehalf",
       "Effect": "Allow",
       "Action": [

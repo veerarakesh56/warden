@@ -102,6 +102,10 @@ def _k8s(dep, msg):
 ECS_DEPLOY = {"kind": "ecs", "service": "warden-pg-fs-orders-api", "at": "2026-09-26T09:55:00Z",
               "version": "warden-pg-fs-orders-api:12", "previous": "warden-pg-fs-orders-api:11"}
 RO_ERR = "psycopg2.errors.ReadOnlySqlTransaction: cannot execute INSERT in a read-only transaction"
+# What psycopg 3 prints when Aurora refuses an IAM token (the long host name comes first).
+PAM_ERR = ('psycopg.OperationalError: connection failed: connection to server at "warden-pg-fs-aurora.cluster-'
+           'cabc123.ap-south-2.rds.amazonaws.com" (203.0.113.10), port 5432 failed: FATAL:  PAM authentication '
+           'failed for user "app"')
 
 # fault id -> (class, context, the pattern key that must fire, a fragment its fix must contain or None)
 FAULTS = {
@@ -222,13 +226,10 @@ FAULTS = {
         [_ecs("task 9c stopped: OutOfMemoryError: Container killed due to memory usage (exit code 137)")],
         {}, [ECS_DEPLOY]),
         "task_oom", "--task-definition warden-pg-fs-orders-api:11"),
-    "fs-21": ("secret_rotated_stale_credentials", ctx(
-        [_ecs('psycopg2.OperationalError: connection to server failed: FATAL:  password authentication failed for '
-              'user "app"'),
-         "SECRET warden-pg-fs-db-app changed 2026-09-26T09:50:00Z (metadata only)"],
-        {"secret_changed_age_s": 600.0}, [{"kind": "secret", "service": "warden-pg-fs-db-app",
-                                            "at": "2026-09-26T09:50:00Z", "version": "v2", "previous": "v1"}]),
-        "stale_credentials", "update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api --force-new-deployment"),
+    "fs-21": ("db_iam_auth_revoked", ctx(
+        [_ecs(PAM_ERR), "TASKROLE ecs/warden-pg-fs-orders-api role=warden-pg-fs-orders-api-task"],
+        {"alb_target_5xx": 40.0}),
+        "db_iam_auth_refused", "iam put-role-policy --role-name warden-pg-fs-orders-api-task"),
     "fs-22": ("k8s_config_crashloop", ctx(
         [_k8s("catalog-api", "EVENT BackOff Pod/catalog-api-7d9-abcde: Back-off restarting failed container app"),
          _k8s("catalog-api", "catalog-api-7d9-abcde/app (previous) 2026-09-26T09:59:00Z ValueError: invalid literal "
@@ -236,7 +237,7 @@ FAULTS = {
         {"crashloop_containers__catalog-api": 2.0, "pods_ready__catalog-api": 0.0}),
         "crashloop", None),
     "fs-23": ("k8s_missing_secret_key", ctx(
-        [_k8s("catalog-api", "EVENT Failed Pod/catalog-api-7d9-abcde: Error: couldn't find key DB_PASSWORD in "
+        [_k8s("catalog-api", "EVENT Failed Pod/catalog-api-7d9-abcde: Error: couldn't find key CATALOG_SIGNING_KEY in "
                              "Secret shop/catalog-secret"),
          _k8s("catalog-api", "STATUS catalog-api-7d9-abcde/app: now waiting: CreateContainerConfigError")],
         {"pods_ready__catalog-api": 0.0}),
@@ -368,7 +369,7 @@ def test_every_fault_class_of_the_wave_is_covered():
         "dynamodb_throttling", "redis_unreachable", "redis_memory_pressure", "aurora_connection_exhaustion",
         "aurora_lock_contention", "aurora_write_to_reader", "aurora_failover_pinned_endpoint", "aurora_slow_query",
         "ecs_bad_image", "ecs_secret_access_denied", "alb_health_check_wrong", "ecs_oom",
-        "secret_rotated_stale_credentials", "k8s_config_crashloop", "k8s_missing_secret_key",
+        "db_iam_auth_revoked", "k8s_config_crashloop", "k8s_missing_secret_key",
         "k8s_readiness_probe_wrong", "k8s_unschedulable_requests", "k8s_image_pull", "eventbridge_rule_disabled"}
 
 
@@ -493,3 +494,37 @@ def test_cache_ingress_names_only_the_missing_rules():
     assert full["cache_unreachable"].fix == []
     bare = {p.key: p for p in detect(alert(), ctx(base[:1]))}
     assert bare["cache_unreachable"].fix == []
+
+
+def test_the_iam_login_grant_is_exactly_rds_db_connect_for_the_refused_user():
+    pat = next(p for p in detect(alert(), FAULTS["fs-21"][1]) if p.key == "db_iam_auth_refused")
+    tokens = shlex.split(pat.fix[0])
+    doc = json.loads(tokens[tokens.index("--policy-document") + 1])
+    assert doc["Statement"] == [{"Effect": "Allow", "Action": "rds-db:connect",
+                                 "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/app"}]
+    assert tokens[tokens.index("--role-name") + 1] == "warden-pg-fs-orders-api-task"
+    assert pat.fix[0].endswith("--region ap-south-2") and len(pat.fix) == 1
+    assert "stale_credentials" not in {p.key for p in detect(alert(), FAULTS["fs-21"][1])}
+
+
+def test_an_iam_login_refusal_without_the_role_in_evidence_prints_no_command_and_says_which_line():
+    pat = next(p for p in detect(alert(), ctx([_ecs(PAM_ERR)])) if p.key == "db_iam_auth_refused")
+    assert pat.fix == [] and "TASKROLE ecs/<service> role=<name>" in pat.oncall[0]
+    lam = next(p for p in detect(alert(), ctx([_lam("order-processor", PAM_ERR)])) if p.key == "db_iam_auth_refused")
+    assert lam.fix == [] and lam.oncall[0].startswith("No command:")
+    assert "code_error_after_deploy" not in {p.key for p in detect(alert(), ctx(
+        [f"CODE warden-pg-fs-order-processor app.py:40 in _connect: {PAM_ERR}"],
+        deploys=[{"kind": "lambda", "service": "warden-pg-fs-order-processor", "at": TS, "version": "4",
+                  "previous": "3"}]))}, "a refused login is not a code regression"
+
+
+def test_a_rotated_password_is_still_read_as_stale_credentials():
+    """The pre-2026-09-26 fs-21 shape: no longer injected in Wave 4, still a pattern WARDEN knows."""
+    c = ctx([_ecs('psycopg2.OperationalError: connection to server failed: FATAL:  password authentication failed '
+                  'for user "app"'), "SECRET warden-pg-fs-db-app changed 2026-09-26T09:50:00Z (metadata only)"],
+            {"secret_changed_age_s": 600.0},
+            [{"kind": "secret", "service": "warden-pg-fs-db-app", "at": "2026-09-26T09:50:00Z", "version": "v2",
+              "previous": "v1"}])
+    pat = next(p for p in detect(alert(), c) if p.key == "stale_credentials")
+    assert pat.fix == [("aws ecs update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api "
+                        "--force-new-deployment --region ap-south-2")]

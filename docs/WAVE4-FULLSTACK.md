@@ -55,14 +55,16 @@ operator's permissions boundary already scopes IAM, S3 and pass-role to; the tag
 injector's guard checks before it touches anything.
 
 Region `ap-south-2`. One VPC `10.42.0.0/16`: public subnets `10.42.0.0/24`, `10.42.1.0/24` (ALB, ECS
-tasks with public IPs, EKS nodes, Aurora instances), private subnets `10.42.10.0/24`,
-`10.42.11.0/24` (ElastiCache, in-VPC Lambdas). No NAT gateway: gateway endpoints for S3 and DynamoDB
-(free), interface endpoints for Secrets Manager and SQS in one private subnet.
+tasks with public IPs, EKS nodes), private subnets `10.42.10.0/24`, `10.42.11.0/24` (ElastiCache,
+in-VPC Lambdas). One NAT gateway in the first public subnet gives the private subnets their way to
+Aurora, which is OUTSIDE the VPC (section 9); gateway endpoints for S3 and DynamoDB (free),
+interface endpoints for Secrets Manager and SQS in one private subnet. Changed 2026-09-26: Aurora
+was in the public subnets and there was no NAT gateway.
 
 | component | name | shape |
 |---|---|---|
 | Container image | ECR `warden-pg-fs-app` | one Python image; `APP_ROLE` selects orders-api / catalog-api / cart-worker |
-| Aurora PostgreSQL | cluster `warden-pg-fs-aurora`, instances `-aurora-1` (writer), `-aurora-2` (reader) | Serverless v2, 0.5-2 ACU, PostgreSQL 16, publicly accessible, SG: operator IP + app SGs |
+| Aurora PostgreSQL | cluster `warden-pg-fs-aurora`: the writer instance AWS names (recorded in `stack.json` as `aurora_writer_instance`), reader `-aurora-2` | **Express configuration** (2026-09-26, section 9): Serverless v2, 0.5-2 ACU, the default PostgreSQL version, no VPC - reached only through the Aurora internet access gateway (5432, IPv4) - and IAM database authentication only. Created by `terraform/fullstack/aurora_express.py`, not terraform |
 | ElastiCache Redis | replication group `warden-pg-fs-redis` | primary + 1 replica, `cache.t4g.micro`, private subnets |
 | DynamoDB | `warden-pg-fs-carts` | PROVISIONED 5 RCU / 5 WCU, no autoscaling (so a capacity fault is a capacity fault) |
 | SQS | `warden-pg-fs-orders` (+ `-orders-dlq`, maxReceiveCount 3), `warden-pg-fs-notifications` (+ `-notifications-dlq`) | standard queues |
@@ -70,27 +72,33 @@ tasks with public IPs, EKS nodes, Aurora instances), private subnets `10.42.10.0
 | Lambda | `-checkout` (API, alias `live`), `-order-processor` (SQS orders, in VPC, Aurora writer), `-notifier` (SQS notifications), `-reconciler` (EventBridge 5 min, in VPC, Aurora reader + Redis), `-traffic` (EventBridge 1 min, load generator), `-ops` (in VPC, harness-only admin commands for Redis) | Python 3.12 |
 | API Gateway | HTTP API `warden-pg-fs-api`, `POST /checkout`, `GET /health` -> checkout:live | |
 | ALB | `warden-pg-fs-alb` -> target group `warden-pg-fs-orders` (ip, `/health`) | |
-| ECS | cluster `warden-pg-fs-ecs`, service `warden-pg-fs-orders-api`, 2 Fargate tasks | DB password injected from Secrets Manager |
-| EKS | cluster `warden-pg-fs-eks`, managed node group, **1 x t3.medium ON_DEMAND** (min 1, max 1) | add-ons: vpc-cni, coredns, kube-proxy, metrics-server |
-| Kubernetes | namespace `shop`: Deployments `catalog-api` (2) and `cart-worker` (1); Services; ConfigMap `catalog-config`; Secret `catalog-secret`; HPA `catalog-api` (2-4); PodDisruptionBudget; ServiceAccount `warden` (the read-only identity) | |
-| Secrets Manager | `warden-pg-fs-db-app`, `-db-catalog`, `-db-warden-ro` | Aurora credentials: `app` (orders-api, Lambdas), `catalog` (catalog-api, read-only - its own user so fs-21 has one victim), `warden_ro` (WARDEN, `pg_monitor` only). Changed 2026-09-25, before any run. |
+| ECS | cluster `warden-pg-fs-ecs`, service `warden-pg-fs-orders-api`, 2 Fargate tasks | task role `warden-pg-fs-orders-api-task` signs IAM database tokens as `app`; `DB_USER` injected from the metadata secret, so the execution role still resolves a secret at start (fs-18) |
+| EKS | cluster `warden-pg-fs-eks`, managed node group, **1 x m7i-flex.large ON_DEMAND** (min 1, max 1; was t3.medium, changed 2026-09-26, section 9) | add-ons: vpc-cni, coredns, kube-proxy, metrics-server, eks-pod-identity-agent |
+| Kubernetes | namespace `shop`: Deployments `catalog-api` (2) and `cart-worker` (1); Services; ConfigMap `catalog-config`; Secret `catalog-secret` (`CATALOG_SIGNING_KEY`, which catalog-api requires at start); HPA `catalog-api` (2-4); PodDisruptionBudget; ServiceAccount `catalog-api` (EKS Pod Identity -> role `warden-pg-fs-catalog-pod`); ServiceAccount `warden` (the read-only identity) | |
+| Secrets Manager | `warden-pg-fs-db-app` | Connection **metadata** only - `username` app, `dbname`, `port`, `host`, `reader` (filled by `aurora_express.py`); no password exists. `-db-catalog` and `-db-warden-ro` removed 2026-09-26 (section 9). |
+| NAT | one NAT gateway + Elastic IP in the first public subnet; the private route table's default route | the in-VPC Lambdas' way to Aurora. ⚠ Single AZ (section 9). Added 2026-09-26. |
 | EventBridge | rules `warden-pg-fs-reconcile-5m`, `warden-pg-fs-traffic-1m` | |
 | CloudWatch | one alarm per signal the faults below trip; the **alert source** | |
 | Budget | raised to USD 50 for the account (owner, 2026-09-25) | |
 
-Why t3.medium and not t3.small: a t3.small node takes 11 pods, and the system pods plus `shop` plus
-headroom for a rollout does not fit. ON_DEMAND, not Spot: a Spot interruption mid-fault would be an
-unplanned second fault.
+Why m7i-flex.large: the Free plan admits only Free Tier eligible instance types (section 9); a
+t3.small node takes 11 pods, and the system pods plus `shop` plus headroom for a rollout does not
+fit, so the eligible type with room is m7i-flex.large (2 vCPU, 8 GiB, 29 pods). ON_DEMAND, not Spot:
+a Spot interruption mid-fault would be an unplanned second fault.
 
 ## 3. WARDEN's identities for this wave (read-only, all of them)
 
 - **AWS:** role `warden-pg-fs-reader`, assumed per run. Its policy is EXACTLY the read calls the
-  stack backend makes, asserted in both directions by a test (as Wave 1's four were). No write, no
-  `secretsmanager:GetSecretValue`, no `s3:GetObject` except the Lambda code download (section 5).
+  stack backend makes, asserted in both directions by a test (as Wave 1's four were), plus ONE grant
+  that is not a call: `rds-db:connect` as `warden_ro` (the database login below; the test names it
+  as its only exception). No write, no `secretsmanager:GetSecretValue`, no `s3:GetObject` except the
+  Lambda code download (section 5).
 - **Kubernetes:** ServiceAccount `warden` in `shop`, bound to the six-read ClusterRole
   (`k8s/rbac.yaml`) by a RoleBinding. Token-only kubeconfig, as Wave 2.
 - **Aurora:** database user `warden_ro` with `pg_monitor` only - fixing Wave 3's gap, where WARDEN
-  read as the master user.
+  read as the master user. Since 2026-09-26 it logs in with an IAM token that the harness signs with
+  the ASSUMED READER ROLE's credentials, never the operator's: the reader role's `rds-db:connect` is
+  what lets WARDEN in. No password exists.
 - **Redis:** none. ElastiCache is VPC-only; WARDEN reads it through CloudWatch and the ElastiCache
   API. Stated as a limit, not hidden.
 
@@ -146,7 +154,11 @@ patterns' fix commands), and runs them only if every command passes the allow-li
 - `kubectl -n shop ...` with verbs `rollout undo|restart`, `set`, `patch`, `scale`, `apply -f -` of a
   manifest the report printed.
 - SQL against the Aurora writer: `SELECT pg_terminate_backend|pg_cancel_backend ...`, `CREATE INDEX
-  CONCURRENTLY`, `ALTER DATABASE ... SET` - through psycopg, as the master user.
+  CONCURRENTLY`, `ALTER DATABASE ... SET` - through psycopg, as the master user `postgres` with an
+  IAM token signed by the operator's credentials (2026-09-26).
+- An `iam put-role-policy` document may name `arn:aws:rds-db:ap-south-2:*:dbuser:*/app` or `.../catalog`
+  (the application users, action `rds-db:connect` only - never `postgres` or `warden_ro`): the
+  cluster id in that ARN is masked in reports, so the user name is the scope (2026-09-26).
 
 A command outside the list is not run; the fault is recorded `fix_not_allowed` with the command, so
 a report that prints something dangerous is visible rather than silently skipped.
@@ -182,9 +194,9 @@ verifier. Every injector refuses to act unless the target carries `Project=warde
 | fs-18 | ecs_secret_access_denied | remove `secretsmanager:GetSecretValue` from the execution role, force a deployment | `ResourceInitializationError ... secret` | tasks start |
 | fs-19 | alb_health_check_wrong | target group health path `/healthz` (404) | UnHealthyHostCount + target reason `Target.ResponseCodeMismatch` | targets healthy |
 | fs-20 | ecs_oom | orders-api memory 256 MiB with an allocation flag | exit code 137 / OutOfMemory | tasks stable |
-| fs-21 | secret_rotated_stale_credentials | rotate the app DB password (DB + secret) without restarting orders-api | `password authentication failed` + secret changed in window | queries succeed |
+| fs-21 | db_iam_auth_revoked | remove `rds-db:connect` from orders-api's task role (its only inline policy, so the policy goes), force a deployment. **Changed 2026-09-26, before any fault ran** (section 9): was `secret_rotated_stale_credentials`, rotating a password that express configuration no longer has | `PAM authentication failed for user "app"` in the ECS logs + `TASKROLE ecs/warden-pg-fs-orders-api role=...` | ECS steady, ALB healthy, no target 5xx for 3 min |
 | fs-22 | k8s_config_crashloop | `catalog-config` gets an invalid value; rollout restart | CrashLoopBackOff + the app's startup error | pods ready |
-| fs-23 | k8s_missing_secret_key | `catalog-secret` loses a key the Deployment references | `CreateContainerConfigError` / `couldn't find key` | pods ready |
+| fs-23 | k8s_missing_secret_key | `catalog-secret` loses a key the Deployment references (since 2026-09-26 `CATALOG_SIGNING_KEY`, not a password) | `CreateContainerConfigError` / `couldn't find key` | pods ready |
 | fs-24 | k8s_readiness_probe_wrong | readiness probe on the wrong port | 0 ready, probe failures in events | pods ready |
 | fs-25 | k8s_unschedulable_requests | cart-worker requests 8 CPU on a 2-CPU node | `FailedScheduling ... Insufficient cpu` | pod running |
 | fs-26 | k8s_image_pull | catalog-api image tag that does not exist | `ImagePullBackOff` + deploy | pods ready on the previous image |
@@ -198,3 +210,128 @@ verifier. Every injector refuses to act unless the target carries `Project=warde
 - The faults were designed by the same people who built the tool, as in every wave. Their text is
   registered here first so it cannot be tuned to the outcome.
 - ElastiCache is read only through AWS APIs and CloudWatch.
+
+## 9. 2026-09-26 - Free-plan constraints (changed after the first apply, before any fault ran)
+
+**What happened.** The first real `terraform apply` of `terraform/fullstack` created about 76
+resources and failed on two:
+
+- `aws_rds_cluster.aurora`: `FreeTierRestrictionError: To use Aurora clusters with free plan accounts
+  you need to set WithExpressConfiguration.`
+- `aws_eks_node_group.this` (t3.medium): `The specified instance type is not eligible for Free Tier`.
+
+The account is on the AWS Free plan and the owner's decision is to stay on it. Nothing had been
+deployed onto the stack and no fault had been injected, so no measurement depends on anything below.
+Every change is listed with its reason.
+
+**Aurora: express configuration, created by a script.** The Free plan creates Aurora only "with
+express configuration", and the Terraform AWS provider (6.66.0, and main) cannot set it. So
+`terraform/fullstack/aurora_express.py` (INFRA pipeline, stdlib + boto3) creates the cluster after
+`terraform apply` and deletes it before `terraform destroy` (`create` / `status` / `destroy`; it
+refuses any cluster not named `warden-pg-fs-*`; a second `create` only refreshes the records).
+Express configuration fixes, and the stack now lives with:
+
+- one Aurora Serverless writer instance named by AWS - the script records it as
+  `aurora_writer_instance`, which the harness's baseline and fs-15 read; the reader `-aurora-2`
+  (promotion tier 1, another AZ) is added by the script; capacity set to 0.5-2 ACU as before;
+- **no VPC association**: the only way in is the Aurora internet access gateway (PostgreSQL wire
+  protocol, 5432, IPv4), which cannot be disabled. The Aurora security group, its ingress rules and
+  the DB subnet group are gone; access control is IAM alone;
+- **IAM database authentication only**: no master password, no Secrets Manager credentials. The
+  master user is `postgres` (it holds `rds_iam`). Every login is a 15-minute token from
+  `generate_db_auth_token`, authorised by `rds-db:connect`;
+- the default engine version (was pinned to 16.14; it can be upgraded later), the default parameter
+  group, an AWS-owned encryption key, no RDS Proxy.
+
+The alarms name the cluster by its literal id `warden-pg-fs-aurora`; the Aurora keys of
+`stack.json` (`aurora_cluster`, `aurora_writer_endpoint`, `aurora_reader_endpoint`,
+`aurora_instance_endpoints`, `aurora_writer_instance`, `db_name`, `db_master_username`) are merged in
+by the script, not written by `terraform output`.
+
+**No password anywhere.** The `random_password` resources, the `db_master_password` variable, the
+password outputs, `WARDEN_FS_DB_MASTER_PASSWORD` (harness, deploy tool, infra CI secret) and every
+`PASSWORD` in `bootstrap.sql` are gone. `bootstrap.sql` creates `app`, `catalog` and `warden_ro` as
+LOGIN roles and grants each `rds_iam`; table grants are unchanged; `warden_ro` still gets
+`pg_monitor` only. Who may log in as whom - each grant scoped by database user
+(`arn:aws:rds-db:ap-south-2:<account>:dbuser:*/<user>`: the cluster's resource id is only known
+after the script runs, so the user name is the scope):
+
+| database user | logged in by | grant lives in |
+|---|---|---|
+| `app` | order-processor Lambda role; orders-api's NEW ECS task role `warden-pg-fs-orders-api-task` | `lambda.tf` (Sid `ConnectAsApp`), `ecs.tf` |
+| `catalog` | reconciler Lambda role (it reads the reader); catalog-api through EKS Pod Identity, role `warden-pg-fs-catalog-pod` | `lambda.tf` (Sid `ConnectAsCatalog`), `eks.tf` |
+| `warden_ro` | WARDEN - the token is signed by the harness with the assumed `warden-pg-fs-reader` credentials | `reader.tf` (the reader-policy test's one named exception: not an API call) |
+| `postgres` | the operator only: `bootstrap-db` and the harness's admin connection | `terraform/proving-ground/operator-policy.json` (Sid `AuroraIamLoginAsPostgres`) |
+
+The permissions boundary gained `rds-db:connect` (the owner applies it) - every `warden-pg-fs-*`
+role carries it, so without it none of these grants would take effect.
+
+**Secrets Manager.** `warden-pg-fs-db-app` stays and holds connection METADATA only
+(`username` app, `dbname`, `port`, `host`, `reader`; the script fills the endpoints). It stays
+because the in-VPC Lambdas fall back to it (terraform leaves `DB_HOST` empty - it cannot know the
+endpoints; fs-14/fs-15 still set `DB_HOST`), and because orders-api's task definition still injects
+`DB_USER` from it: the execution role must still resolve a secret at task start, or fs-18 (that
+grant removed) would stop nothing. `-db-catalog` and `-db-warden-ro` were removed: with no password
+they held nothing that `stack.json` and the ConfigMap do not already carry.
+
+**NAT gateway.** Aurora is now outside the VPC, so the in-VPC Lambdas (order-processor,
+reconciler) need internet egress: one NAT gateway + Elastic IP in `public[0]`, default route of the
+private route table to it. ECS tasks and EKS nodes already had public IPs. ⚠ **Known weakness:** one
+NAT is a single-AZ dependency - if that AZ fails, the in-VPC Lambdas lose the database while
+everything else keeps running. Accepted for a benchmark stack (a second NAT doubles its cost);
+recorded as a **Helios validation point**: a single NAT on the only path from a subnet group to a
+dependency is exactly the kind of single point of failure a failure simulator should flag.
+Cost: about USD 0.06/hour plus data processed. The operator's `WardenFullstackOperator` policy gains
+`ec2:AllocateAddress` / `CreateNatGateway` (and their deletes, under the project-tag condition) and
+may pass roles to `pods.eks.amazonaws.com`.
+
+**EKS node: m7i-flex.large.** Free Tier eligible types in ap-south-2 are t3/t4g/t8i micro and small,
+c7i-flex.large and m7i-flex.large. The small types hold too few pods (section 2); m7i-flex.large
+(2 vCPU, 8 GiB, 29 pods) is the eligible type with room. Still 2 vCPU, so fs-25 (8 CPU requested) is
+still unschedulable. catalog-api now logs in through **EKS Pod Identity** (add-on
+`eks-pod-identity-agent`, ServiceAccount `shop/catalog-api`, association in `eks.tf`); the image
+gained boto3 to sign tokens.
+
+**Faults.**
+
+- **fs-21 redesigned** - there is no password to rotate. New class `db_iam_auth_revoked`: remove
+  `rds-db:connect` from orders-api's task role (reusing the fs-18 mechanism: the policy is deleted
+  when it becomes empty), force a deployment. The tasks start and answer `/health`; every new login
+  as `app` fails with `PAM authentication failed for user "app"`, so `/orders` returns 500 behind the
+  ALB. Revert restores the policy and forces a deployment; verify: ECS steady, ALB healthy, no
+  target 5xx for 3 min. The class is APPENDED to `scenarios/scoring.yaml` (`escalate_to_human`; no
+  ActionKind edits IAM); `secret_rotated_stale_credentials` stays untouched and unused, so any
+  earlier grading re-scores byte-identically.
+- **fs-23** still removes a key the Deployment references: `catalog-secret` now holds
+  `CATALOG_SIGNING_KEY` (generated at deploy, sent over stdin), which catalog-api refuses to start
+  without - no longer a password.
+- **fs-12** holds sessions until the server refuses; on Serverless v2 `max_connections` depends on
+  the capacity, and the holder reads it at run time - unchanged.
+- **fs-14 / fs-15 / fs-16** unchanged: `DB_HOST` override, failover to the reader, slow query on
+  the reader. The baseline accepts an empty `DB_HOST` (the metadata secret's host).
+- Every IAM revert (fs-05, fs-18, fs-21) now also deletes any inline policy the role did not have
+  before the inject - WARDEN's fix adds its own `warden-restore-*` policy, and the next fault must
+  start from exactly the baseline.
+
+**WARDEN.** A new playbook pattern `db_iam_auth_refused` reads `PAM authentication failed for user
+X`. Its fix is `aws iam put-role-policy` giving `rds-db:connect` for user X back to the role that
+signs the tokens - printed only when the evidence NAMES that role. For an ECS service the stack
+backend now emits `TASKROLE ecs/<service> role=<name>` from the task definition
+(`ecs:DescribeTaskDefinition`, already granted); without it, and for a Lambda, no command is printed
+and the report says which line would be needed. The harness allow-list accepts that grant only for
+the application users (`app`, `catalog`) and only as `rds-db:connect`.
+
+**Not verifiable without AWS** (checked on the first apply, recorded here when known): the express
+cluster's endpoint names follow the classic `<cluster>.cluster-<id>` / `.cluster-ro-` scheme that
+the writer-endpoint fix and the harness guard rely on; `aws:RequestedRegion` (the boundary's region
+condition) is present when Aurora authorises `rds-db:connect`; Pod Identity credentials reach a pod
+that does not mount its ServiceAccount token; express configuration accepts `Tags` and
+`DatabaseName` on `CreateDBCluster`, and a later `ModifyDBCluster` of the Serverless v2 capacity;
+the writer instance express creates is named with the cluster id as prefix (otherwise the operator
+policy, which scopes `rds:*` to `db:warden-pg-fs-*`, cannot delete it); `CreateDBInstance` accepts
+an `AvailabilityZone` for the reader; an instance endpoint is reachable through the internet access
+gateway (fs-15 pins `DB_HOST` to one); `FailoverDBCluster` works on an express cluster (fs-15).
+
+**Found by review before the apply (2026-09-26):** the EKS Pod Identity agent calls
+`eks-auth:AssumeRoleForPodIdentity` with the node role, a separate service prefix the boundary did not
+allow - catalog-api would have had no AWS credentials at baseline. The boundary now allows it.

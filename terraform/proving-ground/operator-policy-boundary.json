@@ -2,14 +2,16 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "CeilingRegionalServicesTheBenchmarkUses",
+      "Sid": "CeilingRegionalServices",
       "Effect": "Allow",
       "Action": [
         "ec2:*",
         "ecs:*",
         "ecr:*",
         "eks:*",
+        "eks-auth:AssumeRoleForPodIdentity",
         "rds:*",
+        "rds-db:connect",
         "logs:*",
         "cloudwatch:*",
         "elasticloadbalancing:*",

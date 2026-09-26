@@ -73,9 +73,13 @@ data "archive_file" "placeholder" {
 # --------------------------------------------------------------------------- functions
 
 locals {
+  # DB_HOST "" = the code uses the metadata secret's host (order-processor) or reader (reconciler):
+  # the endpoints exist only after aurora_express.py runs. fs-14 / fs-15 set DB_HOST to break it.
+  # No password: each function signs an IAM token (rds-db:connect, below) for its own DB_USER.
   db_env = {
-    DB_NAME    = aws_rds_cluster.aurora.database_name
+    DB_NAME    = "shop"
     SECRET_ARN = aws_secretsmanager_secret.db_app.arn
+    DB_HOST    = ""
   }
 
   lambdas = {
@@ -97,7 +101,7 @@ locals {
       memory  = 256
       in_vpc  = true
       env = merge(local.db_env, {
-        DB_HOST = aws_rds_cluster.aurora.endpoint # fs-14 / fs-15 repoint this
+        DB_USER = "app"
       })
     }
     notifier = {
@@ -111,7 +115,7 @@ locals {
       memory  = 256
       in_vpc  = true
       env = merge(local.db_env, {
-        DB_HOST          = aws_rds_cluster.aurora.reader_endpoint
+        DB_USER          = "catalog" # read-only; the reconciler reads the reader
         REDIS_HOST       = aws_elasticache_replication_group.redis.primary_endpoint_address
         RECONCILE_LOOKUP = "by_id" # fs-16 sets by_customer
       })
@@ -148,12 +152,14 @@ locals {
     order-processor = [
       { Sid = "ConsumeOrders", Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = [aws_sqs_queue.main["orders"].arn] },
       { Sid = "ReadDbSecret", Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [aws_secretsmanager_secret.db_app.arn] },
+      { Sid = "ConnectAsApp", Effect = "Allow", Action = ["rds-db:connect"], Resource = [local.dbuser_arn["app"]] },
     ]
     notifier = [
       { Sid = "ConsumeNotifications", Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = [aws_sqs_queue.main["notifications"].arn] },
     ]
     reconciler = [
       { Sid = "ReadDbSecret", Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [aws_secretsmanager_secret.db_app.arn] },
+      { Sid = "ConnectAsCatalog", Effect = "Allow", Action = ["rds-db:connect"], Resource = [local.dbuser_arn["catalog"]] },
     ]
     traffic = [
       { Sid = "SendOrders", Effect = "Allow", Action = ["sqs:SendMessage"], Resource = [aws_sqs_queue.main["orders"].arn] },
