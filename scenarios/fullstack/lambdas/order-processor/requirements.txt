@@ -1,1 +1,2 @@
 psycopg[binary]==3.3.5
+typing-extensions==4.15.0

@@ -721,3 +721,15 @@ def test_aurora_destroy_waits_for_an_instance_still_being_created():
     ax.destroy(rds, log=lambda *_: None)
     names = [n for n, _ in rds.calls]
     assert names.index("wait:db_instance_available") < names.index("delete_db_instance")
+
+
+def test_workloads_opt_out_of_the_observability_addons_auto_instrumentation():
+    """The CloudWatch Observability add-on injected a Java OTel agent that the restricted Pod Security
+    rejected - no catalog-api pod could be created (first real deploy, 2026-09-26)."""
+    import yaml as _yaml
+    for name in ("catalog-api.yaml", "cart-worker.yaml"):
+        for doc in _yaml.safe_load_all((ROOT / "k8s" / "fullstack" / name).read_text(encoding="utf-8")):
+            if doc and doc.get("kind") == "Deployment":
+                ann = doc["spec"]["template"]["metadata"].get("annotations") or {}
+                for lang in ("java", "python", "nodejs", "dotnet"):
+                    assert ann.get(f"instrumentation.opentelemetry.io/inject-{lang}") == "false", (name, lang)

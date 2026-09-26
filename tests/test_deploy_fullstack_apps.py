@@ -235,3 +235,19 @@ def test_run_decodes_tool_output_as_utf8_not_the_locale(monkeypatch):
     monkeypatch.setattr(tool.subprocess, "run", fake_run)
     tool.run(["docker", "build"])
     assert seen.get("encoding") == "utf-8" and seen.get("errors") == "replace"
+
+
+def _dist(target, name, requires=()):
+    d = target / f"{name}-1.0.dist-info"
+    d.mkdir()
+    lines = ["Metadata-Version: 2.1", f"Name: {name}", "Version: 1.0", *[f"Requires-Dist: {r}" for r in requires]]
+    (d / "METADATA").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_a_dependency_skipped_for_the_building_python_fails_the_build(tmp_path):
+    """Built on 3.13, psycopg's `typing-extensions; python_version < "3.13"` was skipped and both database
+    Lambdas died on import in AWS. The check evaluates markers for the Lambda's 3.12."""
+    _dist(tmp_path, "psycopg", ['typing-extensions>=4.6; python_version < "3.13"', 'tzdata; sys_platform == "win32"'])
+    assert tool.missing_dependencies(tmp_path) == ["typing-extensions"]
+    _dist(tmp_path, "typing_extensions")
+    assert tool.missing_dependencies(tmp_path) == []   # tzdata is Windows-only: not required on Lambda

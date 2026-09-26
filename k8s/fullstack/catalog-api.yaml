@@ -32,6 +32,16 @@ spec:
       maxSurge: 0
   template:
     metadata:
+      # ⛔ The amazon-cloudwatch-observability add-on auto-injects an OpenTelemetry agent into pods
+      # behind a Service (Application Signals). Its container violates the namespace's `restricted`
+      # Pod Security, so EVERY catalog-api pod was refused on the first real deploy (2026-09-26) - and
+      # it injected the Java agent into a Python app. Opt out explicitly; metrics still come from the
+      # add-on's node agent, which is what the alarms read.
+      annotations:
+        instrumentation.opentelemetry.io/inject-java: "false"
+        instrumentation.opentelemetry.io/inject-python: "false"
+        instrumentation.opentelemetry.io/inject-nodejs: "false"
+        instrumentation.opentelemetry.io/inject-dotnet: "false"
       labels:
         app: catalog-api
         project: warden-fullstack

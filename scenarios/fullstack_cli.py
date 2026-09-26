@@ -71,6 +71,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 ALERT_TEMPLATE = HERE / "alert-fullstack.yaml"
 DEFAULT_RUN = pathlib.Path.home() / "warden-bench-runs" / "wave4-fullstack"
 DEFAULT_STACK = pathlib.Path.home() / "warden-fullstack-build" / "stack.json"
+DEFAULT_KUBECONFIG = pathlib.Path.home() / "warden-fullstack-build" / "kubeconfig"
 
 # What the stack description file must / may carry: `terraform output -json` of terraform/fullstack,
 # either wrapped {"k": {"value": v}} or flat {"k": v}, plus `ecs_baseline_task_definition`, which
@@ -262,8 +263,17 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
     rds = session.client("rds")
     master = stack.get("db_master_username") or "postgres"
     port = stack.get("aurora_port") or 5432
-    kube_config.load_kube_config()
-    context = kube_config.list_kube_config_contexts()[1]["name"]
+    # The apps pipeline writes its kubeconfig next to stack.json; use it unless KUBECONFIG says
+    # otherwise. The default ~/.kube/config may have no current context at all - that crashed the first
+    # real `status` with a raw ConfigException (2026-09-26).
+    kubeconfig = os.environ.get("KUBECONFIG") or (DEFAULT_KUBECONFIG if DEFAULT_KUBECONFIG.is_file() else None)
+    try:
+        kube_config.load_kube_config(config_file=kubeconfig)
+        context = kube_config.list_kube_config_contexts(config_file=kubeconfig)[1]["name"]
+    except Exception as exc:
+        raise StepError(f"no usable kubeconfig ({type(exc).__name__}: {exc}). Run `python "
+                        "scripts/deploy_fullstack_apps.py deploy k8s` (it writes "
+                        f"{DEFAULT_KUBECONFIG}) or set KUBECONFIG.") from exc
     if stack["eks_cluster_name"] not in context:
         raise StepError(f"kubectl's current context is {context!r}, not the {stack['eks_cluster_name']} "
                         "cluster. Switch context first (aws eks update-kubeconfig ...).")

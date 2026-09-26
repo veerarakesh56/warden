@@ -81,6 +81,38 @@ def lambda_names() -> list[str]:
     return sorted(p.name for p in LAMBDA_SRC.iterdir() if (p / "app.py").is_file())
 
 
+LAMBDA_PYTHON = "3.12"  # the runtime terraform/fullstack/lambda.tf declares
+
+
+def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTHON) -> list[str]:
+    """Requirements of the packages in `target` that are not themselves in `target`, with environment
+    markers evaluated for the LAMBDA's Python.
+
+    ⛔ Why: pip evaluates markers for the interpreter RUNNING it. Built on Python 3.13, psycopg's
+    `typing-extensions; python_version < "3.13"` was skipped and both database Lambdas died on import in
+    AWS (Runtime.ImportModuleError, 2026-09-26). This makes that a build failure instead.
+    """
+    from importlib.metadata import PathDistribution
+
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    env = {"python_version": python_version, "python_full_version": f"{python_version}.0",
+           "sys_platform": "linux", "platform_system": "Linux", "os_name": "posix",
+           "platform_machine": "x86_64", "implementation_name": "cpython",
+           "platform_python_implementation": "CPython", "extra": ""}
+    dists = [PathDistribution(d) for d in target.glob("*.dist-info")]
+    present = {canonicalize_name(d.metadata["Name"]) for d in dists}
+    missing = set()
+    for d in dists:
+        for raw in d.requires or []:
+            req = Requirement(raw)
+            applies = req.marker is None or req.marker.evaluate(env)
+            if applies and canonicalize_name(req.name) not in present:
+                missing.add(req.name)
+    return sorted(missing)
+
+
 def build_lambdas(out: pathlib.Path, run=run) -> dict[str, pathlib.Path]:
     dest = out / "lambda"
     dest.mkdir(parents=True, exist_ok=True)
@@ -93,7 +125,12 @@ def build_lambdas(out: pathlib.Path, run=run) -> dict[str, pathlib.Path]:
             if req.is_file():
                 run([sys.executable, "-m", "pip", "install", "--quiet", "-r", str(req), "--target", str(stage),
                      "--platform", "manylinux2014_x86_64", "--only-binary=:all:",
-                     "--implementation", "cp", "--python-version", "3.12"])
+                     "--implementation", "cp", "--python-version", LAMBDA_PYTHON])
+                missing = missing_dependencies(stage)
+                if missing:
+                    raise SystemExit(f"{fn}: the package lacks {missing} - a dependency whose marker pip "
+                                     f"evaluated for THIS Python, not the Lambda's {LAMBDA_PYTHON}. Pin it "
+                                     f"in {req.relative_to(ROOT).as_posix()}.")
             for py in src.glob("*.py"):
                 shutil.copy2(py, stage / py.name)
             zpath = dest / f"{fn}.zip"

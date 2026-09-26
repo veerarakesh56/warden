@@ -104,7 +104,7 @@ def merge_stack(path: pathlib.Path, values: dict) -> None:
 def create(rds, sm, stack: pathlib.Path, cluster: str = CLUSTER, log=print) -> dict:
     guard(cluster)
     if describe(rds, cluster) is None:
-        log(f"creating {cluster} (express configuration, database {DB_NAME})")
+        log(f"creating {cluster} (express configuration; bootstrap-db creates database {DB_NAME})")
         rds.create_db_cluster(DBClusterIdentifier=cluster, Engine="aurora-postgresql",
                               # No DatabaseName: express refuses it (InvalidParameterCombination, seen
                               # 2026-09-26, despite the doc) - bootstrap-db creates DB_NAME instead.

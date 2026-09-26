@@ -50,7 +50,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install ruff pytest pyyaml "psycopg[binary]" redis boto3
+      - run: pip install ruff pytest pyyaml "psycopg[binary]" redis boto3 packaging
       - run: ruff check scenarios/fullstack scripts/deploy_fullstack_apps.py tests/test_deploy_fullstack_apps.py
       - run: python -m compileall -q scenarios/fullstack
       # test_fullstack_infra also checks the k8s manifests and the apps' SQL/handlers.
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pyyaml "psycopg[binary]" boto3
+      - run: pip install pyyaml "psycopg[binary]" boto3 packaging
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.WARDEN_FS_DEPLOY_ROLE_ARN }}
