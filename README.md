@@ -44,7 +44,7 @@ a bug. In an operations tool it is an outage with a good explanation attached.
 ## What WARDEN does
 
 ```
-alert → gather evidence → REDACT → analyse → propose → VERIFY → halt | escalate | await approval
+alert → gather evidence → REDACT → diagnose (one model call) → VERIFY → halt | escalate | await approval
                           ^^^^^^                       ^^^^^^
                           nothing unredacted           nothing the model said
                           reaches the model            is trusted
@@ -92,7 +92,7 @@ alert → gather evidence → REDACT → analyse → propose → VERIFY → halt
 - **Real timeouts.** Every context tool runs under a wall-clock deadline. A hung logging backend
   during an incident is the normal case, not the edge case — and a timed-out tool becomes *visible
   partial context* (policy `P8`) rather than a gap that looks like completeness.
-- **OpenTelemetry tracing.** Spans for `warden.run → tool.* → analyse → propose → verify` —
+- **OpenTelemetry tracing.** Spans for `warden.run → tool.* → diagnose → verify` —
   carrying confidence, action, blast radius, verdict, policies fired, and **token cost per step**.
   No exporter by default; `WARDEN_TRACE_CONSOLE=1` prints spans, `OTEL_EXPORTER_OTLP_ENDPOINT` ships
   them to a real backend (install the `otlp` extra; without it WARDEN falls back to the console).
@@ -162,7 +162,7 @@ Any MCP client — Claude Desktop, an IDE agent, another orchestrator — gets f
 | **`verify_remediation`** | Runs the deterministic 12-policy gate over a proposed action and returns a binding verdict with the policy ids that fired. **No model involved in the decision.** |
 | `redact_text` | Masks identifiers and verifies its own output. Use before putting logs in any prompt |
 | `gather_incident_context` | Logs, metrics and deploys under a timeout — already redacted. Reads the bundled fixtures only |
-| `describe_policy` | Every gate policy (P1-P12) and the per-environment allow-list |
+| `describe_policy` | Every gate policy (P1-P14) and the per-environment allow-list |
 
 So an agent with no safety layer of its own can ask whether the action it is about to take is
 allowed in production, and get an auditable answer with policy ids. The closed action enum is
@@ -461,7 +461,7 @@ flowchart TB
     end
 
     subgraph GRAPH[Diagnosis graph - LangGraph StateGraph<br/><i>graph.py</i>]
-        N1[ingest] --> N2[gather<br/><i>tools.gather</i><br/>per-call timeout] --> N3[redact<br/><i>redaction.py</i>] --> N4[analyse<br/>LLM] --> N5[propose<br/>LLM] --> N6{verify<br/><i>verifier.py</i><br/>P1-P12}
+        N1[ingest] --> N2[gather<br/><i>tools.gather</i><br/>per-call timeout] --> N3[redact<br/><i>redaction.py</i>] --> N4[diagnose<br/>ONE LLM call<br/>cites evidence ids] --> N6{verify<br/><i>verifier.py</i><br/>P1-P14}
         N6 --> X1[halt] & X2[escalate] & X3[await_approval] & X4[record_safe]
     end
     CLI --> N1
@@ -515,7 +515,7 @@ flowchart TB
     GRAPH -.->|"OTel spans, GenAI conventions<br/><i>observability.py</i>"| OTEL([console or any OTLP collector<br/>Langfuse, Phoenix])
 ```
 
-- **One path to a model.** `analyse` and `propose` are the only nodes that call a model, and only
+- **One path to a model.** `diagnose` is the only node that calls a model (once per incident), and only
   through `LLMClient`, which enforces the budget and the timeout and rejects any action outside the
   closed enum. Nothing reaches it that has not been through `redact`. With `WARDEN_MOCK=1` no
   provider is built at all - that is what CI and the demo run.
@@ -537,9 +537,8 @@ flowchart LR
     A([Alert<br/>Alertmanager-shaped]) --> I[ingest]
     I --> G[gather<br/><i>tools.py</i><br/>logs · metrics · deploys<br/>each call isolated behind a hard timeout]
     G -->|raw evidence<br/>+ read failures| R[redact<br/><i>redaction.py</i>]
-    R -->|placeholders only| AN[analyse<br/><b>LLM</b><br/>hypothesis + confidence]
-    AN --> P[propose<br/><b>LLM</b><br/>ONE action from a closed set]
-    P --> V{verify<br/><i>verifier.py</i><br/>P1–P12<br/>no model call}
+    R -->|placeholders only,<br/>items numbered L/E/M/D/T| AN[diagnose<br/><b>ONE LLM call</b><br/>hypothesis + citations<br/>+ ONE action from a closed set]
+    AN --> V{verify<br/><i>verifier.py</i><br/>P1–P14<br/>no model call}
     V -->|rejected| H[halt]
     V -->|escalated| E[escalate<br/>to on-call]
     V -->|approved_for_human| W[await_approval]

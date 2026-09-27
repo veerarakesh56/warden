@@ -58,7 +58,7 @@ def test_verbose_prints_the_audit_trail(capsys):
     main(["run", "--incident", "inc-001", "--verbose"])
     out = capsys.readouterr().out
     assert "audit trail" in out
-    for node in ("ingest", "gather", "redact", "analyse", "propose", "verify"):
+    for node in ("ingest", "gather", "redact", "diagnose", "verify"):
         assert f'"node": "{node}"' in out, f"{node} missing from the audit trail"
 
 

@@ -16,7 +16,7 @@ things a loop does not:
 ## The graph
 
 ```
-START → ingest → gather → redact → analyse → propose → verify ─┬→ halt           → END
+START → ingest → gather → redact → diagnose → verify ─┬→ halt           → END
                                                                ├→ escalate       → END
                                                                ├→ await_approval → END
                                                                └→ record_safe    → END
@@ -27,12 +27,11 @@ START → ingest → gather → redact → analyse → propose → verify ─┬
 | `ingest` | no | Record the alert, open the audit trail |
 | `gather` | no | Run every context tool; record failures rather than swallowing them |
 | `redact` | no | Mask identifiers, **then prove none survived** |
-| `analyse` | **yes** | Hypothesis + calibrated confidence (`RootCause`) |
-| `propose` | **yes** | One action from a closed enum (`RemediationProposal`) |
+| `diagnose` | **yes, one call** | Hypothesis + confidence + citations to evidence ids (`RootCause`), and one action from a closed enum (`RemediationProposal`). Until 2026-09-27 these were two calls (`analyse`, `propose`) that each re-sent the whole evidence |
 | `verify` | no | The binding decision (`Verdict`) |
 | `halt` / `escalate` / `await_approval` / `record_safe` | no | Terminal outcomes (`record_safe` records an `AUTO_SAFE` verdict - `no_action` or `escalate_to_human`, the only inert actions - with no approval required) |
 
-Ordering is deliberate: **`gather` precedes `redact` precedes `analyse`.** Evidence is collected
+Ordering is deliberate: **`gather` precedes `redact` precedes `diagnose`.** Evidence is collected
 before the model exists in the process at all, so the model cannot influence what evidence is
 collected — and nothing unredacted is ever in scope when it is called.
 
@@ -115,7 +114,7 @@ socket timeout so the thread actually ends.
 ## Tracing
 
 `observability.py` wires OpenTelemetry. Spans for the run, each tool call and the three decision nodes —
-`warden.run → tool.* → analyse → propose → verify` — with attributes for confidence, action, blast
+`warden.run → tool.* → diagnose → verify` — with attributes for confidence, action, blast
 radius, verdict, policies fired, and **token/USD cost per step**.
 
 Defaults to no exporter; `WARDEN_TRACE_CONSOLE=1` prints spans, `OTEL_EXPORTER_OTLP_ENDPOINT` ships
