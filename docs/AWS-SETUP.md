@@ -141,6 +141,9 @@ variable `sensitive` hides it from CLI output, not from state.
 
 ## Guardrails against a hijacked or "cunning" agent (2026-09-27, owner, admin credentials)
 
+**Console, click by click (no CLI): [`OWNER-CONSOLE-STEPS.md`](OWNER-CONSOLE-STEPS.md).** The commands
+below are the same steps for the CLI.
+
 The boundary caps what the operator may do, but inside the cap sit actions a hijacked agent could
 use to open the account up rather than break it. Examples: make a `warden-pg-*` role trust an
 outside account, publish a Lambda URL with no auth, share a snapshot, or stop the audit trail. The

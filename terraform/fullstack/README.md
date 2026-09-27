@@ -65,7 +65,8 @@ USD 50 is about four days of this stack left running. Destroy it when a run ends
    DeleteSecret/PutSecretValue/DeleteTable/DeleteDBCluster deny so it excludes `warden-pg-fs-*`
    (and still denies everything else).
 2. **Grant the operator.** Create (or, after a change, add a version of) the managed policy
-   `WardenFullstackOperator` from `operator-policy-fullstack.json` (6.0k of the 6,144-char limit)
+   `WardenFullstackOperator` from `operator-policy-fullstack.json` (6,026 of the 6,144-char limit;
+   2026-09-27 added `ec2:DeleteNetworkInterface`, region-locked, for the detached ENIs Lambda leaves)
    and attach it to the operator user (and to the CI role, below). The operator cannot do this
    itself: the boundary denies `iam:CreatePolicy` and `iam:AttachUserPolicy`, and allows it to edit
    only its own `WardenProvingGroundOperator`. 2026-09-26 added the NAT gateway and Elastic IP
