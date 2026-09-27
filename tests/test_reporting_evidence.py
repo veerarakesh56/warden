@@ -214,7 +214,9 @@ def test_the_fix_names_every_stuck_pid_not_just_the_five_displayed():
                   environment="prod", summary="alert", started_at="2026-09-25T04:47:40Z")
     prop = RemediationProposal(action=ActionKind.terminate_connections, target="warden", reasoning="r",
                                expected_effect="e", blast_radius="single_service", reversible=True)
-    rep = build_report(alert, proposal=prop, context=ctx, show_identifiers=False)
+    # Approved: a fix command is printed only for an approved verdict (Phase 0, 2026-09-27).
+    approved = Verdict(status=VerdictStatus.approved_for_human, reasons=["r"], policy_ids=[])
+    rep = build_report(alert, proposal=prop, context=ctx, verdict=approved, show_identifiers=False)
     fix = next(ln for ln in rep.markdown.splitlines() if "pg_terminate_backend" in ln and "pid IN (" in ln)
     listed = re.search(r"pid IN \(([^)]*)\)", fix).group(1).split(", ")
     assert listed == pids, f"the fix must name every stuck pid: {listed}"

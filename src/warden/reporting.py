@@ -461,7 +461,12 @@ def build_report(
         ],
         "patterns": [dataclasses.asdict(p) for p in patterns],
         "code": _code_findings(ctx.logs),
+        # ⛔ Only commands the gate APPROVED (approved_for_human). The one list anything may execute.
         "fix_commands": [],
+        # The runbook's fix for an ESCALATED verdict: for the person who decides - not approved.
+        "candidate_commands": [],
+        # Deterministic patterns' commands: never checked by the gate against the proposal - advice.
+        "pattern_suggestions": [],
         "root_cause": None,
         "evidence": {
             "metrics": dict(ctx.metrics),
@@ -514,9 +519,16 @@ def build_report(
         pids = [p for p, _ in affected.get("pid", [])]
         rb = build_runbook(alert, proposal.action, backend=backend, pids=pids, context=ctx)
         data["runbook"] = dataclasses.asdict(rb)
-        data["fix_commands"] = _fix_commands(rb.fix, "runbook")
+        # ⛔ Wave 4 (2026-09-26): commands were listed whatever the gate decided, and the benchmark ran
+        # an ESCALATED fix; on the healthy control a pattern's command broke a healthy service. The
+        # gate's verdict now decides which list a command lands in - and rejected lands in none.
+        status = verdict.status.value if verdict else None
+        if status == "approved_for_human":
+            data["fix_commands"] = _fix_commands(rb.fix, "runbook")
+        elif status == "escalated":
+            data["candidate_commands"] = _fix_commands(rb.fix, "runbook")
     for pat in patterns:
-        data["fix_commands"] += _fix_commands(pat.fix, f"pattern:{pat.key}")
+        data["pattern_suggestions"] += _fix_commands(pat.fix, f"pattern:{pat.key}")
     if verdict:
         data["verdict"] = {
             "status": verdict.status.value,
@@ -722,8 +734,19 @@ def _render_markdown(d: dict) -> str:
         check_title = ("1. Re-check right before acting - WARDEN ran the diagnostics above at alert time; "
                        "state may have moved since" if rb.get("checked_by_warden")
                        else "1. Check - read-only, confirm the diagnosis first")
+        status = v["status"] if v else None
         for title, key in ((check_title, "check"), ("2. Fix", "fix"),
                            ("3. Confirm it worked", "confirm"), ("4. If it made things worse", "undo")):
+            if key == "fix" and rb[key] and status not in ("approved_for_human", "escalated"):
+                lines.append(f"**{title}** - no command: the gate did not approve this action "
+                             f"(verdict `{status}`).")
+                continue
+            if key == "undo" and rb[key] and status not in ("approved_for_human", "escalated"):
+                continue  # an undo of a fix nobody may run is itself a command nobody should run
+            if key == "fix" and rb[key] and status == "escalated":
+                lines.append(f"**{title}** - NOT APPROVED: the gate escalated. A person decides; the "
+                             "candidate is below.")
+                continue
             if rb[key]:
                 lines.append(f"**{title}**")
                 _code(lines, rb[key])
@@ -732,13 +755,18 @@ def _render_markdown(d: dict) -> str:
                 lines.append(f"**{title}** - no command printed; see the note at the top of this runbook.")
         lines.append("")
 
-    if d.get("fix_commands"):
-        lines.append("## Fix - exact commands  (in order; nothing here has been run)")
-        for i, f in enumerate(d["fix_commands"], 1):
-            where = f" on the {f['target']}" if f.get("target") else ""
-            lines.append(f"{i}. `{f['source']}` - {f['kind']}{where}")
-            _code(lines, [f["command"]])
-        lines.append("")
+    for key, title in (
+            ("fix_commands", "## Fix - exact commands  (approved by the gate for a person to run; nothing here has been run)"),
+            ("candidate_commands", "## Candidate fix - NOT APPROVED  (the gate escalated: a person decides)"),
+            ("pattern_suggestions", ("## Suggestions from deterministic patterns - NOT checked by the gate  "
+                                     "(verify against live state before anything)"))):
+        if d.get(key):
+            lines.append(title)
+            for i, f in enumerate(d[key], 1):
+                where = f" on the {f['target']}" if f.get("target") else ""
+                lines.append(f"{i}. `{f['source']}` - {f['kind']}{where}")
+                _code(lines, [f["command"]])
+            lines.append("")
 
     # ---- follow-ups by team
     teams = (("On-call - now", "oncall"), ("Developers", "developers"),

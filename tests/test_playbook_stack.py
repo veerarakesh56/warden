@@ -143,7 +143,7 @@ FAULTS = {
                           f"arn:aws:dynamodb:{REGION}:{ACCT}:table/warden-pg-fs-carts because no identity-based "
                           "policy allows the dynamodb:PutItem action")],
         {"lambda_errors__checkout": 25.0}),
-        "access_denied", "iam put-role-policy --role-name warden-pg-fs-checkout-role"),
+        "access_denied", None),
     "fs-06": ("sqs_poison_message", ctx(
         ["QUEUE warden-pg-fs-orders visible=0 in_flight=0 dlq=warden-pg-fs-orders-dlq dlq_visible=14 max_receive=3",
          _lam("order-processor", "Traceback (most recent call last):"),
@@ -204,7 +204,7 @@ FAULTS = {
         [("postgres long-running query: pid=7311 running 140s user=app app=order-processor client=10.42.0.50: "
          "SELECT id, total FROM orders WHERE customer_ref = $1")],
         {"long_running_queries": 1.0, "aurora_acu_utilization_pct": 95.0}),
-        "db_long_query", "CREATE INDEX CONCURRENTLY IF NOT EXISTS warden_orders_customer_ref_idx ON orders (customer_ref);"),
+        "db_long_query", None),
     "fs-17": ("ecs_bad_image", ctx(
         [_ecs("task 7f stopped: CannotPullContainerError: pull image manifest has been retried 5 time(s): failed to "
               "resolve ref warden-pg-fs-app:does-not-exist: not found")], {}, [ECS_DEPLOY]),
@@ -215,7 +215,7 @@ FAULTS = {
               f"arn:aws:sts::{ACCT}:assumed-role/warden-pg-fs-ecs-exec/8a is not authorized to perform: "
               f"secretsmanager:GetSecretValue on resource: arn:aws:secretsmanager:{REGION}:{ACCT}:secret:"
               "warden-pg-fs-db-app-AbCdEf because no identity-based policy allows the action")]),
-        "task_secret_denied", "--role-name warden-pg-fs-ecs-exec"),
+        "task_secret_denied", None),
     "fs-19": ("alb_health_check_wrong", ctx(
         [("TARGET warden-pg-fs-orders 10.42.0.12:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed "
          "with these codes: [404]"),
@@ -229,7 +229,7 @@ FAULTS = {
     "fs-21": ("db_iam_auth_revoked", ctx(
         [_ecs(PAM_ERR), "TASKROLE ecs/warden-pg-fs-orders-api role=warden-pg-fs-orders-api-task"],
         {"alb_target_5xx": 40.0}),
-        "db_iam_auth_refused", "iam put-role-policy --role-name warden-pg-fs-orders-api-task"),
+        "db_iam_auth_refused", None),
     "fs-22": ("k8s_config_crashloop", ctx(
         [_k8s("catalog-api", "EVENT BackOff Pod/catalog-api-7d9-abcde: Back-off restarting failed container app"),
          _k8s("catalog-api", "catalog-api-7d9-abcde/app (previous) 2026-09-26T09:59:00Z ValueError: invalid literal "
@@ -428,14 +428,23 @@ def test_the_sns_policy_is_valid_json_aimed_at_the_named_queue_and_topic():
     assert "get-queue-url --queue-name warden-pg-fs-notifications" in pat.fix[0]
 
 
-def test_the_secret_grant_is_the_exact_action_and_survives_as_json():
+def test_a_denied_secret_read_prints_no_iam_command_only_what_to_compare():
+    """Phase 0 (2026-09-27): WARDEN never writes IAM from a log line - the role, action and resource all
+    come from text that whoever can write a log line controls. It names them, as advice."""
     pat = next(p for p in detect(alert(), FAULTS["fs-18"][1]) if p.key == "task_secret_denied")
-    doc = json.loads(shlex.split(pat.fix[0])[shlex.split(pat.fix[0]).index("--policy-document") + 1])
-    assert doc["Statement"][0]["Action"] == "secretsmanager:GetSecretValue"
-    assert doc["Statement"][0]["Resource"] == "arn:aws:secretsmanager:ap-south-2:*:secret:warden-pg-fs-db-app-*"
-    assert ACCT not in " ".join(pat.fix)
-    assert pat.fix[1].endswith("--force-new-deployment --region ap-south-2")
+    assert pat.fix == []
+    advice = " ".join(pat.oncall)
+    assert "secretsmanager:GetSecretValue" in advice and "warden-pg-fs-ecs-exec" in advice
+    assert "never writes IAM" in advice
     assert "access_denied" not in {p.key for p in detect(alert(), FAULTS["fs-18"][1])}
+
+
+def test_an_attacker_shaped_denial_line_yields_no_command():
+    """The plant: a log line naming the ADMIN role and `iam:*` used to become `iam put-role-policy`."""
+    line = _lam("checkout", f"User: arn:aws:sts::{ACCT}:assumed-role/OrganizationAccountAccessRole/x is not "
+                            "authorized to perform: iam:* on resource: arn:aws:iam::*:*")
+    for p in detect(alert(), ctx([line])):
+        assert not any("put-role-policy" in c or "iam:" in c for c in p.fix), (p.key, p.fix)
 
 
 def test_redis_memory_names_the_next_node_size_only_when_the_node_type_is_read():
@@ -496,14 +505,11 @@ def test_cache_ingress_names_only_the_missing_rules():
     assert bare["cache_unreachable"].fix == []
 
 
-def test_the_iam_login_grant_is_exactly_rds_db_connect_for_the_refused_user():
+def test_a_refused_iam_login_prints_no_grant_only_the_role_and_user_to_compare():
     pat = next(p for p in detect(alert(), FAULTS["fs-21"][1]) if p.key == "db_iam_auth_refused")
-    tokens = shlex.split(pat.fix[0])
-    doc = json.loads(tokens[tokens.index("--policy-document") + 1])
-    assert doc["Statement"] == [{"Effect": "Allow", "Action": "rds-db:connect",
-                                 "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/app"}]
-    assert tokens[tokens.index("--role-name") + 1] == "warden-pg-fs-orders-api-task"
-    assert pat.fix[0].endswith("--region ap-south-2") and len(pat.fix) == 1
+    assert pat.fix == []
+    advice = " ".join(pat.oncall)
+    assert "warden-pg-fs-orders-api-task" in advice and "rds-db:connect" in advice and "user app" in advice
     assert "stale_credentials" not in {p.key for p in detect(alert(), FAULTS["fs-21"][1])}
 
 

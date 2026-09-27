@@ -217,12 +217,17 @@ def detect(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             "A query has been actively running for over a minute. It may be legitimate (a report, a "
             "migration, a backfill) or a runaway (a missing index, a bad plan) - WARDEN cannot tell which.",
             oncall=[("Do NOT terminate it until its owner is known: it is doing work, and terminating "
-                    "loses that work. Check who runs it (user, application in the evidence).")],
+                    "loses that work. Check who runs it (user, application in the evidence)."),
+                    ("No command: WARDEN never changes a schema. "
+                     + (f"The query filters by {index_hint(long_line)}: a DBA decides whether an index helps."
+                        if index_hint(long_line) else "A DBA decides whether an index helps."))],
             developers=[("If it is a runaway: EXPLAIN (ANALYZE, BUFFERS) the query; check for a missing "
                         "index or a changed plan.")],
             dba=[("Set statement_timeout per role so runaway queries end themselves; move reporting "
                  "to a replica.")],
             prevention=["Log slow queries (log_min_duration_statement) so the next incident has the history."],
+            # ⛔ No command: WARDEN never changes a schema (owner decision 2026-09-27), and the table and
+            # column would come from query TEXT, which whoever issues the query controls.
             fix=_index_for(long_line),
         ))
 
@@ -486,10 +491,14 @@ def _grant(line: str) -> tuple[list[str], str]:
     if svc == "secretsmanager":
         doc = doc.replace(f'"{action.group(1)}"', f'"secretsmanager\\u003a\\u{ord(verb[0]):04x}{verb[1:]}"')
         doc = doc.replace("secretsmanager:", "secretsmanager\\u003a").replace(":secret:", "\\u003asecret\\u003a")
-    name = "warden-restore-" + re.sub(r"[^A-Za-z0-9]+", "-", action.group(1)).lower()
-    return ([regioned(f"aws iam put-role-policy --role-name {role.group(1)} --policy-name {name} "
-                      f"--policy-document '{doc}'")],
-            f"Grants {action.group(1)} on {resource} to role {role.group(1)} - exactly what the denial names.")
+    del doc  # ⛔ built only to validate the line's shape; never printed as a command (below)
+    # ⛔ No command. The action, the role and the resource all come from a LOG LINE, and whoever can
+    # write a log line could shape an IAM grant (a line naming the admin role and `iam:*` is all it
+    # takes). A missing permission is restored from the role's DECLARED policy (Terraform), through a
+    # reviewed change - never re-derived from runtime text.
+    return ([], (f"No command: the denial names {action.group(1)} on {resource} for role {role.group(1)}. "
+                 "Compare the role's declared policy (Terraform) with what is attached, and restore the "
+                 "declared one through a reviewed change - WARDEN never writes IAM from a log line."))
 
 
 def db_iam_grant(ctx: ContextBundle, line: str) -> tuple[list[str], str]:
@@ -509,11 +518,10 @@ def db_iam_grant(ctx: ContextBundle, line: str) -> tuple[list[str], str]:
     resource = f"arn:aws:rds-db:{region() or '*'}:*:dbuser:*/{user.group(1)}"
     doc = json.dumps({"Version": "2012-10-17", "Statement": [
         {"Effect": "Allow", "Action": "rds-db:connect", "Resource": resource}]}, separators=(",", ":"))
-    return ([regioned(f"aws iam put-role-policy --role-name {role} --policy-name warden-restore-rds-db-connect "
-                      f"--policy-document '{doc}'")],
-            (f"Grants rds-db:connect as database user {user.group(1)} to {role}, the task role of {src[1]} "
-             "(its TASKROLE line) - the identity that signs its database tokens. New connections succeed at "
-             "once; nothing needs a restart."))
+    del doc  # ⛔ never printed as a command: see _grant
+    return ([], (f"No command: {role}, the task role of {src[1]} (its TASKROLE line), is refused as database "
+                 f"user {user.group(1)}. Compare its declared policy (Terraform) for rds-db:connect on that "
+                 "user and restore it through a reviewed change - WARDEN never writes IAM from runtime text."))
 
 
 def _k8s_target(alert: Alert, line: str | None) -> tuple[str, str] | None:
@@ -568,13 +576,14 @@ _SCAN = re.compile(r"(?i)\bFROM\s+([A-Za-z_][\w.]*)(?:\s+(?:AS\s+)?(?!WHERE\b)[A
 
 
 def _index_for(long_line: str | None) -> list[str]:
-    """CREATE INDEX CONCURRENTLY on the column the long query filters by - only when its text shows it."""
+    """Never a command (see the caller). Kept as the one place that would decide it, returning nothing."""
+    return []
+
+
+def index_hint(long_line: str | None) -> str:
+    """The table.column the long query filters by, as ADVICE for a DBA - never a command."""
     mt = _SCAN.search((long_line or "").split(": ", 2)[-1])
-    if not mt:
-        return []
-    table, col = mt.group(1), mt.group(2)
-    name = f"warden_{table.replace('.', '_')}_{col}_idx"[:63]
-    return [f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} ON {table} ({col});"]
+    return f"{mt.group(1)}.{mt.group(2)}" if mt else ""
 
 
 def _queue_url(name: str) -> str:

@@ -7,8 +7,6 @@ arrives as a placeholder.
 from __future__ import annotations
 
 import itertools
-import json
-import shlex
 
 import pytest
 
@@ -83,23 +81,60 @@ def test_terminate_connections_on_aurora_is_the_postgres_sql_aimed_at_the_writer
     sql = [f for f in r.data["fix_commands"] if f["kind"] == "sql"]
     assert sql and all(f["target"] == "writer" for f in sql)
     assert sql[0]["source"] == "runbook" and "pg_terminate_backend" in sql[0]["command"]
-    assert any(f["source"] == "pattern:db_lock" and "IN (4077)" in f["command"] for f in sql)
+    # The pattern's own command is a suggestion, never in the approved list.
+    assert any(f["source"] == "pattern:db_lock" and "IN (4077)" in f["command"]
+               for f in r.data["pattern_suggestions"])
+    assert not any(f["source"].startswith("pattern:") for f in r.data["fix_commands"])
 
 
-def test_fix_commands_put_the_runbook_first_then_each_pattern():
+def test_only_the_approved_runbook_fix_is_executable_and_patterns_are_suggestions():
     r = _report("fs-01")
-    sources = [f["source"] for f in r.data["fix_commands"]]
-    assert sources == ["runbook", "pattern:code_error_after_deploy"]
+    assert [f["source"] for f in r.data["fix_commands"]] == ["runbook"]
+    assert [f["source"] for f in r.data["pattern_suggestions"]] == ["pattern:code_error_after_deploy"]
     assert all(f["kind"] == "shell" and "target" not in f for f in r.data["fix_commands"])
     md = r.markdown
-    block = md[md.index("## Fix - exact commands"):]
-    for f in r.data["fix_commands"]:
-        assert f["command"] in block
+    fix, sugg = md.index("## Fix - exact commands"), md.index("## Suggestions from deterministic patterns")
+    assert r.data["fix_commands"][0]["command"] in md[fix:sugg]
+    assert r.data["pattern_suggestions"][0]["command"] in md[sugg:]  # listed again, labelled unreviewed
+
+
+def _gated(status, action=ActionKind.rollback_deploy, fid="fs-01"):
+    return build_report(
+        alert(), context=FAULTS[fid][1], backend="stack", show_identifiers=False,
+        root_cause=RootCause(hypothesis="h", confidence=0.8),
+        proposal=RemediationProposal(action=action, target="t", reasoning="r", expected_effect="e",
+                                     blast_radius="single_service", reversible=True),
+        verdict=Verdict(status=status, reasons=["r"], policy_ids=[]))
+
+
+def test_the_gate_verdict_decides_which_list_a_command_lands_in():
+    """Wave 4 (2026-09-26): commands were listed whatever the gate said, and the harness ran an
+    ESCALATED fix. Approved -> executable; escalated -> a candidate for a person; rejected -> nothing."""
+    ok = _gated(VerdictStatus.approved_for_human)
+    assert ok.data["fix_commands"] and not ok.data["candidate_commands"]
+    esc = _gated(VerdictStatus.escalated)
+    assert not esc.data["fix_commands"] and esc.data["candidate_commands"]
+    assert "NOT APPROVED" in esc.markdown
+    rej = _gated(VerdictStatus.rejected)
+    assert not rej.data["fix_commands"] and not rej.data["candidate_commands"]
+    assert "no command: the gate did not approve" in rej.markdown
+    assert "update-alias" not in rej.markdown.split("## Suggestions")[0]
+
+
+def test_the_healthy_control_prints_no_command_at_all():
+    """fs-00: WARDEN's printed fix broke a healthy service. A healthy stack now prints nothing to run."""
+    r = build_report(alert(), context=ctx(), backend="stack", show_identifiers=False,
+                     root_cause=RootCause(hypothesis="nothing is wrong", confidence=0.4),
+                     proposal=RemediationProposal(action=ActionKind.no_action, target="t", reasoning="r",
+                                                  expected_effect="e", blast_radius="single_pod", reversible=True),
+                     verdict=Verdict(status=VerdictStatus.auto_safe, reasons=[], policy_ids=[]))
+    assert r.data["fix_commands"] == r.data["candidate_commands"] == r.data["pattern_suggestions"] == []
 
 
 def test_with_no_proposal_the_patterns_still_carry_their_fix():
     r = build_report(alert(), context=FAULTS["fs-27"][1], backend="stack", show_identifiers=False)
-    assert r.data["fix_commands"] == [{"kind": "shell", "source": "pattern:schedule_off",
+    assert r.data["fix_commands"] == []  # no proposal, no verdict: nothing is approved
+    assert r.data["pattern_suggestions"] == [{"kind": "shell", "source": "pattern:schedule_off",
                                        "command": "aws events enable-rule --name warden-pg-fs-reconcile-5m "
                                                   "--region ap-south-2"}]
 
@@ -118,15 +153,13 @@ def test_commands_survive_the_reports_redaction_intact():
     """The report redacts everything; a fix command that came out masked would not run."""
     for fid in ("fs-05", "fs-08", "fs-18", "fs-19", "fs-07"):
         r = _report(fid, ActionKind.escalate_to_human)
-        cmds = [f["command"] for f in r.data["fix_commands"]]
-        assert cmds and not any("<" in c and "_1>" in c for c in cmds), (fid, cmds)
+        cmds = [f["command"] for key in ("fix_commands", "candidate_commands", "pattern_suggestions")
+                for f in r.data[key]]
+        assert not any("<" in c and "_1>" in c for c in cmds), (fid, cmds)
         for c in cmds:
             assert c in r.markdown
-    policy = next(f["command"] for f in _report("fs-18", ActionKind.escalate_to_human).data["fix_commands"]
-                  if "put-role-policy" in f["command"])
-    words = shlex.split(policy)
-    assert json.loads(words[words.index("--policy-document") + 1])["Statement"][0]["Action"] == \
-        "secretsmanager:GetSecretValue"
+        # Phase 0: an IAM grant is never printed, in any list, whatever the evidence says.
+        assert not any("put-role-policy" in c for c in cmds), (fid, cmds)
 
 
 def test_the_report_shows_the_code_level_finding():
@@ -204,7 +237,7 @@ def test_no_rollout_undo_while_every_pod_of_that_deployment_is_ready():
         r = build_report(alert(), context=ctx(lines, {"pods_total__catalog-api": 2.0,
                                                       "pods_ready__catalog-api": ready}),
                          backend="stack", show_identifiers=True)
-        return [f for f in r.data["fix_commands"] if "rollout undo" in f["command"]]
+        return [f for f in r.data["pattern_suggestions"] if "rollout undo" in f["command"]]
 
     assert undo(2.0) == []
     assert undo(1.0), "a revision that is failing NOW is still rolled back"

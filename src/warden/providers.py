@@ -348,15 +348,23 @@ class ClaudeCliProvider:
     # ⚠ If the CLI stores its credentials under the home directory, removing this breaks
     # authentication and `complete()` raises rather than silently returning something useless. That
     # is the right failure: a confusing auth error beats a corrupted measurement.
-    _CONFIG_ENV = ("USERPROFILE", "HOME", "HOMEPATH", "HOMEDRIVE", "XDG_CONFIG_HOME",
-                   "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_CONFIG", "ANTHROPIC_CONFIG_DIR")
+    # (USERPROFILE, HOME, HOMEPATH, HOMEDRIVE, XDG_CONFIG_HOME, CLAUDE_CONFIG_DIR, ... are simply never
+    # on the allowlist below.)
+    #
+    # ⛔ An ALLOWLIST, not a denylist. The child is a model: it gets only what a process needs to start
+    # and find its temp directory. WARDEN's own environment holds cloud credentials, database DSNs and
+    # a kubeconfig (the harness puts them there for the evidence readers); a denylist let every one of
+    # them into the model's process (found 2026-09-27). Measured: the CLI authenticates with exactly
+    # these on Windows. Anything else a deployment needs must be added here, deliberately.
+    _ENV_ALLOW = ("PATH", "PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC",
+                  "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "TZ")
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         import os as _os
         import subprocess
         import tempfile
 
-        env = {k: v for k, v in _os.environ.items() if k not in self._CONFIG_ENV}
+        env = {k: v for k, v in _os.environ.items() if k in self._ENV_ALLOW}
 
         cmd = [
             self._exe, "-p",

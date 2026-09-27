@@ -51,12 +51,17 @@ def test_the_harness_accepts_every_fix_warden_prints(fid, action):
     assert not refused, (fid, action.value, refused)
 
 
-def test_every_fault_with_a_printed_fix_reaches_the_harness_as_runnable():
-    """The faults whose own pattern prints a command must all be runnable (not fix_not_allowed)."""
-    printable = 0
+def test_every_pattern_suggestion_would_pass_the_harness_allow_list():
+    """Pattern commands are suggestions now (Phase 0): never executable by themselves. If a person
+    adopts one, it must still be a command the harness allow-list accepts - checked here, not on a
+    paid run. And none of them is an IAM grant (WARDEN never writes IAM from a log line)."""
+    suggested = 0
     for fid in sorted(FAULTS):
-        commands, ids = _built(fid, ActionKind.escalate_to_human)
-        outcome, runnable, rejected = fs.decide_fix({"fix_commands": commands}, "escalated", ids)
-        assert outcome in (None, "no_fix_printed"), (fid, outcome, rejected)
-        printable += bool(runnable)
-    assert printable >= 18, printable
+        context = FAULTS[fid][1]
+        r = build_report(alert(), context=context, backend="stack", show_identifiers=False)
+        for c in r.data["pattern_suggestions"]:
+            assert fs.check_command(c, stack_ids=_stack_ids(context)) is None, (fid, c)
+            assert "put-role-policy" not in c["command"], (fid, c)
+        suggested += bool(r.data["pattern_suggestions"])
+        assert r.data["fix_commands"] == [], (fid, "nothing is executable without an approved verdict")
+    assert suggested >= 20, suggested  # 20 of 28 faults on 2026-09-27; fewer = a detector lost
