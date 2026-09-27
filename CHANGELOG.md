@@ -5,6 +5,57 @@ All notable changes to WARDEN are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — pre-1.0, so a minor
 bump may carry a breaking change.
 
+## [0.9.0] - 2026-09-27
+
+v2 re-architecture, Phases 0 and 1: nothing AI-written runs unapproved, and what the model says is
+checked against what it was shown.
+
+⚠ Work between 0.8.0 and this release (P11/P12 on 2026-09-25, the EKS/RDS/full-stack waves, the stack
+backend) has no entries of its own here. It is recorded in `docs/`, `docs/bench/` and git history.
+0.7.0 and 0.8.0 were never tagged.
+
+### Security (Phase 0)
+
+- The `claude_cli` model process gets an allow-listed environment. AWS keys, DB DSNs and kubeconfig
+  no longer reach it.
+- Fix commands are printed only for an `approved_for_human` verdict. Escalated commands are listed
+  as NOT APPROVED, and rejected ones not at all. Nothing builds an IAM grant or an index from log
+  text any more.
+- The benchmark harness refuses to execute a non-approved fix, and no longer allows
+  `sqs purge-queue`, `iam put-role-policy` or Secret apply.
+- Outbound gate v0 (`gate.py`):
+  - G3 strips markdown images, links, URLs and HTML outside code blocks.
+  - G5 withholds a message that still carries a secret.
+  - Slack unfurling is off.
+  - A log line can no longer close the evidence code fence.
+- MCP `verify_remediation` caps its verdict at `escalated`: the caller claims the evidence counts,
+  WARDEN never reads them.
+
+### Added (Phase 1)
+
+- **Evidence ids** (`evidence.py`): L log, E event, M metric, D deploy, C config/state read, T
+  failed read, F typed fact.
+- **`P13-UNGROUNDED`**: every citation must name a real id and quote it verbatim.
+- **`P14-TARGET-NOT-IN-EVIDENCE`**: the target must name a known resource. Seen live on 2026-09-26:
+  `lambda:shop-prod-checkout`.
+- **Quarantine** (`quarantine.py`): log lines, events, SQL and source reach the model only as typed
+  facts of fixed shapes, never as text.
+- **G2**: "no customer impact" and "resolved" in model text are marked `[unverified: ...]`. Reports
+  show the cited evidence, and say "Not grounded" when P13 fired.
+- `scripts/replay_diagnose.py`: re-diagnose a published run's recorded evidence with today's
+  pipeline, and score it with the frozen rubric.
+
+### Changed
+
+- **One model call per incident.** `analyse` and `propose` became a single `diagnose` node.
+- Measured by replaying 30 recorded incidents on Claude Max, raw lines vs typed facts:
+  - 17/30 correct in both arms
+  - wrong-and-allowed went 1 → 0
+  - input tokens −62% on the ECS wave, −28% on EKS
+  - no P13/P14 fire in 60 diagnoses
+
+  A replay, not a live measurement (`docs/ai-boundary.md`).
+
 ## [0.8.0] - 2026-09-12
 
 The gate stops taking the model's word for anything that could loosen it.
