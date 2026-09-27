@@ -389,6 +389,19 @@ WARDEN can run Meta's **Llama Prompt Guard 2** (86M) locally over every untruste
 a flagged line escalates the incident (policy `P16`). Install with `pip install -e ".[guard]"` and set
 `WARDEN_TRIPWIRE=on` (or `required` in production, which fails closed if the detector cannot run).
 
+Measured 2026-09-27 on this repository's recorded incidents:
+
+- **False alarms: 0 of 4,637** distinct real log and event lines, at every threshold from 0.5 to 0.99.
+  The highest benign score was 0.008.
+- **Caught 6 of the 14 payloads** in `tests/test_injection_corpus.py`:
+  - caught: direct orders, fake end markers, zero-width and full-width text, key-value and image
+    smuggling;
+  - missed: role, turn and tool spoofing, markdown exfiltration, base64, a forged config line, a
+    k8s event and padding.
+
+The misses are why this is a tripwire on top of quarantine and the outbound gate, never a replacement
+for them. The default threshold is 0.9 (`WARDEN_TRIPWIRE_THRESHOLD`); lowering it caught nothing more.
+
 **The model is not part of WARDEN and is never bundled with it.** Each deployment downloads it from
 Hugging Face under its own account, after accepting Meta's **Llama 4 Community License** and Acceptable
 Use Policy itself (the model page's access form). Using WARDEN does not grant any right to the model;
