@@ -209,7 +209,9 @@ def _apply_overrides(alert: Alert, args) -> Alert:
     if labels != alert.labels:
         update["labels"] = labels
 
-    return alert.model_copy(update=update) if update else alert
+    # model_validate, not model_copy: model_copy skips validation, and the label rules must hold
+    # for a --label as much as for an alert file.
+    return Alert.model_validate({**alert.model_dump(), **update}) if update else alert
 
 
 def main(argv: list[str] | None = None) -> int:

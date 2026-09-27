@@ -10,7 +10,7 @@ greps for exactly that. The terminate (write) path lives in a SEPARATE module, `
 behind its own least-privilege credential, exactly as the k8s write path is separate from the read one.
 
 Mapping an alert to a connection:
-    dsn = alert.labels["dsn"]  or  $WARDEN_DB_DSN
+    dsn = $WARDEN_DB_DSN  (never an alert label)
 The engine is the DSN scheme (postgresql://, mysql://, redis://, mongodb://, mssql://). The driver for
 that engine is an optional extra (`pip install -e ".[postgres]"` …), imported lazily.
 """
@@ -50,9 +50,11 @@ def engine_of(dsn: str) -> str:
 
 
 def dsn_of(alert: Alert) -> str:
-    dsn = alert.labels.get("dsn") or os.environ.get("WARDEN_DB_DSN")
+    # ⛔ The operator's environment only (2026-09-27 audit). A `dsn` label let whoever shapes the
+    # alert choose which database WARDEN connects to - and which one terminate_connections acts on.
+    dsn = os.environ.get("WARDEN_DB_DSN")
     if not dsn:
-        raise ToolError("no database DSN (set alert.labels['dsn'] or $WARDEN_DB_DSN)")
+        raise ToolError("no database DSN: set $WARDEN_DB_DSN")
     return dsn
 
 

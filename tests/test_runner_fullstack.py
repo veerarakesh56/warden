@@ -92,17 +92,13 @@ def fake_env(events: list, *, alarm_state="ALARM", verdict="approved_for_human",
         runner._write_json(built, data)
         return data
 
-    def execute(cmds):
-        events.append("fix")
-        return [{**c, "rc": 0} for c in cmds], []
-
     def base():
         events.append("baseline")
         return list(baseline) if baseline else []
 
     fault = fs.Fault(inject, revert, verify, "rule")
     env = dataclasses.replace(
-        env, alarm=alarm, invoke_warden=invoke, extract_fix=extract, execute=execute,
+        env, alarm=alarm, invoke_warden=invoke, extract_fix=extract,
         faults={fid: fault for fid in fs.FAULTS}, baseline=base, sleep=clock.sleep, clock=clock,
         log=lambda _m: None, dry_run=False,
     )
@@ -132,12 +128,12 @@ def test_a_fault_runs_in_the_registered_order(tmp_path):
     assert _collapse(events) == [
         "baseline", "alarm",          # the gate before inject: stack + every catalog alarm
         "inject", "alarm",            # wait for THIS fault's alarm
-        "warden", "fix", "verify", "revert",
+        "warden", "verify", "revert",  # no "fix": the harness runs no fix command (2026-09-27)
         "baseline", "alarm",          # back at baseline afterwards
     ]
     rec = _record(tmp_path, "fs-27")
     assert rec["status"] == "ok" and rec["revert_ok"] is True
-    assert rec["runs"][0]["fix"]["outcome"] == "fixed"
+    assert rec["runs"][0]["fix"]["outcome"] == "execution_disabled"
     assert rec["baseline_after"]["clean"] is True
 
 
@@ -150,7 +146,7 @@ def test_the_steps_can_run_as_separate_commands_hours_apart(tmp_path):
     cli.step_verify(fake_env(events), tmp_path, "fs-09")
     cli.step_revert(fake_env(events), tmp_path, "fs-09")
     rec = _record(tmp_path, "fs-09")
-    assert rec["runs"][0]["fix"]["outcome"] == "fixed" and rec["revert_ok"]
+    assert rec["runs"][0]["fix"]["outcome"] == "execution_disabled" and rec["revert_ok"]
     assert json.loads((tmp_path / "state.json").read_text())["active"] is None
 
 
@@ -290,8 +286,9 @@ def test_the_alert_template_names_no_cause():
 
 
 @pytest.mark.parametrize("kw,outcome,ran", [
-    ({}, "fixed", True),
-    ({"verify_ok": False}, "not_fixed", True),
+    # ⛔ 2026-09-27: an approved, allowed fix is recorded, never run - whatever the verifier says.
+    ({}, "execution_disabled", False),
+    ({"verify_ok": False}, "execution_disabled", False),
     ({"verdict": "rejected"}, "blocked_by_gate", False),
     ({"commands": []}, "no_fix_printed", False),
     ({"commands": [{"kind": "shell", "command": "kubectl -n shop delete deploy catalog-api"}]},
@@ -304,17 +301,16 @@ def test_fix_outcomes(tmp_path, kw, outcome, ran):
     cli.step_run(fake_env(events, **kw), tmp_path, "fs-27")
     fix = _record(tmp_path, "fs-27")["runs"][0]["fix"]
     assert fix["outcome"] == outcome
-    assert ("fix" in events) is ran, "nothing may run unless the gate allowed it and every command passed"
+    assert "fix" not in events and ran is False, "the harness runs no fix command"
     if outcome == "fix_not_allowed":
         assert fix["rejected"][0]["reason"], "the refused command is visible, not silently skipped"
 
 
-def test_the_fix_is_verified_for_up_to_recover_within(tmp_path):
+def test_with_no_fix_applied_the_state_is_checked_once_not_waited_on(tmp_path):
     events: list[str] = []
     env = fake_env(events, verify_ok=False)
     cli.step_run(env, tmp_path, "fs-27")
-    polls = events.count("verify")
-    assert polls >= cli.scenario_for("fs-27")["recover_within"] // cli.VERIFY_POLL_S
+    assert events.count("verify") == 1
 
 
 # --------------------------------------------------------------------------- WARDEN's identity
@@ -419,7 +415,7 @@ def test_status_lists_every_fault(tmp_path):
     cli.step_run(env, tmp_path, "fs-27")
     lines = cli.step_status(env, tmp_path)
     assert len([ln for ln in lines if "fs-" in ln]) == len(fs.FAULTS)
-    assert any("fs-27" in ln and "fixed" in ln for ln in lines)
+    assert any("fs-27" in ln and "execution_disabled" in ln for ln in lines)
 
 
 # --------------------------------------------------------------------------- the run directory
@@ -431,7 +427,7 @@ def test_the_run_directory_scores_with_a_fix_column(tmp_path):
     cli.step_run(fake_env([], alarm_state="OK", verdict="rejected"), tmp_path, "fs-03", skip_quiet=True)
     scored = score.score_run_dir(tmp_path)
     summary = score.summarise(scored)
-    assert summary["fix_counts"] == {"fixed": 1, "blocked_by_gate": 1}
+    assert summary["fix_counts"] == {"execution_disabled": 1, "blocked_by_gate": 1}
     assert summary["alarm_never_fired"] == 2
     markdown = score.render_markdown(scored, summary)
     assert "## 8. Fix" in markdown
@@ -451,7 +447,7 @@ def test_a_changed_rubric_stops_the_next_step(tmp_path):
 def test_the_dry_run_runs_every_step_end_to_end(tmp_path):
     rc = cli.main(["--dry-run", "--run", str(tmp_path), "run", "fs-27", "--skip-quiet"])
     assert rc == 0
-    assert _record(tmp_path, "fs-27")["runs"][0]["fix"]["outcome"] == "fixed"
+    assert _record(tmp_path, "fs-27")["runs"][0]["fix"]["outcome"] == "execution_disabled"
     assert json.loads((tmp_path / "manifest.json").read_text())["dry_run"] is True
 
 

@@ -59,9 +59,10 @@ def test_an_unsupported_scheme_is_refused_with_the_known_list():
         engine_of("oracle://u:p@h/db")
 
 
-def test_dsn_comes_from_the_alert_label_first_then_the_environment(monkeypatch):
+def test_the_dsn_comes_from_the_environment_never_an_alert_label(monkeypatch):
+    """2026-09-27 audit: a `dsn` label chose which database WARDEN connects to and terminates on."""
     monkeypatch.setenv("WARDEN_DB_DSN", "postgresql://env/db")
-    assert dsn_of(_alert(dsn="postgresql://label/db")) == "postgresql://label/db"
+    assert dsn_of(_alert(dsn="postgresql://label/db")) == "postgresql://env/db"
     assert dsn_of(_alert()) == "postgresql://env/db"
 
 

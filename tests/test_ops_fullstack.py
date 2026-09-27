@@ -991,48 +991,11 @@ def test_one_bad_command_means_nothing_runs():
     assert rejected[0]["command"].startswith("kubectl") and rejected[0]["reason"]
 
 
-def test_allowed_commands_run_verbatim_without_a_shell():
-    calls = []
-
-    def run(argv, **kw):
-        calls.append((argv, kw))
-
-        class P:
-            returncode, stdout, stderr = 0, "ok", ""
-        return P()
-
-    cmds = [{"kind": S, "command": ALLOWED[0]}, {"kind": S, "command": ALLOWED[-1]}]
-    results, effects = fs.execute_fix(cmds, sql=None, run=run, which=lambda exe: f"C:/bin/{exe}.exe")
-    assert [r["rc"] for r in results] == [0, 0] and effects == []
-    argv, kw = calls[0]
-    assert argv[0] == "C:/bin/aws.exe" and argv[1:4] == ["lambda", "update-alias", "--function-name"]
-    assert kw["shell"] is False
-    assert calls[1][1]["input"].startswith("apiVersion: v1"), "apply -f - gets the manifest on stdin"
-
-
-def test_execution_stops_at_the_first_failure():
-    def run(argv, **kw):
-        class P:
-            returncode, stdout, stderr = 1, "", "denied"
-        return P()
-
-    results, _ = fs.execute_fix([{"kind": S, "command": ALLOWED[0]}, {"kind": S, "command": ALLOWED[1]}],
-                                sql=None, run=run, which=lambda e: e)
-    assert len(results) == 1 and results[0]["stderr_tail"] == "denied"
-
-
-def test_sql_fix_side_effects_are_recorded_and_undone():
-    w, _c, _t = make()
-    log: list[str] = []
-    sql = lambda **kw: Conn(w, log)
-    results, effects = fs.execute_fix(
-        [{"kind": "sql", "command": "CREATE INDEX CONCURRENTLY new_idx ON orders (x)"},
-         {"kind": "sql", "command": "ALTER DATABASE shop SET statement_timeout = '5s'"}], sql=sql)
-    assert [r["rc"] for r in results] == [0, 0]
-    assert {e["kind"] for e in effects} == {"index", "setting"}
-    fs.undo_fix_effects(effects, sql)
-    assert "DROP INDEX CONCURRENTLY IF EXISTS \"new_idx\"" in log
-    assert "ALTER DATABASE \"shop\" RESET statement_timeout" in log
+def test_an_allowed_approved_fix_is_recorded_never_run():
+    """2026-09-27 audit: the harness runs no fix command at all; `--prof admin` beat the allow-list."""
+    built = {"fix_commands": [{"kind": S, "command": ALLOWED[0]}]}
+    assert fs.decide_fix(built, "approved_for_human") == ("execution_disabled", [], [])
+    assert not hasattr(fs, "execute_fix") and not hasattr(fs, "undo_fix_effects")
 
 
 def test_this_module_does_not_import_the_tool_under_test():

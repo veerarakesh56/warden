@@ -242,7 +242,11 @@ class AwsBackend:
         for event in sorted(events, key=lambda e: e.get("timestamp") or 0):
             message = str(event.get("message", "")).rstrip()
             if message:
-                lines.append(f"{event.get('logStreamName', '?')} {_ms_to_iso(event.get('timestamp'))} {message}")
+                # ⛔ "LOG " first (2026-09-27 audit). The line used to START with the stream name, and
+                # anyone holding logs:CreateLogStream (every task and function role) chooses that
+                # name - spaces allowed. A stream named "CONFIG payments-api ..." became a TRUSTED C
+                # item, and one named "TOOL-PARTIAL ..." a failed-read T item, both citable.
+                lines.append(f"LOG {event.get('logStreamName', '?')} {_ms_to_iso(event.get('timestamp'))} {message}")
         if len(lines) > LOG_MAX_LINES:
             cut = len(lines) - LOG_MAX_LINES
             older_errors = [ln for ln in lines[:cut] if _ERRORISH.search(ln)][-LOG_ERROR_EXTRA:]

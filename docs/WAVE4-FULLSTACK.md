@@ -142,6 +142,14 @@ and the report says so.
 
 ## 6. Applying WARDEN's fix (harness side)
 
+> **⛔ Withdrawn 2026-09-27 (security audit).** The harness no longer runs any fix command. The
+> allow-list below matched banned flags by exact name, and the AWS CLI accepts abbreviations: an
+> approved fix carrying `--prof admin` ran as another profile, and `--regio us-east-1` ran in another
+> region. A deny-list of flags cannot be made complete, so the capability was removed rather than
+> patched. An approved, allow-listed fix is now recorded as `execution_disabled`. Fixes return in v2
+> Phase 2 only as typed catalogue entries run by a workflow with just-in-time credentials. The text
+> below describes what fs-00..fs-05 ran under.
+
 **Changed 2026-09-27 (Phase 0 of the v2 re-architecture).** The harness takes only the report's
 `fix_commands`, which hold the runbook's fix **only for an `approved_for_human` verdict**. Any other
 verdict is recorded `not_approved` (rejected stays `blocked_by_gate`), and nothing runs. Before this

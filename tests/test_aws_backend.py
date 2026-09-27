@@ -179,7 +179,7 @@ def test_logs_are_formatted_with_stream_and_timestamp():
     ])
     lines = _backend(logs=logs).logs(_alert())
     assert len(lines) == 1, "a whitespace-only event is not a log line"
-    assert lines[0].startswith("ecs/checkout/abc ")
+    assert lines[0].startswith("LOG ecs/checkout/abc ")
     assert lines[0].endswith("OOM killed")
 
 

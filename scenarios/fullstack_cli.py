@@ -137,7 +137,6 @@ class Env:
     assume_reader: Callable[[], dict[str, str]]       # AWS creds + KUBECONFIG + DSNs + "arn"
     invoke_warden: Callable[[dict, pathlib.Path, pathlib.Path], tuple[int, str]]  # env, alert, report
     extract_fix: Callable[[pathlib.Path, pathlib.Path], dict]                     # report -> built data
-    execute: Callable[[list[dict]], tuple[list[dict], list[dict]]]
     stack_ids: Callable[[], frozenset[str]]
     faults: dict[str, fs.Fault] = dataclasses.field(default_factory=lambda: dict(fs.FAULTS))
     baseline: Callable[[], list[str]] | None = None   # default: ops_fullstack.check_baseline
@@ -354,7 +353,7 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
         clients=c, target=target, alarm=alarm, assume_reader=assume,
         invoke_warden=_subprocess_warden(warden_timeout),
         extract_fix=lambda report, built: _subprocess_extract(report, built, target.region),
-        execute=lambda cmds: fs.execute_fix(cmds, sql=sql), stack_ids=stack_ids,
+        stack_ids=stack_ids,
     )
 
 
@@ -476,7 +475,6 @@ def dry_env() -> Env:
                                "WARDEN_STACK_DB_READER_DSN": "postgresql://warden_ro@dry.invalid/shop",
                                "arn": "arn:aws:sts::111122223333:assumed-role/warden-pg-fs-reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
-        execute=lambda cmds: ([{**c, "rc": 0, "stdout_tail": "dry run - not executed"} for c in cmds], []),
         stack_ids=frozenset, faults={fid: stub for fid in fs.FAULTS}, baseline=list,
         sleep=sleep, clock=lambda: now[0], dry_run=True,
     )
@@ -761,16 +759,10 @@ def step_fix(env: Env, run: pathlib.Path, key: str) -> dict:
     built = json.loads((run / run0["built"]).read_text(encoding="utf-8")) if run0.get("built") else {}
     verdict = (report.get("verdict") or {}).get("status")
     outcome, commands, rejected = fs.decide_fix(built, verdict, env.stack_ids())
-    fix: dict[str, Any] = {"verdict": verdict, "at": _now()}
-    if outcome is None:
-        results, effects = env.execute(commands)
-        fix.update({"outcome": "applied", "commands": results})
-        record["fix_effects"] = effects
-        env.log(f"{sid}: applied {len(results)} command(s): "
-                + ", ".join(f"rc={r.get('rc')}" for r in results))
-    else:
-        fix.update({"outcome": outcome, "rejected": rejected})
-        env.log(f"{sid}: {outcome}" + "".join(f"\n   {r['command'][:120]!r}: {r['reason']}" for r in rejected))
+    # decide_fix never returns a command to run (2026-09-27): the harness executes nothing.
+    assert not commands, "the harness executes no fix command"
+    fix: dict[str, Any] = {"verdict": verdict, "at": _now(), "outcome": outcome, "rejected": rejected}
+    env.log(f"{sid}: {outcome}" + "".join(f"\n   {r['command'][:120]!r}: {r['reason']}" for r in rejected))
     run0["fix"] = fix
     record["status"] = "fix_" + fix["outcome"]
     _save_record(run, record)
@@ -816,9 +808,9 @@ def step_revert(env: Env, run: pathlib.Path, key: str, *, settle_s: float = 1200
     _bind_saved(env, run)
     record = _require(run, sid, active=False)
     try:
-        record["fix_effects_undone"] = fs.undo_fix_effects(record.get("fix_effects") or [],
-                                                           env.clients.sql)
-        record["fix_effects"] = []
+        if record.get("fix_effects"):
+            raise StepError(f"{sid}: this record carries database changes a fix made under an older "
+                            "harness; undo them by hand (fix_effects in the record), then clear it")
         if scenario.get("revert"):
             record["reverted"] = [{"op": "fs_revert", "fault": fid,
                                    "result": env.faults[fid].revert(env.clients, env.target)}]

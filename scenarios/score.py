@@ -52,7 +52,8 @@ ERROR = "ERROR"
 # ⭐ Wave 4's fourth score: the harness applied the fix WARDEN printed, verbatim, and checked the
 # fault's own verifier. Only runs that carry a `fix` record get one - Waves 1-3 have none, and their
 # rows, results and RESULTS.md are byte-for-byte what they were.
-FIX_OUTCOMES = ("fixed", "not_fixed", "no_fix_printed", "fix_not_allowed", "blocked_by_gate", "not_approved")
+FIX_OUTCOMES = ("fixed", "not_fixed", "no_fix_printed", "fix_not_allowed", "blocked_by_gate", "not_approved",
+                "execution_disabled")
 
 # The two passive actions. Straight from src/warden/models.py::ActionKind, and cross-checked against
 # `action_kinds.passive` in the rubric at load time so a drift between them cannot go unnoticed.
@@ -724,7 +725,9 @@ def _render_fix(add, rows: list[dict], summary: dict) -> None:
     add("verifier. `blocked_by_gate`: the verdict was `rejected`, nothing was applied. `not_approved`:")
     add("the verdict was not `approved_for_human` (e.g. escalated - a person decides), nothing was applied")
     add("(runs before 2026-09-27 applied escalated fixes). `fix_not_allowed`: a printed command failed the")
-    add("allow-list, nothing was applied.")
+    add("allow-list, nothing was applied. `execution_disabled`: approved and allow-listed, and still not")
+    add("run - since 2026-09-27 the harness executes no fix command (a flag deny-list proved beatable);")
+    add("fixes return in v2 Phase 2 as typed catalogue entries.")
     add("")
     add("| Outcome | Runs |")
     add("|---|---|")

