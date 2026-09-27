@@ -86,7 +86,7 @@ def test_the_same_value_masks_consistently_across_logs_and_deploys():
         summary="s", started_at="2026-08-21T10:00:00Z",
     )
     ctx = ContextBundle(
-        logs=["deploy by alice@corp.io failed"],
+        logs=["deploy failed user=alice@corp.io"],  # a kv fact, so the model is shown it
         recent_deploys=[{"by": "alice@corp.io", "revision": "2"}],
     )
     state = {"alert": alert, "context": ctx}
@@ -114,4 +114,4 @@ def test_the_model_is_told_which_evidence_could_not_be_read():
 def test_no_read_failure_means_no_t_item():
     """The system prompt defines T items as failed reads, so their absence says none failed."""
     blob = _evidence_blob(_state_after_redact())
-    assert "[T" not in blob and "[L1]" in blob
+    assert "[T" not in blob and "[F1]" in blob

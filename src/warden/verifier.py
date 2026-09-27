@@ -362,7 +362,7 @@ def verify(
     # P13 - the diagnosis must be grounded: every citation names a real evidence id and quotes it
     # verbatim (grounding.py). Escalates: an ungrounded diagnosis may still be right, a person checks.
     if check_grounding and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
-        problems = citation_problems(root_cause, evidence.index(context))
+        problems = citation_problems(root_cause, evidence.view(context))
         if problems:
             escalate = True
             policies.append("P13-UNGROUNDED")

@@ -50,7 +50,7 @@ class ContextBundle(BaseModel):
 
 
 class Citation(BaseModel):
-    id: str = Field(description="The evidence id in brackets before the item, e.g. L3, M2, D1")
+    id: str = Field(description="The evidence id in brackets before the item, e.g. F2, M1, C3, D1")
     quote: str = Field(description="A short span copied EXACTLY from that item")
 
 

@@ -11,8 +11,14 @@ v0 (Phase 0 of the v2 re-architecture, 2026-09-27). Two of the planned rules:
   kind except the identifiers an operator may choose to show), the message is BLOCKED and a stub
   goes out instead: a person reads the full report locally.
 
-Verdicts: PASS (unchanged), REWRITE (G3 removed something), BLOCK (G5).
-Later phases add G1/G2 (claims must be grounded in evidence) and G4 (commands only from an approved plan).
+- **G2, unverifiable claims** (`hedge`, Phase 1). The model may write "no customer impact", "no data
+  was lost" or "the issue is resolved". WARDEN verifies none of these: it reads no impact data, and
+  it checks no outcome (that is Phase 2's success check). Each such claim in model-written text is
+  marked `[unverified: ...]` where it stands. "The root cause is" is not marked: the report already
+  heads the model's text as its hypothesis, with its confidence.
+
+Verdicts: PASS (unchanged), REWRITE (G3 removed something), BLOCK (G5). G1 (every claim grounded) is
+P13 in the verifier; the report says when it fired. G4 (commands only from an approved plan) is Phase 2.
 """
 
 from __future__ import annotations
@@ -69,6 +75,21 @@ def sanitise_data(value: Any) -> Any:
     if isinstance(value, dict):
         return {k: sanitise_data(v) for k, v in value.items()}
     return value
+
+
+_UNVERIFIABLE = re.compile(
+    r"\b(?:no|zero|without any|not any)\s+(?:customer|user|client|business)s?\s+(?:impact|were affected|was affected|affected)"
+    r"|\bno\s+(?:customers?|users?|clients?)\s+(?:were|was|are|is)\s+affected"
+    r"|\bno\s+data\s+(?:was\s+|were\s+)?(?:lost|loss|affected|corrupted|leaked)"
+    r"|\b(?:has|have)\s+(?:been\s+)?(?:resolved|fixed|mitigated|recovered)"
+    r"|\b(?:is|are|was|were)\s+(?:now\s+)?(?:resolved|fixed|mitigated|recovered)",
+    re.IGNORECASE,
+)
+
+
+def hedge(text: str) -> str:
+    """G2 over one piece of model-written text: mark each claim WARDEN cannot verify."""
+    return _UNVERIFIABLE.sub(lambda m: f"[unverified: {m.group(0)}]", text)
 
 
 def leaked_kinds(text: str) -> list[str]:

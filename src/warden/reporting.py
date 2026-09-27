@@ -35,6 +35,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from .environments import EnvironmentPolicies, default_environment_policies
+from .gate import hedge
 from .knowledge import SignatureMatch
 from .models import Alert, ContextBundle, RemediationProposal, RootCause, Verdict
 from .playbook import detect as detect_patterns
@@ -492,11 +493,16 @@ def build_report(
         "identifiers_shown": reveal_ids,
     }
     if root_cause:
+        # Model-written text goes through the gate's G2: a claim WARDEN cannot verify ("no customer
+        # impact", "resolved") is marked where it stands. The citations are the model's too, and the
+        # verdict says whether they held (P13).
         data["root_cause"] = {
-            "hypothesis": root_cause.hypothesis,
+            "hypothesis": hedge(root_cause.hypothesis),
             "confidence": root_cause.confidence,
-            "evidence": list(root_cause.evidence),
-            "ruled_out": list(root_cause.ruled_out),
+            "evidence": [hedge(e) for e in root_cause.evidence],
+            "ruled_out": [hedge(r) for r in root_cause.ruled_out],
+            "citations": [{"id": c.id, "quote": c.quote} for c in root_cause.citations],
+            "grounded": not (verdict and "P13-UNGROUNDED" in verdict.policy_ids),
         }
     if proposal:
         data["proposal"] = {
@@ -512,7 +518,7 @@ def build_report(
             "blast_radius_effective": proposal.effective_blast_radius,
             "reversible_by_table": proposal.table_reversible,
             "claim_contradicts_table": proposal.claim_contradicts_table,
-            "expected_effect": proposal.expected_effect,
+            "expected_effect": hedge(proposal.expected_effect),
         }
         # ⛔ EVERY pid in the evidence, not the five the "Affected" section displays. With twelve
         # stuck sessions the first version terminated five and left seven holding the pool.
@@ -623,6 +629,14 @@ def _render_markdown(d: dict) -> str:
         rc = d["root_cause"]
         lines.append(f"## What WARDEN thinks happened  (model, confidence {rc['confidence']:.2f})")
         lines.append(rc["hypothesis"])
+        if not rc["grounded"]:
+            lines.append("")
+            lines.append("**⚠ Not grounded** - the gate could not match this diagnosis to the evidence "
+                         "(P13, reasons under the verdict). Read it as a guess.")
+        if rc["citations"]:
+            lines.append("")
+            lines.append("**Cited evidence** (evidence id: quoted span):")
+            _code(lines, [f"{c['id']}: {c['quote']}" for c in rc["citations"]])
         if rc["evidence"]:
             lines.append("")
             lines.append("**Based on:**")
