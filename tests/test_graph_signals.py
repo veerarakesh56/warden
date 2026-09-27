@@ -115,13 +115,13 @@ def test_oom_wins_over_the_error_rate_clause_too_not_just_the_cluster_clause():
 
 def test_cluster_bad_deploy_routes_to_rollback():
     s = _signals(crashloop_containers=2.0, restart_count=6.0, _has_deploy=True)
-    assert _mock_root_cause(s).hypothesis.lower().startswith("a recent deploy")
+    assert _mock_root_cause(s, {}).hypothesis.lower().startswith("a recent deploy")
     assert _mock_proposal(s).action is ActionKind.rollback_deploy
 
 
 def test_cluster_oom_routes_to_scale_up():
     s = _signals(oom_killed_containers=1.0, restart_count=4.0)
-    rc = _mock_root_cause(s)
+    rc = _mock_root_cause(s, {})
     assert "oom" in rc.hypothesis.lower()
     # The evidence line quotes the real counts, not a utilisation figure it never had.
     assert "OOMKilled" in rc.evidence[0]

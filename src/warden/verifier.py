@@ -8,7 +8,9 @@ re-running anything.
 
 from __future__ import annotations
 
+from . import evidence
 from .environments import EnvironmentPolicies, default_environment_policies
+from .grounding import citation_problems, target_problem
 from .models import (
     ACTION_FACTS,
     ActionKind,
@@ -211,11 +213,14 @@ def verify(
     proposal: RemediationProposal,
     *,
     policies_config: EnvironmentPolicies | None = None,
+    check_grounding: bool = True,
 ) -> Verdict:
     """Return the binding decision for one proposal.
 
     `policies_config` lets a caller/test inject a specific environment policy set; by default the
-    bundled/operator-configured one is used.
+    bundled/operator-configured one is used. `check_grounding=False` is for callers that hold no
+    evidence text to check against (the MCP surface, which receives counts; replays of reports that
+    predate citations) - P13/P14 are then not evaluated, and those callers say so.
     """
     env_policies = policies_config or default_environment_policies()
     env = env_policies.for_env(alert.environment)
@@ -353,6 +358,24 @@ def verify(
             escalate = True
             policies.append("P12-NO-ACTION-WITH-SYMPTOMS")
             reasons.append("No action proposed, but the evidence shows: " + "; ".join(found) + ".")
+
+    # P13 - the diagnosis must be grounded: every citation names a real evidence id and quotes it
+    # verbatim (grounding.py). Escalates: an ungrounded diagnosis may still be right, a person checks.
+    if check_grounding and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
+        problems = citation_problems(root_cause, evidence.index(context))
+        if problems:
+            escalate = True
+            policies.append("P13-UNGROUNDED")
+            reasons.append("The diagnosis is not grounded in the evidence: " + "; ".join(problems) + ".")
+
+    # P14 - the target must be a resource WARDEN knows exists. Rejects: acting on a name the
+    # evidence does not contain is acting on a guess.
+    if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
+        problem = target_problem(proposal, evidence.inventory(alert, context))
+        if problem:
+            rejected = True
+            policies.append("P14-TARGET-NOT-IN-EVIDENCE")
+            reasons.append(problem + ".")
 
     if rejected:
         return Verdict(

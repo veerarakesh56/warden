@@ -49,6 +49,11 @@ class ContextBundle(BaseModel):
         return not (self.logs or self.metrics or self.recent_deploys)
 
 
+class Citation(BaseModel):
+    id: str = Field(description="The evidence id in brackets before the item, e.g. L3, M2, D1")
+    quote: str = Field(description="A short span copied EXACTLY from that item")
+
+
 class RootCause(BaseModel):
     """The model's reading of the evidence. A hypothesis — never a verdict."""
 
@@ -56,6 +61,11 @@ class RootCause(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence: list[str] = Field(default_factory=list)
     ruled_out: list[str] = Field(default_factory=list)
+    # Checked by grounding.py (P13): an id that does not exist or a quote not in its item escalates.
+    citations: list[Citation] = Field(
+        default_factory=list,
+        description="The evidence items that support the hypothesis: each an id and an exact quote",
+    )
 
 
 class ActionKind(str, Enum):

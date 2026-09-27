@@ -55,6 +55,7 @@ DEMO_ALERTS: dict[str, dict] = {
         environment="prod",
         summary="Connection pool exhausted, replica lag 47s",
         started_at="2026-08-21T03:20:00Z",
+        labels={"database": "orders-db"},
     ),
     "inc-004": dict(
         alert_id="inc-004",
@@ -73,6 +74,7 @@ DEMO_ALERTS: dict[str, dict] = {
         environment="prod",
         summary="Connection pool exhausted by 25 idle-in-transaction connections, no replica lag",
         started_at="2026-08-26T04:10:00Z",
+        labels={"database": "payments-db"},
     ),
 }
 

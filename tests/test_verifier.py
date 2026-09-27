@@ -8,6 +8,7 @@ import pytest
 from warden.models import (
     ActionKind,
     Alert,
+    Citation,
     ContextBundle,
     RemediationProposal,
     RootCause,
@@ -45,7 +46,9 @@ def _ctx(**kw):
 
 
 def _rc(confidence=0.9):
-    return RootCause(hypothesis="bad deploy", confidence=confidence, evidence=["err"])
+    # Cites the deploy that _ctx() carries by default, so P13 passes unless a test says otherwise.
+    return RootCause(hypothesis="bad deploy", confidence=confidence, evidence=["err"],
+                     citations=[Citation(id="D1", quote="sha=abc")])
 
 
 def _prop(**kw):

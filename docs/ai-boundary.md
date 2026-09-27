@@ -60,6 +60,11 @@ The policies are not hypothetical. Each one has a test that proves it can fire:
 | `P10-CLAIM-CONTRADICTS-TABLE` | Discarding a model's warning that something cannot be undone — it does not decide, but it is not ignored either |
 | `P11-ACTION-CONTRADICTS-EVIDENCE` | An action that cannot fix what the evidence shows: `scale_up` on OOM kills when every pod is failing, `scale_down` on OOM, `restart_pods` on an unpullable image, `terminate_connections` when the only long sessions are working queries, `failover_replica` with no lag |
 | `P12-NO-ACTION-WITH-SYMPTOMS` | "Nothing to do" waved through while the evidence counts broken things (OOM kills, crash loops, unready pods, stuck or blocked sessions, long queries, replica lag) |
+| `P13-UNGROUNDED` | A diagnosis resting on evidence that does not exist: every citation must name a real evidence id (`L3`, `M2`, `D1`) and quote it verbatim; none, or any invented one, escalates |
+| `P14-TARGET-NOT-IN-EVIDENCE` | Acting on a resource name the model made up: the target must name the service, an alert label, a deploy or a metric's resource. A name only a log line mentions does not count. Seen live on 2026-09-26: `scale_up lambda:shop-prod-checkout`, when the function was `warden-pg-fs-checkout` |
+
+`P13` and `P14` (v2 Phase 1, 2026-09-27) are not evaluated where no evidence text exists: the MCP
+tool, which receives counts, and replays of reports written before citations existed. Both say so.
 
 ⚠ **`P11` and `P12` were written on 2026-09-25 from measured failures** - all three EKS runs the gate
 wrongly allowed were `scale_up` against pods OOM-killed before becoming ready. A re-run of the same

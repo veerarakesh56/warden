@@ -219,7 +219,9 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 blast_radius=args["blast_radius"],
                 reversible=args["reversible"],
             )
-            verdict = verify(alert, context, root_cause, proposal)
+            # No evidence text reaches this tool, only counts, so there is nothing to ground a claim
+            # or resolve a target against: P13/P14 are not evaluated, and the response says so.
+            verdict = verify(alert, context, root_cause, proposal, check_grounding=False)
             on_claims = verdict.status.value
             policies, reasons = list(verdict.policy_ids), list(verdict.reasons)
             # ⛔ The evidence here is the CALLER's claim (counts padded into synthetic lines): claiming
@@ -243,6 +245,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                     # than wondering why its "reversible": true was ignored.
                     "blast_radius_enforced": proposal.effective_blast_radius,
                     "reversible_by_table": proposal.table_reversible,
+                    "grounding": "not checked: this tool receives evidence counts, not evidence",
                     "may_execute": False,
                     "note": "This MCP server never executes anything. A human performs the action.",
                 }
@@ -326,6 +329,16 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         "P12-NO-ACTION-WITH-SYMPTOMS": (
                             "'nothing to do' while WARDEN counts a symptom in the evidence "
                             "escalates; a quiet no_action cannot close a live incident"
+                        ),
+                        "P13-UNGROUNDED": (
+                            "every citation in the diagnosis must name a real evidence id and quote "
+                            "it verbatim; none, or any invented one, escalates (not evaluated here: "
+                            "this tool receives counts, not evidence)"
+                        ),
+                        "P14-TARGET-NOT-IN-EVIDENCE": (
+                            "the target must name a resource WARDEN knows exists (service, alert "
+                            "labels, deploys, metric resources); anything else is rejected (not "
+                            "evaluated here)"
                         ),
                     },
                     "environment_allowlist": {

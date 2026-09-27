@@ -57,11 +57,14 @@ def _git_commit() -> str:
 def replay_one(path: pathlib.Path) -> tuple[str, str, list[str]]:
     """Return (old verdict, new verdict, policies that fired now) for one published report."""
     d = json.loads(path.read_text(encoding="utf-8"))
+    # A report written before citations existed (no `citations` key) cannot be checked for
+    # grounding, so P13/P14 are not evaluated on it; a newer report is checked like a live run.
     verdict = verify(
         Alert(**d["alert"]),
         ContextBundle(**d["context"]),
         RootCause(**d["root_cause"]),
         RemediationProposal(**d["proposal"]),
+        check_grounding="citations" in d["root_cause"],
     )
     return d["verdict"]["status"], verdict.status.value, verdict.policy_ids
 

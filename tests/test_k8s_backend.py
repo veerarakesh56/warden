@@ -18,9 +18,17 @@ from types import SimpleNamespace as NS
 import pytest
 import yaml
 
-from warden import k8s_backend
+from warden import evidence, k8s_backend
 from warden.k8s_backend import KubernetesBackend, _to_mib
-from warden.models import ActionKind, Alert, RemediationProposal, RootCause, Severity, VerdictStatus
+from warden.models import (
+    ActionKind,
+    Alert,
+    Citation,
+    RemediationProposal,
+    RootCause,
+    Severity,
+    VerdictStatus,
+)
 from warden.tools import PARTIAL_PREFIX, ToolError, gather
 from warden.verifier import verify
 
@@ -398,8 +406,10 @@ def _scale_up_verdict_on_oom(*, ready: bool, backoff: bool = True):
     b = _backend(FakeCore(pods=pods, events=events, log_text="starting\nKilled"))
     ctx = gather(_alert(), b, timeout=2.0)
     assert ctx.metrics["oom_killed_containers"] == 1 and not ctx.is_empty()
+    oom = [Citation(id=i.id, quote=i.text) for i in evidence.index(ctx).values()
+           if i.text.startswith("oom_killed_containers=")]
     return verify(
-        _alert(), ctx, RootCause(hypothesis="OOM", confidence=0.74),
+        _alert(), ctx, RootCause(hypothesis="OOM", confidence=0.74, citations=oom),
         RemediationProposal(action=ActionKind.scale_up, target="checkout", reasoning="r",
                             expected_effect="e", blast_radius="single_service", reversible=True),
     )

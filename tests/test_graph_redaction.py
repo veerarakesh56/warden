@@ -107,10 +107,11 @@ def test_the_model_is_told_which_evidence_could_not_be_read():
     state = {"alert": alert, "context": ctx}
     state.update(node_redact(state))
     blob = _evidence_blob(state)
-    assert "READ FAILURES:" in blob and "timed out" in blob
+    assert "[T1] metrics: connection to" in blob and "timed out" in blob
     assert "10.0.7.22" not in blob, "a read failure reached the model unredacted"
 
 
-def test_no_read_failures_says_none_rather_than_nothing():
+def test_no_read_failure_means_no_t_item():
+    """The system prompt defines T items as failed reads, so their absence says none failed."""
     blob = _evidence_blob(_state_after_redact())
-    assert "READ FAILURES: none" in blob
+    assert "[T" not in blob and "[L1]" in blob
