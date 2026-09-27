@@ -3,9 +3,9 @@
 #
 # push / pull_request: lint, unit tests, build every artifact (zips + image). No credentials.
 # workflow_dispatch:   deploy lambdas | ecs | k8s | all through GitHub OIDC - see infra.yml for
-#                      the one-time owner setup (role warden-dev-ci, bucket, `fullstack` env).
-#                      The EKS API must admit the runner: WARDEN_FS_EKS_PUBLIC_CIDRS, and the CI
-#                      role in WARDEN_FS_EKS_ADMINS (infra.yml).
+#                      the one-time owner setup per environment (role warden-<env>-deploy,
+#                      bucket, GitHub Environment <env>). The EKS API must admit the runner:
+#                      EKS_PUBLIC_CIDRS and EKS_ADMINS on that GitHub Environment (infra.yml).
 # bootstrap-db is NOT here: it logs in as the master user postgres with an IAM token signed by the
 # OPERATOR's own identity (rds-db:connect on dbuser:*/postgres), a grant the CI role does not have.
 name: apps
@@ -34,12 +34,17 @@ on:
         type: choice
         options: [lambdas, ecs, k8s, all]
         default: all
+      environment:
+        description: "which environment (src/warden/data/environments.yaml)"
+        type: choice
+        options: [dev, staging, qa-staging, pre-prod, qa-prod, prod]
+        default: dev
 
 permissions:
   contents: read
 
 concurrency:
-  group: apps-fullstack
+  group: apps-${{ inputs.environment || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -66,13 +71,14 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     needs: check
     runs-on: ubuntu-latest
-    environment: fullstack
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
     env:
       TARGET: ${{ inputs.target }}
-      BUCKET: ${{ vars.WARDEN_FS_STATE_BUCKET }}
+      WARDEN_ENV: ${{ inputs.environment }}
+      BUCKET: ${{ vars.TF_STATE_BUCKET }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -83,8 +89,10 @@ jobs:
       - run: pip install pyyaml "psycopg[binary]" boto3 packaging
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
-          role-to-assume: ${{ vars.WARDEN_FS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}
           aws-region: ap-south-2
+          mask-aws-account-id: true
       - name: fetch stack.json (published by the infra pipeline)
         run: aws s3 cp "s3://$BUCKET/fullstack/stack.json" "$RUNNER_TEMP/build/stack.json" --only-show-errors
       - name: build and deploy

@@ -14,14 +14,6 @@
           "token.actions.githubusercontent.com:sub": "repo:veerarakesh56/warden:environment:${env}"
         }
       }
-    },
-    {
-      "Sid": "TheOperator",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::${account}:user/warden-operator"
-      },
-      "Action": "sts:AssumeRole"
     }
   ]
 }

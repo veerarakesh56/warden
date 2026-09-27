@@ -14,14 +14,6 @@
           "token.actions.githubusercontent.com:sub": "repo:veerarakesh56/warden:environment:qa-prod"
         }
       }
-    },
-    {
-      "Sid": "TheOperator",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::<ACCOUNT_ID>:user/warden-operator"
-      },
-      "Action": "sts:AssumeRole"
     }
   ]
 }

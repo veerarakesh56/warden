@@ -113,16 +113,15 @@ def test_the_boundary_holds_every_environment_to_itself(env):
 
 
 @pytest.mark.parametrize("env", ENVS)
-def test_only_the_same_named_github_environment_or_the_operator_may_assume(env):
+def test_only_the_same_named_github_environment_may_assume(env):
     doc = _load(env, "trust")
-    gh, op = doc["Statement"]
+    [gh] = doc["Statement"]  # deploys run only in GitHub Actions: nothing and nobody else is trusted
     cond = gh["Condition"]
     assert list(cond) == ["StringEquals"], "exact match only - no StringLike, no wildcards"
     assert cond["StringEquals"] == {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                                     "token.actions.githubusercontent.com:sub":
                                         f"repo:veerarakesh56/warden:environment:{env}"}
     assert gh["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com")
-    assert op["Principal"] == {"AWS": "arn:aws:iam::<ACCOUNT_ID>:user/warden-operator"}
     assert "*" not in json.dumps(doc), "no wildcard anywhere in a trust policy"
 
 

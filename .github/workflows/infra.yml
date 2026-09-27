@@ -1,22 +1,19 @@
-# INFRA pipeline for the Wave 4 stack (terraform/fullstack). One of three independent pipelines:
+# INFRA pipeline for the full stack (terraform/fullstack). One of three independent pipelines:
 # infra (this), apps (apps.yml), and WARDEN's own CI (ci.yml).
 #
 # push / pull_request: fmt, init -backend=false, validate. No credentials, no AWS call.
-# workflow_dispatch:   plan | apply | destroy against the real account, through GitHub OIDC.
+# workflow_dispatch:   plan | apply | destroy of ONE environment (dev, staging, ... - the keys of
+#                      src/warden/data/environments.yaml), through GitHub OIDC.
 #
-# ⛔ NO AWS KEYS ARE STORED ANYWHERE. The owner creates, once, with admin credentials:
-#   - an IAM OIDC provider for token.actions.githubusercontent.com, and a role named
-#     warden-dev-ci (the prefix matters: the boundary scopes IAM to warden-pg-*) that trusts it
-#     for THIS repository only (sub = repo:<owner>/<repo>:environment:fullstack), carries the
-#     WardenProvingGroundBoundary boundary, and has the WardenFullstackOperator policy
-#     (terraform/fullstack/operator-policy-fullstack.json) attached;
-#   - an S3 bucket warden-dev-tfstate-<something> in ap-south-2 for state and stack.json;
-#   - repository variables WARDEN_FS_DEPLOY_ROLE_ARN, WARDEN_FS_STATE_BUCKET, WARDEN_FS_MY_IP_CIDR,
-#     optional WARDEN_FS_EKS_PUBLIC_CIDRS (JSON list) and WARDEN_FS_EKS_ADMINS (JSON list of ARNs);
-#   - an environment `fullstack` (add required reviewers there) with the secret
-#     WARDEN_FS_BUDGET_EMAIL (where the budget alarms go - a secret because it is personal).
-#     There is no database password: Aurora runs in express configuration with IAM authentication
-#     only (docs/WAVE4-FULLSTACK.md "Free-plan constraints", 2026-09-26).
+# ⛔ NO AWS KEYS ARE STORED ANYWHERE (v2 Phase 1.5). Per environment, the owner creates once, in the
+# AWS console (docs/OWNER-CONSOLE-STEPS.md):
+#   - the role warden-<env>-deploy from iam/<env>/{trust,deploy,boundary}.json. Its trust accepts
+#     GitHub's token ONLY from this repository's GitHub environment of the same name;
+#   - the SSM parameters /warden/<env>/tf/my_ip_cidr and /warden/<env>/tf/budget_email;
+#   - a state bucket warden-<env>-tfstate-<random>.
+# and in GitHub a GitHub Environment named <env> with the variables AWS_ROLE_ARN and TF_STATE_BUCKET
+# (optional EKS_PUBLIC_CIDRS, EKS_ADMINS), and required reviewers for pre-prod, qa-prod and prod.
+# No secrets: nothing personal or secret passes through GitHub.
 #
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
@@ -40,12 +37,17 @@ on:
         type: choice
         options: [plan, apply, destroy]
         default: plan
+      environment:
+        description: "which environment (src/warden/data/environments.yaml)"
+        type: choice
+        options: [dev, staging, qa-staging, pre-prod, qa-prod, prod]
+        default: dev
 
 permissions:
   contents: read
 
 concurrency:
-  group: infra-fullstack
+  group: infra-${{ inputs.environment || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -71,15 +73,14 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
-    environment: fullstack
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
       id-token: write
     env:
       ACTION: ${{ inputs.action }}
-      BUCKET: ${{ vars.WARDEN_FS_STATE_BUCKET }}
-      TF_VAR_my_ip_cidr: ${{ vars.WARDEN_FS_MY_IP_CIDR }}
-      TF_VAR_budget_email: ${{ secrets.WARDEN_FS_BUDGET_EMAIL }}
+      WARDEN_ENV: ${{ inputs.environment }}
+      BUCKET: ${{ vars.TF_STATE_BUCKET }}
       TF_IN_AUTOMATION: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -87,8 +88,10 @@ jobs:
           persist-credentials: false
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4
         with:
-          role-to-assume: ${{ vars.WARDEN_FS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}
           aws-region: ap-south-2
+          mask-aws-account-id: true
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3
         with:
           terraform_wrapper: false
@@ -98,8 +101,8 @@ jobs:
       - run: pip install boto3 # aurora_express.py: stdlib + boto3 only
       - name: optional variables
         env:
-          CIDRS: ${{ vars.WARDEN_FS_EKS_PUBLIC_CIDRS }}
-          ADMINS: ${{ vars.WARDEN_FS_EKS_ADMINS }}
+          CIDRS: ${{ vars.EKS_PUBLIC_CIDRS }}
+          ADMINS: ${{ vars.EKS_ADMINS }}
         run: |
           if [ -n "$CIDRS" ]; then echo "TF_VAR_eks_public_access_cidrs=$CIDRS" >> "$GITHUB_ENV"; fi
           if [ -n "$ADMINS" ]; then echo "TF_VAR_eks_admin_principal_arns=$ADMINS" >> "$GITHUB_ENV"; fi
@@ -110,6 +113,8 @@ jobs:
           terraform -chdir=terraform/fullstack init -input=false \
             -backend-config="bucket=$BUCKET" -backend-config="key=fullstack/terraform.tfstate" \
             -backend-config="region=ap-south-2" -backend-config="use_lockfile=true"
+          # The environment IS the workspace; terraform refuses any other (main.tf precondition).
+          terraform -chdir=terraform/fullstack workspace select -or-create "$WARDEN_ENV"
       - name: plan
         if: env.ACTION == 'plan'
         run: terraform -chdir=terraform/fullstack plan -input=false -no-color
@@ -131,4 +136,4 @@ jobs:
           terraform -chdir=terraform/fullstack destroy -input=false -auto-approve -no-color
           aws s3 rm "s3://$BUCKET/fullstack/stack.json" --only-show-errors || true
           aws resourcegroupstaggingapi get-resources --region ap-south-2 \
-            --tag-filters Key=Project,Values=warden --query 'length(ResourceTagMappingList)'
+            --tag-filters Key=Project,Values=warden "Key=Environment,Values=$WARDEN_ENV" --query 'length(ResourceTagMappingList)'

@@ -39,3 +39,25 @@ def test_the_database_suite_is_not_run_by_the_cluster_job():
         "so those tests would skip and trip the zero-skips guard"
     )
     assert "tests/integration/test_live_cluster.py" in cluster_step, "cluster job lost its own suite"
+
+
+def test_deploy_workflows_offer_exactly_the_configured_environments():
+    """Phase 1.5: a deploy picks one environment; the choices are the keys of environments.yaml, so
+    a GitHub Environment (and its role) exists for nothing else, and no workflow uses the old
+    shared `fullstack` environment or WARDEN_FS_* variables."""
+    import pathlib
+
+    import yaml
+
+    from warden.environments import EnvironmentPolicies
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    envs = list(EnvironmentPolicies.load().known_environments)
+    for name in ("infra.yml", "apps.yml"):
+        text = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        wf = yaml.safe_load(text)
+        inputs = wf[True]["workflow_dispatch"]["inputs"]  # PyYAML reads the key `on` as True
+        assert inputs["environment"]["options"] == envs, name
+        assert "WARDEN_FS_" not in text and "environment: fullstack" not in text, name
+        job = next(j for j in wf["jobs"].values() if "id-token" in (j.get("permissions") or {}))
+        assert job["environment"] == "${{ inputs.environment }}", name
