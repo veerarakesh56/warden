@@ -62,6 +62,13 @@ def _scan(tmp_path: pathlib.Path, name: str, content: str) -> tuple[int, str]:
          + "\nMIIEpAIBAAKCAQEA\n", "private key"),
         ("hook.txt", _synth("https://hooks.", "slack.com/services/")
          + "T00000000/B00000000/abcdefghijklmnop\n", "Slack"),
+        ("hook.txt", _synth("https://hooks.", "slack.com/triggers/")
+         + "T00000000/1234567890/abcdefghijklmnop\n", "Slack"),
+        ("hook.txt", _synth("https://acme.", "webhook.office.com/webhookb2/")
+         + "0a1b2c3d-4e5f@0a1b2c3d/IncomingWebhook/abc/def\n", "Teams"),
+        ("hook.txt", _synth("https://prod-12.westus.", "logic.azure.com:443/workflows/")
+         + "abc123/triggers/manual/paths/invoke?api-version=2016-06-01&sig=QwErTyUiOp\n", "Teams"),
+        ("tok.txt", _synth("hf", "_", "QwErTyUiOpAsDfGhJkLzXcVbNm12345678") + "\n", "Hugging Face"),
         ("tok.txt", _synth("xo", "xb", "-2846013925-3947261508-QwErTyUiOpAsDfGh") + "\n", "Slack token"),
         ("k.txt", _synth("sk-", "ant-", "api03-QwErTyUiOpAsDfGhJkLzXcVbNm1234567890") + "\n", "Anthropic"),
         ("k.txt", _synth("AI", "za", "SyD9fK2mQ7xR4tV6wY8zB1cE3gH5jL7nP9r") + "\n", "Google"),
