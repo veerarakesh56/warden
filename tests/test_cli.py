@@ -103,20 +103,35 @@ def test_run_report_flag_prints_the_report_and_safety_line(capsys):
     assert "Nothing was executed against production" in out
 
 
+def _digest_from(out: str) -> str:
+    import re
+    return re.search(r"--approve ([0-9a-f]{12})", out).group(1)
+
+
 def test_run_in_staging_with_approval_dry_runs(capsys):
-    assert main([
-        "run", "--incident", "inc-002", "--environment", "staging",
-        "--principal", "role:oncall", "--approve",
-    ]) == 0
+    """Two steps: a run shows the proposal and its digest; a person approves THAT digest."""
+    base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
+    assert main(base) == 0
+    first = capsys.readouterr().out
+    assert "awaiting_approval" in first and "would scale_up" not in first
+    assert main([*base, "--approve", _digest_from(first)]) == 0
     out = capsys.readouterr().out
     assert "dry_run" in out
     assert "would scale_up" in out
 
 
+def test_an_approval_of_another_proposal_approves_nothing(capsys):
+    base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
+    assert main([*base, "--approve", "0123456789ab"]) == 0
+    out = capsys.readouterr().out
+    assert "awaiting_approval" in out and "for a different proposal" in out
+    assert "would scale_up" not in out
+
+
 def test_run_in_prod_never_auto_remediates(capsys):
     assert main([
         "run", "--incident", "inc-002",
-        "--principal", "role:oncall", "--approve",
+        "--principal", "role:oncall", "--approve", "0123456789ab",
     ]) == 0
     out = capsys.readouterr().out
     assert "not_auto_remediable" in out
@@ -125,7 +140,7 @@ def test_run_in_prod_never_auto_remediates(capsys):
 def test_run_with_unauthorized_principal_is_reported(capsys):
     assert main([
         "run", "--incident", "inc-002", "--environment", "staging",
-        "--principal", "role:intern", "--approve",
+        "--principal", "role:intern", "--approve", "0123456789ab",
     ]) == 0
     out = capsys.readouterr().out
     assert "unauthorized" in out

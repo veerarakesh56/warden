@@ -337,25 +337,35 @@ authorised principals, and whether WARDEN may auto-remediate:
 | `prod` | never | restart, scale-up, rollback, failover | scale-down |
 | *anything else* | no | *nothing but escalate* | — (**fails closed**) |
 
-**Remediation is gated four ways** — the action must clear the verifier, the environment must permit
-auto-remediation, the principal must be authorised there, and an approval must be present. Only then
-does it run, and only through a pluggable backend; the shipped `DryRunBackend` changes nothing.
+**Remediation is gated five ways** — the action must clear the verifier, the environment must permit
+auto-remediation, the principal must be authorised there, the target must be the resource that
+alerted, and the approval must name **this exact proposal**. Only then does it run, and only through
+a pluggable backend; the shipped `DryRunBackend` changes nothing.
+
+⛔ Since 2026-09-27 `--approve` takes the proposal's **digest** (alert, environment, action, target),
+not a yes/no. A run without it prints the proposal and its digest; a person reads it and approves that
+digest. An approval given on the same command line as the diagnosis approved whatever the model was
+about to propose, before anyone saw it.
 
 ```bash
-# Auto-resolve in staging (dry-run), then print the promotion report:
-warden run --incident inc-002 --environment staging --principal role:oncall --approve --report
+# Step 1: diagnose in staging; the report shows the proposal and its digest:
+warden run --incident inc-002 --environment staging --principal role:oncall --report
+#   -> Remediation: awaiting_approval  "... To approve exactly this proposal: --approve 3f2a9c1b7d4e"
 
+# Step 2: approve exactly that proposal (dry-run by default), and print the promotion report:
+warden run --incident inc-002 --environment staging --principal role:oncall --approve 3f2a9c1b7d4e --report
 #   -> Remediation: dry_run  "would scale_up 'checkout' in staging"
 #   -> Promotion:  pre-prod / qa-prod / prod  (a human applies)
+# If the model proposes anything else on the second run, the digest does not match and nothing runs.
 
 # The same request in prod is refused by policy, not by chance:
-warden run --incident inc-002 --principal role:oncall --approve
+warden run --incident inc-002 --principal role:oncall --approve 3f2a9c1b7d4e
 #   -> Remediation: not_auto_remediable  (prod never auto-applies)
 
 # Arm the REAL Kubernetes backend (restart/scale for real) — still gated, still staging-only here:
 kubectl apply -f k8s/remediation-rbac.yaml            # the separate write-RBAC, once
 WARDEN_REMEDIATION=live WARDEN_BACKEND=k8s \
-  warden run --incident inc-002 --environment staging --principal svc:warden-staging --approve
+  warden run --incident inc-002 --environment staging --principal svc:warden-staging --approve <digest>
 #   -> Remediation: applied  "scaled deployment/checkout in default from 1 to 2 replica(s)"
 # It acts as whatever identity your kubeconfig (or the pod's in-cluster config) holds - bind that to
 # the warden-remediator ServiceAccount for the least-privilege boundary. On a workload whose every

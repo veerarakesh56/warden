@@ -46,6 +46,15 @@ SERVER_NAME = "warden"
 SERVER_VERSION = "0.8.0"
 
 
+
+def _count(args: dict, key: str, ceiling: int = 1000) -> int:
+    """A caller's count, clamped: the schema's bounds are advice to the client, not enforced by the
+    dispatcher, and `log_lines: 10**9` would build a billion-item list (2026-09-27 audit)."""
+    try:
+        return min(max(int(args.get(key, 0)), 0), ceiling)
+    except (TypeError, ValueError):
+        return 0
+
 def _tools() -> list[types.Tool]:
     return [
         types.Tool(
@@ -200,15 +209,15 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
             )
             named = {str(k): float(v) for k, v in (args.get("metrics") or {}).items()}
             context = ContextBundle(
-                logs=["evidence line"] * int(args.get("log_lines", 0)),
+                logs=["evidence line"] * _count(args, "log_lines"),
                 # Named metrics COUNT TOWARD metric_count; only the gap is padded with anonymous zeros.
                 # Adding both double-counted the evidence and let P9 pass on half of it.
                 metrics={
-                    **{f"m{i}": 0.0 for i in range(max(0, int(args.get("metric_count", 0)) - len(named)))},
+                    **{f"m{i}": 0.0 for i in range(max(0, _count(args, "metric_count") - len(named)))},
                     **named,
                 },
                 recent_deploys=[{"sha": "unknown"}] if args.get("has_recent_deploy") else [],
-                tool_errors=["upstream tool failed"] * int(args.get("tool_errors", 0)),
+                tool_errors=["upstream tool failed"] * _count(args, "tool_errors"),
             )
             root_cause = RootCause(hypothesis="submitted via MCP", confidence=args["confidence"])
             proposal = RemediationProposal(

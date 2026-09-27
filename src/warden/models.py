@@ -56,14 +56,16 @@ class Severity(str, Enum):
 # identifier (or a comma list of them, or a k=v selector) is dropped here, before anything reads
 # it, and its key recorded in `rejected_labels` so the report says so.
 _LABEL_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}")
-_LABEL_VALUE = re.compile(r"[A-Za-z0-9._:/@,=+-]{0,253}")
-NAME_PATTERN = r"^[A-Za-z0-9._:/@-]{1,253}$"
+# No value, list element or selector value may start with "-": `--profile=admin` has no space and
+# no metacharacter, and would still be read as a flag where the value lands in a command.
+_LABEL_VALUE = re.compile(r"(?!-)(?!.*[,=]-)[A-Za-z0-9._:/@,=+-]{0,253}")
+NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,252}$"
 
 
 class Alert(BaseModel):
     """What the monitoring stack hands us. Shape mirrors Prometheus Alertmanager."""
 
-    alert_id: str = Field(pattern=r"^[A-Za-z0-9._:@-]{1,128}$")
+    alert_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
     name: str
     severity: Severity
     service: str = Field(pattern=NAME_PATTERN)

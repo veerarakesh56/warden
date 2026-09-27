@@ -26,6 +26,8 @@ The environment gradient (from environments.yaml) does the heavy lifting:
 
 from __future__ import annotations
 
+import hashlib
+import re
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
@@ -51,11 +53,31 @@ class RemediationError(RuntimeError):
 
 
 class RemediationRequest(BaseModel):
-    """Who is asking to apply the fix, and whether an authorised person approved it."""
+    """Who is asking to apply the fix, and WHICH proposal they approved.
+
+    ⛔ `approval` is the digest of the exact proposal (proposal_digest), not a yes/no (2026-09-27
+    audit). `--approve` used to be a flag given on the same command line as the run, so it approved
+    whatever the model was about to propose, before anyone had seen it: a hijacked model's
+    `scale_down` was "approved" in the same breath. A digest can only be copied from a proposal a
+    person has read, and it names alert, environment, action and target, so it approves nothing else.
+    """
 
     principal: str | None = None
-    approved: bool = False
+    approval: str | None = None
     reason: str = ""
+
+
+def proposal_digest(alert: Alert, proposal: RemediationProposal) -> str:
+    raw = f"{alert.alert_id}\x1f{alert.environment}\x1f{proposal.action.value}\x1f{proposal.target}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def _is_alert_resource(alert: Alert, target: str) -> bool:
+    """The target, less an optional `kind:`/`kind/`/`kind=` prefix, is the alert's own resource: its
+    service, or the deployment or database its labels name (labels are plain names, models.Alert)."""
+    name = re.sub(r"^[A-Za-z0-9_-]+[:/=]", "", target.strip())
+    own = {alert.service, alert.labels.get("deployment"), alert.labels.get("database")}
+    return name in own - {None, ""}
 
 
 class RemediationResult(BaseModel):
@@ -158,16 +180,28 @@ def decide_remediation(
             f"{alert.environment} does not auto-remediate; a human applies this fix (see report)",
         )
 
-    # 5. Even in an auto-remediable environment, an explicit approval from the authorised principal
-    #    is required — WARDEN never applies a change nobody signed off.
-    if not request.approved:
+    # 5. The target must be the alerting resource itself. P14 only asks that the name EXIST; acting
+    #    for real on a name the model picked from the inventory (another service's deployment) is a
+    #    different thing, and it is refused here (2026-09-27 audit).
+    if not _is_alert_resource(alert, target):
         return result(
-            RemediationOutcome.awaiting_approval,
-            f"{action.value} on '{target}' is ready to apply in {alert.environment}; "
-            f"awaiting approval from an authorised principal",
+            RemediationOutcome.blocked,
+            f"target '{target}' is not the alerting resource ({alert.service}); WARDEN applies a fix "
+            "only to the resource that alerted",
         )
 
-    # 6. All gates passed. Apply through the backend. The shipped DryRunBackend changes nothing.
+    # 6. An explicit approval of THIS proposal from the authorised principal: its digest.
+    digest = proposal_digest(alert, proposal)
+    if request.approval != digest:
+        why = ("awaiting approval" if not request.approval
+               else f"the approval given ({request.approval}) was for a different proposal")
+        return result(
+            RemediationOutcome.awaiting_approval,
+            f"{action.value} on '{target}' is ready to apply in {alert.environment}; {why}. "
+            f"To approve exactly this proposal: --approve {digest}",
+        )
+
+    # 7. All gates passed. Apply through the backend. The shipped DryRunBackend changes nothing.
     #    A live backend that errors (an API 403, a missing deployment, an unsupported action) must
     #    not crash the run — it becomes a `failed` result carrying the reason.
     exec_backend = backend or DryRunBackend()

@@ -132,9 +132,12 @@ class FixtureBackend:
         self.root = root or FIXTURES
 
     def _load(self, alert_id: str) -> dict:
-        path = self.root / f"{alert_id}.json"
-        if not path.exists():
-            raise ToolError(f"no fixture for alert {alert_id}")
+        # ⛔ Contained (2026-09-27 audit): the MCP tool passes a caller's alert_id straight here, and
+        # an absolute path or `..` read any *.json on the machine, metrics and all.
+        root = self.root.resolve()
+        path = (root / f"{alert_id}.json").resolve()
+        if path.parent != root or not path.exists():
+            raise ToolError(f"no fixture for alert {alert_id!r}")
         return json.loads(path.read_text(encoding="utf-8"))
 
     def logs(self, alert: Alert) -> list[str]:
@@ -164,6 +167,18 @@ def _call_with_timeout(fn, alert: Alert, timeout: float):
         return pool.submit(fn, alert).result(timeout=timeout)
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _numbers(metrics: object) -> dict[str, float]:
+    """Metrics are numbers. `setattr` bypasses pydantic, so a backend (or a fixture file) returning a
+    string or a nested secret under a metric name put it into the prompt and the MCP payload as-is."""
+    out: dict[str, float] = {}
+    for key, value in (metrics or {}).items() if isinstance(metrics, dict) else ():
+        try:
+            out[str(key)[:120]] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def gather(
@@ -197,6 +212,8 @@ def gather(
                         # 2026-09-25, into the model's prompt as READ FAILURES (graph.py).
                         bundle.tool_errors.append(redact(f"{name}: {p[len(PARTIAL_PREFIX):]}").text)
                     sp.set_attribute("warden.tool.partial_failures", len(partial))
+                if sink == "metrics":
+                    result = _numbers(result)
                 setattr(bundle, sink, result)
                 sp.set_attribute("warden.tool.ok", True)
             except FutureTimeout:

@@ -20,6 +20,7 @@ from warden.remediation import (
     RemediationOutcome,
     RemediationRequest,
     decide_remediation,
+    proposal_digest,
 )
 from warden.remediation_k8s import KubernetesRemediationBackend, resolve_remediation_backend
 
@@ -174,7 +175,7 @@ def test_gate_plus_live_backend_actually_applies_and_reports_changed_infra():
     backend = KubernetesRemediationBackend(apps=apps, namespace="default")
     r = decide_remediation(
         _alert(), _prop(), _approved(),
-        RemediationRequest(principal="role:oncall", approved=True),
+        RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
         backend=backend,
     )
     assert r.outcome is RemediationOutcome.applied
@@ -186,7 +187,7 @@ def test_gate_turns_a_backend_fault_into_a_failed_result_not_a_crash():
     backend = KubernetesRemediationBackend(apps=_Apps(fail=True), namespace="default")
     r = decide_remediation(
         _alert(), _prop(), _approved(),
-        RemediationRequest(principal="role:oncall", approved=True),
+        RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
         backend=backend,
     )
     assert r.outcome is RemediationOutcome.failed
@@ -199,7 +200,7 @@ def test_prod_still_blocks_the_live_backend_before_it_is_ever_called():
     backend = KubernetesRemediationBackend(apps=apps, namespace="default")
     r = decide_remediation(
         _alert(environment="prod"), _prop(), _approved(),
-        RemediationRequest(principal="role:oncall", approved=True),
+        RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
         backend=backend,
     )
     assert r.outcome is RemediationOutcome.not_auto_remediable

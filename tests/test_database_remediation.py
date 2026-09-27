@@ -32,6 +32,7 @@ from warden.remediation import (
     RemediationOutcome,
     RemediationRequest,
     decide_remediation,
+    proposal_digest,
 )
 from warden.remediation_k8s import LiveRemediationRouter
 
@@ -74,7 +75,7 @@ class SqlStub:
 def _alert(env="staging"):
     return Alert(alert_id="inc-005", name="DBConnectionsStuck", severity=Severity.high,
                  service="payments", environment=env, summary="pool exhausted",
-                 started_at="2026-08-26T00:00:00Z")
+                 started_at="2026-08-26T00:00:00Z", labels={"database": "payments-db"})
 
 
 def _prop(action=ActionKind.terminate_connections):
@@ -326,7 +327,7 @@ def test_the_router_reports_the_delegates_honesty_not_its_own():
 def test_staging_authorised_and_approved_actually_terminates():
     backend = _backend([11, 12])
     result = decide_remediation(_alert(), _prop(), _approved(),
-                                RemediationRequest(principal="role:oncall", approved=True),
+                                RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
                                 backend=backend)
     assert result.outcome is RemediationOutcome.applied
     assert result.changed_infrastructure is True
@@ -336,7 +337,7 @@ def test_staging_authorised_and_approved_actually_terminates():
 def test_prod_never_reaches_the_database_backend():
     stub = SqlStub([1, 2])
     result = decide_remediation(_alert("prod"), _prop(), _approved(),
-                                RemediationRequest(principal="role:oncall", approved=True),
+                                RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
                                 backend=DatabaseRemediationBackend(engine="postgres", conn=stub,
                                                                    dry_run=False))
     assert result.outcome is RemediationOutcome.not_auto_remediable
@@ -346,7 +347,7 @@ def test_prod_never_reaches_the_database_backend():
 def test_an_unapproved_request_terminates_nothing():
     stub = SqlStub([1, 2])
     result = decide_remediation(_alert(), _prop(), _approved(),
-                                RemediationRequest(principal="role:oncall", approved=False),
+                                RemediationRequest(principal="role:oncall", approval=None),
                                 backend=DatabaseRemediationBackend(engine="postgres", conn=stub,
                                                                    dry_run=False))
     assert result.outcome is RemediationOutcome.awaiting_approval
@@ -356,7 +357,7 @@ def test_an_unapproved_request_terminates_nothing():
 def test_a_database_fault_becomes_a_failed_result_not_a_crash():
     backend = DatabaseRemediationBackend(engine="postgres", conn=SqlStub(fail=True), dry_run=False)
     result = decide_remediation(_alert(), _prop(), _approved(),
-                                RemediationRequest(principal="role:oncall", approved=True),
+                                RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
                                 backend=backend)
     assert result.outcome is RemediationOutcome.failed
     assert result.changed_infrastructure is False

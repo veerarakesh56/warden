@@ -62,7 +62,10 @@ _TS = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\
 _AFFECTED_KEYS = ("tenant_id", "org_id", "organization_id", "customer_id", "user", "user_id",
                   "src", "client", "host", "db", "node", "trace", "trace_id", "request_id")
 _KV = re.compile(r"\b(" + "|".join(_AFFECTED_KEYS) + r")=([^\s,;\"']+)")
-_PID = re.compile(r"(?i)\bpid[ =:]+(\d+)")
+# ⛔ A pid only from the fixed prefix WARDEN's own database reads write (database.py), never from
+# anywhere in a line: the query text follows that prefix, and `/* pid=1 pid=77 */` in a query put
+# pids 1 and 77 into the printed terminate statement (2026-09-27 audit).
+_PID = re.compile(r"^\w+ (?:stuck connection|long-running query|blocked session): pid=(\d+)\b")
 _POD = re.compile(r"\bPod/([a-z0-9][a-z0-9.\-]*)|^([a-z0-9][a-z0-9\-]*-[a-z0-9]{5,10}-[a-z0-9]{5})/")
 
 

@@ -15,6 +15,7 @@ from warden.remediation import (
     RemediationOutcome,
     RemediationRequest,
     decide_remediation,
+    proposal_digest,
 )
 
 
@@ -53,28 +54,28 @@ class _LiveBackend:
 
 def test_a_rejected_verdict_is_never_applied():
     v = Verdict(status=VerdictStatus.rejected, policy_ids=["P1-ENV-ALLOWLIST"])
-    r = decide_remediation(_alert(), _prop(), v, RemediationRequest(principal="role:oncall", approved=True))
+    r = decide_remediation(_alert(), _prop(), v, RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())))
     assert r.outcome is RemediationOutcome.blocked
     assert r.changed_infrastructure is False
 
 
 def test_an_escalated_verdict_is_never_applied():
     v = Verdict(status=VerdictStatus.escalated, policy_ids=["P6-BLAST-RADIUS"])
-    r = decide_remediation(_alert(), _prop(), v, RemediationRequest(principal="role:oncall", approved=True))
+    r = decide_remediation(_alert(), _prop(), v, RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())))
     assert r.outcome is RemediationOutcome.blocked
 
 
 def test_unauthorized_principal_cannot_remediate():
     r = decide_remediation(
         _alert(), _prop(), _approved_verdict(),
-        RemediationRequest(principal="role:intern", approved=True),
+        RemediationRequest(principal="role:intern", approval=proposal_digest(_alert(), _prop())),
     )
     assert r.outcome is RemediationOutcome.unauthorized
 
 
 def test_no_principal_cannot_remediate():
     r = decide_remediation(
-        _alert(), _prop(), _approved_verdict(), RemediationRequest(approved=True)
+        _alert(), _prop(), _approved_verdict(), RemediationRequest(approval=proposal_digest(_alert(), _prop()))
     )
     assert r.outcome is RemediationOutcome.unauthorized
 
@@ -82,7 +83,7 @@ def test_no_principal_cannot_remediate():
 def test_prod_is_never_auto_remediated_even_when_authorised_and_approved():
     r = decide_remediation(
         _alert(environment="prod"), _prop(), _approved_verdict(),
-        RemediationRequest(principal="role:oncall", approved=True),
+        RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
     )
     assert r.outcome is RemediationOutcome.not_auto_remediable
     assert r.changed_infrastructure is False
@@ -91,7 +92,7 @@ def test_prod_is_never_auto_remediated_even_when_authorised_and_approved():
 def test_staging_awaits_approval_when_none_given():
     r = decide_remediation(
         _alert(), _prop(), _approved_verdict(),
-        RemediationRequest(principal="role:oncall", approved=False),
+        RemediationRequest(principal="role:oncall", approval=None),
     )
     assert r.outcome is RemediationOutcome.awaiting_approval
 
@@ -99,7 +100,7 @@ def test_staging_awaits_approval_when_none_given():
 def test_staging_with_approval_dry_runs_by_default_touching_nothing():
     r = decide_remediation(
         _alert(), _prop(), _approved_verdict(),
-        RemediationRequest(principal="role:oncall", approved=True),
+        RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
     )
     assert r.outcome is RemediationOutcome.dry_run
     assert r.changed_infrastructure is False
@@ -110,7 +111,7 @@ def test_a_live_backend_actually_applies_when_every_gate_passes():
     backend = _LiveBackend()
     r = decide_remediation(
         _alert(), _prop(), _approved_verdict(),
-        RemediationRequest(principal="svc:warden-staging", approved=True),
+        RemediationRequest(principal="svc:warden-staging", approval=proposal_digest(_alert(), _prop())),
         backend=backend,
     )
     assert r.outcome is RemediationOutcome.applied
@@ -123,7 +124,7 @@ def test_defence_in_depth_denied_action_is_blocked_even_with_an_approved_verdict
     # must not get it applied — the executor re-checks the policy.
     r = decide_remediation(
         _alert(), _prop(action=ActionKind.failover_replica), _approved_verdict(),
-        RemediationRequest(principal="role:oncall", approved=True),
+        RemediationRequest(principal="role:oncall", approval=proposal_digest(_alert(), _prop())),
         backend=_LiveBackend(),
     )
     assert r.outcome is RemediationOutcome.blocked

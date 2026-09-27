@@ -125,7 +125,7 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
             alert,
             report.proposal,
             report.verdict,
-            RemediationRequest(principal=principal, approved=approve),
+            RemediationRequest(principal=principal, approval=approve),
             backend=backend,
         )
 
@@ -238,7 +238,9 @@ def main(argv: list[str] | None = None) -> int:
     # Opt-in remediation + reporting. Off by default, so the plain `run` output is unchanged.
     p_run.add_argument("--report", action="store_true", help="build + print the redacted markdown report")
     p_run.add_argument("--principal", default=None, help="who is requesting remediation, e.g. role:oncall")
-    p_run.add_argument("--approve", action="store_true", help="the principal approves applying the fix")
+    p_run.add_argument("--approve", default=None, metavar="DIGEST",
+                       help="approve applying exactly the proposal with this digest (a run without "
+                            "--approve prints it); approves nothing else")
     p_run.add_argument("--emit-chatops", action="store_true", help="send the report to configured Slack/Teams/webhook sinks")
     p_run.add_argument("--environment", default=None, help="override the incident's environment (e.g. staging) to see the per-env gate")
     # Overrides that let a BUNDLED incident shape be pointed at a REAL system. Without them the

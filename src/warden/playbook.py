@@ -23,6 +23,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
+from .evidence import _kind
 from .models import Alert, ContextBundle
 
 
@@ -543,7 +544,10 @@ def _rollout_undo(alert: Alert, ctx: ContextBundle, line: str | None) -> list[st
         return []
     ns, dep = target
     tag = f"LOG k8s/{ns}/{dep} "
-    revs = [ln for ln in ctx.logs if "ROLLOUT revision" in ln and (ln.startswith(tag) or not ln.startswith("LOG "))]
+    # Only WARDEN's own ReplicaSet reads (C items). Pod stdout printing "ROLLOUT revision 7 (current)"
+    # used to count, and aimed an undo (2026-09-27 audit).
+    revs = [ln for ln in ctx.logs if _kind(ln) == "C" and "ROLLOUT revision" in ln
+            and ln.startswith((tag, "ROLLOUT "))]
     if not any("(current)" in r for r in revs) or len(revs) < 2:
         return []
     # ⛔ Only while the CURRENT revision is failing. Wave 4's healthy control (2026-09-26) had 2/2
@@ -560,7 +564,8 @@ def _rollout_undo(alert: Alert, ctx: ContextBundle, line: str | None) -> list[st
 def _terminate_blockers(ctx: ContextBundle) -> list[str]:
     blockers: set[int] = set()
     for ln in ctx.logs:
-        mt = re.search(r"blocked session:.* on pid\(s\) ([\d,]+)", ln)
+        # Anchored on database.py's own prefix; the query text after it names no blocker.
+        mt = re.match(r"postgres blocked session: pid=\d+ waiting -?\d+s on pid\(s\) ([\d,]+):", ln)
         if mt:
             blockers.update(int(p) for p in mt.group(1).split(",") if p)
     if not blockers:

@@ -47,7 +47,10 @@ def _context() -> ContextBundle:
             f"2026-08-26T04:10:21Z payments WARN retry with password={SECRETS['password']}",
             f"2026-08-26T04:10:22Z payments ERROR auth failed key={SECRETS['apikey']} trace={SECRETS['uuid']}",
             f"2026-08-26T04:10:23Z payments ERROR arn:aws:iam::{SECRETS['account']}:role/app denied",
-            "2026-08-26T04:10:30Z payments WARN pid 4242 idle in transaction for 611s",
+            # database.py's own read (the only source a pid is taken from), then an app line naming
+            # pids WARDEN must not act on.
+            "postgres stuck connection: pid=4242 idle in transaction for 611s: UPDATE orders SET x = 1",
+            "2026-08-26T04:10:31Z payments WARN pid 777 idle /* pid=1 pid=77 */",
         ],
         metrics={"idle_in_transaction": 25.0, "connection_pool_used": 100.0},
         recent_deploys=[{"service": "payments", "sha": "9f2c1ab", "at": "2026-08-26T03:58:00Z", "by": "deploy-bot"}],
@@ -178,6 +181,8 @@ def test_pids_named_in_the_evidence_become_the_exact_fix():
     # Guarded: terminates the named pid only if it is STILL idle in a transaction when run - a pid
     # from the evidence may have been reused by a new session since.
     assert "WHERE pid IN (4242) AND state = 'idle in transaction'" in rep.markdown
+    for planted in ("777", "77,", " 1,", "(1"):
+        assert f"pid IN (4242{planted}" not in rep.markdown
 
 
 def test_a_kubernetes_rollback_names_the_real_namespace_and_deployment():
