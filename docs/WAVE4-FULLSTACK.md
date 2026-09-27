@@ -1,5 +1,7 @@
 # Wave 4 - the full stack (design, registered before any run)
 
+> **Names changed 2026-09-27 (v2 Phase 1.5).** This record describes the Wave 4 run as it happened, with the names of the time: `warden-pg-fs-*` and tag `Project=warden-fullstack`. The stack is now per environment: `warden-<env>-*`, tagged `Project=warden` + `Environment=<env>` (`terraform/fullstack/README.md`).
+
 Status: **design, not yet run.** Written 2026-09-25, before any Wave 4 resource exists, so the fault
 list, the pass criteria and the scoring cannot be tuned to what a run produced. Anything changed
 after the first run is dated in this file.

@@ -3,8 +3,8 @@
 The AWS side of `docs/WAVE4-FULLSTACK.md` section 2: VPC (+ one NAT gateway), ElastiCache Redis,
 DynamoDB, SQS/SNS, six Lambdas, API Gateway, ALB + ECS Fargate, EKS, Secrets Manager, EventBridge
 and the CloudWatch alarms that are the alert source - and, through `aurora_express.py` in this
-directory, Aurora PostgreSQL Serverless v2. Everything is named `warden-pg-fs-*` and tagged
-`Project=warden-fullstack`.
+directory, Aurora PostgreSQL Serverless v2. Everything is named `warden-dev-*` and tagged
+`Project=warden`.
 
 ⛔ **The account is on the AWS Free plan (2026-09-26, docs/WAVE4-FULLSTACK.md section 9).** It
 creates Aurora only in EXPRESS configuration, which the Terraform provider cannot do, so
@@ -46,7 +46,7 @@ slightly), no free tier, idle load from the traffic Lambda. The budget alarm is 
 | DynamoDB 5 RCU / 5 WCU, 20 alarms, 1 secret, Lambda/SQS/SNS/API calls | ~0.015 | |
 | **total** | **~0.50** | |
 
-**Budget:** this stack carries its own alarm, `warden-pg-fs-guard` (USD 50 a month by default,
+**Budget:** this stack carries its own alarm, `warden-dev-guard` (USD 50 a month by default,
 `budget_usd`), emailing `budget_email` from your gitignored terraform.tfvars on forecast 60%/90% and
 actual 50%/100%. The proving ground's budget was destroyed with it.
 USD 50 is about four days of this stack left running. Destroy it when a run ends.
@@ -59,10 +59,10 @@ USD 50 is about four days of this stack left running. Destroy it when a run ends
            terraform/proving-ground/operator-policy-boundary.json WardenProvingGroundBoundary
 
    It adds scoped allows for DynamoDB, SNS, Secrets Manager, ElastiCache and API Gateway on
-   `warden-pg-fs-*`, KMS only through Secrets Manager and RDS, the ElastiCache service-linked role,
+   `warden-dev-*`, KMS only through Secrets Manager and RDS, the ElastiCache service-linked role,
    `rds-db:connect` (2026-09-26: without it in the ceiling no IAM database login works, because
-   every `warden-pg-fs-*` role carries this boundary), and narrows the
-   DeleteSecret/PutSecretValue/DeleteTable/DeleteDBCluster deny so it excludes `warden-pg-fs-*`
+   every `warden-dev-*` role carries this boundary), and narrows the
+   DeleteSecret/PutSecretValue/DeleteTable/DeleteDBCluster deny so it excludes `warden-dev-*`
    (and still denies everything else).
 2. **Grant the operator.** Create (or, after a change, add a version of) the managed policy
    `WardenFullstackOperator` from `operator-policy-fullstack.json` (6,026 of the 6,144-char limit;
@@ -85,20 +85,29 @@ USD 50 is about four days of this stack left running. Destroy it when a run ends
        aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
        aws iam create-service-linked-role --aws-service-name elasticache.amazonaws.com
 
-5. **CI only:** the OIDC role `warden-pg-fs-ci`, the state bucket `warden-pg-fs-tfstate-*` and the
+5. **CI only:** the OIDC role `warden-dev-ci`, the state bucket `warden-dev-tfstate-*` and the
    repository variables - the list is at the top of `.github/workflows/infra.yml`. No AWS keys are
    stored anywhere.
 
-## Apply (the operator)
+## Apply (the environment's deploy role)
 
-    cp terraform.tfvars.example terraform.tfvars    # set my_ip_cidr
-    terraform init && terraform apply
+Since v2 Phase 1.5 the stack belongs to an **environment** (dev, staging, ... - the keys of
+`src/warden/data/environments.yaml`), and the environment is the **Terraform workspace**. Names are
+`warden-<env>-*`, every resource is tagged `Project=warden` + `Environment=<env>`, and every role
+carries `WardenEnvBoundary-<env>` (`iam/<env>/boundary.json`). The two per-environment values are
+read from SSM Parameter Store, never from a file: `/warden/<env>/tf/my_ip_cidr` (String) and
+`/warden/<env>/tf/budget_email` (SecureString). A workspace that is not an environment - including
+`default` - is refused before anything is built.
+
+    terraform init
+    terraform workspace select -or-create dev
+    WARDEN_ENV=dev terraform apply
     mkdir -p ~/warden-fullstack-build
     terraform output -json | python -c "import json,sys; print(json.dumps({k: v for k, v in json.load(sys.stdin).items() if not v['sensitive']}, indent=1))" > ~/warden-fullstack-build/stack.json
     python aurora_express.py create     # Aurora (express): cluster, 0.5-2 ACU, reader; merges its keys into stack.json
 
 `aurora_express.py create` takes several minutes (the reader instance), writes the endpoints into
-the metadata secret `warden-pg-fs-db-app`, and adds `aurora_cluster`, `aurora_writer_endpoint`,
+the metadata secret `warden-dev-db-app`, and adds `aurora_cluster`, `aurora_writer_endpoint`,
 `aurora_reader_endpoint`, `aurora_instance_endpoints`, `aurora_writer_instance` (express names the
 writer itself), `db_name` and `db_master_username` to stack.json. Run it again after any later
 `terraform output` rewrite of stack.json: on an existing cluster it only refreshes those records.
@@ -125,7 +134,7 @@ run `deploy ecs` again after re-generating stack.json.
     python aurora_express.py destroy    # FIRST: terraform does not know the cluster exists
     terraform destroy
     aws resourcegroupstaggingapi get-resources --region ap-south-2 \
-      --tag-filters Key=Project,Values=warden-fullstack --query 'ResourceTagMappingList[].ResourceARN'
+      --tag-filters Key=Project,Values=warden --query 'ResourceTagMappingList[].ResourceARN'
 
 The second command must print `[]`. Expect the security-group deletes to wait up to ~20 minutes
 while Lambda releases the in-VPC functions' network interfaces; that is AWS, not a hang.

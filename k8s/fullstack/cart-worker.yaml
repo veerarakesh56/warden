@@ -5,7 +5,7 @@ metadata:
   namespace: shop
   labels:
     app: cart-worker
-    project: warden-fullstack
+    project: warden
 spec:
   replicas: 1
   selector:
@@ -28,7 +28,7 @@ spec:
         instrumentation.opentelemetry.io/inject-dotnet: "false"
       labels:
         app: cart-worker
-        project: warden-fullstack
+        project: warden
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10

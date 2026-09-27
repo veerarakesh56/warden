@@ -1,4 +1,4 @@
-"""warden-pg-fs-traffic - EventBridge every minute. The load generator.
+"""warden-dev-traffic - EventBridge every minute. The load generator.
 
 Per run: CHECKOUTS_PER_MIN x POST {API_URL}/checkout, the same number of GET {ALB_URL}/orders, and
 ORDERS_PER_MIN order messages onto the orders queue. Tiny payloads. Failures are logged, never

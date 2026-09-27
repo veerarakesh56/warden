@@ -7,7 +7,7 @@ span has told us its other spans need checking too.
 
 P14 (target): the proposal's target must name a resource in the inventory, and must not also name a
 compound resource-like token (`shop-prod-checkout`) the inventory lacks. Observed live 2026-09-26:
-`scale_up lambda:shop-prod-checkout` against a stack whose function is `warden-pg-fs-checkout`.
+`scale_up lambda:shop-prod-checkout` against a stack whose function is `warden-dev-checkout`.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
 
 
 # Command separators and substitution only. Parentheses and "->" are how models describe a target
-# (`lambda:warden-pg-fs-checkout (version 7 -> 6)`, a correct live answer), and "<...>" is a
+# (`lambda:warden-dev-checkout (version 7 -> 6)`, a correct live answer), and "<...>" is a
 # redaction placeholder.
 _SHELL = re.compile(r"[;|&$\\`]")
 

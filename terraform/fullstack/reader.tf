@@ -1,7 +1,7 @@
-# WARDEN's AWS identity for Wave 4: role `warden-pg-fs-reader`, assumed per run by the harness.
+# WARDEN's AWS identity for Wave 4: role `warden-dev-reader`, assumed per run by the harness.
 #
 # Expects from the other files in this module (declared there, not here):
-#   var.permissions_boundary_name, var.region, local.tags, data.aws_caller_identity.current
+#   local.permissions_boundary, var.region, local.tags, data.aws_caller_identity.current
 #
 # ⭐ The policy below is EXACTLY the calls src/warden/aws_stack.py makes, plus the ones
 # src/warden/aws_backend.py makes (the stack backend reuses it for ECS and for log reads).
@@ -83,10 +83,8 @@ data "aws_iam_policy_document" "fs_reader" {
 }
 
 resource "aws_iam_role" "fs_reader" {
-  name = "warden-pg-fs-reader"
-  permissions_boundary = var.permissions_boundary_name == "" ? null : (
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.permissions_boundary_name}"
-  )
+  name                 = "${local.name}-reader"
+  permissions_boundary = local.permissions_boundary
   assume_role_policy   = data.aws_iam_policy_document.fs_reader_assume.json
   max_session_duration = 3600
   tags                 = local.tags

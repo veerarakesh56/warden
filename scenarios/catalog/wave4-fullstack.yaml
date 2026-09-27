@@ -31,7 +31,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-api-5xx
+    alarm: warden-dev-api-5xx
     expect_alarm: false
     settle_seconds: 0
     alarm_timeout_s: 0
@@ -54,14 +54,14 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-api-5xx
+    alarm: warden-dev-api-5xx
     settle_seconds: 60
     alarm_timeout_s: 600
     recover_within: 600
     inject: [{op: fs_inject, fault: fs-01}]
     revert: [{op: fs_revert, fault: fs-01}]
     evidence_assertions:
-      - {kind: log_contains, value: "CODE warden-pg-fs-checkout app.py:"}
+      - {kind: log_contains, value: "CODE warden-dev-checkout app.py:"}
       - {kind: log_contains, value: "KeyError"}
       - {kind: deploys_nonempty}
     notes: >
@@ -74,7 +74,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-checkout-errors
+    alarm: warden-dev-checkout-errors
     settle_seconds: 60
     alarm_timeout_s: 600
     recover_within: 600
@@ -93,7 +93,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-checkout-throttles
+    alarm: warden-dev-checkout-throttles
     settle_seconds: 60
     alarm_timeout_s: 600
     recover_within: 600
@@ -110,7 +110,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-checkout-errors
+    alarm: warden-dev-checkout-errors
     settle_seconds: 60
     alarm_timeout_s: 600
     recover_within: 600
@@ -118,7 +118,7 @@ scenarios:
     revert: [{op: fs_revert, fault: fs-04}]
     evidence_assertions:
       - {kind: log_contains, value: "ResourceNotFoundException"}
-      - {kind: log_contains, value: "CONFIG lambda warden-pg-fs-checkout"}
+      - {kind: log_contains, value: "CONFIG lambda warden-dev-checkout"}
     notes: Published as a version and moved onto `live`, as fs-02.
 
   - id: fs-05-lambda-iam-missing
@@ -127,7 +127,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-checkout-errors
+    alarm: warden-dev-checkout-errors
     settle_seconds: 90
     alarm_timeout_s: 600
     recover_within: 600
@@ -144,7 +144,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-orders-dlq-visible
+    alarm: warden-dev-orders-dlq-visible
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 600
@@ -152,7 +152,7 @@ scenarios:
     revert: [{op: fs_revert, fault: fs-06}]
     evidence_assertions:
       - {kind: metric_gte, left: dlq_visible__orders, right_value: 1}
-      - {kind: log_contains, value: "CODE warden-pg-fs-order-processor"}
+      - {kind: log_contains, value: "CODE warden-dev-order-processor"}
     notes: >
       20 non-JSON bodies; each is received maxReceiveCount (3) times, then dead-lettered. The
       revert purges the source queue and the DLQ (the baseline DLQ is empty).
@@ -163,7 +163,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-orders-age
+    alarm: warden-dev-orders-age
     settle_seconds: 60
     alarm_timeout_s: 900
     recover_within: 900
@@ -179,7 +179,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-sns-failed
+    alarm: warden-dev-sns-failed
     settle_seconds: 60
     alarm_timeout_s: 900
     recover_within: 600
@@ -187,7 +187,7 @@ scenarios:
     revert: [{op: fs_revert, fault: fs-08}]
     evidence_assertions:
       - {kind: metric_gte, left: sns_notifications_failed, right_value: 1}
-      - {kind: log_contains, value: "allows_sns_topic=warden-pg-fs-order-events:no"}
+      - {kind: log_contains, value: "allows_sns_topic=warden-dev-order-events:no"}
 
   - id: fs-09-dynamodb-throttling
     title: carts table at 1 RCU / 1 WCU while traffic writes
@@ -195,7 +195,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-carts-throttles
+    alarm: warden-dev-carts-throttles
     settle_seconds: 60
     alarm_timeout_s: 900
     recover_within: 600
@@ -212,7 +212,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-reconciler-errors
+    alarm: warden-dev-reconciler-errors
     settle_seconds: 60
     alarm_timeout_s: 900
     recover_within: 600
@@ -227,7 +227,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-redis-memory
+    alarm: warden-dev-redis-memory
     settle_seconds: 60
     alarm_timeout_s: 900
     recover_within: 600
@@ -236,7 +236,7 @@ scenarios:
     evidence_assertions:
       - {kind: metric_gte, left: redis_memory_pct, right_value: 70}
       - {kind: metric_present, name: redis_evictions}
-    notes: Filled through the harness-only warden-pg-fs-ops Lambda (prefix filler:).
+    notes: Filled through the harness-only warden-dev-ops Lambda (prefix filler:).
 
   - id: fs-12-aurora-connection-exhaustion
     title: idle sessions opened until max_connections
@@ -244,7 +244,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: critical
-    alarm: warden-pg-fs-aurora-connections
+    alarm: warden-dev-aurora-connections
     settle_seconds: 30
     alarm_timeout_s: 600
     recover_within: 300
@@ -263,7 +263,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-processor-errors
+    alarm: warden-dev-processor-errors
     settle_seconds: 30
     alarm_timeout_s: 600
     recover_within: 300
@@ -279,7 +279,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-processor-errors
+    alarm: warden-dev-processor-errors
     settle_seconds: 60
     alarm_timeout_s: 600
     recover_within: 600
@@ -294,14 +294,14 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-processor-errors
+    alarm: warden-dev-processor-errors
     settle_seconds: 60
     alarm_timeout_s: 900
     recover_within: 900
     inject: [{op: fs_inject, fault: fs-15}]
     revert: [{op: fs_revert, fault: fs-15}]
     evidence_assertions:
-      - {kind: log_contains, value: "EVENT aurora warden-pg-fs-aurora"}
+      - {kind: log_contains, value: "EVENT aurora warden-dev-aurora"}
       - {kind: log_contains, value: "read-only transaction"}
     notes: The original writer is recorded; the revert fails back to it.
 
@@ -311,7 +311,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-reconciler-duration
+    alarm: warden-dev-reconciler-duration
     settle_seconds: 300
     alarm_timeout_s: 1200
     recover_within: 900
@@ -330,7 +330,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-alb-healthy-low
+    alarm: warden-dev-alb-healthy-low
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 900
@@ -346,7 +346,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-alb-healthy-low
+    alarm: warden-dev-alb-healthy-low
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 900
@@ -361,7 +361,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-alb-healthy-low
+    alarm: warden-dev-alb-healthy-low
     settle_seconds: 60
     alarm_timeout_s: 600
     recover_within: 600
@@ -377,7 +377,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-alb-healthy-low
+    alarm: warden-dev-alb-healthy-low
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 900
@@ -398,7 +398,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-alb-5xx
+    alarm: warden-dev-alb-5xx
     settle_seconds: 60
     alarm_timeout_s: 900
     recover_within: 900
@@ -406,7 +406,7 @@ scenarios:
     revert: [{op: fs_revert, fault: fs-21}]
     evidence_assertions:
       - {kind: log_contains, value: "PAM authentication failed for user"}
-      - {kind: log_contains, value: "TASKROLE ecs/warden-pg-fs-orders-api role=warden-pg-fs-orders-api-task"}
+      - {kind: log_contains, value: "TASKROLE ecs/warden-dev-orders-api role=warden-dev-orders-api-task"}
     notes: >
       The task still starts and answers /health; every new database login as `app` is refused, so
       /orders returns 500 behind the ALB. The revert re-puts the policy, removes any policy a fix
@@ -418,7 +418,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-catalog-errors
+    alarm: warden-dev-catalog-errors
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 600
@@ -433,7 +433,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-catalog-errors
+    alarm: warden-dev-catalog-errors
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 600
@@ -448,7 +448,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-catalog-errors
+    alarm: warden-dev-catalog-errors
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 600
@@ -463,7 +463,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-cart-worker-stalled
+    alarm: warden-dev-cart-worker-stalled
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 600
@@ -478,7 +478,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: high
-    alarm: warden-pg-fs-catalog-errors
+    alarm: warden-dev-catalog-errors
     settle_seconds: 120
     alarm_timeout_s: 900
     recover_within: 600
@@ -494,7 +494,7 @@ scenarios:
     fidelity: real
     signature_covered: false
     severity: medium
-    alarm: warden-pg-fs-reconciler-invocations-low
+    alarm: warden-dev-reconciler-invocations-low
     settle_seconds: 300
     alarm_timeout_s: 1500
     recover_within: 900

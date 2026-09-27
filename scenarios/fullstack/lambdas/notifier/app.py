@@ -1,4 +1,4 @@
-"""warden-pg-fs-notifier - SQS warden-pg-fs-notifications (fed by the SNS topic) -> "send" a notification."""
+"""warden-dev-notifier - SQS warden-dev-notifications (fed by the SNS topic) -> "send" a notification."""
 import json
 import logging
 

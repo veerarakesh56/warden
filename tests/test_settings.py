@@ -112,3 +112,12 @@ def test_the_cli_loads_the_environment_before_running(monkeypatch, capsys):
     monkeypatch.setenv("WARDEN_ENV", "dev")
     assert main(["run", "--incident", "inc-001"]) == 0
     assert "loaded WARDEN_MODEL from SSM" in capsys.readouterr().err
+
+
+def test_any_environments_prefix_is_stripped_longest_first():
+    from warden.environments import strip_prefix
+
+    assert strip_prefix("warden-dev-checkout") == "checkout"
+    assert strip_prefix("warden-qa-staging-order-processor") == "order-processor"
+    assert strip_prefix("warden-prod-orders") == "orders"
+    assert strip_prefix("some-other-fn") == "some-other-fn"

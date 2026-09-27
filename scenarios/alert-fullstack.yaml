@@ -5,8 +5,8 @@
 #   started_at  <- now (passed as --started-at now)
 # and the labels below are the SAME for every fault (contract A): the service map a team keeps in
 # tags, naming every component of the application - so they never point at the broken one.
-# A DLQ is found from its queue's RedrivePolicy, never labelled. `warden-pg-fs-ops` (harness-only)
-# and `warden-pg-fs-traffic` (the load generator) are not part of the application and are absent.
+# A DLQ is found from its queue's RedrivePolicy, never labelled. `warden-dev-ops` (harness-only)
+# and `warden-dev-traffic` (the load generator) are not part of the application and are absent.
 #
 # The summary below is the fallback when an alarm has no description.
 
@@ -19,18 +19,18 @@ summary: CloudWatch alarm fired for the shop application on AWS
 started_at: "2026-01-01T00:00:00Z"
 labels:
   app: shop
-  lambda: warden-pg-fs-checkout,warden-pg-fs-order-processor,warden-pg-fs-notifier,warden-pg-fs-reconciler
-  sqs: warden-pg-fs-orders,warden-pg-fs-notifications
-  dynamodb_table: warden-pg-fs-carts
-  elasticache: warden-pg-fs-redis
-  aurora_cluster: warden-pg-fs-aurora
-  alb_target_group: warden-pg-fs-orders
-  apigw: warden-pg-fs-api
-  ecs_cluster: warden-pg-fs-ecs
-  ecs_service: warden-pg-fs-orders-api
-  eks_cluster: warden-pg-fs-eks
+  lambda: warden-dev-checkout,warden-dev-order-processor,warden-dev-notifier,warden-dev-reconciler
+  sqs: warden-dev-orders,warden-dev-notifications
+  dynamodb_table: warden-dev-carts
+  elasticache: warden-dev-redis
+  aurora_cluster: warden-dev-aurora
+  alb_target_group: warden-dev-orders
+  apigw: warden-dev-api
+  ecs_cluster: warden-dev-ecs
+  ecs_service: warden-dev-orders-api
+  eks_cluster: warden-dev-eks
   namespace: shop
   deployment: catalog-api,cart-worker
-  secret: warden-pg-fs-db-app
-  sns_topic: warden-pg-fs-order-events
-  eventbridge_rule: warden-pg-fs-reconcile-5m
+  secret: warden-dev-db-app
+  sns_topic: warden-dev-order-events
+  eventbridge_rule: warden-dev-reconcile-5m

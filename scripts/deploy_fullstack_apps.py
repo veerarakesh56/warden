@@ -45,7 +45,7 @@ APPS = ROOT / "scenarios" / "fullstack"
 K8S = ROOT / "k8s" / "fullstack"
 DEFAULT_OUT = pathlib.Path.home() / "warden-fullstack-build"
 LAMBDA_SRC = APPS / "lambdas"
-IMAGE = "warden-pg-fs-app"
+IMAGE = "warden-dev-app"
 PLACEHOLDER = re.compile(r"__[A-Z_]+__")
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)  # fixed, so an unchanged function builds a byte-identical zip
 
@@ -273,6 +273,7 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
         "DB_READER_HOST": stack["aurora_reader_endpoint"],
         "DB_NAME": stack["db_name"],
         "REGION": stack["region"],
+        "ENVIRONMENT": stack["environment"],
         "CATALOG_SIGNING_KEY": secrets.token_hex(32),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)

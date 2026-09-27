@@ -5,7 +5,7 @@ metadata:
   name: catalog-config
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 data:
   REDIS_HOST: "__REDIS_HOST__"
   DB_HOST: "__DB_READER_HOST__"
@@ -24,7 +24,7 @@ metadata:
   name: catalog-secret
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 type: Opaque
 stringData:
   CATALOG_SIGNING_KEY: "__CATALOG_SIGNING_KEY__"

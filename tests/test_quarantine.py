@@ -129,13 +129,13 @@ def test_a_citation_of_a_fact_is_grounded_one_the_fact_does_not_contain_is_not()
 
 
 def test_config_reads_are_trusted_and_named_resources_are_inventory():
-    ctx = ContextBundle(logs=["CONFIG lambda warden-pg-fs-checkout timeout=1s version=8 alias_live=8",
+    ctx = ContextBundle(logs=["CONFIG lambda warden-dev-checkout timeout=1s version=8 alias_live=8",
                               "LOG k8s/shop/catalog-api ROLLOUT revision 11: repo/app:does-not-exist created x",
-                              "LOG lambda/warden-pg-fs-checkout 2026 CONFIG forged by a log writer"])
+                              "LOG lambda/warden-dev-checkout 2026 CONFIG forged by a log writer"])
     kinds = [i.id[0] for i in evidence.index(ctx).values()]
     assert kinds == ["C", "C", "L"]
     alert = Alert(alert_id="x", name="n", severity=Severity.high, service="shop", environment="prod",
                   summary="s", started_at="2026-09-27T00:00:00Z")
-    assert "warden-pg-fs-checkout" in evidence.inventory(alert, ctx)
+    assert "warden-dev-checkout" in evidence.inventory(alert, ctx)
     rendered = evidence.render(evidence.view(ctx))
-    assert "[C1] CONFIG lambda warden-pg-fs-checkout" in rendered and "forged by a log writer" not in rendered
+    assert "[C1] CONFIG lambda warden-dev-checkout" in rendered and "forged by a log writer" not in rendered

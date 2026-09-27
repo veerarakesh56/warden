@@ -183,3 +183,13 @@ output "teardown_check" {
   description = "Run after terraform destroy. An empty list is the only acceptable answer."
   value       = "aws resourcegroupstaggingapi get-resources --region ${var.region} --tag-filters Key=Project,Values=${local.tags.Project} --query 'ResourceTagMappingList[].ResourceARN'"
 }
+
+output "environment" {
+  description = "The environment this stack belongs to (the Terraform workspace)."
+  value       = local.env
+}
+
+output "name_prefix" {
+  description = "Every resource name starts with this."
+  value       = "${local.name}-"
+}

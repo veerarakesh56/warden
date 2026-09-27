@@ -26,7 +26,7 @@ from warden.tools import PARTIAL_PREFIX, gather, resolve_backend
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 NOW = datetime.now(UTC).replace(microsecond=0)
-P = "warden-pg-fs-"
+P = "warden-dev-"
 
 
 # --------------------------------------------------------------------------- fakes
@@ -87,7 +87,7 @@ def _lambda(**over):
     methods = {
         "get_alias": {"FunctionVersion": "7"},
         "get_function_configuration": {"Timeout": 1, "MemorySize": 256, "Environment": {
-            "Variables": {"TABLE_NAME": "warden-pg-fs-carts", "REDIS_HOST": "cache.internal",
+            "Variables": {"TABLE_NAME": "warden-dev-carts", "REDIS_HOST": "cache.internal",
                           "DB_PASSWORD": "super-secret-value", "API_TOKEN": "tok-123"}}},
         "get_function_concurrency": {"ReservedConcurrentExecutions": 0},
         "list_versions_by_function": {"Versions": [
@@ -135,7 +135,7 @@ def _ecs():
                 {"status": "ACTIVE", "createdAt": NOW - timedelta(days=1), "taskDefinition": arn + "7"},
             ]}], "failures": []},
         describe_task_definition=lambda taskDefinition: {"taskDefinition": {
-            "taskRoleArn": "arn:aws:iam::1:role/warden-pg-fs-orders-api-task",
+            "taskRoleArn": "arn:aws:iam::1:role/warden-dev-orders-api-task",
             "containerDefinitions": [{"image": f"app:{taskDefinition.rsplit(':', 1)[1]}"}]}},
     )
 
@@ -284,7 +284,7 @@ def test_every_reader_emits_the_contract_lines(dsns):
         f"LOG ecs/{P}orders-api {z} GET /orders 500",
         "LOG k8s/shop/catalog-api EVENT BackOff Pod/catalog-api-1: back-off",
         (f"CONFIG lambda {P}checkout timeout=1s memory=256MB reserved_concurrency=0 "
-         "env=[API_TOKEN,DB_PASSWORD,REDIS_HOST=cache.internal,TABLE_NAME=warden-pg-fs-carts] "
+         "env=[API_TOKEN,DB_PASSWORD,REDIS_HOST=cache.internal,TABLE_NAME=warden-dev-carts] "
          "version=7 alias_live=7"),
         f"QUEUE {P}orders visible=120 in_flight=5 dlq={P}orders-dlq dlq_visible=14 max_receive=3",
         f"POLICY sqs {P}notifications allows_sns_topic={P}order-events:yes",

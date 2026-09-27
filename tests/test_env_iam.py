@@ -85,7 +85,7 @@ def test_the_deploy_policy_fits_inside_its_boundary(env):
     boundary, deploy = _load(env, "boundary"), _load(env, "deploy")
     ceiling = _allows(boundary)
     flat_denies = [a for st in boundary["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
-                   and st["Resource"] == "*" for a in _list(st["Action"])]
+                   and st.get("Resource") == "*" for a in _list(st["Action"])]
     for action in _allows(deploy):
         assert any(fnmatch.fnmatchcase(action.lower(), p.lower()) for p in ceiling), f"{env}: {action} outside the ceiling"
         assert not any(fnmatch.fnmatchcase(action.lower(), p.lower()) for p in flat_denies), \
@@ -98,6 +98,11 @@ def test_the_boundary_holds_every_environment_to_itself(env):
     assert st["DenyRoleWithoutThisBoundary"]["Condition"]["ArnNotLike"]["iam:PermissionsBoundary"] == \
         f"arn:aws:iam::*:policy/WardenEnvBoundary-{env}"
     assert st["DenySelfEdit"]["Resource"] == f"arn:aws:iam::*:role/warden-{env}-deploy"
+    # Data that is not this environment's is never destroyed, even untagged: rds:* is region-wide
+    # in the ceiling (RDS is addressed by id), so this deny is what protects a foreign database.
+    destroy = st["DenyDestroyingOthers"]
+    assert {"rds:DeleteDBCluster", "dynamodb:DeleteTable", "secretsmanager:DeleteSecret"} <= set(destroy["Action"])
+    assert all(f"warden-{env}-" in r for r in destroy["NotResource"])
     for sid, key in (("DenyOtherEnvResources", "aws:ResourceTag/Environment"),
                      ("DenyOtherEnvTags", "aws:RequestTag/Environment")):
         cond = st[sid]["Condition"]

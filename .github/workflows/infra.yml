@@ -6,11 +6,11 @@
 #
 # ⛔ NO AWS KEYS ARE STORED ANYWHERE. The owner creates, once, with admin credentials:
 #   - an IAM OIDC provider for token.actions.githubusercontent.com, and a role named
-#     warden-pg-fs-ci (the prefix matters: the boundary scopes IAM to warden-pg-*) that trusts it
+#     warden-dev-ci (the prefix matters: the boundary scopes IAM to warden-pg-*) that trusts it
 #     for THIS repository only (sub = repo:<owner>/<repo>:environment:fullstack), carries the
 #     WardenProvingGroundBoundary boundary, and has the WardenFullstackOperator policy
 #     (terraform/fullstack/operator-policy-fullstack.json) attached;
-#   - an S3 bucket warden-pg-fs-tfstate-<something> in ap-south-2 for state and stack.json;
+#   - an S3 bucket warden-dev-tfstate-<something> in ap-south-2 for state and stack.json;
 #   - repository variables WARDEN_FS_DEPLOY_ROLE_ARN, WARDEN_FS_STATE_BUCKET, WARDEN_FS_MY_IP_CIDR,
 #     optional WARDEN_FS_EKS_PUBLIC_CIDRS (JSON list) and WARDEN_FS_EKS_ADMINS (JSON list of ARNs);
 #   - an environment `fullstack` (add required reviewers there) with the secret
@@ -131,4 +131,4 @@ jobs:
           terraform -chdir=terraform/fullstack destroy -input=false -auto-approve -no-color
           aws s3 rm "s3://$BUCKET/fullstack/stack.json" --only-show-errors || true
           aws resourcegroupstaggingapi get-resources --region ap-south-2 \
-            --tag-filters Key=Project,Values=warden-fullstack --query 'length(ResourceTagMappingList)'
+            --tag-filters Key=Project,Values=warden --query 'length(ResourceTagMappingList)'

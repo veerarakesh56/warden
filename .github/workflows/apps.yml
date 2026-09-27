@@ -3,7 +3,7 @@
 #
 # push / pull_request: lint, unit tests, build every artifact (zips + image). No credentials.
 # workflow_dispatch:   deploy lambdas | ecs | k8s | all through GitHub OIDC - see infra.yml for
-#                      the one-time owner setup (role warden-pg-fs-ci, bucket, `fullstack` env).
+#                      the one-time owner setup (role warden-dev-ci, bucket, `fullstack` env).
 #                      The EKS API must admit the runner: WARDEN_FS_EKS_PUBLIC_CIDRS, and the CI
 #                      role in WARDEN_FS_EKS_ADMINS (infra.yml).
 # bootstrap-db is NOT here: it logs in as the master user postgres with an IAM token signed by the

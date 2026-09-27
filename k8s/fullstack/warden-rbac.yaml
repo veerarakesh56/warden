@@ -9,7 +9,7 @@ metadata:
   name: warden
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 automountServiceAccountToken: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -18,7 +18,7 @@ metadata:
   name: warden-readonly
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 subjects:
   - kind: ServiceAccount
     name: warden

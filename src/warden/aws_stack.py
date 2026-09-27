@@ -54,6 +54,7 @@ from .aws_backend import (
     _aware,
     _one_line,
 )
+from .environments import strip_prefix
 from .models import Alert
 from .tools import PARTIAL_PREFIX, ToolError
 
@@ -63,13 +64,11 @@ __all__ = [
     "LOG_LOOKBACK",
     "METRIC_PERIOD_S",
     "METRIC_WINDOW",
-    "NAME_PREFIX",
     "RECENT_DEPLOY_WINDOW",
     "SOURCE_CONTEXT_LINES",
     "StackBackend",
 ]
 
-NAME_PREFIX = "warden-pg-fs-"
 # A deployment package larger than this is not downloaded (a TOOL-PARTIAL says so).
 CODE_MAX_BYTES = int(os.environ.get("WARDEN_STACK_CODE_MAX_BYTES", str(20 * 1024 * 1024)))
 SOURCE_CONTEXT_LINES = 3
@@ -99,7 +98,7 @@ def _names(alert: Alert, key: str) -> list[str]:
 
 
 def _suffix(name: str, several: bool) -> str:
-    return f"__{name.removeprefix(NAME_PREFIX)}" if several else ""
+    return f"__{strip_prefix(name)}" if several else ""
 
 
 def _z(dt: datetime | None) -> str:

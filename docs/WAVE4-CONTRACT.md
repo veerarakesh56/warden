@@ -1,5 +1,7 @@
 # Wave 4 - interface contract between the stack backend, the report and the harness
 
+> **Names changed 2026-09-27 (v2 Phase 1.5).** This record describes the Wave 4 run as it happened, with the names of the time: `warden-pg-fs-*` and tag `Project=warden-fullstack`. The stack is now per environment: `warden-<env>-*`, tagged `Project=warden` + `Environment=<env>` (`terraform/fullstack/README.md`).
+
 Companion to `docs/WAVE4-FULLSTACK.md`. Four parts are built separately against this file; if code
 and this file disagree, fix one of them in the same commit.
 

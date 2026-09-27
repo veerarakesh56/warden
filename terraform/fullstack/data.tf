@@ -3,7 +3,7 @@
 # ⛔ AURORA IS NOT HERE (changed 2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints"). The
 # account is on the AWS Free plan, which only creates Aurora clusters in EXPRESS configuration, and
 # the AWS provider cannot create one. `aurora_express.py create` (this directory, the INFRA
-# pipeline) creates cluster warden-pg-fs-aurora after `terraform apply`; `destroy` removes it
+# pipeline) creates cluster warden-dev-aurora after `terraform apply`; `destroy` removes it
 # before `terraform destroy`. Express clusters take IAM database authentication only: there are no
 # database passwords anywhere in this stack.
 #

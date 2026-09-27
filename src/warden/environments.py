@@ -183,6 +183,15 @@ class EnvNames:
     tags: dict[str, str]
 
 
+def strip_prefix(name: str) -> str:
+    """`warden-<env>-checkout` -> `checkout` for any configured environment; other names unchanged.
+    Longest environment first, so `warden-qa-staging-x` is not read as environment `qa`."""
+    for env in sorted(default_environment_policies().known_environments, key=len, reverse=True):
+        if name.startswith(f"warden-{env}-"):
+            return name[len(f"warden-{env}-"):]
+    return name
+
+
 def names(env: str) -> EnvNames:
     """The names for `env`, which must be a configured environment. Unlike for_env(), an unknown name
     RAISES here: the policy side fails closed to `default`, but a typo must never become an AWS name."""

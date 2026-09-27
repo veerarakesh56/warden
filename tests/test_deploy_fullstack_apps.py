@@ -16,23 +16,23 @@ spec.loader.exec_module(tool)
 
 STACK = {
     "region": "ap-south-2",
-    "lambda_functions": {"checkout": "warden-pg-fs-checkout", "notifier": "warden-pg-fs-notifier"},
+    "lambda_functions": {"checkout": "warden-dev-checkout", "notifier": "warden-dev-notifier"},
     "checkout_alias": "live",
-    "ecr_repository_url": "111122223333.dkr.ecr.ap-south-2.amazonaws.com/warden-pg-fs-app",
-    "ecs_task_family": "warden-pg-fs-orders-api",
-    "ecs_execution_role_arn": "arn:aws:iam::111122223333:role/warden-pg-fs-ecs-exec",
-    "ecs_log_group": "/ecs/warden-pg-fs-orders-api",
-    "ecs_cluster": "warden-pg-fs-ecs",
-    "ecs_service": "warden-pg-fs-orders-api",
-    "db_app_secret_arn": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-pg-fs-db-app-AbC",
-    "db_app_secret_name": "warden-pg-fs-db-app",
-    "db_name": "shop",
+    "ecr_repository_url": "111122223333.dkr.ecr.ap-south-2.amazonaws.com/warden-dev-app",
+    "ecs_task_family": "warden-dev-orders-api",
+    "ecs_execution_role_arn": "arn:aws:iam::111122223333:role/warden-dev-ecs-exec",
+    "ecs_log_group": "/ecs/warden-dev-orders-api",
+    "ecs_cluster": "warden-dev-ecs",
+    "ecs_service": "warden-dev-orders-api",
+    "db_app_secret_arn": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-dev-db-app-AbC",
+    "db_app_secret_name": "warden-dev-db-app",
+    "db_name": "shop", "environment": "dev",
     "db_master_username": "postgres",
-    "ecs_task_role_arn": "arn:aws:iam::111122223333:role/warden-pg-fs-orders-api-task",
+    "ecs_task_role_arn": "arn:aws:iam::111122223333:role/warden-dev-orders-api-task",
     "redis_primary_endpoint": "redis.internal",
     "aurora_writer_endpoint": "writer.internal",
     "aurora_reader_endpoint": "reader.internal",
-    "eks_cluster_name": "warden-pg-fs-eks",
+    "eks_cluster_name": "warden-dev-eks",
 }
 
 
@@ -95,7 +95,7 @@ def test_deploy_lambdas_publishes_and_moves_the_alias_for_checkout_only(tmp_path
     assert done == {"checkout": "7", "notifier": "$LATEST"}
     names = [c[0] for c in clients["lambda"].calls]
     assert names.count("update_function_code") == 2 and names.count("publish_version") == 1
-    assert ("update_alias", {"FunctionName": "warden-pg-fs-checkout", "Name": "live", "FunctionVersion": "7"}) \
+    assert ("update_alias", {"FunctionName": "warden-dev-checkout", "Name": "live", "FunctionVersion": "7"}) \
         in clients["lambda"].calls
 
 
@@ -128,7 +128,7 @@ def test_ecs_task_definition_logs_in_with_the_task_role_and_still_resolves_a_sec
     assert c["secrets"] == [{"name": "DB_USER", "valueFrom": STACK["db_app_secret_arn"] + ":username::"}]
     assert "PASSWORD" not in json.dumps(td)
     assert {"name": "ALLOC_MB", "value": "0"} in c["environment"]
-    assert c["logConfiguration"]["options"]["awslogs-group"] == "/ecs/warden-pg-fs-orders-api"
+    assert c["logConfiguration"]["options"]["awslogs-group"] == "/ecs/warden-dev-orders-api"
 
 
 def test_deploy_ecs_logs_in_over_stdin_and_updates_the_service():
@@ -143,7 +143,7 @@ def test_deploy_ecs_logs_in_over_stdin_and_updates_the_service():
     assert all("ecr-pw-SENTINEL" not in " ".join(c) for c in run.cmds)
     assert "ecr-pw-SENTINEL" in run.inputs
     assert ["docker", "push", STACK["ecr_repository_url"] + ":abc123"] in run.cmds
-    assert ("update_service", {"cluster": "warden-pg-fs-ecs", "service": "warden-pg-fs-orders-api",
+    assert ("update_service", {"cluster": "warden-dev-ecs", "service": "warden-dev-orders-api",
                                "taskDefinition": "arn:td:9"}) in clients["ecs"].calls
 
 

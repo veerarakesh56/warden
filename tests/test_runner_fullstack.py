@@ -53,7 +53,7 @@ def fake_env(events: list, *, alarm_state="ALARM", verdict="approved_for_human",
     env = cli.dry_env()
     clock = Clock()
     commands = [{"kind": "shell", "source": "runbook", "command":
-                 "aws events enable-rule --name warden-pg-fs-reconcile-5m --region ap-south-2"}] \
+                 "aws events enable-rule --name warden-dev-reconcile-5m --region ap-south-2"}] \
         if commands is None else commands
 
     injected = {"on": firing_before}
@@ -336,7 +336,7 @@ def test_warden_gets_only_the_reader_identity(tmp_path, monkeypatch):
     assert got["WARDEN_PROVIDER"] == "claude_cli", "the provider is the operator's choice"
     assert got["WARDEN_KNOWLEDGE_IN_PROMPT"] == "1"
     rec = _record(tmp_path, "fs-27")
-    assert "warden-pg-fs-reader" in rec["runs"][0]["assumed_role_arn"]
+    assert "warden-dev-reader" in rec["runs"][0]["assumed_role_arn"]
     assert rec["runs"][0]["arm"] == {"WARDEN_KNOWLEDGE_IN_PROMPT": "1"}
 
 
@@ -402,7 +402,7 @@ def test_soak_gives_up_at_its_maximum(tmp_path):
 
 def test_watch_reports_a_delayed_effect(tmp_path):
     clock = Clock()
-    states = iter([[], [], ["warden-pg-fs-orders-dlq holds 3 message(s)"]])
+    states = iter([[], [], ["warden-dev-orders-dlq holds 3 message(s)"]])
     env = dataclasses.replace(fake_env([], alarm_state="OK"), sleep=clock.sleep, clock=clock,
                               baseline=lambda: next(states, []))
     assert cli.step_watch(env, tmp_path, minutes=5, every_s=60) is False
@@ -457,15 +457,15 @@ def test_the_generic_runner_refuses_wave_4_and_points_at_the_operator_cli():
 
 
 def test_stack_description_accepts_terraform_output_json(tmp_path):
-    raw = {k: {"value": f"warden-pg-fs-{k}", "sensitive": False, "type": "string"}
+    raw = {k: {"value": f"warden-dev-{k}", "sensitive": False, "type": "string"}
            for k in cli.STACK_KEYS["required"]}
-    raw["checkout_role"] = {"value": "warden-pg-fs-checkout-role"}
+    raw["checkout_role"] = {"value": "warden-dev-checkout-role"}
     path = tmp_path / "stack.json"
     path.write_text(json.dumps(raw))
     stack = cli.load_stack(path)
     t = cli.target_from_stack(stack)
-    assert t.writer_endpoint == "warden-pg-fs-aurora_writer_endpoint"
-    assert t.checkout_role == "warden-pg-fs-checkout-role"
+    assert t.writer_endpoint == "warden-dev-aurora_writer_endpoint"
+    assert t.checkout_role == "warden-dev-checkout-role"
     del raw["reader_role_arn"]
     path.write_text(json.dumps(raw))
     with pytest.raises(cli.StepError, match="reader_role_arn"):
@@ -522,23 +522,23 @@ def test_warden_ro_tokens_are_signed_with_the_assumed_reader_role_never_the_oper
         made.append((service, kw))
         return Rds()
 
-    t = fs.Target(writer_endpoint="warden-pg-fs-aurora.cluster-x",
-                  reader_endpoint="warden-pg-fs-aurora.cluster-ro-x")
+    t = fs.Target(writer_endpoint="warden-dev-aurora.cluster-x",
+                  reader_endpoint="warden-dev-aurora.cluster-ro-x")
     creds = {"AccessKeyId": "ASIAREADER", "SecretAccessKey": "s", "SessionToken": "tok"}
     d = cli.warden_dsns(creds, t, 5432, make_client)
     assert made == [("rds", {"region_name": "ap-south-2", "aws_access_key_id": "ASIAREADER",
                              "aws_secret_access_key": "s", "aws_session_token": "tok"})]
     assert d["WARDEN_STACK_DB_READER_DSN"].startswith(
-        "postgresql://warden_ro:warden-pg-fs-aurora.cluster-ro-x%3A5432%2F%3FAction%3Dconnect%26DBUser%3Dwarden_ro")
-    assert d["WARDEN_STACK_DB_READER_DSN"].endswith("@warden-pg-fs-aurora.cluster-ro-x:5432/shop?sslmode=require")
-    assert "@warden-pg-fs-aurora.cluster-x:5432/shop" in d["WARDEN_STACK_DB_WRITER_DSN"]
+        "postgresql://warden_ro:warden-dev-aurora.cluster-ro-x%3A5432%2F%3FAction%3Dconnect%26DBUser%3Dwarden_ro")
+    assert d["WARDEN_STACK_DB_READER_DSN"].endswith("@warden-dev-aurora.cluster-ro-x:5432/shop?sslmode=require")
+    assert "@warden-dev-aurora.cluster-x:5432/shop" in d["WARDEN_STACK_DB_WRITER_DSN"]
 
 
 def test_the_stack_file_supplies_the_writer_instance_express_chose():
     stack = {"aurora_writer_endpoint": "w", "aurora_reader_endpoint": "r", "redis_security_group_id": "sg-1",
-             "aurora_writer_instance": "warden-pg-fs-aurora-instance-1"}
-    assert cli.target_from_stack(stack).writer_instance == "warden-pg-fs-aurora-instance-1"
-    assert cli.target_from_stack({**stack, "aurora_writer_instance": ""}).writer_instance == "warden-pg-fs-aurora-1"
+             "aurora_writer_instance": "warden-dev-aurora-instance-1"}
+    assert cli.target_from_stack(stack).writer_instance == "warden-dev-aurora-instance-1"
+    assert cli.target_from_stack({**stack, "aurora_writer_instance": ""}).writer_instance == "warden-dev-aurora-1"
 
 
 def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatch):
@@ -547,12 +547,12 @@ def test_the_stack_kubeconfig_loads_through_the_real_client(tmp_path, monkeypatc
     kube = pytest.importorskip("kubernetes")
     cfg = tmp_path / "kubeconfig"
     cfg.write_text(
-        "apiVersion: v1\nkind: Config\ncurrent-context: warden-pg-fs-eks\n"
+        "apiVersion: v1\nkind: Config\ncurrent-context: warden-dev-eks\n"
         "clusters:\n- name: c\n  cluster: {server: 'https://example.invalid'}\n"
         "users:\n- name: u\n  user: {token: fake}\n"
-        "contexts:\n- name: warden-pg-fs-eks\n  context: {cluster: c, user: u}\n", encoding="utf-8")
+        "contexts:\n- name: warden-dev-eks\n  context: {cluster: c, user: u}\n", encoding="utf-8")
     monkeypatch.delenv("KUBECONFIG", raising=False)
-    assert cli.load_kubeconfig(kube.config, default=cfg) == "warden-pg-fs-eks"
+    assert cli.load_kubeconfig(kube.config, default=cfg) == "warden-dev-eks"
     # kubectl subprocesses (mint_kubeconfig) must use the same file, not ~/.kube/config.
     assert os.environ["KUBECONFIG"] == str(cfg)
     monkeypatch.setenv("KUBECONFIG", str(tmp_path / "missing"))

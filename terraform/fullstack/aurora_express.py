@@ -14,9 +14,9 @@ and the AWS provider (6.66.0, and main) cannot set it. Express configuration mea
     rds_iam. Tokens come from generate_db_auth_token and need rds-db:connect;
   - the default engine version and parameter group, an AWS-owned encryption key, no RDS Proxy.
 
-create    creates cluster warden-pg-fs-aurora (database shop, tag Project=warden-fullstack), sets
-          Serverless v2 to 0.5-2 ACU, adds reader warden-pg-fs-aurora-2 (promotion tier 1, another
-          AZ than the writer), writes the endpoints into the metadata secret warden-pg-fs-db-app and
+create    creates cluster warden-dev-aurora (database shop, tag Project=warden), sets
+          Serverless v2 to 0.5-2 ACU, adds reader warden-dev-aurora-2 (promotion tier 1, another
+          AZ than the writer), writes the endpoints into the metadata secret warden-dev-db-app and
           merges the Aurora keys into stack.json. A second run on an existing cluster changes
           nothing and refreshes both.
 status    prints what exists. Exit 0 when the cluster is available, 1 otherwise.
@@ -28,19 +28,22 @@ Standard library + boto3 only: the infra pipeline must not depend on WARDEN or t
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import pathlib
 import sys
 import time
 
-PREFIX = "warden-pg-fs-"
+# ponytail: the benchmark stack runs in one environment per process (dev unless WARDEN_ENV says).
+ENV = os.environ.get("WARDEN_ENV", "dev")
+PREFIX = f"warden-{ENV}-"
 CLUSTER = PREFIX + "aurora"
 SECRET = PREFIX + "db-app"
 DB_NAME = "shop"
 MASTER_USER = "postgres"   # express configuration's master user; it cannot be chosen
 APP_USER = "app"
 PORT = 5432
-TAGS = [{"Key": "Project", "Value": "warden-fullstack"}, {"Key": "ManagedBy", "Value": "aurora_express.py"},
+TAGS = [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": ENV}, {"Key": "ManagedBy", "Value": "aurora_express.py"},
         {"Key": "Lifecycle", "Value": "ephemeral"}]
 ACU = {"MinCapacity": 0.5, "MaxCapacity": 2.0}
 DEFAULT_STACK = pathlib.Path.home() / "warden-fullstack-build" / "stack.json"

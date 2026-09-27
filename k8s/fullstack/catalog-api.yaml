@@ -1,5 +1,5 @@
 # catalog-api's identity. EKS Pod Identity (terraform/fullstack/eks.tf, association shop/catalog-api)
-# gives its pods role warden-pg-fs-catalog-pod, whose one grant is rds-db:connect as database user
+# gives its pods role warden-dev-catalog-pod, whose one grant is rds-db:connect as database user
 # catalog. No Kubernetes API token is mounted: the Pod Identity agent injects its own.
 apiVersion: v1
 kind: ServiceAccount
@@ -7,7 +7,7 @@ metadata:
   name: catalog-api
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 automountServiceAccountToken: false
 ---
 apiVersion: apps/v1
@@ -17,7 +17,7 @@ metadata:
   namespace: shop
   labels:
     app: catalog-api
-    project: warden-fullstack
+    project: warden
 spec:
   replicas: 2
   selector:
@@ -44,7 +44,7 @@ spec:
         instrumentation.opentelemetry.io/inject-dotnet: "false"
       labels:
         app: catalog-api
-        project: warden-fullstack
+        project: warden
     spec:
       serviceAccountName: catalog-api
       automountServiceAccountToken: false
@@ -112,7 +112,7 @@ metadata:
   name: catalog-api
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 spec:
   selector:
     app: catalog-api
@@ -127,7 +127,7 @@ metadata:
   name: catalog-api
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -149,7 +149,7 @@ metadata:
   name: catalog-api
   namespace: shop
   labels:
-    project: warden-fullstack
+    project: warden
 spec:
   minAvailable: 1
   selector:

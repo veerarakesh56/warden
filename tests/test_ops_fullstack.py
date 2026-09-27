@@ -17,7 +17,7 @@ from scenarios import ops_fullstack as fs
 from scenarios.ops import OpError
 
 ROOT_ARN = "arn:aws:iam::111122223333:root"
-TAGGED = {"Project": "warden-fullstack"}
+TAGGED = {"Project": "warden", "Environment": "dev"}
 
 
 # =========================================================================== the fake stack
@@ -31,48 +31,48 @@ class World:
             fn: {"Timeout": 10, "Environment": {"Variables": dict(env)}, "LastUpdateStatus": "Successful",
                  "FunctionArn": f"arn:aws:lambda:ap-south-2:111122223333:function:{fn}"}
             for fn, env in {
-                "warden-pg-fs-checkout": {"TABLE_NAME": "warden-pg-fs-carts", "CHECKOUT_PAYLOAD_SCHEMA": "v1",
+                "warden-dev-checkout": {"TABLE_NAME": "warden-dev-carts", "CHECKOUT_PAYLOAD_SCHEMA": "v1",
                                           "DDB_EXTRA_LATENCY_MS": "0"},
-                "warden-pg-fs-order-processor": {"DB_HOST": "warden-pg-fs-aurora.cluster-x.rds.amazonaws.com"},
-                "warden-pg-fs-reconciler": {"RECONCILE_LOOKUP": "by_id"},
-                "warden-pg-fs-notifier": {}, "warden-pg-fs-ops": {},
+                "warden-dev-order-processor": {"DB_HOST": "warden-dev-aurora.cluster-x.rds.amazonaws.com"},
+                "warden-dev-reconciler": {"RECONCILE_LOOKUP": "by_id"},
+                "warden-dev-notifier": {}, "warden-dev-ops": {},
             }.items()}
         self.tags = {fn: dict(TAGGED) for fn in self.lambdas}
-        self.alias = {"warden-pg-fs-checkout": "7"}
-        self.versions: dict[str, dict] = {"7": copy.deepcopy(self.lambdas["warden-pg-fs-checkout"])}
+        self.alias = {"warden-dev-checkout": "7"}
+        self.versions: dict[str, dict] = {"7": copy.deepcopy(self.lambdas["warden-dev-checkout"])}
         self.concurrency: dict[str, int] = {}
         self.esm = {"uuid-orders": {"State": "Enabled",
-                                    "EventSourceArn": "arn:aws:sqs:ap-south-2:111122223333:warden-pg-fs-orders"}}
+                                    "EventSourceArn": "arn:aws:sqs:ap-south-2:111122223333:warden-dev-orders"}}
         self.iam = {
-            "warden-pg-fs-checkout": {"inline": {"Version": "2012-10-17", "Statement": [
+            "warden-dev-checkout": {"inline": {"Version": "2012-10-17", "Statement": [
                 {"Sid": "WriteCarts", "Effect": "Allow", "Action": ["dynamodb:PutItem"],
-                 "Resource": "arn:aws:dynamodb:ap-south-2:111122223333:table/warden-pg-fs-carts"},
+                 "Resource": "arn:aws:dynamodb:ap-south-2:111122223333:table/warden-dev-carts"},
                 {"Sid": "Publish", "Effect": "Allow", "Action": ["sns:Publish"],
-                 "Resource": "arn:aws:sns:ap-south-2:111122223333:warden-pg-fs-order-events"}]}},
-            "warden-pg-fs-ecs-exec": {"secrets": {"Version": "2012-10-17", "Statement": [
+                 "Resource": "arn:aws:sns:ap-south-2:111122223333:warden-dev-order-events"}]}},
+            "warden-dev-ecs-exec": {"secrets": {"Version": "2012-10-17", "Statement": [
                 {"Effect": "Allow", "Action": "secretsmanager:GetSecretValue",
-                 "Resource": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-pg-fs-db-app"}]}},
-            "warden-pg-fs-orders-api-task": {"warden-pg-fs-db-connect": {"Version": "2012-10-17", "Statement": [
+                 "Resource": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-dev-db-app"}]}},
+            "warden-dev-orders-api-task": {"warden-dev-db-connect": {"Version": "2012-10-17", "Statement": [
                 {"Sid": "ConnectAsApp", "Effect": "Allow", "Action": ["rds-db:connect"],
                  "Resource": ["arn:aws:rds-db:ap-south-2:111122223333:dbuser:*/app"]}]}},
         }
         self.queues = {
-            "warden-pg-fs-orders": {"visible": 0, "Policy": None},
-            "warden-pg-fs-orders-dlq": {"visible": 0, "Policy": None},
-            "warden-pg-fs-notifications": {"visible": 0, "Policy": json.dumps({"Statement": [{
+            "warden-dev-orders": {"visible": 0, "Policy": None},
+            "warden-dev-orders-dlq": {"visible": 0, "Policy": None},
+            "warden-dev-notifications": {"visible": 0, "Policy": json.dumps({"Statement": [{
                 "Effect": "Allow", "Principal": {"Service": "sns.amazonaws.com"}, "Action": "sqs:SendMessage",
-                "Condition": {"ArnEquals": {"aws:SourceArn": "arn:aws:sns:ap-south-2:111122223333:warden-pg-fs-order-events"}}}]})},
+                "Condition": {"ArnEquals": {"aws:SourceArn": "arn:aws:sns:ap-south-2:111122223333:warden-dev-order-events"}}}]})},
         }
         self.table = {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
         self.sg_rules = [{"IpProtocol": "tcp", "FromPort": 6379, "ToPort": 6379,
                           "UserIdGroupPairs": [{"GroupId": "sg-app1"}]}]
-        self.sg_name = "warden-pg-fs-redis"
+        self.sg_name = "warden-dev-redis"
         self.redis_node_type = "cache.t4g.micro"
         self.redis_status = "available"
         self.redis_used = 10
-        self.writer = "warden-pg-fs-aurora-1"
-        self.ecs_td = "arn:aws:ecs:ap-south-2:111122223333:task-definition/warden-pg-fs-orders-api:3"
-        self.tds = {self.ecs_td: {"family": "warden-pg-fs-orders-api", "cpu": "512", "memory": "1024",
+        self.writer = "warden-dev-aurora-1"
+        self.ecs_td = "arn:aws:ecs:ap-south-2:111122223333:task-definition/warden-dev-orders-api:3"
+        self.tds = {self.ecs_td: {"family": "warden-dev-orders-api", "cpu": "512", "memory": "1024",
                                   "containerDefinitions": [{"name": "orders-api", "image": "ecr/app:v1",
                                                             "environment": [{"name": "ALLOC_MB", "value": "0"}]}]}}
         self.forced = 0
@@ -81,7 +81,7 @@ class World:
         self.indexes = {"orders_customer_id_idx": "CREATE INDEX orders_customer_id_idx ON public.orders USING btree (customer_id)"}
         self.held_apps: list[str] = []
         self.rule = "ENABLED"
-        self.ns_labels = {"project": "warden-fullstack"}
+        self.ns_labels = {"project": "warden", "environment": "dev"}
         self.configmap = {"CATALOG_PAGE_SIZE": "20", "OTHER": "x"}
         self.k8s_secret = {"API_TOKEN": "dG9r", "UNUSED": "eA=="}
         self.deployments = {
@@ -152,7 +152,7 @@ class Lam:
         self.w.concurrency.pop(FunctionName, None)
 
     def list_event_source_mappings(self, FunctionName):
-        if FunctionName != "warden-pg-fs-order-processor":
+        if FunctionName != "warden-dev-order-processor":
             return {"EventSourceMappings": []}
         return {"EventSourceMappings": [{"UUID": k, **v} for k, v in self.w.esm.items()]}
 
@@ -174,7 +174,7 @@ class Iam:
         self.w = w
 
     def list_role_tags(self, RoleName):
-        return {"Tags": [{"Key": "Project", "Value": "warden-fullstack"}]}
+        return {"Tags": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}
 
     def list_role_policies(self, RoleName):
         return {"PolicyNames": list(self.w.iam[RoleName])}
@@ -218,7 +218,7 @@ class Sqs:
 
     def send_message(self, QueueUrl, MessageBody):
         self._q(QueueUrl)["visible"] += 1
-        self.w.queues["warden-pg-fs-orders-dlq"]["visible"] += 1  # dead-lettered at once, for the fake
+        self.w.queues["warden-dev-orders-dlq"]["visible"] += 1  # dead-lettered at once, for the fake
 
     def purge_queue(self, QueueUrl):
         self._q(QueueUrl)["visible"] = 0
@@ -233,7 +233,7 @@ class Ddb:
                           "TableStatus": "ACTIVE", "ProvisionedThroughput": dict(self.w.table)}}
 
     def list_tags_of_resource(self, ResourceArn):
-        return {"Tags": [{"Key": "Project", "Value": "warden-fullstack"}]}
+        return {"Tags": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}
 
     def update_table(self, TableName, ProvisionedThroughput):
         self.w.table = dict(ProvisionedThroughput)
@@ -245,7 +245,7 @@ class Ec2:
 
     def describe_security_groups(self, GroupIds):
         return {"SecurityGroups": [{"GroupName": self.w.sg_name, "IpPermissions": copy.deepcopy(self.w.sg_rules),
-                                    "Tags": [{"Key": "Project", "Value": "warden-fullstack"}]}]}
+                                    "Tags": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}]}
 
     def revoke_security_group_ingress(self, GroupId, IpPermissions):
         gone = {(p.get("IpProtocol"), p.get("FromPort"), p.get("ToPort"), g["GroupId"])
@@ -278,7 +278,7 @@ class ElastiCache:
         return {"CacheClusters": [{"CacheNodeType": self.w.redis_node_type}]}
 
     def list_tags_for_resource(self, ResourceName):
-        return {"TagList": [{"Key": "Project", "Value": "warden-fullstack"}]}
+        return {"TagList": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}
 
     def modify_replication_group(self, ReplicationGroupId, CacheNodeType, ApplyImmediately):
         self.w.redis_node_type = CacheNodeType
@@ -290,9 +290,9 @@ class Rds:
 
     def describe_db_clusters(self, DBClusterIdentifier):
         members = [{"DBInstanceIdentifier": i, "IsClusterWriter": i == self.w.writer}
-                   for i in ("warden-pg-fs-aurora-1", "warden-pg-fs-aurora-2")]
+                   for i in ("warden-dev-aurora-1", "warden-dev-aurora-2")]
         return {"DBClusters": [{"Status": "available", "DBClusterMembers": members,
-                                "TagList": [{"Key": "Project", "Value": "warden-fullstack"}]}]}
+                                "TagList": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}]}
 
     def describe_db_instances(self, DBInstanceIdentifier):
         return {"DBInstances": [{"Endpoint": {"Address": DBInstanceIdentifier + ".x.rds.amazonaws.com"}}]}
@@ -308,7 +308,7 @@ class Ecs:
     def describe_services(self, cluster, services, include=None):
         return {"services": [{"taskDefinition": self.w.ecs_td, "desiredCount": 2, "runningCount": 2,
                               "pendingCount": 0, "deployments": [{"rolloutState": "COMPLETED"}],
-                              "tags": [{"key": "Project", "value": "warden-fullstack"}]}]}
+                              "tags": [{"key": "Project", "value": "warden"}, {"key": "Environment", "value": "dev"}]}]}
 
     def describe_task_definition(self, taskDefinition):
         return {"taskDefinition": copy.deepcopy(self.w.tds[taskDefinition])}
@@ -329,11 +329,11 @@ class Elb:
         self.w = w
 
     def describe_target_groups(self, Names):
-        return {"TargetGroups": [{"TargetGroupArn": "arn:aws:elasticloadbalancing:ap-south-2:111122223333:targetgroup/warden-pg-fs-orders/abc",
+        return {"TargetGroups": [{"TargetGroupArn": "arn:aws:elasticloadbalancing:ap-south-2:111122223333:targetgroup/warden-dev-orders/abc",
                                   "HealthCheckPath": self.w.tg_path}]}
 
     def describe_tags(self, ResourceArns):
-        return {"TagDescriptions": [{"Tags": [{"Key": "Project", "Value": "warden-fullstack"}]}]}
+        return {"TagDescriptions": [{"Tags": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}]}
 
     def modify_target_group(self, TargetGroupArn, HealthCheckPath):
         self.w.tg_path = HealthCheckPath
@@ -351,7 +351,7 @@ class Events:
         return {"State": self.w.rule, "Arn": "arn:aws:events:ap-south-2:111122223333:rule/" + Name}
 
     def list_tags_for_resource(self, ResourceARN):
-        return {"Tags": [{"Key": "Project", "Value": "warden-fullstack"}]}
+        return {"Tags": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}
 
     def disable_rule(self, Name):
         self.w.rule = "DISABLED"
@@ -365,7 +365,7 @@ class Secrets:
         self.w = w
 
     def describe_secret(self, SecretId):
-        return {"Tags": [{"Key": "Project", "Value": "warden-fullstack"}]}
+        return {"Tags": [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"}]}
 
     def get_secret_value(self, SecretId):
         return {"SecretString": self.w.secret}
@@ -498,8 +498,8 @@ def make(w: World | None = None, cw: dict | None = None):
                    elbv2=Elb(w), iam=Iam(w), events=Events(w), secrets=Secrets(w), cw=Cw(cw),
                    apps=Apps(w), core=Core(w), sql=lambda **kw: Conn(w, log),
                    sql_reader=lambda **kw: Conn(w, log))
-    t = fs.Target(writer_endpoint="warden-pg-fs-aurora.cluster-x.rds.amazonaws.com",
-                  reader_endpoint="warden-pg-fs-aurora.cluster-ro-x.rds.amazonaws.com",
+    t = fs.Target(writer_endpoint="warden-dev-aurora.cluster-x.rds.amazonaws.com",
+                  reader_endpoint="warden-dev-aurora.cluster-ro-x.rds.amazonaws.com",
                   redis_sg_id="sg-redis", ecs_baseline_td=w.ecs_td, sleep=lambda _s: None)
 
     def spawn(fid):
@@ -585,8 +585,8 @@ def test_a_revert_with_nothing_saved_touches_nothing():
 def test_checkout_config_faults_are_real_deploys_on_the_alias():
     w, c, t = make()
     fs.FAULTS["fs-02"].inject(c, t)
-    live = w.versions[w.alias["warden-pg-fs-checkout"]]
-    assert w.alias["warden-pg-fs-checkout"] != "7"
+    live = w.versions[w.alias["warden-dev-checkout"]]
+    assert w.alias["warden-dev-checkout"] != "7"
     assert live["Timeout"] == 1
     assert live["Environment"]["Variables"]["DDB_EXTRA_LATENCY_MS"] == "2000"
 
@@ -594,25 +594,25 @@ def test_checkout_config_faults_are_real_deploys_on_the_alias():
 def test_failover_records_the_original_writer_and_fails_back():
     w, c, t = make()
     fs.FAULTS["fs-15"].inject(c, t)
-    assert w.writer == "warden-pg-fs-aurora-2"
-    assert w.lambdas["warden-pg-fs-order-processor"]["Environment"]["Variables"]["DB_HOST"].startswith(
-        "warden-pg-fs-aurora-1.")
+    assert w.writer == "warden-dev-aurora-2"
+    assert w.lambdas["warden-dev-order-processor"]["Environment"]["Variables"]["DB_HOST"].startswith(
+        "warden-dev-aurora-1.")
     fs.FAULTS["fs-15"].revert(c, t)
-    assert w.writer == "warden-pg-fs-aurora-1"
+    assert w.writer == "warden-dev-aurora-1"
 
 
 def test_iam_auth_revoke_removes_the_task_roles_db_login_and_the_revert_puts_it_back():
     """fs-21 (db_iam_auth_revoked): the task role's only policy grants only rds-db:connect, so the
     policy goes (IAM refuses an empty one); a deployment is forced both ways."""
     w, c, t = make()
-    before = copy.deepcopy(w.iam["warden-pg-fs-orders-api-task"])
+    before = copy.deepcopy(w.iam["warden-dev-orders-api-task"])
     assert fs.check_baseline(c, t, ["ecs"]) == []
     fs.FAULTS["fs-21"].inject(c, t)
-    assert w.iam["warden-pg-fs-orders-api-task"] == {} and w.forced == 1
-    assert "warden-pg-fs-orders-api-task no longer grants rds-db:connect" in fs.check_baseline(c, t, ["ecs"])
-    assert w.iam["warden-pg-fs-ecs-exec"], "the execution role is fs-18's, not this fault's"
+    assert w.iam["warden-dev-orders-api-task"] == {} and w.forced == 1
+    assert "warden-dev-orders-api-task no longer grants rds-db:connect" in fs.check_baseline(c, t, ["ecs"])
+    assert w.iam["warden-dev-ecs-exec"], "the execution role is fs-18's, not this fault's"
     fs.FAULTS["fs-21"].revert(c, t)
-    assert w.iam["warden-pg-fs-orders-api-task"] == before and w.forced == 2
+    assert w.iam["warden-dev-orders-api-task"] == before and w.forced == 2
     assert "fs-21" not in t.saved
 
 
@@ -622,7 +622,7 @@ def test_an_iam_revert_removes_the_policy_a_fix_added():
     w, c, t = make()
     before = copy.deepcopy(w.iam)
     fs.FAULTS["fs-21"].inject(c, t)
-    w.iam["warden-pg-fs-orders-api-task"]["warden-restore-rds-db-connect"] = {"Statement": [{"Action": "rds-db:connect"}]}
+    w.iam["warden-dev-orders-api-task"]["warden-restore-rds-db-connect"] = {"Statement": [{"Action": "rds-db:connect"}]}
     out = fs.FAULTS["fs-21"].revert(c, t)
     assert out["removed_extra"] == ["warden-restore-rds-db-connect"]
     assert w.iam == before
@@ -632,12 +632,12 @@ def test_an_empty_db_host_is_the_processors_baseline():
     """Terraform cannot know the Aurora endpoints (express configuration): DB_HOST "" means the code
     uses the metadata secret's host. fs-14 / fs-15 set it; their reverts put "" back."""
     w, c, t = make()
-    w.lambdas["warden-pg-fs-order-processor"]["Environment"]["Variables"]["DB_HOST"] = ""
+    w.lambdas["warden-dev-order-processor"]["Environment"]["Variables"]["DB_HOST"] = ""
     assert fs.check_baseline(c, t, ["processor"]) == []
     fs.FAULTS["fs-14"].inject(c, t)
     assert fs.check_baseline(c, t, ["processor"])
     fs.FAULTS["fs-14"].revert(c, t)
-    assert w.lambdas["warden-pg-fs-order-processor"]["Environment"]["Variables"]["DB_HOST"] == ""
+    assert w.lambdas["warden-dev-order-processor"]["Environment"]["Variables"]["DB_HOST"] == ""
 
 
 def test_the_slow_query_index_is_recreated_concurrently_from_its_own_definition():
@@ -698,7 +698,7 @@ def test_the_redis_filler_goes_through_the_ops_lambda_and_is_flushed():
 
 def test_an_untagged_lambda_is_refused():
     w, c, t = make()
-    w.tags["warden-pg-fs-checkout"] = {}
+    w.tags["warden-dev-checkout"] = {}
     with pytest.raises(OpError, match="not tagged"):
         fs.FAULTS["fs-03"].inject(c, t)
     assert w.concurrency == {}
@@ -706,16 +706,28 @@ def test_an_untagged_lambda_is_refused():
 
 def test_a_lambda_tagged_for_another_project_is_refused():
     w, c, t = make()
-    w.tags["warden-pg-fs-checkout"] = {"Project": "warden-proving-ground"}
+    w.tags["warden-dev-checkout"] = {"Project": "warden-proving-ground"}
     with pytest.raises(OpError):
         fs.FAULTS["fs-01"].inject(c, t)
-    assert w.alias["warden-pg-fs-checkout"] == "7"
+    assert w.alias["warden-dev-checkout"] == "7"
+
+
+def test_a_resource_of_another_environment_is_refused():
+    """Phase 1.5: Project=warden is not enough - the Environment tag must be this run's too."""
+    w, c, t = make()
+    w.tags["warden-dev-checkout"] = {"Project": "warden", "Environment": "prod"}
+    with pytest.raises(OpError, match="Environment"):
+        fs.FAULTS["fs-03"].inject(c, t)
+    assert w.concurrency == {}
+    w.ns_labels = {"project": "warden", "environment": "prod"}
+    with pytest.raises(OpError, match="not labelled"):
+        fs.FAULTS["fs-22"].inject(c, t)
 
 
 def test_an_unprefixed_resource_is_refused_even_when_tagged():
     w, c, t = make()
     t.checkout = "checkout"
-    w.lambdas["checkout"] = copy.deepcopy(w.lambdas["warden-pg-fs-checkout"])
+    w.lambdas["checkout"] = copy.deepcopy(w.lambdas["warden-dev-checkout"])
     w.lambdas["checkout"]["FunctionArn"] = "arn:aws:lambda:ap-south-2:111122223333:function:checkout"
     w.tags["checkout"] = dict(TAGGED)
     with pytest.raises(OpError, match="not named"):
@@ -791,22 +803,22 @@ S = "shell"
 R = "--region ap-south-2"
 
 ALLOWED = [
-    f"aws lambda update-alias --function-name warden-pg-fs-checkout --name live --function-version 7 {R}",
-    f"aws lambda put-function-concurrency --function-name warden-pg-fs-checkout --reserved-concurrent-executions 50 {R}",
-    f"aws lambda update-function-configuration --function-name warden-pg-fs-checkout --timeout 10 {R}",
-    f"aws lambda update-function-configuration --function-name warden-pg-fs-order-processor --environment Variables={{DB_HOST=warden-pg-fs-aurora.cluster-x.rds.amazonaws.com}} {R}",
+    f"aws lambda update-alias --function-name warden-dev-checkout --name live --function-version 7 {R}",
+    f"aws lambda put-function-concurrency --function-name warden-dev-checkout --reserved-concurrent-executions 50 {R}",
+    f"aws lambda update-function-configuration --function-name warden-dev-checkout --timeout 10 {R}",
+    f"aws lambda update-function-configuration --function-name warden-dev-order-processor --environment Variables={{DB_HOST=warden-dev-aurora.cluster-x.rds.amazonaws.com}} {R}",
     f"aws lambda update-event-source-mapping --uuid uuid-orders --enabled {R}",
-    f"aws dynamodb update-table --table-name warden-pg-fs-carts --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 {R}",
-    f"aws ecs update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api --force-new-deployment {R}",
-    f"aws ecs update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api --task-definition warden-pg-fs-orders-api:3 {R}",
-    f"aws elbv2 modify-target-group --target-group-arn arn:aws:elasticloadbalancing:ap-south-2:111122223333:targetgroup/warden-pg-fs-orders/abc --health-check-path /health {R}",
-    f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R}",
-    f"aws sqs set-queue-attributes --queue-url https://sqs.ap-south-2.amazonaws.com/111122223333/warden-pg-fs-notifications --attributes file-free {R}",
-    f"aws sqs start-message-move-task --source-arn arn:aws:sqs:ap-south-2:111122223333:warden-pg-fs-orders-dlq {R}",
-    f"aws rds failover-db-cluster --db-cluster-identifier warden-pg-fs-aurora --target-db-instance-identifier warden-pg-fs-aurora-1 {R}",
+    f"aws dynamodb update-table --table-name warden-dev-carts --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 {R}",
+    f"aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api --force-new-deployment {R}",
+    f"aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api --task-definition warden-dev-orders-api:3 {R}",
+    f"aws elbv2 modify-target-group --target-group-arn arn:aws:elasticloadbalancing:ap-south-2:111122223333:targetgroup/warden-dev-orders/abc --health-check-path /health {R}",
+    f"aws events enable-rule --name warden-dev-reconcile-5m {R}",
+    f"aws sqs set-queue-attributes --queue-url https://sqs.ap-south-2.amazonaws.com/111122223333/warden-dev-notifications --attributes file-free {R}",
+    f"aws sqs start-message-move-task --source-arn arn:aws:sqs:ap-south-2:111122223333:warden-dev-orders-dlq {R}",
+    f"aws rds failover-db-cluster --db-cluster-identifier warden-dev-aurora --target-db-instance-identifier warden-dev-aurora-1 {R}",
     f"aws ec2 authorize-security-group-ingress --group-id sg-redis --protocol tcp --port 6379 --source-group sg-app1 {R}",
-    "aws --region ap-south-2 events enable-rule --name warden-pg-fs-reconcile-5m",
-    "aws --region=ap-south-2 lambda update-alias --function-name warden-pg-fs-checkout --name live --function-version 7",
+    "aws --region ap-south-2 events enable-rule --name warden-dev-reconcile-5m",
+    "aws --region=ap-south-2 lambda update-alias --function-name warden-dev-checkout --name live --function-version 7",
     "kubectl -n shop rollout undo deployment/catalog-api",
     "kubectl -n shop rollout restart deployment catalog-api",
     "kubectl --namespace shop set image deployment/catalog-api catalog-api=ecr/app:v1",
@@ -815,10 +827,10 @@ ALLOWED = [
     "kubectl -n shop patch configmap catalog-config --type merge -p '{\"data\":{\"CATALOG_PAGE_SIZE\":\"20\"}}'",
     "kubectl -n shop apply -f -\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: catalog-config\ndata:\n  CATALOG_PAGE_SIZE: \"20\"\n",
 ]
-IAM_OK = ("aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name inline "
+IAM_OK = ("aws iam put-role-policy --role-name warden-dev-checkout --policy-name inline "
           "--policy-document '" + json.dumps({"Version": "2012-10-17", "Statement": [{
               "Effect": "Allow", "Action": ["dynamodb:PutItem"],
-              "Resource": "arn:aws:dynamodb:ap-south-2:111122223333:table/warden-pg-fs-carts"}]}) + f"' {R}")
+              "Resource": "arn:aws:dynamodb:ap-south-2:111122223333:table/warden-dev-carts"}]}) + f"' {R}")
 
 
 
@@ -829,62 +841,62 @@ def _db_grant(role: str, resource: str, action: str = "rds-db:connect") -> str:
 
 
 # fs-21's fix: rds-db:connect is scoped by DATABASE USER (the cluster id in the ARN is masked: `*`).
-DB_GRANT_OK = _db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/app")
+DB_GRANT_OK = _db_grant("warden-dev-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/app")
 
 STACK_IDS = frozenset({"uuid-orders", "sg-redis", "sg-app1"})
 
 REJECTED = [
     # shell injection, in every shape
-    (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R}; rm -rf /", "metacharacter"),
-    (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R} && curl evil", "metacharacter"),
-    (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R} | sh", "metacharacter"),
+    (f"aws events enable-rule --name warden-dev-reconcile-5m {R}; rm -rf /", "metacharacter"),
+    (f"aws events enable-rule --name warden-dev-reconcile-5m {R} && curl evil", "metacharacter"),
+    (f"aws events enable-rule --name warden-dev-reconcile-5m {R} | sh", "metacharacter"),
     (f"aws events enable-rule --name $(whoami) {R}", "not an aws read"),
     (f"aws events enable-rule --name `id` {R}", "metacharacter"),
-    (f"aws events enable-rule --name warden-pg-fs-x {R} > /tmp/x", "metacharacter"),
-    (f"aws events enable-rule --name warden-pg-fs-x {R} < /etc/passwd", "metacharacter"),
-    (f"aws events enable-rule --name warden-pg-fs-x {R}\naws iam create-user --user-name x", "metacharacter"),
-    (f"aws lambda update-function-configuration --function-name warden-pg-fs-checkout --environment Variables={{A=$HOME}} {R}", "metacharacter"),
+    (f"aws events enable-rule --name warden-dev-x {R} > /tmp/x", "metacharacter"),
+    (f"aws events enable-rule --name warden-dev-x {R} < /etc/passwd", "metacharacter"),
+    (f"aws events enable-rule --name warden-dev-x {R}\naws iam create-user --user-name x", "metacharacter"),
+    (f"aws lambda update-function-configuration --function-name warden-dev-checkout --environment Variables={{A=$HOME}} {R}", "metacharacter"),
     # delete / not a listed verb / not a listed service
-    (f"aws dynamodb delete-table --table-name warden-pg-fs-carts {R}", "delete"),
-    (f"aws lambda delete-function-concurrency --function-name warden-pg-fs-checkout {R}", "delete"),
-    (f"aws s3 rm s3://warden-pg-fs-bucket --recursive {R}", "not an allowed"),
-    (f"aws iam create-access-key --user-name warden-pg-fs-x {R}", "not an allowed"),
-    (f"aws iam attach-role-policy --role-name warden-pg-fs-checkout --policy-arn arn:aws:iam::aws:policy/AdministratorAccess {R}", "not an allowed"),
-    (f"aws lambda invoke --function-name warden-pg-fs-ops out.json {R}", "not an allowed"),
-    (f"aws rds reboot-db-instance --db-instance-identifier warden-pg-fs-aurora-1 {R}", "not an allowed"),
+    (f"aws dynamodb delete-table --table-name warden-dev-carts {R}", "delete"),
+    (f"aws lambda delete-function-concurrency --function-name warden-dev-checkout {R}", "delete"),
+    (f"aws s3 rm s3://warden-dev-bucket --recursive {R}", "not an allowed"),
+    (f"aws iam create-access-key --user-name warden-dev-x {R}", "not an allowed"),
+    (f"aws iam attach-role-policy --role-name warden-dev-checkout --policy-arn arn:aws:iam::aws:policy/AdministratorAccess {R}", "not an allowed"),
+    (f"aws lambda invoke --function-name warden-dev-ops out.json {R}", "not an allowed"),
+    (f"aws rds reboot-db-instance --db-instance-identifier warden-dev-aurora-1 {R}", "not an allowed"),
     # outside the stack
-    (f"aws events enable-rule --name prod-reconcile {R}", "not a warden-pg-fs-"),
-    (f"aws lambda update-alias --function-name checkout --name live --function-version 3 {R}", "not a warden-pg-fs-"),
-    (f"aws lambda update-alias --function-name arn:aws:lambda:ap-south-2:111122223333:function:prod-checkout --name live --function-version 3 {R}", "not a warden-pg-fs-"),
-    (f"aws ec2 authorize-security-group-ingress --group-id sg-prod --protocol tcp --port 22 {R}", "not a warden-pg-fs-"),
+    (f"aws events enable-rule --name prod-reconcile {R}", "not a warden-dev-"),
+    (f"aws lambda update-alias --function-name checkout --name live --function-version 3 {R}", "not a warden-dev-"),
+    (f"aws lambda update-alias --function-name arn:aws:lambda:ap-south-2:111122223333:function:prod-checkout --name live --function-version 3 {R}", "not a warden-dev-"),
+    (f"aws ec2 authorize-security-group-ingress --group-id sg-prod --protocol tcp --port 22 {R}", "not a warden-dev-"),
     (f"aws ec2 authorize-security-group-ingress --group-id sg-redis --protocol tcp --port 6379 --cidr 0.0.0.0/0 {R}", "internet"),
-    (f"aws lambda update-event-source-mapping --uuid not-ours --enabled {R}", "not a warden-pg-fs-"),
-    (f"aws sqs set-queue-attributes --queue-url https://sqs.ap-south-2.amazonaws.com/111122223333/prod-q --attributes x {R}", "not a warden-pg-fs-"),
-    (f"aws ecs update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api --task-definition arn:aws:ecs:ap-south-2:111122223333:task-definition/prod-api:1 {R}", "not a warden-pg-fs-"),
-    (f"aws lambda update-function-configuration --function-name warden-pg-fs-checkout --role arn:aws:iam::111122223333:role/admin {R}", "not a warden-pg-fs-"),
+    (f"aws lambda update-event-source-mapping --uuid not-ours --enabled {R}", "not a warden-dev-"),
+    (f"aws sqs set-queue-attributes --queue-url https://sqs.ap-south-2.amazonaws.com/111122223333/prod-q --attributes x {R}", "not a warden-dev-"),
+    (f"aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api --task-definition arn:aws:ecs:ap-south-2:111122223333:task-definition/prod-api:1 {R}", "not a warden-dev-"),
+    (f"aws lambda update-function-configuration --function-name warden-dev-checkout --role arn:aws:iam::111122223333:role/admin {R}", "not a warden-dev-"),
     (f"aws dynamodb update-table --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 {R}", "names no"),
     # region and credential tricks
-    ("aws events enable-rule --name warden-pg-fs-reconcile-5m", "--region"),
-    ("aws events enable-rule --name warden-pg-fs-reconcile-5m --region us-east-1", "--region"),
-    (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R} --region us-east-1", "--region"),
-    (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R} --profile admin", "--profile"),
-    (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R} --endpoint-url http://evil", "--endpoint-url"),
-    (f"aws lambda update-function-configuration --function-name warden-pg-fs-checkout --cli-input-json file://x.json {R}", "--cli-input-json"),
+    ("aws events enable-rule --name warden-dev-reconcile-5m", "--region"),
+    ("aws events enable-rule --name warden-dev-reconcile-5m --region us-east-1", "--region"),
+    (f"aws events enable-rule --name warden-dev-reconcile-5m {R} --region us-east-1", "--region"),
+    (f"aws events enable-rule --name warden-dev-reconcile-5m {R} --profile admin", "--profile"),
+    (f"aws events enable-rule --name warden-dev-reconcile-5m {R} --endpoint-url http://evil", "--endpoint-url"),
+    (f"aws lambda update-function-configuration --function-name warden-dev-checkout --cli-input-json file://x.json {R}", "--cli-input-json"),
     # ⛔ Phase 0 (2026-09-27): no IAM at all - every grant is refused before its content is read,
     # including the ones this allow-list used to accept.
-    (f"aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name p --policy-document file://p.json {R}", "local file"),
+    (f"aws iam put-role-policy --role-name warden-dev-checkout --policy-name p --policy-document file://p.json {R}", "local file"),
     (f"aws iam put-role-policy --role-name admin --policy-name p --policy-document '{{}}' {R}", "not an allowed"),
-    ("aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name p --policy-document '"
+    ("aws iam put-role-policy --role-name warden-dev-checkout --policy-name p --policy-document '"
      + json.dumps({"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}) + f"' {R}", "not an allowed"),
     (IAM_OK, "not an allowed"),
     (DB_GRANT_OK, "not an allowed"),
-    (_db_grant("warden-pg-fs-catalog-pod", "arn:aws:rds-db:ap-south-2:*:dbuser:*/catalog"), "not an allowed"),
+    (_db_grant("warden-dev-catalog-pod", "arn:aws:rds-db:ap-south-2:*:dbuser:*/catalog"), "not an allowed"),
     # ⛔ secret material is never written by a fix
     ("kubectl -n shop apply -f -\napiVersion: v1\nkind: Secret\nmetadata:\n  name: catalog-secret\ndata:\n  A: eA==\n",
      "kind 'Secret' is not allowed"),
     ("kubectl -n shop patch secret catalog-secret --type merge -p '{\"data\":{}}'", "'secret' is not allowed"),
     # ⛔ irreversible: every message destroyed
-    (f"aws sqs purge-queue --queue-url https://sqs.ap-south-2.amazonaws.com/111122223333/warden-pg-fs-orders-dlq {R}", "not an allowed"),
+    (f"aws sqs purge-queue --queue-url https://sqs.ap-south-2.amazonaws.com/111122223333/warden-dev-orders-dlq {R}", "not an allowed"),
     # other programs
     ("bash -c 'aws events enable-rule'", "not an allowed program"),
     ("curl http://169.254.169.254/latest/meta-data/", "not an allowed program"),

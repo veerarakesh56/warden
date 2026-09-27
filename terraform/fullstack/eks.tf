@@ -37,7 +37,7 @@ resource "aws_eks_cluster" "this" {
     subnet_ids              = aws_subnet.public[*].id
     endpoint_public_access  = true
     endpoint_private_access = true # ⛔ see the header
-    public_access_cidrs     = coalesce(var.eks_public_access_cidrs, [var.my_ip_cidr])
+    public_access_cidrs     = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
   }
 
   access_config {
@@ -140,7 +140,7 @@ resource "aws_eks_addon" "this" {
     kube-proxy     = null
     coredns        = null
     metrics-server = null
-    # EKS Pod Identity: catalog-api's pods get the warden-pg-fs-catalog-pod role (below).
+    # EKS Pod Identity: catalog-api's pods get the warden-dev-catalog-pod role (below).
     eks-pod-identity-agent = null
     # Pod-level metrics for the shop alarms; container log shipping off (it is billed per GB and
     # WARDEN reads pod logs through the Kubernetes API anyway).

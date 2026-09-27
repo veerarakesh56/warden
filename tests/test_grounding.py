@@ -26,8 +26,8 @@ CTX = ContextBundle(
     recent_deploys=[{"sha": "9f2c1ab", "service": "checkout"}],
 )
 # The Wave 4 alert's labels, as the stack backend received them (2026-09-26).
-LABELS = {"app": "shop", "lambda": "warden-pg-fs-checkout,warden-pg-fs-notifier",
-          "dynamodb_table": "warden-pg-fs-carts"}
+LABELS = {"app": "shop", "lambda": "warden-dev-checkout,warden-dev-notifier",
+          "dynamodb_table": "warden-dev-carts"}
 
 
 def _alert(**kw):
@@ -87,17 +87,17 @@ def test_handing_to_a_human_needs_no_citation():
 
 def test_the_fs03_hallucinated_function_is_rejected():
     """Live, 2026-09-26: `scale_up lambda:shop-prod-checkout` - no such function; it is
-    warden-pg-fs-checkout. The same proposal against the real name passes P14."""
+    warden-dev-checkout. The same proposal against the real name passes P14."""
     v = _verdict(GOOD, target="lambda:shop-prod-checkout (reserved concurrency)", action=ActionKind.scale_up)
     assert v.status is VerdictStatus.rejected and "P14-TARGET-NOT-IN-EVIDENCE" in v.policy_ids
-    ok = _verdict(GOOD, target="lambda:warden-pg-fs-checkout (version 7 -> 6)")
+    ok = _verdict(GOOD, target="lambda:warden-dev-checkout (version 7 -> 6)")
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in ok.policy_ids
 
 
 def test_a_real_name_does_not_carry_an_invented_one():
-    v = _verdict(GOOD, target="warden-pg-fs-checkout and warden-pg-fs-orders-db")
+    v = _verdict(GOOD, target="warden-dev-checkout and warden-dev-orders-db")
     assert "P14-TARGET-NOT-IN-EVIDENCE" in v.policy_ids
-    assert any("warden-pg-fs-orders-db" in r for r in v.reasons)
+    assert any("warden-dev-orders-db" in r for r in v.reasons)
 
 
 def test_a_name_only_a_log_line_mentions_is_not_inventory():

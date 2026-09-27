@@ -3,8 +3,8 @@
 The same four rules as `ops.py`, `ops_k8s.py` and `ops_db.py`:
 
   1. ⛔ NOTHING OUTSIDE THE PROVING GROUND. Before the FIRST write to any resource, `_guard` checks
-     that it is named `warden-pg-fs-*` AND that the service's own tag API says
-     `Project=warden-fullstack` (Kubernetes: the namespace label `project=warden-fullstack`, because
+     that it is named `warden-dev-*` AND that the service's own tag API says
+     `Project=warden` (Kubernetes: the namespace label `project=warden`, because
      `catalog-api` is not a prefixed name). Either check alone is too weak.
   2. ⛔ EVERY INJECT HAS A REVERT, and the revert restores the EXACT prior state captured before the
      first write (alias version, timeout, SG rules, queue policy JSON, capacity, task definition ARN,
@@ -30,6 +30,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
+import os
 import re
 import secrets
 import shlex
@@ -43,9 +44,11 @@ import yaml
 from .ops import OpError
 from .ops_k8s import _to_dict
 
-PREFIX = "warden-pg-fs-"
-PROJECT_TAG = ("Project", "warden-fullstack")
-K8S_LABEL = ("project", "warden-fullstack")
+# ponytail: the benchmark runs one environment per process - dev unless WARDEN_ENV says otherwise.
+ENV = os.environ.get("WARDEN_ENV", "dev")
+PREFIX = f"warden-{ENV}-"
+REQUIRED_TAGS = {"Project": "warden", "Environment": ENV}
+K8S_LABELS = {"project": "warden", "environment": ENV}
 REGION = "ap-south-2"
 HOLD_APP_PREFIX = "warden-bench-hold-"
 
@@ -67,38 +70,38 @@ class Target:
     from the stack description file (fullstack_cli.load_stack)."""
 
     region: str = REGION
-    checkout: str = "warden-pg-fs-checkout"
-    processor: str = "warden-pg-fs-order-processor"
-    notifier: str = "warden-pg-fs-notifier"
-    reconciler: str = "warden-pg-fs-reconciler"
-    ops_fn: str = "warden-pg-fs-ops"
+    checkout: str = "warden-dev-checkout"
+    processor: str = "warden-dev-order-processor"
+    notifier: str = "warden-dev-notifier"
+    reconciler: str = "warden-dev-reconciler"
+    ops_fn: str = "warden-dev-ops"
     alias: str = "live"
-    orders_queue: str = "warden-pg-fs-orders"
-    orders_dlq: str = "warden-pg-fs-orders-dlq"
-    notifications_queue: str = "warden-pg-fs-notifications"
-    topic: str = "warden-pg-fs-order-events"
-    table: str = "warden-pg-fs-carts"
+    orders_queue: str = "warden-dev-orders"
+    orders_dlq: str = "warden-dev-orders-dlq"
+    notifications_queue: str = "warden-dev-notifications"
+    topic: str = "warden-dev-order-events"
+    table: str = "warden-dev-carts"
     table_rcu: int = 5
     table_wcu: int = 5
-    redis_group: str = "warden-pg-fs-redis"
+    redis_group: str = "warden-dev-redis"
     redis_sg_id: str = ""
-    aurora_cluster: str = "warden-pg-fs-aurora"
-    writer_instance: str = "warden-pg-fs-aurora-1"
-    reader_instance: str = "warden-pg-fs-aurora-2"
+    aurora_cluster: str = "warden-dev-aurora"
+    writer_instance: str = "warden-dev-aurora-1"
+    reader_instance: str = "warden-dev-aurora-2"
     writer_endpoint: str = ""     # cluster writer endpoint (what the processor's DB_HOST must be)
     reader_endpoint: str = ""     # cluster reader endpoint
     database: str = "shop"
     orders_sql_table: str = "orders"
     slow_index: str = "orders_customer_id_idx"
-    checkout_role: str = "warden-pg-fs-checkout"
-    ecs_cluster: str = "warden-pg-fs-ecs"
-    ecs_service: str = "warden-pg-fs-orders-api"
-    ecs_exec_role: str = "warden-pg-fs-ecs-exec"
-    ecs_task_role: str = "warden-pg-fs-orders-api-task"   # signs orders-api's IAM DB tokens (fs-21)
+    checkout_role: str = "warden-dev-checkout"
+    ecs_cluster: str = "warden-dev-ecs"
+    ecs_service: str = "warden-dev-orders-api"
+    ecs_exec_role: str = "warden-dev-ecs-exec"
+    ecs_task_role: str = "warden-dev-orders-api-task"   # signs orders-api's IAM DB tokens (fs-21)
     ecs_baseline_td: str = ""
-    target_group: str = "warden-pg-fs-orders"
+    target_group: str = "warden-dev-orders"
     health_path: str = "/health"
-    rule: str = "warden-pg-fs-reconcile-5m"
+    rule: str = "warden-dev-reconcile-5m"
     namespace: str = "shop"
     catalog: str = "catalog-api"
     cart_worker: str = "cart-worker"
@@ -194,7 +197,8 @@ def _tags_of(c: Clients, t: Target, kind: str, name: str) -> tuple[str, dict[str
 
 
 def _guard(c: Clients, t: Target, kind: str, name: str) -> None:
-    """Refuse unless the resource is named warden-pg-fs-* AND tagged Project=warden-fullstack.
+    """Refuse unless the resource is named warden-<env>-* AND tagged Project=warden AND
+    Environment=<env> (v2 Phase 1.5: one environment can never touch another's resources).
 
     ⛔ Never relax this. Checked once per resource per process, before the first write."""
     key = (kind, name)
@@ -203,8 +207,9 @@ def _guard(c: Clients, t: Target, kind: str, name: str) -> None:
     if kind == "k8s":
         ns = _to_dict(c.core.read_namespace(name=name))
         labels = (ns.get("metadata") or {}).get("labels") or {}
-        if labels.get(K8S_LABEL[0]) != K8S_LABEL[1]:
-            raise OpError(f"namespace {name!r} is not labelled {K8S_LABEL[0]}={K8S_LABEL[1]}. Refusing.")
+        wrong = {k: v for k, v in K8S_LABELS.items() if labels.get(k) != v}
+        if wrong:
+            raise OpError(f"namespace {name!r} is not labelled {wrong}. Refusing.")
         c._guarded.add(key)
         return
     try:
@@ -215,8 +220,9 @@ def _guard(c: Clients, t: Target, kind: str, name: str) -> None:
         raise OpError(f"cannot read the tags of {kind} {name!r}: {type(exc).__name__}") from exc
     if not real.startswith(PREFIX):
         raise OpError(f"{kind} {real!r} is not named {PREFIX}*. Refusing.")
-    if tags.get(PROJECT_TAG[0]) != PROJECT_TAG[1]:
-        raise OpError(f"{kind} {real!r} is not tagged {PROJECT_TAG[0]}={PROJECT_TAG[1]}. Refusing.")
+    wrong = {k: v for k, v in REQUIRED_TAGS.items() if tags.get(k) != v}
+    if wrong:
+        raise OpError(f"{kind} {real!r} is not tagged {wrong}. Refusing.")
     c._guarded.add(key)
 
 
@@ -1644,7 +1650,7 @@ AWS_ONLY_FLAGS: dict[tuple[str, str], dict[str, re.Pattern[str] | None]] = {
     },
 }
 _SG_ID = re.compile(r"\bsg-[0-9a-zA-Z]+\b")
-# Flags whose value names a resource: it must be a warden-pg-fs-* name/ARN/URL or a known stack id.
+# Flags whose value names a resource: it must be a warden-dev-* name/ARN/URL or a known stack id.
 IDENT_FLAGS = frozenset({
     "--function-name", "--table-name", "--cluster", "--service", "--queue-url", "--role-name",
     "--target-group-arn", "--db-cluster-identifier", "--target-db-instance-identifier",
@@ -1695,7 +1701,7 @@ _SQL_BANNED = re.compile(
 
 
 def _names_stack(value: str, stack_ids: frozenset[str]) -> bool:
-    """Is this identifier a warden-pg-fs-* resource (a name, an ARN, a queue URL) or a stack id?"""
+    """Is this identifier a warden-dev-* resource (a name, an ARN, a queue URL) or a stack id?"""
     if value in stack_ids:
         return True
     if value.startswith("arn:"):
@@ -1907,7 +1913,7 @@ def _check_sql(sql: str) -> str | None:
 # --------------------------------------------------------------------------- nested read-only lookups
 #
 # The report masks account ids, ARNs and UUIDs, so a fix that must name one prints a lookup instead:
-#     --uuid "$(aws lambda list-event-source-mappings --function-name warden-pg-fs-x ... --output text --region ap-south-2)"
+#     --uuid "$(aws lambda list-event-source-mappings --function-name warden-dev-x ... --output text --region ap-south-2)"
 # The harness runs such a lookup ONLY if it is itself one read-only aws call on a stack resource,
 # and substitutes its output ONLY if that output is one plain token. The command, with the value in
 # place, then goes through the same allow-list as any other.

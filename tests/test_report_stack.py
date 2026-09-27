@@ -33,22 +33,22 @@ def _report(fid: str | None, action=ActionKind.rollback_deploy, context=None):
 
 @pytest.mark.parametrize("fid,action,platform,fix", [
     ("fs-01", ActionKind.rollback_deploy, "lambda",
-     "aws lambda update-alias --function-name warden-pg-fs-checkout --name live --function-version 6 --region ap-south-2"),
+     "aws lambda update-alias --function-name warden-dev-checkout --name live --function-version 6 --region ap-south-2"),
     ("fs-03", ActionKind.scale_up, "lambda",
-     ("aws lambda put-function-concurrency --function-name warden-pg-fs-checkout --reserved-concurrent-executions 4 "
+     ("aws lambda put-function-concurrency --function-name warden-dev-checkout --reserved-concurrent-executions 4 "
      "--region ap-south-2")),
     ("fs-09", ActionKind.scale_up, "dynamodb",
-     ("aws dynamodb update-table --table-name warden-pg-fs-carts --provisioned-throughput "
+     ("aws dynamodb update-table --table-name warden-dev-carts --provisioned-throughput "
      "ReadCapacityUnits=1,WriteCapacityUnits=3 --region ap-south-2")),
     ("fs-21", ActionKind.restart_pods, "ecs",
-     ("aws ecs update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api --force-new-deployment "
+     ("aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api --force-new-deployment "
      "--region ap-south-2")),
     ("fs-17", ActionKind.rollback_deploy, "ecs",
-     ("aws ecs update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api --task-definition "
-     "warden-pg-fs-orders-api:11 --region ap-south-2")),
+     ("aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api --task-definition "
+     "warden-dev-orders-api:11 --region ap-south-2")),
     ("fs-15", ActionKind.failover_replica, "aurora",
-     ("aws rds failover-db-cluster --db-cluster-identifier warden-pg-fs-aurora --target-db-instance-identifier "
-     "warden-pg-fs-aurora-1 --region ap-south-2")),
+     ("aws rds failover-db-cluster --db-cluster-identifier warden-dev-aurora --target-db-instance-identifier "
+     "warden-dev-aurora-1 --region ap-south-2")),
     ("fs-26", ActionKind.rollback_deploy, "kubernetes", "kubectl -n shop rollout undo deploy/catalog-api"),
 ])
 def test_the_runbook_acts_on_the_component_the_evidence_names(fid, action, platform, fix):
@@ -60,17 +60,17 @@ def test_the_runbook_acts_on_the_component_the_evidence_names(fid, action, platf
 
 def test_rollback_and_scale_undo_return_to_the_values_in_the_evidence():
     rb = build_runbook(alert(), ActionKind.rollback_deploy, backend="stack", context=FAULTS["fs-01"][1])
-    assert rb.undo == [("aws lambda update-alias --function-name warden-pg-fs-checkout --name live "
+    assert rb.undo == [("aws lambda update-alias --function-name warden-dev-checkout --name live "
                        "--function-version 7 --region ap-south-2")]
     rb = build_runbook(alert(), ActionKind.scale_up, backend="stack", context=FAULTS["fs-09"][1])
-    assert rb.undo == [("aws dynamodb update-table --table-name warden-pg-fs-carts --provisioned-throughput "
+    assert rb.undo == [("aws dynamodb update-table --table-name warden-dev-carts --provisioned-throughput "
                        "ReadCapacityUnits=1,WriteCapacityUnits=1 --region ap-south-2")]
     rb = build_runbook(alert(), ActionKind.failover_replica, backend="stack", context=FAULTS["fs-15"][1])
-    assert rb.undo[0].endswith("--target-db-instance-identifier warden-pg-fs-aurora-2 --region ap-south-2")
+    assert rb.undo[0].endswith("--target-db-instance-identifier warden-dev-aurora-2 --region ap-south-2")
 
 
 def test_an_aurora_failover_with_no_single_named_reader_prints_no_command():
-    c = ctx(["CLUSTER aurora warden-pg-fs-aurora writer=warden-pg-fs-aurora-1 readers=[] status=available"])
+    c = ctx(["CLUSTER aurora warden-dev-aurora writer=warden-dev-aurora-1 readers=[] status=available"])
     rb = build_runbook(alert(), ActionKind.failover_replica, backend="stack", context=c)
     assert rb.platform == "aurora" and rb.fix == [] and "exactly one reader" in rb.note
 
@@ -135,7 +135,7 @@ def test_with_no_proposal_the_patterns_still_carry_their_fix():
     r = build_report(alert(), context=FAULTS["fs-27"][1], backend="stack", show_identifiers=False)
     assert r.data["fix_commands"] == []  # no proposal, no verdict: nothing is approved
     assert r.data["pattern_suggestions"] == [{"kind": "shell", "source": "pattern:schedule_off",
-                                       "command": "aws events enable-rule --name warden-pg-fs-reconcile-5m "
+                                       "command": "aws events enable-rule --name warden-dev-reconcile-5m "
                                                   "--region ap-south-2"}]
 
 
@@ -168,20 +168,20 @@ def test_the_report_shows_the_code_level_finding():
     assert "**`app.py:42`** in `handler`: `KeyError: 'sku'`" in section
     assert "```python\n40 | def handler(event, context):" in section
     assert "42 >|     sku = body['sku']" in section
-    assert "start at `app.py:42` in `handler` (warden-pg-fs-checkout)" in section
+    assert "start at `app.py:42` in `handler` (warden-dev-checkout)" in section
     assert _report("fs-01").data["code"][0]["line"] == 42
 
 
 def test_what_warden_read_lists_each_component_and_each_failed_reader():
-    c = ctx(tool_errors=["sqs/warden-pg-fs-orders: AccessDenied on GetQueueAttributes"])
+    c = ctx(tool_errors=["sqs/warden-dev-orders: AccessDenied on GetQueueAttributes"])
     md = _report(None, ActionKind.escalate_to_human, context=c).markdown
     section = md[md.index("## What WARDEN read"):md.index("## What WARDEN thinks")]
     assert "alert time ± 15 min" in section and "alert time ± 10 min" in section
     for reader in ("lambda", "dynamodb", "elasticache", "aurora", "alb", "apigw", "ecs", "k8s", "secret", "sns",
                    "eventbridge"):
         assert f"- {reader} `" in section and "read." in section, reader
-    assert "- sqs `warden-pg-fs-orders,warden-pg-fs-notifications`" in section
-    assert "**FAILED**: `sqs/warden-pg-fs-orders: AccessDenied on GetQueueAttributes`" in section
+    assert "- sqs `warden-dev-orders,warden-dev-notifications`" in section
+    assert "**FAILED**: `sqs/warden-dev-orders: AccessDenied on GetQueueAttributes`" in section
     assert "Not read: Redis itself" in section
 
 
@@ -199,10 +199,10 @@ def test_a_healthy_stack_gets_no_runbook_commands_and_says_so():
 
 
 def test_a_failover_with_two_readers_named_is_not_aimed_by_guesswork():
-    c = ctx([("CLUSTER aurora warden-pg-fs-aurora writer=warden-pg-fs-aurora-1 "
-             "readers=[warden-pg-fs-aurora-2,warden-pg-fs-aurora-3] status=available")])
+    c = ctx([("CLUSTER aurora warden-dev-aurora writer=warden-dev-aurora-1 "
+             "readers=[warden-dev-aurora-2,warden-dev-aurora-3] status=available")])
     rb = build_runbook(alert(), ActionKind.failover_replica, backend="stack", context=c)
-    assert rb.fix == [] and "warden-pg-fs-aurora-2, warden-pg-fs-aurora-3" in rb.note
+    assert rb.fix == [] and "warden-dev-aurora-2, warden-dev-aurora-3" in rb.note
 
 
 def test_shell_arithmetic_on_a_step_variable_is_never_a_fix_command():
@@ -210,7 +210,7 @@ def test_shell_arithmetic_on_a_step_variable_is_never_a_fix_command():
     from warden.reporting import _fix_commands
     got = _fix_commands(["kubectl -n shop scale deploy/x --replicas=$((CUR+1))",
                          ('aws lambda update-event-source-mapping --uuid "$(aws lambda list-event-source-mappings '
-                          '--function-name warden-pg-fs-x --query X --output text --region ap-south-2)" --enabled '
+                          '--function-name warden-dev-x --query X --output text --region ap-south-2)" --enabled '
                           '--region ap-south-2')], "runbook")
     assert [g["command"][:7] for g in got] == ["aws lam"], got
 

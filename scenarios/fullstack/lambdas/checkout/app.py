@@ -1,4 +1,4 @@
-"""warden-pg-fs-checkout - behind API Gateway (POST /checkout, GET /health), alias `live`.
+"""warden-dev-checkout - behind API Gateway (POST /checkout, GET /health), alias `live`.
 
 Validates the order JSON, writes it to DynamoDB (TABLE_NAME), publishes an order event to SNS.
 

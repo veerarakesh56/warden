@@ -28,28 +28,28 @@ REGION = "ap-south-2"
 
 LABELS = {
     "app": "shop",
-    "lambda": "warden-pg-fs-checkout,warden-pg-fs-order-processor,warden-pg-fs-notifier,warden-pg-fs-reconciler",
-    "sqs": "warden-pg-fs-orders,warden-pg-fs-notifications", "dynamodb_table": "warden-pg-fs-carts",
-    "elasticache": "warden-pg-fs-redis", "aurora_cluster": "warden-pg-fs-aurora",
-    "alb_target_group": "warden-pg-fs-orders", "apigw": "warden-pg-fs-api", "ecs_cluster": "warden-pg-fs-ecs",
-    "ecs_service": "warden-pg-fs-orders-api", "namespace": "shop", "deployment": "catalog-api,cart-worker",
-    "secret": "warden-pg-fs-db-app", "sns_topic": "warden-pg-fs-order-events",
-    "eventbridge_rule": "warden-pg-fs-reconcile-5m,warden-pg-fs-traffic-1m",
+    "lambda": "warden-dev-checkout,warden-dev-order-processor,warden-dev-notifier,warden-dev-reconciler",
+    "sqs": "warden-dev-orders,warden-dev-notifications", "dynamodb_table": "warden-dev-carts",
+    "elasticache": "warden-dev-redis", "aurora_cluster": "warden-dev-aurora",
+    "alb_target_group": "warden-dev-orders", "apigw": "warden-dev-api", "ecs_cluster": "warden-dev-ecs",
+    "ecs_service": "warden-dev-orders-api", "namespace": "shop", "deployment": "catalog-api,cart-worker",
+    "secret": "warden-dev-db-app", "sns_topic": "warden-dev-order-events",
+    "eventbridge_rule": "warden-dev-reconcile-5m,warden-dev-traffic-1m",
 }
 
 BASE_LOGS = [
-    "CONFIG lambda warden-pg-fs-checkout timeout=10s memory=256MB env=[TABLE_NAME,REDIS_HOST] version=6 alias_live=6",
-    "CONFIG lambda warden-pg-fs-order-processor timeout=30s memory=256MB env=[DB_HOST,DB_SECRET] version=3",
-    "ESM warden-pg-fs-order-processor <- warden-pg-fs-orders State=Enabled BatchSize=5 LastProcessingResult=OK",
-    "QUEUE warden-pg-fs-orders visible=0 in_flight=1 dlq=warden-pg-fs-orders-dlq dlq_visible=0 max_receive=3",
-    "POLICY sqs warden-pg-fs-notifications allows_sns_topic=warden-pg-fs-order-events:yes",
-    "TABLE warden-pg-fs-carts billing=PROVISIONED rcu=5 wcu=5 status=ACTIVE",
-    "CLUSTER aurora warden-pg-fs-aurora writer=warden-pg-fs-aurora-1 readers=[warden-pg-fs-aurora-2] status=available",
-    "TARGETGROUP warden-pg-fs-orders health_path=/health port=traffic-port matcher=200",
-    "RULE warden-pg-fs-reconcile-5m State=ENABLED schedule=rate(5 minutes)",
-    "RULE warden-pg-fs-traffic-1m State=ENABLED schedule=rate(1 minute)",
-    f'LOG ecs/warden-pg-fs-orders-api {TS} 10.42.0.7 - "GET /health HTTP/1.1" 200 2',
-    f"LOG lambda/warden-pg-fs-checkout {TS} START RequestId: 1 Version: 6",
+    "CONFIG lambda warden-dev-checkout timeout=10s memory=256MB env=[TABLE_NAME,REDIS_HOST] version=6 alias_live=6",
+    "CONFIG lambda warden-dev-order-processor timeout=30s memory=256MB env=[DB_HOST,DB_SECRET] version=3",
+    "ESM warden-dev-order-processor <- warden-dev-orders State=Enabled BatchSize=5 LastProcessingResult=OK",
+    "QUEUE warden-dev-orders visible=0 in_flight=1 dlq=warden-dev-orders-dlq dlq_visible=0 max_receive=3",
+    "POLICY sqs warden-dev-notifications allows_sns_topic=warden-dev-order-events:yes",
+    "TABLE warden-dev-carts billing=PROVISIONED rcu=5 wcu=5 status=ACTIVE",
+    "CLUSTER aurora warden-dev-aurora writer=warden-dev-aurora-1 readers=[warden-dev-aurora-2] status=available",
+    "TARGETGROUP warden-dev-orders health_path=/health port=traffic-port matcher=200",
+    "RULE warden-dev-reconcile-5m State=ENABLED schedule=rate(5 minutes)",
+    "RULE warden-dev-traffic-1m State=ENABLED schedule=rate(1 minute)",
+    f'LOG ecs/warden-dev-orders-api {TS} 10.42.0.7 - "GET /health HTTP/1.1" 200 2',
+    f"LOG lambda/warden-dev-checkout {TS} START RequestId: 1 Version: 6",
     "LOG k8s/shop/catalog-api ROLLOUT revision 3 (current): app:v3 created 2026-09-26T09:40:00Z",
     "LOG k8s/shop/catalog-api ROLLOUT revision 2: app:v2 created 2026-09-25T09:40:00Z",
     "LOG k8s/shop/cart-worker ROLLOUT revision 4 (current): app:v3 created 2026-09-26T09:41:00Z",
@@ -88,22 +88,22 @@ def alert() -> Alert:
 
 
 def _lam(fn, msg):
-    return f"LOG lambda/warden-pg-fs-{fn} {TS} {msg}"
+    return f"LOG lambda/warden-dev-{fn} {TS} {msg}"
 
 
 def _ecs(msg):
-    return f"LOG ecs/warden-pg-fs-orders-api {TS} {msg}"
+    return f"LOG ecs/warden-dev-orders-api {TS} {msg}"
 
 
 def _k8s(dep, msg):
     return f"LOG k8s/shop/{dep} {msg}"
 
 
-ECS_DEPLOY = {"kind": "ecs", "service": "warden-pg-fs-orders-api", "at": "2026-09-26T09:55:00Z",
-              "version": "warden-pg-fs-orders-api:12", "previous": "warden-pg-fs-orders-api:11"}
+ECS_DEPLOY = {"kind": "ecs", "service": "warden-dev-orders-api", "at": "2026-09-26T09:55:00Z",
+              "version": "warden-dev-orders-api:12", "previous": "warden-dev-orders-api:11"}
 RO_ERR = "psycopg2.errors.ReadOnlySqlTransaction: cannot execute INSERT in a read-only transaction"
 # What psycopg 3 prints when Aurora refuses an IAM token (the long host name comes first).
-PAM_ERR = ('psycopg.OperationalError: connection failed: connection to server at "warden-pg-fs-aurora.cluster-'
+PAM_ERR = ('psycopg.OperationalError: connection failed: connection to server at "warden-dev-aurora.cluster-'
            'cabc123.ap-south-2.rds.amazonaws.com" (203.0.113.10), port 5432 failed: FATAL:  PAM authentication '
            'failed for user "app"')
 
@@ -111,70 +111,70 @@ PAM_ERR = ('psycopg.OperationalError: connection failed: connection to server at
 FAULTS = {
     "fs-01": ("lambda_code_regression", ctx(
         [_lam("checkout", "Traceback (most recent call last):"), _lam("checkout", "KeyError: 'sku'"),
-         "CONFIG lambda warden-pg-fs-checkout timeout=10s memory=256MB env=[TABLE_NAME,REDIS_HOST] version=7 alias_live=7",
-         "CODE warden-pg-fs-checkout app.py:42 in handler: KeyError: 'sku'",
-         "SOURCE warden-pg-fs-checkout app.py:40 | def handler(event, context):",
-         "SOURCE warden-pg-fs-checkout app.py:41 |     body = json.loads(event['body'])",
-         "SOURCE warden-pg-fs-checkout app.py:42 >|     sku = body['sku']"],
+         "CONFIG lambda warden-dev-checkout timeout=10s memory=256MB env=[TABLE_NAME,REDIS_HOST] version=7 alias_live=7",
+         "CODE warden-dev-checkout app.py:42 in handler: KeyError: 'sku'",
+         "SOURCE warden-dev-checkout app.py:40 | def handler(event, context):",
+         "SOURCE warden-dev-checkout app.py:41 |     body = json.loads(event['body'])",
+         "SOURCE warden-dev-checkout app.py:42 >|     sku = body['sku']"],
         {"lambda_errors__checkout": 40.0, "apigw_5xx": 40.0},
-        [{"kind": "lambda", "service": "warden-pg-fs-checkout", "at": "2026-09-26T09:58:00Z", "version": "7",
+        [{"kind": "lambda", "service": "warden-dev-checkout", "at": "2026-09-26T09:58:00Z", "version": "7",
           "previous": "6"}]),
-        "code_error_after_deploy", "update-alias --function-name warden-pg-fs-checkout --name live --function-version 6"),
+        "code_error_after_deploy", "update-alias --function-name warden-dev-checkout --name live --function-version 6"),
     "fs-02": ("lambda_timeout_too_low", ctx(
         [_lam("checkout", "Task timed out after 1.00 seconds"),
-         "CONFIG lambda warden-pg-fs-checkout timeout=1s memory=256MB env=[TABLE_NAME,REDIS_HOST] version=6 alias_live=6"],
+         "CONFIG lambda warden-dev-checkout timeout=1s memory=256MB env=[TABLE_NAME,REDIS_HOST] version=6 alias_live=6"],
         {"lambda_timeout_s__checkout": 1.0, "lambda_duration_max_ms__checkout": 1001.0, "lambda_errors__checkout": 30.0}),
-        "fn_timeout", "update-function-configuration --function-name warden-pg-fs-checkout --timeout 3"),
+        "fn_timeout", "update-function-configuration --function-name warden-dev-checkout --timeout 3"),
     "fs-03": ("lambda_throttled", ctx(
         [], {"lambda_throttles__checkout": 120.0, "lambda_reserved_concurrency__checkout": 0.0,
              "lambda_invocations__checkout": 0.0}),
-        "fn_throttled", "put-function-concurrency --function-name warden-pg-fs-checkout --reserved-concurrent-executions 4"),
+        "fn_throttled", "put-function-concurrency --function-name warden-dev-checkout --reserved-concurrent-executions 4"),
     "fs-04": ("lambda_bad_env", ctx(
         [_lam("checkout", "botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundException) "
                           "when calling the PutItem operation: Requested resource not found"),
-         ("CONFIG lambda warden-pg-fs-checkout timeout=10s memory=256MB "
-         "env=[TABLE_NAME=warden-pg-fs-cartz,REDIS_HOST=warden-pg-fs-redis.abc123.cache.amazonaws.com] version=6")],
+         ("CONFIG lambda warden-dev-checkout timeout=10s memory=256MB "
+         "env=[TABLE_NAME=warden-dev-cartz,REDIS_HOST=warden-dev-redis.abc123.cache.amazonaws.com] version=6")],
         {"lambda_errors__checkout": 25.0}),
-        "missing_resource", '"TABLE_NAME":"warden-pg-fs-carts"'),
+        "missing_resource", '"TABLE_NAME":"warden-dev-carts"'),
     "fs-05": ("lambda_iam_missing", ctx(
         [_lam("checkout", "botocore.exceptions.ClientError: An error occurred (AccessDeniedException) when calling the "
-                          f"PutItem operation: User: arn:aws:sts::{ACCT}:assumed-role/warden-pg-fs-checkout-role/"
-                          "warden-pg-fs-checkout is not authorized to perform: dynamodb:PutItem on resource: "
-                          f"arn:aws:dynamodb:{REGION}:{ACCT}:table/warden-pg-fs-carts because no identity-based "
+                          f"PutItem operation: User: arn:aws:sts::{ACCT}:assumed-role/warden-dev-checkout-role/"
+                          "warden-dev-checkout is not authorized to perform: dynamodb:PutItem on resource: "
+                          f"arn:aws:dynamodb:{REGION}:{ACCT}:table/warden-dev-carts because no identity-based "
                           "policy allows the dynamodb:PutItem action")],
         {"lambda_errors__checkout": 25.0}),
         "access_denied", None),
     "fs-06": ("sqs_poison_message", ctx(
-        ["QUEUE warden-pg-fs-orders visible=0 in_flight=0 dlq=warden-pg-fs-orders-dlq dlq_visible=14 max_receive=3",
+        ["QUEUE warden-dev-orders visible=0 in_flight=0 dlq=warden-dev-orders-dlq dlq_visible=14 max_receive=3",
          _lam("order-processor", "Traceback (most recent call last):"),
-         "CODE warden-pg-fs-order-processor app.py:18 in handler: json.decoder.JSONDecodeError: Expecting value"],
+         "CODE warden-dev-order-processor app.py:18 in handler: json.decoder.JSONDecodeError: Expecting value"],
         {"dlq_visible__orders": 14.0, "lambda_errors__order-processor": 42.0}),
         "dead_letters", None),
     "fs-07": ("sqs_consumer_disabled", ctx(
-        ["ESM warden-pg-fs-order-processor <- warden-pg-fs-orders State=Disabled BatchSize=5 LastProcessingResult=OK"],
+        ["ESM warden-dev-order-processor <- warden-dev-orders State=Disabled BatchSize=5 LastProcessingResult=OK"],
         {"lambda_esm_enabled__order-processor": 0.0, "sqs_visible__orders": 120.0}),
         "consumer_off", "update-event-source-mapping --uuid"),
     "fs-08": ("sns_delivery_blocked", ctx(
-        ["POLICY sqs warden-pg-fs-notifications allows_sns_topic=warden-pg-fs-order-events:no"],
+        ["POLICY sqs warden-dev-notifications allows_sns_topic=warden-dev-order-events:no"],
         {"sns_notifications_failed": 12.0}),
         "topic_delivery_refused", "sqs set-queue-attributes --queue-url"),
     "fs-09": ("dynamodb_throttling", ctx(
-        ["TABLE warden-pg-fs-carts billing=PROVISIONED rcu=1 wcu=1 status=ACTIVE"],
+        ["TABLE warden-dev-carts billing=PROVISIONED rcu=1 wcu=1 status=ACTIVE"],
         {"ddb_write_throttle_events": 300.0, "ddb_consumed_wcu": 1.0, "ddb_provisioned_wcu": 1.0}),
         "table_throttled", "ReadCapacityUnits=1,WriteCapacityUnits=3"),
     "fs-10": ("redis_unreachable", ctx(
         [_lam("reconciler", "redis.exceptions.TimeoutError: Timeout connecting to server "
-                            "warden-pg-fs-redis.abc123.cache.amazonaws.com:6379"),
-         "REPLGROUP warden-pg-fs-redis node_type=cache.t4g.micro sgs=[sg-0redis]",
+                            "warden-dev-redis.abc123.cache.amazonaws.com:6379"),
+         "REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]",
          "SG sg-0redis ingress tcp/6379 from=[]",
-         "APPSG ecs/warden-pg-fs-orders-api sgs=[sg-0ecs]",
-         ("CONFIG lambda warden-pg-fs-reconciler timeout=90s memory=256MB reserved_concurrency=none "
+         "APPSG ecs/warden-dev-orders-api sgs=[sg-0ecs]",
+         ("CONFIG lambda warden-dev-reconciler timeout=90s memory=256MB reserved_concurrency=none "
           "env=[RECONCILE_LOOKUP=by_id] sgs=[sg-0lambda] version=3 alias_live=-")],
         {"lambda_errors__reconciler": 5.0}),
         "cache_unreachable", ("authorize-security-group-ingress --group-id sg-0redis --protocol tcp --port 6379 "
                               "--source-group sg-0ecs")),
     "fs-11": ("redis_memory_pressure", ctx(
-        ["REPLGROUP warden-pg-fs-redis node_type=cache.t4g.micro sgs=[sg-0redis]"],
+        ["REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]"],
         {"redis_memory_pct": 97.0, "redis_evictions": 5400.0}),
               "cache_memory", "--cache-node-type cache.t4g.small"),
     "fs-12": ("aurora_connection_exhaustion", ctx(
@@ -187,19 +187,19 @@ FAULTS = {
         {"locks_waiting": 1.0}),
         "db_lock", "WHERE b.pid IN (4077)"),
     "fs-14": ("aurora_write_to_reader", ctx(
-        [_lam("order-processor", RO_ERR), f"CODE warden-pg-fs-order-processor app.py:30 in save: {RO_ERR}",
-         "QUEUE warden-pg-fs-orders visible=3 in_flight=0 dlq=warden-pg-fs-orders-dlq dlq_visible=6 max_receive=3",
-         ("CONFIG lambda warden-pg-fs-order-processor timeout=30s memory=256MB "
-         "env=[DB_HOST=warden-pg-fs-aurora.cluster-ro-cabc123.ap-south-2.rds.amazonaws.com,DB_NAME=shop] version=3")],
+        [_lam("order-processor", RO_ERR), f"CODE warden-dev-order-processor app.py:30 in save: {RO_ERR}",
+         "QUEUE warden-dev-orders visible=3 in_flight=0 dlq=warden-dev-orders-dlq dlq_visible=6 max_receive=3",
+         ("CONFIG lambda warden-dev-order-processor timeout=30s memory=256MB "
+         "env=[DB_HOST=warden-dev-aurora.cluster-ro-cabc123.ap-south-2.rds.amazonaws.com,DB_NAME=shop] version=3")],
         {"dlq_visible__orders": 6.0, "lambda_errors__order-processor": 18.0}),
-        "db_write_on_reader", "warden-pg-fs-aurora.cluster-cabc123.ap-south-2.rds.amazonaws.com"),
+        "db_write_on_reader", "warden-dev-aurora.cluster-cabc123.ap-south-2.rds.amazonaws.com"),
     "fs-15": ("aurora_failover_pinned_endpoint", ctx(
-        [f"EVENT aurora warden-pg-fs-aurora {TS} Completed failover to DB instance: warden-pg-fs-aurora-2",
-         "CLUSTER aurora warden-pg-fs-aurora writer=warden-pg-fs-aurora-2 readers=[warden-pg-fs-aurora-1] status=available",
+        [f"EVENT aurora warden-dev-aurora {TS} Completed failover to DB instance: warden-dev-aurora-2",
+         "CLUSTER aurora warden-dev-aurora writer=warden-dev-aurora-2 readers=[warden-dev-aurora-1] status=available",
          _lam("order-processor", RO_ERR)],
         {"lambda_errors__order-processor": 18.0}),
         "db_pinned_after_failover",
-        "failover-db-cluster --db-cluster-identifier warden-pg-fs-aurora --target-db-instance-identifier warden-pg-fs-aurora-1"),
+        "failover-db-cluster --db-cluster-identifier warden-dev-aurora --target-db-instance-identifier warden-dev-aurora-1"),
     "fs-16": ("aurora_slow_query", ctx(
         [("postgres long-running query: pid=7311 running 140s user=app app=order-processor client=10.42.0.50: "
          "SELECT id, total FROM orders WHERE customer_ref = $1")],
@@ -207,27 +207,27 @@ FAULTS = {
         "db_long_query", None),
     "fs-17": ("ecs_bad_image", ctx(
         [_ecs("task 7f stopped: CannotPullContainerError: pull image manifest has been retried 5 time(s): failed to "
-              "resolve ref warden-pg-fs-app:does-not-exist: not found")], {}, [ECS_DEPLOY]),
-        "task_image_pull", "--task-definition warden-pg-fs-orders-api:11"),
+              "resolve ref warden-dev-app:does-not-exist: not found")], {}, [ECS_DEPLOY]),
+        "task_image_pull", "--task-definition warden-dev-orders-api:11"),
     "fs-18": ("ecs_secret_access_denied", ctx(
         [_ecs("task 8a stopped: ResourceInitializationError: unable to pull secrets or registry auth: execution "
               "resource retrieval failed: unable to retrieve secret from asm: AccessDeniedException: User: "
-              f"arn:aws:sts::{ACCT}:assumed-role/warden-pg-fs-ecs-exec/8a is not authorized to perform: "
+              f"arn:aws:sts::{ACCT}:assumed-role/warden-dev-ecs-exec/8a is not authorized to perform: "
               f"secretsmanager:GetSecretValue on resource: arn:aws:secretsmanager:{REGION}:{ACCT}:secret:"
-              "warden-pg-fs-db-app-AbCdEf because no identity-based policy allows the action")]),
+              "warden-dev-db-app-AbCdEf because no identity-based policy allows the action")]),
         "task_secret_denied", None),
     "fs-19": ("alb_health_check_wrong", ctx(
-        [("TARGET warden-pg-fs-orders 10.42.0.12:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed "
+        [("TARGET warden-dev-orders 10.42.0.12:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed "
          "with these codes: [404]"),
-         "TARGETGROUP warden-pg-fs-orders health_path=/healthz port=traffic-port matcher=200"],
+         "TARGETGROUP warden-dev-orders health_path=/healthz port=traffic-port matcher=200"],
         {"alb_unhealthy_hosts": 2.0, "alb_healthy_hosts": 0.0}),
         "lb_health_check", "--health-check-path /health"),
     "fs-20": ("ecs_oom", ctx(
         [_ecs("task 9c stopped: OutOfMemoryError: Container killed due to memory usage (exit code 137)")],
         {}, [ECS_DEPLOY]),
-        "task_oom", "--task-definition warden-pg-fs-orders-api:11"),
+        "task_oom", "--task-definition warden-dev-orders-api:11"),
     "fs-21": ("db_iam_auth_revoked", ctx(
-        [_ecs(PAM_ERR), "TASKROLE ecs/warden-pg-fs-orders-api role=warden-pg-fs-orders-api-task"],
+        [_ecs(PAM_ERR), "TASKROLE ecs/warden-dev-orders-api role=warden-dev-orders-api-task"],
         {"alb_target_5xx": 40.0}),
         "db_iam_auth_refused", None),
     "fs-22": ("k8s_config_crashloop", ctx(
@@ -257,9 +257,9 @@ FAULTS = {
         {"pods_ready__catalog-api": 1.0}),
         "image_pull", "kubectl -n shop rollout undo deploy/catalog-api"),
     "fs-27": ("eventbridge_rule_disabled", ctx(
-        ["RULE warden-pg-fs-reconcile-5m State=DISABLED schedule=rate(5 minutes)"],
+        ["RULE warden-dev-reconcile-5m State=DISABLED schedule=rate(5 minutes)"],
         {"rule_enabled__reconcile-5m": 0.0, "rule_invocations__reconcile-5m": 0.0}),
-        "schedule_off", "aws events enable-rule --name warden-pg-fs-reconcile-5m --region ap-south-2"),
+        "schedule_off", "aws events enable-rule --name warden-dev-reconcile-5m --region ap-south-2"),
 }
 
 # Patterns a fault may legitimately raise beside its own: the same evidence read another true way.
@@ -308,14 +308,14 @@ def allowed(entry: dict) -> str | None:
         return f"a nested call that is not a read: {nested}"
     if "delete" in cmd:
         return "delete"
-    if svc == "events" and not re.search(r"--name warden-pg-fs-", cmd):
-        return "a rule outside warden-pg-fs-*"
-    if svc == "iam" and not re.search(r"--role-name warden-pg-fs-", cmd):
-        return "iam on a role outside warden-pg-fs-*"
+    if svc == "events" and not re.search(r"--name warden-dev-", cmd):
+        return "a rule outside warden-dev-*"
+    if svc == "iam" and not re.search(r"--role-name warden-dev-", cmd):
+        return "iam on a role outside warden-dev-*"
     tokens = shlex.split(cmd.replace("$(", " ").replace(")\"", "\""))
     for flag, value in itertools.pairwise(tokens):
-        if flag in _NAME_FLAGS and not value.startswith("warden-pg-fs-"):
-            return f"{flag} {value} is not a warden-pg-fs-* resource"
+        if flag in _NAME_FLAGS and not value.startswith("warden-dev-"):
+            return f"{flag} {value} is not a warden-dev-* resource"
     return None
 
 
@@ -375,7 +375,7 @@ def test_every_fault_class_of_the_wave_is_covered():
 
 def test_the_code_regression_names_the_failing_line_for_developers():
     pat = next(p for p in detect(alert(), FAULTS["fs-01"][1]) if p.key == "code_error_after_deploy")
-    assert "app.py:42 in handler (warden-pg-fs-checkout): KeyError: 'sku'" in pat.developers[0]
+    assert "app.py:42 in handler (warden-dev-checkout): KeyError: 'sku'" in pat.developers[0]
     assert "`sku = body['sku']`" in pat.developers[0]
 
 
@@ -385,10 +385,10 @@ def test_a_traceback_without_a_deploy_is_not_called_a_regression():
 
 def test_the_timeout_is_computed_from_observed_duration_when_it_was_not_capped():
     c = ctx([_lam("checkout", "Task timed out after 3.00 seconds"),
-             "CONFIG lambda warden-pg-fs-checkout timeout=3s memory=256MB env=[TABLE_NAME] version=6"],
+             "CONFIG lambda warden-dev-checkout timeout=3s memory=256MB env=[TABLE_NAME] version=6"],
             {"lambda_timeout_s__checkout": 3.0, "lambda_duration_max_ms__checkout": 2100.0})
     pat = next(p for p in detect(alert(), c) if p.key == "fn_timeout")
-    assert pat.fix == [("aws lambda update-function-configuration --function-name warden-pg-fs-checkout "
+    assert pat.fix == [("aws lambda update-function-configuration --function-name warden-dev-checkout "
                        "--timeout 5 --region ap-south-2")]
     assert "2 x the longest observed duration (2100 ms)" in pat.oncall[0]
 
@@ -401,10 +401,10 @@ def test_env_without_values_prints_no_update_that_would_wipe_the_environment():
 
 def test_a_bad_env_that_arrived_with_a_version_is_rolled_back_not_patched():
     c = ctx([_lam("checkout", "ResourceNotFoundException: Requested resource not found"),
-             "CONFIG lambda warden-pg-fs-checkout timeout=10s memory=256MB env=[TABLE_NAME] version=7 alias_live=7"],
-            deploys=[{"kind": "lambda", "service": "warden-pg-fs-checkout", "at": TS, "version": "7", "previous": "6"}])
+             "CONFIG lambda warden-dev-checkout timeout=10s memory=256MB env=[TABLE_NAME] version=7 alias_live=7"],
+            deploys=[{"kind": "lambda", "service": "warden-dev-checkout", "at": TS, "version": "7", "previous": "6"}])
     pat = next(p for p in detect(alert(), c) if p.key == "missing_resource")
-    assert pat.fix == [("aws lambda update-alias --function-name warden-pg-fs-checkout --name live "
+    assert pat.fix == [("aws lambda update-alias --function-name warden-dev-checkout --name live "
                        "--function-version 6 --region ap-south-2")]
 
 
@@ -423,9 +423,9 @@ def test_the_sns_policy_is_valid_json_aimed_at_the_named_queue_and_topic():
     pat = next(p for p in detect(alert(), FAULTS["fs-08"][1]) if p.key == "topic_delivery_refused")
     attrs = json.loads(shlex.split(pat.fix[0])[-3])
     stmt = json.loads(attrs["Policy"])["Statement"][0]
-    assert stmt["Resource"] == "arn:aws:sqs:ap-south-2:*:warden-pg-fs-notifications"
-    assert stmt["Condition"]["ArnLike"]["aws:SourceArn"] == "arn:aws:sns:ap-south-2:*:warden-pg-fs-order-events"
-    assert "get-queue-url --queue-name warden-pg-fs-notifications" in pat.fix[0]
+    assert stmt["Resource"] == "arn:aws:sqs:ap-south-2:*:warden-dev-notifications"
+    assert stmt["Condition"]["ArnLike"]["aws:SourceArn"] == "arn:aws:sns:ap-south-2:*:warden-dev-order-events"
+    assert "get-queue-url --queue-name warden-dev-notifications" in pat.fix[0]
 
 
 def test_a_denied_secret_read_prints_no_iam_command_only_what_to_compare():
@@ -434,7 +434,7 @@ def test_a_denied_secret_read_prints_no_iam_command_only_what_to_compare():
     pat = next(p for p in detect(alert(), FAULTS["fs-18"][1]) if p.key == "task_secret_denied")
     assert pat.fix == []
     advice = " ".join(pat.oncall)
-    assert "secretsmanager:GetSecretValue" in advice and "warden-pg-fs-ecs-exec" in advice
+    assert "secretsmanager:GetSecretValue" in advice and "warden-dev-ecs-exec" in advice
     assert "never writes IAM" in advice
     assert "access_denied" not in {p.key for p in detect(alert(), FAULTS["fs-18"][1])}
 
@@ -448,18 +448,18 @@ def test_an_attacker_shaped_denial_line_yields_no_command():
 
 
 def test_redis_memory_names_the_next_node_size_only_when_the_node_type_is_read():
-    c = ctx(["REPLGROUP warden-pg-fs-redis node_type=cache.t4g.micro status=available"],
+    c = ctx(["REPLGROUP warden-dev-redis node_type=cache.t4g.micro status=available"],
             {"redis_memory_pct": 97.0, "redis_evictions": 5400.0})
     pat = next(p for p in detect(alert(), c) if p.key == "cache_memory")
-    assert pat.fix == [("aws elasticache modify-replication-group --replication-group-id warden-pg-fs-redis "
+    assert pat.fix == [("aws elasticache modify-replication-group --replication-group-id warden-dev-redis "
                        "--cache-node-type cache.t4g.small --apply-immediately --region ap-south-2")]
     assert allowed(_fix_entries(pat.fix)[0]) is None
 
 
 def test_the_allow_list_mirror_refuses_what_section_6_refuses():
-    bad = ["aws lambda delete-function-concurrency --function-name warden-pg-fs-checkout --region ap-south-2",
+    bad = ["aws lambda delete-function-concurrency --function-name warden-dev-checkout --region ap-south-2",
            "aws lambda update-alias --function-name other-fn --name live --function-version 1 --region ap-south-2",
-           "aws lambda update-alias --function-name warden-pg-fs-checkout --name live --function-version 1",
+           "aws lambda update-alias --function-name warden-dev-checkout --name live --function-version 1",
            "aws iam put-role-policy --role-name admin --policy-name x --policy-document '{}' --region ap-south-2",
            "kubectl -n kube-system rollout undo deploy/coredns", "kubectl -n shop delete pod x"]
     for cmd in bad:
@@ -471,15 +471,15 @@ def test_with_no_region_known_no_region_is_invented(monkeypatch):
     monkeypatch.delenv("AWS_REGION")
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     pat = next(p for p in detect(alert(), FAULTS["fs-27"][1]) if p.key == "schedule_off")
-    assert pat.fix == ["aws events enable-rule --name warden-pg-fs-reconcile-5m"]
+    assert pat.fix == ["aws events enable-rule --name warden-dev-reconcile-5m"]
 
 
 def test_a_function_without_the_alias_gets_no_update_alias():
     """The stack backend writes `alias_live=-` when the alias does not exist: moving it would fail."""
-    c = ctx([("CONFIG lambda warden-pg-fs-order-processor timeout=30s memory=256MB reserved_concurrency=none "
+    c = ctx([("CONFIG lambda warden-dev-order-processor timeout=30s memory=256MB reserved_concurrency=none "
              "env=[DB_HOST] version=4 alias_live=-"),
-             "CODE warden-pg-fs-order-processor app.py:9 in handler: KeyError: 'id'"],
-            deploys=[{"kind": "lambda", "service": "warden-pg-fs-order-processor", "at": TS, "version": "4",
+             "CODE warden-dev-order-processor app.py:9 in handler: KeyError: 'id'"],
+            deploys=[{"kind": "lambda", "service": "warden-dev-order-processor", "at": TS, "version": "4",
                       "previous": "3"}])
     pat = next(p for p in detect(alert(), c) if p.key == "code_error_after_deploy")
     assert pat.fix == [] and pat.oncall[0].startswith("No command:")
@@ -494,8 +494,8 @@ def test_the_crash_loop_advice_names_the_failing_deployment_not_the_label_list()
 def test_cache_ingress_names_only_the_missing_rules():
     """Only application SGs with no rule on the cache SG get one; an allowed SG is never re-added."""
     base = [_lam("reconciler", "redis.exceptions.TimeoutError: Timeout connecting to server x:6379"),
-            "REPLGROUP warden-pg-fs-redis node_type=cache.t4g.micro sgs=[sg-0redis]",
-            "APPSG ecs/warden-pg-fs-orders-api sgs=[sg-0ecs]", "APPSG eks/warden-pg-fs-eks sgs=[sg-0eks]"]
+            "REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]",
+            "APPSG ecs/warden-dev-orders-api sgs=[sg-0ecs]", "APPSG eks/warden-dev-eks sgs=[sg-0eks]"]
     pats = {p.key: p for p in detect(alert(), ctx(base + ["SG sg-0redis ingress tcp/6379 from=[sg-0ecs]"]))}
     fix = pats["cache_unreachable"].fix
     assert len(fix) == 1 and "--source-group sg-0eks" in fix[0] and "sg-0ecs" not in fix[0], fix
@@ -509,7 +509,7 @@ def test_a_refused_iam_login_prints_no_grant_only_the_role_and_user_to_compare()
     pat = next(p for p in detect(alert(), FAULTS["fs-21"][1]) if p.key == "db_iam_auth_refused")
     assert pat.fix == []
     advice = " ".join(pat.oncall)
-    assert "warden-pg-fs-orders-api-task" in advice and "rds-db:connect" in advice and "user app" in advice
+    assert "warden-dev-orders-api-task" in advice and "rds-db:connect" in advice and "user app" in advice
     assert "stale_credentials" not in {p.key for p in detect(alert(), FAULTS["fs-21"][1])}
 
 
@@ -519,18 +519,18 @@ def test_an_iam_login_refusal_without_the_role_in_evidence_prints_no_command_and
     lam = next(p for p in detect(alert(), ctx([_lam("order-processor", PAM_ERR)])) if p.key == "db_iam_auth_refused")
     assert lam.fix == [] and lam.oncall[0].startswith("No command:")
     assert "code_error_after_deploy" not in {p.key for p in detect(alert(), ctx(
-        [f"CODE warden-pg-fs-order-processor app.py:40 in _connect: {PAM_ERR}"],
-        deploys=[{"kind": "lambda", "service": "warden-pg-fs-order-processor", "at": TS, "version": "4",
+        [f"CODE warden-dev-order-processor app.py:40 in _connect: {PAM_ERR}"],
+        deploys=[{"kind": "lambda", "service": "warden-dev-order-processor", "at": TS, "version": "4",
                   "previous": "3"}]))}, "a refused login is not a code regression"
 
 
 def test_a_rotated_password_is_still_read_as_stale_credentials():
     """The pre-2026-09-26 fs-21 shape: no longer injected in Wave 4, still a pattern WARDEN knows."""
     c = ctx([_ecs('psycopg2.OperationalError: connection to server failed: FATAL:  password authentication failed '
-                  'for user "app"'), "SECRET warden-pg-fs-db-app changed 2026-09-26T09:50:00Z (metadata only)"],
+                  'for user "app"'), "SECRET warden-dev-db-app changed 2026-09-26T09:50:00Z (metadata only)"],
             {"secret_changed_age_s": 600.0},
-            [{"kind": "secret", "service": "warden-pg-fs-db-app", "at": "2026-09-26T09:50:00Z", "version": "v2",
+            [{"kind": "secret", "service": "warden-dev-db-app", "at": "2026-09-26T09:50:00Z", "version": "v2",
               "previous": "v1"}])
     pat = next(p for p in detect(alert(), c) if p.key == "stale_credentials")
-    assert pat.fix == [("aws ecs update-service --cluster warden-pg-fs-ecs --service warden-pg-fs-orders-api "
+    assert pat.fix == [("aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api "
                         "--force-new-deployment --region ap-south-2")]

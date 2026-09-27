@@ -56,5 +56,5 @@ GRANT SELECT ON orders TO catalog;
 
 -- WARDEN: pg_monitor and nothing more (Wave 3 read as the master user; this closes that gap).
 -- CONNECT comes from PUBLIC's default; it gets no grant on any table. Its token is signed with the
--- warden-pg-fs-reader role's credentials - the role WARDEN runs as.
+-- warden-dev-reader role's credentials - the role WARDEN runs as.
 GRANT pg_monitor TO warden_ro;

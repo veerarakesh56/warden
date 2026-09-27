@@ -1,11 +1,7 @@
-# Copy to terraform.tfvars (gitignored) and fill in. curl -s https://checkip.amazonaws.com -> your IP.
+# Optional overrides only. Per-environment values live in SSM Parameter Store, not here:
+#   /warden/<env>/tf/my_ip_cidr    (String)        your public IP as a /32; 0.0.0.0/0 is rejected
+#   /warden/<env>/tf/budget_email  (SecureString)  where the budget alarms go
+# The environment is the workspace:  terraform workspace select -or-create dev
 #
-# No database password exists: Aurora is created by aurora_express.py with IAM authentication only.
-
-region     = "ap-south-2"
-my_ip_cidr = "203.0.113.7/32" # YOUR IP. 0.0.0.0/0 is rejected.
-
-# permissions_boundary_name = "WardenProvingGroundBoundary"   # the default
-# eks_public_access_cidrs   = ["0.0.0.0/0"]                   # only for a CI runner deploying k8s
-# eks_admin_principal_arns  = ["arn:aws:iam::<account>:role/warden-pg-fs-ci"]
-budget_email = "you@example.com" # where the budget alarms go
+# eks_public_access_cidrs = ["0.0.0.0/0"]   # only for a CI runner deploying k8s
+# budget_usd              = 50

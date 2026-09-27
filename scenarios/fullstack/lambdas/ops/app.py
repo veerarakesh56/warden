@@ -1,4 +1,4 @@
-"""warden-pg-fs-ops - in the VPC, invoked by the harness ONLY (no trigger). Redis admin commands,
+"""warden-dev-ops - in the VPC, invoked by the harness ONLY (no trigger). Redis admin commands,
 because ElastiCache is unreachable from outside the VPC.
 
   {"op": "info"}                                      -> memory/eviction figures

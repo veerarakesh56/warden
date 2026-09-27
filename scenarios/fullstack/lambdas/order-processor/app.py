@@ -1,4 +1,4 @@
-"""warden-pg-fs-order-processor - SQS warden-pg-fs-orders -> INSERT into Aurora (writer).
+"""warden-dev-order-processor - SQS warden-dev-orders -> INSERT into Aurora (writer).
 
 In the VPC, out through the NAT gateway to Aurora's internet access gateway. DB_HOST from the
 environment (fs-14/fs-15 repoint it); empty means the host in the metadata secret SECRET_ARN.

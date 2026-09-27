@@ -9,8 +9,8 @@
 #
 # which the apps pipeline and the harness read. Neither calls terraform.
 #
-# Everything is named warden-pg-fs-* (the prefix the operator's permissions boundary scopes IAM to)
-# and tagged Project=warden-fullstack (what every fault injector checks before it touches anything).
+# Everything is named warden-<env>-* (the prefix that environment's boundary, iam/<env>/boundary.json, scopes IAM to)
+# and tagged Project=warden (what every fault injector checks before it touches anything).
 
 terraform {
   required_version = ">= 1.5"
@@ -36,19 +36,37 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  name = "warden-pg-fs"
+  # ⛔ THE ENVIRONMENT IS THE WORKSPACE (v2 Phase 1.5). `terraform workspace select -or-create dev`
+  # before plan/apply. Every name, tag, boundary and parameter below is derived from it, the same way
+  # src/warden/environments.py derives them, and the precondition on the VPC refuses any workspace
+  # that is not an environment in environments.yaml - including "default".
+  env          = terraform.workspace
+  environments = keys(yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).environments)
+  name         = "warden-${local.env}"
   tags = {
-    Project   = "warden-fullstack"
-    ManagedBy = "terraform"
-    Lifecycle = "ephemeral"
+    Project     = "warden"
+    Environment = local.env
+    ManagedBy   = "terraform"
+    Lifecycle   = "ephemeral"
     # No timestamp() tag: it changes between plan and apply and breaks every saved plan
     # (the proving ground learned this the hard way - see terraform/proving-ground/main.tf).
   }
   azs = slice(data.aws_availability_zones.available.names, 0, 2)
 
-  permissions_boundary = var.permissions_boundary_name == "" ? null : (
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.permissions_boundary_name}"
-  )
+  # Every role here carries its environment's boundary (iam/<env>/boundary.json); the boundary itself
+  # denies creating a role without it.
+  permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
+
+  # Per-environment values from SSM Parameter Store (free, standard tier), never a local tfvars file.
+  my_ip_cidr = data.aws_ssm_parameter.my_ip_cidr.insecure_value
+}
+
+data "aws_ssm_parameter" "my_ip_cidr" {
+  name = "/warden/${local.env}/tf/my_ip_cidr"
+}
+
+data "aws_ssm_parameter" "budget_email" {
+  name = "/warden/${local.env}/tf/budget_email"
 }
 
 # --------------------------------------------------------------------------- network
@@ -61,6 +79,16 @@ locals {
 # Accepted for a benchmark stack; a production stack runs one NAT per AZ.
 
 resource "aws_vpc" "this" {
+  lifecycle {
+    precondition {
+      condition     = contains(local.environments, local.env)
+      error_message = "Select a workspace named after an environment in src/warden/data/environments.yaml (dev, staging, ...), not \"default\" or a typo."
+    }
+    precondition {
+      condition     = local.my_ip_cidr != "0.0.0.0/0" && can(cidrhost(local.my_ip_cidr, 0))
+      error_message = "/warden/<env>/tf/my_ip_cidr must be a real CIDR and must not be 0.0.0.0/0."
+    }
+  }
   cidr_block           = "10.42.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true # interface endpoints with private DNS, EKS private endpoint
@@ -262,7 +290,7 @@ resource "aws_budgets_budget" "guard" {
       threshold                  = notification.value.threshold
       threshold_type             = "PERCENTAGE"
       notification_type          = notification.value.type
-      subscriber_email_addresses = [var.budget_email]
+      subscriber_email_addresses = [data.aws_ssm_parameter.budget_email.value]
     }
   }
 }

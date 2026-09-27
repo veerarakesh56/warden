@@ -1,4 +1,4 @@
-"""warden-pg-fs-reconciler - EventBridge every 5 min. Reads the Aurora READER, records in Redis.
+"""warden-dev-reconciler - EventBridge every 5 min. Reads the Aurora READER, records in Redis.
 
 As user DB_USER (catalog, read-only) with an IAM token; DB_HOST empty means the `reader` endpoint
 in the metadata secret SECRET_ARN.
