@@ -214,6 +214,23 @@ def _apply_overrides(alert: Alert, args) -> Alert:
     return Alert.model_validate({**alert.model_dump(), **update}) if update else alert
 
 
+def _load_environment() -> None:
+    """With WARDEN_ENV set, read that environment's secrets and values from SSM (settings.py). An
+    unknown environment or an unreachable store stops the run: running with half a config would be
+    worse than not running."""
+    from .environments import EnvironmentPolicyError
+    from .settings import load_from_ssm
+
+    try:
+        loaded = load_from_ssm()
+    except EnvironmentPolicyError as exc:
+        raise SystemExit(f"WARDEN_ENV: {exc}") from exc
+    except Exception as exc:
+        raise SystemExit(f"WARDEN_ENV: could not read parameters from SSM: {type(exc).__name__}") from exc
+    if loaded:
+        print(f"[config] {os.environ.get('WARDEN_ENV')}: loaded {', '.join(loaded)} from SSM", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     # ⛔ Never crash while REPORTING. On Windows a piped stdout is cp1252 and cannot encode `→`,
     # which the model writes into its own hypotheses - so printing a successful diagnosis raised
@@ -226,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
         except (AttributeError, ValueError):  # not a TextIOWrapper, e.g. under a test capture
             pass
+    _load_environment()
     parser = argparse.ArgumentParser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 

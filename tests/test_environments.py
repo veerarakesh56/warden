@@ -119,7 +119,7 @@ def test_empty_policy_defines_no_environments_raises(tmp_path):
 
 def test_credentials_ref_is_a_pointer_per_environment_and_none_when_unknown():
     pol = default_environment_policies()
-    assert pol.for_env("prod").credentials_ref == "warden-prod-readonly-role"
-    assert pol.for_env("staging").credentials_ref == "warden-staging-readonly-sa"
+    assert pol.for_env("prod").credentials_ref == "warden-prod-deploy"
+    assert pol.for_env("staging").credentials_ref == "warden-staging-deploy"
     # An unrecognised environment inherits the default's (null) reference — no account leaks in.
     assert pol.for_env("totally-made-up").credentials_ref is None

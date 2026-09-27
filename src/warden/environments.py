@@ -168,3 +168,27 @@ def default_environment_policies() -> EnvironmentPolicies:
     if _DEFAULT is None:
         _DEFAULT = EnvironmentPolicies.load()
     return _DEFAULT
+
+
+@dataclass(frozen=True)
+class EnvNames:
+    """Every name an environment uses in AWS, derived from the environment name alone (v2 Phase 1.5):
+    nothing per environment is stored, so nothing can drift or be hardcoded twice."""
+
+    env: str
+    prefix: str        # resource names: warden-<env>-...
+    ssm: str           # parameter root: /warden/<env>/
+    role: str          # deploy role: warden-<env>-deploy
+    boundary: str      # permissions boundary: WardenEnvBoundary-<env>
+    tags: dict[str, str]
+
+
+def names(env: str) -> EnvNames:
+    """The names for `env`, which must be a configured environment. Unlike for_env(), an unknown name
+    RAISES here: the policy side fails closed to `default`, but a typo must never become an AWS name."""
+    if env not in default_environment_policies().known_environments:
+        raise EnvironmentPolicyError(
+            f"unknown environment {env!r}; configured: "
+            f"{', '.join(default_environment_policies().known_environments)}")
+    return EnvNames(env=env, prefix=f"warden-{env}", ssm=f"/warden/{env}/", role=f"warden-{env}-deploy",
+                    boundary=f"WardenEnvBoundary-{env}", tags={"Project": "warden", "Environment": env})

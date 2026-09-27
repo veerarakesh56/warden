@@ -26,10 +26,11 @@
 # convention "<kind>:<name>" — e.g. role:oncall, svc:warden-staging, user:rakesh.
 # "*" means any principal (use only for a throwaway sandbox).
 #
-# credentials_ref is a POINTER to where this environment's account/keys live — a
-# k8s ServiceAccount, a cloud IAM role, a Secrets-Manager id. It is NEVER a secret;
-# WARDEN never stores a credential. The deployment resolves it; the promotion report
-# tells a human which account to use in the target environment.
+# credentials_ref is a POINTER to the IAM role that acts in this environment
+# (warden-<env>-deploy, environments.names()). It is NEVER a secret; WARDEN never
+# stores a credential. The promotion report tells a human which role to use.
+# Every other per-environment name (prefix, SSM path, boundary, tags) is DERIVED from
+# the environment name by environments.names(), so nothing here can drift from AWS.
 # ---------------------------------------------------------------------------
 
 version: 1
@@ -52,7 +53,7 @@ environments:
     allow_actions: ["*"]         # a sandbox: anything, no human in the loop
     deny_actions: []
     authorized_principals: ["*"]
-    credentials_ref: warden-dev-local-kubeconfig
+    credentials_ref: warden-dev-deploy
 
   staging:
     tier: nonprod
@@ -61,7 +62,7 @@ environments:
     allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections]
     deny_actions: [failover_replica]     # a DB failover is a human call even in staging
     authorized_principals: [svc:warden-staging, role:oncall, role:platform, role:qa]
-    credentials_ref: warden-staging-readonly-sa
+    credentials_ref: warden-staging-deploy
 
   qa-staging:
     tier: nonprod
@@ -70,7 +71,7 @@ environments:
     allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections]
     deny_actions: [failover_replica]
     authorized_principals: [svc:warden-qa, role:qa, role:oncall, role:platform]
-    credentials_ref: warden-qa-staging-readonly-sa
+    credentials_ref: warden-qa-staging-deploy
 
   pre-prod:
     tier: preprod
@@ -79,7 +80,7 @@ environments:
     allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:release]
-    credentials_ref: warden-preprod-readonly-role
+    credentials_ref: warden-pre-prod-deploy
 
   qa-prod:
     tier: preprod
@@ -88,7 +89,7 @@ environments:
     allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:qa-lead]
-    credentials_ref: warden-qa-prod-readonly-role
+    credentials_ref: warden-qa-prod-deploy
 
   prod:
     tier: prod
@@ -97,4 +98,4 @@ environments:
     allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache, terminate_connections]
     deny_actions: [scale_down]   # scaling prod down is a capacity decision a human owns
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]
-    credentials_ref: warden-prod-readonly-role
+    credentials_ref: warden-prod-deploy

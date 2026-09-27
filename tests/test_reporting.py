@@ -88,4 +88,4 @@ def test_promotion_names_the_account_to_use_in_each_target_env():
     # every promotion target carries the credentials pointer for that environment
     for t in rep.data["promotion"]:
         assert t["credentials_ref"], f"{t['environment']} missing credentials_ref"
-    assert "warden-prod-readonly-role" in rep.markdown
+    assert "warden-prod-deploy" in rep.markdown

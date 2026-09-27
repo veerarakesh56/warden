@@ -396,6 +396,10 @@ def build_server() -> Server:
 def main() -> int:
     import anyio
 
+    from .cli import _load_environment
+
+    _load_environment()
+
     async def _run() -> None:
         server = build_server()
         async with stdio_server() as (read, write):
