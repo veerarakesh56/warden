@@ -9,56 +9,16 @@ Avoid the root user.
 
 ---
 
-## ▶ NOW: laptop sign-in without a stored key (Phase 1.5, step 2)
+## ▶ NOW: nothing to do
 
-**Why.** This laptop holds a long-lived access key for `warden-operator`, the top risk the audit found.
-It is replaced by **`aws login`**: you sign in through the browser (password + MFA), and the command
-line gets short-lived credentials that renew every 15 minutes for up to 12 hours. Then the key is
-switched off and deleted.
+**Laptop sign-in: dropped (owner decision, 2026-09-27).** No console password, no password manager.
+Local work keeps using this machine's current credentials. The real-world test runs entirely in the
+cloud, where every part uses a machine identity (GitHub OIDC for deploys, a task role for each WARDEN
+worker) and no person's key is involved (`docs/PRODUCTION-ARCHITECTURE.md`).
 
-It costs nothing and you stay on the Free plan. (IAM Identity Center, the company-grade option, needs
-AWS Organizations, which would move the account to the paid plan. See
-[`PRODUCTION-ARCHITECTURE.md`](PRODUCTION-ARCHITECTURE.md).)
-
-**1. Update the boundary.** File (complete):
-[`terraform/proving-ground/operator-policy-boundary.json`](https://github.com/veerarakesh56/warden/blob/main/terraform/proving-ground/operator-policy-boundary.json)
-- It adds the two browser sign-in actions and shortens some statement names.
-- It is 5,985 of 6,144 characters, and AWS's own validator reports no errors.
-- Steps:
-  1. IAM → **Policies** → search `WardenProvingGroundBoundary` → click it → **Edit** → **JSON**.
-  2. **Ctrl+A**, **Delete**, paste the whole file → **Next** → **Save changes**.
-  3. If it says there are already 5 versions: open the **Policy versions** tab, tick the *oldest*
-     version not marked *Default*, **Delete**, then repeat 1 and 2.
-
-**2. Allow browser sign-in for the command line.**
-1. IAM → **Users** → `warden-operator` → **Permissions** tab → **Add permissions** → **Add permissions**.
-2. **Attach policies directly** → search `SignInLocalDevelopmentAccess` (type: *AWS managed*) → tick it → **Next** → **Add permissions**.
-
-**3. Give the operator a console password.**
-1. Same user → **Security credentials** tab → *Console sign-in* → **Enable console access**.
-2. Choose **Custom password**, and make a strong one in a password manager.
-3. ⚠ **Untick "Users must create a new password at next sign-in".** The boundary does not allow the
-   operator to change its own password, so a forced change would lock it out.
-4. **Apply**, and note the **console sign-in URL** shown.
-
-**4. Add MFA to that sign-in.**
-1. Same tab → *Multi-factor authentication (MFA)* → **Assign MFA device**.
-2. Choose **Passkey or security key** (best) or **Authenticator app**, and follow the prompts.
-
-**5. Tell Claude "sign-in steps done".** Claude then:
-- writes the CLI profile in `~/.aws/config` (no secret goes in it);
-- asks you to type `! aws login --profile warden` in the chat. Your browser opens; sign in as
-  `warden-operator` with the password and MFA;
-- checks that the CLI, Python and Terraform all work through the sign-in, and that the permissions
-  boundary still holds.
-
-**6. After Claude confirms the checks (not before):**
-1. IAM → **Users** → `warden-operator` → **Security credentials** → *Access keys* → the key starting
-   `AKIA` → **Actions** → **Deactivate**.
-2. **Two days later**, if nothing broke: same place → **Actions** → **Delete** (type the key id to
-   confirm). Claude then deletes the local `~/.aws/credentials` file.
-
-**Undo:** re-activate the key in the same place. Its inactive state is kept until you delete it.
+The next steps here arrive when an environment is first brought up:
+- its permissions boundary, deploy role and parameters, from the committed files in `iam/<env>/`;
+- one small update to the operator boundary, so the operator can hand work to that role.
 
 ---
 

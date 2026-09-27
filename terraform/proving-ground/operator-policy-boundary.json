@@ -172,11 +172,7 @@
     {
       "Sid": "CeilingWhoAmI",
       "Effect": "Allow",
-      "Action": [
-        "sts:GetCallerIdentity",
-        "signin:AuthorizeOAuth2Access",
-        "signin:CreateOAuth2Token"
-      ],
+      "Action": "sts:GetCallerIdentity",
       "Resource": "*"
     },
     {

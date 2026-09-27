@@ -67,8 +67,11 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
         try:
             findings = []
             pager = client.get_paginator("validate_policy")
-            for page in pager.paginate(policyDocument=path.read_text(encoding="utf-8"),
-                                       policyType="IDENTITY_POLICY"):
+            # A role's trust policy is a resource policy on the role, checked as such (Phase 1.5).
+            kind = ({"policyType": "RESOURCE_POLICY",
+                     "validatePolicyResourceType": "AWS::IAM::AssumeRolePolicyDocument"}
+                    if path.name.startswith("trust") else {"policyType": "IDENTITY_POLICY"})
+            for page in pager.paginate(policyDocument=path.read_text(encoding="utf-8"), **kind):
                 findings += page.get("findings") or []
             findings = [f for f in findings if not (
                 f.get("issueCode") == "INVALID_ACTION"

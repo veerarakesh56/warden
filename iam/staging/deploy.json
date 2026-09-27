@@ -1,0 +1,297 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Ec2ReadCreate",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "ec2:CreateVpc",
+        "ec2:CreateSubnet",
+        "ec2:CreateInternetGateway",
+        "ec2:AttachInternetGateway",
+        "ec2:CreateRouteTable",
+        "ec2:CreateRoute",
+        "ec2:AssociateRouteTable",
+        "ec2:AllocateAddress",
+        "ec2:CreateNatGateway",
+        "ec2:CreateVpcEndpoint",
+        "ec2:CreateSecurityGroup",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:CreateTags",
+        "ec2:CreateLaunchTemplate",
+        "ec2:CreateLaunchTemplateVersion",
+        "ec2:DeleteLaunchTemplate",
+        "ec2:DeleteNetworkInterface"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "Ec2ChangeOwnEnvTagged",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DeleteVpc",
+        "ec2:ModifyVpcAttribute",
+        "ec2:DeleteSubnet",
+        "ec2:ModifySubnetAttribute",
+        "ec2:DeleteInternetGateway",
+        "ec2:DetachInternetGateway",
+        "ec2:DeleteRouteTable",
+        "ec2:DeleteRoute",
+        "ec2:DisassociateRouteTable",
+        "ec2:DeleteNatGateway",
+        "ec2:ReleaseAddress",
+        "ec2:DisassociateAddress",
+        "ec2:DeleteVpcEndpoints",
+        "ec2:ModifyVpcEndpoint",
+        "ec2:DeleteSecurityGroup",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
+        "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
+        "ec2:DeleteTags"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "staging"
+        }
+      }
+    },
+    {
+      "Sid": "ReadsNoResource",
+      "Effect": "Allow",
+      "Action": [
+        "rds:Describe*",
+        "elasticache:Describe*",
+        "elasticloadbalancing:Describe*",
+        "ecs:Describe*",
+        "ecs:List*",
+        "eks:Describe*",
+        "eks:List*",
+        "autoscaling:Describe*",
+        "logs:Describe*",
+        "cloudwatch:Describe*",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "lambda:List*",
+        "lambda:GetAccountSettings",
+        "ecr:GetAuthorizationToken",
+        "apigateway:GET",
+        "tag:GetResources"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "EsmAndTaskDefs",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateEventSourceMapping",
+        "lambda:GetEventSourceMapping",
+        "lambda:UpdateEventSourceMapping",
+        "lambda:DeleteEventSourceMapping",
+        "ecs:RegisterTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:DeleteTaskDefinitions"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "OwnEnvNamedResources",
+      "Effect": "Allow",
+      "Action": [
+        "rds:*",
+        "elasticache:*",
+        "dynamodb:*",
+        "sqs:*",
+        "sns:*",
+        "secretsmanager:*",
+        "lambda:*",
+        "events:*",
+        "logs:*",
+        "cloudwatch:*",
+        "ecr:*",
+        "ecs:*",
+        "eks:*",
+        "elasticloadbalancing:*",
+        "apigateway:*"
+      ],
+      "Resource": [
+        "arn:aws:rds:*:*:cluster:warden-staging-*",
+        "arn:aws:rds:*:*:db:warden-staging-*",
+        "arn:aws:rds:*:*:subgrp:warden-staging-*",
+        "arn:aws:rds:*:*:cluster-pg:default.*",
+        "arn:aws:rds:*:*:pg:default.*",
+        "arn:aws:rds:*:*:og:default:*",
+        "arn:aws:elasticache:*:*:*:warden-staging-*",
+        "arn:aws:elasticache:*:*:parametergroup:default.*",
+        "arn:aws:dynamodb:*:*:table/warden-staging-*",
+        "arn:aws:sqs:*:*:warden-staging-*",
+        "arn:aws:sns:*:*:warden-staging-*",
+        "arn:aws:secretsmanager:*:*:secret:warden-staging-*",
+        "arn:aws:lambda:*:*:function:warden-staging-*",
+        "arn:aws:events:*:*:rule/warden-staging-*",
+        "arn:aws:logs:*:*:log-group:/aws/lambda/warden-staging-*",
+        "arn:aws:logs:*:*:log-group:/ecs/warden-staging-*",
+        "arn:aws:logs:*:*:log-group:/aws/containerinsights/warden-staging-*",
+        "arn:aws:cloudwatch:*:*:alarm:warden-staging-*",
+        "arn:aws:ecr:*:*:repository/warden-staging-*",
+        "arn:aws:ecs:*:*:*/warden-staging-*",
+        "arn:aws:eks:*:*:*/warden-staging-*",
+        "arn:aws:elasticloadbalancing:*:*:*/warden-staging-*",
+        "arn:aws:apigateway:*::/apis*",
+        "arn:aws:apigateway:*::/tags/*"
+      ]
+    },
+    {
+      "Sid": "IamOwnEnvRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePermissionsBoundary",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::*:role/warden-staging-*"
+    },
+    {
+      "Sid": "PassOwnEnvRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/warden-staging-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "ecs-tasks.amazonaws.com",
+            "eks.amazonaws.com",
+            "ec2.amazonaws.com",
+            "pods.eks.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "AssumeOwnReader",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/warden-staging-reader"
+    },
+    {
+      "Sid": "CreateSlrs",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "elasticache.amazonaws.com",
+            "rds.amazonaws.com",
+            "eks.amazonaws.com",
+            "eks-nodegroup.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com",
+            "ecs.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadSlrs",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
+    },
+    {
+      "Sid": "KmsViaServices",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:CreateGrant",
+        "kms:DescribeKey"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "secretsmanager.ap-south-2.amazonaws.com",
+            "rds.ap-south-2.amazonaws.com",
+            "ssm.ap-south-2.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "WhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "OwnParameters",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": "arn:aws:ssm:*:*:parameter/warden/staging/*"
+    },
+    {
+      "Sid": "OwnStateBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::warden-staging-tfstate-*",
+        "arn:aws:s3:::warden-staging-tfstate-*/*"
+      ]
+    },
+    {
+      "Sid": "OwnBudget",
+      "Effect": "Allow",
+      "Action": [
+        "budgets:ViewBudget",
+        "budgets:ModifyBudget",
+        "budgets:TagResource",
+        "budgets:UntagResource",
+        "budgets:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:budgets::*:budget/warden-staging-*"
+    }
+  ]
+}

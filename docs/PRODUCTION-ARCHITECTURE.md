@@ -56,9 +56,10 @@ part costs.
   accepts only that GitHub environment.
 - **People:**
   - A company signs people in with **IAM Identity Center**, and on-call engineers approve in Slack.
-  - This lab can't use Identity Center: it needs AWS Organizations, which ends the Free plan. The
-    owner signs in with **`aws login`** instead: the browser, a password plus MFA, and short-lived
-    credentials.
+  - This lab can't use Identity Center: it needs AWS Organizations, which ends the Free plan.
+    Development on the laptop uses the operator's existing, boundary-capped credentials. The
+    real-world test is run **entirely from the cloud**: deploys through GitHub OIDC and each worker
+    through its task role, with no laptop and no person's key involved.
   - WARDEN's code never sees which of the two is used. It only ever sees roles.
 
 ## The model in production

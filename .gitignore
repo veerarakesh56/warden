@@ -43,3 +43,7 @@ NEXT-SESSION-PROMPT.txt
 
 # Claude Code per-user settings (local permissions) - never committed.
 .claude/settings.local.json
+
+# Rendered per-environment trust policies WITH the real account id (render_env_iam.py --account),
+# for pasting into the console. Never committed: the committed trust.json carries <ACCOUNT_ID>.
+iam/*/trust.local.json
