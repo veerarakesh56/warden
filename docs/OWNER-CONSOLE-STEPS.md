@@ -84,6 +84,10 @@ analysis has no charge.
 3. **Analysis**: choose **Resource analysis - External access**.
 4. Name: `warden-external-access`. **Zone of trust**: *Current account*.
 5. **Create analyzer**.
+   - **"Service access" (AWS Organizations trusted access): leave it alone.** It only matters for
+     watching several accounts through AWS Organizations; this is one account.
+   - AWS may create a role named `AWSServiceRoleForAccessAnalyzer` on its own. That is expected and
+     free; let it.
 6. After a few minutes: **Access analyzer**, then **Resource analysis**, **Active** findings.
    - **No findings** is the goal.
    - Any finding means something is reachable from outside this account. Do not archive it;
