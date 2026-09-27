@@ -282,3 +282,13 @@ def test_the_guardrails_policy_only_denies_and_leaves_terraform_its_own_work():
     assert "iam:UpdateAssumeRolePolicy" in denied and "cloudtrail:StopLogging" in denied
     assert not denied & {"budgets:DeleteBudget", "s3:PutBucketPublicAccessBlock"}
     assert len("".join(json.dumps(doc, separators=(",", ":")).split())) <= 6144
+
+
+def test_the_boundary_allows_browser_sign_in_for_the_cli():
+    """aws login (Phase 1.5): the operator signs in through the browser with MFA and the CLI gets
+    short-lived credentials - no access key on disk. The boundary is an intersection, so the two
+    actions AWS's SignInLocalDevelopmentAccess grants must also be inside it."""
+    doc = json.loads((TF_DIR / "operator-policy-boundary.json").read_text(encoding="utf-8"))
+    allowed = {a for st in doc["Statement"] if st["Effect"] == "Allow"
+               for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
+    assert {"signin:AuthorizeOAuth2Access", "signin:CreateOAuth2Token"} <= allowed
