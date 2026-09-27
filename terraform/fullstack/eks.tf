@@ -34,7 +34,7 @@ resource "aws_eks_cluster" "this" {
   role_arn = aws_iam_role.eks_cluster.arn
 
   vpc_config {
-    subnet_ids              = aws_subnet.public[*].id
+    subnet_ids              = aws_subnet.private[*].id
     endpoint_public_access  = true
     endpoint_private_access = true # ⛔ see the header
     public_access_cidrs     = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
@@ -114,7 +114,7 @@ resource "aws_eks_node_group" "this" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "${local.name}-eks-ng"
   node_role_arn   = aws_iam_role.eks_node.arn
-  subnet_ids      = aws_subnet.public[*].id
+  subnet_ids      = aws_subnet.private[*].id # nodes have no public IP; egress through the NAT
   instance_types  = ["m7i-flex.large"]
   capacity_type   = "ON_DEMAND"
   disk_size       = 20

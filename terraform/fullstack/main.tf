@@ -101,11 +101,13 @@ resource "aws_internet_gateway" "this" {
 }
 
 resource "aws_subnet" "public" {
-  count                   = 2
-  vpc_id                  = aws_vpc.this.id
-  cidr_block              = "10.42.${count.index}.0/24"
-  availability_zone       = local.azs[count.index]
-  map_public_ip_on_launch = true
+  count             = 2
+  vpc_id            = aws_vpc.this.id
+  cidr_block        = "10.42.${count.index}.0/24"
+  availability_zone = local.azs[count.index]
+  # Only the NAT gateway lives here (with its Elastic IP): nothing launched in a public subnet gets
+  # a public address by default (2026-09-27 network review).
+  map_public_ip_on_launch = false
   tags = {
     Name                     = "${local.name}-public-${count.index}"
     "kubernetes.io/role/elb" = "1"
@@ -206,14 +208,15 @@ resource "aws_security_group" "endpoints" {
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
-  description = "Orders API load balancer. HTTP from anywhere: the traffic Lambda runs outside the VPC."
+  description = "Orders API load balancer, internal. HTTP from the in-VPC Lambdas only."
   vpc_id      = aws_vpc.this.id
   ingress {
-    description = "HTTP from the internet. The API serves synthetic orders only."
+    description = "HTTP from the Lambda security group only"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    # Only the Lambdas inside the VPC (the traffic generator) - never the internet.
+    security_groups = [aws_security_group.lambda.id]
   }
   egress {
     description = "To the ECS tasks"

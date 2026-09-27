@@ -759,3 +759,21 @@ def test_workloads_opt_out_of_the_observability_addons_auto_instrumentation():
                 ann = doc["spec"]["template"]["metadata"].get("annotations") or {}
                 for lang in ("java", "python", "nodejs", "dotnet"):
                     assert ann.get(f"instrumentation.opentelemetry.io/inject-{lang}") == "false", (name, lang)
+
+
+def test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_internet():
+    """2026-09-27 network review: compute (ECS tasks, EKS nodes and control-plane ENIs, Lambdas) and
+    the load balancer are in private subnets; public subnets hold the NAT gateway only and hand out no
+    public IPs; the ALB is internal; no security group accepts traffic from 0.0.0.0/0."""
+    text = _tf_text()
+    uses_public = sorted({m.group(0) for m in re.finditer(r"aws_subnet\.public\[[^\]]*\]\.id", text)})
+    assert uses_public == ["aws_subnet.public[0].id", "aws_subnet.public[count.index].id"], uses_public
+    nat = next(b for _, n, b in _blocks("aws_nat_gateway") if n == "this")
+    assert "aws_subnet.public[0].id" in nat
+    assert "map_public_ip_on_launch = false" in text and "map_public_ip_on_launch = true" not in text
+    alb = next(b for _, n, b in _blocks("aws_lb") if n == "orders")
+    assert re.search(r"internal\s*=\s*true", alb) and "aws_subnet.private[*].id" in alb
+    assert re.search(r"assign_public_ip\s*=\s*false", text) and not re.search(r"assign_public_ip\s*=\s*true", text)
+    for _, name, body in _blocks("aws_security_group"):
+        for rule in re.findall(r"ingress \{(.*?)\n  \}", body, re.DOTALL):
+            assert "0.0.0.0/0" not in rule, f"security group {name} accepts the internet"

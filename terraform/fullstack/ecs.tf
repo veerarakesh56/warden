@@ -132,9 +132,13 @@ resource "aws_ecs_task_definition" "orders_api" {
 resource "aws_lb" "orders" {
   name               = "${local.name}-alb"
   load_balancer_type = "application"
-  internal           = false
-  subnets            = aws_subnet.public[*].id
-  security_groups    = [aws_security_group.alb.id]
+  # ⛔ INTERNAL, in private subnets (2026-09-27 network review). Its only caller is the traffic
+  # Lambda inside the VPC; nothing on the internet can reach it. A production app with a domain puts
+  # a public ALB here with HTTPS (a free ACM certificate) - this lab has no domain, so it has no TLS
+  # to terminate, and the safe answer is not to be public at all.
+  internal        = true
+  subnets         = aws_subnet.private[*].id
+  security_groups = [aws_security_group.alb.id]
 }
 
 resource "aws_lb_target_group" "orders" {
@@ -181,9 +185,11 @@ resource "aws_ecs_service" "orders_api" {
   deployment_maximum_percent         = 100
 
   network_configuration {
-    subnets          = aws_subnet.public[*].id
-    security_groups  = [aws_security_group.ecs.id]
-    assign_public_ip = true # public subnets: tasks pull images and reach AWS directly, not via the NAT
+    subnets         = aws_subnet.private[*].id
+    security_groups = [aws_security_group.ecs.id]
+    # Private: no public IP. Image layers come through the free S3 gateway endpoint; the rest of
+    # the egress uses the NAT the stack already has, so this adds no fixed cost.
+    assign_public_ip = false
   }
 
   load_balancer {

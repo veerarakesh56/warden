@@ -123,7 +123,7 @@ locals {
     traffic = {
       timeout = 55
       memory  = 128
-      in_vpc  = false
+      in_vpc  = true # reaches the internal ALB; API Gateway through the NAT
       env = {
         API_URL           = aws_apigatewayv2_api.api.api_endpoint
         ALB_URL           = "http://${aws_lb.orders.dns_name}"

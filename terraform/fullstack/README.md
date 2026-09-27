@@ -139,6 +139,19 @@ run `deploy ecs` again after re-generating stack.json.
 The second command must print `[]`. Expect the security-group deletes to wait up to ~20 minutes
 while Lambda releases the in-VPC functions' network interfaces; that is AWS, not a hang.
 
+## Network: what is public and what is not (2026-09-27 review)
+
+| Where | What | Reachable from |
+|---|---|---|
+| Public subnets | the NAT gateway (its Elastic IP) only; `map_public_ip_on_launch = false` | nothing inbound |
+| Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**), interface endpoints | inside the VPC only; the ALB only from the Lambda security group |
+| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; EKS API: `/warden/<env>/tf/my_ip_cidr` only, IAM auth |
+| Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
+
+No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT; image
+layers use the free S3 gateway endpoint. A production app with a domain would put a **public** ALB in
+front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal.
+
 ## Things that are deliberate
 
 - **One NAT gateway, in one AZ** (2026-09-26): Aurora (express) is outside the VPC, so the in-VPC
@@ -148,7 +161,7 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
   disabled, and IAM authentication (`rds-db:connect`, one database user per identity) is the control.
 - **The ALB listens on 0.0.0.0/0:80.** The traffic Lambda runs outside the VPC (a VPC Lambda has
   no internet without NAT), so its source address is not fixed. The API serves synthetic orders.
-- **EKS API endpoint locked to `my_ip_cidr`**, private endpoint on (nodes join through it).
+- **EKS API endpoint locked to `/warden/<env>/tf/my_ip_cidr`**, private endpoint on (nodes join through it).
 - **No autoscaling on DynamoDB, no ECS circuit breaker, catalog-api rolls with maxSurge 0, cart-worker
   uses Recreate:** each would mask a fault before anything read it.
 - **Rules a fault revokes are separate resources** (Redis ingress per app SG, the ECS execution
