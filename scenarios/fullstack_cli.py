@@ -437,7 +437,7 @@ _DRY_REPORT = {
     "root_cause": {"hypothesis": "dry run", "confidence": 0.8, "evidence": [], "ruled_out": []},
     "proposal": {"action": "escalate_to_human", "target": "shop", "reasoning": "dry",
                  "expected_effect": "dry", "blast_radius": "single_service", "reversible": True},
-    "verdict": {"status": "auto_safe", "reasons": ["dry run"], "policy_ids": [],
+    "verdict": {"status": "approved_for_human", "reasons": ["dry run"], "policy_ids": [],
                 "requires_approval": False},
     "cost": {"input_tokens": 0, "output_tokens": 0, "usd": 0.0, "calls": 0},
     "audit": [], "halted_reason": None,

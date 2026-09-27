@@ -296,7 +296,8 @@ def test_the_alert_template_names_no_cause():
     ({"commands": []}, "no_fix_printed", False),
     ({"commands": [{"kind": "shell", "command": "kubectl -n shop delete deploy catalog-api"}]},
      "fix_not_allowed", False),
-    ({"verdict": "escalated"}, "fixed", True),
+    # ⛔ Phase 0: escalated means a person decides - the harness no longer plays that person.
+    ({"verdict": "escalated"}, "not_approved", False),
 ])
 def test_fix_outcomes(tmp_path, kw, outcome, ran):
     events: list[str] = []

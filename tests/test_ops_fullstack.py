@@ -870,24 +870,21 @@ REJECTED = [
     (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R} --profile admin", "--profile"),
     (f"aws events enable-rule --name warden-pg-fs-reconcile-5m {R} --endpoint-url http://evil", "--endpoint-url"),
     (f"aws lambda update-function-configuration --function-name warden-pg-fs-checkout --cli-input-json file://x.json {R}", "--cli-input-json"),
+    # ⛔ Phase 0 (2026-09-27): no IAM at all - every grant is refused before its content is read,
+    # including the ones this allow-list used to accept.
     (f"aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name p --policy-document file://p.json {R}", "local file"),
-    # IAM beyond one warden-pg-fs role's inline policy
-    (f"aws iam put-role-policy --role-name admin --policy-name p --policy-document '{{}}' {R}", "not a warden-pg-fs-"),
+    (f"aws iam put-role-policy --role-name admin --policy-name p --policy-document '{{}}' {R}", "not an allowed"),
     ("aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name p --policy-document '"
-     + json.dumps({"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}) + f"' {R}", "wildcard"),
-    ("aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name p --policy-document '"
-     + json.dumps({"Statement": [{"Effect": "Allow", "Action": "iam:PassRole",
-                                  "Resource": "arn:aws:iam::111122223333:role/warden-pg-fs-x"}]}) + f"' {R}", "IAM action"),
-    ("aws iam put-role-policy --role-name warden-pg-fs-checkout --policy-name p --policy-document '"
-     + json.dumps({"Statement": [{"Effect": "Allow", "Action": "dynamodb:PutItem", "Resource": "*"}]}) + f"' {R}", "not a stack resource"),
-    # a database login: only the application users, only rds-db:connect, only this region
-    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/postgres"), "outside the stack"),
-    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_ro"), "outside the stack"),
-    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/*"), "outside the stack"),
-    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:us-east-1:*:dbuser:*/app"), "outside the stack"),
-    (_db_grant("warden-pg-fs-orders-api-task", "arn:aws:rds-db:ap-south-2:*:dbuser:*/app", "rds:DeleteDBCluster"),
-     "only be granted rds-db:connect"),
-    (_db_grant("admin", "arn:aws:rds-db:ap-south-2:*:dbuser:*/app"), "not a warden-pg-fs-"),
+     + json.dumps({"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}) + f"' {R}", "not an allowed"),
+    (IAM_OK, "not an allowed"),
+    (DB_GRANT_OK, "not an allowed"),
+    (_db_grant("warden-pg-fs-catalog-pod", "arn:aws:rds-db:ap-south-2:*:dbuser:*/catalog"), "not an allowed"),
+    # ⛔ secret material is never written by a fix
+    ("kubectl -n shop apply -f -\napiVersion: v1\nkind: Secret\nmetadata:\n  name: catalog-secret\ndata:\n  A: eA==\n",
+     "kind 'Secret' is not allowed"),
+    ("kubectl -n shop patch secret catalog-secret --type merge -p '{\"data\":{}}'", "'secret' is not allowed"),
+    # ⛔ irreversible: every message destroyed
+    (f"aws sqs purge-queue --queue-url https://sqs.ap-south-2.amazonaws.com/111122223333/warden-pg-fs-orders-dlq {R}", "not an allowed"),
     # other programs
     ("bash -c 'aws events enable-rule'", "not an allowed program"),
     ("curl http://169.254.169.254/latest/meta-data/", "not an allowed program"),
@@ -939,8 +936,7 @@ SQL_BAD = [
 ]
 
 
-@pytest.mark.parametrize("command", [*ALLOWED, IAM_OK, DB_GRANT_OK,
-                                     _db_grant("warden-pg-fs-catalog-pod", "arn:aws:rds-db:ap-south-2:*:dbuser:*/catalog")])
+@pytest.mark.parametrize("command", ALLOWED)
 def test_allowed_fix_commands(command):
     reason = fs.check_command({"kind": S, "command": command},
                               stack_ids=STACK_IDS)

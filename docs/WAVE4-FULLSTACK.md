@@ -142,23 +142,28 @@ and the report says so.
 
 ## 6. Applying WARDEN's fix (harness side)
 
-The harness takes the executable commands from the report's JSON (`runbook.fix`, then the detected
-patterns' fix commands), and runs them only if every command passes the allow-list:
+**Changed 2026-09-27 (Phase 0 of the v2 re-architecture).** The harness takes only the report's
+`fix_commands`, which hold the runbook's fix **only for an `approved_for_human` verdict**. Any other
+verdict is recorded `not_approved` (rejected stays `blocked_by_gate`), and nothing runs. Before this
+change, escalated fixes ran and pattern commands were included. Pattern commands are now
+`pattern_suggestions`, which are never executed. A command runs only if every command passes the
+allow-list:
 
 - `aws <service> <verb> ...` with `--region ap-south-2`, every resource named `warden-pg-fs-*`, and
   the verb in a per-service list of mutations a runbook may legitimately contain (e.g. `lambda
   update-alias`, `lambda update-function-configuration`, `lambda put-function-concurrency`,
   `dynamodb update-table`, `ecs update-service`, `elbv2 modify-target-group`, `events enable-rule`,
-  `sqs set-queue-attributes`, `lambda update-event-source-mapping`, `rds failover-db-cluster`). Never
-  `delete-*`, never IAM except `iam put-role-policy` on a `warden-pg-fs-*` role.
+  `sqs set-queue-attributes`, `lambda update-event-source-mapping`, `rds failover-db-cluster`).
+- Never `delete-*`, never `sqs purge-queue` (irreversible), and **never IAM**. A missing permission
+  is restored from the role's declared policy through a reviewed infrastructure change; WARDEN no
+  longer prints IAM grants, which it built from log lines.
 - `kubectl -n shop ...` with verbs `rollout undo|restart`, `set`, `patch`, `scale`, `apply -f -` of a
-  manifest the report printed.
-- SQL against the Aurora writer: `SELECT pg_terminate_backend|pg_cancel_backend ...`, `CREATE INDEX
-  CONCURRENTLY`, `ALTER DATABASE ... SET` - through psycopg, as the master user `postgres` with an
-  IAM token signed by the operator's credentials (2026-09-26).
-- An `iam put-role-policy` document may name `arn:aws:rds-db:ap-south-2:*:dbuser:*/app` or `.../catalog`
-  (the application users, action `rds-db:connect` only - never `postgres` or `warden_ro`): the
-  cluster id in that ARN is masked in reports, so the user name is the scope (2026-09-26).
+  manifest the report printed. Never a Secret.
+- SQL against the Aurora writer: `SELECT pg_terminate_backend|pg_cancel_backend ...` and `ALTER
+  DATABASE ... SET`, through psycopg. WARDEN no longer prints `CREATE INDEX`: it never changes a
+  schema.
+- Still true, and the reason for Phase 2: the harness runs these commands with the operator's
+  credentials. Phase 2 replaces this path with governed workflows and just-in-time roles.
 
 A command outside the list is not run; the fault is recorded `fix_not_allowed` with the command, so
 a report that prints something dangerous is visible rather than silently skipped.

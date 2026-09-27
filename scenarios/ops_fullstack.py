@@ -1626,10 +1626,12 @@ AWS_VERBS: dict[str, frozenset[str]] = {
     "ecs": frozenset({"update-service", "register-task-definition"}),
     "elbv2": frozenset({"modify-target-group"}),
     "events": frozenset({"enable-rule"}),
-    "sqs": frozenset({"set-queue-attributes", "start-message-move-task", "purge-queue"}),
+    # ⛔ Not purge-queue: it destroys every message, irreversibly - never an agent's fix (Phase 0).
+    "sqs": frozenset({"set-queue-attributes", "start-message-move-task"}),
     "rds": frozenset({"failover-db-cluster"}),
     "ec2": frozenset({"authorize-security-group-ingress"}),
-    "iam": frozenset({"put-role-policy"}),
+    # ⛔ No IAM at all (Phase 0): a missing permission is restored from the role's DECLARED policy
+    # through a reviewed infrastructure change, never granted by a fix command.
     "elasticache": frozenset({"modify-replication-group"}),
 }
 # Verbs whose EVERY flag is listed here (anything else is refused), and the pattern each value must
@@ -1656,8 +1658,9 @@ AWS_BANNED_FLAGS = frozenset({"--endpoint-url", "--profile", "--cli-input-json",
                               "--ca-bundle", "--no-verify-ssl", "--generate-cli-skeleton"})
 
 K8S_NAMESPACE = "shop"
+# ⛔ No Secret (Phase 0): a fix never writes secret material.
 K8S_KINDS = frozenset({"deployment", "deployments", "deploy", "configmap", "configmaps", "cm",
-                       "secret", "secrets", "hpa", "horizontalpodautoscaler",
+                       "hpa", "horizontalpodautoscaler",
                        "horizontalpodautoscalers", "service", "services", "svc",
                        "poddisruptionbudget", "pdb"})
 K8S_BANNED_FLAGS = ("--kubeconfig", "--context", "--cluster", "--server", "-s", "--token", "--as",
@@ -1665,7 +1668,7 @@ K8S_BANNED_FLAGS = ("--kubeconfig", "--context", "--cluster", "--server", "-s", 
                     "--certificate-authority", "--client-key", "--client-certificate",
                     "--all-namespaces", "-A", "--filename", "--kustomize", "-k")
 K8S_SET = frozenset({"image", "env", "resources"})
-K8S_APPLY_KINDS = frozenset({"ConfigMap", "Secret", "Deployment", "Service",
+K8S_APPLY_KINDS = frozenset({"ConfigMap", "Deployment", "Service",
                              "HorizontalPodAutoscaler", "PodDisruptionBudget"})
 
 SQL_PARAMS = frozenset({"statement_timeout", "lock_timeout", "idle_in_transaction_session_timeout",
@@ -1743,28 +1746,6 @@ def _decoded(value: str) -> str:
         return value
 
 
-def _check_policy_document(value: str) -> str | None:
-    try:
-        doc = json.loads(value)
-    except (ValueError, TypeError):
-        return "--policy-document is not inline JSON"
-    for s in doc.get("Statement") or []:
-        actions = s.get("Action") or []
-        actions = [actions] if isinstance(actions, str) else actions
-        for a in actions:
-            if "*" in a.split(":")[-1] or a.lower().startswith("iam:") or a == "*":
-                return f"policy grants a wildcard or IAM action: {a}"
-        resources = s.get("Resource") or []
-        for r in [resources] if isinstance(resources, str) else resources:
-            if _DBUSER.fullmatch(str(r)):
-                if actions != ["rds-db:connect"]:
-                    return f"a database user may only be granted rds-db:connect, not {actions}"
-                continue
-            if not (str(r).startswith("arn:") and _names_stack(str(r), frozenset())):
-                return f"policy resource is not a stack resource: {r}"
-    return None
-
-
 def _check_aws(tokens: list[str], stack_ids: frozenset[str]) -> str | None:
     rest = tokens[1:]
     regions, positional, idents, flags = [], [], [], []
@@ -1820,10 +1801,6 @@ def _check_aws(tokens: list[str], stack_ids: frozenset[str]) -> str | None:
             return "opening a security group to the internet is not a fix"
         if service == "ec2" and (sg := next((g for g in _SG_ID.findall(value) if g not in stack_ids), None)):
             return f"{name}: security group {sg} does not belong to the stack"
-        if service == "iam" and name == "--policy-document":
-            problem = _check_policy_document(value)
-            if problem:
-                return problem
     if not named:
         return f"the command names no {PREFIX}* resource"
     return None
@@ -2125,12 +2102,18 @@ def decide_fix(built: dict | None, verdict: str | None,
                stack_ids: frozenset[str] = frozenset()) -> tuple[str | None, list[dict], list[dict]]:
     """(outcome if already final, commands to run, rejected commands with reasons).
 
-    outcome None means: run the commands, then the verifier decides fixed / not_fixed."""
+    outcome None means: run the commands, then the verifier decides fixed / not_fixed.
+
+    ⛔ Only an APPROVED verdict runs anything (Phase 0, 2026-09-27). This used to block `rejected`
+    alone, so the harness ran ESCALATED fixes - the one verdict that means "a person decides".
+    """
     if verdict == "rejected":
         return "blocked_by_gate", [], []
     commands = list((built or {}).get("fix_commands") or [])
     if not commands:
         return "no_fix_printed", [], []
+    if verdict != "approved_for_human":
+        return "not_approved", [], []
     rejected = [{**cmd, "reason": reason} for cmd in commands
                 if (reason := check_command(cmd, stack_ids=stack_ids))]
     if rejected:
