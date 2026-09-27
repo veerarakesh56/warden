@@ -176,7 +176,7 @@ class _MSSQLKiller:
         cur = conn.cursor()
         # TOP (n) and DATEADD's offset cannot be parameterised by pymssql; both are int()-coerced.
         cur.execute(
-            f"SELECT TOP ({int(limit)}) session_id FROM sys.dm_exec_sessions "
+            f"SELECT TOP ({int(limit)}) session_id FROM sys.dm_exec_sessions "  # nosec B608
             "WHERE is_user_process = 1 AND open_transaction_count > 0 AND status = 'sleeping' "
             f"AND last_request_end_time < DATEADD(second, -{int(idle_secs)}, GETDATE()) "
             "AND session_id <> @@SPID ORDER BY last_request_end_time"

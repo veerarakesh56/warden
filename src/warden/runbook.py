@@ -303,11 +303,11 @@ def _postgres(rb: Runbook, alert: Alert, action: ActionKind, pids: list[str]) ->
             "instead of trusting a PID from the evidence."),
         ]
         if pids:
-            rb.fix = [("SELECT pid, pg_terminate_backend(pid) FROM pg_stat_activity "
+            rb.fix = [("SELECT pid, pg_terminate_backend(pid) FROM pg_stat_activity "  # nosec B608
                        f"WHERE pid IN ({', '.join(pids)}) AND state = 'idle in transaction';"
                        "   -- the pids named in the evidence, only if still idle in a transaction")]
         else:
-            rb.fix = [("SELECT pid, pg_terminate_backend(pid) FROM pg_stat_activity "
+            rb.fix = [("SELECT pid, pg_terminate_backend(pid) FROM pg_stat_activity "  # nosec B608
                        f"WHERE state = 'idle in transaction' AND now() - state_change > interval '{_IDLE_SECS} seconds' "
                        "AND pid <> pg_backend_pid();")]
         rb.confirm = [_STUCK, _POOL]

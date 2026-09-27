@@ -570,7 +570,7 @@ def _terminate_blockers(ctx: ContextBundle) -> list[str]:
             blockers.update(int(p) for p in mt.group(1).split(",") if p)
     if not blockers:
         return []
-    return [("SELECT b.pid, pg_terminate_backend(b.pid) FROM pg_stat_activity b "
+    return [("SELECT b.pid, pg_terminate_backend(b.pid) FROM pg_stat_activity b "  # nosec B608
              f"WHERE b.pid IN ({', '.join(map(str, sorted(blockers)))}) "
              "AND b.pid IN (SELECT unnest(pg_blocking_pids(w.pid)) FROM pg_stat_activity w);"
              "   -- the blocker(s) named in the evidence, only while still blocking someone")]

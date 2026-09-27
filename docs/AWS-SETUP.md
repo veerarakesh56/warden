@@ -139,6 +139,34 @@ variable `sensitive` hides it from CLI output, not from state.
 
 ---
 
+## Guardrails against a hijacked or "cunning" agent (2026-09-27, owner, admin credentials)
+
+The boundary caps what the operator may do, but inside the cap sit actions a hijacked agent could
+use to open the account up rather than break it. Examples: make a `warden-pg-*` role trust an
+outside account, publish a Lambda URL with no auth, share a snapshot, or stop the audit trail. The
+boundary is full (6,130 of 6,144 characters), so these are a separate, deny-only policy. The
+operator cannot detach a user policy (the boundary denies it), so the denies hold against the
+operator itself.
+
+```bash
+# 1. Deny-only guardrails, attached to the operator user (validated with Access Analyzer: 0 errors).
+aws iam create-policy --policy-name WardenOperatorGuardrails \
+  --policy-document file://terraform/proving-ground/operator-guardrails.json
+aws iam attach-user-policy --user-name <operator-user> \
+  --policy-arn arn:aws:iam::<account-id>:policy/WardenOperatorGuardrails
+
+# 2. The detector for what no deny can express. IAM cannot inspect a trust policy at CreateRole,
+#    so a NEW role trusting an outside account can only be found, not prevented. IAM Access
+#    Analyzer's external-access analyzer is free and flags any role, bucket, key, queue, secret or
+#    function reachable from outside the account.
+aws accessanalyzer create-analyzer --analyzer-name warden-external-access --type ACCOUNT --region ap-south-2
+#    Review findings in the console (IAM > Access analyzer) after every live window.
+```
+
+`iam:UpdateAssumeRolePolicy` is denied, so changing an existing role's trust now needs the role
+recreated (`terraform apply -replace=...`). That is deliberate: it was the one-call way to hand the
+account to an outsider.
+
 ## What a real `terraform apply` turned out to need
 
 The Wave 1 block **has** now been run against a real account. It failed twice, and both were

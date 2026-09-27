@@ -265,3 +265,20 @@ def test_no_account_id_is_written_into_a_policy(path):
     import re
 
     assert not re.search(r"\b\d{12}\b", path.read_text(encoding="utf-8"))
+
+
+def test_the_guardrails_policy_only_denies_and_leaves_terraform_its_own_work():
+    """terraform/proving-ground/operator-guardrails.json (2026-09-27 audit): a deny-only policy the
+    owner attaches to the operator. The boundary is full (6,130 of 6,144 characters) and the operator
+    cannot detach a user policy, so these hold. It must never grant, and must not deny what the
+    stacks' own apply/destroy does (budgets, the bucket public-access block being SET)."""
+    import json
+    import pathlib
+
+    doc = json.loads((pathlib.Path(__file__).resolve().parents[1] / "terraform" / "proving-ground"
+                      / "operator-guardrails.json").read_text(encoding="utf-8"))
+    assert all(st["Effect"] == "Deny" for st in doc["Statement"])
+    denied = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
+    assert "iam:UpdateAssumeRolePolicy" in denied and "cloudtrail:StopLogging" in denied
+    assert not denied & {"budgets:DeleteBudget", "s3:PutBucketPublicAccessBlock"}
+    assert len("".join(json.dumps(doc, separators=(",", ":")).split())) <= 6144

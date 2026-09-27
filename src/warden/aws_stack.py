@@ -201,7 +201,7 @@ def source_excerpt(fn: str, package: bytes, path: str, line_no: int) -> list[str
 def _download(url: str) -> bytes:
     if not url.startswith("https://"):
         raise ToolError("code location is not an https URL")
-    with urllib.request.urlopen(url, timeout=READ_TIMEOUT) as resp:
+    with urllib.request.urlopen(url, timeout=READ_TIMEOUT) as resp:  # nosec B310
         data = resp.read(CODE_MAX_BYTES + 1)
     if len(data) > CODE_MAX_BYTES:
         raise ToolError(f"deployment package larger than {CODE_MAX_BYTES} bytes, not read")

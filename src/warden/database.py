@@ -428,7 +428,7 @@ class _MSSQL:
         # TOP (n) and DATEADD's offset cannot be parameterised by pymssql; both are int()-coerced.
         rows = cls._rows(
             conn,
-            f"SELECT TOP ({int(PROBLEM_OP_LIMIT)}) session_id, "
+            f"SELECT TOP ({int(PROBLEM_OP_LIMIT)}) session_id, "  # nosec B608
             "DATEDIFF(second, last_request_end_time, GETDATE()) "
             "FROM sys.dm_exec_sessions WHERE is_user_process = 1 AND open_transaction_count > 0 "
             "AND status = 'sleeping' "

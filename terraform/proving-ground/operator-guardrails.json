@@ -1,0 +1,77 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "NoRewritingWhoMayAssumeARole",
+      "Effect": "Deny",
+      "Action": "iam:UpdateAssumeRolePolicy",
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoTurningOffPublicAccessBlocks",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutAccountPublicAccessBlock",
+        "s3:PutBucketAcl",
+        "s3:PutObjectAcl"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoPublicLambdaUrls",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:UpdateFunctionUrlConfig"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "lambda:FunctionUrlAuthType": "NONE"
+        }
+      }
+    },
+    {
+      "Sid": "NoLambdaInvokeGrantToEveryone",
+      "Effect": "Deny",
+      "Action": "lambda:AddPermission",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "lambda:Principal": "*"
+        }
+      }
+    },
+    {
+      "Sid": "NoSharingDataOutOfTheAccount",
+      "Effect": "Deny",
+      "Action": [
+        "rds:ModifyDBSnapshotAttribute",
+        "rds:ModifyDBClusterSnapshotAttribute",
+        "ec2:ModifySnapshotAttribute",
+        "ec2:ModifyImageAttribute",
+        "secretsmanager:PutResourcePolicy",
+        "ecr:SetRepositoryPolicy",
+        "logs:PutResourcePolicy",
+        "logs:PutDestination",
+        "logs:PutDestinationPolicy",
+        "logs:PutSubscriptionFilter"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoBlindingTheAuditTrail",
+      "Effect": "Deny",
+      "Action": [
+        "cloudtrail:StopLogging",
+        "cloudtrail:DeleteTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors",
+        "access-analyzer:DeleteAnalyzer",
+        "access-analyzer:CreateArchiveRule",
+        "access-analyzer:UpdateArchiveRule"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
