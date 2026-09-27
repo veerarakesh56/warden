@@ -26,6 +26,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from .gate import enforce, sanitise_data
 from .redaction import redact
 from .reporting import Report, _scrub, reveal_identifiers
 
@@ -85,7 +86,11 @@ class SlackWebhookSink:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         parts = split_for_slack(to_slack_mrkdwn(text))
-        notes = [_post_json(self._url, {"text": part}, self.name) for part in parts]
+        # ⛔ No unfurling: with it on, a URL in a message makes Slack's servers FETCH it - data in the
+        # query string leaves without anyone clicking (the outbound gate removes URLs too; this is
+        # the second lock).
+        notes = [_post_json(self._url, {"text": part, "unfurl_links": False, "unfurl_media": False},
+                            self.name) for part in parts]
         failed = [n for n in notes if not n.delivered]
         if failed:
             return Notification(sink=self.name, delivered=False,
@@ -222,5 +227,10 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None) -> list[Notif
     if report.data.get("identifiers_shown"):
         safe_text = reveal_identifiers(safe_text, mapping)
         safe_data = reveal_identifiers(safe_data, mapping)
-    results = [sink.send(safe_text, safe_data) for sink in sinks]
-    return results
+    # ⛔ The outbound gate sees exactly what would leave, after the reveal step (Phase 0 gate v0).
+    gate = enforce(safe_text, alert_id=str((report.data.get("alert") or {}).get("alert_id", "")))
+    if gate.verdict == "BLOCK":
+        safe_data = {"withheld": True, "gate": gate.verdict, "reasons": gate.reasons}
+    else:
+        safe_data = {**sanitise_data(safe_data), "gate": gate.verdict, "gate_reasons": gate.reasons}
+    return [sink.send(gate.text, safe_data) for sink in sinks]

@@ -80,7 +80,8 @@ def test_slack_really_posts_and_what_crosses_the_wire_is_redacted(server):
     assert note.delivered is True and note.detail == "HTTP 200"
     assert len(RECEIVED) == 1
     assert RECEIVED[0]["content_type"] == "application/json"
-    assert json.loads(RECEIVED[0]["body"]) == {"text": "hello"}
+    # unfurling off: a URL in the message must not make Slack's servers fetch it (outbound gate v0)
+    assert json.loads(RECEIVED[0]["body"]) == {"text": "hello", "unfurl_links": False, "unfurl_media": False}
 
 
 def test_teams_posts_a_message_card_a_real_webhook_would_accept(server):

@@ -35,13 +35,16 @@ def test_the_action_enum_is_published_so_a_client_cannot_invent_one():
     assert "delete_database" not in actions
 
 
-def test_verify_approves_a_clean_case_but_still_requires_a_human():
+def test_a_clean_case_on_claimed_evidence_is_escalated_never_approved():
+    """Phase 0: the caller claims the evidence counts - claiming them used to be enough for approval.
+    What the gate would say on the claims is reported, and the verdict is capped at escalated."""
     out = _payload(call_tool("verify_remediation", {
         "environment": "prod", "severity": "critical", "service": "checkout",
         "action": "rollback_deploy", "target": "checkout", "blast_radius": "single_service",
         "reversible": True, "confidence": 0.9, "log_lines": 5, "metric_count": 4, "has_recent_deploy": True,
     }))
-    assert out["verdict"] == "approved_for_human"
+    assert out["verdict_on_claimed_evidence"] == "approved_for_human"
+    assert out["verdict"] == "escalated" and "MCP-CLAIMED-EVIDENCE" in out["policies_fired"]
     assert out["requires_approval"] is True
     assert out["may_execute"] is False
 
@@ -94,7 +97,7 @@ def test_every_verdict_says_the_client_may_not_execute():
     action that verifies auto_safe, the one case where 'may it execute?' is most tempting to answer yes.
     """
     cases = [
-        ("rollback_deploy", {"confidence": 0.9, "has_recent_deploy": True, "blast_radius": "single_service"}),  # approved_for_human
+        ("rollback_deploy", {"confidence": 0.9, "has_recent_deploy": True, "blast_radius": "single_service"}),  # approved on claims -> escalated
         ("rollback_deploy", {"confidence": 0.2, "has_recent_deploy": True, "blast_radius": "single_service"}),   # escalated (P4)
         ("rollback_deploy", {"confidence": 0.9, "has_recent_deploy": False, "blast_radius": "single_service"}),  # rejected (P5)
         ("escalate_to_human", {"confidence": 0.9, "has_recent_deploy": True, "blast_radius": "single_service"}), # auto_safe (inert)
@@ -109,7 +112,8 @@ def test_every_verdict_says_the_client_may_not_execute():
         seen.add(out["verdict"])
         assert out["may_execute"] is False, f"verdict {out['verdict']} reported may_execute=True"
     assert "auto_safe" in seen, "auto_safe was never exercised - the may_execute guard is a tautology"
-    assert len(seen) == 4, f"not all four verdict shapes exercised: {sorted(seen)}"
+    # approved_for_human is no longer reachable over MCP (claimed evidence caps it at escalated).
+    assert seen == {"escalated", "rejected", "auto_safe"}, f"verdict shapes: {sorted(seen)}"
 
 
 def test_redact_tool_masks_and_reports():

@@ -565,8 +565,10 @@ def build_report(
 
 
 def _code(lines: list[str], items: list[str]) -> None:
+    # ⛔ An item holding ``` (a planted log line) would CLOSE the fence, and everything after it would
+    # render as live markdown. The run of backticks is broken, and the line still reads the same.
     lines.append("```")
-    lines.extend(items)
+    lines.extend(item.replace("```", "`\u200b``") for item in items)
     lines.append("```")
 
 

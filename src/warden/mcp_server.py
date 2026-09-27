@@ -53,9 +53,11 @@ def _tools() -> list[types.Tool]:
             title="Verify a remediation against WARDEN policy",
             description=(
                 "Decide whether a proposed infrastructure remediation is allowed. Returns a verdict "
-                "(approved_for_human / escalated / rejected / auto_safe) with the policy ids that "
-                "fired. This is a DETERMINISTIC gate - no model is involved in the decision. Call it "
-                "before acting on any production system."
+                "(escalated / rejected / auto_safe) with the policy ids that fired. The evidence counts "
+                "are your claim, not read by WARDEN, so a mutating action is at best `escalated`: a "
+                "person checks the real evidence. `verdict_on_claimed_evidence` says what the gate "
+                "would decide on the claims. This is a DETERMINISTIC gate - no model is involved. Call "
+                "it before acting on any production system."
             ),
             input_schema={
                 "type": "object",
@@ -218,12 +220,25 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 reversible=args["reversible"],
             )
             verdict = verify(alert, context, root_cause, proposal)
+            on_claims = verdict.status.value
+            policies, reasons = list(verdict.policy_ids), list(verdict.reasons)
+            # ⛔ The evidence here is the CALLER's claim (counts padded into synthetic lines): claiming
+            # log_lines=5, metric_count=4 satisfied P9 without WARDEN reading anything. So the verdict
+            # that authorises a mutating action is never given on claims - a person checks the real
+            # evidence (Phase 0, 2026-09-27). auto_safe covers only inert actions and stays.
+            status = on_claims
+            if on_claims == "approved_for_human":
+                status = "escalated"
+                policies.append("MCP-CLAIMED-EVIDENCE")
+                reasons.append("The evidence counts were supplied by the caller, not read by WARDEN: "
+                               "a person must check the real evidence before approving.")
             return _ok(
                 {
-                    "verdict": verdict.status.value,
+                    "verdict": status,
+                    "verdict_on_claimed_evidence": on_claims,
                     "requires_approval": verdict.requires_approval,
-                    "policies_fired": verdict.policy_ids,
-                    "reasons": verdict.reasons,
+                    "policies_fired": policies,
+                    "reasons": reasons,
                     # What the gate actually enforced, so a caller can see it was overruled rather
                     # than wondering why its "reversible": true was ignored.
                     "blast_radius_enforced": proposal.effective_blast_radius,
