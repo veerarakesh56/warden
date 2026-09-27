@@ -32,6 +32,7 @@ from __future__ import annotations
 import functools
 import re
 
+from .evidence import STEER as _STEER
 from .evidence import Item
 
 LEVELS = ("FATAL", "CRITICAL", "PANIC", "ERROR", "WARNING", "WARN")
@@ -77,9 +78,6 @@ _BASE_PHRASES = (
 _DENY_KEYS = frozenset({"action", "target", "note", "msg", "message", "instruction", "instructions",
                         "prompt", "command", "cmd", "reason", "description", "text", "comment", "hint",
                         "todo", "task", "goal", "assistant", "system"})
-_STEER = re.compile(r"(?i)(?<![a-z])(?:ignore|instructions?|previous|propose|approved?|must|should|"
-                    r"operator|system|assistant|override|disregard|execute|resolved|pretend|forget|you)"
-                    r"(?![a-z])")
 
 
 def _plain(value: str, limit: int) -> bool:

@@ -32,8 +32,17 @@ _CONFIG = re.compile(r"^(?:LOG k8s/\S+ )?(?:CONFIG|ESM|QUEUE|TABLE|REPLGROUP|SG|
                      r"TARGET|APPSG|TASKROLE|SECRET|POLICY|RULE|ROLLOUT) ")
 
 
+STEER = re.compile(r"(?i)(?<![a-z])(?:ignore|instructions?|previous|propose|approved?|must|should|"
+                    r"operator|system|assistant|override|disregard|execute|resolved|pretend|forget|you)"
+                    r"(?![a-z])")
+
+
 def _kind(line: str) -> str:
-    if _CONFIG.match(line):
+    # Defence in depth (2026-09-27 audit): a "trusted" line that uses steering language is demoted
+    # to untrusted. Trust by prefix rests on every backend prefixing application text, and a custom
+    # backend that does not would otherwise hand the model a forged CONFIG line. Measured on every
+    # recorded wave: 0 of 125 real config lines are affected.
+    if _CONFIG.match(line) and not STEER.search(line):
         return "C"
     return "E" if line.startswith("EVENT ") else "L"
 

@@ -52,7 +52,7 @@ jobs:
       - name: Python security lint
         run: bandit -q -r src -ll
       - name: Workflow audit
-        run: zizmor --offline --format plain .github/workflows
+        run: zizmor --offline --format plain .github
 
   check:
     runs-on: ubuntu-latest
