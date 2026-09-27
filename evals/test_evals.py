@@ -96,7 +96,7 @@ def test_redaction_actually_masked_something_on_the_pii_heavy_incident():
 
 def test_cost_is_recorded_for_every_run():
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True))
-    assert report.cost.calls == 2
+    assert report.cost.calls == 1  # one diagnose call (v2 Phase 1; was analyse + propose)
     assert report.cost.usd > 0
 
 
@@ -135,7 +135,7 @@ def test_terminal_node_matches_the_verdict(incident):
 def test_audit_trail_covers_every_node():
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True))
     nodes = [step["node"] for step in report.audit]
-    for expected in ("ingest", "gather", "redact", "analyse", "propose", "verify"):
+    for expected in ("ingest", "gather", "redact", "diagnose", "verify"):
         assert expected in nodes, f"audit trail is missing '{expected}': {nodes}"
 
 
@@ -163,12 +163,12 @@ def test_an_escalated_verdict_routes_to_escalate_end_to_end():
     """Replaces the coverage inc-003 used to give. Since the action table rejects that failover
     outright, no bundled incident escalates any more, and the escalated->escalate edge would go
     unexercised through run(). A low-confidence restart does it without inventing a sixth fixture."""
-    rc = '{"hypothesis": "unclear", "confidence": 0.2, "evidence": ["e1", "e2"]}'
-    prop = (
-        '{"action": "restart_pods", "target": "checkout", "reasoning": "r", "expected_effect": "e", '
-        '"blast_radius": "single_pod", "reversible": true}'
+    diagnosis = (
+        '{"root_cause": {"hypothesis": "unclear", "confidence": 0.2, "evidence": ["e1", "e2"]}, '
+        '"proposal": {"action": "restart_pods", "target": "checkout", "reasoning": "r", '
+        '"expected_effect": "e", "blast_radius": "single_pod", "reversible": true}}'
     )
-    llm = LLMClient(provider=_ScriptedProvider(rc, prop), mock=False)
+    llm = LLMClient(provider=_ScriptedProvider(diagnosis), mock=False)
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=llm)
 
     assert report.verdict.status is VerdictStatus.escalated
@@ -181,12 +181,12 @@ def test_a_rejected_verdict_routes_to_halt_end_to_end():
     RunReport.halted_reason were never exercised through run() - only verify() in isolation. This
     drives a rejecting proposal (scale_down, which the prod allow-list forbids) all the way through
     the graph, so a regression that misroutes a rejected verdict to record_safe would be caught."""
-    rc = '{"hypothesis": "bad config push", "confidence": 0.9, "evidence": ["e1", "e2"]}'
-    prop = (
-        '{"action": "scale_down", "target": "checkout", "reasoning": "r", "expected_effect": "e", '
-        '"blast_radius": "single_service", "reversible": true}'
+    diagnosis = (
+        '{"root_cause": {"hypothesis": "bad config push", "confidence": 0.9, "evidence": ["e1", "e2"]}, '
+        '"proposal": {"action": "scale_down", "target": "checkout", "reasoning": "r", '
+        '"expected_effect": "e", "blast_radius": "single_service", "reversible": true}}'
     )
-    llm = LLMClient(provider=_ScriptedProvider(rc, prop), mock=False)
+    llm = LLMClient(provider=_ScriptedProvider(diagnosis), mock=False)
     report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=llm)
 
     assert report.verdict.status is VerdictStatus.rejected
