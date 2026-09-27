@@ -382,6 +382,18 @@ by `kubectl auth can-i`; the live restart/scale test itself ran with the CI runn
 kubeconfig, not as that ServiceAccount. The restart/scale is proven against a live k3d cluster (not yet executed on EKS - the
 benchmark measures what WARDEN proposes, and never lets it act). The four-way gate is unchanged.
 
+
+### Injection detector (optional, `WARDEN_TRIPWIRE`)
+
+WARDEN can run Meta's **Llama Prompt Guard 2** (86M) locally over every untrusted log line and event;
+a flagged line escalates the incident (policy `P16`). Install with `pip install -e ".[guard]"` and set
+`WARDEN_TRIPWIRE=on` (or `required` in production, which fails closed if the detector cannot run).
+
+**The model is not part of WARDEN and is never bundled with it.** Each deployment downloads it from
+Hugging Face under its own account, after accepting Meta's **Llama 4 Community License** and Acceptable
+Use Policy itself (the model page's access form). Using WARDEN does not grant any right to the model;
+the license terms, including its redistribution and attribution conditions, are between you and Meta.
+
 ## Databases — PostgreSQL, MySQL, Redis, MongoDB, SQL Server
 
 The same shape as Kubernetes: a **read-only** evidence backend, and a separate, gated write path that

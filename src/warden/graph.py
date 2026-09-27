@@ -25,7 +25,7 @@ from typing import Annotated, Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
-from . import evidence
+from . import evidence, tripwire
 from .knowledge import default_knowledge_base
 from .llm import LLMClient
 from .models import (
@@ -445,6 +445,15 @@ def _evidence_blob(state: WardenState) -> str:
     return redact(blob, mapping=state.get("redaction_map", {})).text
 
 
+def node_tripwire(state: WardenState) -> WardenState:
+    """The trained injection detector over the untrusted evidence (tripwire.py). It changes what the
+    gate allows (P16), never what the model is shown."""
+    status, flagged = tripwire.scan(evidence.index(state["context"]))
+    context = state["context"].model_copy(update={"tripwire": status, "suspected": flagged})
+    return {"context": context,
+            "audit": [{"node": "tripwire", "status": status, "flagged": sorted(flagged)}]}
+
+
 def node_diagnose(state: WardenState) -> WardenState:
     llm: LLMClient = state["llm"]
     signals = Signals.of(state)
@@ -546,6 +555,7 @@ def build_graph():
     g.add_node("ingest", node_ingest)
     g.add_node("gather", node_gather)
     g.add_node("redact", node_redact)
+    g.add_node("tripwire", node_tripwire)
     g.add_node("diagnose", node_diagnose)
     g.add_node("verify", node_verify)
     g.add_node("halt", node_halt)
@@ -556,7 +566,8 @@ def build_graph():
     g.add_edge(START, "ingest")
     g.add_edge("ingest", "gather")
     g.add_edge("gather", "redact")
-    g.add_edge("redact", "diagnose")
+    g.add_edge("redact", "tripwire")
+    g.add_edge("tripwire", "diagnose")
     g.add_edge("diagnose", "verify")
     g.add_conditional_edges(
         "verify",

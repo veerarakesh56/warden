@@ -8,7 +8,7 @@ re-running anything.
 
 from __future__ import annotations
 
-from . import evidence
+from . import evidence, tripwire
 from .environments import EnvironmentPolicies, default_environment_policies
 from .grounding import action_support_problem, citation_problems, target_problem
 from .models import (
@@ -376,6 +376,19 @@ def verify(
             escalate = True
             policies.append("P15-CITATIONS-DO-NOT-SUPPORT-ACTION")
             reasons.append(problem + ".")
+
+    # P16 - the trained injection detector (tripwire.py) flagged untrusted evidence, or it was
+    # required and could not run. Escalates: a flagged line may be an attack or a false alarm, and
+    # a person decides which - nothing runs automatically on evidence that looks like one.
+    if context.suspected:
+        escalate = True
+        policies.append("P16-SUSPECTED-INJECTION")
+        flagged = ", ".join(f"{i} ({s:.2f})" for i, s in sorted(context.suspected.items()))
+        reasons.append(f"The injection detector flagged untrusted evidence: {flagged}.")
+    elif context.tripwire.startswith("unavailable") and tripwire.mode() == "required":
+        escalate = True
+        policies.append("P16-SUSPECTED-INJECTION")
+        reasons.append(f"The injection detector is required here and could not run ({context.tripwire}).")
 
     # P14 - the target must be a resource WARDEN knows exists. Rejects: acting on a name the
     # evidence does not contain is acting on a guess.

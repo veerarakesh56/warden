@@ -65,6 +65,8 @@ The policies are not hypothetical. Each one has a test that proves it can fire:
 
 | `P15-CITATIONS-DO-NOT-SUPPORT-ACTION` | A diagnosis that cites real evidence which says nothing about the action: a `scale_down` for replica lag citing `error_rate` passed P13. Each action has a broad list of what its evidence must touch (`grounding.ACTION_EVIDENCE`); fired on none of 60 replayed real diagnoses |
 
+| `P16-SUSPECTED-INJECTION` | Acting on evidence that looks like an attack: a trained detector (Meta Llama Prompt Guard 2, run locally) scores every untrusted line, and a flagged line sends the incident to a person. It is a tripwire, not a gate that clears text as safe; `WARDEN_TRIPWIRE=required` fails closed when the detector cannot run |
+
 `P13`, `P14` and `P15` (v2 Phase 1 and the 2026-09-27 audit) are not evaluated where no evidence text exists: the MCP
 tool, which receives counts, and replays of reports written before citations existed. Both say so.
 

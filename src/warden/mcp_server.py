@@ -344,6 +344,11 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "it verbatim; none, or any invented one, escalates (not evaluated here: "
                             "this tool receives counts, not evidence)"
                         ),
+                        "P16-SUSPECTED-INJECTION": (
+                            "a trained injection detector (Meta Llama Prompt Guard 2, run locally) "
+                            "flagged an untrusted log line or event, or it was required and could "
+                            "not run; escalates (not evaluated here)"
+                        ),
                         "P15-CITATIONS-DO-NOT-SUPPORT-ACTION": (
                             "a real action must cite at least one item that bears on it (e.g. a "
                             "rollback cites a deploy, a terminate cites stuck sessions); escalates "

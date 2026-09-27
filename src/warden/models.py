@@ -100,6 +100,10 @@ class ContextBundle(BaseModel):
     metrics: dict[str, float] = Field(default_factory=dict)
     recent_deploys: list[dict[str, str]] = Field(default_factory=list)
     tool_errors: list[str] = Field(default_factory=list)
+    # The injection tripwire (tripwire.py): whether it ran, and the untrusted evidence ids it flagged
+    # with their scores. Read by policy P16; recorded in the report so a replay sees what was decided.
+    tripwire: str = "off"
+    suspected: dict[str, float] = Field(default_factory=dict)
 
     def is_empty(self) -> bool:
         return not (self.logs or self.metrics or self.recent_deploys)
