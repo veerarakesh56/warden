@@ -63,7 +63,9 @@ The policies are not hypothetical. Each one has a test that proves it can fire:
 | `P13-UNGROUNDED` | A diagnosis resting on evidence that does not exist: every citation must name a real evidence id (`L3`, `M2`, `D1`) and quote it verbatim; none, or any invented one, escalates |
 | `P14-TARGET-NOT-IN-EVIDENCE` | Acting on a resource name the model made up: the target must name the service, an alert label, a deploy or a metric's resource. A name only a log line mentions does not count. Seen live on 2026-09-26: `scale_up lambda:shop-prod-checkout`, when the function was `warden-pg-fs-checkout` |
 
-`P13` and `P14` (v2 Phase 1, 2026-09-27) are not evaluated where no evidence text exists: the MCP
+| `P15-CITATIONS-DO-NOT-SUPPORT-ACTION` | A diagnosis that cites real evidence which says nothing about the action: a `scale_down` for replica lag citing `error_rate` passed P13. Each action has a broad list of what its evidence must touch (`grounding.ACTION_EVIDENCE`); fired on none of 60 replayed real diagnoses |
+
+`P13`, `P14` and `P15` (v2 Phase 1 and the 2026-09-27 audit) are not evaluated where no evidence text exists: the MCP
 tool, which receives counts, and replays of reports written before citations existed. Both say so.
 
 ⚠ **`P11` and `P12` were written on 2026-09-25 from measured failures** - all three EKS runs the gate

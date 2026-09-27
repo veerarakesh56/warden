@@ -31,7 +31,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Slack (xoxb-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_), npm (npm_).
     # AKIA/ASIA share one shape (prefix + 16 base32); ASIA is the temporary sibling that travels
     # with a session token in AssumeRole/SSO bundles and appears bare in botocore errors.
-    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|AIza|npm_)[A-Za-z0-9_\-]{8,}\b")),
+    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|glrt-|AIza|npm_|hf_|hvs\.|hvb\.)[A-Za-z0-9_\-]{8,}\b")),
+    # 2026-09-27 audit: shapes that passed unredacted. SendGrid keys carry dots.
+    ("APIKEY", re.compile(r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}")),
     # GCP OAuth2 access token (ya29.<long>). Masked whole and BEFORE the phone pattern, which would
     # otherwise fragment a digit-run inside it and leave the rest exposed. Cloud-neutral: GCP.
     ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
@@ -49,7 +51,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Credentials embedded in a URL / connection string: scheme://user:PASSWORD@host. Masks the
     # password (group 1). A literal `@` inside a password is only partially covered (rare — real
     # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
-    ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s@<]{2,256})@")),
+    # The password runs to the LAST "@" before the host: `admin:p@ss@db` used to mask only "p" and
+    # leave "ss@db" to be read as an e-mail address (revealable in Slack).
+    ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s<]{2,256}?)@(?=[A-Za-z0-9.\-]+(?::\d+)?(?:[/?#\s]|$))")),
     # `@` OR its URL-encoding `%40` — a URL-encoded email (normal in HTTP access logs, the exact
     # evidence source) reads as the email to both the model and an operator, so it must be masked too.
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
@@ -115,6 +119,18 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # AWS secret access key (the credential paired with the AKIA id) is the case that exposed it.
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
+    # Header values and client flags that carry a credential whole (2026-09-27 audit).
+    ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
+    ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
+    ("SECRET", re.compile(r"\bmysql(?:dump|admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
+    # A quoted secret value is masked WHOLE: `password='hunter 2 x'` used to leak "2 x".
+    ("SECRET", re.compile(
+        r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
+        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*\"([^\"]{1,256})\"")),
+    ("SECRET", re.compile(
+        r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
+        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*'([^']{1,256})'")),
     ("SECRET", re.compile(
         # Leading delimiter includes ? & : so URL QUERY-PARAM credentials (?password=, &token=) and
         # the .npmrc form (//registry/:_authToken=) are caught — ubiquitous in access/CI logs.
@@ -125,7 +141,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"|key[_\-]?data|cert(?:ificate)?[_\-]?data"
         # session cookies are live bearer credentials: sessionid, JSESSIONID, PHPSESSID, connect.sid.
         r"|session[_\-]?id|jsessionid|phpsessid|sessid|connect\.sid"
-        r"|client[_\-]?secret|credential|token)[\w.\-]{0,20}"
+        r"|client[_\-]?secret|credential|token|pass(?=[\"']?\s*[:=])|session(?=[\"']?\s*[:=]))[\w.\-]{0,20}"
         # optional closing quote after the key so a JSON credential ("password": "x") is matched too
         r"[\"']?\s*[:=]\s*[\"']?"
         # The value: any non-separator char, OR a comma that does NOT begin a new key=value pair
@@ -133,6 +149,12 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         # URL query-param value at the next parameter. Char-by-char, so no catastrophic backtracking.
         r"((?:[^\s\"'<;,&]|,(?!\s*[\w.\-]+\s*[:=]))+)"
     )),
+    # Last: a long high-entropy run no named pattern claimed - a bare AWS secret key, one line of a
+    # private key logged line by line (a pod log splits it), a base64 credential. Upper, lower AND a
+    # digit, so hex digests, ids and plain words do not match.
+    ("HIGHENTROPY", re.compile(
+        r"(?<![A-Za-z0-9+/=_\-])(?=[A-Za-z0-9+/=_\-]*[A-Z])(?=[A-Za-z0-9+/=_\-]*[a-z])"
+        r"(?=[A-Za-z0-9+/=_\-]*\d)[A-Za-z0-9+/_\-]{40,}={0,2}(?![A-Za-z0-9+/=_\-])")),
 ]
 
 

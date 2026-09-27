@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from . import evidence
 from .environments import EnvironmentPolicies, default_environment_policies
-from .grounding import citation_problems, target_problem
+from .grounding import action_support_problem, citation_problems, target_problem
 from .models import (
     ACTION_FACTS,
     ActionKind,
@@ -367,6 +367,15 @@ def verify(
             escalate = True
             policies.append("P13-UNGROUNDED")
             reasons.append("The diagnosis is not grounded in the evidence: " + "; ".join(problems) + ".")
+
+    # P15 - the citations must bear on the ACTION, not merely exist (grounding.ACTION_EVIDENCE).
+    # Escalates: a person checks whether the evidence supports this fix at all.
+    if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
+        problem = action_support_problem(root_cause, proposal, evidence.view(context))
+        if problem:
+            escalate = True
+            policies.append("P15-CITATIONS-DO-NOT-SUPPORT-ACTION")
+            reasons.append(problem + ".")
 
     # P14 - the target must be a resource WARDEN knows exists. Rejects: acting on a name the
     # evidence does not contain is acting on a guess.

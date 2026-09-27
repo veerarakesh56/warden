@@ -32,6 +32,7 @@ T = TypeVar("T", bound=BaseModel)
 # nothing at all. Verify before quoting these figures anywhere.
 PRICE_PER_MTOK_IN = float(os.environ.get("WARDEN_PRICE_IN", "3.00"))
 PRICE_PER_MTOK_OUT = float(os.environ.get("WARDEN_PRICE_OUT", "15.00"))
+MAX_PROMPT_TOKENS = int(os.environ.get("WARDEN_MAX_PROMPT_TOKENS", "60000"))
 
 # Wall-clock ceiling for a single model call. The budget above stops COST; this stops TIME. Without
 # it a slow, retrying or hung provider hangs the whole run forever — observed live: a Gemini key
@@ -147,6 +148,15 @@ class LLMClient:
             f"{user}\n\nReturn ONLY a JSON object matching this schema:\n"
             f"{json.dumps(schema.model_json_schema())}"
         )
+        # Refused BEFORE the call (2026-09-27 audit): charging after it meant one oversized prompt
+        # could spend past max_usd before the budget ever looked. ~4 characters per token.
+        est_in = (len(system) + len(prompt)) // 4
+        if est_in > MAX_PROMPT_TOKENS:
+            raise BudgetExceeded(f"prompt of ~{est_in} tokens exceeds the {MAX_PROMPT_TOKENS} ceiling")
+        est_usd = (est_in / 1e6) * PRICE_PER_MTOK_IN
+        if self.cost.usd + est_usd > self.max_usd:
+            raise BudgetExceeded(
+                f"this call (~${est_usd:.4f} of input) would take the run past ${self.max_usd:.2f}")
 
         last: Exception | None = None
         attempts = 0

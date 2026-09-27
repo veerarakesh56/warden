@@ -169,6 +169,25 @@ def _call_with_timeout(fn, alert: Alert, timeout: float):
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+# Bounds on what one incident may carry (2026-09-27 audit): 150 lines of 64 KB each made a 9.7M-char
+# prompt, and redaction time grows with lines x distinct identifiers. Backends already cap lines;
+# this is the ceiling whatever the backend. A cut is recorded as a failed read, never silent.
+MAX_LINE_CHARS = int(os.environ.get("WARDEN_MAX_LINE_CHARS", "2000"))
+MAX_LOG_LINES = int(os.environ.get("WARDEN_MAX_LOG_LINES", "2000"))
+
+
+def _bounded(lines: list, tool_errors: list[str]) -> list[str]:
+    lines = [str(x) for x in lines]
+    long = sum(1 for x in lines if len(x) > MAX_LINE_CHARS)
+    if len(lines) > MAX_LOG_LINES:
+        tool_errors.append(f"logs: kept the newest {MAX_LOG_LINES} of {len(lines)} lines")
+        lines = lines[-MAX_LOG_LINES:]
+    if long:
+        tool_errors.append(f"logs: {long} line(s) cut to {MAX_LINE_CHARS} characters")
+        lines = [x[:MAX_LINE_CHARS] for x in lines]
+    return lines
+
+
 def _numbers(metrics: object) -> dict[str, float]:
     """Metrics are numbers. `setattr` bypasses pydantic, so a backend (or a fixture file) returning a
     string or a nested secret under a metric name put it into the prompt and the MCP payload as-is."""
@@ -212,6 +231,8 @@ def gather(
                         # 2026-09-25, into the model's prompt as READ FAILURES (graph.py).
                         bundle.tool_errors.append(redact(f"{name}: {p[len(PARTIAL_PREFIX):]}").text)
                     sp.set_attribute("warden.tool.partial_failures", len(partial))
+                    if sink == "logs":
+                        result = _bounded(result, bundle.tool_errors)
                 if sink == "metrics":
                     result = _numbers(result)
                 setattr(bundle, sink, result)

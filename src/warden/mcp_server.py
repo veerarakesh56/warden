@@ -344,6 +344,11 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "it verbatim; none, or any invented one, escalates (not evaluated here: "
                             "this tool receives counts, not evidence)"
                         ),
+                        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION": (
+                            "a real action must cite at least one item that bears on it (e.g. a "
+                            "rollback cites a deploy, a terminate cites stuck sessions); escalates "
+                            "(not evaluated here)"
+                        ),
                         "P14-TARGET-NOT-IN-EVIDENCE": (
                             "the target must name a resource WARDEN knows exists (service, alert "
                             "labels, deploys, metric resources); anything else is rejected (not "

@@ -194,7 +194,10 @@ def test_only_escalate_to_human_is_exempt_from_the_evidence_floor():
 
 def test_clear_cache_in_prod_is_held_for_a_human_not_auto_run():
     """A cache flush can cause a stampede/latency spike, so it is a real action behind approval."""
-    v = verify(_alert(), _ctx(), _rc(), _prop(action=ActionKind.clear_cache))
+    ctx = _ctx(metrics={"error_rate": 0.04, "cache_hit_ratio": 0.02})
+    rc = RootCause(hypothesis="stale cache", confidence=0.9,
+                   citations=[Citation(id="M2", quote="cache_hit_ratio=0.02")])  # P15: cites the cache
+    v = verify(_alert(), ctx, rc, _prop(action=ActionKind.clear_cache))
     assert v.status is VerdictStatus.approved_for_human
     assert v.requires_approval is True
 
