@@ -28,6 +28,7 @@ import json
 import pathlib
 import sqlite3
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -61,8 +62,9 @@ def _signed_message(seq: int, head: str) -> bytes:
 
 class AuditLog:
     def __init__(self, path: str | pathlib.Path, *, key: Ed25519PrivateKey | None = None,
-                 checkpoint_every: int = 100) -> None:
+                 checkpoint_every: int = 100, clock: Callable[[], datetime] | None = None) -> None:
         self.key = key
+        self.clock = clock or (lambda: datetime.now(UTC))
         self.checkpoint_every = checkpoint_every
         self._lock = threading.Lock()
         self.db = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False)
@@ -71,7 +73,7 @@ class AuditLog:
     def append(self, correlation_id: str, kind: str, body: dict[str, Any]) -> str:
         """Add one row and return its hash."""
         text = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
-        at = datetime.now(UTC).isoformat()
+        at = self.clock().astimezone(UTC).isoformat(timespec="microseconds")
         with self._lock:
             self.db.execute("BEGIN IMMEDIATE")
             try:
@@ -100,11 +102,22 @@ class AuditLog:
             self.db.execute("INSERT OR IGNORE INTO checkpoints VALUES (?, ?, ?)", (*last, signature))
         return last[0]
 
-    def entries(self, correlation_id: str | None = None) -> list[dict[str, Any]]:
+    def entries(self, correlation_id: str | None = None, *, kinds: tuple[str, ...] = (),
+                since: datetime | None = None) -> list[dict[str, Any]]:
+        where, params = [], []
+        if correlation_id:
+            where.append("correlation_id = ?")
+            params.append(correlation_id)
+        if kinds:
+            where.append(f"kind IN ({','.join('?' * len(kinds))})")
+            params.extend(kinds)
+        if since:
+            where.append("at >= ?")  # ISO-8601 UTC strings sort in time order
+            params.append(since.astimezone(UTC).isoformat(timespec="microseconds"))
         query = "SELECT seq, at, correlation_id, kind, body FROM entries"
-        rows = (self.db.execute(query + " WHERE correlation_id = ? ORDER BY seq", (correlation_id,))
-                if correlation_id else self.db.execute(query + " ORDER BY seq"))
-        return [{"seq": s, "at": a, "correlation_id": c, "kind": k, "body": json.loads(b)}
+        rows = self.db.execute(query + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY seq",
+                               params)
+        return [{"seq": s, "at": datetime.fromisoformat(a), "correlation_id": c, "kind": k, "body": json.loads(b)}
                 for s, a, c, k, b in rows]
 
     def close(self) -> None:
