@@ -69,8 +69,10 @@ def _id_windows(text: str, tokenizer: Any) -> list[list[int]]:
 
 def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
     """The malicious probability of each window, straight from the model: token ids in, no text."""
-    import torch  # present with the [guard] extra, as the model itself needs it
-
+    try:
+        import torch  # present with the [guard] extra: the real model needs tensors
+    except ImportError:  # a stand-in model (tests, CI without the extra) takes plain lists
+        torch = None
     tok, model = classify.tokenizer, classify.model
     # [CLS] ids [SEP], as tokenizer(text) itself builds them (Prompt Guard 2 is DeBERTa-v2; transformers
     # 5 has no build_inputs_with_special_tokens on it - found running the real model, 2026-09-28).
@@ -84,11 +86,18 @@ def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
         batch = rows[start:start + 16]
         width = max(len(r) for r in batch)
         pad = tok.pad_token_id or 0
-        input_ids = torch.tensor([r + [pad] * (width - len(r)) for r in batch])
-        mask = torch.tensor([[1] * len(r) + [0] * (width - len(r)) for r in batch])
-        with torch.no_grad():
-            probs = torch.softmax(model(input_ids=input_ids, attention_mask=mask).logits, dim=-1)
-        scores += [float(sum(p[i] for i in bad)) for p in probs]
+        input_ids = [r + [pad] * (width - len(r)) for r in batch]
+        mask = [[1] * len(r) + [0] * (width - len(r)) for r in batch]
+        if torch is not None:
+            with torch.no_grad():
+                logits = model(input_ids=torch.tensor(input_ids), attention_mask=torch.tensor(mask)).logits
+            logits = logits.tolist() if hasattr(logits, "tolist") else logits
+        else:
+            logits = model(input_ids=input_ids, attention_mask=mask).logits
+        for row in logits:
+            top = max(row)
+            exp = [math.exp(v - top) for v in row]
+            scores.append(sum(exp[i] for i in bad) / sum(exp))
     return scores
 
 

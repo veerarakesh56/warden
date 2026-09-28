@@ -107,15 +107,16 @@ class _Model:
         self.lengths = []
 
     def __call__(self, input_ids, attention_mask):
-        import torch
-
+        # Plain lists or tensors: CI runs without torch (the [guard] extra), a dev machine with it.
+        ids = input_ids.tolist() if hasattr(input_ids, "tolist") else input_ids
+        masks = attention_mask.tolist() if hasattr(attention_mask, "tolist") else attention_mask
         rows = []
-        for row, mask in zip(input_ids.tolist(), attention_mask.tolist(), strict=True):
+        for row, mask in zip(ids, masks, strict=True):
             real = row[:sum(mask)]
             self.lengths.append(len(real))
             hit = any(real[i:i + len(self.needle)] == self.needle for i in range(len(real)))
             rows.append([0.0, 9.0] if hit else [9.0, 0.0])
-        return type("Out", (), {"logits": torch.tensor(rows)})()
+        return type("Out", (), {"logits": rows})()
 
 
 class _Classify:
