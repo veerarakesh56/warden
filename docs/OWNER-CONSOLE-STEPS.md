@@ -9,43 +9,7 @@ Avoid the root user.
 
 ---
 
-## ▶ NOW: a read-only sweep role (about 5 minutes, free)
-
-Why: the operator can list only some services, and only in ap-south-2. So "nothing is running" could
-not be proven for every service in every region, nor could every resource's tags be checked. This
-role can **only list** what exists in every region and read tags. It cannot change anything, read a
-secret's value or open a file. Only `warden-operator` may use it. Claude runs
-`python scripts/account_sweep.py` with it.
-
-**1. Update `WardenFullstackOperator`** (lets the operator use the new role; nothing else changes).
-IAM → **Policies** → `WardenFullstackOperator` → **Edit** → **JSON** → **Ctrl+A**, **Delete**, paste
-[`terraform/fullstack/operator-policy-fullstack.json`](https://github.com/veerarakesh56/warden/blob/main/terraform/fullstack/operator-policy-fullstack.json)
-→ **Next** → **Save changes**.
-
-**2. Create the policy `WardenSweepReadOnly`.** IAM → **Policies** → **Create policy** → **JSON** →
-**Ctrl+A**, **Delete**, paste
-[`terraform/proving-ground/sweep-role-policy.json`](https://github.com/veerarakesh56/warden/blob/main/terraform/proving-ground/sweep-role-policy.json)
-→ **Next** → name `WardenSweepReadOnly` → **Create policy**.
-
-**3. Create the role `warden-pg-sweep`.**
-1. IAM → **Roles** → **Create role** → **Custom trust policy**.
-2. **Ctrl+A**, **Delete**, and paste the complete file from **this computer, not GitHub**: open
-   `C:\work\warden\terraform\proving-ground\sweep-role-trust.local.json` in your editor. It contains
-   your account number, so it is never committed. It trusts `warden-operator` only. **Next**.
-3. Tick `WardenSweepReadOnly` (only this one). **Next**.
-4. Role name `warden-pg-sweep`. Add the tag `Project` = `warden`. There is no `Environment` tag:
-   the role serves the whole account, not one environment. **Create role**.
-
-**4. Tell Claude "sweep role done".** Claude runs the sweep over every region and reports anything
-that exists, anything with missing or wrong `Project` / `Environment` tags, and anything it still
-could not see.
-
-Undo: delete the role, then the policy, then set the previous version of `WardenFullstackOperator`
-as default (**Policy versions** tab).
-
----
-
-## Then nothing until the cloud test
+## ▶ NOW: nothing to do
 
 Local work uses this machine's current credentials. The next console work is the section below,
 **only when the real-world cloud test starts** - not before.
@@ -140,7 +104,20 @@ It also runs a negative check: another environment's role must be refused.
    - No findings is the goal. Any finding means something is reachable from outside the account; tell
      Claude which resource it names.
 
+## Done 2026-09-28
+
+4. The read-only sweep role `warden-pg-sweep`:
+   - `WardenFullstackOperator` was updated so the operator may assume it.
+   - The role has one policy, `WardenSweepReadOnly`, from
+     [`sweep-role-policy.json`](https://github.com/veerarakesh56/warden/blob/main/terraform/proving-ground/sweep-role-policy.json).
+   - Its trust policy is the local file (it contains the account number).
+   - Verified the same day: it sees all 18 regions. Creating a bucket or a security group, reading a
+     parameter's value and listing IAM users are all denied.
+   - Claude uses it through `python scripts/account_sweep.py`.
+
 **Undo, if ever needed:**
 - For 1: the policy's **Policy versions** tab → previous version → **Set as default**.
 - For 2: user → **Permissions** → remove `WardenOperatorGuardrails`.
 - For 3: **Analyzer settings** → tick the analyzer → **Delete**.
+- For 4: delete the role `warden-pg-sweep`, then the policy `WardenSweepReadOnly`, then set the
+  previous version of `WardenFullstackOperator` as default.
