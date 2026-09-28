@@ -67,19 +67,23 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
 
 - **Evidence first.** Tools run deterministically *before* the model reasons. The model does not
   choose what to look at, because choosing the evidence is choosing the answer.
-- **Redaction that is verified, not assumed — and cloud-neutral.** Emails (incl. URL-encoded `%40`),
-  IPv4/IPv6, UUIDs, PEM private keys, connection-string passwords (Postgres/MySQL/Redis — so RDS,
-  Cloud SQL and Azure SQL alike), JWTs and bearer tokens, and vendor credentials across **AWS**
-  (ARN, permanent `AKIA` **and STS temporary `ASIA`** access keys, secret keys), **GCP** (`AIza`
-  keys, `ya29.` OAuth tokens), **Azure** (storage `AccountKey`, SAS `sig`), plus GitHub/GitLab/Slack/
-  Stripe keys, `password=`/`secret=` values and **financial identifiers (IBANs, payment-card numbers)**
-  are masked before any token leaves the process — then the output is re-scanned and a surviving value
-  raises. Stable placeholders mean the model can still tell that two log lines refer to the same host.
-  Coverage is format-based and curated, plus a narrow high-entropy backstop (`HIGHENTROPY`) that
-  masks secret-shaped tokens while preserving evidence-shaped ones (git SHAs, trace/request ids).
-  **Honest limits (2026-09-28 audit):** some credential shapes are not caught yet (flag-style
-  passwords, `whsec_`, PGP blocks), and the "surviving value raises" re-scan only re-checks values
-  a pattern already matched, so it cannot catch a secret no pattern knows. Both are being fixed.
+- **Redaction before the model, cloud-neutral, with a check that it was complete.** Emails (incl.
+  URL-encoded `%40`), IPv4/IPv6, UUIDs, PEM, PGP and PuTTY private keys, connection-string passwords
+  (Postgres/MySQL/Redis - so RDS, Cloud SQL and Azure SQL alike), JWTs and bearer tokens, credential
+  command-line flags, and vendor credentials across **AWS** (ARN, permanent `AKIA` **and STS
+  temporary `ASIA`** access keys, secret keys), **GCP** (`AIza` keys, `ya29.` OAuth tokens),
+  **Azure** (storage `AccountKey`, SAS `sig`), plus GitHub/GitLab/Slack/Stripe keys (incl. `whsec_`),
+  `password=`/`secret=` values and **financial identifiers (IBANs, payment-card numbers)** are masked
+  before any token leaves the process. Every copy of a found secret, and every standalone copy of a
+  found identifier, is masked too, and a re-scan raises if one survived. Stable placeholders mean the
+  model can still tell that two log lines refer to the same host. Coverage is format-based and
+  curated, plus a narrow high-entropy backstop (`HIGHENTROPY`) that masks secret-shaped tokens while
+  preserving evidence-shaped ones (git SHAs, trace/request ids).
+  **Honest limits:**
+  - the re-scan can only look for values a pattern found, so a secret no pattern knows is not
+    caught;
+  - a short all-digit identifier (`user_id=500`) or a common word is masked where the pattern
+    matched it, but not elsewhere, because a bare "500" is usually a status code.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
 - **A deterministic gate.** Sixteen policies (P1–P16) in plain Python decide what happens. No prompt, no

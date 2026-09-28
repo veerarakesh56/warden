@@ -149,8 +149,8 @@ def _tools() -> list[types.Tool]:
                 "connection-string passwords, JWTs/bearer tokens, and cloud credentials across AWS "
                 "(ARN, account/secret keys), GCP (AIza, ya29. tokens) and Azure (AccountKey, SAS "
                 "sig), plus GitHub/GitLab/Slack/Stripe keys, password=/secret= values and tenant "
-                "ids. Verifies its own output and fails if any original value survived. Use before "
-                "putting logs into any prompt."
+                "ids. Fails if a value it found survived; it cannot see a secret no pattern knows. "
+                "Use before putting logs into any prompt."
             ),
             input_schema={
                 "type": "object",
@@ -403,7 +403,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                     "logs": redacted,
                     "metrics": ctx.metrics,
                     "recent_deploys": redacted_deploys,
-                    "tool_errors": ctx.tool_errors,
+                    "tool_errors": [redact(e, mapping=mapping).text for e in ctx.tool_errors],
                     "identifiers_masked": len(mapping),
                 }
             )

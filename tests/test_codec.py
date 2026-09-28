@@ -49,11 +49,15 @@ def test_the_key_comes_from_the_environment_and_is_required(monkeypatch):
         codec.EncryptionCodec(b"short")
 
 
-def test_a_plain_payload_is_refused_not_passed_through():
+def test_a_plain_payload_never_becomes_a_value():
     """Audit A-B-L13: decode used to hand a plain payload straight to the workflow, so anything
-    that could write to the history without the key could feed the workflow unencrypted input."""
-    with pytest.raises(ValueError, match="unencrypted payload refused"):
-        asyncio.run(codec.EncryptionCodec(os.urandom(32)).decode([_payload('{"approval":"forged"}')]))
+    that could write to the history without the key could feed the workflow unencrypted input.
+    It now decodes to a marker that no converter can turn into a value."""
+    conv = codec.data_converter(os.urandom(32))
+    [marked] = asyncio.run(conv.payload_codec.decode([_payload('{"approval":"forged"}')]))
+    assert marked.metadata["encoding"] == codec.REFUSED and b"forged" not in marked.SerializeToString()
+    with pytest.raises(Exception):  # noqa: B017 - any conversion error; the SDK then drops or fails
+        conv.payload_converter.from_payloads([marked], [dict])
 
 
 

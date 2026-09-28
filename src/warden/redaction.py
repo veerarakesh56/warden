@@ -1,8 +1,9 @@
 """Pattern-based redaction, with a check that every value it FOUND is gone.
 
 Every string is scrubbed before it can reach the model. After substitution the output is re-scanned
-for each value a pattern matched, and one that survives anywhere (a second copy a regex boundary
-missed) is a hard failure that halts the run rather than a warning nobody reads.
+for each value a pattern matched - every copy of a SECRET, and every standalone copy of an
+identifier - and one that survives is a hard failure that halts the run rather than a warning nobody
+reads. A bare "500" elsewhere in the text is not treated as the tenant `user_id=500` (see _sweep).
 
 ⚠ What that check is not (audit A-C-23): it cannot see a secret NO pattern matched. It proves the
 substitution was complete, not that the patterns are. The patterns are the control; HIGHENTROPY is
@@ -22,10 +23,18 @@ from dataclasses import dataclass, field
 # surrounding structure (`password=<SECRET_1>`, `postgres://user:<URLCRED_1>@host`) so the model can
 # still reason about the shape. Value char classes EXCLUDE `<` so a value that is already a
 # placeholder (`api_key=<APIKEY_1>`) is never re-matched and corrupted.
+# A credential command-line flag: any name with `--`; with a single `-` only password/passwd, since
+# `-token` or `-secret` is as often a word in a message as a flag.
+_CRED_FLAG = (r"(?i)(?<![\w-])(?:--(?:db-|admin-|root-|master-|client-|auth-|access-|api-)?"
+              r"(?:password|passwd|pass|pwd|secret|token|api-?key|access-key|secret-key|private-key|"
+              r"auth-token|access-token)|-(?:password|passwd))(?![\w-])")
+
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # A whole PEM private key block — the highest-value secret that turns up in a misconfig dump.
+    # PEM and PGP. A key cut off by a line-length limit has no END line: mask to the end.
     ("PRIVKEY", re.compile(r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?"
-                           r"-----END[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----")),  # PEM and PGP
+                           r"(?:-----END[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|\Z)")),
+    ("PRIVKEY", re.compile(r"Private-Lines:[ \t]*\d+[ \t]*\r?\n([\s\S]+?)(?=\r?\nPrivate-MAC|\Z)")),  # PuTTY
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
     ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")),
     # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub classic (ghp_/gho_/ghu_/ghs_/ghr_) and
@@ -36,6 +45,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|glrt-|AIza|npm_|hf_|hvs\.|hvb\.|whsec_|xapp-)[A-Za-z0-9_\-]{8,}\b")),
     # 2026-09-27 audit: shapes that passed unredacted. SendGrid keys carry dots.
     ("APIKEY", re.compile(r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}")),
+    ("APIKEY", re.compile(r"\bwhsec_[A-Za-z0-9+/=_\-]{8,}")),  # Stripe webhook secrets carry + and /
     # GCP OAuth2 access token (ya29.<long>). Masked whole and BEFORE the phone pattern, which would
     # otherwise fragment a digit-run inside it and leave the rest exposed. Cloud-neutral: GCP.
     ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
@@ -76,7 +86,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # id on a non-AWS deployment) since WARDEN runs on any cloud.
     ("ACCOUNTID", re.compile(r"\b\d{12}\b")),
     # An EC2 private DNS name carries the address with dashes: ip-10-0-3-22(.region.compute.internal).
-    ("IPV4", re.compile(r"\bip-(\d{1,3}(?:-\d{1,3}){3})\b")),
+    ("IPV4", re.compile(r"\b(?:ip|ec2)-(\d{1,3}(?:-\d{1,3}){3})\b")),
+    ("IPV4", re.compile(r"\b(\d{1,3}(?:-\d{1,3}){3})\.[\w-]+\.pod\b")),  # k8s pod DNS
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     # IPv6 — we redact IPv4, so an IPv6 address (common in dual-stack k8s pod logs) is the same
     # identifier and must be masked too. Deliberately matches ONLY real addresses: either a `::`
@@ -127,17 +138,27 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
     ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
     ("SECRET", re.compile(r"\bmysql(?:dump|admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
-    # A credential passed as a command-line flag: --password=x, --db-password x, --api-key x.
-    ("SECRET", re.compile(r"(?i)(?<![\w-])--?[\w-]*(?:password|passwd|secret|token|api-?key)[\w-]*"
-                          r"(?:=|\s+)(?!-)([^\s\"'<]{3,})")),
+    # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
+    # `--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
+    # resource names from the evidence). Same line only; a value never starts with `-` or a quote.
+    # `=` or whitespace before the opening quote: in JSON argv `"--password","x"` the quote right
+    # after the flag is the flag's own closing quote, not the value's opening one.
+    ("SECRET", re.compile(_CRED_FLAG + r"(?:[ \t]*=[ \t]*|[ \t]+)\"([^\"\n<][^\"\n]{0,255})\"")),
+    ("SECRET", re.compile(_CRED_FLAG + r"(?:[ \t]*=[ \t]*|[ \t]+)'([^'\n<][^'\n]{0,255})'")),
+    ("SECRET", re.compile(_CRED_FLAG + r"(?:=|[ \t]+)(?![-\"'])([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"(?i)\"--?(?:password|passwd|api-key|apikey|token|secret)\"\s*,\s*\"([^\"<]{1,256})\"")),
+    ("SECRET", re.compile(r"\bredis-cli\b[^\r\n]*?[ \t]-a[ \t]+([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bsshpass[ \t]+-p[ \t]*([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bdocker[ \t]+login\b[^\r\n]*?[ \t]-p[ \t]+([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u|--user)[ \t]+[^:\s]+:([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
     # A quoted secret value is masked WHOLE: `password='hunter 2 x'` used to leak "2 x".
     ("SECRET", re.compile(
         r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
-        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*\"([^\"]{1,256})\"")),
+        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*\"([^\"<][^\"]{0,255})\"")),
     ("SECRET", re.compile(
         r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
-        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*'([^']{1,256})'")),
+        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*'([^'<][^']{0,255})'")),
     ("SECRET", re.compile(
         # Leading delimiter includes ? & : so URL QUERY-PARAM credentials (?password=, &token=) and
         # the .npmrc form (//registry/:_authToken=) are caught — ubiquitous in access/CI logs.
@@ -218,9 +239,8 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
 
         out = pattern.sub(_sub, out)
 
-    # Final literal sweep. The patterns FIND secrets; this GUARANTEES none of the found values
-    # survives anywhere, regardless of the word-boundary quirks that make a regex miss a second
-    # occurrence. Real example from a live cluster: a Kubernetes "failed to reserve container name"
+    # Final literal sweep. The patterns FIND values; this masks the copies a regex boundary missed,
+    # by the rule in _sweep: every copy of a secret, every standalone copy of an identifier. Real example from a live cluster: a Kubernetes "failed to reserve container name"
     # event embeds the pod UID inside `..._default_<uid>_0`, where the trailing `b_` is not a `\b`
     # boundary, so the `(uid)` copy was masked and the `_0`-suffixed copy was not.
     #
@@ -233,7 +253,7 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
     parts = _PLACEHOLDER.split(out)  # even indices = free text, odd indices = whole placeholders
     for i in range(0, len(parts), 2):
         for placeholder, original in ordered:
-            rx = _sweep(original)
+            rx = _sweep(placeholder, original)
             if rx is not None:
                 parts[i] = rx.sub(placeholder, parts[i])
     out = "".join(parts)
@@ -243,20 +263,34 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
 
 
 # ⛔ Audit A-C-4: the sweep replaced every copy of every found value, so a TENANT `user_id=500` turned
-# every HTTP 500 in the text into <TENANT_1>, and a short value rewrote SQL. Now:
-#   - a value of 12+ characters is swept everywhere (it does not occur by accident);
-#   - 6-11 characters only where it stands as its own token (not inside a longer alphanumeric run);
-#   - under 6 is not swept at all: the pattern still masks every occurrence it matches, but a bare
-#     copy elsewhere is not guessed at. That is the honest limit of short identifiers.
-_SWEEP_ANYWHERE, _SWEEP_TOKEN = 12, 6
+# every HTTP 500 in the text into <TENANT_1>. The first fix (length thresholds) let SHORT SECRETS
+# survive in other lines - URL-encoded, glued, repeated - and made the leak check vacuous
+# (independent review, 2026-09-28). The rule now depends on what the value is:
+#   - a SECRET (a key, token, password, credential): every copy, anywhere, from 4 characters. A
+#     secret must never survive; rewriting a stray substring is the lesser harm.
+#   - an IDENTIFIER (tenant, IP, email, account id, ...): every copy that stands as its own token.
+#     All-digit values under 6 characters ("500") and common words ("prod", "admin") are not swept:
+#     the pattern still masks every occurrence it matches, and a bare "500" elsewhere is a status
+#     code far more often than the tenant.
+SECRET_KINDS = frozenset({"PRIVKEY", "JWT", "APIKEY", "GCPTOKEN", "AZURESAS", "WEBHOOK", "URLCRED",
+                          "BEARER", "BASIC", "SECRET", "HIGHENTROPY", "IBAN", "CREDITCARD"})
+_COMMON = frozenset({"prod", "production", "test", "dev", "stage", "staging", "default", "admin",
+                     "root", "user", "users", "none", "null", "true", "false", "main", "master", "api",
+                     "app", "web", "db", "public", "local", "info", "error", "debug"})
 
 
-def _sweep(original: str) -> re.Pattern[str] | None:
-    if len(original) >= _SWEEP_ANYWHERE:
+def _kind(placeholder: str) -> str:
+    return placeholder.strip("<>").rsplit("_", 1)[0]
+
+
+def _sweep(placeholder: str, original: str) -> re.Pattern[str] | None:
+    if len(original) < 3:
+        return None
+    if _kind(placeholder) in SECRET_KINDS and len(original) >= 4:
         return re.compile(re.escape(original))
-    if len(original) >= _SWEEP_TOKEN:
-        return re.compile(rf"(?<![A-Za-z0-9]){re.escape(original)}(?![A-Za-z0-9])")
-    return None
+    if (original.isdigit() and len(original) < 6) or original.lower() in _COMMON:
+        return None
+    return re.compile(rf"(?<![A-Za-z0-9]){re.escape(original)}(?![A-Za-z0-9])")
 
 
 def _assert_clean(redacted: str, mapping: dict[str, str]) -> None:
@@ -270,7 +304,7 @@ def _assert_clean(redacted: str, mapping: dict[str, str]) -> None:
     """
     free_text = _PLACEHOLDER.sub(" ", redacted)
     for placeholder, original in mapping.items():
-        rx = _sweep(original)
+        rx = _sweep(placeholder, original)
         if rx is not None and rx.search(free_text):
             raise RedactionLeak(
                 f"{placeholder} was substituted but its original value is still present in the "

@@ -21,7 +21,6 @@ import os
 from urllib.parse import urlparse
 
 from .models import Alert
-from .redaction import redact
 from .tools import PARTIAL_PREFIX, ToolError
 
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_DB_CONNECT_TIMEOUT", "4.0"))
@@ -121,7 +120,7 @@ class _Postgres:
             (idle_secs, PROBLEM_OP_LIMIT),
         )
         lines = [
-            f"pid={pid} {state} for {age}s: {redact(str(q or '')).text}"
+            f"pid={pid} {state} for {age}s: {q or ''}"
             for pid, state, age, q in rows
         ]
         return lines + cls._unageable(conn)
@@ -148,7 +147,7 @@ class _Postgres:
             (PROBLEM_OP_LIMIT,),
         ):
             lines.append(f"postgres long-running query: pid={pid} running {secs}s user={user} "
-                         f"app={app} client={client}: {redact(str(query or '')).text}")
+                         f"app={app} client={client}: {query or ''}")
         for pid, blockers, secs, query in r(
             conn,
             "SELECT pid, pg_blocking_pids(pid), EXTRACT(EPOCH FROM (now() - query_start))::int, "
@@ -158,7 +157,7 @@ class _Postgres:
         ):
             blocked_by = ",".join(str(b) for b in (blockers or []))
             lines.append(f"postgres blocked session: pid={pid} waiting {secs}s on pid(s) {blocked_by}: "
-                         f"{redact(str(query or '')).text}")
+                         f"{query or ''}")
         # Who holds the connections - only when the pool is under pressure, so a healthy database
         # does not gain evidence lines (the gate's thin-evidence policy counts them).
         pool = r(conn, "SELECT count(*), current_setting('max_connections')::int FROM pg_stat_activity")
@@ -256,7 +255,7 @@ class _MySQL:
             "AND p.id <> CONNECTION_ID() ORDER BY t.trx_started LIMIT %s",
             (idle_secs, PROBLEM_OP_LIMIT),
         )
-        return [f"id={i} idle-in-trx {t}s: {redact(str(q or '')).text}" for i, t, q in rows]
+        return [f"id={i} idle-in-trx {t}s: {q or ''}" for i, t, q in rows]
 
 
 class _Redis:
@@ -297,7 +296,7 @@ class _Redis:
         out = []
         for c in conn.client_list():
             if int(c.get("idle", 0)) >= idle_secs and int(c.get("id", 0)) != me:
-                out.append(f"id={c.get('id')} idle {c.get('idle')}s addr={redact(str(c.get('addr',''))).text}")
+                out.append(f"id={c.get('id')} idle {c.get('idle')}s addr={c.get('addr', '')}")
                 if len(out) >= PROBLEM_OP_LIMIT:
                     break
         return out
@@ -374,7 +373,7 @@ class _Mongo:
             if not _mongo_is_user_op(op):
                 continue
             if float(op.get("secs_running", 0)) >= idle_secs:
-                ns = redact(str(op.get("ns", ""))).text
+                ns = str(op.get("ns", ""))
                 out.append(f"opid={op.get('opid')} running {int(op.get('secs_running',0))}s ns={ns}")
                 if len(out) >= PROBLEM_OP_LIMIT:
                     break

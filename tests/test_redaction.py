@@ -210,10 +210,9 @@ def test_restore_round_trips():
 def test_leak_guard_can_fire():
     """The guard has to be able to fail, or it is not a guard.
 
-    `redact()` itself can no longer produce a leak - a final literal sweep replaces every mapped
-    original before the check (see `test_survives_a_value_embedded_in_a_larger_token`). So the guard
-    is tested directly: hand `_assert_clean` an output where a mapped original survived, and it must
-    raise. This is the invariant the sweep upholds; the test proves the check that backs it works.
+    The final sweep masks the copies the patterns' boundaries missed, by the rule in `_sweep`, so a
+    normal `redact()` run leaves nothing for the check to find. The guard is tested directly: hand
+    `_assert_clean` an output where a mapped original survived, and it must raise.
     """
     from warden.redaction import _assert_clean
 

@@ -12,6 +12,15 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # (file, phrase that must not appear, why it is false)
 FALSE_CLAIMS = [
+    # audit A-C-23 second round: the check covers what a pattern FOUND, by the _sweep rule
+    ("README.md", "Redaction that is verified, not assumed", "only found values are re-checked"),
+    ("README.md", "a surviving value\n  raises", "only found values are re-checked"),
+    ("docs/ai-boundary.md", "raises if any original value\nsurvived", "found values only, by the _sweep rule"),
+    ("docs/DESIGN-DECISIONS.md", "raises `RedactionLeak` if any original value survived",
+     "found values only, by the _sweep rule"),
+    ("src/warden/redaction.py", "GUARANTEES none of the found values", "the sweep follows _sweep's rule"),
+    ("tests/test_redaction.py", "can no longer produce a leak", "the sweep follows _sweep's rule"),
+    ("docs/SYSTEM-COMPONENTS.md", "verifier P1–P15", "there are sixteen (P1-P16)"),
     # audit A-C-18: each vendor host reads its own key variable
     ("README.md", "OPENAI_API_KEY=$GROQ_API_KEY", "Groq reads GROQ_API_KEY; the OpenAI key never goes there"),
     # audit A-C-23: the re-scan checks only values a pattern found; it cannot prove none was missed

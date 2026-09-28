@@ -193,8 +193,17 @@ def test_postgres_problem_ops_excludes_own_backend_and_redacts_query_text():
     conn = _SqlStub({"pg_stat_activity": [(101, "idle in transaction", 900, "SELECT * FROM users WHERE email='a@b.io'")]})
     lines = _Postgres.problem_ops(conn, 300)
     assert lines and "pid=101" in lines[0]
-    assert "a@b.io" not in lines[0], "query text can carry PII and must be redacted"
     assert "pid <> pg_backend_pid()" in conn.asked[0]
+    # Query text can carry PII. Since audit A-C-5 the backend returns it raw, like every other
+    # backend's lines, and node_redact scrubs it with the run's ONE placeholder map (a separate map
+    # here gave one placeholder two meanings). Nothing reads backend lines before node_redact.
+    from warden.graph import node_redact
+    from warden.models import Alert, ContextBundle
+
+    alert = Alert(alert_id="d", name="n", severity="high", service="orders", environment="staging",
+                  summary="s", started_at="2026-09-28T10:00:00Z")
+    out = node_redact({"alert": alert, "context": ContextBundle(logs=lines)})
+    assert "a@b.io" not in out["context"].logs[0], "query text can carry PII and must be redacted"
 
 
 def test_mysql_metrics_read_status_and_variables():
