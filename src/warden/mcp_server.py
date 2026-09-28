@@ -180,6 +180,107 @@ def _tools() -> list[types.Tool]:
     ]
 
 
+# --------------------------------------------------------------------------- workflows
+#
+# ⛔ An agent may START a diagnosis, REQUEST a remediation and READ a workflow's state. It can never
+# approve, sign, reset the kill switch or pass a credential: none of those is a tool, and a test fails
+# if one appears. An approval is a person's signature (`warden approve`), made outside this server.
+
+WORKFLOW_TOOLS = ("start_incident_diagnosis", "request_remediation", "workflow_status")
+
+
+def _workflow_tools() -> list[types.Tool]:
+    from .catalog import CATALOG
+
+    return [
+        types.Tool(
+            name="start_incident_diagnosis",
+            title="Diagnose an alert as a durable workflow",
+            description=(
+                "Start the IncidentWorkflow for one alert (workflow id inc-<alert_id>; the same alert "
+                "twice is one incident). Read the verdict with workflow_status."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"alert": {"type": "object", "properties": {
+                    "alert_id": {"type": "string"}, "name": {"type": "string"}, "service": {"type": "string"},
+                    "environment": {"type": "string"}, "severity": {"type": "string"},
+                    "summary": {"type": "string"}, "labels": {"type": "object"}}}},
+                "required": ["alert"],
+            },
+        ),
+        types.Tool(
+            name="request_remediation",
+            title="Request a catalogue remediation (a person must approve it)",
+            description=(
+                "Start a RemediationWorkflow for one catalogue entry. It plans against live state and "
+                "then WAITS for a person's signed approval; this server cannot give one. One open "
+                "remediation per service."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {"incident_id": {"type": "string"}, "service": {"type": "string"},
+                               "entry": {"type": "string", "enum": sorted(CATALOG)},
+                               "params": {"type": "object"}},
+                "required": ["incident_id", "service", "entry", "params"],
+            },
+        ),
+        types.Tool(
+            name="workflow_status",
+            title="Read a workflow's state",
+            description="Stage, plan (with its hash) and, once finished, the result of a WARDEN workflow.",
+            input_schema={"type": "object", "properties": {"workflow_id": {"type": "string"}},
+                          "required": ["workflow_id"]},
+        ),
+    ]
+
+
+async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> types.CallToolResult:
+    from temporalio.client import WorkflowExecutionStatus
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
+    from . import runtime
+    from .activities import FixRequest
+    from .workflows import IncidentWorkflow, RemediationWorkflow
+
+    try:
+        if name == "start_incident_diagnosis":
+            alert = Alert.model_validate(args.get("alert") or {})
+            wid = f"inc-{alert.alert_id}"
+            try:
+                await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE)
+            except WorkflowAlreadyStartedError:
+                return _ok({"workflow_id": wid, "note": "already running for this alert"})
+            return _ok({"workflow_id": wid})
+        if name == "request_remediation":
+            req = FixRequest.model_validate({k: args.get(k) for k in ("incident_id", "service", "entry", "params")})
+            wid = f"rem-{req.service}"
+            try:
+                await client.start_workflow(RemediationWorkflow.run, req, id=wid, task_queue=runtime.TASK_QUEUE)
+            except WorkflowAlreadyStartedError:
+                return _err(f"a remediation for {req.service} is already open ({wid})")
+            return _ok({"workflow_id": wid, "next": "a person reviews it with `warden status` and approves "
+                                                    "with `warden approve`; this server cannot"})
+        if name == "workflow_status":
+            wid = str(args.get("workflow_id", ""))
+            handle = client.get_workflow_handle(wid)
+            desc = await handle.describe()
+            out: dict[str, Any] = {"workflow_id": wid, "type": desc.workflow_type, "status": desc.status.name}
+            if desc.workflow_type == "RemediationWorkflow":
+                stage, plan = await runtime.status(client, wid)
+                out["stage"] = stage
+                if plan:
+                    out["plan"] = plan.model_dump(mode="json", include={"entry", "params", "tier", "plan_hash",
+                                                                         "problems"})
+            if desc.status == WorkflowExecutionStatus.COMPLETED:
+                result = await handle.result()  # an untyped handle decodes to plain JSON already
+                out["result"] = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+            return _ok(out)
+        return _err(f"unknown tool: {name}")
+    except Exception as exc:  # noqa: BLE001 - an MCP tool must return an error, not crash the server
+        return _err(f"{type(exc).__name__}: {exc}")
+
+
 def _ok(payload: dict[str, Any]) -> types.CallToolResult:
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(payload, indent=2))],
@@ -379,10 +480,21 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
 
 
 def build_server() -> Server:
+    client = None
+
     async def on_list_tools(ctx, params):
-        return types.ListToolsResult(tools=_tools())
+        return types.ListToolsResult(tools=_tools() + _workflow_tools())
 
     async def on_call_tool(ctx, params):
+        nonlocal client
+        if params.name in WORKFLOW_TOOLS:
+            from . import runtime
+
+            try:
+                client = client or await runtime.connect()
+            except Exception as exc:  # noqa: BLE001
+                return _err(f"the workflow service is not reachable: {type(exc).__name__}: {exc}")
+            return await call_workflow_tool(params.name, dict(params.arguments or {}), client)
         return call_tool(params.name, dict(params.arguments or {}))
 
     return Server(
