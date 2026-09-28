@@ -59,7 +59,7 @@ def test_untagged_billable_resources_are_found_and_free_defaults_are_not():
             {"AliasName": "alias/aws/ssm", "TargetKeyId": "k1"},
             {"AliasName": "alias/mine", "TargetKeyId": "k2"}]}},
     })
-    found, blind, _ = sweep_mod.sweep(session, ["ap-south-2"])
+    found, blind, _, _ = sweep_mod.sweep(session, ["ap-south-2"])
     assert blind == []
     assert found == {
         "ap-south-2 ec2.describe_instances": ["i-live"],
@@ -85,7 +85,7 @@ def test_a_resource_without_both_tags_or_with_an_unknown_environment_is_reported
         "s3": {"list_buckets": {"Buckets": [{"Name": "warden-dev-tfstate-x"}]},
                "get_bucket_tagging": {"TagSet": GOOD}},
     })
-    _, blind, wrong = sweep_mod.sweep(session, ["ap-south-2"], "acct")
+    _, blind, wrong, _ = sweep_mod.sweep(session, ["ap-south-2"], "acct")
     assert blind == []
     assert sorted(wrong) == [
         "UNTAGGED ap-south-2 ec2.describe_instances i-noenv: Environment=None",
@@ -99,7 +99,7 @@ def test_tags_it_cannot_read_are_reported_not_assumed_fine():
         "dynamodb": {"list_tables": {"TableNames": ["orders"]}},
         "resourcegroupstaggingapi": {"get_resources": DENIED},
     })
-    _, _, wrong = sweep_mod.sweep(session, ["ap-south-2"], "acct")
+    _, _, wrong, _ = sweep_mod.sweep(session, ["ap-south-2"], "acct")
     assert wrong == ["TAGS-BLIND ap-south-2 dynamodb.list_tables orders: tagging API AccessDenied"]
 
 
@@ -116,7 +116,7 @@ def test_a_service_it_cannot_list_is_blind_and_the_run_is_not_clean(capsys):
 def test_every_region_is_swept_not_only_the_home_region():
     session = FakeSession({"ec2": {"describe_nat_gateways": {"NatGateways": [
         {"NatGatewayId": "nat-x", "State": "available"}]}}})
-    found, _, _ = sweep_mod.sweep(session, ["ap-south-2", "us-east-1"])
+    found, _, _, _ = sweep_mod.sweep(session, ["ap-south-2", "us-east-1"])
     assert "us-east-1 ec2.describe_nat_gateways" in found
 
 
@@ -141,3 +141,11 @@ def test_the_sweep_role_policy_allows_every_call_the_sweep_makes_and_nothing_els
     api = policy["Statement"][1]
     assert api["Action"] == "apigateway:GET" and all(r.endswith(("/restapis", "/apis")) for r in api["Resource"])
 
+
+
+def test_a_service_the_account_is_not_signed_up_for_is_not_enabled_not_blind():
+    off = ClientError({"Error": {"Code": "SubscriptionRequiredException", "Message": "no"}}, "List")
+    session = FakeSession({"kinesis": {"list_streams": off}, "sqs": {"list_queues": DENIED}})
+    _, blind, _, not_enabled = sweep_mod.sweep(session, ["ap-south-2", "us-east-1"])
+    assert not_enabled == ["kinesis"]
+    assert blind == ["ap-south-2 sqs.list_queues: AccessDenied", "us-east-1 sqs.list_queues: AccessDenied"]

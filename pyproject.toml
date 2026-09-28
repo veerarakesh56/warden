@@ -22,6 +22,9 @@ dependencies = [
     "pyyaml>=6.0",
     # Ed25519 signatures for the audit log's checkpoints (and, next, for approvals).
     "cryptography>=43",
+    # Durable workflows: approvals as signals, timers, retries, replay (self-hosted OSS, MIT; never
+    # Temporal Cloud). Tests use its time-skipping test server.
+    "temporalio>=1.33,<2",
 ]
 
 [project.optional-dependencies]

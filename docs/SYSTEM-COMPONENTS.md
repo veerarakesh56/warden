@@ -24,7 +24,7 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 
 | Component | Role | Status | Cost | Paid thing it replaces |
 |---|---|---|---|---|
-| **Temporal** (MIT), self-hosted dev server | durable incident / remediation / infra workflows; approvals as signals; retries; timers | PLANNED, Phase 2 | FREE | Temporal Cloud (PAID); Kestra Enterprise (PAID; Kestra OSS is also free) |
+| **Temporal** (MIT), self-hosted dev server | durable incident / remediation / infra workflows; approvals as signals; retries; timers | IN USE: RemediationWorkflow (Phase 2, step 5) | FREE | Temporal Cloud (PAID); Kestra Enterprise (PAID; Kestra OSS is also free) |
 | LangGraph (MIT) | today's pipeline graph | IN USE, replaced by Temporal in Phase 2 | FREE | — |
 | MCP Python SDK (MIT) | WARDEN's tools exposed to agents (the Kestra "flows as agent tools" pattern) | IN USE; becomes the workflow surface in Phase 2 | FREE | — |
 

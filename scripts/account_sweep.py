@@ -13,7 +13,10 @@ environments.yaml. One that does not is reported UNTAGGED; one whose tags could 
 reported TAGS-BLIND - never assumed fine. Network interfaces are exempt (most are created by AWS for
 the resource they attach to, and cost nothing), as are KMS aliases (the tags live on the key).
 
-⛔ A service it could not LIST is reported as BLIND, never as empty. Exit codes: 0 nothing found,
+A service the account is not signed up for (SubscriptionRequired / OptInRequired - on the Free plan,
+Kinesis, Redshift and EMR) cannot hold anything; it is listed once as NOT ENABLED, not as blind.
+
+⛔ A service it could not LIST for any other reason is reported as BLIND, never as empty. Exit codes: 0 nothing found,
 1 something found or a tag problem, 2 blind somewhere (the answer is incomplete, so it is not
 "clean").
 
@@ -41,6 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 ROLE = "warden-pg-sweep"
 TRUST_FILE = ROOT / "terraform" / "proving-ground" / "sweep-role-trust.local.json"
 ENVIRONMENTS = set(EnvironmentPolicies.load().known_environments)
+NOT_ENABLED = {"SubscriptionRequiredException", "OptInRequired"}
 LIVE = ("pending", "available", "running", "stopping", "stopped", "creating", "modifying")
 
 
@@ -195,9 +199,10 @@ def _bucket_tags(session: Any, bucket: str) -> dict | str:
         return {} if _code(exc) == "NoSuchTagSet" else _code(exc)
 
 
-def sweep(session: Any, regions: list[str], account: str = "") -> tuple[dict[str, list[str]], list[str], list[str]]:
+def sweep(session: Any, regions: list[str], account: str = "") -> tuple[dict[str, list[str]], list[str], list[str], list[str]]:
     found: dict[str, list[str]] = {}
     blind: list[str] = []
+    off: set[str] = set()
     tags_wrong: list[str] = []
     for region, rows in [(None, GLOBAL)] + [(r, REGIONAL) for r in regions]:
         place = region or "global"
@@ -205,6 +210,9 @@ def sweep(session: Any, regions: list[str], account: str = "") -> tuple[dict[str
         for row in rows:
             name = f"{row[0]}.{row[1]}"
             hits, error = _check(session, region, row)
+            if error and error.rsplit(": ", 1)[-1] in NOT_ENABLED:
+                off.add(row[0])
+                continue
             if error:
                 blind.append(f"{place} {error}")
                 continue
@@ -232,7 +240,7 @@ def sweep(session: Any, regions: list[str], account: str = "") -> tuple[dict[str
                     tags_wrong.append(f"TAGS-BLIND {label}: tagging API {looked}")
                 elif problem := tag_problem(looked.get(arn, {})):
                     tags_wrong.append(f"UNTAGGED {label}: {problem}")
-    return found, blind, tags_wrong
+    return found, blind, tags_wrong, sorted(off)
 
 
 def _regions(session: Any) -> list[str]:
@@ -265,11 +273,13 @@ def main(argv: list[str] | None = None, *, session: Any = None) -> int:
         regions, no_regions = _regions(session), []
     except (ClientError, BotoCoreError) as exc:
         regions, no_regions = ["ap-south-2"], [f"regions: {_code(exc)} - only ap-south-2 was swept"]
-    found, blind, tags_wrong = sweep(session, regions, account)
+    found, blind, tags_wrong, off = sweep(session, regions, account)
     blind = no_regions + blind
     print(f"swept {len(regions)} region(s) + global, {len(REGIONAL)} regional and {len(GLOBAL)} global checks")
     for where, ids in sorted(found.items()):
         print(f"FOUND {where}: {', '.join(ids)}")
+    if off:
+        print(f"NOT ENABLED on this account, so nothing can exist there: {', '.join(off)}")
     for line in tags_wrong:
         print(line)
     for line in blind:
