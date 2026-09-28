@@ -47,3 +47,10 @@ def test_the_key_comes_from_the_environment_and_is_required(monkeypatch):
     assert codec.data_converter().payload_codec is not None
     with pytest.raises(ValueError, match="32 bytes"):
         codec.EncryptionCodec(b"short")
+
+
+def test_a_plain_payload_is_refused_not_passed_through():
+    """Audit A-B-L13: decode used to hand a plain payload straight to the workflow, so anything
+    that could write to the history without the key could feed the workflow unencrypted input."""
+    with pytest.raises(ValueError, match="unencrypted payload refused"):
+        asyncio.run(codec.EncryptionCodec(os.urandom(32)).decode([_payload('{"approval":"forged"}')]))

@@ -6,9 +6,9 @@ and the history outlives the incident. With this codec, the Temporal server, its
 web UI hold only ciphertext; only a worker or client with the key can read a payload. Failure
 messages and stack traces are encoded the same way (they can quote evidence too).
 
-Key: `WARDEN_TEMPORAL_KEY`, 32 random bytes as base64 (SSM in the cloud, loadable through
-settings.py). Every payload records which key encrypted it; a payload from another key fails loudly
-instead of decoding to garbage.
+Key: `WARDEN_TEMPORAL_KEY`, 32 random bytes as base64 (Secrets Manager in the cloud, loadable through
+settings.py). Every payload records which key encrypted it; a payload from another key, or one not
+encrypted at all, fails loudly instead of being decoded or passed through.
 
 ponytail: one active key; add a list of previous keys for decode when rotation is needed.
 """
@@ -52,8 +52,9 @@ class EncryptionCodec(PayloadCodec):
         out = []
         for p in payloads:
             if p.metadata.get("encoding") != ENCODING:
-                out.append(p)  # not ours (e.g. written before encryption was on)
-                continue
+                # Fail closed (audit A-B-L13): a plain payload in the history was written by
+                # something without the key - a misconfigured client, or someone forging input.
+                raise ValueError("unencrypted payload refused: every WARDEN payload is encrypted")
             if p.metadata.get("encryption-key-id") != self.key_id:
                 raise ValueError("payload was encrypted with a different key")
             plain = Payload()

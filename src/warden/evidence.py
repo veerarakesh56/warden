@@ -28,8 +28,14 @@ UNTRUSTED_KINDS = frozenset("LE")
 # the cloud or cluster API returned it, with no application-written text in them. Anything else is
 # untrusted by default. A log writer cannot forge one: every backend prefixes application text with
 # `LOG <tag>`, a lowercase pod/container name, or an engine name, so no such line starts with these.
-_CONFIG = re.compile(r"^(?:LOG k8s/\S+ )?(?:CONFIG|ESM|QUEUE|TABLE|REPLGROUP|SG|CLUSTER|TARGETGROUP|"
+_CONFIG = re.compile(r"^(?:CONFIG|ESM|QUEUE|TABLE|REPLGROUP|SG|CLUSTER|TARGETGROUP|"
                      r"TARGET|APPSG|TASKROLE|SECRET|POLICY|RULE|ROLLOUT) ")
+# ⛔ Audit A-C-3: `LOG k8s/<anything> <KIND>` used to be trusted for every KIND, and `\S+` let a
+# CloudWatch stream named "k8s/x CONFIG ..." (spaces allowed, chosen by any task role) forge a C
+# item. The only trusted line aws_stack._read_k8s emits under that prefix is kubernetes_backend's
+# rollout history, and namespace/deployment names are DNS labels - so exactly that, nothing else.
+_K8S_ROLLOUT = re.compile(r"^LOG k8s/[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])? "
+                          r"ROLLOUT revision \d+( \(current\))?: ")
 
 
 STEER = re.compile(r"(?i)(?<![a-z])(?:ignore|instructions?|previous|propose|approved?|must|should|"
@@ -42,9 +48,51 @@ def _kind(line: str) -> str:
     # to untrusted. Trust by prefix rests on every backend prefixing application text, and a custom
     # backend that does not would otherwise hand the model a forged CONFIG line. Measured on every
     # recorded wave: 0 of 125 real config lines are affected.
-    if _CONFIG.match(line) and not STEER.search(line):
+    if (_CONFIG.match(line) or _K8S_ROLLOUT.match(line)) and not STEER.search(line):
         return "C"
     return "E" if line.startswith("EVENT ") else "L"
+
+
+# ⛔ Audit A-C-2: a failed read's exception text is not WARDEN's words. A KeyError quotes the key it
+# could not find, and that key came out of a log line, so raw error text let a log writer talk to the
+# model as a TRUSTED T item. The model is shown what failed and how, from a fixed vocabulary; the raw
+# (redacted) text stays in the audit and the human report.
+_TOOL = re.compile(r"^(logs|metrics|recent_deploys): ")
+_SOURCE = re.compile(r"^/?[a-z0-9][a-z0-9._/-]{0,100}(?: (?:logs|metrics|events|deploys))?$")
+_OUTCOMES = (
+    ("access denied", r"AccessDenied|UnauthorizedOperation|Forbidden|\b403\b|not authori[sz]ed|permission denied"),
+    ("credentials rejected or missing", r"ExpiredToken|InvalidClientTokenId|NoCredentials|credentials"),
+    ("throttled", r"Throttl|Rate exceeded|TooManyRequests|\b429\b|SlowDown"),
+    ("timed out", r"timed? ?out|timeout|deadline"),
+    ("connection failed", (r"connection (?:refused|reset|failed|closed)|could not connect|unreachable|"
+                          r"Name or service not known|getaddrinfo")),
+    ("not found", r"NotFound|NoSuch|\b404\b|not found|does not exist"),
+    ("no live pods", r"no live pods"),
+    ("output truncated", r"truncated|kept the newest|cut to \d+ characters"),
+    ("not supported", r"not supported|unsupported"),
+    ("rejected as a bad request", r"\b400\b|BadRequest|ValidationException|InvalidParameter"),
+)
+_READ_OPERATION = re.compile(r"when calling the ((?:Get|List|Describe|Filter|Query|Scan|Search|Lookup|Batch)"
+                             r"[A-Z][A-Za-z]{1,40}) operation")
+
+
+def tool_error_text(raw: str) -> str:
+    """`<reader>[ <source>]: <outcome>[ on <read operation>]`, built only from fixed words and
+    WARDEN's own reader/resource names - never from the exception's message."""
+    m = _TOOL.match(raw)
+    reader, rest = (m.group(1), raw[m.end():]) if m else ("read", raw)
+    # The leading `<resource>: ` segments are WARDEN's own reader tags (`lambda/fn logs`, a pod/container,
+    # a log group); keep up to two that look like one, stop at the first that does not.
+    where = [reader]
+    for part in rest.split(": ")[:-1][:3]:
+        if not _SOURCE.fullmatch(part) or STEER.search(part):
+            break
+        if part not in where:
+            where.append(part)
+    where = " ".join(where[:3])
+    outcome = next((word for word, rx in _OUTCOMES if re.search(rx, rest, re.IGNORECASE)), "failed (unclassified)")
+    op = _READ_OPERATION.search(rest)
+    return f"{where}: {outcome}" + (f" on {op.group(1)}" if op else "")
 
 
 @dataclass(frozen=True)
@@ -62,7 +110,7 @@ def index(context: ContextBundle) -> dict[str, Item]:
     items += [(_kind(line), line) for line in context.logs]
     items += [("M", f"{k}={v:g}") for k, v in context.metrics.items()]
     items += [("D", ", ".join(f"{k}={v}" for k, v in d.items())) for d in context.recent_deploys]
-    items += [("T", e) for e in context.tool_errors]
+    items += [("T", tool_error_text(e)) for e in context.tool_errors]
     counts: dict[str, int] = {}
     out: dict[str, Item] = {}
     for kind, text in items:

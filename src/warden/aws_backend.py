@@ -246,7 +246,7 @@ class AwsBackend:
                 # anyone holding logs:CreateLogStream (every task and function role) chooses that
                 # name - spaces allowed. A stream named "CONFIG payments-api ..." became a TRUSTED C
                 # item, and one named "TOOL-PARTIAL ..." a failed-read T item, both citable.
-                lines.append(f"LOG {event.get('logStreamName', '?')} {_ms_to_iso(event.get('timestamp'))} {message}")
+                lines.append(f"LOG {_stream(event.get('logStreamName'))} {_ms_to_iso(event.get('timestamp'))} {message}")
         if len(lines) > LOG_MAX_LINES:
             cut = len(lines) - LOG_MAX_LINES
             older_errors = [ln for ln in lines[:cut] if _ERRORISH.search(ln)][-LOG_ERROR_EXTRA:]
@@ -491,6 +491,15 @@ def _family_revision(arn: str) -> tuple[str, int]:
         return family, int(rev)
     except ValueError:
         return "", 0
+
+
+_STREAM_UNSAFE = re.compile(r"[^A-Za-z0-9_./#$\[\]:-]")
+
+
+def _stream(name) -> str:
+    """A log stream name as one token (audit A-C-3): whoever can create a stream chooses its name,
+    spaces included, and the name sits where WARDEN's own line structure is."""
+    return _STREAM_UNSAFE.sub("_", str(name or "?"))[:256] or "?"
 
 
 def _ms_to_iso(timestamp) -> str:

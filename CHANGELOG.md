@@ -5,6 +5,27 @@ All notable changes to WARDEN are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — pre-1.0, so a minor
 bump may carry a breaking change.
 
+## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
+
+### Security
+- **Tool errors reach the model as fixed words** (audit A-C-2). A failed read used to show the model
+  its raw exception text as a trusted T item. That text can quote log content: a `KeyError` names
+  the key it looked up. The model now sees `<reader>[ <source>]: <outcome>[ on <read operation>]`,
+  built from a fixed vocabulary (access denied, timed out, not found, ...). The redacted raw text
+  stays in the audit and in the human report. Every tool error recorded in past runs keeps its
+  decisive fact under the new wording.
+- **A log stream name can no longer forge a trusted config item** (audit A-C-3). Any task role can
+  create a CloudWatch stream and choose its name, spaces included, and the name sits where WARDEN's
+  own line structure is. Two fixes:
+  - stream names are reduced to one safe token;
+  - the `LOG k8s/<ns>/<deployment>` prefix is trusted only before the rollout history, with
+    Kubernetes-shaped names.
+- **The Temporal payload codec fails closed** (audit A-B-L13). An unencrypted payload in the history
+  is refused. It used to be passed straight to the workflow.
+- **The laptop no longer needs a long-lived AWS key** (W0-now). It uses IAM Roles Anywhere with a
+  TPM-held, non-exportable key, and the operator role can only read (`iam/operator/`,
+  `scripts/roles_anywhere_cert.py`). The live switch-over is the owner's console step.
+
 ## [0.10.0] - 2026-09-28
 
 ### ⚠ Correction (added 2026-09-28, after release)
