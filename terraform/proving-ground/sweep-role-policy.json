@@ -1,0 +1,64 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListWhatCanBillInEveryRegionAndReadItsTags",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeRegions",
+        "ec2:DescribeInstances",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeAddresses",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeSnapshots",
+        "ec2:DescribeImages",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeSecurityGroups",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "eks:ListClusters",
+        "ecs:ListClusters",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBSnapshots",
+        "rds:DescribeDBClusterSnapshots",
+        "elasticache:DescribeCacheClusters",
+        "elasticache:DescribeServerlessCaches",
+        "lambda:ListFunctions",
+        "dynamodb:ListTables",
+        "sqs:ListQueues",
+        "sns:ListTopics",
+        "secretsmanager:ListSecrets",
+        "ecr:DescribeRepositories",
+        "kms:ListAliases",
+        "events:ListRules",
+        "cloudwatch:DescribeAlarms",
+        "logs:DescribeLogGroups",
+        "ssm:DescribeParameters",
+        "elasticfilesystem:DescribeFileSystems",
+        "kinesis:ListStreams",
+        "es:ListDomainNames",
+        "redshift:DescribeClusters",
+        "sagemaker:ListEndpoints",
+        "sagemaker:ListNotebookInstances",
+        "elasticmapreduce:ListClusters",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketTagging",
+        "cloudfront:ListDistributions",
+        "route53:ListHostedZones",
+        "tag:GetResources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ListApiGatewayApisOnlyNotTheirKeys",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": [
+        "arn:aws:apigateway:*::/restapis",
+        "arn:aws:apigateway:*::/apis"
+      ]
+    }
+  ]
+}

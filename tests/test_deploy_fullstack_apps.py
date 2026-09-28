@@ -251,3 +251,9 @@ def test_a_dependency_skipped_for_the_building_python_fails_the_build(tmp_path):
     assert tool.missing_dependencies(tmp_path) == ["typing-extensions"]
     _dist(tmp_path, "typing_extensions")
     assert tool.missing_dependencies(tmp_path) == []   # tzdata is Windows-only: not required on Lambda
+
+
+def test_the_task_definition_revision_carries_project_and_environment_tags():
+    td = tool.task_definition(STACK, "repo:tag")
+    assert td["tags"] == [{"key": "Project", "value": "warden"}, {"key": "Environment", "value": "dev"}]
+

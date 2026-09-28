@@ -201,10 +201,13 @@
       }
     },
     {
-      "Sid": "AssumeOnlyTheFullstackReader",
+      "Sid": "AssumeOnlyTheReaderAndTheSweep",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
-      "Resource": "arn:aws:iam::*:role/warden-pg-fs-reader"
+      "Resource": [
+        "arn:aws:iam::*:role/warden-pg-fs-reader",
+        "arn:aws:iam::*:role/warden-pg-sweep"
+      ]
     },
     {
       "Sid": "ServiceLinkedRolesAFreshAccountLacks",

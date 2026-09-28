@@ -451,6 +451,7 @@ def _ecs_deploy_variant(c: Clients, t: Target, fid: str, mutate: Callable[[dict]
     td = c.ecs.describe_task_definition(taskDefinition=current)["taskDefinition"]
     spec = {k: copy.deepcopy(td[k]) for k in _TD_KEYS if td.get(k) is not None}
     mutate(spec)
+    spec["tags"] = [{"key": k, "value": v} for k, v in REQUIRED_TAGS.items()]
     new = c.ecs.register_task_definition(**spec)["taskDefinition"]["taskDefinitionArn"]
     t.saved[fid]["fault_task_definition"] = new
     t.persist(fid)

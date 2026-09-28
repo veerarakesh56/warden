@@ -196,6 +196,8 @@ def task_definition(stack: dict, image: str) -> dict:
         "executionRoleArn": stack["ecs_execution_role_arn"],
         # Signs orders-api's IAM database tokens (rds-db:connect as app; fs-21 removes it).
         "taskRoleArn": stack["ecs_task_role_arn"],
+        "tags": [{"key": "Project", "value": "warden"},
+                 {"key": "Environment", "value": stack["environment"]}],
         "containerDefinitions": [{
             "name": "orders-api",
             "image": image,

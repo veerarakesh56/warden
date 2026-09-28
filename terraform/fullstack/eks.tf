@@ -117,7 +117,11 @@ resource "aws_eks_node_group" "this" {
   subnet_ids      = aws_subnet.private[*].id # nodes have no public IP; egress through the NAT
   instance_types  = ["m7i-flex.large"]
   capacity_type   = "ON_DEMAND"
-  disk_size       = 20
+
+  launch_template {
+    id      = aws_launch_template.nodes.id
+    version = aws_launch_template.nodes.latest_version
+  }
 
   scaling_config {
     desired_size = 1
@@ -130,6 +134,43 @@ resource "aws_eks_node_group" "this" {
   }
 
   depends_on = [aws_iam_role_policy_attachment.eks_node]
+}
+
+# A managed node group does not pass its tags down: without this template the node, its disk and its
+# network interface carry no Project/Environment. It sets nothing else EKS would otherwise choose,
+# apart from the 20 GB disk (disk_size cannot be combined with a template) and IMDSv2.
+resource "aws_launch_template" "nodes" {
+  name = "${local.name}-eks-nodes"
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      volume_size           = 20
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2 # pods on the node still reach it (vpc-cni, the agent)
+  }
+
+  dynamic "tag_specifications" {
+    for_each = ["instance", "volume", "network-interface"]
+    content {
+      resource_type = tag_specifications.value
+      tags          = local.tags
+    }
+  }
+}
+
+# EKS creates the cluster security group itself, with only its own tags.
+resource "aws_ec2_tag" "cluster_sg" {
+  for_each    = local.tags
+  resource_id = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+  key         = each.key
+  value       = each.value
 }
 
 # Add-ons at the default version for the cluster. Created after the node group: coredns and

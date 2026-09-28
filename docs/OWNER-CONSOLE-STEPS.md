@@ -9,7 +9,43 @@ Avoid the root user.
 
 ---
 
-## ▶ NOW: nothing to do
+## ▶ NOW: a read-only sweep role (about 5 minutes, free)
+
+Why: the operator can list only some services, and only in ap-south-2. So "nothing is running" could
+not be proven for every service in every region, nor could every resource's tags be checked. This
+role can **only list** what exists in every region and read tags. It cannot change anything, read a
+secret's value or open a file. Only `warden-operator` may use it. Claude runs
+`python scripts/account_sweep.py` with it.
+
+**1. Update `WardenFullstackOperator`** (lets the operator use the new role; nothing else changes).
+IAM → **Policies** → `WardenFullstackOperator` → **Edit** → **JSON** → **Ctrl+A**, **Delete**, paste
+[`terraform/fullstack/operator-policy-fullstack.json`](https://github.com/veerarakesh56/warden/blob/main/terraform/fullstack/operator-policy-fullstack.json)
+→ **Next** → **Save changes**.
+
+**2. Create the policy `WardenSweepReadOnly`.** IAM → **Policies** → **Create policy** → **JSON** →
+**Ctrl+A**, **Delete**, paste
+[`terraform/proving-ground/sweep-role-policy.json`](https://github.com/veerarakesh56/warden/blob/main/terraform/proving-ground/sweep-role-policy.json)
+→ **Next** → name `WardenSweepReadOnly` → **Create policy**.
+
+**3. Create the role `warden-pg-sweep`.**
+1. IAM → **Roles** → **Create role** → **Custom trust policy**.
+2. **Ctrl+A**, **Delete**, and paste the complete file from **this computer, not GitHub**: open
+   `C:\work\warden\terraform\proving-ground\sweep-role-trust.local.json` in your editor. It contains
+   your account number, so it is never committed. It trusts `warden-operator` only. **Next**.
+3. Tick `WardenSweepReadOnly` (only this one). **Next**.
+4. Role name `warden-pg-sweep`. Add the tag `Project` = `warden`. There is no `Environment` tag:
+   the role serves the whole account, not one environment. **Create role**.
+
+**4. Tell Claude "sweep role done".** Claude runs the sweep over every region and reports anything
+that exists, anything with missing or wrong `Project` / `Environment` tags, and anything it still
+could not see.
+
+Undo: delete the role, then the policy, then set the previous version of `WardenFullstackOperator`
+as default (**Policy versions** tab).
+
+---
+
+## Then nothing until the cloud test
 
 Local work uses this machine's current credentials. The next console work is the section below,
 **only when the real-world cloud test starts** - not before.

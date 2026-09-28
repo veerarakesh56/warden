@@ -177,6 +177,8 @@ resource "aws_ecs_service" "orders_api" {
   desired_count                     = 2
   launch_type                       = "FARGATE" # not Spot: an interruption mid-fault is a second fault
   health_check_grace_period_seconds = 30
+  propagate_tags                    = "SERVICE" # tasks carry Project/Environment too
+  enable_ecs_managed_tags           = true
 
   # 50/100: a rollout replaces one task at a time, so a revision that cannot start shows up as
   # 1 of 2 healthy instead of hiding behind the old tasks. No circuit breaker: an automatic

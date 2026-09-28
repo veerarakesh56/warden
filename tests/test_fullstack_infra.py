@@ -777,3 +777,22 @@ def test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_intern
     for _, name, body in _blocks("aws_security_group"):
         for rule in re.findall(r"ingress \{(.*?)\n  \}", body, re.DOTALL):
             assert "0.0.0.0/0" not in rule, f"security group {name} accepts the internet"
+
+
+def test_everything_the_stack_creates_carries_project_and_environment_tags():
+    """2026-09-28 tag review. default_tags covers what terraform creates itself; four things escape
+    it and each is closed here: the EKS node (instance, disk, network interface - a managed node
+    group does not pass tags down), the security group EKS creates for the cluster, and ECS tasks."""
+    text = _tf_text()
+    assert re.search(r"default_tags \{\s*tags = local.tags", text)
+    assert re.search(r'Project\s*= "warden"', text) and re.search(r"Environment\s*= local.env", text)
+    lt = next(b for _, n, b in _blocks("aws_launch_template") if n == "nodes")
+    assert '["instance", "volume", "network-interface"]' in lt and "tags          = local.tags" in lt
+    assert 'http_tokens                 = "required"' in lt
+    ng = next(b for _, n, b in _blocks("aws_eks_node_group") if n == "this")
+    assert "aws_launch_template.nodes.id" in ng and "disk_size" not in ng
+    sg = next(b for _, n, b in _blocks("aws_ec2_tag") if n == "cluster_sg")
+    assert "for_each    = local.tags" in sg and "cluster_security_group_id" in sg
+    svc = next(b for _, n, b in _blocks("aws_ecs_service") if n == "orders_api")
+    assert re.search(r'propagate_tags\s*= "SERVICE"', svc)
+
