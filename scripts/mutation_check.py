@@ -74,7 +74,7 @@ MUTATIONS = [
     (
         "redaction leak check disabled",
         "redaction.py",
-        "        if original and original in free_text:",
+        "        if rx is not None and rx.search(free_text):",
         "        if False:",
         "a secret surviving redaction would be silently sent to the model",
     ),
@@ -291,6 +291,20 @@ MUTATIONS = [
 ]
 
 
+def mutate(original: bytes, find: str, replace: str) -> bytes | None:
+    """The file with its first `find` replaced, in the file's own line endings - or None.
+
+    Anchors are written with "\\n". A Windows checkout has "\\r\\n", so every multi-line anchor was
+    reported "missing" there (6 of them, 2026-09-28) while CI, on "\\n", found them."""
+    text = original.decode("utf-8")
+    crlf = "\r\n" in text
+    text = text.replace("\r\n", "\n")
+    if find not in text:
+        return None
+    text = text.replace(find, replace, 1)
+    return (text.replace("\n", "\r\n") if crlf else text).encode("utf-8")
+
+
 def run_suite() -> bool:
     """True if the suite passes."""
     # check=False on purpose: a NON-ZERO exit is the expected, desirable outcome for a mutated
@@ -314,13 +328,13 @@ def main() -> int:
     for label, filename, find, replace, why in MUTATIONS:
         path = SRC / filename
         original = path.read_bytes()  # bytes: the restore must be exact, line endings included
-        text = original.decode("utf-8")
-        if find not in text:
+        mutated = mutate(original, find, replace)
+        if mutated is None:
             print(f"[SKIP] {label}: anchor not found in {filename} (code moved - update this script)")
             survived.append(f"{label} (anchor missing)")
             continue
         try:
-            path.write_bytes(text.replace(find, replace, 1).encode("utf-8"))
+            path.write_bytes(mutated)
             caught = not run_suite()
             status = "CAUGHT" if caught else "*** SURVIVED ***"
             print(f"[{status}] {label}\n          why it matters: {why}")

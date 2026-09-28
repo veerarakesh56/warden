@@ -1,11 +1,12 @@
-"""Redaction that is verified, not assumed.
+"""Pattern-based redaction, with a check that every value it FOUND is gone.
 
-Every string is scrubbed before it can reach the model. The important part is not the regex list —
-everyone has one of those. It is `redact()` raising if any original value survives into the output.
+Every string is scrubbed before it can reach the model. After substitution the output is re-scanned
+for each value a pattern matched, and one that survives anywhere (a second copy a regex boundary
+missed) is a hard failure that halts the run rather than a warning nobody reads.
 
-A redactor that silently misses one identifier looks exactly like a redactor that works. So this one
-is asked to prove it: after substitution the output is re-scanned, and a leak is a hard failure that
-halts the run rather than a warning nobody reads.
+⚠ What that check is not (audit A-C-23): it cannot see a secret NO pattern matched. It proves the
+substitution was complete, not that the patterns are. The patterns are the control; HIGHENTROPY is
+their backstop; the outbound gate's G5 re-runs them on everything that leaves.
 """
 
 from __future__ import annotations
@@ -23,7 +24,8 @@ from dataclasses import dataclass, field
 # placeholder (`api_key=<APIKEY_1>`) is never re-matched and corrupted.
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # A whole PEM private key block — the highest-value secret that turns up in a misconfig dump.
-    ("PRIVKEY", re.compile(r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]*PRIVATE KEY-----")),
+    ("PRIVKEY", re.compile(r"-----BEGIN[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?"
+                           r"-----END[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----")),  # PEM and PGP
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
     ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")),
     # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub classic (ghp_/gho_/ghu_/ghs_/ghr_) and
@@ -31,7 +33,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Slack (xoxb-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_), npm (npm_).
     # AKIA/ASIA share one shape (prefix + 16 base32); ASIA is the temporary sibling that travels
     # with a session token in AssumeRole/SSO bundles and appears bare in botocore errors.
-    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|glrt-|AIza|npm_|hf_|hvs\.|hvb\.)[A-Za-z0-9_\-]{8,}\b")),
+    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|glrt-|AIza|npm_|hf_|hvs\.|hvb\.|whsec_|xapp-)[A-Za-z0-9_\-]{8,}\b")),
     # 2026-09-27 audit: shapes that passed unredacted. SendGrid keys carry dots.
     ("APIKEY", re.compile(r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}")),
     # GCP OAuth2 access token (ya29.<long>). Masked whole and BEFORE the phone pattern, which would
@@ -73,6 +75,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # label is cloud-NEUTRAL (was AWSACCT, which mislabelled a GCP project number as an AWS account
     # id on a non-AWS deployment) since WARDEN runs on any cloud.
     ("ACCOUNTID", re.compile(r"\b\d{12}\b")),
+    # An EC2 private DNS name carries the address with dashes: ip-10-0-3-22(.region.compute.internal).
+    ("IPV4", re.compile(r"\bip-(\d{1,3}(?:-\d{1,3}){3})\b")),
     ("IPV4", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     # IPv6 — we redact IPv4, so an IPv6 address (common in dual-stack k8s pod logs) is the same
     # identifier and must be masked too. Deliberately matches ONLY real addresses: either a `::`
@@ -123,6 +127,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
     ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
     ("SECRET", re.compile(r"\bmysql(?:dump|admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
+    # A credential passed as a command-line flag: --password=x, --db-password x, --api-key x.
+    ("SECRET", re.compile(r"(?i)(?<![\w-])--?[\w-]*(?:password|passwd|secret|token|api-?key)[\w-]*"
+                          r"(?:=|\s+)(?!-)([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
     # A quoted secret value is masked WHOLE: `password='hunter 2 x'` used to leak "2 x".
     ("SECRET", re.compile(
@@ -226,12 +233,30 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
     parts = _PLACEHOLDER.split(out)  # even indices = free text, odd indices = whole placeholders
     for i in range(0, len(parts), 2):
         for placeholder, original in ordered:
-            if original:
-                parts[i] = parts[i].replace(original, placeholder)
+            rx = _sweep(original)
+            if rx is not None:
+                parts[i] = rx.sub(placeholder, parts[i])
     out = "".join(parts)
 
     _assert_clean(out, mapping)
     return RedactionResult(text=out, mapping=mapping)
+
+
+# ⛔ Audit A-C-4: the sweep replaced every copy of every found value, so a TENANT `user_id=500` turned
+# every HTTP 500 in the text into <TENANT_1>, and a short value rewrote SQL. Now:
+#   - a value of 12+ characters is swept everywhere (it does not occur by accident);
+#   - 6-11 characters only where it stands as its own token (not inside a longer alphanumeric run);
+#   - under 6 is not swept at all: the pattern still masks every occurrence it matches, but a bare
+#     copy elsewhere is not guessed at. That is the honest limit of short identifiers.
+_SWEEP_ANYWHERE, _SWEEP_TOKEN = 12, 6
+
+
+def _sweep(original: str) -> re.Pattern[str] | None:
+    if len(original) >= _SWEEP_ANYWHERE:
+        return re.compile(re.escape(original))
+    if len(original) >= _SWEEP_TOKEN:
+        return re.compile(rf"(?<![A-Za-z0-9]){re.escape(original)}(?![A-Za-z0-9])")
+    return None
 
 
 def _assert_clean(redacted: str, mapping: dict[str, str]) -> None:
@@ -245,7 +270,8 @@ def _assert_clean(redacted: str, mapping: dict[str, str]) -> None:
     """
     free_text = _PLACEHOLDER.sub(" ", redacted)
     for placeholder, original in mapping.items():
-        if original and original in free_text:
+        rx = _sweep(original)
+        if rx is not None and rx.search(free_text):
             raise RedactionLeak(
                 f"{placeholder} was substituted but its original value is still present in the "
                 f"redacted text. Refusing to send this to the model."

@@ -322,7 +322,8 @@ def node_gather(state: WardenState) -> WardenState:
                 "logs": len(context.logs),
                 "metrics": len(context.metrics),
                 "deploys": len(context.recent_deploys),
-                "tool_errors": context.tool_errors,
+                # A count: the text is raw until node_redact, which audits it scrubbed (A-C-5).
+                "tool_errors": len(context.tool_errors),
             }
         ],
     }
@@ -371,12 +372,17 @@ def node_redact(state: WardenState) -> WardenState:
     # the exported, serialised, auditor-facing artifact. So model_dump_json() of the report leaked
     # every raw log identifier (emails, ARNs, AWS account ids) while redaction_map_size falsely said
     # "scrubbed". The report now carries placeholders; the raw values live only at the source.
-    # (metrics are floats — no identifier; tool_errors are already scrubbed in gather().)
+    # (metrics are floats - no identifier.) Tool errors share the map (audit A-C-5).
+    redacted_errors = []
+    for err in context.tool_errors:
+        er = redact(err, mapping=mapping)
+        mapping = er.mapping
+        redacted_errors.append(er.text)
     redacted_context = ContextBundle(
         logs=redacted_logs,
         metrics=context.metrics,
         recent_deploys=redacted_deploys,
-        tool_errors=context.tool_errors,
+        tool_errors=redacted_errors,
     )
     return {
         "alert": alert,
@@ -384,7 +390,7 @@ def node_redact(state: WardenState) -> WardenState:
         "redacted_logs": redacted_logs,
         "redacted_deploys": redacted_deploys,
         "redaction_map": mapping,
-        "audit": [{"node": "redact", "identifiers_masked": len(mapping)}],
+        "audit": [{"node": "redact", "identifiers_masked": len(mapping), "tool_errors": redacted_errors}],
     }
 
 
@@ -433,7 +439,7 @@ def _evidence_blob(state: WardenState) -> str:
     # against. ⛔ T items are what WARDEN tried to read and COULD NOT. Until 2026-09-25 that never
     # reached the model: on a database cut off by its security group every read failed, the model
     # was shown empty fields and wrote "no metrics, deploys, or logs provided" - the one decisive
-    # fact of that incident, withheld. Already redacted in gather(); the blob is redacted again below.
+    # fact of that incident, withheld. Redacted in node_redact; the blob is redacted again below.
     # ⛔ Audit A-C-1: the alert's name and summary are text whoever configured the alert rule
     # wrote. They used to open the prompt as if WARDEN had written them, newlines and all, so a
     # summary could start a fake EVIDENCE section. Now: one line each, between nonce markers,

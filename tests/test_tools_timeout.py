@@ -4,6 +4,7 @@ This test exists because an earlier version of tools.py said "each tool has a ti
 docstring while implementing none. A claim in a comment is not a feature.
 """
 
+import json
 import time
 
 from warden.models import ActionKind, Alert, RemediationProposal, RootCause, Severity, VerdictStatus
@@ -75,17 +76,36 @@ def test_healthy_tools_are_unaffected_by_the_ceiling():
     assert ctx.logs and ctx.metrics and ctx.recent_deploys
 
 
-def test_a_tool_error_message_is_redacted_before_it_reaches_the_audit_or_telemetry():
-    """A backend exception can name a host/IP/credential (a connection error). That message lands in
-    tool_errors (the operator-facing audit trail) and on the tool span (exported to a third-party
-    tracing backend) - so a raw identifier there is a leak, even though the model never sees
-    tool_errors. The error text must be scrubbed at the source."""
+def test_a_tool_error_message_is_redacted_before_it_reaches_the_audit_or_the_report():
+    """A backend exception can name a host/IP/credential (a connection error). Since audit A-C-5 the
+    text is raw straight out of gather() - like the logs - and node_redact scrubs it with the run's
+    one map. Nothing after that point, audit included, may hold the raw value."""
+    from warden.graph import apply_node, node_gather, node_redact
+
     class LeakyBackend(FixtureBackend):
         def logs(self, alert):
             raise RuntimeError("connect to redis://:S3cretRedisPass@10.0.0.9 failed")
 
-    ctx = gather(_alert(), LeakyBackend(), timeout=2.0)
-    joined = " ".join(ctx.tool_errors)
-    assert "S3cretRedisPass" not in joined, "credential leaked into tool_errors"
-    assert "10.0.0.9" not in joined, "IP leaked into tool_errors"
-    assert "<URLCRED" in joined or "<IPV4" in joined, "the error was recorded, just scrubbed"
+    state = {"alert": _alert(), "backend": LeakyBackend(), "audit": []}
+    apply_node(state, node_gather(state))
+    apply_node(state, node_redact(state))
+    after = json.dumps({"audit": state["audit"], "errors": state["context"].tool_errors}, default=str)
+    assert "S3cretRedisPass" not in after, "credential leaked into the audit or tool_errors"
+    assert "10.0.0.9" not in after, "IP leaked into the audit or tool_errors"
+    assert "<URLCRED" in after or "<IPV4" in after, "the error was recorded, just scrubbed"
+
+
+def test_one_placeholder_means_one_value_across_tool_errors_and_logs():
+    """Audit A-C-5: tool errors were scrubbed with their own fresh map, so `<IPV4_1>` in a tool error
+    and `<IPV4_1>` in a log line could be two different hosts."""
+    from warden.graph import node_redact
+    from warden.models import ContextBundle
+
+    ctx = ContextBundle(logs=["conn to 10.0.0.9 ok", "retry 10.0.0.5"],
+                        tool_errors=["metrics: connection to 10.0.0.5 refused", "logs: 10.0.0.7 timed out"])
+    out = node_redact({"alert": _alert(), "context": ctx})
+    logs, errors, mapping = out["context"].logs, out["context"].tool_errors, out["redaction_map"]
+    by_value = {v: k for k, v in mapping.items()}
+    assert by_value["10.0.0.5"] in logs[1] and by_value["10.0.0.5"] in errors[0], "same host, same name"
+    assert by_value["10.0.0.7"] in errors[1] and by_value["10.0.0.7"] not in " ".join(logs)
+    assert len({by_value[ip] for ip in ("10.0.0.9", "10.0.0.5", "10.0.0.7")}) == 3, "three hosts, three names"

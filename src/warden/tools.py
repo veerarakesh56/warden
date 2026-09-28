@@ -224,12 +224,10 @@ def gather(
                     partial = [x for x in result if isinstance(x, str) and x.startswith(PARTIAL_PREFIX)]
                     result = [x for x in result if x not in partial]
                     for p in partial:
-                        # Error TEXT is scrubbed: a backend exception (a connection error naming a
-                        # host/IP, a k8s message with pod content) would otherwise put a raw
-                        # identifier into tool_errors (the audit trail) AND the span attribute
-                        # (exported to a third-party tracing backend) unredacted - and, since
-                        # 2026-09-25, into the model's prompt as READ FAILURES (graph.py).
-                        bundle.tool_errors.append(redact(f"{name}: {p[len(PARTIAL_PREFIX):]}").text)
+                        # ⛔ Audit A-C-5: raw here, like the logs. node_redact scrubs tool errors with
+                        # the run's ONE placeholder map; scrubbing them here with a fresh map gave
+                        # `<IPV4_1>` two meanings - one host in a tool error, another in the logs.
+                        bundle.tool_errors.append(f"{name}: {p[len(PARTIAL_PREFIX):]}")
                     sp.set_attribute("warden.tool.partial_failures", len(partial))
                     if sink == "logs":
                         result = _bounded(result, bundle.tool_errors)
@@ -243,9 +241,10 @@ def gather(
                 sp.set_attribute("warden.tool.ok", False)
                 sp.set_attribute("warden.tool.error", msg)
             except Exception as exc:  # noqa: BLE001 - a tool failing is data, not a crash
-                msg = redact(f"{name}: {exc}").text  # scrub raw identifiers out of the error text
-                bundle.tool_errors.append(msg)
+                msg = f"{name}: {exc}"
+                bundle.tool_errors.append(msg)  # raw, like the logs: node_redact scrubs it (A-C-5)
                 sp.set_attribute("warden.tool.ok", False)
-                sp.set_attribute("warden.tool.error", msg)
+                # The span leaves for a tracing backend on its own: scrubbed here, with its own map.
+                sp.set_attribute("warden.tool.error", redact(msg).text)
 
     return bundle

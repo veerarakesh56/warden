@@ -388,8 +388,8 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
             # recent_deploys must be scrubbed too. This handler reads the bundled fixtures only, whose
             # deploys carry identifiers; a live backend's would carry ECR refs (the host embeds the
             # account id) and role ARNs. This payload goes to the external MCP client/model; returning deploys raw was the same leak
-            # the graph path had (fixed there), on a second code path. tool_errors are already
-            # scrubbed by gather(); metrics are floats.
+            # the graph path had (fixed there), on a second code path. Tool errors share the map
+            # (audit A-C-5); metrics are floats.
             redacted_deploys = []
             for deploy in ctx.recent_deploys:
                 scrubbed = {}

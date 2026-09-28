@@ -288,6 +288,49 @@ def test_real_but_irrelevant_citations_do_not_support_an_action():
                                                                   ("M2", "replica_lag_seconds=47"))
 
 
+def _p15_verdict(action, cite_text, metrics=None):
+    """The verdict when the only citation is one trusted CONFIG line saying `cite_text`."""
+    from warden.models import Citation, ContextBundle, RemediationProposal
+    from warden.verifier import verify
+
+    ctx = ContextBundle(logs=[f"CONFIG {cite_text}", "orders WARN x", "orders ERROR a", "orders ERROR b"],
+                        metrics={"error_rate": 0.02, **(metrics or {})})
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote=cite_text)])
+    prop = RemediationProposal(action=action, target="orders", reasoning="r", expected_effect="e",
+                               blast_radius="single_service", reversible=True)
+    return verify(_alert(service="orders", environment="staging"), ctx, rc, prop).policy_ids
+
+
+def test_p15_keys_must_start_a_word_not_hide_inside_one():
+    """Audit A-C-6: "ready" matched "already", "lag" matched "flag", "pool" matched "spool"."""
+    from warden.models import ActionKind
+
+    assert "P15-CITATIONS-DO-NOT-SUPPORT-ACTION" in _p15_verdict(ActionKind.restart_pods,
+                                                                   "orders already served flag=on spool=idle")
+    assert "P15-CITATIONS-DO-NOT-SUPPORT-ACTION" not in _p15_verdict(ActionKind.restart_pods,
+                                                                       "orders pods unready restarts=7")
+
+
+def test_generic_symptoms_do_not_support_scaling_up():
+    """Audit A-C-6: "error", "5xx", "timeout" and "request" are symptoms of nearly anything."""
+    from warden.models import ActionKind
+
+    assert "P15-CITATIONS-DO-NOT-SUPPORT-ACTION" in _p15_verdict(ActionKind.scale_up,
+                                                                   "orders 5xx error rate on request timeout")
+    assert "P15-CITATIONS-DO-NOT-SUPPORT-ACTION" not in _p15_verdict(ActionKind.scale_up,
+                                                                       "orders cpu saturated throttled=40")
+
+
+def test_scale_down_on_replica_lag_is_a_contradiction():
+    """Audit A-C-6: scale_down on replica lag passed in staging. It is now P11, whatever is cited."""
+    from warden.models import ActionKind
+
+    ids = _p15_verdict(ActionKind.scale_down, "orders cpu idle 3%", {"replica_lag_seconds__orders": 47.0})
+    assert "P11-ACTION-CONTRADICTS-EVIDENCE" in ids
+    assert "P11-ACTION-CONTRADICTS-EVIDENCE" not in _p15_verdict(ActionKind.scale_down, "orders cpu idle 3%",
+                                                                 {"replica_lag_seconds__orders": 0.2})
+
+
 def test_a_known_name_does_not_carry_shell_syntax_past_p14():
     from warden.grounding import target_problem
     from warden.models import ActionKind, RemediationProposal

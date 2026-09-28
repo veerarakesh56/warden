@@ -47,12 +47,15 @@ def citation_problems(root_cause: RootCause, items: dict[str, Item]) -> list[str
 ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     ActionKind.rollback_deploy: ("deploy", "revision", "image", "version", "rollout", "sha", "release",
                                  "alias", "config"),
+    # Capacity signals only (audit A-C-6): "error", "5xx", "timeout", "request" and "running" are
+    # symptoms of almost anything, so citing them said nothing about whether MORE replicas help.
     ActionKind.scale_up: ("memory", "oom", "throttl", "cpu", "concurrency", "latency", "duration", "pool",
-                          "connection", "queue", "visible", "backlog", "capacity", "request", "lag",
-                          "invocation", "saturat", "pending", "ready", "running", "5xx", "error", "timeout"),
-    ActionKind.scale_down: ("cpu", "memory", "capacity", "idle", "cost", "replica", "running", "utili"),
+                          "connection", "queue", "visible", "backlog", "capacity", "lag",
+                          "invocation", "saturat", "pending", "unready", "not ready"),
+    # Not "replica" or "running": replica LAG is a reason NOT to scale down (P11), and it passed here.
+    ActionKind.scale_down: ("cpu", "memory", "capacity", "idle", "cost", "utili", "underused", "over-provisioned"),
     ActionKind.restart_pods: ("restart", "crash", "backoff", "back-off", "oom", "killed", "unhealthy",
-                              "probe", "exit", "ready", "hang", "stuck", "error", "leak", "memory"),
+                              "probe", "exit", "unready", "not ready", "hang", "stuck", "leak", "memory"),
     ActionKind.terminate_connections: ("idle_in_transaction", "idle in transaction", "lock", "block",
                                        "connection", "pool", "long_running", "long-running", "stuck",
                                        "session"),
@@ -69,7 +72,9 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
         return None
     cited = [items[c.id.strip().strip("[]")].text.lower() for c in root_cause.citations
              if c.id.strip().strip("[]") in items]
-    if any(k in text for text in cited for k in keys):
+    # A key must START a word (audit A-C-6): "ready" was found in "already", "lag" in "flag",
+    # "pool" in "spool". Stems still match their endings ("throttl" -> throttled, throttling).
+    if any(re.search(rf"(?<![a-z0-9]){re.escape(k)}", text) for text in cited for k in keys):
         return None
     return (f"none of the cited evidence bears on {proposal.action.value} "
             f"(it names none of: {', '.join(keys[:6])}...)")

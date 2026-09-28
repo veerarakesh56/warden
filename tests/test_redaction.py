@@ -329,3 +329,43 @@ def test_real_phone_numbers_are_still_masked(text, number):
 def test_a_contiguous_card_number_is_still_masked():
     """CREDITCARD leaves the contiguous 16-digit form to PHONE; narrowing PHONE must not unmask it."""
     assert "4111111111111111" not in redact("card 4111111111111111 declined").text
+
+
+
+def test_a_short_tenant_value_does_not_rewrite_every_status_code():
+    """Audit A-C-4: `user_id=500` put "500" in the map and the literal sweep turned every HTTP 500
+    in the text into the tenant placeholder."""
+    out = redact("user_id=500 then GET /cart HTTP 500 and SELECT 500 FROM t")
+    assert "HTTP 500" in out.text and "SELECT 500" in out.text
+    assert "user_id=<TENANT_1>" in out.text
+
+
+def test_a_mid_length_value_is_swept_only_where_it_stands_alone():
+    out = redact("tenant_id=acme42 then acme42 again, but not xacme42x or acme420")
+    assert out.text.count("<TENANT_1>") == 2
+    assert "xacme42x" in out.text and "acme420" in out.text
+
+
+def test_a_long_value_is_swept_even_inside_a_longer_token():
+    """The reason the sweep exists: a pod UID inside `..._default_<uid>_0`."""
+    uid = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
+    out = redact(f"pod {uid} and k8s_x_default_{uid}_0")
+    assert uid not in out.text
+
+
+@pytest.mark.parametrize("secret, gone", [
+    # audit A-C-22: shapes that passed unredacted
+    ("run.sh --db-password Hunter2Secret --user app", "Hunter2Secret"),
+    ("psql --password=Hunter2Secret", "Hunter2Secret"),
+    ("cli --api-key abcd1234efgh", "abcd1234efgh"),
+    ("stripe whsec_abcdefghijklmnop123", "whsec_abcdefghijklmnop123"),
+    ("slack xapp-1-A0B1C2D3-12345-abcdef", "xapp-1-A0B1C2D3-12345-abcdef"),
+    ("-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBGbody\n-----END PGP PRIVATE KEY BLOCK-----", "lQOYBGbody"),
+    ("node ip-10-0-3-22.ap-south-2.compute.internal NotReady", "10-0-3-22"),
+])
+def test_credential_shapes_the_audit_found_are_masked(secret, gone):
+    assert gone not in redact(secret).text
+
+
+def test_a_flag_followed_by_another_flag_masks_nothing():
+    assert redact("tool --password --user app").text == "tool --password --user app"

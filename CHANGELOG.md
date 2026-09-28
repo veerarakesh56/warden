@@ -38,6 +38,31 @@ bump may carry a breaking change.
   - control and bidi characters are removed;
   - fences are tracked the CommonMark way, and text after an unclosed fence is sanitised;
   - fences in deployed-source lines are escaped.
+- **Redaction** (audit A-C-4, A-C-5, A-C-22, A-C-23):
+  - The literal sweep no longer rewrites short values everywhere. `user_id=500` used to turn every
+    HTTP 500 into the tenant placeholder. The new rules:
+    - 12+ characters are swept everywhere;
+    - 6-11 characters only as a standalone token;
+    - shorter values only where a pattern matched them.
+  - Tool errors now share the run's one placeholder map, so `<IPV4_1>` cannot mean one host in a
+    tool error and another in the logs.
+  - Newly masked:
+    - `--password`/`--api-key` style flags;
+    - `whsec_` and `xapp-` tokens;
+    - PGP private key blocks;
+    - EC2 host names that carry an IP.
+  - The redactor no longer claims to be "verified": the re-scan proves that every value it found is
+    gone, not that nothing was missed.
+- **P15 needs evidence that bears on the action** (audit A-C-6):
+  - a key must start a word ("ready" no longer matches "already");
+  - generic symptoms (error, 5xx, timeout, request) no longer support `scale_up`;
+  - `scale_down` on replica lag is now a P11 contradiction.
+
+  Replayed over all four recorded waves, not one verdict changed.
+- **The mutation check really runs every mutation on Windows.** It read files as bytes, so each
+  multi-line anchor in a CRLF checkout was reported "missing" (6 of 35). It now matches line
+  endings and restores byte for byte, and a test runs its real code path on every file. All 35 are
+  caught.
 - **The Temporal payload codec fails closed** (audit A-B-L13). An unencrypted payload in the history
   is refused. It used to be passed straight to the workflow.
 - **The laptop no longer needs a long-lived AWS key** (W0-now). It uses IAM Roles Anywhere with a

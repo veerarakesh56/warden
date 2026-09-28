@@ -190,6 +190,12 @@ def _contradiction(proposal, context) -> str | None:
     if a is ActionKind.scale_down and _oom_seen(context):
         return ("scale_down with OOM kills in the evidence: fewer replicas cannot lower any replica's "
                 "memory use, and if memory grows with load it pushes more load onto each one.")
+    # Audit A-C-6: scale_down on replica lag passed in staging. Fewer replicas each carry more of the
+    # load, so a lagging replica falls further behind.
+    lag = max((v for k, v in m.items() if k.startswith("replica_lag_seconds")), default=0)
+    if a is ActionKind.scale_down and lag >= 1:
+        return (f"scale_down with replica lag of {lag:g}s in the evidence: fewer replicas each take more "
+                "of the load, so the lagging replica falls further behind.")
     if a is ActionKind.restart_pods and _log_has(context, "ErrImagePull", "ImagePullBackOff"):
         return "restart_pods re-pulls the same image, and the evidence shows that image cannot be pulled."
     if (a is ActionKind.terminate_connections and "long_running_queries" in m
