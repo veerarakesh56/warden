@@ -1,8 +1,9 @@
 # Every outside component of the WARDEN system: free, paid, and the free alternative
 
-Checked 2026-09-27. The owner's rule is **free or open-source only**. The one paid item is the Claude
-Max subscription the owner already has. Anything marked **PAID** below is either not used, or used
-only inside a short AWS test window on the AWS Free plan's credits and torn down after.
+Sections 1-9 were checked on 2026-09-27, under the earlier rule of **free or open-source only**. The
+owner replaced that rule on 2026-09-28 with **quality first** (section 10). **Section 11 has the live
+prices, checked 2026-09-29, for the components chosen since.** Where a row in sections 1-9 disagrees
+with sections 10-11, sections 10-11 win.
 
 AWS prices are US list prices, and ap-south-2 can differ. The AWS Free plan is USD 200 of credits
 over 6 months; "PAID" in AWS rows means it spends those credits.
@@ -116,6 +117,62 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 3. **Temporal Cloud** instead of a self-hosted Temporal. **Secrets Manager** for every secret, SSM
    for plain config. **Bedrock Opus 5.5** as the production model. **KMS Ed25519** for audit signing.
    **Passkeys** for approvals, on the owner's Cloudflare domain.
-4. The full component list with verified prices is rebuilt in G0 from the research of 2026-09-28
-   (`docs/research/2026-09-28/`). Until then, rows above that still say "free-only" reflect the old
-   rule.
+4. The prices for these choices are in section 11, checked live on 2026-09-29. Rows in sections 1-9
+   that still say "free-only" reflect the old rule.
+
+## 11. Live prices, checked 2026-09-29 (region ap-south-2, Hyderabad)
+
+**Sources:**
+- AWS prices come from AWS's own Price List files for ap-south-2
+  (`pricing.us-east-1.amazonaws.com/offers/v1.0/aws/<Service>/current/ap-south-2/index.json`,
+  published 2026-09-11 to 2026-09-28). The billing rules were checked on each service's pricing page.
+- Other vendors come from their pricing pages.
+
+Hyderabad costs more than the pricing pages' us-east-1 examples for several items. For example, NAT
+is $0.056 here and $0.045 in the example; log ingestion is $0.67/GB here and $0.50 in the example.
+**UNCERTAIN** marks anything the source did not state plainly. Re-check each price the day before a
+window.
+
+| Component | Price | Notes |
+|---|---|---|
+| Temporal Cloud, Actions | $50 per 1M; volume tiers down to $25 per 1M | temporal.io/pricing, docs.temporal.io/cloud/pricing |
+| Temporal Cloud, storage | active $0.042/GBh; retained $0.00105/GBh | |
+| Temporal Cloud, plans | Developer: no base fee; Business: greater of $500/month or 10% of usage | UNCERTAIN: the docs attach "10% of usage" to Developer; the pricing page says "no base monthly fee" |
+| Temporal Cloud, High Availability | 2x Actions and storage | docs; the pricing page shows no price |
+| Temporal Cloud, trial | $150 credits for 90 days | the owner's current plan |
+| Aurora PostgreSQL Serverless v2 | $0.18 per ACU-hour (I/O-Optimized: $0.24) | **auto-pause to 0 ACU: yes** on PG >= 16.3 / 15.7 / 14.12 / 13.15. Storage is still billed while paused; resume takes about 15 s |
+| Aurora PostgreSQL db.t4g.medium | $0.106/h (I/O-Optimized: $0.138) | |
+| Aurora storage and I/O | $0.11/GB-month + $0.22 per 1M I/O (I/O-Optimized: $0.248/GB-month, no I/O charge) | backup beyond the free allowance: $0.023/GB-month |
+| EC2 t4g.small / t4g.medium (Linux) | $0.0112/h / $0.0224/h | 2 AZs x 1 host doubles these |
+| NAT gateway | $0.056/h + $0.056/GB processed | billed per AZ |
+| VPC interface endpoint (PrivateLink) | $0.013 per endpoint per AZ per hour + $0.01/GB | gateway endpoints (S3, DynamoDB) are free |
+| KMS | $1 per key per month; asymmetric requests $0.15 per 10k; 20k requests/month free | UNCERTAIN: Ed25519 (ECC_NIST_EDWARDS25519) is not named on the page |
+| Secrets Manager | $0.40 per secret per month + $0.05 per 10k calls | |
+| CloudTrail | first copy of management events to S3: free; data events $0.10 per 100k | the S3 storage is billed separately |
+| S3 Standard | $0.025/GB-month (first 50 TB) | Object Lock has no separate SKU; retained versions are billed as storage |
+| CloudWatch Logs | $0.67/GB ingested; $0.03/GB-month stored | 5 GB free |
+| CloudWatch metrics and alarms | $0.30 per custom metric-month; $0.10 per standard alarm-month | 10 of each free |
+| X-Ray | $5 per 1M traces stored; $0.50 per 1M retrieved | 100k stored free |
+| CloudWatch generative-AI observability | no separate charge stated; the underlying logs, spans and metrics are billed | UNCERTAIN |
+| Bedrock, Claude Opus 5.5 | $4 input / $20 output per 1M tokens | from ap-south-2 **Global profile only**; in-region/geo SKUs elsewhere are +10%. UNCERTAIN: listed cache read $0.20 |
+| Bedrock, Claude Fable 5.1 | $10 / $50 per 1M tokens | comparison arm (D12) |
+| Bedrock, Claude Sonnet 5 | $2 / $10 per 1M tokens | comparison arm (D12) |
+| API Gateway HTTP API | $1.05 per 1M requests | |
+| Lambda | $0.20 per 1M requests + $0.0000166667 per GB-second (Arm: $0.0000133334) | 1M requests and 400k GB-s free |
+| EventBridge | AWS events on the default bus: free; custom events $1.00 per 1M | UNCERTAIN: Scheduler is $1.54 per 1M in the ap-south-2 Price List vs $1.00 in the page example |
+| PagerDuty | Free (up to 5 users); Professional $25/user/month ($21 annual) | |
+| AWS DevOps Agent | $0.0083 per agent-second (about $30/h) | **not offered in ap-south-2 or ap-south-1**; the optional adapter would call another region |
+| Langfuse | self-hosted: open source, infrastructure only; cloud from $0 (Hobby) | optional, customer-hosted |
+| Cloudflare DNS (owner's domain) | $0 on the Free plan | D17 |
+
+**Lab estimate.** The quantities are assumptions; change them to match the real module (G6).
+- **Per running hour: about $0.27.** This assumes 2 x t4g.small ECS hosts, 1 NAT, 4 interface
+  endpoints in each of 2 AZs, and Aurora at 0.5 ACU.
+- **Fixed while resources exist: about $5.20 a month.** That is 2 KMS keys, 5 secrets, 10 GB of
+  Aurora storage and 5 GB of S3.
+- **Totals:**
+  - a 40-hour test window comes to about $16 a month;
+  - always on, it would be about $204 a month.
+- **Not included:** data processing charges, logs beyond the free tier, and model tokens. For
+  example, 10M input + 1M output tokens cost $30 on Sonnet 5 or $60 on Opus 5.5. Temporal is covered
+  by the trial's credits.
