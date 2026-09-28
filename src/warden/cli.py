@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import pathlib
@@ -253,6 +254,71 @@ def _audit_command(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def _approver_key(path: pathlib.Path):
+    from . import audit
+
+    # The approver's passphrase comes from the environment, never from the command line (shell history).
+    return audit.load_private_key(path, os.environ.get("WARDEN_APPROVER_KEY_PASSPHRASE", "").encode() or None)
+
+
+async def _workflow_command(args: argparse.Namespace) -> int:
+    from . import approvals, runtime
+    from .workflows import IncidentWorkflow
+
+    client = await runtime.connect()
+    if args.cmd == "worker":
+        policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
+        async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend()):
+            print(f"worker running on task queue {runtime.TASK_QUEUE!r}; Ctrl+C to stop")
+            await asyncio.Event().wait()
+    if args.cmd == "incident":
+        alert = _alert_from(args.incident)
+        report = await client.execute_workflow(IncidentWorkflow.run, alert, id=f"inc-{alert.alert_id}",
+                                               task_queue=runtime.TASK_QUEUE)
+        _print_report(report, verbose=False)
+        return 0
+    if args.cmd == "status":
+        stage, plan = await runtime.status(client, args.workflow_id)
+        print(f"stage: {stage}")
+        if plan:
+            print(f"plan : {plan.entry} {plan.params} tier {plan.tier}")
+            print(f"hash : {plan.plan_hash}")
+            for problem in plan.problems:
+                print(f"  refused: {problem}")
+        return 0
+    try:
+        print(await runtime.approve(client, args.workflow_id, plan_hash=args.plan_hash,
+                                    key=_approver_key(args.key), approver=args.approver))
+    except ValueError as exc:
+        print(f"not approved: {exc}")
+        return 1
+    return 0
+
+
+def _killswitch_command(args: argparse.Namespace) -> int:
+    from . import approvals, bounds, runtime
+
+    log = runtime.open_audit()
+    if args.kill_cmd == "on":
+        bounds.trip(log, "operator", args.reason)
+    elif args.kill_cmd == "reset":
+        row = bounds.killswitch(log)
+        if row is None:
+            print("the kill switch is not on")
+            return 0
+        policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
+        signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id="killswitch",
+                                plan_hash=bounds.trip_hash(row), tier="T3")
+        problems = bounds.reset(log, signed, policy=policy, now=datetime.now(UTC))
+        for problem in problems:
+            print(f"not reset: {problem}")
+        if problems:
+            return 1
+    row = bounds.killswitch(log)
+    print(f"kill switch: ON ({row['body']['reason']})" if row else "kill switch: off")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     # ⛔ Never crash while REPORTING. On Windows a piped stdout is cp1252 and cannot encode `→`,
     # which the model writes into its own hypotheses - so printing a successful diagnosis raised
@@ -304,9 +370,32 @@ def main(argv: list[str] | None = None) -> int:
     p_verify.add_argument("--db", required=True, type=pathlib.Path)
     p_verify.add_argument("--public-key", required=True, type=pathlib.Path)
 
+    sub.add_parser("worker", help="run the workflow worker against the Temporal server")
+    p_incident = sub.add_parser("incident", help="diagnose a bundled incident as a workflow and print the verdict")
+    p_incident.add_argument("--incident", default="inc-001")
+    p_status = sub.add_parser("status", help="show a remediation workflow's stage and plan (with its hash)")
+    p_status.add_argument("workflow_id")
+    p_approve = sub.add_parser("approve", help="sign and send an approval of the plan you reviewed")
+    p_approve.add_argument("workflow_id")
+    p_approve.add_argument("--plan-hash", required=True, help="the hash `warden status` showed you")
+    p_approve.add_argument("--approver", required=True)
+    p_approve.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_kill = sub.add_parser("killswitch", help="stop every remediation, or reset the stop with a signed approval")
+    kill_sub = p_kill.add_subparsers(dest="kill_cmd", required=True)
+    kill_sub.add_parser("status")
+    p_on = kill_sub.add_parser("on")
+    p_on.add_argument("--reason", required=True)
+    p_reset = kill_sub.add_parser("reset")
+    p_reset.add_argument("--approver", required=True)
+    p_reset.add_argument("--key", required=True, type=pathlib.Path)
+
     args = parser.parse_args(argv)
     if args.cmd == "audit":
         return _audit_command(args)
+    if args.cmd in ("worker", "incident", "status", "approve"):
+        return asyncio.run(_workflow_command(args))
+    if args.cmd == "killswitch":
+        return _killswitch_command(args)
 
     # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
     # live cluster; the default reads the recorded fixtures so CI never needs one.
