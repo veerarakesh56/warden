@@ -231,6 +231,28 @@ def _load_environment() -> None:
         print(f"[config] {os.environ.get('WARDEN_ENV')}: loaded {', '.join(loaded)} from SSM", file=sys.stderr)
 
 
+def _audit_command(args: argparse.Namespace) -> int:
+    from . import audit
+
+    if args.audit_cmd == "keygen":
+        if args.private.exists():
+            print(f"{args.private} exists; refusing to overwrite a signing key")
+            return 1
+        # The passphrase comes from the environment (SSM in the cloud), never from the command line.
+        passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or None
+        audit.generate_key(args.private, args.public, passphrase)
+        print(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
+              f"public key {args.public}")
+        return 0
+    result = audit.verify(args.db, audit.load_public_key(args.public_key))
+    for problem in result.problems:
+        print(f"TAMPERED: {problem}")
+    print(f"{result.rows} rows, signed through row {result.signed_through}"
+          + (f", {result.unsigned_tail} newer row(s) not yet signed" if result.unsigned_tail else ""))
+    print("intact" if result.ok else "NOT intact")
+    return 0 if result.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     # ⛔ Never crash while REPORTING. On Windows a piped stdout is cp1252 and cannot encode `→`,
     # which the model writes into its own hypotheses - so printing a successful diagnosis raised
@@ -273,7 +295,18 @@ def main(argv: list[str] | None = None) -> int:
     p_demo = sub.add_parser("demo", help="run every bundled incident")
     p_demo.add_argument("--verbose", action="store_true")
 
+    p_audit = sub.add_parser("audit", help="the tamper-evident audit log: create a signing key, verify a log")
+    audit_sub = p_audit.add_subparsers(dest="audit_cmd", required=True)
+    p_keygen = audit_sub.add_parser("keygen", help="create an Ed25519 signing key pair")
+    p_keygen.add_argument("--private", required=True, type=pathlib.Path)
+    p_keygen.add_argument("--public", required=True, type=pathlib.Path)
+    p_verify = audit_sub.add_parser("verify", help="recompute the hash chain and check every signature")
+    p_verify.add_argument("--db", required=True, type=pathlib.Path)
+    p_verify.add_argument("--public-key", required=True, type=pathlib.Path)
+
     args = parser.parse_args(argv)
+    if args.cmd == "audit":
+        return _audit_command(args)
 
     # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
     # live cluster; the default reads the recorded fixtures so CI never needs one.

@@ -61,7 +61,7 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 | **SSM Parameter Store, SecureString, standard tier** | per-environment config and secrets | PLANNED (secrets work) | FREE (up to 10,000 parameters; AWS-managed key) | **Secrets Manager: PAID, $0.40 per secret per month.** Used only where AWS rotates a secret for us (a database master password), and only while a stack is up |
 | GitHub Environments + environment variables and secrets | per-environment CI config; required reviewers for prod tiers | IN USE (`fullstack`), expanding | FREE on a public repo | — |
 | GitHub secret scanning + push protection | blocks a pushed secret | available | FREE on public repos | — |
-| Ed25519 signed, hash-chained audit (`cryptography`, SQLite) | tamper-evident audit | PLANNED, Phase 2 | FREE | KMS signing, S3 Object Lock (PAID; not used) |
+| Ed25519 signed, hash-chained audit (`cryptography`, SQLite) | tamper-evident audit: `src/warden/audit.py`, `warden audit keygen` and `verify` | IN USE (Phase 2, step 1) | FREE | KMS signing, S3 Object Lock (PAID; not used) |
 
 ## 6. Supply chain and code security
 

@@ -20,6 +20,8 @@ dependencies = [
     # human-edited YAML on purpose (operators add signatures / allowlist entries without touching
     # Python), so a YAML parser is a legitimate core dependency.
     "pyyaml>=6.0",
+    # Ed25519 signatures for the audit log's checkpoints (and, next, for approvals).
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]
