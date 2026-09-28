@@ -20,8 +20,9 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
-    from .activities import FixOutcome, FixRequest, Plan, RemediationActivities
+    from .activities import FixOutcome, FixRequest, IncidentActivities, Plan, RemediationActivities
     from .approvals import SignedApproval
+    from .models import Alert, RunReport
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
 QUICK = {"start_to_close_timeout": timedelta(seconds=60)}
@@ -122,3 +123,28 @@ class RemediationWorkflow:
         self._stage = "rolling_back"
         await workflow.execute_activity_method(acts.rollback, args=[plan], **ONCE)
         return await end("rolled_back", [f"{req.service} did not recover within {req.recover_within_minutes} min"])
+
+
+@workflow.defn
+class IncidentWorkflow:
+    """One alert, diagnosed: prepare (read + redact, the redaction map never leaves it) -> diagnose
+    (the one model call, on redacted input only) -> verify (no model). Started with the workflow id
+    `inc-<alert_id>`, so the same alert twice is one incident, not two.
+
+    It ends at the verdict, exactly where the graph ended. Turning an approved proposal into a
+    RemediationWorkflow needs a per-platform resolver from proposal to catalogue parameters, read
+    from live state; that arrives with the real platforms (Phase 4). Until then a proposal is advice.
+    """
+
+    @workflow.run
+    async def run(self, alert: Alert) -> RunReport:
+        acts = IncidentActivities
+        pack = await workflow.execute_activity_method(acts.prepare, args=[alert], **QUICK)
+        diagnosed = await workflow.execute_activity_method(
+            acts.diagnose, args=[pack], start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=2))
+        verified = await workflow.execute_activity_method(acts.verify, args=[pack, diagnosed], **QUICK)
+        return RunReport(alert=pack.alert, redaction_map_size=pack.masked, context=pack.context,
+                         root_cause=diagnosed.root_cause, proposal=diagnosed.proposal, verdict=verified.verdict,
+                         cost=diagnosed.cost, audit=pack.steps + diagnosed.steps + verified.steps,
+                         halted_reason=verified.halted_reason)

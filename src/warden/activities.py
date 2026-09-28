@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -20,6 +21,7 @@ from temporalio import activity
 
 from . import approvals, bounds, catalog
 from .audit import AuditLog
+from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
 
 
 class FixRequest(BaseModel):
@@ -158,3 +160,93 @@ class RemediationActivities:
     def finish(self, incident_id: str, workflow_id: str, outcome: FixOutcome) -> None:
         self.audit.append(incident_id, "workflow.end", {"workflow_id": workflow_id, **outcome.model_dump()})
         self.audit.checkpoint()
+
+
+# --------------------------------------------------------------------------- incident
+
+
+class EvidencePack(BaseModel):
+    """What leaves the read side: everything already redacted. The redaction map is not here - it
+    stays inside `prepare`, so it never enters Temporal's history."""
+    alert: Alert
+    context: ContextBundle
+    redacted_logs: list[str] = Field(default_factory=list)
+    redacted_deploys: list[dict[str, str]] = Field(default_factory=list)
+    prompt: str
+    masked: int
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class Diagnosed(BaseModel):
+    root_cause: RootCause
+    proposal: RemediationProposal
+    cost: CostRecord
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class Verified(BaseModel):
+    verdict: Verdict
+    halted_reason: str | None = None
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _apply_node(state: dict[str, Any], update: dict[str, Any]) -> list[dict[str, Any]]:
+    update = dict(update)
+    steps = update.pop("audit", [])
+    state.update(update)
+    return steps
+
+
+class IncidentActivities:
+    """The diagnosis pipeline (graph.py's nodes, unchanged), split where the trust zones split:
+    `prepare` reads and redacts, `diagnose` is the only model call, `verify` has no model."""
+
+    def __init__(self, *, audit: AuditLog, backend: Any = None,
+                 llm_factory: Callable[[], Any] | None = None) -> None:
+        self.audit, self.backend = audit, backend
+        self.llm_factory = llm_factory
+
+    def _record(self, alert_id: str, steps: list[dict[str, Any]]) -> None:
+        for step in steps:
+            self.audit.append(alert_id, f"incident.{step.get('node', 'step')}", step)
+
+    @activity.defn
+    def prepare(self, alert: Alert) -> EvidencePack:
+        from . import graph
+
+        state: dict[str, Any] = {"alert": alert, "backend": self.backend}
+        steps: list[dict[str, Any]] = []
+        for node in (graph.node_ingest, graph.node_gather, graph.node_redact, graph.node_tripwire):
+            steps += _apply_node(state, node(state))
+        prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
+        self._record(alert.alert_id, steps)
+        return EvidencePack(alert=state["alert"], context=state["context"], prompt=prompt,
+                            redacted_logs=state.get("redacted_logs", []),
+                            redacted_deploys=state.get("redacted_deploys", []),
+                            masked=len(state.get("redaction_map", {})), steps=steps)
+
+    @activity.defn
+    def diagnose(self, pack: EvidencePack) -> Diagnosed:
+        from . import graph
+        from .llm import LLMClient
+
+        llm = (self.llm_factory or LLMClient)()
+        state = {"alert": pack.alert, "context": pack.context, "redacted_logs": pack.redacted_logs,
+                 "redacted_deploys": pack.redacted_deploys, "prompt": pack.prompt, "llm": llm}
+        steps = _apply_node(state, graph.node_diagnose(state))
+        self._record(pack.alert.alert_id, steps)
+        return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps)
+
+    @activity.defn
+    def verify(self, pack: EvidencePack, diagnosed: Diagnosed) -> Verified:
+        from . import graph
+
+        state = {"alert": pack.alert, "context": pack.context, "root_cause": diagnosed.root_cause,
+                 "proposal": diagnosed.proposal}
+        steps = _apply_node(state, graph.node_verify(state))
+        route = {"halt": graph.node_halt, "escalate": graph.node_escalate,
+                 "await_approval": graph.node_await_approval, "record_safe": graph.node_record_safe}
+        steps += _apply_node(state, route[graph.route_after_verify(state)](state))
+        self._record(pack.alert.alert_id, steps)
+        self.audit.checkpoint()
+        return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps)

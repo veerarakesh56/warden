@@ -7,6 +7,7 @@ and real signatures. Only the platform being changed is fake.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -14,15 +15,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
 
-from warden import approvals, audit, bounds
+from warden import approvals, audit, bounds, codec
 from warden.activities import FixRequest, RemediationActivities
 from warden.workflows import STEPS, RemediationWorkflow
 
 QUEUE = "remediation-test"
+CONVERTER = codec.data_converter(os.urandom(32))
 
 
 class FakePlatform:
@@ -77,7 +78,7 @@ REQ = {"incident_id": "inc-42", "entry": "k8s_rollout_undo", "service": "orders"
 def _run(world, drive, **req):
     """Start the workflow, let `drive(handle, sign)` interact with it, return the outcome."""
     async def main():
-        env = await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter)
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
         methods = [acts.resolve_plan, acts.gate, acts.check_approval, acts.precheck, acts.apply,
                    acts.check_success, acts.record_result, acts.rollback, acts.finish]
@@ -180,6 +181,7 @@ def test_a_failed_apply_is_not_retried_or_rolled_back_blindly(world, owner):
     assert world["platform"].rolled_back == []
     intents = world["log"].entries("inc-42", kinds=("remediation.intent",))
     assert len(intents) == 1  # maximum_attempts=1: tried once
+    assert "API timeout" not in str(world["history"].to_json_dict())  # failure text is encrypted too
 
 
 def test_an_approver_limited_to_t1_cannot_approve_a_t2_fix(world, owner):
@@ -205,5 +207,5 @@ def test_the_ttl_is_honoured(world, owner):
 def test_a_recorded_history_replays_deterministically(world, owner):
     """The workflow code must make the same decisions when Temporal replays it after a worker restart."""
     _run(world, _approve_with(owner))
-    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=pydantic_data_converter)
+    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER)
                 .replay_workflow(world["history"]))

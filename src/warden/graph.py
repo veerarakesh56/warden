@@ -64,6 +64,7 @@ def _as_count(value: object) -> int:
 
 
 class WardenState(TypedDict, total=False):
+    prompt: str
     alert: Alert
     context: ContextBundle
     redacted_logs: list[str]
@@ -463,7 +464,9 @@ def node_diagnose(state: WardenState) -> WardenState:
         before = (llm.cost.input_tokens, llm.cost.output_tokens, llm.cost.usd)
         d = llm.structured(
             system=SYSTEM_DIAGNOSE,
-            user=_evidence_blob(state),
+            # The IncidentWorkflow builds the prompt where the redaction map lives and passes only
+            # the finished, redacted prompt here; the map never enters workflow history.
+            user=state.get("prompt") or _evidence_blob(state),
             schema=Diagnosis,
             mock_factory=lambda: Diagnosis(
                 root_cause=_mock_root_cause(signals, evidence.index(state["context"])),
