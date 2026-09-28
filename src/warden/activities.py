@@ -190,13 +190,6 @@ class Verified(BaseModel):
     steps: list[dict[str, Any]] = Field(default_factory=list)
 
 
-def _apply_node(state: dict[str, Any], update: dict[str, Any]) -> list[dict[str, Any]]:
-    update = dict(update)
-    steps = update.pop("audit", [])
-    state.update(update)
-    return steps
-
-
 class IncidentActivities:
     """The diagnosis pipeline (graph.py's nodes, unchanged), split where the trust zones split:
     `prepare` reads and redacts, `diagnose` is the only model call, `verify` has no model."""
@@ -217,7 +210,7 @@ class IncidentActivities:
         state: dict[str, Any] = {"alert": alert, "backend": self.backend}
         steps: list[dict[str, Any]] = []
         for node in (graph.node_ingest, graph.node_gather, graph.node_redact, graph.node_tripwire):
-            steps += _apply_node(state, node(state))
+            steps += graph.apply_node(state, node(state))
         prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
         self._record(alert.alert_id, steps)
         return EvidencePack(alert=state["alert"], context=state["context"], prompt=prompt,
@@ -233,7 +226,7 @@ class IncidentActivities:
         llm = (self.llm_factory or LLMClient)()
         state = {"alert": pack.alert, "context": pack.context, "redacted_logs": pack.redacted_logs,
                  "redacted_deploys": pack.redacted_deploys, "prompt": pack.prompt, "llm": llm}
-        steps = _apply_node(state, graph.node_diagnose(state))
+        steps = graph.apply_node(state, graph.node_diagnose(state))
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps)
 
@@ -243,10 +236,10 @@ class IncidentActivities:
 
         state = {"alert": pack.alert, "context": pack.context, "root_cause": diagnosed.root_cause,
                  "proposal": diagnosed.proposal}
-        steps = _apply_node(state, graph.node_verify(state))
+        steps = graph.apply_node(state, graph.node_verify(state))
         route = {"halt": graph.node_halt, "escalate": graph.node_escalate,
                  "await_approval": graph.node_await_approval, "record_safe": graph.node_record_safe}
-        steps += _apply_node(state, route[graph.route_after_verify(state)](state))
+        steps += graph.apply_node(state, route[graph.route_after_verify(state)](state))
         self._record(pack.alert.alert_id, steps)
         self.audit.checkpoint()
         return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps)

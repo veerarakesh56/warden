@@ -1,8 +1,10 @@
-"""The orchestration graph.
+"""The diagnosis pipeline: named nodes over one typed state.
 
-Why a state graph and not a `while` loop: every transition is a named node with typed state, so a
-run can be checkpointed, resumed, replayed and audited. When an operator asks "why did it do that?",
-the answer is a list of nodes and the state at each one — not a scrollback of prompts.
+Every transition is a named node, and every node adds to the audit trail, so when an operator asks
+"why did it do that?", the answer is a list of nodes and what each one decided - not a scrollback of
+prompts. Durability (checkpoint, resume, replay) is Temporal's job: workflows.IncidentWorkflow runs
+these same nodes as activities. `run()` below is the same pipeline in one process, for the CLI,
+the benchmark harness and the tests. (LangGraph ran it until Phase 2; the nodes did not change.)
 
 The shape is deliberately linear with one branch:
 
@@ -20,9 +22,8 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
-from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from . import evidence, tripwire
@@ -43,10 +44,6 @@ from .observability import record_cost, record_model_call, span
 from .redaction import redact, redact_many
 from .tools import FixtureBackend, gather
 from .verifier import verify
-
-
-def _append(left: list, right: list) -> list:
-    return (left or []) + (right or [])
 
 
 def _as_count(value: object) -> int:
@@ -73,7 +70,7 @@ class WardenState(TypedDict, total=False):
     root_cause: RootCause
     proposal: RemediationProposal
     verdict: Verdict
-    audit: Annotated[list[dict[str, Any]], _append]
+    audit: list[dict[str, Any]]
     halted_reason: str
     llm: LLMClient
     backend: FixtureBackend
@@ -553,48 +550,29 @@ def node_record_safe(state: WardenState) -> WardenState:
     }
 
 
-def build_graph():
-    g = StateGraph(WardenState)
-    g.add_node("ingest", node_ingest)
-    g.add_node("gather", node_gather)
-    g.add_node("redact", node_redact)
-    g.add_node("tripwire", node_tripwire)
-    g.add_node("diagnose", node_diagnose)
-    g.add_node("verify", node_verify)
-    g.add_node("halt", node_halt)
-    g.add_node("escalate", node_escalate)
-    g.add_node("await_approval", node_await_approval)
-    g.add_node("record_safe", node_record_safe)
+PIPELINE = (node_ingest, node_gather, node_redact, node_tripwire, node_diagnose, node_verify)
+ROUTES = {"halt": node_halt, "escalate": node_escalate, "await_approval": node_await_approval,
+          "record_safe": node_record_safe}
 
-    g.add_edge(START, "ingest")
-    g.add_edge("ingest", "gather")
-    g.add_edge("gather", "redact")
-    g.add_edge("redact", "tripwire")
-    g.add_edge("tripwire", "diagnose")
-    g.add_edge("diagnose", "verify")
-    g.add_conditional_edges(
-        "verify",
-        route_after_verify,
-        {
-            "halt": "halt",
-            "escalate": "escalate",
-            "await_approval": "await_approval",
-            "record_safe": "record_safe",
-        },
-    )
-    g.add_edge("halt", END)
-    g.add_edge("escalate", END)
-    g.add_edge("await_approval", END)
-    g.add_edge("record_safe", END)
-    return g.compile()
+
+def apply_node(state: dict[str, Any], update: dict[str, Any]) -> list[dict[str, Any]]:
+    """Merge one node's update into the state; its audit entries are appended, never replaced.
+    Returns those entries."""
+    update = dict(update)
+    steps = update.pop("audit", [])
+    state.update(update)
+    state["audit"] = state.get("audit", []) + steps
+    return steps
 
 
 def run(alert: Alert, *, llm: LLMClient | None = None, backend: FixtureBackend | None = None) -> RunReport:
     llm = llm or LLMClient()
-    app = build_graph()
     with span("warden.run", alert_id=alert.alert_id, service=alert.service,
               environment=alert.environment, severity=alert.severity.value) as root:
-        final = app.invoke({"alert": alert, "llm": llm, "backend": backend, "audit": []})
+        final: dict[str, Any] = {"alert": alert, "llm": llm, "backend": backend, "audit": []}
+        for node in PIPELINE:
+            apply_node(final, node(final))
+        apply_node(final, ROUTES[route_after_verify(final)](final))
         record_cost(root, input_tokens=llm.cost.input_tokens,
                     output_tokens=llm.cost.output_tokens, usd=llm.cost.usd)
         if final.get("verdict") is not None:

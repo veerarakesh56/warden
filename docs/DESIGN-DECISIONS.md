@@ -170,4 +170,4 @@ validated on a clean runner.
 3. **Slack approval.** Execution exists (live remediation behind the four-way gate, dry-run by
    default); approving it from Slack does not, and needs its own security review.
 4. **Narrow the IAM read policy** from `resources = ["*"]` with condition blocks.
-5. **Checkpointing.** LangGraph supports it; the graph is written for it but it is not enabled.
+5. **Checkpointing.** Done by Temporal since Phase 2: IncidentWorkflow and RemediationWorkflow are durable, and a worker restart replays the history (LangGraph, which ran the graph before, was removed).

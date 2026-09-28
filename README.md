@@ -21,7 +21,7 @@ verdicts rather than the exit code.
 
 | | |
 |---|---|
-| **Pipeline** | LangGraph: alert → evidence → redaction → RCA → typed proposal → deterministic gate |
+| **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
 | **Safety** | 12 policies, closed action enum, verified redaction, token/USD budget, real tool timeouts |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
 | **Remediation** | dry-run by default; opt-in live backends (restart/scale a Deployment, terminate stuck DB connections) behind their own least-privilege credentials |
@@ -495,7 +495,7 @@ flowchart TB
         DBB[postgres / mysql / redis / mongo / mssql<br/><i>database.py</i><br/>session views: SELECT, SHOW, INFO,<br/>serverStatus, currentOp only]
     end
 
-    subgraph GRAPH[Diagnosis graph - LangGraph StateGraph<br/><i>graph.py</i>]
+    subgraph GRAPH[Diagnosis pipeline - IncidentWorkflow activities<br/><i>graph.py nodes, workflows.py</i>]
         N1[ingest] --> N2[gather<br/><i>tools.gather</i><br/>per-call timeout] --> N3[redact<br/><i>redaction.py</i>] --> N4[diagnose<br/>ONE LLM call<br/>cites evidence ids] --> N6{verify<br/><i>verifier.py</i><br/>P1-P14}
         N6 --> X1[halt] & X2[escalate] & X3[await_approval] & X4[record_safe]
     end

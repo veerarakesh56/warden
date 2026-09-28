@@ -10,7 +10,7 @@ __all__ = ["Alert", "RunReport", "__version__", "run"]
 
 
 def __getattr__(name: str):
-    # Lazy on purpose: importing the package must not import the graph (LangGraph, HTTP clients).
+    # Lazy on purpose: importing the package must not import the graph (model and HTTP clients).
     # Temporal's workflow sandbox re-imports `warden` for every workflow, and those modules are not
     # sandbox-safe; `from warden import run` still works exactly as before.
     if name == "run":
