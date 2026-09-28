@@ -186,11 +186,22 @@ def _parse_ts(text: str) -> dt.datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=dt.UTC)
 
 
+def untrusted_inline(text: str, limit: int = 300) -> str:
+    """Text WARDEN did not write, as inert markdown (audit A-C-1): one line, no backtick to break out
+    of the code span, no `<...>` Slack or HTML would act on, capped. A forged "approved fix" block in
+    an alert summary renders as the words it is, not as a heading and a command."""
+    one = " ".join(str(text).split())
+    one = one.replace("`", "\u02cb").replace("<", "\u2039").replace(">", "\u203a")
+    if len(one) > limit:
+        one = one[:limit] + "\u2026"
+    return f"`{one}`" if one else "`(empty)`"
+
+
 def _timeline(alert: Alert, ctx: ContextBundle) -> list[tuple[str, str]]:
     events: list[tuple[dt.datetime, str]] = []
     started = _parse_ts(alert.started_at or "")
     if started:
-        events.append((started, f"alert `{alert.name}` fired"))
+        events.append((started, f"alert {untrusted_inline(alert.name)} fired"))
     for d in ctx.recent_deploys:
         at = _parse_ts(d.get("at", ""))
         what = d.get("sha") or d.get("image") or d.get("task_definition") or d.get("revision") or "?"
@@ -589,7 +600,8 @@ def _render_markdown(d: dict) -> str:
     rb = d.get("runbook")
     lines: list[str] = []
 
-    lines.append(f"# WARDEN incident report - {a['name']} - {a['service']} ({a['environment']})")
+    lines.append(f"# WARDEN incident report - {a['service']} ({a['environment']})")
+    lines.append(f"Alert name {untrusted_inline(a['name'])}")
     lines.append(f"Severity **{a['severity']}** | alert `{a['id']}` | started {a.get('started_at') or 'unknown'}")
     if v:
         lines.append(f"**Next step: {_NEXT_STEP.get(v['status'], v['status'])}**")
@@ -597,7 +609,7 @@ def _render_markdown(d: dict) -> str:
 
     # ---- summary
     lines.append("## Summary")
-    lines.append(f"- **Alert**: {a['summary']}")
+    lines.append(f"- **Alert** (as written in the alert rule): {untrusted_inline(a['summary'])}")
     if d["impact"]:
         lines.append("- **Impact seen in the evidence**: " + "; ".join(d["impact"]) + ".")
     elif ev["tool_errors"] and not ev["metrics"]:
@@ -662,7 +674,9 @@ def _render_markdown(d: dict) -> str:
         lines.append(f"- **`{c['file']}:{c['line']}`** in `{c['in']}`: `{c['exception']}`")
         if c["source"]:
             lines.append("```python")
-            lines.extend(c["source"])
+            # A source line is text from the deployed package; one holding ``` would end the block
+            # and put what follows outside it (audit A-C-9).
+            lines.extend(ln.replace("```", "`\u200b``").replace("~~~", "~\u200b~~") for ln in c["source"])
             lines.append("```")
         lines.append(f"- **Developers**: start at `{c['file']}:{c['line']}` in `{c['in']}` ({c['function']})"
                      + (" - the line marked `>|` is the one that raised." if c["source"] else "."))

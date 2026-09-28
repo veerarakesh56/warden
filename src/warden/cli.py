@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 import yaml
 from pydantic import ValidationError
 
+from . import gate
 from .chatops import notify, resolve_sinks
 from .graph import run
 from .knowledge import default_knowledge_base
@@ -25,7 +26,7 @@ from .llm import LLMClient
 from .models import Alert, Severity
 from .remediation import RemediationError, RemediationRequest, decide_remediation
 from .remediation_k8s import resolve_remediation_backend
-from .reporting import build_report
+from .reporting import _scrub, build_report
 from .tools import resolve_backend
 
 # The bundled scenarios. Each one exists to exercise a different route through the graph.
@@ -80,28 +81,35 @@ DEMO_ALERTS: dict[str, dict] = {
 }
 
 
+def _out(text: str) -> None:
+    """stdout is an egress too - a terminal, a CI log, a pasted ticket (audit A-C-8): no secret, and no
+    control character (an ESC sequence in model- or alert-written text can rewrite what the operator
+    sees)."""
+    print(gate.for_terminal(text))
+
+
 def _print_report(report, *, verbose: bool) -> None:
     v = report.verdict
-    print(f"\n=== {report.alert.alert_id}  {report.alert.name} [{report.alert.environment}] ===")
-    print(f"  identifiers masked : {report.redaction_map_size}")
+    _out(f"\n=== {report.alert.alert_id}  {report.alert.name} [{report.alert.environment}] ===")
+    _out(f"  identifiers masked : {report.redaction_map_size}")
     if report.root_cause:
-        print(f"  hypothesis         : {report.root_cause.hypothesis}")
-        print(f"  confidence         : {report.root_cause.confidence:.2f}")
+        _out(f"  hypothesis         : {report.root_cause.hypothesis}")
+        _out(f"  confidence         : {report.root_cause.confidence:.2f}")
     if report.proposal:
-        print(f"  proposed action    : {report.proposal.action.value} -> {report.proposal.target}")
-        print(f"  blast radius       : {report.proposal.effective_blast_radius} (enforced; "
+        _out(f"  proposed action    : {report.proposal.action.value} -> {report.proposal.target}")
+        _out(f"  blast radius       : {report.proposal.effective_blast_radius} (enforced; "
               f"proposal claimed {report.proposal.blast_radius})")
     if v:
-        print(f"  VERDICT            : {v.status.value.upper()}")
+        _out(f"  VERDICT            : {v.status.value.upper()}")
         if v.policy_ids:
-            print(f"  policies fired     : {', '.join(v.policy_ids)}")
+            _out(f"  policies fired     : {', '.join(v.policy_ids)}")
         for reason in v.reasons:
-            print(f"    - {reason}")
-    print(f"  cost               : ${report.cost.usd:.4f} over {report.cost.calls} call(s)")
+            _out(f"    - {reason}")
+    _out(f"  cost               : ${report.cost.usd:.4f} over {report.cost.calls} call(s)")
     if verbose:
-        print("  audit trail:")
+        _out("  audit trail:")
         for step in report.audit:
-            print(f"    {json.dumps(step)}")
+            _out(f"    {json.dumps(step)}")
 
 
 def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops) -> None:
@@ -141,7 +149,7 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
         redaction_map=report.redaction_map,
         backend=os.environ.get("WARDEN_BACKEND"),
     )
-    print("\n" + built.markdown)
+    print("\n" + gate.for_terminal(built.markdown))
 
     if emit_chatops:
         print("\nChatOps delivery:")
@@ -414,7 +422,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             path = pathlib.Path(args.json)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+            # Redacted once more with the run's own map (audit A-C-8): the artefact gets attached
+            # to tickets, and a value an upstream step missed must not ride along.
+            data, _ = _scrub(report.model_dump(mode="json"), dict(report.redaction_map))
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         _print_report(report, verbose=args.verbose)
         if args.json:
             print(f"\nreport written to {path}")

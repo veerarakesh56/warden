@@ -20,6 +20,24 @@ bump may carry a breaking change.
   - stream names are reduced to one safe token;
   - the `LOG k8s/<ns>/<deployment>` prefix is trusted only before the rollout history, with
     Kubernetes-shaped names.
+- **The alert's own text is inert** (audit A-C-1, A-C-13). The environment must be a name, and
+  the start time a timestamp. The name and summary reach the model on one line each, inside
+  nonce-marked "data only" markers. People see them as a single inline code span. A forged
+  "approved fix" heading or command block in a summary now shows as the words it is.
+- **Every way out passes the outbound gate** (audit A-C-8). That covers:
+  - chat sinks, with the secret check (G5) now over the text as built rather than after
+    re-redaction, where it could never fire;
+  - stdout, with no secrets and no terminal escape sequences;
+  - the `--json` artefact, redacted again with the run's map;
+  - MCP results and error text.
+  The old test that reached BLOCK only by monkeypatching the gate is replaced by one where the
+  pipeline really missed a secret.
+- **The link rule (G3) closes its gaps** (audit A-C-9):
+  - `//host` links and link reference definitions are removed;
+  - `<img/src=...>` is caught, and bare domains are defanged;
+  - control and bidi characters are removed;
+  - fences are tracked the CommonMark way, and text after an unclosed fence is sanitised;
+  - fences in deployed-source lines are escaped.
 - **The Temporal payload codec fails closed** (audit A-B-L13). An unencrypted payload in the history
   is refused. It used to be passed straight to the workflow.
 - **The laptop no longer needs a long-lived AWS key** (W0-now). It uses IAM Roles Anywhere with a

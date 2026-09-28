@@ -66,16 +66,21 @@ class Alert(BaseModel):
     """What the monitoring stack hands us. Shape mirrors Prometheus Alertmanager."""
 
     alert_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-    name: str
+    name: str = Field(max_length=512)  # untrusted, like summary
     severity: Severity
     service: str = Field(pattern=NAME_PATTERN)
     # A free string, resolved against the per-environment policy (environments.py). Not a fixed
     # Literal because the set of environments is a deployment concern an operator configures
     # (staging, qa-staging, pre-prod, qa-prod, prod, ...). An environment the policy doesn't know
     # resolves to the restrictive default and fails closed, so widening this cannot loosen safety.
-    environment: str
-    summary: str
-    started_at: str
+    # ⛔ Audit A-C-13: the environment went into the prompt and every report unchecked. It is a
+    # name like any other resource name, so it is held to the same pattern.
+    environment: str = Field(pattern=NAME_PATTERN)
+    # Free text written by whoever configured the alert rule - UNTRUSTED (audit A-C-1). Rendered
+    # only inside a datamarked block for the model and as inline code for people (reporting.py).
+    summary: str = Field(max_length=4000)
+    # ISO-8601, or "" when the source does not say. Anything else is refused (audit A-C-1).
+    started_at: str = Field(default="", pattern=r"^$|^\d{4}-\d{2}-\d{2}[T ][0-9:.]{5,15}(?:Z|[+-]\d{2}:?\d{2})?$")
     labels: dict[str, str] = Field(default_factory=dict)
     rejected_labels: list[str] = Field(default_factory=list)
 

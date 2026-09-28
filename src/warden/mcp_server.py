@@ -26,6 +26,7 @@ from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
+from . import gate
 from .environments import default_environment_policies
 from .models import (
     BLAST_RADIUS_ORDER,
@@ -282,6 +283,8 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
 
 
 def _ok(payload: dict[str, Any]) -> types.CallToolResult:
+    # ⛔ Audit A-C-8: an MCP result goes to another program, often another model. Same gate.
+    _verdict, payload = gate.outbound_data(payload)
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(payload, indent=2))],
         structured_content=payload,
@@ -289,6 +292,7 @@ def _ok(payload: dict[str, Any]) -> types.CallToolResult:
 
 
 def _err(message: str) -> types.CallToolResult:
+    message = gate.for_terminal(gate.sanitise_text(message))  # exception text can quote evidence
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=message)],
         is_error=True,
