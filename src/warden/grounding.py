@@ -45,24 +45,37 @@ def citation_problems(root_cause: RootCause, items: dict[str, Item]) -> list[str
 # satisfied it by quoting an unrelated metric (2026-09-27 audit: `scale_down` for replica lag, citing
 # `error_rate`). Broad on purpose - it rejects only citations that say nothing about the action.
 ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
+    # Not "config": every CONFIG line starts with it, so any config line supported a rollback.
     ActionKind.rollback_deploy: ("deploy", "revision", "image", "version", "rollout", "sha", "release",
-                                 "alias", "config"),
-    # Capacity signals only (audit A-C-6): "error", "5xx", "timeout", "request" and "running" are
-    # symptoms of almost anything, so citing them said nothing about whether MORE replicas help.
-    ActionKind.scale_up: ("memory", "oom", "throttl", "cpu", "concurrency", "latency", "duration", "pool",
-                          "connection", "queue", "visible", "backlog", "capacity", "lag",
-                          "invocation", "saturat", "pending", "unready", "not ready"),
+                                 "alias"),
+    # Capacity signals only (audit A-C-6): "error", "5xx", "timeout", "request", "running",
+    # "latency", "duration" and "lag" are symptoms of almost anything - a routine Lambda REPORT line
+    # has a duration - so citing them said nothing about whether MORE replicas help.
+    ActionKind.scale_up: ("memory", "oom", "throttl", "cpu", "concurrency", "pool", "connection", "queue",
+                          "visible", "backlog", "capacity", "invocation", "saturat", "pending", "unready",
+                          "not ready"),
     # Not "replica" or "running": replica LAG is a reason NOT to scale down (P11), and it passed here.
     ActionKind.scale_down: ("cpu", "memory", "capacity", "idle", "cost", "utili", "underused", "over-provisioned"),
     ActionKind.restart_pods: ("restart", "crash", "backoff", "back-off", "oom", "killed", "unhealthy",
-                              "probe", "exit", "unready", "not ready", "hang", "stuck", "leak", "memory"),
+                              "probe", "exit", "unready", "not ready", "hang", "stuck", "leak"),
     ActionKind.terminate_connections: ("idle_in_transaction", "idle in transaction", "lock", "block",
                                        "connection", "pool", "long_running", "long-running", "stuck",
                                        "session"),
     ActionKind.failover_replica: ("replica", "lag", "failover", "unreachable", "refused", "timeout",
-                                  "writer", "primary", "aurora", "cluster"),
+                                  "writer", "primary", "aurora"),
     ActionKind.clear_cache: ("cache", "redis", "evict", "stale", "hit", "miss", "memcache"),
 }
+
+
+def _supports(quote: str, key: str) -> bool:
+    """`key` starts a word in `quote` (audit A-C-6: "ready" in "already", "lag" in "flag"), a short key
+    also ends one (review 2026-09-28: "miss" in "missing"), and a measurement of zero does not count
+    (`crashloop_containers=0` is evidence of NO crash loop)."""
+    end = r"(?:s|es|ed)?(?![a-z])" if len(key) <= 4 else ""
+    for m in re.finditer(rf"(?<![a-z0-9]){re.escape(key)}{end}", quote):
+        if not re.match(r"[\w]*\s*[=:]\s*0+(?:\.0+)?(?![\d.])", quote[m.end():]):
+            return True
+    return False
 
 
 def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
@@ -70,11 +83,12 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     keys = ACTION_EVIDENCE.get(proposal.action)
     if not keys:
         return None
-    cited = [items[c.id.strip().strip("[]")].text.lower() for c in root_cause.citations
-             if c.id.strip().strip("[]") in items]
-    # A key must START a word (audit A-C-6): "ready" was found in "already", "lag" in "flag",
-    # "pool" in "spool". Stems still match their endings ("throttl" -> throttled, throttling).
-    if any(re.search(rf"(?<![a-z0-9]){re.escape(k)}", text) for text in cited for k in keys):
+    # The QUOTED span, not the whole item: the model must quote the words that support the action
+    # (P13 checks the quote is really in the item). Not a T item: WARDEN's own "connection failed"
+    # wording supported scale_up and terminate_connections (independent review 2026-09-28).
+    quotes = [c.quote.lower() for c in root_cause.citations
+              if c.id.strip().strip("[]") in items and not c.id.strip().strip("[]").startswith("T")]
+    if any(_supports(q, k) for q in quotes for k in keys):
         return None
     return (f"none of the cited evidence bears on {proposal.action.value} "
             f"(it names none of: {', '.join(keys[:6])}...)")
@@ -84,6 +98,10 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
 # (`lambda:warden-dev-checkout (version 7 -> 6)`, a correct live answer), and "<...>" is a
 # redaction placeholder.
 _LEADING = re.compile(r"^[\s\u200b-\u200f\ufeff]+")
+# A flag anywhere in the target - at the start or after a space - with any dash a CLI or a person
+# might read as one (review 2026-09-28: `orders --all`, `orders -A`, and U+2010-2015, U+2212, U+FE63,
+# U+FF0D before a letter).
+_FLAGLIKE = re.compile(r"(?:^|\s)[-\u2010-\u2015\u2212\ufe63\uff0d]{1,2}[A-Za-z]")
 _SHELL = re.compile(r"[;|&$\\`]")
 
 
@@ -96,7 +114,7 @@ def target_problem(proposal: RemediationProposal, inventory: set[str]) -> str | 
     # `x=y` as an assignment or a selector (audit A-C-25).
     # models.inert() prefixes a leading "-" with a zero-width space so no CLI reads it as a flag;
     # the name is still not a resource name, so look past that prefix.
-    if _LEADING.sub("", proposal.target).startswith("-") or "=" in proposal.target:
+    if _FLAGLIKE.search(_LEADING.sub("", proposal.target)) or "=" in proposal.target:
         return f"target {proposal.target!r} looks like a flag or an assignment, not a resource name"
     found = tokens(proposal.target)
     if not found & inventory:

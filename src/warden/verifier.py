@@ -116,8 +116,8 @@ def symptoms(context) -> list[str]:
     if m.get("long_running_queries", 0) > 0:
         n = int(m["long_running_queries"])
         out.append(f"{n} quer{'ies have' if n != 1 else 'y has'} been running over 60s")
-    if m.get("replica_lag_seconds", 0) >= REPLICA_LAG_SYMPTOM_S:
-        out.append(f"replica lag is {m['replica_lag_seconds']:.0f}s")
+    if (replica_lag_s(m) or 0) >= REPLICA_LAG_SYMPTOM_S:
+        out.append(f"replica lag is {replica_lag_s(m):.0f}s")
     # The full stack (docs/WAVE4-CONTRACT.md B): counts of failures and explicit off states, each
     # possibly suffixed `__<short>` per resource. Only counts > 0 and states == 0 - no thresholds.
     for base, what, broken in _STACK_SYMPTOMS:
@@ -172,10 +172,31 @@ def _every_pod_failing(context) -> bool:
 
 
 def _deploy_of_target(alert, context, target: str) -> bool:
-    """A recent deploy of the proposal's target. A deploy with no `service` comes from a backend
-    scoped to one service (k8s_backend, aws_backend), so it is the alert's service."""
-    want = tokens(target)
-    return any(tokens(str(d.get("service") or alert.service)) & want for d in context.recent_deploys)
+    """A recent deploy of what the target names. The target must name a service that has a real
+    deploy in the evidence, and if it names the alert's own service, that service must be the one
+    deployed (independent review 2026-09-28: `orders (after payments deploy)` and `orders, payments`
+    passed on a payments deploy, through the shared word). Model targets come in many shapes -
+    `ecs-service/checkout (prod): revert revision 34 ...` - so this matches service NAMES, not
+    positions. A secret rotation is not a deploy (docs/WAVE4-CONTRACT.md D). A deploy with no
+    `service` comes from a backend scoped to one service, so it is the alert's."""
+    named = tokens(target)
+    deployed = set()
+    for d in context.recent_deploys:
+        if d.get("kind") != "secret":
+            deployed |= tokens(str(d.get("service") or alert.service))
+    if not named & deployed:
+        return False
+    own = tokens(alert.service)
+    return not (named & own) or bool(own & deployed)
+
+
+def replica_lag_s(metrics: dict[str, float]) -> float | None:
+    """The largest replica lag MEASURED, in seconds, or None if none was. Backends name it
+    differently - `replica_lag_seconds` (database.py), `reader_replica_lag_seconds` and
+    `aurora_replica_lag_ms` (aws_stack.py), each possibly suffixed per resource. A check that knew only
+    the first never fired on the AWS stack (independent review 2026-09-28)."""
+    lags = [v / 1000.0 if "_ms" in k else v for k, v in metrics.items() if "replica_lag" in k]
+    return max(lags) if lags else None
 
 
 def _contradiction(proposal, context) -> str | None:
@@ -200,7 +221,7 @@ def _contradiction(proposal, context) -> str | None:
                 "memory use, and if memory grows with load it pushes more load onto each one.")
     # Audit A-C-6: scale_down on replica lag passed in staging. Fewer replicas each carry more of the
     # load, so a lagging replica falls further behind.
-    lag = max((v for k, v in m.items() if k.startswith("replica_lag_seconds")), default=0)
+    lag = replica_lag_s(m) or 0.0
     if a is ActionKind.scale_down and lag >= 1:
         return (f"scale_down with replica lag of {lag:g}s in the evidence: fewer replicas each take more "
                 "of the load, so the lagging replica falls further behind.")
@@ -215,7 +236,7 @@ def _contradiction(proposal, context) -> str | None:
     # ⛔ Only when lag was MEASURED. An absent metric is not zero lag: ECS, Kubernetes and Redis report
     # none, and the MCP gate got none at all, so until 2026-09-25 every failover proposal from those
     # escalated with a false reason ("no replica lag in the evidence").
-    if a is ActionKind.failover_replica and "replica_lag_seconds" in m and m["replica_lag_seconds"] < 1:
+    if a is ActionKind.failover_replica and replica_lag_s(m) is not None and lag < 1:
         return "failover_replica with no replica lag in the evidence - there is nothing lagging to fail over from."
     return None
 

@@ -142,7 +142,8 @@ class AnthropicProvider:
         from anthropic import Anthropic
 
         self.model = model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5")
-        self._client = Anthropic(timeout=_sdk_timeout_s(), max_retries=0)
+        # Explicit base URL: the SDK would otherwise honour ANTHROPIC_BASE_URL and send the key there.
+        self._client = Anthropic(base_url=ANTHROPIC_BASE_URL, timeout=_sdk_timeout_s(), max_retries=0)
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         resp = self._client.messages.create(
@@ -229,15 +230,18 @@ class OpenAICompatProvider:
 
         self.model = model or os.environ.get("WARDEN_MODEL", "gpt-4o-mini")
         # Passed in by resolve() for the aliases; falls back to the env for an explicit custom host.
-        base_url = base_url or os.environ.get("WARDEN_BASE_URL")  # e.g. http://localhost:11434/v1
+        # ALWAYS an explicit base URL: without one the SDK reads OPENAI_BASE_URL on its own, and the
+        # OpenAI key then went to whatever host that named (independent review 2026-09-28).
+        base_url = base_url or os.environ.get("WARDEN_BASE_URL") or OPENAI_DEFAULT_BASE_URL
         key_env = key_env_for(base_url)
+        if key_env and not base_url.lower().startswith("https://"):
+            raise ProviderError(f"refusing to send {key_env} over plain http to {base_url!r}")
         # A local model ignores the key, but the client requires one to be present.
         api_key = os.environ.get(key_env) if key_env else "local-no-key"
         if not api_key:
             raise ProviderError(f"{key_env} is not set (or set WARDEN_BASE_URL for a local model).")
         kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
-        if base_url:
-            kw["base_url"] = base_url
+        kw["base_url"] = base_url
         self._client = OpenAI(**kw)
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
@@ -451,6 +455,8 @@ _REGISTRY = {
 # ⛔ Audit A-C-18: OPENAI_API_KEY used to go to whichever host the client pointed at - Groq,
 # OpenRouter, or any custom WARDEN_BASE_URL. A key is a credential for ONE vendor; each host reads
 # its own variable, and only a loopback host needs none.
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _KEY_ENV_BY_HOST = {
     "api.openai.com": "OPENAI_API_KEY",
     "api.groq.com": "GROQ_API_KEY",

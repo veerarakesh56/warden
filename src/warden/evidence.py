@@ -72,8 +72,22 @@ _OUTCOMES = (
     ("not supported", r"not supported|unsupported"),
     ("rejected as a bad request", r"\b400\b|BadRequest|ValidationException|InvalidParameter"),
 )
-_READ_OPERATION = re.compile(r"when calling the ((?:Get|List|Describe|Filter|Query|Scan|Search|Lookup|Batch)"
-                             r"[A-Z][A-Za-z]{1,40}) operation")
+_READ_OPERATION = re.compile(r"when calling the (\w{1,60}) operation")
+# Only operations WARDEN's own readers call (aws_backend.py, aws_stack.py). A shape check let a log
+# writer name a fake one - `GetRollbackCheckoutToRevisionFortyOneNow` - through a traceback path that
+# became a KeyError (independent review 2026-09-28).
+READ_OPERATIONS = frozenset({
+    "FilterLogEvents", "GetMetricData", "DescribeServices", "DescribeTaskDefinition", "DescribeCluster",
+    "DescribeDBClusters", "DescribeDBInstances", "DescribeCacheClusters", "DescribeReplicationGroups",
+    "DescribeEvents", "DescribeRule", "DescribeSecret", "DescribeSecurityGroups", "DescribeTable",
+    "DescribeTargetGroups", "DescribeTargetHealth", "GetAlias", "GetApis", "GetFunction",
+    "GetFunctionConcurrency", "GetFunctionConfiguration", "GetQueueAttributes", "GetQueueUrl",
+    "ListEventSourceMappings", "ListSubscriptionsByTopic", "ListVersionsByFunction", "GetCallerIdentity",
+})
+# Steering words looked for with the separators removed: STEER needs a non-letter on each side, so
+# `ignoreallpreviousinstructions` passed it (review 2026-09-28).
+_SQUASHED_STEER = re.compile(r"ignore|instruct|previous|propose|approv|override|disregard|execute|pretend|"
+                             r"forget|rollback|rollingback|failover|thefix|youmust|mustbe|should|resolved")
 
 
 def tool_error_text(raw: str) -> str:
@@ -81,18 +95,15 @@ def tool_error_text(raw: str) -> str:
     WARDEN's own reader/resource names - never from the exception's message."""
     m = _TOOL.match(raw)
     reader, rest = (m.group(1), raw[m.end():]) if m else ("read", raw)
-    # The leading `<resource>: ` segments are WARDEN's own reader tags (`lambda/fn logs`, a pod/container,
-    # a log group); keep up to two that look like one, stop at the first that does not.
-    where = [reader]
-    for part in rest.split(": ")[:-1][:3]:
-        if not _SOURCE.fullmatch(part) or STEER.search(part):
-            break
-        if part not in where:
-            where.append(part)
-    where = " ".join(where[:3])
+    # Only the FIRST `<resource>: ` segment: it is WARDEN's own reader tag (`lambda/fn logs`, a log
+    # group). What follows can be exception text, and exception text can quote a log line.
+    first = rest.split(": ", 1)[0] if ": " in rest else ""
+    squashed = re.sub(r"[^a-z]", "", first.lower())
+    keep = first and first != reader and _SOURCE.fullmatch(first) and not _SQUASHED_STEER.search(squashed)
+    where = f"{reader} {first}" if keep else reader
     outcome = next((word for word, rx in _OUTCOMES if re.search(rx, rest, re.IGNORECASE)), "failed (unclassified)")
     op = _READ_OPERATION.search(rest)
-    return f"{where}: {outcome}" + (f" on {op.group(1)}" if op else "")
+    return f"{where}: {outcome}" + (f" on {op.group(1)}" if op and op.group(1) in READ_OPERATIONS else "")
 
 
 @dataclass(frozen=True)
