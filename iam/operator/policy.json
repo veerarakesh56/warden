@@ -1,0 +1,106 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CheckPoliciesWithAwsOwnEvaluator",
+      "Effect": "Allow",
+      "Action": [
+        "access-analyzer:ValidatePolicy",
+        "access-analyzer:CheckNoNewAccess",
+        "access-analyzer:CheckAccessNotGranted",
+        "iam:SimulateCustomPolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SweepEveryRegionReadOnly",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/warden-pg-sweep"
+    },
+    {
+      "Sid": "ReadWhatTheOwnerPastedToCompareWithTheRepo",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/warden-*",
+        "arn:aws:iam::*:policy/Warden*"
+      ]
+    },
+    {
+      "Sid": "SeeThatTheOldUserAndItsKeyAreGone",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetUser",
+        "iam:ListAccessKeys",
+        "iam:ListAttachedUserPolicies"
+      ],
+      "Resource": "arn:aws:iam::*:user/warden-operator"
+    },
+    {
+      "Sid": "ReadRolesAnywhereSetup",
+      "Effect": "Allow",
+      "Action": [
+        "rolesanywhere:GetTrustAnchor",
+        "rolesanywhere:ListTrustAnchors",
+        "rolesanywhere:GetProfile",
+        "rolesanywhere:ListProfiles",
+        "rolesanywhere:ListSubjects",
+        "rolesanywhere:GetSubject"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "FreePlanEndDateAndCredits",
+      "Effect": "Allow",
+      "Action": "freetier:GetAccountPlanState",
+      "Resource": "*"
+    },
+    {
+      "Sid": "BedrockAvailabilityAndQuotasNoInvoke",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:ListFoundationModels",
+        "bedrock:GetFoundationModel",
+        "bedrock:GetFoundationModelAvailability",
+        "bedrock:ListInferenceProfiles",
+        "bedrock:GetInferenceProfile",
+        "servicequotas:ListServiceQuotas",
+        "servicequotas:GetServiceQuota"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    },
+    {
+      "Sid": "ReadTheOpsSecretsOnly",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": "arn:aws:secretsmanager:ap-south-2:*:secret:warden/ops/*"
+    }
+  ]
+}

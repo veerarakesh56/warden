@@ -213,6 +213,16 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
 - **Single tenant per company.** No shared namespace, database or bucket across companies.
 - **English-only UI and reports**, UTF-8 safe. Non-English log handling (M23) is recorded as open.
 - **Region:** the runtime and the Temporal namespace both run in ap-south-2. Bedrock uses the
-  global profile, because India has no regional Claude endpoint (to verify live).
+  global profile `global.anthropic.claude-opus-5-5`. This was verified on 2026-09-28 on the
+  Bedrock model card: from ap-south-2 and ap-south-1, Opus 5.5 is offered only through the global
+  profile, with no in-region and no geo profile. The same card says:
+  - its end of life is no sooner than 2027-09-22;
+  - it has no structured-output mode, so WARDEN uses forced tool use;
+  - it is billed through AWS Marketplace.
+- **Laptop access: IAM Roles Anywhere, not an access key.**
+  - The key is created in the TPM and cannot be exported.
+  - The CA is discarded after signing.
+  - Roles Anywhere has no additional cost and is available in ap-south-2 (checked 2026-09-28).
+  - The operator role only reads (`iam/operator/`).
 - **One AWS account, hardened, for the lab** (owner decision). Separate accounts per environment are
   the production recommendation, and the IaC supports them.

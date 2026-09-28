@@ -1,0 +1,26 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyTheLaptopCertificateThroughTheWardenTrustAnchor",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "rolesanywhere.amazonaws.com"
+      },
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession",
+        "sts:SetSourceIdentity"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "aws:SourceArn": "arn:aws:rolesanywhere:ap-south-2:<ACCOUNT_ID>:trust-anchor/<TRUST_ANCHOR_ID>"
+        },
+        "StringEquals": {
+          "aws:PrincipalTag/x509Subject/CN": "warden-operator-laptop",
+          "aws:PrincipalTag/x509Subject/O": "warden"
+        }
+      }
+    }
+  ]
+}

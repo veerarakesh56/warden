@@ -4,7 +4,8 @@ rendered from iam/templates/ by scripts/render_env_iam.py and committed.
 What must hold for every environment: the committed files are exactly the templates' render; each
 fits IAM's limit; no file names another environment; parameters and buckets are only its own; the
 deploy policy fits inside its boundary; new roles must carry its boundary; and only GitHub's
-environment of the same name (or the operator) may assume the deploy role.
+environment of the same name may assume the deploy role. (iam/operator/ is the operator identity,
+not an environment; tests/test_operator_role.py covers it.)
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ def _allows(doc):
 
 
 def test_every_environment_has_its_files_and_nothing_else_exists():
-    dirs = {p.name for p in (ROOT / "iam").iterdir() if p.is_dir()} - {"templates"}
+    dirs = {p.name for p in (ROOT / "iam").iterdir() if p.is_dir()} - {"templates", "operator"}
     assert dirs == set(ENVS)
     assert len(ENVS) == 6
 

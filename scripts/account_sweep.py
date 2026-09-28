@@ -22,7 +22,7 @@ Kinesis, Redshift and EMR) cannot hold anything; it is listed once as NOT ENABLE
 
 The role `warden-pg-sweep` may make exactly the listing calls below and read tags
 (terraform/proving-ground/sweep-role-policy.json - no secret values, no object contents), and it
-trusts only warden-operator. Billing -> Bills stays the ground truth for
+trusts only the operator role warden-ops-operator (iam/operator/, since W0-now). Billing -> Bills stays the ground truth for
 charges; this is the resource-level view.
 """
 
@@ -258,7 +258,7 @@ def main(argv: list[str] | None = None, *, session: Any = None) -> int:
     if args.write_trust:
         TRUST_FILE.write_text(json.dumps({"Version": "2012-10-17", "Statement": [{
             "Sid": "OnlyTheOperator", "Effect": "Allow", "Action": "sts:AssumeRole",
-            "Principal": {"AWS": f"arn:aws:iam::{account}:user/warden-operator"}}]}, indent=2) + "\n",
+            "Principal": {"AWS": f"arn:aws:iam::{account}:role/warden-ops-operator"}}]}, indent=2) + "\n",
             encoding="utf-8")
         print(f"wrote {TRUST_FILE} (gitignored: it holds the account id)")
         return 0
