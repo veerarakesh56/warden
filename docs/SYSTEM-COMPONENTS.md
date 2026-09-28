@@ -32,7 +32,7 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 
 | Component | Role | Status | Cost | Paid thing it replaces |
 |---|---|---|---|---|
-| WARDEN verifier P1–P15 (own code) | deterministic gate: the model never decides | IN USE | FREE | — |
+| WARDEN verifier P1–P16 (own code) | deterministic gate: the model never decides | IN USE | FREE | — |
 | Quarantine + evidence ids + grounding (own code) | untrusted text reaches the model only as typed facts; every claim cites evidence | IN USE | FREE | Lakera Guard (PAID SaaS), Azure Prompt Shields (PAID) |
 | Outbound gate G2/G3/G5 (own code) | strips links and images, blocks leaked secrets, marks unverifiable claims | IN USE | FREE | ZeroDrift Anchor (PAID SaaS) |
 | Decision component `decide.py` (own code, scikit-learn BSD) | calibrated "is this answer right?" | PLANNED, Phase 3 | FREE | TypeSafe Jev / System One (PAID) |
@@ -56,7 +56,7 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 |---|---|---|---|---|
 | AWS IAM, STS, permissions boundary | least privilege; just-in-time 15-minute roles in Phase 4 | IN USE / PLANNED | FREE | Teleport Enterprise (PAID). Teleport Community is free but heavy to self-host |
 | GitHub OIDC → AWS role | CI has no AWS keys at all | IN USE | FREE | — |
-| **IAM Roles Anywhere** (own CA; certificate in the Windows store via `aws_signing_helper`) | replaces the laptop's long-lived access key, with no password (the owner rejected console passwords) | PLANNED (W0-now; pricing and Windows flow verified live first) | verify live | IAM Identity Center is **not possible** in this lab: it needs AWS Organizations, which ends the Free plan |
+| **IAM Roles Anywhere** (own CA; certificate in the Windows store via `aws_signing_helper`) | replaces the laptop's long-lived access key, with no password (the owner rejected console passwords) | PLANNED (W0-now, owner steps prepared; TPM key and certificate made 2026-09-28) | FREE ("no additional cost", AWS, checked 2026-09-28) | IAM Identity Center is **not possible** in this lab: it needs AWS Organizations, which ends the Free plan |
 | IAM Access Analyzer, **external access** | finds anything reachable from outside the account | IN USE (created 2026-09-27) | FREE. Its unused-access and internal-access types are PAID; not used | — |
 | **SSM Parameter Store, standard tier** | per-environment **plain configuration** (not secrets) | IN USE (Terraform reads `/warden/<env>/tf/*`; `settings.py` loader) | FREE (up to 10,000 parameters) | — |
 | **AWS Secrets Manager** | **every secret and sensitive value**: Slack tokens and webhooks, the Temporal API keys and payload key, the audit-key passphrase, DB credentials, model keys (owner decision D5, 2026-09-28) | PLANNED (G3 loader, W0-now owner step) | **PAID, ≈ $0.40 per secret per month** plus API calls; accepted by the owner for quality | — |

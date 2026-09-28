@@ -72,7 +72,7 @@ its audit rows.
 | S5 | Forged alerts through the webhook | API Gateway plus HMAC from Secrets Manager; the reader confirms the alarm exists and is in ALARM | G6 | OPEN | |
 | S9 | Supply chain: unpinned dependencies, base image by tag | Hash-locked requirements, digest pins, CycloneDX SBOM + ML-BOM, cosign signing, provenance | G3 | OPEN | |
 | S15 | The Temporal server is reachable without authentication | Temporal Cloud with one API-key service account per trust zone; the codec fails closed; the workflow re-verifies signatures | G5 | OPEN | |
-| S2 | Secrets in Temporal history | Payload codec including failure attributes; the redaction map is never a payload | G2 | DONE-local | tests/test_incident_workflow.py::test_with_encryption_nothing_redacted_is_readable_in_history |
+| S2 | Secrets in Temporal history | Payload codec including failure attributes; the redaction map is never a payload | G2 | DONE-local | tests/test_incident_workflow.py::test_with_encryption_nothing_redacted_is_readable_in_history, tests/test_codec.py::test_failure_messages_and_stack_traces_are_encrypted_too |
 | S12 | The audit can be rewritten by whoever holds the key and the database | KMS Ed25519 signer role; checkpoints anchored to S3 Object Lock under another principal; CloudTrail `kms:Sign` as a witness | G3 | OPEN | |
 | H1 | Approval fatigue | Approval-latency metric (flag under 10 s); cap on requests per hour; T2+ requires typing the target; status shows policies before prose; catch trials in G7 | G3 | OPEN | |
 | H10 | Nobody approves before the TTL | Escalation ladder; "no action taken" recorded and notified | G3 | OPEN | |
@@ -120,7 +120,7 @@ its audit rows.
 | N8 | **Prompt, policy or catalogue tampered with through a PR** | CODEOWNERS; pinned-hash test; hashes in `plan_hash` and the audit | G4 | OPEN | |
 | N9 | **WARDEN's own output fed back into its knowledge base** | A test that nothing in `src/` writes to `data/` | G4 | OPEN | |
 | N10 | **Webhook reconnaissance or flooding** | API Gateway throttling, HMAC, intake caps | G6 | OPEN | |
-| N11 | **The builder agent games tests or evals** (writes tests that pass without the guard) | `mutation_check.py` plus CI verdict assertions; every new guard plant-checked; `test_register.py` refuses "done" without a test; the mutation anchors are checked in CI (the approval-gate case had silently stopped running, audit A-B-L20) | G0 | DONE-local | tests/test_mutation_anchors.py::test_every_mutation_anchor_exists_exactly_once |
+| N11 | **The builder agent games tests or evals** (writes tests that pass without the guard) | `mutation_check.py` plus CI verdict assertions; every new guard plant-checked; `test_register.py` refuses "done" without a test; the mutation anchors are checked in CI (the approval-gate case had silently stopped running, audit A-B-L20) | G0 | DONE-local | tests/test_mutation_anchors.py::test_every_mutation_applies_to_the_file_as_it_is_on_disk (every mutation really runs; the full mutation check is run locally per batch, not in CI, and it does not yet cover the G1 guards - added as G1 guards close) |
 
 ## Not applicable to WARDEN, and why
 

@@ -37,16 +37,45 @@ def _allow_statements():
     return [st for st in POLICY["Statement"] if st["Effect"] == "Allow"]
 
 
+CHAIN = ("sts:AssumeRole", "sts:SetSourceIdentity")
+
+
 def test_every_allowed_action_only_reads_except_assuming_the_sweep_role():
     for st in _allow_statements():
         assert "NotAction" not in st and "NotResource" not in st, st["Sid"]
         for action in _list(st["Action"]):
             name = action.split(":")[1]
             assert "*" not in action, action
-            if action == "sts:AssumeRole":
+            if action in CHAIN:
                 assert _list(st["Resource"]) == ["arn:aws:iam::*:role/warden-pg-sweep"]
             else:
                 assert name.startswith(READ_VERBS), action
+
+
+def test_chaining_into_the_sweep_role_keeps_the_source_identity():
+    """A Roles Anywhere session always has a source identity (the certificate CN). IAM: when a role
+    assumes another, sts:SetSourceIdentity must be allowed in the caller's policy AND the target's
+    trust policy, or the AssumeRole fails (independent review, 2026-09-28)."""
+    import importlib.util
+    import types
+
+    sweep = next(st for st in _allow_statements() if st["Sid"] == "SweepEveryRegionReadOnly")
+    assert sorted(_list(sweep["Action"])) == sorted(CHAIN)
+    spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "scripts" / "account_sweep.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    written = {}
+
+    class _Sts:
+        def get_caller_identity(self):
+            return {"Account": "111122223333"}
+
+    session = types.SimpleNamespace(client=lambda name, **kw: _Sts())
+    mod.TRUST_FILE = types.SimpleNamespace(write_text=lambda text, encoding: written.setdefault("t", text))
+    assert mod.main(["--write-trust"], session=session) == 0
+    (st,) = json.loads(written["t"])["Statement"]
+    assert sorted(_list(st["Action"])) == sorted(CHAIN)
+    assert st["Principal"] == {"AWS": "arn:aws:iam::111122223333:role/warden-ops-operator"}
 
 
 @pytest.mark.parametrize("forbidden", ["rds-db:", "iam:Create", "iam:Put", "iam:Attach", "iam:Update",

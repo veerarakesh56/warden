@@ -20,10 +20,10 @@ skipped, and an open row cannot belong to a group that has already been finished
 | R8 | Research live, up to today, before choosing or claiming anything | G0 | DONE-live | W-research 2026-09-28: docs/research/2026-09-28 (12 reports) |
 | R9 | Prefer ready-made production tools over building from scratch | G4 | OPEN | |
 | R10 | Quality first; cost only to trim waste; flag every paid item with its cost | G3 | OPEN | |
-| R11 | Cost safety: nothing left running and billing | G0 | DONE-local | tests/test_account_sweep.py::test_untagged_billable_resources_are_found_and_free_defaults_are_not |
-| R12 | Soak before faults; watch 30 min before destroy | G0 | DONE-local | tests/test_runner_fullstack.py::test_no_fault_is_injected_before_a_soak |
+| R11 | Cost safety: nothing left running and billing | G0 | DONE-local | tests/test_account_sweep.py::test_untagged_billable_resources_are_found_and_free_defaults_are_not (the sweep tool; running it and the next-day billing check after every window is a procedure, recorded per window in OWNER-CONSOLE-STEPS) |
+| R12 | Soak before faults; watch 30 min before destroy | G6 | OPEN | review 2026-09-28: regrouped from G0. The runner refuses a fault before a soak, but `--min-minutes` overrides the minimum and nothing enforces the 30-minute watch before destroy; enforcing both belongs to the W2/W3 runtime work |
 | R13 | Separate pipelines for infra, apps and the tool itself | G6 | OPEN | |
-| R14 | Claude Max CLI for development and benchmarks | G0 | DONE-local | tests/test_claude_cli_provider.py::test_no_credential_in_the_parent_environment_reaches_the_model_process |
+| R14 | Claude Max CLI for development and benchmarks | G0 | DONE-local | tests/test_claude_cli_provider.py::test_it_is_registered_under_both_spellings (the claude_cli provider exists and resolves; which backend a run uses is configuration) |
 | R15 | Gemini API test with an AI Studio key | G5 | OPEN | |
 | R16 | Bedrock provider and test | G5 | OPEN | |
 | R17 | AWS region Hyderabad (ap-south-2), never hardcoded | G3 | OPEN | |
@@ -33,14 +33,14 @@ skipped, and an open row cannot belong to a group that has already been finished
 | R21 | The full stack up at once, broken in every way; find, report, fix (28 faults) | G6 | OPEN | |
 | R22 | Performance Insights, CloudWatch logs and Logs Insights used as evidence | G3 | OPEN | |
 | R23 | Allow for logs arriving minutes late | G3 | OPEN | |
-| R24 | Kubernetes access for finding problems, never editing | G0 | DONE-local | tests/test_k8s_backend.py::test_rbac_manifest_is_structurally_read_only |
+| R24 | Kubernetes access for finding problems, never editing | G1 | OPEN | review 2026-09-28: regrouped from G0. The reader RBAC is read-only, but the remediator grants `patch deployments`, which rewrites the pod template (audit A-I-11, G1) |
 | R25 | Mask pids, ids and secrets before anything reaches the model | G1 | OPEN | |
 | R26 | Real RCA with real names; risks stated before the steps | G6 | OPEN | |
 | R27 | Slack proof of real alerts | G6 | OPEN | |
 | R28 | Approve and deny from Slack | G5 | OPEN | |
 | R29 | Screenshots, JSON reports and proofs of every live run | G6 | OPEN | |
 | R30 | A full, current architecture diagram in the README | G6 | OPEN | |
-| R31 | CI failures fixed, and CI never red | G0 | DONE-local | tests/test_register.py::test_every_register_row_is_backed_by_evidence |
+| R31 | CI failures fixed, and CI never red | G3 | OPEN | review 2026-09-28: regrouped from G0. CI on main was red for ab900cd and 54180fb (a k3d-only assertion; fixed in 0fcbfbb) - no test can prove 'never red'. The control is branch protection with required checks, an owner step in window W0 (G3) |
 | R32 | Zero hardcoding; secrets only in AWS (Secrets Manager for secrets, SSM for config) | G3 | OPEN | |
 | R33 | No long-lived access keys anywhere | W0-now | OPEN | |
 | R34 | Per-environment everything: dev, staging, qa-staging, pre-prod, qa-prod, prod | G6 | OPEN | |
@@ -58,7 +58,7 @@ skipped, and an open row cannot belong to a group that has already been finished
 | R46 | Anti-faking, anti-hallucination, anti-sycophancy, no blind trust in stale data | G7 | OPEN | |
 | R47 | Meta Prompt Guard as the injection detector, required in higher environments | G1 | OPEN | |
 | R48 | Temporal instead of LangGraph (production orchestration) | G0 | DONE-local | tests/test_incident_workflow.py::test_every_bundled_incident_gets_the_same_verdict_as_the_graph |
-| R49 | Temporal Cloud (owner's trial) | G0 | DONE-live | W-T 2026-09-28: namespace active in aws-ap-south-2; the sample Workflow completed and recovered from an injected failure |
+| R49 | Temporal Cloud (owner's trial) | G0 | DONE-live | W-T 2026-09-28: namespace active in aws-ap-south-2; the Temporal SAMPLE Workflow completed and recovered from an injected failure. WARDEN itself on Temporal Cloud is not yet proven - that is window W2 (G6) |
 | R50 | A single approver, stated honestly | G5 | OPEN | |
 | R51 | WARDEN never creates database indexes | G1 | OPEN | |
 | R52 | Public and private subnets done properly | G0 | DONE-local | tests/test_fullstack_infra.py::test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_internet |

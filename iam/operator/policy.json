@@ -21,7 +21,10 @@
     {
       "Sid": "SweepEveryRegionReadOnly",
       "Effect": "Allow",
-      "Action": "sts:AssumeRole",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetSourceIdentity"
+      ],
       "Resource": "arn:aws:iam::*:role/warden-pg-sweep"
     },
     {
@@ -81,6 +84,7 @@
         "bedrock:ListFoundationModels",
         "bedrock:GetFoundationModel",
         "bedrock:GetFoundationModelAvailability",
+        "bedrock:GetUseCaseForModelAccess",
         "bedrock:ListInferenceProfiles",
         "bedrock:GetInferenceProfile",
         "servicequotas:ListServiceQuotas",

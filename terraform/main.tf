@@ -9,7 +9,11 @@
 #    lands in state. State files get committed, copied and shared far more often than anyone plans.
 
 locals {
+  # Project and Environment on everything: the all-region sweep reports anything without them
+  # (owner rule R53, independent review 2026-09-28).
   tags = merge(var.tags, {
+    Project     = "warden"
+    Environment = var.environment
     Application = var.name
     ManagedBy   = "terraform"
   })

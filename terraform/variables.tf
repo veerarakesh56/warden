@@ -86,6 +86,16 @@ variable "otlp_endpoint" {
   default     = ""
 }
 
+variable "environment" {
+  description = "The environment this deployment belongs to (a key of src/warden/data/environments.yaml)."
+  type        = string
+  default     = "ops"
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,30}$", var.environment))
+    error_message = "environment must be a lowercase environment name such as ops, dev or prod."
+  }
+}
+
 variable "tags" {
   description = "Tags applied to every resource."
   type        = map(string)

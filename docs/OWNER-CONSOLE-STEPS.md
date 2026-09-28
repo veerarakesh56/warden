@@ -9,21 +9,34 @@ Avoid the root user.
 
 ---
 
-## ▶ NOW: W0-now - no more long-lived key (about 20 minutes of clicks, in 4 short sittings)
+## ▶ NOW: W0-now - no more long-lived key (about 25 minutes of clicks, in 5 short sittings)
+
+> ⏸ **Wait for Claude's go-ahead before starting.** An independent review (2026-09-28) found gaps
+> in the first version of these steps: the chained sweep role was missing `sts:SetSourceIdentity`,
+> no step sent the profile ARN, the old key could have been used by mistake, and some plan items
+> were missing. This version fixes them. It will be re-verified before you are asked to start.
 
 What this gives:
 - The laptop stops using an access key. It signs in to AWS with a certificate whose private key
-  lives inside the laptop's TPM chip, so it cannot be copied off the machine.
+  lives inside the laptop's TPM chip, so the key cannot be copied off the machine.
 - The old IAM user and its key are retired.
 - The new operator identity can only read and check: no builds, no database logins, no IAM
   changes (`iam/operator/policy.json`, enforced by `tests/test_operator_role.py`).
-- The Slack webhook moves from a plaintext file into Secrets Manager.
+- The Slack webhook moves from a plaintext file into Secrets Manager, and the leftover plaintext
+  files are deleted.
+- Claude reads and records three facts: the AWS Free-plan end date and credits, whether this
+  account may use Claude models on Bedrock, and (from you) the Temporal Cloud trial end.
+
+**Honest limit.** The TPM key has no PIN. Malware running as you, while the laptop is on, could use
+it to get 1-hour credentials. It can never copy the key. If the laptop is lost or you suspect that,
+use step G at once.
 
 **Already done on this computer by Claude (2026-09-28):**
 - The TPM key and certificate were created. The CA that signed the certificate was thrown away, so
   no CA key exists anywhere.
 - AWS's `aws_signing_helper` 1.8.5 was downloaded, and its checksum and Amazon code signature were
-  verified. It signs with the TPM key offline.
+  verified. It signs with the TPM key offline. It finds the certificate with the selector
+  `Key=x509Subject,Value=CN=warden-operator-laptop,O=warden`.
 
 **Cost:**
 - IAM Roles Anywhere: no additional cost (AWS, 2022 launch notice; re-checked 2026-09-28).
@@ -37,23 +50,28 @@ What this gives:
 **A. One click, first.**
 1. IAM → **Users** → `warden-operator` → **Permissions** tab.
 2. Tell Claude the names of every policy listed there.
-3. Tick `WardenProvingGroundOperator` (a Wave 1–3 policy nothing uses now) → **Remove**.
+3. Tick `WardenProvingGroundOperator` → **Remove**. This policy let the operator log in to any
+   database as its master user and edit its own permissions (audit A-I-4). Nothing uses it now.
 4. If `WardenProvingGroundOperatorRdsEks` is listed, remove it too.
 5. Leave the rest for now.
+
+Side effect: until step B works, Claude cannot run `scripts/validate_policies.py`. Only that
+removed policy granted Access Analyzer.
 
 **B1. The trust anchor** (region Hyderabad).
 1. Open **IAM Roles Anywhere** → **Create a trust anchor**.
 2. Name: `warden-operator`.
 3. CA source: **External certificate bundle**. Paste the whole content of
    `%USERPROFILE%\.warden\roles-anywhere\ca.pem`: open it in Notepad, **Ctrl+A**, **Ctrl+C**.
-4. Leave the notification settings at their defaults (they warn before the certificate expires).
+4. Leave the notification settings at their defaults (they warn 45 days before the certificate
+   expires).
 5. Tags: `Project` = `warden`, `Environment` = `ops`.
 6. **Create a trust anchor**.
 7. Open it, copy its **ARN**, and send it to Claude. The ARN contains the account number; that is
    fine in chat, and it never goes into the repository.
 
 Claude then writes the role's trust policy to `C:\work\warden\iam\operator\trust.local.json`. It
-pins that exact anchor and the laptop certificate's name. The file is never committed.
+pins that exact anchor and the laptop certificate's name (CN and O). The file is never committed.
 
 **B2. The permissions policy.**
 1. IAM → **Policies** → **Create policy** → **JSON**.
@@ -71,27 +89,40 @@ pins that exact anchor and the laptop certificate's name. The file is never comm
 4. Name `warden-ops-operator`. Maximum session duration stays at **1 hour**.
 5. Tags `Project` = `warden`, `Environment` = `ops` → **Create role**.
 
-There is no permissions boundary on this role. It cannot change anything, so a boundary would
-limit nothing. The test keeps it read-only.
+There is no permissions boundary on this role. Its only non-read permission is assuming the
+read-only sweep role, so a boundary would limit nothing. The test keeps it that way.
 
 **B4. The profile** (region Hyderabad).
 1. IAM Roles Anywhere → **Create a profile**.
 2. Name `warden-ops-operator`, role `warden-ops-operator`.
 3. No session policies. Session duration stays at the default (1 hour).
 4. Tags `Project` = `warden`, `Environment` = `ops` → **Create a profile**.
-5. Tell Claude **"profile done"**.
+5. Open it, copy its **ARN**, and send it to Claude. The signing helper needs the profile ARN as
+   well as the anchor ARN.
 
 Claude then:
-- points this computer's AWS configuration at the certificate;
-- proves the new identity works;
-- reads the Free-plan end date and credits, and whether Bedrock's Claude models are available to
-  this account (read-only; no model is called).
+1. Adds a named profile `warden` to `%USERPROFILE%\.aws\config` that signs in with the
+   certificate. It does not use `default`, because `default` still reads the old key from the
+   credentials file, which would silently win.
+2. Proves the new identity: `aws sts get-caller-identity --profile warden` must show
+   `assumed-role/warden-ops-operator/...`.
+3. Reads, with the new identity only (read-only, no model is called):
+   - the Free-plan end date and credits left;
+   - whether Claude Opus 5.5, Fable 5.1 and Sonnet 5 are available to this account through the
+     global profile. This is the check for whether the Free plan allows these Marketplace-billed
+     models. If it does not, decision D12 goes back to you.
+   - whether Anthropic's one-time use-case form has been submitted. Submitting it is your decision
+     in window W-B, not now.
+   - the Bedrock quotas for the Opus 5.5 global profile.
+4. Records all of this under "W0-now results" below and checks the roadmap calendar against both
+   end dates.
 
-**C. The sweep role's trust** (after Claude confirms B works).
+**C. The sweep role's trust** (only after Claude confirms B works).
 1. IAM → **Roles** → `warden-pg-sweep` → **Trust relationships** → **Edit trust policy**.
 2. Paste the local file `C:\work\warden\terraform\proving-ground\sweep-role-trust.local.json`.
-   It now trusts the new role instead of the old user.
-3. **Update policy**.
+   It trusts the new role instead of the old user, and allows `sts:SetSourceIdentity`: a Roles
+   Anywhere session always carries one, and without that permission the chained AssumeRole fails.
+3. **Update policy**. Claude then runs the all-region sweep through the new role.
 
 **D. The Slack webhook into Secrets Manager** (region Hyderabad).
 1. Secrets Manager → **Store a new secret** → **Other type of secret** → **Plaintext** tab.
@@ -102,28 +133,62 @@ Claude then:
    later (G5).
 6. **Next** → **Store**.
 
-Claude compares the stored value with the file by hash, never printing either, and then deletes
-the file.
+Claude compares the stored value with the file by hash, never printing either.
 
 **E. Retire the old key.**
-1. When Claude says everything works through the role: IAM → **Users** → `warden-operator` →
-   **Security credentials** → the access key → **Actions** → **Deactivate**. Claude then proves the
-   old key is refused.
-2. Two days later, if nothing broke:
+1. When Claude says steps B-D all work through the role: IAM → **Users** → `warden-operator` →
+   **Security credentials** → the access key → **Actions** → **Deactivate**.
+2. Claude then:
+   - proves the old key is refused;
+   - moves `%USERPROFILE%\.aws\credentials` aside, so nothing can fall back to it;
+   - makes the certificate profile the default;
+   - runs the checks again.
+3. Two days later, if nothing broke:
    1. Delete that access key.
    2. Delete the user `warden-operator`.
    3. Delete the policies `WardenProvingGroundOperator`, `WardenProvingGroundOperatorRdsEks` (if it
       exists) and `WardenFullstackOperator`, each only if its **Entities attached** tab is empty.
    4. Keep `WardenOperatorGuardrails` and `WardenProvingGroundBoundary` until Claude says otherwise.
+4. Claude then deletes the plaintext files:
+   - the moved credentials file;
+   - `%USERPROFILE%\.warden\slack-webhook`;
+   - `%USERPROFILE%\.warden\fs-secrets.tfvars` (it holds no secret, only comments);
+   - `terraform\fullstack\terraform.tfvars` and `terraform\proving-ground\terraform.tfvars` (your
+     IP and budget email; the stacks read these from Parameter Store now).
 
 **F. One date to read.** In the Temporal Cloud web UI (cloud.temporal.io), under Settings /
-Billing or Plan, read when the trial ends and the credits left, and tell Claude. Claude reads the
-AWS Free-plan end date itself (step B).
+Billing or Plan, read when the trial ends and the credits left, and tell Claude.
+
+**G. If the laptop is lost or compromised (keep for later).** IAM Roles Anywhere → trust anchor
+`warden-operator` → **Disable**. No new credentials can be issued from then on; any issued earlier
+expire within an hour. No certificate revocation list exists, because the CA key was thrown away,
+so disabling the anchor is the switch.
+
+**Renewal (calendar).** The laptop certificate expires **2027-09-28 13:54 UTC / 19:24 IST**.
+AWS's notification warns 45 days before. To renew:
+1. Claude runs `python scripts/roles_anywhere_cert.py issue`.
+2. You replace the trust anchor's certificate bundle with the new `ca.pem`. It is the same anchor
+   and the same ARN, so there are no trust policy changes.
+3. Claude removes the old certificate. Until then the helper picks the newer one
+   (`--reuse-latest-expiring-certificate`).
 
 **Undo, if ever needed:**
 - A: user → **Add permissions** → attach `WardenProvingGroundOperator` again.
 - B: delete the profile, the role, the policy and the trust anchor.
-- E1: reactivate the key. There is no undo after E2 step 1, which is why E waits two days.
+- C: paste the previous trust (it named `user/warden-operator`).
+- E1: reactivate the key, and Claude restores the credentials file. There is no undo after E3
+  step 1, which is why E waits two days.
+
+**W0-now results** (Claude fills this in; nothing is recorded yet):
+
+| Fact | Value | Read on (UTC / IST) |
+|---|---|---|
+| AWS Free plan ends | - | - |
+| AWS credits left | - | - |
+| Opus 5.5 / Fable 5.1 / Sonnet 5 available to this account | - | - |
+| Anthropic use-case form submitted | - | - |
+| Opus 5.5 global-profile quotas | - | - |
+| Temporal Cloud trial ends / credits left | - | - |
 
 ---
 

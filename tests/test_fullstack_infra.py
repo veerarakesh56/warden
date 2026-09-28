@@ -796,3 +796,40 @@ def test_everything_the_stack_creates_carries_project_and_environment_tags():
     svc = next(b for _, n, b in _blocks("aws_ecs_service") if n == "orders_api")
     assert re.search(r'propagate_tags\s*= "SERVICE"', svc)
 
+
+
+
+ROOTS = {"root": ROOT / "terraform", "proving-ground": ROOT / "terraform" / "proving-ground",
+         "fullstack": ROOT / "terraform" / "fullstack"}
+
+
+def _blocks_in(text, kind):
+    return [(m.group(1), m.group(2), m.group(3)) for m in
+            re.finditer(r'^resource "(\w+)" "(\w+)" \{\n(.*?)^\}', text, re.DOTALL | re.MULTILINE)
+            if m.group(1) == kind]
+
+
+def _all_tf(directory):
+    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(directory.glob("*.tf")))
+
+
+@pytest.mark.parametrize("name", sorted(ROOTS))
+def test_no_terraform_root_accepts_the_internet_in_any_ingress_form(name):
+    """Owner rule R52, widened after the 2026-09-28 review: the check covered only inline `ingress {}`
+    blocks of one stack. Egress to 0.0.0.0/0 is allowed (narrowing it is G6 work); ingress never."""
+    text = _all_tf(ROOTS[name])
+    for block in re.findall(r"ingress \{(.*?)\n  \}", text, re.DOTALL):
+        assert "0.0.0.0/0" not in block and "::/0" not in block, (name, block)
+    for _, rname, body in _blocks_in(text, "aws_vpc_security_group_ingress_rule"):
+        assert "0.0.0.0/0" not in body and "::/0" not in body, (name, rname)
+    for _, rname, body in _blocks_in(text, "aws_security_group_rule"):
+        if re.search(r'type\s*=\s*"ingress"', body):
+            assert "0.0.0.0/0" not in body and "::/0" not in body, (name, rname)
+
+
+@pytest.mark.parametrize("name", sorted(ROOTS))
+def test_every_terraform_root_tags_project_and_environment(name):
+    """Owner rule R53: the root module and the proving ground carried neither (review 2026-09-28)."""
+    text = _all_tf(ROOTS[name])
+    assert re.search(r'Project\s*=\s*"warden"', text), name
+    assert re.search(r"Environment\s*=\s*(?:var\.environment|local\.env)", text), name

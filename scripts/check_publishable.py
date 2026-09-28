@@ -105,6 +105,14 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     # path (`/articles/360037782773`) is not an account id.
     ("account-id", re.compile(r"(?<![\w.])(?<!/articles/)\d{12}(?!\w)"),
      "a 12-digit AWS account id"),
+    # Owner rule R3: "no email anywhere in the repo". Test fixtures use invented company domains
+    # (corp.io, example.com); a real person's address is at a personal-mail provider. Found missing
+    # by the independent review of 2026-09-28.
+    ("personal-email", re.compile(
+        r"(?i)\b[A-Za-z0-9._%+-]{1,64}(?:@|%40)(?:gmail|googlemail|outlook|hotmail|live|msn|yahoo|ymail|"
+        r"icloud|me|mac|aol|proton|protonmail|pm|gmx|zoho|yandex|mail|rediffmail|qq|163|126)"
+        r"\.[a-z.]{2,6}\b"),
+     "a personal email address"),
     ("temporal-account", re.compile(r"\b[a-z0-9][\w-]*\.[a-z0-9]{5,}\.tmprl\.cloud\b"),
      "a Temporal Cloud namespace handle (its suffix is the account id)"),
     # real Slack ids mix letters and digits; an all-digit T00000000 is the documented example shape

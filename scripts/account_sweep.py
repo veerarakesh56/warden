@@ -257,7 +257,9 @@ def main(argv: list[str] | None = None, *, session: Any = None) -> int:
     account = session.client("sts").get_caller_identity()["Account"]
     if args.write_trust:
         TRUST_FILE.write_text(json.dumps({"Version": "2012-10-17", "Statement": [{
-            "Sid": "OnlyTheOperator", "Effect": "Allow", "Action": "sts:AssumeRole",
+            # SetSourceIdentity: the operator's Roles Anywhere session always carries a source
+            # identity (the certificate CN), and a chained AssumeRole must be allowed to keep it.
+            "Sid": "OnlyTheOperator", "Effect": "Allow", "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
             "Principal": {"AWS": f"arn:aws:iam::{account}:role/warden-ops-operator"}}]}, indent=2) + "\n",
             encoding="utf-8")
         print(f"wrote {TRUST_FILE} (gitignored: it holds the account id)")

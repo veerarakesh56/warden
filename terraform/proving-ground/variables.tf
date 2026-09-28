@@ -121,3 +121,13 @@ variable "eks_public_access_cidrs" {
   type        = list(string)
   default     = null
 }
+
+variable "environment" {
+  description = "The environment this stack belongs to (a key of src/warden/data/environments.yaml)."
+  type        = string
+  default     = "dev"
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{1,30}$", var.environment))
+    error_message = "environment must be a lowercase environment name such as dev."
+  }
+}

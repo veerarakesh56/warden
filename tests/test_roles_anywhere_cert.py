@@ -18,9 +18,12 @@ _spec.loader.exec_module(rac)
 NOW = dt.datetime(2026, 9, 28, 12, 0, tzinfo=dt.UTC)
 
 
-def _csr(cn=rac.SUBJECT_CN):
+def _csr(cn=rac.SUBJECT_CN, org=rac.ORG):
     key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    attrs = [x509.NameAttribute(NameOID.COMMON_NAME, cn)]
+    if org:
+        attrs.append(x509.NameAttribute(NameOID.ORGANIZATION_NAME, org))
+    name = x509.Name(attrs)
     return x509.CertificateSigningRequestBuilder().subject_name(name).sign(key, hashes.SHA256()).public_bytes(
         serialization.Encoding.PEM)
 
@@ -68,3 +71,11 @@ def test_each_issue_makes_a_new_ca():
     (ca1, _), (ca2, _) = _issue(), _issue()
     assert ca1.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo) != \
         ca2.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def test_a_csr_without_the_pinned_organisation_is_refused():
+    """The role trust pins x509Subject/O=warden as well as the CN (independent review, 2026-09-28)."""
+    with pytest.raises(ValueError, match="O must be exactly"):
+        rac.issue(_csr(org=None), NOW)
+    with pytest.raises(ValueError, match="O must be exactly"):
+        rac.issue(_csr(org="someone"), NOW)

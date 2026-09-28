@@ -232,3 +232,28 @@ def test_new_files_not_yet_git_added_are_scanned(monkeypatch):
     cp._tracked_files(staged=False)
     assert seen["cmd"][:2] == ["git", "ls-files"]
     assert "--others" in seen["cmd"] and "--exclude-standard" in seen["cmd"]
+
+
+
+def _scan_one(tmp_path, sub, name, content):
+    """One file in its own directory: _scan checks the whole directory."""
+    directory = tmp_path / sub
+    directory.mkdir()
+    return _scan(directory, name, content)
+
+
+def test_a_personal_email_is_refused_and_a_fixture_domain_is_not(tmp_path):
+    """Owner rule R3. The scanner had no email pattern at all (independent review, 2026-09-28)."""
+    code, out = _scan_one(tmp_path, "a", "notes.md", "contact: someone.real@" + "gmail.com\n")  # split
+    assert code != 0 and "personal email" in out.lower(), out
+    code, out = _scan_one(tmp_path, "b", "notes.md", "contact: some%40" + "outlook.com\n")
+    assert code != 0, out
+    code, out = _scan_one(tmp_path, "c", "fixture.md", "user priya.nair@corp.io logged in\n")
+    assert code == 0, out
+
+
+def test_a_bare_account_id_is_refused_and_the_documented_example_is_not(tmp_path):
+    code, out = _scan_one(tmp_path, "a", "a.md", "account " + "4444" + "55556666" + " owns it\n")  # split
+    assert code != 0 and "account id" in out.lower(), out
+    code, out = _scan_one(tmp_path, "b", "b.md", "account 123456789012 is the AWS docs example\n")
+    assert code == 0, out

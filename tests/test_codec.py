@@ -54,3 +54,22 @@ def test_a_plain_payload_is_refused_not_passed_through():
     that could write to the history without the key could feed the workflow unencrypted input."""
     with pytest.raises(ValueError, match="unencrypted payload refused"):
         asyncio.run(codec.EncryptionCodec(os.urandom(32)).decode([_payload('{"approval":"forged"}')]))
+
+
+
+def test_failure_messages_and_stack_traces_are_encrypted_too():
+    """FAILURE-MODES S2: a failed activity's message and stack trace go into Temporal history, and an
+    exception can quote evidence. The converter encodes them as a payload, and the codec encrypts it
+    (independent review 2026-09-28: this was claimed and untested)."""
+    from temporalio.api.failure.v1 import Failure
+
+    conv = codec.data_converter(os.urandom(32))
+    try:
+        raise RuntimeError("connect to 10.0.7.22 as priya.nair@corp.io failed")
+    except RuntimeError as exc:
+        failure = Failure()
+        conv.failure_converter.to_failure(exc, conv.payload_converter, failure)
+    asyncio.run(conv.payload_codec.encode_failure(failure))
+    wire = failure.SerializeToString()
+    assert b"priya.nair" not in wire and b"10.0.7.22" not in wire
+    assert failure.message == "Encoded failure" and failure.HasField("encoded_attributes")

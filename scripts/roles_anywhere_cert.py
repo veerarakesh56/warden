@@ -68,6 +68,10 @@ def issue(csr_pem: bytes, now: dt.datetime, days: int = DAYS) -> tuple[bytes, by
     cns = csr.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     if [a.value for a in cns] != [SUBJECT_CN]:
         raise ValueError(f"CSR subject CN must be exactly {SUBJECT_CN!r}")
+    # The role's trust policy pins x509Subject/O too; a certificate without it could never assume.
+    orgs = csr.subject.get_attributes_for_oid(NameOID.ORGANIZATION_NAME)
+    if [a.value for a in orgs] != [ORG]:
+        raise ValueError(f"CSR subject O must be exactly {ORG!r}")
 
     ca_key = ec.generate_private_key(ec.SECP256R1())
     ca_name = x509.Name([

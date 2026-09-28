@@ -83,9 +83,31 @@ bump may carry a breaking change.
   Replayed over the four recorded waves, no verdict changed.
 - **The Temporal payload codec fails closed** (audit A-B-L13). An unencrypted payload in the history
   is refused. It used to be passed straight to the workflow.
-- **The laptop no longer needs a long-lived AWS key** (W0-now). It uses IAM Roles Anywhere with a
-  TPM-held, non-exportable key, and the operator role can only read (`iam/operator/`,
-  `scripts/roles_anywhere_cert.py`). The live switch-over is the owner's console step.
+- **Prepared, not yet live: the laptop off its long-lived AWS key** (W0-now).
+  - Done on the laptop: IAM Roles Anywhere with a TPM-held, non-exportable key; the operator role
+    can only read (`iam/operator/`, `scripts/roles_anywhere_cert.py`).
+  - Still to do: the owner's console steps. Until then the laptop still uses the access key.
+  - The first version of the steps had gaps, now fixed:
+    - the sweep role needed `sts:SetSourceIdentity` for chaining;
+    - no step sent the profile ARN;
+    - the old key could have been used by mistake.
+
+### ⚠ Correction to the entries above (independent review, 2026-09-28)
+
+An independent adversarial review refuted most of the G1 fixes listed above: they were incomplete,
+and one was a regression. The rows are reopened in `docs/AUDIT-2026-09-28.md`, each with the reason.
+Each entry above is being corrected, and this note is removed only when the review's findings are
+all closed. In short:
+- **The codec change let any plain Temporal signal stall a workflow that had already changed
+  production (A-B-L13).** This is a regression.
+- **The redaction sweep change let short secrets survive in other lines (A-C-4).**
+- **The gate and egress fixes left real bypasses (A-C-1, A-C-8, A-C-9):**
+  - a zero-click image;
+  - ungated `warden status` output;
+  - raw alert text in the webhook JSON and MCP results.
+- **Log text could still reach a trusted tool-error item (A-C-2).**
+- **Several other checks were weaker than claimed (A-C-5, A-C-6, A-C-18, A-C-22, A-C-23, A-C-25).**
+- **CI on main was red for two commits** (ab900cd and 54180fb) before 0fcbfbb fixed it.
 
 ## [0.10.0] - 2026-09-28
 

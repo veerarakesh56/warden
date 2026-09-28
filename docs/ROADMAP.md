@@ -45,6 +45,11 @@ it, and every register row is either done or deferred with the owner's agreement
 
 **Total:** about 24–28 weeks of work.
 
+**Recorded deviation (2026-09-28).**
+- The order puts W0-now before G1. W0-now waits on owner console steps, so G1 code work started while it was pending.
+- An independent review then refuted most of the G1 rows first marked done. They are reopened, each with its reason (AUDIT-2026-09-28).
+- The `ops` environment moved from G0 to G1, with the IAM work.
+
 ## Calendar (estimates, not commitments)
 
 All dates are in UTC, with IST = UTC+05:30. They assume continuous work and owner windows being
@@ -54,7 +59,7 @@ in W0-now, and the owner is told before any window they affect.
 
 | Milestone | Target (UTC / IST) |
 |---|---|
-| G0 complete | 2026-10-01 / 2026-10-01 |
+| G0 complete | 2026-10-01 / 2026-10-01 (records corrected after the 2026-09-28 independent review; SYSTEM-COMPONENTS cost table still owed) |
 | W0-now window | 2026-10-01 to 2026-10-02 (owner's choice of time) |
 | v0.10.1 (G1) | 2026-10-16 / 2026-10-16 |
 | v0.11.0 (G2 + G3) | 2026-11-13 / 2026-11-13 |
