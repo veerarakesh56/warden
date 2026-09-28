@@ -107,7 +107,7 @@ def test_end_to_end_scale_up_on_an_oom_crash_loop_is_escalated_by_p11(backend, a
     gather_step = next(s for s in report.audit if s["node"] == "gather")
 
     assert gather_step["backend"] == "kubernetes"
-    assert gather_step["tool_errors"] == []
+    assert gather_step["tool_errors"] == 0  # a count since audit A-C-5; the text is audited scrubbed by node_redact
     assert "oom" in report.root_cause.hypothesis.lower()
     assert report.proposal.action is ActionKind.scale_up
     assert report.verdict.status is VerdictStatus.escalated
