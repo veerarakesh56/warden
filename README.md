@@ -409,9 +409,19 @@ benchmark measures what WARDEN proposes, and never lets it act). The four-way ga
 
 ### Injection detector (optional, `WARDEN_TRIPWIRE`)
 
-WARDEN can run Meta's **Llama Prompt Guard 2** (86M) locally over every untrusted log line and event;
-a flagged line escalates the incident (policy `P16`). Install with `pip install -e ".[guard]"` and set
-`WARDEN_TRIPWIRE=on` (or `required` in production, which fails closed if the detector cannot run).
+WARDEN can run Meta's **Llama Prompt Guard 2** (86M) locally. It scans two things:
+- every untrusted log line and event;
+- the prompt exactly as the model will read it, minus the typed-facts block. This covers the alert's
+  own name and summary.
+
+A flagged text escalates the incident (policy `P16`). Long texts are scanned in overlapping windows
+of at most 512 model tokens, fed to the model as token ids, so nothing is truncated. Install with
+`pip install -e ".[guard]"` and set `WARDEN_TRIPWIRE=on`. In production use `required`: it escalates
+every incident unless the detector actually ran.
+
+Measured 2026-09-28 on 156 recorded incident prompts: no false alarm at the 0.9 threshold (highest
+score 0.53). An injection placed at 50 different offsets inside a 2,000-emoji line was caught at
+every one.
 
 Measured 2026-09-27 on this repository's recorded incidents:
 

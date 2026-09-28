@@ -402,7 +402,9 @@ def verify(
         policies.append("P16-SUSPECTED-INJECTION")
         flagged = ", ".join(f"{i} ({s:.2f})" for i, s in sorted(context.suspected.items()))
         reasons.append(f"The injection detector flagged untrusted evidence: {flagged}.")
-    elif context.tripwire.startswith("unavailable") and tripwire.mode() == "required":
+    # ⛔ Audit A-C-12: in `required` mode ANY status but "ran" escalates - "off" (evidence handed in
+    # by a caller that never ran the detector) used to pass.
+    elif tripwire.mode() == "required" and context.tripwire != "ran":
         escalate = True
         policies.append("P16-SUSPECTED-INJECTION")
         reasons.append(f"The injection detector is required here and could not run ({context.tripwire}).")

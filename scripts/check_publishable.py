@@ -116,7 +116,8 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     ("temporal-account", re.compile(r"\b[a-z0-9][\w-]*\.[a-z0-9]{5,}\.tmprl\.cloud\b"),
      "a Temporal Cloud namespace handle (its suffix is the account id)"),
     # real Slack ids mix letters and digits; an all-digit T00000000 is the documented example shape
-    ("slack-id", re.compile(r"(?<![\w-])[TU]0(?=[A-Z0-9]*[A-Z])[A-Z0-9]{7,10}(?![\w-])"),
+    # not after a backslash: `\U0001F600` is a Python unicode escape (an emoji), not a user id
+    ("slack-id", re.compile(r"(?<![\w\\-])[TU]0(?=[A-Z0-9]*[A-Z])[A-Z0-9]{7,10}(?![\w-])"),
      "a Slack workspace (T0…) or user (U0…) id"),
     ("windows-user-path", re.compile(r"(?i)\b[a-z]:\\\\?users\\\\?(?!<|public\b|default\b)[\w.-]+"),
      "a Windows user-profile path (it names the person)"),

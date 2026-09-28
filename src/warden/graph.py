@@ -433,7 +433,7 @@ def _one_line(text: str, limit: int = 600) -> str:
     return text if len(text) <= limit else text[:limit] + " [cut]"
 
 
-def _evidence_blob(state: WardenState) -> str:
+def _evidence_blob(state: WardenState, *, facts: bool = True) -> str:
     alert = state["alert"]
     # Every item with its id (evidence.py), the same numbering the verifier checks citations
     # against. ⛔ T items are what WARDEN tried to read and COULD NOT. Until 2026-09-25 that never
@@ -451,7 +451,7 @@ def _evidence_blob(state: WardenState) -> str:
         f"<<END ALERT TEXT {tag}>>\n"
         f"SERVICE: {alert.service} ENV: {alert.environment}\n"
         f"LABELS: {alert.labels}\n"
-        f"EVIDENCE:\n{evidence.render(evidence.view(state['context'])) or '(none gathered)'}"
+        f"EVIDENCE:\n{evidence.render(evidence.view(state['context']), facts=facts) or '(none gathered)'}"
         + _knowledge_block(state)
     )
     # Final backstop before the prompt leaves for the model: run the WHOLE assembled string through
@@ -465,7 +465,10 @@ def _evidence_blob(state: WardenState) -> str:
 def node_tripwire(state: WardenState) -> WardenState:
     """The trained injection detector over the untrusted evidence (tripwire.py). It changes what the
     gate allows (P16), never what the model is shown."""
-    status, flagged = tripwire.scan(evidence.index(state["context"]))
+    # The prompt as the model will get it, minus the typed-facts block (WARDEN's own values from lines
+    # scanned one by one above). Rendered without it, never stripped from it: a pattern that removes
+    # the block also removed an attacker's own fake markers (independent review 2026-09-28).
+    status, flagged = tripwire.scan(evidence.index(state["context"]), prompt=_evidence_blob(state, facts=False))
     context = state["context"].model_copy(update={"tripwire": status, "suspected": flagged})
     return {"context": context,
             "audit": [{"node": "tripwire", "status": status, "flagged": sorted(flagged)}]}

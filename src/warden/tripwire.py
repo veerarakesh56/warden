@@ -20,16 +20,76 @@ account and accepts Meta's Llama 4 Community License itself (README, "Injection 
 from __future__ import annotations
 
 import functools
+import math
 import os
 from typing import Any
 
 from .evidence import Item
 
 MODEL = os.environ.get("WARDEN_TRIPWIRE_MODEL", "meta-llama/Llama-Prompt-Guard-2-86M")
-THRESHOLD = float(os.environ.get("WARDEN_TRIPWIRE_THRESHOLD", "0.9"))
-# Prompt Guard reads 512 tokens. A long line is scanned in overlapping windows and scores its worst
-# window, so an instruction cannot hide behind padding at the start of a line.
-WINDOW, STEP = 1200, 1000  # characters (~300 tokens each, well inside 512)
+# Prompt Guard reads 512 tokens. A long text is scanned in overlapping windows and scores its worst
+# window, so an instruction cannot hide behind padding. ⛔ Audit A-C-21: the windows were 1,200
+# CHARACTERS, assumed to be ~300 tokens - but symbols, emoji and non-Latin text run to a token or more
+# per character, and the classifier silently truncated each window at 512, so the rest was never
+# scored. A first fix cut windows by token and DECODED them back to text; an [UNK] decodes to the
+# literal "[UNK]", which re-encodes as several tokens, so windows still overflowed and were cut
+# (independent review 2026-09-28, shown with the real model). Windows are now token ids fed to the
+# model directly: nothing is decoded, re-encoded or truncated.
+WINDOW_TOKENS, STEP_TOKENS = 500, 400   # + the model's special tokens <= 512; 100 tokens of overlap:
+                                        # an instruction straddling a cut is still whole in one window
+MAX_TOKENS = 512
+WINDOW_CHARS, STEP_CHARS = 400, 300     # a stand-in classifier without a model (tests): characters
+PROMPT_ID = "PROMPT"  # the rendered prompt, scanned as one more untrusted text (audit A-C-11)
+
+
+def threshold() -> float | None:
+    """The score at which a window is flagged, or None if the setting is unusable. ⛔ Audit A-C-12:
+    `float("nan")` was accepted, and every comparison with nan is False - detection silently off.
+    1.0 is refused too: no real score reaches it, so it switches detection off the same way."""
+    try:
+        t = float(os.environ.get("WARDEN_TRIPWIRE_THRESHOLD", "0.9"))
+    except ValueError:
+        return None
+    return t if math.isfinite(t) and 0.0 < t < 1.0 else None
+
+
+def _starts(n: int, window: int, step: int) -> list[int]:
+    last = max(n - window, 0)
+    return sorted({*range(0, last, step), last})
+
+
+def _char_windows(text: str) -> list[str]:
+    return [text[s:s + WINDOW_CHARS] for s in _starts(len(text), WINDOW_CHARS, STEP_CHARS)]
+
+
+def _id_windows(text: str, tokenizer: Any) -> list[list[int]]:
+    ids = tokenizer(text, add_special_tokens=False)["input_ids"]
+    return [ids[s:s + WINDOW_TOKENS] for s in _starts(len(ids), WINDOW_TOKENS, STEP_TOKENS)]
+
+
+def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
+    """The malicious probability of each window, straight from the model: token ids in, no text."""
+    import torch  # present with the [guard] extra, as the model itself needs it
+
+    tok, model = classify.tokenizer, classify.model
+    # [CLS] ids [SEP], as tokenizer(text) itself builds them (Prompt Guard 2 is DeBERTa-v2; transformers
+    # 5 has no build_inputs_with_special_tokens on it - found running the real model, 2026-09-28).
+    rows = [[tok.cls_token_id, *w, tok.sep_token_id] for w in windows]
+    if max(len(r) for r in rows) > MAX_TOKENS:
+        raise ValueError("a window exceeds the model's input")  # never truncate silently
+    labels = {i: str(name).upper() for i, name in model.config.id2label.items()}
+    bad = [i for i, name in labels.items() if name in ("MALICIOUS", "LABEL_1")]
+    scores: list[float] = []
+    for start in range(0, len(rows), 16):
+        batch = rows[start:start + 16]
+        width = max(len(r) for r in batch)
+        pad = tok.pad_token_id or 0
+        input_ids = torch.tensor([r + [pad] * (width - len(r)) for r in batch])
+        mask = torch.tensor([[1] * len(r) + [0] * (width - len(r)) for r in batch])
+        with torch.no_grad():
+            probs = torch.softmax(model(input_ids=input_ids, attention_mask=mask).logits, dim=-1)
+        scores += [float(sum(p[i] for i in bad)) for p in probs]
+    return scores
 
 
 def mode() -> str:
@@ -41,36 +101,47 @@ def mode() -> str:
 def _classifier() -> Any:
     from transformers import pipeline  # optional: pip install -e ".[guard]"
 
-    return pipeline("text-classification", model=MODEL, top_k=None, truncation=True, max_length=512)
+    return pipeline("text-classification", model=MODEL, top_k=None)  # scored by id: see _score_ids
 
 
 def _malicious(result: list[dict]) -> float:
     return max((r["score"] for r in result if r["label"].upper() in ("MALICIOUS", "LABEL_1")), default=0.0)
 
 
-def scan(items: dict[str, Item], classify: Any = None) -> tuple[str, dict[str, float]]:
-    """(status, {evidence id: score}) for every untrusted item at or above THRESHOLD.
+def scan(items: dict[str, Item], classify: Any = None, *, prompt: str = "") -> tuple[str, dict[str, float]]:
+    """(status, {id: score}) for every untrusted item - and the rendered `prompt`, as PROMPT - at or
+    above the threshold.
+
+    ⛔ Audit A-C-11: only L/E lines were scanned, never the text that actually reaches the model -
+    the alert's own name and summary, labels, and anything a backend let through as trusted.
 
     status: "off", "ran", or "unavailable: <why>" (never the text of an error that could carry data).
     """
     if mode() == "off" and classify is None:
         return "off", {}
-    untrusted = [i for i in items.values() if not i.trusted]
-    if not untrusted:
+    limit = threshold()
+    if limit is None:
+        return "unavailable: bad threshold", {}
+    texts = [(i.id, i.text) for i in items.values() if not i.trusted]
+    if prompt.strip():
+        texts.append((PROMPT_ID, prompt))
+    if not texts:
         return "ran", {}
     try:
         classify = classify or _classifier()
-    except Exception as exc:  # noqa: BLE001 - missing library, no model access, no network
+        exact = hasattr(classify, "model") and hasattr(classify, "tokenizer")
+        windows, owner = [], []
+        for item_id, text in texts:
+            for window in (_id_windows(text, classify.tokenizer) if exact else _char_windows(text)):
+                windows.append(window)
+                owner.append(item_id)
+        if exact:
+            scores = _score_ids(classify, windows)
+        else:
+            scores = [_malicious(r) for r in classify(windows, batch_size=16)]
+        worst: dict[str, float] = {}
+        for item_id, score in zip(owner, scores, strict=True):
+            worst[item_id] = max(worst.get(item_id, 0.0), score)
+    except Exception as exc:  # noqa: BLE001 - missing library, no model access, a classify error (A-C-12)
         return f"unavailable: {type(exc).__name__}", {}
-    windows, owner = [], []
-    for item in untrusted:
-        text = item.text
-        last = max(len(text) - WINDOW, 0)
-        # Every STEP, plus one window ending exactly at the end: the tail is where padding hides it.
-        for start in sorted({*range(0, last, STEP), last}):
-            windows.append(text[start:start + WINDOW])
-            owner.append(item.id)
-    worst: dict[str, float] = {}
-    for item_id, result in zip(owner, classify(windows, batch_size=16), strict=True):
-        worst[item_id] = max(worst.get(item_id, 0.0), _malicious(result))
-    return "ran", {i: round(s, 3) for i, s in worst.items() if s >= THRESHOLD}
+    return "ran", {i: round(s, 3) for i, s in worst.items() if s >= limit}
