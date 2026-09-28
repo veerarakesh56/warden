@@ -56,10 +56,11 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 |---|---|---|---|---|
 | AWS IAM, STS, permissions boundary | least privilege; just-in-time 15-minute roles in Phase 4 | IN USE / PLANNED | FREE | Teleport Enterprise (PAID). Teleport Community is free but heavy to self-host |
 | GitHub OIDC → AWS role | CI has no AWS keys at all | IN USE | FREE | — |
-| **IAM Identity Center** | replaces long-lived access keys on the laptop with short sign-ins | PLANNED (secrets work) | FREE | — |
+| **IAM Roles Anywhere** (own CA; certificate in the Windows store via `aws_signing_helper`) | replaces the laptop's long-lived access key, with no password (the owner rejected console passwords) | PLANNED (W0-now; pricing and Windows flow verified live first) | verify live | IAM Identity Center is **not possible** in this lab: it needs AWS Organizations, which ends the Free plan |
 | IAM Access Analyzer, **external access** | finds anything reachable from outside the account | IN USE (created 2026-09-27) | FREE. Its unused-access and internal-access types are PAID; not used | — |
-| **SSM Parameter Store, SecureString, standard tier** | per-environment config and secrets | PLANNED (secrets work) | FREE (up to 10,000 parameters; AWS-managed key) | **Secrets Manager: PAID, $0.40 per secret per month.** Used only where AWS rotates a secret for us (a database master password), and only while a stack is up |
-| GitHub Environments + environment variables and secrets | per-environment CI config; required reviewers for prod tiers | IN USE (`fullstack`), expanding | FREE on a public repo | — |
+| **SSM Parameter Store, standard tier** | per-environment **plain configuration** (not secrets) | IN USE (Terraform reads `/warden/<env>/tf/*`; `settings.py` loader) | FREE (up to 10,000 parameters) | — |
+| **AWS Secrets Manager** | **every secret and sensitive value**: Slack tokens and webhooks, the Temporal API keys and payload key, the audit-key passphrase, DB credentials, model keys (owner decision D5, 2026-09-28) | PLANNED (G3 loader, W0-now owner step) | **PAID, ≈ $0.40 per secret per month** plus API calls; accepted by the owner for quality | — |
+| GitHub Environments + environment variables | per-environment CI config (one environment per AWS environment, plus `ops` for WARDEN's own runtime); required reviewers for prod tiers | CODE READY (`infra.yml`/`apps.yml` take an environment input); environments not created yet | FREE on a public repo | — |
 | GitHub secret scanning + push protection | blocks a pushed secret | available | FREE on public repos | — |
 | Ed25519 signed, hash-chained audit (`cryptography`, SQLite) | tamper-evident audit: `src/warden/audit.py`, `warden audit keygen` and `verify` | IN USE (Phase 2, step 1) | FREE | KMS signing, S3 Object Lock (PAID; not used) |
 
@@ -106,11 +107,15 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 | Slack incoming webhook | IN USE | FREE | — |
 | GitHub Issues as the incident record | OPTIONAL | FREE | incident.io, PagerDuty (PAID) |
 
-## 10. What the owner decides next (all free)
+## 10. Decisions (owner, 2026-09-28; these replace the earlier "all free" list)
 
-1. **IAM Identity Center** instead of the access key on this laptop. You sign in through the browser
-   about twice a day, and no key is left on disk.
-2. **Optional tools**: an injection tripwire (Prompt Guard 2 or PIGuard), Presidio, HHEM. None is
-   needed for safety today; each adds a second signal.
-3. **Nothing paid is required anywhere.** If a paid item is ever proposed, it will be listed here
-   first with its free alternative.
+1. **Quality first.** Paid services are used when they are the production-correct choice; each is
+   listed with its cost. This superseded the earlier free-only rule.
+2. **Laptop access without a key:** IAM Roles Anywhere (W0-now). Identity Center is not possible in
+   one Free-plan account, and console passwords were rejected.
+3. **Temporal Cloud** instead of a self-hosted Temporal. **Secrets Manager** for every secret, SSM
+   for plain config. **Bedrock Opus 5.5** as the production model. **KMS Ed25519** for audit signing.
+   **Passkeys** for approvals, on the owner's Cloudflare domain.
+4. The full component list with verified prices is rebuilt in G0 from the research of 2026-09-28
+   (`docs/research/2026-09-28/`). Until then, rows above that still say "free-only" reflect the old
+   rule.

@@ -43,7 +43,9 @@ statements over identity and data-store destruction.
 ⚠ **Be honest about what that does and does not buy you.** Most AWS `Create*` calls (`ec2:CreateVpc`,
 `eks:CreateCluster`) do not support resource-level ARNs, so those statements are `"Resource": "*"`
 with a region condition. This identity can still create networking and compute in that region. It
-cannot touch your IAM users, your access keys, your buckets' contents, or your existing databases.
+is meant not to touch your IAM users or access keys. **⚠ Audit 2026-09-28:** this identity's policy
+has a finding that is withheld until its live fix (`docs/AUDIT-2026-09-28.md`, A-I-4), and this
+whole section is being replaced by a key-less operator identity. Do not rely on the claims here.
 
 ### 3. Never: the root user
 

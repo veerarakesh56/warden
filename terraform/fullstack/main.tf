@@ -71,9 +71,9 @@ data "aws_ssm_parameter" "budget_email" {
 
 # --------------------------------------------------------------------------- network
 #
-# Public subnets for everything that needs the internet (ALB, ECS tasks with public IPs, EKS nodes).
-# Private subnets for ElastiCache and the in-VPC Lambdas, which reach the internet through ONE NAT
-# gateway in public[0]: Aurora in express configuration is outside the VPC, reachable only through
+# Public subnets hold ONLY the NAT gateway (2026-09-27 network review). Everything else - ECS tasks,
+# EKS nodes, the internal ALB, ElastiCache and the in-VPC Lambdas - is in private subnets and
+# reaches the internet through ONE NAT gateway in public[0]: Aurora in express configuration is outside the VPC, reachable only through
 # its internet access gateway (changed 2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints").
 # ⚠ One NAT is a single-AZ dependency: if that AZ fails, the in-VPC Lambdas lose the database.
 # Accepted for a benchmark stack; a production stack runs one NAT per AZ.
@@ -273,7 +273,7 @@ locals {
 # ⛔ THE SPENDING ALARM FOR THIS STACK. The proving ground's budget went with its teardown, so the
 # stack that costs ~USD 0.50/h carries its own. Forecast alarms fire first on purpose: by the time
 # ACTUAL spend crosses a line, the hours that caused it are already billed. The name is inside the
-# operator's budgets scope (budget/warden-pg-*).
+# deploy role's budgets scope (budget/warden-<env>-*, iam/templates/deploy.json).
 resource "aws_budgets_budget" "guard" {
   name         = "${local.name}-guard"
   budget_type  = "COST"

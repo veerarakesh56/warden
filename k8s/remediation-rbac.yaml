@@ -2,8 +2,13 @@
 #
 # WARDEN is read-only by default. When an operator ARMS live remediation (WARDEN_REMEDIATION=live),
 # the one thing it may do to a cluster is restart or scale a Deployment — and even then only after
-# the four-way policy gate passes. This ServiceAccount is the boundary for that: it can `patch`
-# deployments and NOTHING else. No delete, no pods, no secrets, no other resource, no other verb.
+# the four-way policy gate passes. This ServiceAccount is the boundary for that: it can `get` and
+# `patch` deployments and no other verb or resource.
+#
+# ⚠ AUDIT 2026-09-28 (A-I-11): `patch deployments` is NOT "restart or scale only". It can rewrite the
+# whole pod template (image, command, serviceAccountName, secret env/volume mounts), which is
+# equivalent to running any code as any SA in the namespace and reading its Secrets. Being replaced by
+# `deployments/scale` plus a ValidatingAdmissionPolicy that allows only the restart annotation.
 #
 # Proven from the API server's own view, both sides, in CI:
 #   kubectl auth can-i patch  deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> yes

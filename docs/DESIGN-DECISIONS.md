@@ -171,3 +171,48 @@ validated on a clean runner.
    default); approving it from Slack does not, and needs its own security review.
 4. **Narrow the IAM read policy** from `resources = ["*"]` with condition blocks.
 5. **Checkpointing.** Done by Temporal since Phase 2: IncidentWorkflow and RemediationWorkflow are durable, and a worker restart replays the history (LangGraph, which ran the graph before, was removed).
+
+The full, current plan is [`ROADMAP.md`](ROADMAP.md).
+
+## 16. Decisions of 2026-09-28 (after the full audit and live research)
+
+Each was researched live on that day (`docs/research/2026-09-28/`) and decided on quality, not cost.
+
+- **Architecture principle: Meta's "Agents Rule of Two."** An agent should have at most two of
+  three properties: untrusted input, sensitive data, the ability to change state. WARDEN has the first
+  two, and changes state only through a signed human approval. "The Attacker Moves Second"
+  (arXiv 2510.09023) broke 12 published defences with adaptive attacks, so detectors (Prompt
+  Guard, P16) are tripwires, never gates.
+- **Temporal Cloud, not self-hosted.**
+  - Self-hosted Temporal's default authorizer allows every call.
+  - Self-hosting needs real operating effort, upgrades that cannot skip versions, and a stream of
+    CVE fixes.
+  - Cloud gives a 99.99% HA option and about 2x lower latency.
+  - Temporal's own audit logs cover account actions only, so WARDEN keeps its own record of who
+    approved and who triggered.
+- **Keep the Python verifier; no Rego/Cedar rewrite.**
+  - Most policies need evidence that Python computes first.
+  - Cedar files evaluated in-process with `cedarpy` are an option later, when a security team wants
+    to own the policy.
+  - A network policy service would be one more thing that can fail during an outage.
+- **No hosted guardrail in the approval path** (Lakera, Prisma AIRS, Cisco AI Defense,
+  AlignmentCheck).
+  - They detect injection-shaped text, which WARDEN already treats as inert.
+  - They are bypassable.
+  - They would send production logs to a third party.
+- **No Jev.** It was two weeks old, hosted only, with unverified calibration. WARDEN calibrates on
+  independent labels instead: Wilson bounds and conformal abstention.
+- **KMS Ed25519 for audit signing, S3 Object Lock as the external anchor.** This mirrors
+  CloudTrail's own digest design. The key never leaves the HSM.
+- **Passkeys (WebAuthn) for approvals, signed over the exact plan hash.** This is stronger than a
+  login-based approval (GitHub environments, PagerDuty tasks).
+- **Identity is AWS-native; Teleport is an optional adapter.** Teleport's agent features were still a
+  preview in 2026-09.
+- **Bedrock Opus 5.5 for production**, chosen by WARDEN's own replay results. Public RCA leaderboards
+  flip between systems.
+- **Single tenant per company.** No shared namespace, database or bucket across companies.
+- **English-only UI and reports**, UTF-8 safe. Non-English log handling (M23) is recorded as open.
+- **Region:** the runtime and the Temporal namespace both run in ap-south-2. Bedrock uses the
+  global profile, because India has no regional Claude endpoint (to verify live).
+- **One AWS account, hardened, for the lab** (owner decision). Separate accounts per environment are
+  the production recommendation, and the IaC supports them.

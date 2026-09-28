@@ -12,6 +12,12 @@
 #   - pre-prod / qa-prod   : WARDEN proposes; a human applies. No auto-remediation.
 #   - prod                 : never auto. Narrowest allowlist. Authorised responders only.
 #
+# ⚠ HONEST STATUS (audit 2026-09-28): `auto_remediate` and `require_human_approval` are NOT
+# honoured by the Temporal RemediationWorkflow - EVERY fix there needs a signed approval of the
+# exact plan, in every environment, until Phase 3 shadow evidence (policy P17) enables a tier.
+# They are read only by the older in-process CLI path, which is being removed (audit A-B-H2).
+# `require_human_approval` is not read anywhere today.
+#
 # An environment NOT listed here falls to `default`, which is deliberately the most
 # restrictive: it can only do nothing or escalate, is never auto-remediable, and has
 # no authorised principals. A typo'd or brand-new environment name therefore cannot

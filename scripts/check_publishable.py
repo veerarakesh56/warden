@@ -100,8 +100,18 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
     # Boundaries are \w, not \d: a SHA256 in a .terraform.lock.hcl contains runs of 12 digits
     # surrounded by hex letters, and a digit-only boundary flagged every provider hash. A real
     # account id is always delimited by non-word characters - the ':' in an ARN, or whitespace.
-    ("account-id", re.compile(r"(?<![\w.])\d{12}(?![\w.])"),
+    # A trailing '.' is allowed (audit 2026-09-28 A-B-M15): `<acct>.dkr.ecr.<region>...`, the
+    # commonest leak in deploy records, used to pass. A public help-centre article number in a URL
+    # path (`/articles/360037782773`) is not an account id.
+    ("account-id", re.compile(r"(?<![\w.])(?<!/articles/)\d{12}(?!\w)"),
      "a 12-digit AWS account id"),
+    ("temporal-account", re.compile(r"\b[a-z0-9][\w-]*\.[a-z0-9]{5,}\.tmprl\.cloud\b"),
+     "a Temporal Cloud namespace handle (its suffix is the account id)"),
+    # real Slack ids mix letters and digits; an all-digit T00000000 is the documented example shape
+    ("slack-id", re.compile(r"(?<![\w-])[TU]0(?=[A-Z0-9]*[A-Z])[A-Z0-9]{7,10}(?![\w-])"),
+     "a Slack workspace (T0…) or user (U0…) id"),
+    ("windows-user-path", re.compile(r"(?i)\b[a-z]:\\\\?users\\\\?(?!<|public\b|default\b)[\w.-]+"),
+     "a Windows user-profile path (it names the person)"),
     ("private-key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----"),
      "a private key"),
     ("slack-webhook", re.compile(r"https://hooks\.slack\.com/(?:services|triggers|workflows)/\S+"),

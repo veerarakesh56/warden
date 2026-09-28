@@ -1,5 +1,6 @@
 # Weekly update PRs (free). Actions are pinned to commit SHAs (2026-09-27); Dependabot keeps the
-# pins current instead of letting them go stale. Every PR still runs the full CI, security job included.
+# pins current instead of letting them go stale. PRs run CI; note ci.yml's paths-ignore skips the
+# security job for PRs that touch only infra.yml/apps.yml (audit 2026-09-28 A-I-15, being fixed).
 version: 2
 updates:
   - package-ecosystem: github-actions

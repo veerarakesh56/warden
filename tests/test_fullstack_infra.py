@@ -22,7 +22,7 @@ TF_FILES = sorted(TF.glob("*.tf"))
 K8S = ROOT / "k8s" / "fullstack"
 APPS = ROOT / "scenarios" / "fullstack"
 BOUNDARY = ROOT / "terraform" / "proving-ground" / "operator-policy-boundary.json"
-OPERATOR_FS = TF / "operator-policy-fullstack.json"   # the operator's old policy, retired in Phase 1.5 part 5
+OPERATOR_FS = TF / "operator-policy-fullstack.json"   # the operator's current policy (still attached; to be replaced in W0-now)
 # What the stack runs under since Phase 1.5: the dev environment's rendered deploy policy and boundary.
 ENV_DEPLOY = ROOT / "iam" / "dev" / "deploy.json"
 ENV_BOUNDARY = ROOT / "iam" / "dev" / "boundary.json"

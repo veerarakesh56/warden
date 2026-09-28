@@ -7,7 +7,45 @@ bump may carry a breaking change.
 
 ## [0.10.0] - 2026-09-28
 
-v2 re-architecture, Phase 1.5 and Phase 2. Every environment is configured by name, with no key
+### ⚠ Correction (added 2026-09-28, after release)
+
+This release was announced as "Phase 2 done". **That was false.** On the same day, a full audit found
+the following. The tag is kept; fixes ship as 0.10.1 and later, in order of risk:
+
+- **Failure-mode register:** 1 of the 22 rows assigned to Phase 2 was done with a test. The rest are
+  open, including false recovery, feedback loops, a mislabelled environment, alarm storms, fighting
+  other automation, no degraded mode, a mutex on a free-text name, freeze windows, and no versions
+  in the audit.
+- **Defects in the RemediationWorkflow shipped here:**
+  - a failed rollback ends without an audit record;
+  - activities retry forever;
+  - the policies P1–P16 are never run;
+  - there is no environment on the request;
+  - `request_remediation` is not bound to an incident or its verdict;
+  - the kill switch is not re-checked before apply;
+  - the "at most 2 model calls" cap is not enforced (up to 6);
+  - scale is not limited to 50%.
+- **Earlier phases:**
+  - the quarantine does not fully hold: untrusted text still reaches the model through tool-error
+    items, forged log-stream names, the alert text and the environment field;
+  - the outbound gate covers Slack only (JSON report, stdout and MCP results are ungated);
+  - the in-process live remediation paths trust a typed environment and principal;
+  - DB "terminate connections" ignores its target;
+  - some tests pass even with their guard removed.
+- **Infrastructure design:**
+  - per-environment IAM isolation can be broken (`rds-db:connect` has no tag condition key);
+  - the deploy role can attach a managed policy to a role it creates;
+  - CI apply would fail on two missing permissions.
+
+  Nothing is deployed; no live system was exposed.
+- **"Drift means a new plan"** below was wrong: the code ends the workflow as `drifted`. Re-plan
+  with a fresh approval is being built.
+
+Every finding, with its fix and test, is in `docs/AUDIT-2026-09-28.md`, and the plan
+(`docs/ROADMAP.md`) closes each one. A new CI test fails whenever something is marked done without
+the test that proves it.
+
+v2 re-architecture, Phase 1.5 and Phase 2 (partial, see the correction above). Every environment is configured by name, with no key
 stored anywhere. A fix is a durable workflow that a person must approve with their own signature.
 That workflow applies the fix once and checks the result itself, and every step is recorded
 tamper-evidently.
@@ -49,8 +87,9 @@ tamper-evidently.
 
 - **Per-environment everything:**
   - `environments.names(env)` derives every name;
-  - IAM templates are rendered per environment, with a boundary that denies every other
-    environment;
+  - IAM templates are rendered per environment, with a boundary meant to deny every other
+    environment (it does not yet: see the Correction above, `rds-db:connect` and untagged
+    resources);
   - Terraform workspaces are environments;
   - deploy workflows take an `environment` input;
   - settings come from SSM Parameter Store (`settings.py`, with an allowlist).

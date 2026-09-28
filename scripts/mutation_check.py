@@ -182,9 +182,11 @@ MUTATIONS = [
     (
         "remediation skips the approval gate",
         "remediation.py",
-        "    if not request.approved:",
-        "    if False and not request.approved:",
-        "a fix would apply with nobody having approved it - the last human checkpoint",
+        "    if request.approval != digest:",
+        "    if False and request.approval != digest:",
+        ("a fix would apply with nobody having approved THIS proposal - the last human checkpoint "
+         "(this anchor went stale when approval became a digest on 2026-09-27, and the mutation "
+         "silently stopped running until tests/test_mutation_anchors.py was added)"),
     ),
     (
         "report stops redacting its data",
@@ -311,20 +313,21 @@ def main() -> int:
     survived: list[str] = []
     for label, filename, find, replace, why in MUTATIONS:
         path = SRC / filename
-        original = path.read_text(encoding="utf-8")
-        if find not in original:
+        original = path.read_bytes()  # bytes: the restore must be exact, line endings included
+        text = original.decode("utf-8")
+        if find not in text:
             print(f"[SKIP] {label}: anchor not found in {filename} (code moved - update this script)")
             survived.append(f"{label} (anchor missing)")
             continue
         try:
-            path.write_text(original.replace(find, replace, 1), encoding="utf-8")
+            path.write_bytes(text.replace(find, replace, 1).encode("utf-8"))
             caught = not run_suite()
             status = "CAUGHT" if caught else "*** SURVIVED ***"
             print(f"[{status}] {label}\n          why it matters: {why}")
             if not caught:
                 survived.append(label)
         finally:
-            path.write_text(original, encoding="utf-8")  # always restore
+            path.write_bytes(original)  # always restore, byte for byte
 
     print("\n" + "=" * 70)
     if survived:

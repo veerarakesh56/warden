@@ -18,9 +18,12 @@ Local work uses this machine's current credentials. The next console work is the
 
 ## LATER (cloud test window): bring up one environment - `dev` shown
 
-What this gives: GitHub Actions can deploy **only** the `dev` stack. It gets short-lived credentials
-through OIDC (no key stored anywhere), and it can never touch another environment's resources
-(`iam/dev/boundary.json`). Repeat for another environment by replacing `dev` everywhere.
+What this gives: GitHub Actions can deploy the `dev` stack with short-lived credentials through
+OIDC (no key stored anywhere). The boundary (`iam/dev/boundary.json`) is meant to keep it away from
+every other environment's resources. **⚠ Not yet (audit 2026-09-28):** tag-based isolation has gaps
+(e.g. `rds-db:connect` carries no tag condition). **Do not do this section until release 0.10.1**,
+which fixes the templates and replaces these steps. Repeat for another environment by replacing
+`dev` everywhere.
 
 Costs: IAM, OIDC, Parameter Store (Standard tier) and GitHub Environments are free. The S3 state
 bucket holds kilobytes, so it is effectively free.
@@ -87,7 +90,8 @@ three times.
   - **Deployment branches**: **Selected branches**, rule `main`.
 
 **7. Tell Claude "dev is up".** Claude runs the Terraform **plan** for `dev` from GitHub Actions.
-It also runs a negative check: another environment's role must be refused.
+A negative check (another environment's role must be refused) is planned for window W1. It does
+not exist yet (audit 2026-09-28).
 
 ---
 

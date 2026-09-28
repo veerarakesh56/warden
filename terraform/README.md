@@ -30,8 +30,9 @@ files get committed, copied into buckets and shared far more often than anyone p
 
 ## Also set deliberately
 
-- **Private subnets only**, with a validation rule that rejects an empty list. WARDEN reads telemetry;
-  nothing connects *to* it, so it has no reason to be publicly routable.
+- **Private subnets only** is the intent. Honest status (audit 2026-09-28): the only validation is
+  that `subnet_ids` is non-empty, and no resource uses `subnet_ids` yet, so nothing enforces it.
+  WARDEN reads telemetry; nothing connects *to* it, so it has no reason to be publicly routable.
 - **Egress on 443 only** — model API, AWS APIs, OTLP collector.
 - **`readonlyRootFilesystem = true`** and **non-root user 10001**, matching the Dockerfile.
 - **Log retention defaults to 30 days.** Incident context contains production detail; keeping it

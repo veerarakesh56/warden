@@ -5,30 +5,45 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.
-> Nothing here executes against infrastructure.**
+> A change is applied only by a workflow a person approved with a signature over the exact plan.**
 
-**Status:** v0.9.0 — working, tested, deployable, and **measured against a real AWS account**,
+> ⚠ **Status correction (2026-09-28).** A full audit found security defects in v0.9.0/v0.10.0
+> (listed in [`CHANGELOG.md`](CHANGELOG.md) under 0.10.0 → Correction, and in
+> [`docs/AUDIT-2026-09-28.md`](docs/AUDIT-2026-09-28.md)). They are being fixed in order of risk;
+> v0.10.0 is **not** "Phase 2 done". Until the fixes land: the remediation workflow has no live
+> platform and refuses every live change; the older opt-in live backends (`WARDEN_REMEDIATION=live`)
+> are being removed; do not point WARDEN at a production system.
+
+**Status:** v0.10.0 — working, tested, and **measured against a real AWS account** (before v2),
 scored in [`docs/bench/`](docs/bench/README.md). **ECS:** 14 scenarios (13 faults + 1 healthy control) × 3 runs, where the
 headline is 14 runs the gate should have stopped and did not — measured under 0.7.0, and 12 of those
 14 are refused by the gate as it stands now. **Managed EKS:** 10 scenarios (8 faults + 2 healthy controls) × 3 runs, where 3 wrong
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
 own bugs, both disclosed. **RDS PostgreSQL:** 6 scenarios (5 faults + 1 healthy control) × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
-count it. 2007 tests plus 23 opt-in live-infrastructure tests (10 against a live Kubernetes
-cluster, 13 against five real database engines), 26 evals, a 35-case mutation check that breaks the code on purpose
-and requires the suite to notice each one (35 caught, 0 survived), and CI that asserts the actual
-verdicts rather than the exit code.
+count it. 2,286 tests (2026-09-28) plus 23 opt-in live-infrastructure tests (10 against a live
+Kubernetes cluster, 13 against five real database engines), 26 evals, a mutation check that breaks
+the code on purpose and requires the suite to notice, and CI that asserts the actual verdicts rather
+than the exit code. **Honest caveat:** the 2026-09-28 audit found tests that pass even with the guard
+they name removed (listed in the audit); they are being rewritten and each proven by removing its
+guard. The mutation check's approval-gate case was silently skipped and is being fixed.
+
+**What this is, and is not.** WARDEN is an engineering project that builds a governed AI
+incident-response system end to end and measures it honestly. Its ideas are not novel: evidence
+first, a deterministic gate, human approval and least privilege. They are the direction of the
+field, for example AWS DevOps Agent, HolmesGPT, Meta's DrP and incident.io's AI SRE. It is not
+offered as a product to adopt as-is; read the audit and the benchmarks before trusting any part of it.
 
 | | |
 |---|---|
 | **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
-| **Safety** | 12 policies, closed action enum, verified redaction, token/USD budget, real tool timeouts |
+| **Safety** | 16 policies (P1–P16), closed action enum, redaction with a re-scan, token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
-| **Remediation** | dry-run by default; opt-in live backends (restart/scale a Deployment, terminate stuck DB connections) behind their own least-privilege credentials |
+| **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. No live platform is connected yet (Phase 4). The older in-process live backends are being removed (audit B-H1..H3) |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
 | **Reporting** | an incident report for every team - impact, what was read and when, diagnosis, detected patterns, risks before steps, a runbook with real names, per-team follow-ups - redacted, → Slack, Teams or any webhook |
 | **Integrations** | MCP server · OpenTelemetry GenAI conventions · Terraform ECS module |
-| **Models** | provider-agnostic: Gemini (free tier), Ollama (local), Anthropic, OpenAI-compatible |
+| **Models** | provider-agnostic: Claude via the Claude Max CLI (development and benchmarks), Anthropic API, Gemini, Ollama (local), OpenAI-compatible; Amazon Bedrock (Claude Opus 5.5) planned as the production model |
 
 ## The problem
 
@@ -60,12 +75,14 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   Stripe keys, `password=`/`secret=` values and **financial identifiers (IBANs, payment-card numbers)**
   are masked before any token leaves the process — then the output is re-scanned and a surviving value
   raises. Stable placeholders mean the model can still tell that two log lines refer to the same host.
-  It masks high-entropy *secrets* while deliberately preserving high-entropy *evidence* (git SHAs,
-  trace/request ids) — an entropy backstop would erase the evidence an RCA needs, so coverage is
-  format-based and curated.
+  Coverage is format-based and curated, plus a narrow high-entropy backstop (`HIGHENTROPY`) that
+  masks secret-shaped tokens while preserving evidence-shaped ones (git SHAs, trace/request ids).
+  **Honest limits (2026-09-28 audit):** some credential shapes are not caught yet (flag-style
+  passwords, `whsec_`, PGP blocks), and the "surviving value raises" re-scan only re-checks values
+  a pattern already matched, so it cannot catch a secret no pattern knows. Both are being fixed.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
-- **A deterministic gate.** Twelve policies in plain Python decide what happens. No prompt, no
+- **A deterministic gate.** Sixteen policies (P1–P16) in plain Python decide what happens. No prompt, no
   probability. Each returns a policy id so a rejection can be explained without re-running anything.
 - **A researched incident knowledge base.** 34 signatures, basic (OOMKilled, CrashLoopBackOff,
   ImagePullBackOff) to advanced (metastable failure, cache stampede, split-brain, retry storm,
@@ -83,7 +100,10 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   (`WARDEN_REMEDIATION=live`) restarts or scales a Deployment for real — restart/scale only, clamped
   (never to zero, never past a ceiling), behind a **separate write-RBAC** ServiceAccount that can
   `get` and `patch` deployments and nothing else. Arming it is necessary, never sufficient: the gate still
-  decides. dev/staging/qa-staging can auto-apply after approval; pre-prod and above always hand off.
+  decides. **Correction (2026-09-28 audit):** `patch deployments` can rewrite the whole pod template
+  (image, service account, secret mounts), so this RBAC is much broader than "restart or scale"; and
+  this in-process live path trusts a typed environment and principal. It is being removed in favour
+  of the signed-approval workflow; `deployments/scale` plus an admission policy replace the patch.
 - **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
   promotion plan — the exact higher environments where the same fix is permitted — and push it to
   Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
@@ -215,7 +235,7 @@ design argument. A ServiceAccount that *cannot* mutate anything is a security bo
 policy engine has a bug, the credentials still cannot do harm. This is the Kubernetes twin of the
 Terraform task role.
 
-### Runs on ECS **or** any Kubernetes — EKS, GKE, AKS, k3d
+### Runs on ECS or Kubernetes — measured on ECS and managed EKS; k3d only in CI; GKE/AKS untested
 
 Two deployment paths, both included:
 
@@ -377,7 +397,7 @@ backend that can perform it — Kubernetes actions to `KubernetesRemediationBack
 `DatabaseRemediationBackend` — and refuses anything neither can do. On the cluster side it does a real
 rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`. Its
 permission is a separate `warden-remediator` ServiceAccount (`k8s/remediation-rbac.yaml`, not in the
-default deploy) that can get and patch deployments and nothing else — that boundary is proven both ways
+default deploy) that can get and patch deployments and nothing else (but see the 2026-09-28 correction above: `patch` covers the whole pod template) — that verb boundary is proven both ways
 by `kubectl auth can-i`; the live restart/scale test itself ran with the CI runner's k3d admin
 kubeconfig, not as that ServiceAccount. The restart/scale is proven against a live k3d cluster (not yet executed on EKS - the
 benchmark measures what WARDEN proposes, and never lets it act). The four-way gate is unchanged.
@@ -469,6 +489,12 @@ managed service.
 
 Every diagram below is drawn from the code it names, not from intent. If a box and the code disagree,
 the code is right and the diagram is a bug.
+
+> ⚠ **These diagrams predate v2 (2026-09-28).** They show the pipeline as it was before the Temporal
+> workflows (`workflows.py`), signed approvals, the tamper-evident audit and the catalogue. The v2
+> architecture and its target production design are in
+> [`docs/PRODUCTION-ARCHITECTURE.md`](docs/PRODUCTION-ARCHITECTURE.md); these diagrams are being
+> redrawn.
 
 ### 0. The whole system on one page
 
@@ -626,7 +652,7 @@ flowchart TB
   serialisation. A human report may put back **identifiers only** (email, tenant id, IPv4/IPv6)
   when `WARDEN_REPORT_SHOW_IDENTIFIERS=true`; secrets stay masked either way.
 
-### 3. The gate — twelve policies, and which verdict wins
+### 3. The gate — the policies, and which verdict wins (drawn when there were twelve; P13–P16 are in `docs/ai-boundary.md`)
 
 ```mermaid
 flowchart TB
@@ -912,7 +938,7 @@ times as a four-action read-only role, and grades evidence, diagnosis and the ga
 The rubric is committed before the run and its hash is recorded in each run's manifest. Both runs
 are in [`docs/bench/`](docs/bench/README.md) and the scorer is `scenarios/score.py` — re-score them offline, no AWS needed.
 
-**Wave 4 - the full stack - is designed and built, not yet run.** Aurora (writer + reader), EKS, ECS behind an ALB, Lambda behind API Gateway, SQS with DLQs, SNS, DynamoDB, ElastiCache Redis, Secrets Manager and EventBridge in one VPC (Aurora outside it, reached through its internet access gateway), on the AWS Free plan: Aurora in express configuration (IAM database authentication only, no passwords), broken in 27 ways (code, configuration, capacity, IAM/network, database). It adds a fourth score: whether the fix WARDEN printed, applied exactly as printed, removes the fault. Fault list, pass criteria and scoring are registered in [`docs/WAVE4-FULLSTACK.md`](docs/WAVE4-FULLSTACK.md) before any run; no Wave 4 number exists yet.
+**Wave 4 - the full stack - was partly run and then stopped (2026-09-26, owner's decision): faults fs-00 to fs-05 ran, the rest did not, and no Wave 4 score is published.** The results of those six stay local until the v2 harness re-runs them. Aurora (writer + reader), EKS, ECS behind an ALB, Lambda behind API Gateway, SQS with DLQs, SNS, DynamoDB, ElastiCache Redis, Secrets Manager and EventBridge in one VPC (Aurora outside it, reached through its internet access gateway), on the AWS Free plan: Aurora in express configuration (IAM database authentication only, no passwords), broken in 27 ways (code, configuration, capacity, IAM/network, database). It adds a fourth score: whether the fix WARDEN printed, applied exactly as printed, removes the fault. Fault list, pass criteria and scoring are registered in [`docs/WAVE4-FULLSTACK.md`](docs/WAVE4-FULLSTACK.md) before any run; no Wave 4 number exists yet.
 
 The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
 

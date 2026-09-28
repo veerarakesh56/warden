@@ -189,7 +189,8 @@ resource "aws_ecs_service" "orders_api" {
   network_configuration {
     subnets         = aws_subnet.private[*].id
     security_groups = [aws_security_group.ecs.id]
-    # Private: no public IP. Image layers come through the free S3 gateway endpoint; the rest of
+    # Private: no public IP. There are no ECR interface endpoints and the placeholder image is on
+    # public.ecr.aws, so image pulls go through the NAT (only S3 has a gateway endpoint); the rest of
     # the egress uses the NAT the stack already has, so this adds no fixed cost.
     assign_public_ip = false
   }

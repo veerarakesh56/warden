@@ -64,6 +64,11 @@ def _scan(tmp_path: pathlib.Path, name: str, content: str) -> tuple[int, str]:
          + "T00000000/B00000000/abcdefghijklmnop\n", "Slack"),
         ("hook.txt", _synth("https://hooks.", "slack.com/triggers/")
          + "T00000000/1234567890/abcdefghijklmnop\n", "Slack"),
+        ("ecr.txt", _synth("8472", "63519048") + ".dkr.ecr.ap-south-2.amazonaws.com/app:v2\n", "account id"),
+        ("tmp.txt", "address = " + _synth("prod-ns.", "a1b2c.tmprl.cloud") + ":7233\n", "Temporal"),
+        ("slack.txt", "workspace " + _synth("T0", "4ABCD9EF") + " user " + _synth("U0", "7XYZ12AB") + "\n",
+         "Slack workspace"),
+        ("path.txt", "profile at " + _synth("C:", "\\Users\\", "jdoe") + "\\AppData\n", "Windows user-profile"),
         ("hook.txt", _synth("https://acme.", "webhook.office.com/webhookb2/")
          + "0a1b2c3d-4e5f@0a1b2c3d/IncomingWebhook/abc/def\n", "Teams"),
         ("hook.txt", _synth("https://prod-12.westus.", "logic.azure.com:443/workflows/")

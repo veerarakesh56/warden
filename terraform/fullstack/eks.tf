@@ -205,8 +205,10 @@ resource "aws_cloudwatch_log_group" "container_insights" {
 # --------------------------------------------------------------------------- catalog-api's identity
 #
 # catalog-api signs IAM database tokens as user catalog (read-only). EKS Pod Identity hands the
-# role to pods of ServiceAccount shop/catalog-api (k8s/fullstack/catalog-api.yaml) - no node-wide
-# grant, no long-lived key.
+# role to pods of ServiceAccount shop/catalog-api (k8s/fullstack/catalog-api.yaml) - no long-lived
+# key. ⚠ Audit 2026-09-28 (A-I-12): the node launch template's IMDS hop limit of 2 still lets any
+# pod read the NODE role's credentials, so this is not yet "no node-wide grant"; the fix is hop
+# limit 1 plus Pod Identity for the CloudWatch agent.
 
 resource "aws_iam_role" "catalog_pod" {
   name                 = "${local.name}-catalog-pod"

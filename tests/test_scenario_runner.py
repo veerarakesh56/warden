@@ -92,7 +92,7 @@ def test_warden_never_sees_the_operators_credentials(monkeypatch, target):
     monkeypatch.setenv("AWS_PROFILE", "operator")
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", "/home/op/.aws/credentials")
     monkeypatch.setenv("HOME", "/home/op")
-    monkeypatch.setenv("USERPROFILE", r"C:\Users\op")
+    monkeypatch.setenv("USERPROFILE", r"C:\home\op")  # any value; the test is that it does not leak
 
     env = runner.warden_env(
         {"AWS_ACCESS_KEY_ID": "ASIAREADER", "AWS_SECRET_ACCESS_KEY": "s",
