@@ -5,6 +5,75 @@ All notable changes to WARDEN are documented here. The format follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — pre-1.0, so a minor
 bump may carry a breaking change.
 
+## [0.10.0] - 2026-09-28
+
+v2 re-architecture, Phase 1.5 and Phase 2. Every environment is configured by name, with no key
+stored anywhere. A fix is a durable workflow that a person must approve with their own signature.
+That workflow applies the fix once and checks the result itself, and every step is recorded
+tamper-evidently.
+
+### Added (Phase 2)
+
+- **Temporal workflows** (self-hosted OSS; `workflows.py`, `activities.py`):
+  - `IncidentWorkflow` runs the diagnosis nodes as three activities: `prepare`, `diagnose`
+    (the one model call, on redacted input only) and `verify` (no model).
+  - `RemediationWorkflow` steps: plan against live state → bounds → signed approvals until
+    the TTL → live re-check (drift means a new plan) → apply once → its own success check →
+    rollback.
+  - Completion comes only from the workflow's checklist; there is no input for success.
+- **Encrypted workflow history** (`codec.py`): every payload is encrypted with AES-256-GCM, and
+  failures are encoded. Without it, the raw alert (a workflow input) was readable in the history.
+- **Tamper-evident audit** (`audit.py`):
+  - append-only SQLite with a hash chain;
+  - Ed25519-signed checkpoints, which catch an edited row even when the chain was recomputed;
+  - `warden audit keygen` / `warden audit verify`.
+- **Signed approvals** (`approvals.py`):
+  - each one binds one plan hash of one workflow, at one tier;
+  - it expires and can be used once;
+  - T3 plans need a cooling-off period;
+  - a two-person rule counts different approvers only.
+- **Bounds, kill switch and circuit breaker** (`bounds.py`), with their state in the audit log.
+  A reset needs a signed approval of that specific trip.
+- **Remediation catalogue** (`catalog.py`): 14 entries.
+  - Every target must be a value WARDEN read from live state.
+  - Numbers are clamped against live values.
+  - Queue purges, IAM writes, Secret applies, deletes, raw SQL and shell are excluded.
+- **CLI**: `warden worker`, `incident`, `status`, `approve` (signs only the plan hash you
+  reviewed) and `killswitch`.
+- **MCP**: `start_incident_diagnosis`, `request_remediation` and `workflow_status`.
+  - No tool can approve, sign, reset or execute.
+  - No parameter looks like a credential.
+  - The tool manifest is pinned by a sha256.
+
+### Added (Phase 1.5)
+
+- **Per-environment everything:**
+  - `environments.names(env)` derives every name;
+  - IAM templates are rendered per environment, with a boundary that denies every other
+    environment;
+  - Terraform workspaces are environments;
+  - deploy workflows take an `environment` input;
+  - settings come from SSM Parameter Store (`settings.py`, with an allowlist).
+- **Network**: only the NAT is public. The ALB is internal, and compute runs in private subnets.
+- **Tags**: `Project` and `Environment` on everything the stack creates, including EKS nodes and
+  disks, the cluster security group, ECS tasks and task definitions.
+- **`scripts/account_sweep.py`**:
+  - lists everything that can bill, in every region, without trusting tags;
+  - audits `Project`/`Environment` tags;
+  - reports what it could not see as BLIND.
+
+  It runs as the read-only role `warden-pg-sweep`.
+- **Injection tripwire** (P16): Meta Llama Prompt Guard 2 (86M), optional and run locally.
+  - 0 false alarms in 4,637 real lines.
+  - It catches 6 of the 14 corpus payloads; quarantine and the gate cover the rest.
+- `check_publishable` also refuses Slack trigger, Teams and Power Automate webhook URLs, and Hugging
+  Face tokens.
+
+### Removed
+
+- LangGraph. `graph.run()` is a plain pipeline over the same nodes. A parity test shows identical
+  results to the IncidentWorkflow on every bundled incident.
+
 ## [0.9.0] - 2026-09-27
 
 v2 re-architecture, Phases 0 and 1: nothing AI-written runs unapproved, and what the model says is

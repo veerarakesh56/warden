@@ -43,7 +43,7 @@ from .verifier import MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
 _env_policies = default_environment_policies()
 
 SERVER_NAME = "warden"
-SERVER_VERSION = "0.8.0"
+SERVER_VERSION = "0.10.0"
 
 
 

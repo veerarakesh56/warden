@@ -4,7 +4,7 @@ The model proposes. A deterministic verifier decides. Nothing executes infrastru
 live remediation is explicitly armed (WARDEN_REMEDIATION=live) AND the remediation gate passes.
 """
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = ["Alert", "RunReport", "__version__", "run"]
 
