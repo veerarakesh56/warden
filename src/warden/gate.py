@@ -34,6 +34,7 @@ P13 in the verifier; the report says when it fired. G4 (commands only from an ap
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -44,21 +45,39 @@ from .redaction import redact
 # outgoing message is a leak.
 _SHOWABLE = frozenset({"EMAIL", "TENANT", "IPV4", "IPV6"})
 
-_IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+# A link label may hold escaped brackets (`[a\]b]`); a destination may be anything but `)`.
+_LABEL = r"\[((?:[^\]\\\n]|\\.)*)\]"
+_IMAGE = re.compile(r"!" + _LABEL + r"\([^)]*\)")
 # Any inline link, whatever its target: `//host/...` (protocol-relative) carries data out as well as
-# `https://` does (audit A-C-9). A reference definition `[x]: target` likewise.
-_MDLINK = re.compile(r"\[([^\]]*)\]\(\s*[^)\s]+[^)]*\)")
-_REFDEF = re.compile(r"^ {0,3}\[[^\]]+\]:\s*\S+.*$")
-_URL = re.compile(r"(?:\b(?:https?|ftp|file|data|javascript):|(?<![\w:/])//[\w-]+\.)[^\s)>\]'\"]+", re.IGNORECASE)
+# `https://` does (audit A-C-9).
+_MDLINK = re.compile(_LABEL + r"\(\s*[^)\s]+[^)]*\)")
+# A link reference definition `[x]: target`, also inside a list item or a quote, and with an escaped
+# label - CommonMark accepts all three (independent review 2026-09-28: `- [r]: h&#116;tps://...`
+# plus `![x][r]` rendered a zero-click image with verdict PASS).
+_REFDEF = re.compile(r"^\s{0,3}(?:(?:[-*+]|\d{1,9}[.)])\s+|>\s*)*" + _LABEL + r":\s*\S")
+# Any scheme with `//`, the schemes that act without one, and protocol-relative `//host.`.
+_URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{1,30}://|\b(?:mailto|data|javascript|vbscript|tel|slack|"
+                  r"ms-teams|vscode|ssh|smb|file|sms|facetime|skype|zoommtg|itms-services):"
+                  r"|(?<![\w:/])//[\w-]+\.)[^\s)>\]'\"]*", re.IGNORECASE)
+# An IP address with a port or a path is a link to a chat client.
+_IP_LINK = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?/\S*")
 # A tag, not a `<TENANT_1>` placeholder (placeholders carry `_`, which a tag name never does here).
-# `<img/src=...>` is a tag too: a `/` may separate the name from its attributes (audit A-C-9).
-_HTML = re.compile(r"</?[a-zA-Z][a-zA-Z0-9-]*(?:[\s/][^<>]*)?>")
+# `<img/src=...>` is a tag too: a `/` may separate the name from its attributes (audit A-C-9). Tags are
+# also removed ACROSS lines before the line pass: `<img\nsrc=...>` is one tag to a renderer.
+_HTML = re.compile(r"</?[a-zA-Z][a-zA-Z0-9-]*(?:[\s/][^<>]*)?>", re.DOTALL)
+# Slack's own control syntax: <!channel>, <!here>, <!subteam^S1>, <@U123>, <#C123>, <url|text>. And
+# the bare words a client may still expand.
+_SLACK = re.compile(r"<[!@#][^<>]*>|<[a-z][a-z0-9+.\-]*:[^<>|]*\|[^<>]*>", re.IGNORECASE)
+_MENTION = re.compile(r"(?<![\w@])@(here|channel|everyone)\b", re.IGNORECASE)
 # Bare domains are defanged (`evil[.]com`) so a chat client does not turn them into links - data can
-# ride in a subdomain or a path (audit A-C-9). Unfurling is off as well (chatops.py).
-_TLDS = ("com|net|org|io|co|dev|app|ai|xyz|info|biz|me|us|uk|in|cn|ru|de|fr|jp|br|au|ca|eu|nl|se|ch|"
-         "cloud|site|online|top|tk|ml|ga|cf|gq|link|click|ly|to|gg|tv|cc|ws|pw|page|tech|"
-         "store|live|world|space|website|fun|icu|buzz|lol|ninja|rocks|xn--[a-z0-9-]+")
-_DOMAIN = re.compile(rf"(?<![\w@.\[/-])((?:[a-z0-9-]+\.)+)({_TLDS})(?![\w-])", re.IGNORECASE)
+# ride in a subdomain or a path (audit A-C-9). Every two-letter top-level domain (country codes), the
+# common generic ones, punycode, and any non-ASCII label (lookalikes such as a Cyrillic "е") are
+# covered - a partial list let `evil.sh`, `evil.it` and `evil.zip` through (review 2026-09-28).
+_TLDS = ("[a-z]{2}|com|net|org|info|biz|dev|app|xyz|cloud|site|online|top|link|click|page|tech|store|"
+         "live|world|space|website|fun|icu|buzz|lol|ninja|rocks|zip|mov|run|shop|blog|news|club|pro|"
+         r"tools|email|support|help|host|name|mobi|asia|work|today|life|xn--[a-z0-9-]+|[^\x00-\x7f\W\d_]{2,}")
+_DOMAIN = re.compile(rf"(?<![\w@.\[/-])((?:[\w-]+\.)+)({_TLDS})(?![\w-])", re.IGNORECASE)
+_NON_ASCII_HOST = re.compile(r"(?<![\w@.\[/-])((?:[\w-]*[^\x00-\x7f][\w-]*\.)+)([\w-]+)")
 # CommonMark fences: at most 3 spaces of indent, ``` or ~~~, closed by the same character at least as
 # long. `lstrip().startswith("```")` let a 4-space-indented or ~~~ line flip the state and leave the
 # rest of the message unsanitised (audit A-C-9).
@@ -79,49 +98,73 @@ def strip_controls(text: str) -> str:
     return _CONTROL.sub("", text)
 
 
+def _defang(m: re.Match[str]) -> str:
+    return f"{m.group(1)[:-1]}[.]{m.group(2)}"
+
+
 def _clean_line(line: str) -> str:
-    line = strip_controls(line)
+    # HTML entities first: CommonMark decodes `&#116;` inside a link destination, so `h&#116;tps://`
+    # is a live https link that the URL rule would not see (review 2026-09-28).
+    line = strip_controls(html.unescape(line))
     if _REFDEF.match(line):
         return "[link definition removed]"
     line = _IMAGE.sub("[image removed]", line)
     line = _MDLINK.sub(r"\1 [link removed]", line)
+    line = _SLACK.sub("", line)
     line = _URL.sub("[link removed]", line)
+    line = _IP_LINK.sub("[link removed]", line)
     line = _HTML.sub("", line)
-    return _DOMAIN.sub(lambda m: f"{m.group(1)[:-1]}[.]{m.group(2)}", line)
+    line = _MENTION.sub(r"(at)\1", line)
+    line = _NON_ASCII_HOST.sub(_defang, line)
+    return _DOMAIN.sub(_defang, line)
+
+
+def _clean_prose(lines: list[str]) -> list[str]:
+    """One run of non-code lines: tags that span lines go first, then each line."""
+    if not lines:
+        return []
+    joined = _HTML.sub("", html.unescape("\n".join(lines)))
+    return [_clean_line(line) for line in joined.split("\n")]
 
 
 def sanitise_text(text: str) -> str:
     """G3 over markdown: every line outside a fenced code block (CommonMark fence rules)."""
     lines = text.split("\n")
-    out, fence, opened = [], None, -1
-    for i, line in enumerate(lines):
+    out: list[str] = []
+    prose: list[str] = []
+    fence, opened = None, -1
+    for line in lines:
         m = _FENCE.match(line)
         if fence is None:
             # A backtick fence's info string cannot contain a backtick; then it is not a fence.
             if m and not (m.group(1)[0] == "`" and "`" in line[m.end():]):
-                fence, opened = m.group(1), i
+                out += _clean_prose(prose)
+                prose = []
+                fence, opened = m.group(1), len(out)
                 out.append(strip_controls(line))
             else:
-                out.append(_clean_line(line))
+                prose.append(line)
         else:
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
                 fence = None
             out.append(strip_controls(line))
+    out += _clean_prose(prose)
     if fence is not None:
         # Never closed. CommonMark runs it to the end; Slack shows the fence as text and renders what
         # follows. Sanitise what follows, so neither reading leaves an active link.
-        out[opened + 1:] = [_clean_line(line) for line in lines[opened + 1:]]
+        out[opened + 1:] = _clean_prose(out[opened + 1:])
     return "\n".join(out)
 
 
 def sanitise_data(value: Any) -> Any:
-    """G3 over structured data (a generic webhook sends it as JSON): every string, recursively."""
+    """G3 over structured data (a generic webhook, an MCP result): every string and every KEY,
+    recursively - a key built from backend data is text like any other (review 2026-09-28)."""
     if isinstance(value, str):
-        return "\n".join(_clean_line(line) for line in value.split("\n"))
+        return "\n".join(_clean_prose(value.split("\n")))
     if isinstance(value, list):
         return [sanitise_data(v) for v in value]
     if isinstance(value, dict):
-        return {k: sanitise_data(v) for k, v in value.items()}
+        return {sanitise_data(k) if isinstance(k, str) else k: sanitise_data(v) for k, v in value.items()}
     return value
 
 
@@ -148,12 +191,15 @@ def leaked_kinds(text: str) -> list[str]:
 
 
 def _strings(value: Any):
-    """Every string VALUE in a structure. Not a JSON dump: `"credentials_ref": "warden-prod-deploy"`
-    serialised is a key=value shape the redactor rightly treats as a credential."""
+    """Every string in a structure, keys included, each on its own. Not a JSON dump:
+    `"credentials_ref": "warden-prod-deploy"` serialised is a key=value shape the redactor rightly
+    treats as a credential."""
     if isinstance(value, str):
         yield value
     elif isinstance(value, dict):
-        for v in value.values():
+        for k, v in value.items():
+            if isinstance(k, str):
+                yield k
             yield from _strings(v)
     elif isinstance(value, (list, tuple)):
         for v in value:

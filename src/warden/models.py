@@ -22,7 +22,7 @@ from pydantic import AfterValidator, BaseModel, Field, computed_field, model_val
 # unable to start a markdown block (a leading #, >, -, *, +, |, = or "1." is preceded by a
 # zero-width space, so no renderer takes it as a heading, list, quote or table); and bounded.
 _INVISIBLE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\U000e0000-\U000e007f]")
-_BLOCK_START = re.compile(r"^(?:[#>\-*+|=]|\d+[.)])")
+_BLOCK_START = re.compile(r"^(?:[#>\-*+|=~]|\d+[.)])")  # ~ : a `~~~` fence (review 2026-09-28)
 
 
 def inert(text: str, limit: int = 2000) -> str:

@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "markdown-it-py>=3.0"]
 anthropic = ["anthropic>=1.0"]
 gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
 openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via WARDEN_BASE_URL

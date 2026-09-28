@@ -75,19 +75,19 @@ def test_cost_is_always_reported(capsys):
     assert "cost" in capsys.readouterr().out
 
 
-def test_unknown_incident_exits_with_a_useful_message():
-    with pytest.raises(SystemExit) as exc:
-        main(["run", "--incident", "inc-999"])
-    assert "inc-999" in str(exc.value)
-    assert "inc-001" in str(exc.value), "the error should list what IS available"
+def test_unknown_incident_exits_with_a_useful_message(capsys):
+    assert main(["run", "--incident", "inc-999"]) == 2
+    err = capsys.readouterr().err
+    assert "inc-999" in err
+    assert "inc-001" in err, "the error should list what IS available"
 
 
-def test_budget_flag_is_wired_through():
-    """--max-usd must actually reach the client, not just be accepted by argparse."""
-    from warden.llm import BudgetExceeded
-
-    with pytest.raises(BudgetExceeded):
-        main(["run", "--incident", "inc-001", "--max-usd", "0.0001"])
+def test_budget_flag_is_wired_through(capsys):
+    """--max-usd must actually reach the client, not just be accepted by argparse. The error reaches
+    the user as one gated line, not a traceback (review 2026-09-28)."""
+    assert main(["run", "--incident", "inc-001", "--max-usd", "0.0001"]) == 1
+    err = capsys.readouterr().err
+    assert "error: BudgetExceeded" in err and "Traceback" not in err
 
 
 def test_no_subcommand_is_rejected():
@@ -179,11 +179,11 @@ def test_started_at_accepts_an_explicit_timestamp(tmp_path):
     assert payload["alert"]["started_at"] == "2026-09-01T00:00:00+00:00"
 
 
-def test_a_bad_timestamp_fails_loudly_rather_than_reading_the_wrong_window():
+def test_a_bad_timestamp_fails_loudly_rather_than_reading_the_wrong_window(capsys):
     """Silently falling back would make WARDEN read a window that contains nothing and call it
     evidence. Better to refuse to start."""
-    with pytest.raises(SystemExit, match="ISO-8601"):
-        main(["run", "--incident", "inc-002", "--started-at", "last tuesday"])
+    assert main(["run", "--incident", "inc-002", "--started-at", "last tuesday"]) == 2
+    assert "ISO-8601" in capsys.readouterr().err
 
 
 def test_labels_are_added_and_repeatable(tmp_path):
@@ -198,9 +198,9 @@ def test_labels_are_added_and_repeatable(tmp_path):
     assert labels["log_group"] == "/ecs/checkout"
 
 
-def test_a_malformed_label_is_rejected():
-    with pytest.raises(SystemExit, match="K=V"):
-        main(["run", "--incident", "inc-002", "--label", "clusterprod"])
+def test_a_malformed_label_is_rejected(capsys):
+    assert main(["run", "--incident", "inc-002", "--label", "clusterprod"]) == 2
+    assert "K=V" in capsys.readouterr().err
 
 
 def test_a_label_value_may_contain_equals_signs(tmp_path):

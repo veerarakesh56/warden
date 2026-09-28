@@ -26,7 +26,9 @@ from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootC
 
 class FixRequest(BaseModel):
     incident_id: str
-    entry: str
+    # A catalogue entry name, never free text: an agent-supplied entry was printed raw by `warden
+    # status` (independent review 2026-09-28). The catalogue itself decides whether it exists.
+    entry: str = Field(pattern=r"^[a-z][a-z0-9_]{1,60}$")
     params: dict[str, Any]
     service: str
     approval_ttl_minutes: int = 30

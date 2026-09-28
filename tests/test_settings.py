@@ -96,12 +96,12 @@ def test_nothing_that_arms_or_redirects_is_loadable():
     assert not any(n.endswith("_PATH") or n.startswith("AWS_") for n in LOADABLE)
 
 
-def test_the_cli_stops_on_an_unknown_environment(monkeypatch):
+def test_the_cli_stops_on_an_unknown_environment(monkeypatch, capsys):
     from warden.cli import main
 
     monkeypatch.setenv("WARDEN_ENV", "prd")
-    with pytest.raises(SystemExit, match="unknown environment"):
-        main(["run", "--incident", "inc-001"])
+    assert main(["run", "--incident", "inc-001"]) == 2  # stopped, before anything ran
+    assert "unknown environment" in capsys.readouterr().err
 
 
 def test_the_cli_loads_the_environment_before_running(monkeypatch, capsys):

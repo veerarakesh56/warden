@@ -282,9 +282,16 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
         return _err(f"{type(exc).__name__}: {exc}")
 
 
-def _ok(payload: dict[str, Any]) -> types.CallToolResult:
+def _ok(payload: dict[str, Any], *, scrub_links: bool = True) -> types.CallToolResult:
     # ⛔ Audit A-C-8: an MCP result goes to another program, often another model. Same gate.
-    _verdict, payload = gate.outbound_data(payload)
+    # `scrub_links=False` only for redact_text, whose whole purpose is to hand back the caller's own
+    # text with identifiers masked: its links are the caller's data. G5 and control stripping still apply.
+    if scrub_links:
+        _verdict, payload = gate.outbound_data(payload)
+    elif gate.data_leaks(payload):
+        payload = {"withheld": True, "reasons": [f"G5: {k}" for k in gate.data_leaks(payload)]}
+    else:
+        payload = {k: gate.strip_controls(v) if isinstance(v, str) else v for k, v in payload.items()}
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=json.dumps(payload, indent=2))],
         structured_content=payload,
@@ -367,7 +374,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
 
         if name == "redact_text":
             result = redact(args["text"])
-            return _ok({"redacted": result.text, "identifiers_masked": result.size})
+            return _ok({"redacted": result.text, "identifiers_masked": result.size}, scrub_links=False)
 
         if name == "gather_incident_context":
             alert = Alert(

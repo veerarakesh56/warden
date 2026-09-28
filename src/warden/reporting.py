@@ -186,12 +186,18 @@ def _parse_ts(text: str) -> dt.datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=dt.UTC)
 
 
+_PLACEHOLDER_TOKEN = re.compile(r"(<[A-Z][A-Z0-9]*_\d+>)")
+
+
 def untrusted_inline(text: str, limit: int = 300) -> str:
     """Text WARDEN did not write, as inert markdown (audit A-C-1): one line, no backtick to break out
     of the code span, no `<...>` Slack or HTML would act on, capped. A forged "approved fix" block in
     an alert summary renders as the words it is, not as a heading and a command."""
     one = " ".join(str(text).split())
-    one = one.replace("`", "\u02cb").replace("<", "\u2039").replace(">", "\u203a")
+    parts = _PLACEHOLDER_TOKEN.split(one)  # odd indices are whole `<KIND_n>` placeholders: kept as-is
+    one = "".join(part if i % 2 else
+                  part.replace("`", "\u02cb").replace("<", "\u2039").replace(">", "\u203a")
+                  for i, part in enumerate(parts))
     if len(one) > limit:
         one = one[:limit] + "\u2026"
     return f"`{one}`" if one else "`(empty)`"
@@ -207,9 +213,9 @@ def _timeline(alert: Alert, ctx: ContextBundle) -> list[tuple[str, str]]:
         what = d.get("sha") or d.get("image") or d.get("task_definition") or d.get("revision") or "?"
         prev = d.get("previous_image") or d.get("previous") or ""
         who = d.get("by", "")
-        label = f"deploy of `{d.get('service') or d.get('deployment') or alert.service}` -> `{what}`"
+        label = f"deploy of {_c(d.get('service') or d.get('deployment') or alert.service)} -> {_c(what)}"
         if prev:
-            label += f" (was `{prev}`)"
+            label += f" (was {_c(prev)})"
         if who:
             label += f" by {who}"
         if at:
@@ -318,12 +324,12 @@ def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
             f"{int(METRIC_WINDOW.total_seconds() // 60)} min; deploys and secret changes: the last "
             f"{int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h.")]
     for reader, labels, what in _STACK_READERS:
-        names = ", ".join(f"`{alert.labels[k]}`" for k in labels if alert.labels.get(k))
+        names = ", ".join(f"{_c(alert.labels[k])}" for k in labels if alert.labels.get(k))
         if not names:
             continue
         # Reader names as the stack backend writes them: `lambda/<fn> logs`, `aurora-db-writer`, `sqs/<q>`.
         failed = [e for e in errors if re.match(rf"{reader}\b", e)]
-        out.append(f"{reader} {names}: {what}" + (f" - **FAILED**: `{failed[0][:160]}`" if failed else " - read."))
+        out.append(f"{reader} {names}: {what}" + (f" - **FAILED**: {_c(failed[0][:160])}" if failed else " - read."))
     out.append("Not read: Redis itself (VPC-only - through the ElastiCache API and CloudWatch only); the source of "
                "container workloads (inside images WARDEN does not pull).")
     return out
@@ -351,7 +357,7 @@ def _sources(alert: Alert, backend: str | None, ctx: ContextBundle | None = None
         else:
             span = f"alert time ± {int(LOG_LOOKBACK.total_seconds() // 60)} min"
         return [
-            f"CloudWatch Logs `{group}`: {span} (alert time ± {int(LOG_LOOKBACK.total_seconds() // 60)} min).",
+            f"CloudWatch Logs {_c(group)}: {span} (alert time ± {int(LOG_LOOKBACK.total_seconds() // 60)} min).",
             f"CloudWatch metrics: alert time ± {int(METRIC_WINDOW.total_seconds() // 60)} min.",
             (f"ECS service state and deployments; task-definition changes in the last "
             f"{int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h."),
@@ -584,11 +590,21 @@ def build_report(
 # --------------------------------------------------------------------------- render
 
 
+_FENCE_RUN = re.compile(r"`{3,}|~{3,}")
+
+
+def _unfenced(text: str) -> str:
+    """Break every run of 3+ backticks or tildes with zero-width spaces, so no line inside a code
+    block can close it. `.replace("```", ...)` left a run of three in a run of four (independent
+    review 2026-09-28)."""
+    return _FENCE_RUN.sub(lambda m: "\u200b".join(m.group(0)), text)
+
+
 def _code(lines: list[str], items: list[str]) -> None:
     # ⛔ An item holding ``` (a planted log line) would CLOSE the fence, and everything after it would
     # render as live markdown. The run of backticks is broken, and the line still reads the same.
     lines.append("```")
-    lines.extend(item.replace("```", "`\u200b``") for item in items)
+    lines.extend(_unfenced(item) for item in items)
     lines.append("```")
 
 
@@ -602,7 +618,7 @@ def _render_markdown(d: dict) -> str:
 
     lines.append(f"# WARDEN incident report - {a['service']} ({a['environment']})")
     lines.append(f"Alert name {untrusted_inline(a['name'])}")
-    lines.append(f"Severity **{a['severity']}** | alert `{a['id']}` | started {a.get('started_at') or 'unknown'}")
+    lines.append(f"Severity **{a['severity']}** | alert {_c(a['id'])} | started {a.get('started_at') or 'unknown'}")
     if v:
         lines.append(f"**Next step: {_NEXT_STEP.get(v['status'], v['status'])}**")
     lines.append("")
@@ -626,8 +642,8 @@ def _render_markdown(d: dict) -> str:
         lines.append(f"- **Diagnosis** (confidence {d['root_cause']['confidence']:.2f}): "
                      f"{d['root_cause']['hypothesis']}")
     if p:
-        lines.append(f"- **Proposed**: `{p['action']}` on `{p['target']}`"
-                     + (f" - gate: `{v['status']}`" if v else ""))
+        lines.append(f"- **Proposed**: {_c(p['action'])} on {_c(p['target'])}"
+                     + (f" - gate: {_c(v['status'])}" if v else ""))
     lines.append("")
 
     # ---- what was read
@@ -636,7 +652,7 @@ def _render_markdown(d: dict) -> str:
     if ev["tool_errors"]:
         lines.append("")
         lines.append("**⚠ What WARDEN could NOT read** - the diagnosis was made without this:")
-        lines.extend(f"- `{e}`" for e in ev["tool_errors"])
+        lines.extend(f"- {_c(e)}" for e in ev["tool_errors"])
     lines.append("")
 
     # ---- diagnosis
@@ -665,27 +681,27 @@ def _render_markdown(d: dict) -> str:
     if d["patterns"]:
         lines.append("## Patterns detected in the evidence  (fixed checks, not the model)")
         for pat in d["patterns"]:
-            lines.append(f"- **{pat['title']}** - seen: `{pat['seen']}`")
+            lines.append(f"- **{pat['title']}** - seen: {_c(pat['seen'])}")
             lines.append(f"  {pat['likely_cause']}")
         lines.append("")
 
     for c in d.get("code") or []:
         lines.append(f"## Code-level finding  ({c['function']}, from its deployed package)")
-        lines.append(f"- **`{c['file']}:{c['line']}`** in `{c['in']}`: `{c['exception']}`")
+        lines.append(f"- **{_c(str(c['file']) + ':' + str(c['line']))}** in {_c(c['in'])}: {_c(c['exception'])}")
         if c["source"]:
             lines.append("```python")
             # A source line is text from the deployed package; one holding ``` would end the block
             # and put what follows outside it (audit A-C-9).
-            lines.extend(ln.replace("```", "`\u200b``").replace("~~~", "~\u200b~~") for ln in c["source"])
+            lines.extend(_unfenced(ln) for ln in c["source"])
             lines.append("```")
-        lines.append(f"- **Developers**: start at `{c['file']}:{c['line']}` in `{c['in']}` ({c['function']})"
+        lines.append(f"- **Developers**: start at {_c(str(c['file']) + ':' + str(c['line']))} in {_c(c['in'])} ({c['function']})"
                      + (" - the line marked `>|` is the one that raised." if c["source"] else "."))
         lines.append("")
 
     if d["matched_signatures"]:
         lines.append("## Known incident signatures that fit")
         for s in d["matched_signatures"]:
-            lines.append(f"- `{s['id']}` **{s['title']}** ({s['category']}, score {s['score']}): {s['root_cause']}")
+            lines.append(f"- {_c(s['id'])} **{s['title']}** ({s['category']}, score {s['score']}): {s['root_cause']}")
         lines.append("")
 
     # ---- the read-only checks WARDEN ran itself
@@ -694,28 +710,28 @@ def _render_markdown(d: dict) -> str:
         lines.append("## Checked by WARDEN  (read-only, at alert time)")
         if chk["status"]:
             lines.append("**Container status** - how each failing container last died, and what it waits on now")
-            lines.extend(f"- `{c}`" for c in chk["status"])
+            lines.extend(f"- {_c(c)}" for c in chk["status"])
         if chk["previous"]:
             lines.append("**The crashed containers' own last output** (`logs --previous`)")
             _code(lines, chk["previous"][-12:])
         if chk["rollout"]:
             lines.append("**Rollout history** - newest first")
-            lines.extend(f"- `{r}`" for r in chk["rollout"])
+            lines.extend(f"- {_c(r)}" for r in chk["rollout"])
         lines.append("")
 
     # ---- the evidence itself
     if ev["metrics"]:
         lines.append("## Metrics at the time")
-        lines.append(" | ".join(f"`{k}` = **{_num(val)}**" for k, val in sorted(ev["metrics"].items())))
+        lines.append(" | ".join(f"{_c(k)} = **{_num(val)}**" for k, val in sorted(ev["metrics"].items())))
         lines.append("")
     if ev["timeline"]:
         lines.append("## Timeline (UTC)")
-        lines.extend(f"- `{t}` {what}" for t, what in ev["timeline"])
+        lines.extend(f"- {_c(t)} {what}" for t, what in ev["timeline"])
         lines.append("")
     if ev["affected"]:
         lines.append("## Affected - as named in the evidence")
         for key, values in ev["affected"].items():
-            shown = ", ".join(f"`{val}` ({n} line{'s' if n != 1 else ''})" for val, n in values[:5])
+            shown = ", ".join(f"{_c(val)} ({n} line{'s' if n != 1 else ''})" for val, n in values[:5])
             if len(values) > 5:
                 shown += f" and {len(values) - 5} more"
             lines.append(f"- **{key}**: {shown}")
@@ -731,7 +747,7 @@ def _render_markdown(d: dict) -> str:
     # ---- proposal and gate
     if p:
         lines.append("## Proposed action")
-        lines.append(f"- **Action**: `{p['action']}` -> `{p['target']}`")
+        lines.append(f"- **Action**: {_c(p['action'])} -> {_c(p['target'])}")
         lines.append(f"- **Expected effect** (model): {p['expected_effect']}")
         lines.append(
             f"- **Blast radius**: {p['blast_radius_effective']} (enforced; the model claimed "
@@ -741,7 +757,7 @@ def _render_markdown(d: dict) -> str:
         lines.append("")
     if v:
         lines.append("## Gate verdict  (deterministic)")
-        lines.append(f"- **Status**: `{v['status']}`" + (f" - policies: {', '.join(v['policy_ids'])}"
+        lines.append(f"- **Status**: {_c(v['status'])}" + (f" - policies: {', '.join(v['policy_ids'])}"
                                                            if v["policy_ids"] else ""))
         lines.extend(f"  - {r}" for r in v["reasons"])
         lines.append("")
@@ -772,7 +788,7 @@ def _render_markdown(d: dict) -> str:
                            ("3. Confirm it worked", "confirm"), ("4. If it made things worse", "undo")):
             if key == "fix" and rb[key] and status not in ("approved_for_human", "escalated"):
                 lines.append(f"**{title}** - no command: the gate did not approve this action "
-                             f"(verdict `{status}`).")
+                             f"(verdict {_c(status)}).")
                 continue
             if key == "undo" and rb[key] and status not in ("approved_for_human", "escalated"):
                 continue  # an undo of a fix nobody may run is itself a command nobody should run
@@ -797,7 +813,7 @@ def _render_markdown(d: dict) -> str:
             lines.append(title)
             for i, f in enumerate(d[key], 1):
                 where = f" on the {f['target']}" if f.get("target") else ""
-                lines.append(f"{i}. `{f['source']}` - {f['kind']}{where}")
+                lines.append(f"{i}. {_c(f['source'])} - {f['kind']}{where}")
                 _code(lines, [f["command"]])
             lines.append("")
 
@@ -821,7 +837,7 @@ def _render_markdown(d: dict) -> str:
     if d["remediation"]:
         r = d["remediation"]
         lines.append("## Remediation")
-        lines.append(f"- **Outcome**: `{r['outcome']}`")
+        lines.append(f"- **Outcome**: {_c(r['outcome'])}")
         lines.append(f"- {r['detail']}")
         if r["applied_change"]:
             lines.append(f"- {r['applied_change']}")
@@ -831,7 +847,7 @@ def _render_markdown(d: dict) -> str:
     if d["promotion"]:
         for t in d["promotion"]:
             approval = "human approval required" if t["requires_human_approval"] else "no separate approval"
-            creds = f" - account `{t['credentials_ref']}`" if t.get("credentials_ref") else ""
+            creds = f" - account {_c(t['credentials_ref'])}" if t.get("credentials_ref") else ""
             lines.append(f"- **{t['environment']}** ({t['tier']}): {t['note']} - {approval}{creds}")
     else:
         lines.append("- _No higher environment permits this action; nothing to promote._")
@@ -843,3 +859,6 @@ def _render_markdown(d: dict) -> str:
 
 def _num(v: float) -> str:
     return f"{v:.4g}" if isinstance(v, float) else str(v)
+
+
+_c = untrusted_inline  # every value rendered in inline code (independent review 2026-09-28, A-C-9)

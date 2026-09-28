@@ -74,16 +74,32 @@ def tracer() -> trace.Tracer:
 @contextmanager
 def span(name: str, **attrs: Any) -> Iterator[trace.Span]:
     """Open a span with attributes, and record an exception properly if one escapes."""
-    with tracer().start_as_current_span(name) as sp:
+    # ⛔ Spans leave the process for a tracing backend. The exception's TEXT can quote evidence, a key
+    # or an escape sequence (a model refusal carries 400 characters of the CLI's output), and the SDK
+    # records it raw by default - twice. It is recorded here scrubbed and bounded instead
+    # (independent review 2026-09-28, audit A-C-8).
+    with tracer().start_as_current_span(name, record_exception=False, set_status_on_exception=False) as sp:
         for key, value in attrs.items():
             if value is not None:
                 sp.set_attribute(f"warden.{key}", value)
         try:
             yield sp
         except Exception as exc:
-            sp.record_exception(exc)
-            sp.set_status(trace.Status(trace.StatusCode.ERROR, str(exc)))
+            safe = _safe_error(exc)
+            sp.add_event("exception", {"exception.type": type(exc).__name__, "exception.message": safe})
+            sp.set_status(trace.Status(trace.StatusCode.ERROR, type(exc).__name__))
             raise
+
+
+def _safe_error(exc: BaseException) -> str:
+    from .gate import strip_controls
+    from .redaction import redact
+
+    text = " ".join(strip_controls(str(exc)).split())[:300]
+    try:
+        return redact(text).text
+    except Exception:  # noqa: BLE001 - a redaction failure must not hide the original error
+        return "(error text withheld)"
 
 
 def record_cost(sp: trace.Span, *, input_tokens: int, output_tokens: int, usd: float) -> None:

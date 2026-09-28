@@ -81,22 +81,28 @@ DEMO_ALERTS: dict[str, dict] = {
 }
 
 
-def _out(text: str) -> None:
+def _out(text: object, *, err: bool = False) -> None:
     """stdout is an egress too - a terminal, a CI log, a pasted ticket (audit A-C-8): no secret, and no
     control character (an ESC sequence in model- or alert-written text can rewrite what the operator
-    sees)."""
-    print(gate.for_terminal(text))
+    sees). EVERY line this CLI prints goes through here (independent review 2026-09-28: `warden
+    status` printed an agent-controlled field raw)."""
+    print(gate.for_terminal(str(text)), file=sys.stderr if err else sys.stdout)
+
+
+def _one(text: object) -> str:
+    """A field someone else wrote, on one line: a newline in an alert name forged `VERDICT` lines."""
+    return " ".join(str(text).split())
 
 
 def _print_report(report, *, verbose: bool) -> None:
     v = report.verdict
-    _out(f"\n=== {report.alert.alert_id}  {report.alert.name} [{report.alert.environment}] ===")
+    _out(f"\n=== {report.alert.alert_id}  {_one(report.alert.name)} [{report.alert.environment}] ===")
     _out(f"  identifiers masked : {report.redaction_map_size}")
     if report.root_cause:
-        _out(f"  hypothesis         : {report.root_cause.hypothesis}")
+        _out(f"  hypothesis         : {_one(report.root_cause.hypothesis)}")
         _out(f"  confidence         : {report.root_cause.confidence:.2f}")
     if report.proposal:
-        _out(f"  proposed action    : {report.proposal.action.value} -> {report.proposal.target}")
+        _out(f"  proposed action    : {report.proposal.action.value} -> {_one(report.proposal.target)}")
         _out(f"  blast radius       : {report.proposal.effective_blast_radius} (enforced; "
               f"proposal claimed {report.proposal.blast_radius})")
     if v:
@@ -104,7 +110,7 @@ def _print_report(report, *, verbose: bool) -> None:
         if v.policy_ids:
             _out(f"  policies fired     : {', '.join(v.policy_ids)}")
         for reason in v.reasons:
-            _out(f"    - {reason}")
+            _out(f"    - {_one(reason)}")
     _out(f"  cost               : ${report.cost.usd:.4f} over {report.cost.calls} call(s)")
     if verbose:
         _out("  audit trail:")
@@ -128,7 +134,7 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
         try:
             backend = resolve_remediation_backend()
         except RemediationError as exc:
-            print(f"\n[remediation] live backend unavailable, not applying: {exc}")
+            _out(f"\n[remediation] live backend unavailable, not applying: {exc}")
             backend = None
         remediation = decide_remediation(
             alert,
@@ -149,13 +155,13 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
         redaction_map=report.redaction_map,
         backend=os.environ.get("WARDEN_BACKEND"),
     )
-    print("\n" + gate.for_terminal(built.markdown))
+    _out("\n" + built.markdown)
 
     if emit_chatops:
-        print("\nChatOps delivery:")
+        _out("\nChatOps delivery:")
         for note in notify(built, resolve_sinks()):
             state = "sent" if note.delivered else "not sent"
-            print(f"  - {note.sink}: {state} ({note.detail})")
+            _out(f"  - {note.sink}: {state} ({note.detail})")
 
 
 def _alert_from(incident: str) -> Alert:
@@ -237,7 +243,7 @@ def _load_environment() -> None:
     except Exception as exc:
         raise SystemExit(f"WARDEN_ENV: could not read parameters from SSM: {type(exc).__name__}") from exc
     if loaded:
-        print(f"[config] {os.environ.get('WARDEN_ENV')}: loaded {', '.join(loaded)} from SSM", file=sys.stderr)
+        _out(f"[config] {os.environ.get('WARDEN_ENV')}: loaded {', '.join(loaded)} from SSM", err=True)
 
 
 def _audit_command(args: argparse.Namespace) -> int:
@@ -245,20 +251,20 @@ def _audit_command(args: argparse.Namespace) -> int:
 
     if args.audit_cmd == "keygen":
         if args.private.exists():
-            print(f"{args.private} exists; refusing to overwrite a signing key")
+            _out(f"{args.private} exists; refusing to overwrite a signing key")
             return 1
         # The passphrase comes from the environment (SSM in the cloud), never from the command line.
         passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or None
         audit.generate_key(args.private, args.public, passphrase)
-        print(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
+        _out(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
               f"public key {args.public}")
         return 0
     result = audit.verify(args.db, audit.load_public_key(args.public_key))
     for problem in result.problems:
-        print(f"TAMPERED: {problem}")
-    print(f"{result.rows} rows, signed through row {result.signed_through}"
+        _out(f"TAMPERED: {problem}")
+    _out(f"{result.rows} rows, signed through row {result.signed_through}"
           + (f", {result.unsigned_tail} newer row(s) not yet signed" if result.unsigned_tail else ""))
-    print("intact" if result.ok else "NOT intact")
+    _out("intact" if result.ok else "NOT intact")
     return 0 if result.ok else 1
 
 
@@ -277,7 +283,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
     if args.cmd == "worker":
         policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
         async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend()):
-            print(f"worker running on task queue {runtime.TASK_QUEUE!r}; Ctrl+C to stop")
+            _out(f"worker running on task queue {runtime.TASK_QUEUE!r}; Ctrl+C to stop")
             await asyncio.Event().wait()
     if args.cmd == "incident":
         alert = _alert_from(args.incident)
@@ -287,18 +293,18 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         return 0
     if args.cmd == "status":
         stage, plan = await runtime.status(client, args.workflow_id)
-        print(f"stage: {stage}")
+        _out(f"stage: {stage}")
         if plan:
-            print(f"plan : {plan.entry} {plan.params} tier {plan.tier}")
-            print(f"hash : {plan.plan_hash}")
+            _out(f"plan : {_one(plan.entry)} {plan.params} tier {plan.tier}")
+            _out(f"hash : {plan.plan_hash}")
             for problem in plan.problems:
-                print(f"  refused: {problem}")
+                _out(f"  refused: {problem}")
         return 0
     try:
-        print(await runtime.approve(client, args.workflow_id, plan_hash=args.plan_hash,
+        _out(await runtime.approve(client, args.workflow_id, plan_hash=args.plan_hash,
                                     key=_approver_key(args.key), approver=args.approver))
     except ValueError as exc:
-        print(f"not approved: {exc}")
+        _out(f"not approved: {exc}")
         return 1
     return 0
 
@@ -312,22 +318,49 @@ def _killswitch_command(args: argparse.Namespace) -> int:
     elif args.kill_cmd == "reset":
         row = bounds.killswitch(log)
         if row is None:
-            print("the kill switch is not on")
+            _out("the kill switch is not on")
             return 0
         policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
         signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id="killswitch",
                                 plan_hash=bounds.trip_hash(row), tier="T3")
         problems = bounds.reset(log, signed, policy=policy, now=datetime.now(UTC))
         for problem in problems:
-            print(f"not reset: {problem}")
+            _out(f"not reset: {problem}")
         if problems:
             return 1
     row = bounds.killswitch(log)
-    print(f"kill switch: ON ({row['body']['reason']})" if row else "kill switch: off")
+    _out(f"kill switch: ON ({row['body']['reason']})" if row else "kill switch: off")
     return 0
 
 
+def _no_controls(value):
+    if isinstance(value, str):
+        return gate.strip_controls(value)
+    if isinstance(value, list):
+        return [_no_controls(v) for v in value]
+    if isinstance(value, dict):
+        return {_no_controls(k): _no_controls(v) for k, v in value.items()}
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
+    """The CLI. An uncaught error is printed as one gated line, never as a raw traceback: the error
+    text can quote evidence, a key or an escape sequence (independent review 2026-09-28)."""
+    try:
+        return _main(argv)
+    except SystemExit as exc:
+        if isinstance(exc.code, str):  # a message Python would print raw - an --alert file's content
+            _out(f"error: {_one(exc.code)}", err=True)
+            return 2
+        raise
+    except KeyboardInterrupt:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the last line of defence for what reaches the terminal
+        _out(f"error: {type(exc).__name__}: {_one(exc)}", err=True)
+        return 1
+
+
+def _main(argv: list[str] | None = None) -> int:
     # ⛔ Never crash while REPORTING. On Windows a piped stdout is cp1252 and cannot encode `→`,
     # which the model writes into its own hypotheses - so printing a successful diagnosis raised
     # UnicodeEncodeError and turned it into a failed run. `replace` shows a `?` in the terminal
@@ -425,10 +458,15 @@ def main(argv: list[str] | None = None) -> int:
             # Redacted once more with the run's own map (audit A-C-8): the artefact gets attached
             # to tickets, and a value an upstream step missed must not ride along.
             data, _ = _scrub(report.model_dump(mode="json"), dict(report.redaction_map))
+            data = _no_controls(data)  # `jq -r` would print an ESC live again
+            leaks = gate.data_leaks(data)
+            if leaks:  # an upstream miss: the artefact is refused, not written with a secret in it
+                _out(f"report NOT written: the outbound gate found {', '.join(leaks)} in it", err=True)
+                return 3
             path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         _print_report(report, verbose=args.verbose)
         if args.json:
-            print(f"\nreport written to {path}")
+            _out(f"\nreport written to {path}")
 
         want_remediation = args.principal is not None
         if args.report or want_remediation or args.emit_chatops:
@@ -441,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
     for incident in DEMO_ALERTS:
         report = run(_alert_from(incident), llm=LLMClient(), backend=backend)
         _print_report(report, verbose=args.verbose)
-    print("\nNo action was executed. WARDEN proposes and gates; a human executes.\n")
+    _out("\nNo action was executed. WARDEN proposes and gates; a human executes.\n")
     return 0
 
 
