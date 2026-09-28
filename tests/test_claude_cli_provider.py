@@ -210,6 +210,16 @@ def test_what_the_model_still_needs_does_survive(provider, monkeypatch):
     assert rec.kwargs["env"].get("PATH") == "/usr/bin"
 
 
+@pytest.mark.parametrize("var", ["HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE",
+                                 "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"])
+def test_a_proxy_or_a_private_ca_reaches_the_cli(provider, monkeypatch, var):
+    """Audit A-C-19: behind a corporate proxy or a private CA the CLI could not reach its API."""
+    monkeypatch.setenv(var, "/etc/corp/value")
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    assert rec.kwargs["env"].get(var) == "/etc/corp/value"
+
+
 # --------------------------------------------------------------------------- when the pool runs dry
 #
 # ⛔ Found by a real wave. The usage limit was hit mid-run and five runs failed with

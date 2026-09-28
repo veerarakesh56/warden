@@ -12,6 +12,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # (file, phrase that must not appear, why it is false)
 FALSE_CLAIMS = [
+    # audit A-C-18: each vendor host reads its own key variable
+    ("README.md", "OPENAI_API_KEY=$GROQ_API_KEY", "Groq reads GROQ_API_KEY; the OpenAI key never goes there"),
     # audit A-C-23: the re-scan checks only values a pattern found; it cannot prove none was missed
     ("src/warden/redaction.py", "Redaction that is verified, not assumed", "only the substitution is verified"),
     ("README.md", "Nothing here executes against infrastructure",

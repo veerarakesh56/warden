@@ -151,7 +151,7 @@ WARDEN_MOCK=0 WARDEN_PROVIDER=ollama WARDEN_MODEL=llama3.1 warden run --incident
 
 # Anthropic, Groq or OpenRouter
 WARDEN_MOCK=0 WARDEN_PROVIDER=anthropic ANTHROPIC_API_KEY=... warden run --incident inc-001
-WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY warden run
+WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... warden run
 ```
 
 | `WARDEN_PROVIDER` | Key | Notes |
@@ -160,7 +160,7 @@ WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... OPENAI_API_KEY=$GROQ_API_KEY
 | `gemini` | `GEMINI_API_KEY` | **Free tier** |
 | `ollama` | none | **Fully local** — nothing leaves the machine |
 | `anthropic` | `ANTHROPIC_API_KEY` | |
-| `openai` / `groq` / `openrouter` | `OPENAI_API_KEY` | One OpenAI-shaped client covers all three |
+| `openai` / `groq` / `openrouter` | `OPENAI_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` (a custom `WARDEN_BASE_URL`: `WARDEN_API_KEY`) | One OpenAI-shaped client covers all three; each host gets only its own key |
 | `claude_cli` | none - the local `claude` CLI's own login | What the benchmark waves used |
 
 Providers report their own token usage; one that cannot is made to **over-estimate** rather than

@@ -21,7 +21,8 @@ Select with `WARDEN_PROVIDER`:
                own fixtures. Results are not reproducible by a reader; see the class docstring.
     gemini     GEMINI_API_KEY      free tier at aistudio.google.com. ⚠ 20 requests/DAY per model on
                the free tier, which is four WARDEN runs. A benchmark wave needs far more.
-    openai     OPENAI_API_KEY      also Groq / OpenRouter / Ollama via WARDEN_BASE_URL
+    openai     OPENAI_API_KEY      also Groq (GROQ_API_KEY) / OpenRouter (OPENROUTER_API_KEY) / Ollama
+                                   (no key) / any WARDEN_BASE_URL (WARDEN_API_KEY)
 
 Every provider returns the same tuple: (text, input_tokens, output_tokens). Token counts are used
 for the budget ceiling, so a provider that cannot report them must estimate rather than return zero
@@ -229,10 +230,11 @@ class OpenAICompatProvider:
         self.model = model or os.environ.get("WARDEN_MODEL", "gpt-4o-mini")
         # Passed in by resolve() for the aliases; falls back to the env for an explicit custom host.
         base_url = base_url or os.environ.get("WARDEN_BASE_URL")  # e.g. http://localhost:11434/v1
-        # Ollama ignores the key but the client requires one to be present.
-        api_key = os.environ.get("OPENAI_API_KEY") or ("ollama" if base_url else None)
+        key_env = key_env_for(base_url)
+        # A local model ignores the key, but the client requires one to be present.
+        api_key = os.environ.get(key_env) if key_env else "local-no-key"
         if not api_key:
-            raise ProviderError("OPENAI_API_KEY is not set (or set WARDEN_BASE_URL for a local model).")
+            raise ProviderError(f"{key_env} is not set (or set WARDEN_BASE_URL for a local model).")
         kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
         if base_url:
             kw["base_url"] = base_url
@@ -356,8 +358,15 @@ class ClaudeCliProvider:
     # a kubeconfig (the harness puts them there for the evidence readers); a denylist let every one of
     # them into the model's process (found 2026-09-27). Measured: the CLI authenticates with exactly
     # these on Windows. Anything else a deployment needs must be added here, deliberately.
+    #
+    # Audit A-C-19: behind a corporate proxy, or with a private CA, the CLI could not reach its API
+    # at all - so the proxy and CA-bundle variables pass. HOME/USERPROFILE deliberately do NOT (the
+    # measurement above; the CLI authenticates without them on Windows, and claude_cli is the
+    # dev/benchmark backend only - production uses Bedrock through the task role).
     _ENV_ALLOW = ("PATH", "PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC",
-                  "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "TZ")
+                  "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "TZ",
+                  "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
+                  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE")
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         import os as _os
@@ -438,6 +447,27 @@ _REGISTRY = {
     "openrouter": OpenAICompatProvider,
     "ollama": OpenAICompatProvider,
 }
+
+# ⛔ Audit A-C-18: OPENAI_API_KEY used to go to whichever host the client pointed at - Groq,
+# OpenRouter, or any custom WARDEN_BASE_URL. A key is a credential for ONE vendor; each host reads
+# its own variable, and only a loopback host needs none.
+_KEY_ENV_BY_HOST = {
+    "api.openai.com": "OPENAI_API_KEY",
+    "api.groq.com": "GROQ_API_KEY",
+    "openrouter.ai": "OPENROUTER_API_KEY",
+}
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def key_env_for(base_url: str | None) -> str | None:
+    """The environment variable holding the key for this host; None for a loopback model."""
+    from urllib.parse import urlparse
+
+    host = (urlparse(base_url).hostname or "") if base_url else "api.openai.com"
+    if host in _LOOPBACK:
+        return None
+    return _KEY_ENV_BY_HOST.get(host, "WARDEN_API_KEY")
+
 
 DEFAULT_BASE_URLS = {
     "groq": "https://api.groq.com/openai/v1",

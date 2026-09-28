@@ -63,6 +63,24 @@ bump may carry a breaking change.
   multi-line anchor in a CRLF checkout was reported "missing" (6 of 35). It now matches line
   endings and restores byte for byte, and a test runs its real code path on every file. All 35 are
   caught.
+- **Each model host gets only its own key** (audit A-C-18). `OPENAI_API_KEY` used to go to Groq,
+  OpenRouter and any custom host. Keys by host now:
+  - Groq reads `GROQ_API_KEY`;
+  - OpenRouter reads `OPENROUTER_API_KEY`;
+  - a custom `WARDEN_BASE_URL` reads `WARDEN_API_KEY`;
+  - a loopback model needs no key.
+- **The Claude CLI works behind a proxy or a private CA** (audit A-C-19). The proxy and CA-bundle
+  variables now pass to the CLI. HOME/USERPROFILE are still stripped, on purpose, because
+  measurement showed they load the operator's own configuration.
+- **Console tracing writes to stderr** (audit A-C-20). Spans on stdout corrupted the MCP server's
+  JSON-RPC stream. A test runs the real server with tracing on and parses every stdout line. The
+  span `service.version` now comes from the package: it said 0.8.0.
+- **Small correctness fixes** (audit A-C-24, A-C-25):
+  - the gate's withheld notice now names its alert (it read the wrong key);
+  - P5 needs a deploy of the rollback's target, not of any service;
+  - P14 refuses targets that read as a flag or an assignment.
+
+  Replayed over the four recorded waves, no verdict changed.
 - **The Temporal payload codec fails closed** (audit A-B-L13). An unencrypted payload in the history
   is refused. It used to be passed straight to the workflow.
 - **The laptop no longer needs a long-lived AWS key** (W0-now). It uses IAM Roles Anywhere with a

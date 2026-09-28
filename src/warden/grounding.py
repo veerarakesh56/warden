@@ -83,6 +83,7 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
 # Command separators and substitution only. Parentheses and "->" are how models describe a target
 # (`lambda:warden-dev-checkout (version 7 -> 6)`, a correct live answer), and "<...>" is a
 # redaction placeholder.
+_LEADING = re.compile(r"^[\s\u200b-\u200f\ufeff]+")
 _SHELL = re.compile(r"[;|&$\\`]")
 
 
@@ -91,6 +92,12 @@ def target_problem(proposal: RemediationProposal, inventory: set[str]) -> str | 
     # `checkout` and passed (2026-09-27 audit).
     if _SHELL.search(proposal.target):
         return f"target {proposal.target!r} contains shell syntax"
+    # A target is a resource name. `-n kube-system` or `--all` would be read by a CLI as a flag, and
+    # `x=y` as an assignment or a selector (audit A-C-25).
+    # models.inert() prefixes a leading "-" with a zero-width space so no CLI reads it as a flag;
+    # the name is still not a resource name, so look past that prefix.
+    if _LEADING.sub("", proposal.target).startswith("-") or "=" in proposal.target:
+        return f"target {proposal.target!r} looks like a flag or an assignment, not a resource name"
     found = tokens(proposal.target)
     if not found & inventory:
         return f"target {proposal.target!r} names no resource in the inventory"

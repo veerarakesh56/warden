@@ -38,7 +38,7 @@ MUTATIONS = [
     (
         "P5 rollback guard removed",
         "verifier.py",
-        "if proposal.action is ActionKind.rollback_deploy and not context.recent_deploys:",
+        "if proposal.action is ActionKind.rollback_deploy and not _deploy_of_target(alert, context, proposal.target):",
         "if False and proposal.action is ActionKind.rollback_deploy:",
         "the classic confident hallucination - rolling back a deploy that is not in the evidence",
     ),

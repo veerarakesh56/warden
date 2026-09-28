@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from test_chatops import _CaptureSink
 from warden import chatops
 from warden.graph import run
@@ -345,3 +347,37 @@ def test_a_known_name_does_not_carry_shell_syntax_past_p14():
         assert target_problem(prop(evil), inv), evil
     assert target_problem(prop("deployment/checkout"), inv) is None
     assert target_problem(prop("checkout (version 7 -> 6)"), inv) is None
+
+
+
+def _rollback_ids(target, deploys):
+    from warden.models import ActionKind, Citation, ContextBundle, RemediationProposal
+    from warden.verifier import verify
+
+    ctx = ContextBundle(logs=["CONFIG deploy image=v2", "orders ERROR a", "orders ERROR b"],
+                        metrics={"error_rate": 0.2}, recent_deploys=deploys)
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote="deploy image=v2")])
+    prop = RemediationProposal(action=ActionKind.rollback_deploy, target=target, reasoning="r",
+                               expected_effect="e", blast_radius="single_service", reversible=True)
+    return verify(_alert(service="orders", environment="staging"), ctx, rc, prop).policy_ids
+
+
+def test_p5_needs_a_deploy_of_the_target_not_of_anything():
+    """Audit A-C-25: a deploy of ANY service satisfied P5."""
+    other = [{"kind": "ecs", "service": "payments", "at": "2026-09-28T09:59:00Z"}]
+    assert "P5-NO-DEPLOY-TO-ROLL-BACK" in _rollback_ids("orders", other)
+    own = [{"kind": "ecs", "service": "orders", "at": "2026-09-28T09:59:00Z"}]
+    assert "P5-NO-DEPLOY-TO-ROLL-BACK" not in _rollback_ids("orders", own)
+    scoped = [{"image": "repo/orders:v2", "revision": "7"}]  # a one-service backend: the alert's service
+    assert "P5-NO-DEPLOY-TO-ROLL-BACK" not in _rollback_ids("orders", scoped)
+
+
+@pytest.mark.parametrize("target", ["-n kube-system", "--all", "app=orders", "orders --force=true"])
+def test_p14_refuses_a_target_that_reads_as_a_flag_or_assignment(target):
+    """Audit A-C-25."""
+    from warden.grounding import target_problem
+    from warden.models import ActionKind, RemediationProposal
+
+    prop = RemediationProposal(action=ActionKind.restart_pods, target=target, reasoning="r",
+                               expected_effect="e", blast_radius="single_pod", reversible=True)
+    assert target_problem(prop, {"orders", "kube-system", "app", "all", "force", "true", "n"})

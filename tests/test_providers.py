@@ -81,7 +81,8 @@ def test_openai_aliases_point_at_the_right_host(monkeypatch, alias, expected_hos
     """One OpenAI-shaped client covers four vendors - the alias must set the base URL on the client,
     WITHOUT mutating the process env (see the two-alias leak test below)."""
     monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "fake")
+    for var in ("GROQ_API_KEY", "OPENROUTER_API_KEY"):
+        monkeypatch.setenv(var, "fake")
     p = resolve(alias)
     assert expected_host in str(p._client.base_url)
     assert "WARDEN_BASE_URL" not in os.environ, "resolve() must not write the process env"
@@ -92,7 +93,7 @@ def test_resolving_two_aliases_does_not_leak_the_first_endpoint(monkeypatch):
     a later resolve('ollama') reused a prior resolve('groq') endpoint - a "local" client silently
     pointing at a cloud API. Each resolve must be independent."""
     monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "fake")
+    monkeypatch.setenv("GROQ_API_KEY", "fake")
     resolve("groq")
     ollama = resolve("ollama")
     assert "localhost:11434" in str(ollama._client.base_url), "ollama leaked the groq endpoint"
@@ -164,3 +165,29 @@ def test_openai_adapter_estimates_when_the_provider_reports_no_usage(monkeypatch
     out = p.complete(system="system prompt", user="user prompt")
     assert out.input_tokens > 0, "no usage reported and no estimate - budget would never fire"
     assert out.output_tokens > 0
+
+
+
+@pytest.mark.parametrize("alias, own", [("groq", "GROQ_API_KEY"), ("openrouter", "OPENROUTER_API_KEY")])
+def test_the_openai_key_never_goes_to_another_vendor(monkeypatch, alias, own):
+    """Audit A-C-18: OPENAI_API_KEY was sent to Groq, OpenRouter and any custom host."""
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
+    monkeypatch.delenv(own, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-the-openai-key")
+    with pytest.raises(ProviderError, match=own):
+        resolve(alias)
+    monkeypatch.setenv(own, "the-vendors-own-key")
+    assert resolve(alias)._client.api_key == "the-vendors-own-key"
+
+
+def test_a_custom_host_uses_its_own_key_variable(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-the-openai-key")
+    monkeypatch.setenv("WARDEN_BASE_URL", "https://llm.internal.example/v1")
+    monkeypatch.setenv("WARDEN_API_KEY", "internal-key")
+    assert OpenAICompatProvider()._client.api_key == "internal-key"
+
+
+def test_openai_itself_still_gets_the_openai_key(monkeypatch):
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-the-openai-key")
+    assert OpenAICompatProvider()._client.api_key == "sk-the-openai-key"

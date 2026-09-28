@@ -18,6 +18,7 @@ crashing a run.
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -26,6 +27,8 @@ from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SpanExporter
+
+from . import __version__
 
 _CONFIGURED = False
 
@@ -40,9 +43,11 @@ def _build_exporter() -> SpanExporter | None:
         except ImportError:
             # The OTLP exporter is an optional extra. Fall back rather than crash a run because
             # telemetry could not be shipped - observability must never take the system down.
-            return ConsoleSpanExporter()
+            return ConsoleSpanExporter(out=sys.stderr)
     if os.environ.get("WARDEN_TRACE_CONSOLE") == "1":
-        return ConsoleSpanExporter()
+        # stderr, never stdout (audit A-C-20): stdout is the MCP server's JSON-RPC channel, and one
+        # span printed there corrupts the stream for the client.
+        return ConsoleSpanExporter(out=sys.stderr)
     return None
 
 
@@ -52,7 +57,7 @@ def configure() -> None:
     if _CONFIGURED or os.environ.get("WARDEN_TRACE") == "0":
         return
     provider = TracerProvider(
-        resource=Resource.create({"service.name": "warden", "service.version": "0.8.0"})
+        resource=Resource.create({"service.name": "warden", "service.version": __version__})
     )
     exporter = _build_exporter()
     if exporter is not None:

@@ -236,7 +236,7 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None) -> list[Notif
         safe_text = reveal_identifiers(safe_text, mapping)
         safe_data = reveal_identifiers(safe_data, mapping)
     # ⛔ The outbound gate sees exactly what would leave, after the reveal step (Phase 0 gate v0).
-    gate = enforce(safe_text, alert_id=str((report.data.get("alert") or {}).get("alert_id", "")),
+    gate = enforce(safe_text, alert_id=str((report.data.get("alert") or {}).get("id", "")),  # the report keys it "id" (A-C-24)
                    before_redaction=report.markdown, data_before_redaction=report.data)
     if gate.verdict == "BLOCK":
         safe_data = {"withheld": True, "gate": gate.verdict, "reasons": gate.reasons}

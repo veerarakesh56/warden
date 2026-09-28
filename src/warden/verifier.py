@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from . import evidence, tripwire
 from .environments import EnvironmentPolicies, default_environment_policies
+from .evidence import tokens
 from .grounding import action_support_problem, citation_problems, target_problem
 from .models import (
     ACTION_FACTS,
@@ -170,6 +171,13 @@ def _every_pod_failing(context) -> bool:
     return len(backing_off) >= total
 
 
+def _deploy_of_target(alert, context, target: str) -> bool:
+    """A recent deploy of the proposal's target. A deploy with no `service` comes from a backend
+    scoped to one service (k8s_backend, aws_backend), so it is the alert's service."""
+    want = tokens(target)
+    return any(tokens(str(d.get("service") or alert.service)) & want for d in context.recent_deploys)
+
+
 def _contradiction(proposal, context) -> str | None:
     """Why the proposed action cannot fix what the evidence shows - or None.
 
@@ -274,11 +282,14 @@ def verify(
             f"Confidence {root_cause.confidence:.2f} is below the {MIN_CONFIDENCE} threshold."
         )
 
-    # P5 — you cannot roll back a deploy that the evidence does not show.
-    if proposal.action is ActionKind.rollback_deploy and not context.recent_deploys:
+    # P5 — you cannot roll back a deploy that the evidence does not show. The deploy must be OF the
+    # target (audit A-C-25): a deploy of any other service used to count.
+    if proposal.action is ActionKind.rollback_deploy and not _deploy_of_target(alert, context, proposal.target):
         rejected = True
         policies.append("P5-NO-DEPLOY-TO-ROLL-BACK")
-        reasons.append("Rollback proposed but no recent deploy appears in the gathered context.")
+        reasons.append("Rollback proposed but no recent deploy of the target appears in the gathered context."
+                       if context.recent_deploys else
+                       "Rollback proposed but no recent deploy appears in the gathered context.")
 
     # P6 — wide blast radius is always a human's call. The table sets a FLOOR per action and the
     # proposal may only ever widen it: a model asking for a human is always allowed to, while

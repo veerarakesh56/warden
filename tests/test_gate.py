@@ -111,6 +111,7 @@ def test_a_secret_the_pipeline_missed_blocks_the_message(where):
     sink = _CaptureSink()
     chatops.notify(bad, [sink])
     assert "withheld" in sink.text and key not in sink.text
+    assert "for alert inc-7 " in sink.text, "audit A-C-24: the notice names its alert"
     assert sink.data == {"withheld": True, "gate": "BLOCK", "reasons": sink.data["reasons"]}
 
 
