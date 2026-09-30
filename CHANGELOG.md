@@ -341,6 +341,11 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **The register guard closes the fourth review's bypasses** (review D #3). A module-level
+  `importorskip`, a multi-line `pytestmark` list, `from pytest import mark` aliases, an alias imported
+  from a helper module, `xfail`, a citation the cell calls "NOT covered", and a DEFERRED cell saying
+  "NOT owner-agreed" or dated 9999-99-99 all counted as evidence. Only decorators known never to skip
+  are accepted, DEFERRED must start with a real past agreement, and `::test_x` shorthands are checked.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

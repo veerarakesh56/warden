@@ -3,10 +3,15 @@
 Everything the owner has asked for across every session, from the requirements trace of
 2026-09-28, with the work group that delivers it (see [`ROADMAP.md`](ROADMAP.md)) and its status.
 
-`tests/test_register.py` enforces the statuses: a DONE-local row must cite a test that exists and is
-not marked to skip (directly, through a marker alias, a module `pytestmark` or `importorskip`); a
-DONE-live row must start with the window and a past date; an open row cannot belong to a group that
-has already been finished. A skip decided at run time any other way is not detected.
+`tests/test_register.py` enforces the statuses: a DONE-local row must cite a test that exists and
+carries nothing that may skip or expect it to fail - any decorator but `parametrize`, `asyncio`,
+`timeout` or `filterwarnings`; a module `pytestmark`, one line or many; `importorskip`, `skip(` or
+`xfail(` in the test or at module level (two files are allowed a module-level skip CI never hits, each
+with its reason and, for the provider extras, a test that CI still installs them). A citation the cell
+calls not covering the row does not count, and `::test_x` means the file cited last. A DONE-live row
+must start with the window and a past date; a DEFERRED row must start with `owner-agreed` and a real
+past date; an open row cannot belong to a group that has already been finished. A skip decided at run
+time any other way - an `if` around `pytest.skip` in a helper - is not detected.
 
 ## Requirements
 

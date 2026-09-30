@@ -29,6 +29,13 @@ WINDOWS = ("W-T", "W0-now", "W0", "W-B", "W1", "W2", "W3")
 # "W1 is planned for 2027-02-01" and "W3 9999-99-99" all passed a search anywhere in the cell).
 WINDOW = re.compile(r"^(?:" + "|".join(re.escape(w) for w in WINDOWS) + r") (\d{4}-\d{2}-\d{2})\b")
 TEST_REF = re.compile(r"(tests/[\w/]+\.py)::(test_\w+)")
+# A citation of either form: `tests/x.py::test_a`, or the shorthand `::test_b` for the file cited last.
+_ANY_REF = re.compile(r"(tests/[\w/]+\.py)?(?<![\w.])::(test_\w+)|(tests/[\w/]+\.py)::(test_\w+)")
+# A citation the cell itself says does NOT cover the row: "NOT covered: tests/...", "no test: ...".
+_NEGATION = re.compile(r"\b(?:not|no|without|missing|lacks?|gap)\b[^.;]{0,40}$", re.IGNORECASE)
+# Decorators that never skip a test. Any other one - an alias imported from a helper module - might.
+_SAFE_DECORATORS = frozenset({"pytest.mark.parametrize", "pytest.mark.asyncio", "pytest.mark.timeout",
+                              "pytest.mark.filterwarnings"})
 
 
 def rows(text: str) -> list[dict[str, str]]:
@@ -62,22 +69,30 @@ def all_rows() -> list[tuple[str, dict[str, str]]]:
 # Module-level skips that CI does NOT hit, each with its reason. Anything else skipping is refused.
 SKIP_OK = {
     "tests/test_fullstack_infra.py": "skips only when terraform/fullstack is absent; it is in this repository",
+    "tests/test_providers.py": "skips only without the openai extra; CI's unit job installs .[dev,all-providers,...]",
 }
 
 
 def _skipped(file: str, src: str, m: re.Match) -> bool:
-    """Skipped directly, through a decorator alias defined in the module (`needs_pg = pytest.mark.skipif`),
-    by a module-level `pytestmark` skip, or by a runtime `pytest.importorskip` in its body (third review,
-    2026-09-30: all three passed a check for the literal word "skip" above the function)."""
-    decorators = m.group(1)
-    aliases = set(re.findall(r"^(\w+)\s*=\s*pytest\.mark\.skip", src, re.MULTILINE))
-    if "skip" in decorators or any(re.search(rf"@{a}\b", decorators) for a in aliases):
+    """Skipped - or expected to fail - directly, through any decorator that is not known never to skip,
+    by a module-level `pytestmark` (one line or many), or by `importorskip`, `skip(` or `xfail(` in its
+    body or at module level. Third review (2026-09-30): an alias, a module mark and an importorskip in
+    the body all passed a check for the word "skip" above the function; fourth review: a module-level
+    importorskip, a multi-line pytestmark list, `from pytest import mark`, a helper-module alias and
+    xfail still did."""
+    decorators = re.findall(r"^@([\w.]+)", m.group(1), re.MULTILINE)
+    if any(d not in _SAFE_DECORATORS for d in decorators):
         return True
     body = src[m.end():]
     nxt = re.search(r"^(?:def |class |@)", body, re.MULTILINE)
-    if "importorskip(" in body[:nxt.start() if nxt else len(body)]:
+    if re.search(r"importorskip\(|\bskip\(|\bxfail\(", body[:nxt.start() if nxt else len(body)]):
         return True
-    return bool(re.search(r"^pytestmark\s*=.*skip", src, re.MULTILINE)) and file not in SKIP_OK
+    if file in SKIP_OK:
+        return False
+    module_mark = re.search(r"^pytestmark\s*=.*(?:\n[ \t\])].*)*", src, re.MULTILINE)
+    if module_mark and re.search(r"skip|xfail", module_mark.group(0)):
+        return True
+    return bool(re.search(r"^\S.*(?:importorskip\(|\bskip\(|\bxfail\()", src, re.MULTILINE))
 
 
 def _real_window(evidence: str) -> bool:
@@ -93,6 +108,18 @@ def _real_window(evidence: str) -> bool:
     return day <= dt.datetime.now(dt.UTC).date()
 
 
+def _agreed(evidence: str) -> bool:
+    """The cell STARTS with the agreement and its real, past date (fourth review, 2026-09-30: "NOT
+    owner-agreed ...", "owner-agreed 9999-99-99" and planned dates passed a search anywhere)."""
+    import datetime as dt
+
+    m = re.match(r"owner-agreed (\d{4}-\d{2}-\d{2})\b", evidence.strip())
+    try:
+        return bool(m) and dt.date.fromisoformat(m.group(1)) <= dt.datetime.now(dt.UTC).date()
+    except ValueError:
+        return False
+
+
 def problems(rel: str, row: dict[str, str], current: str = CURRENT_GROUP) -> list[str]:
     rid = next(iter(row.values()))
     status, group, evidence = row["Status"], row["Group"], row.get("Evidence", "")
@@ -103,7 +130,17 @@ def problems(rel: str, row: dict[str, str], current: str = CURRENT_GROUP) -> lis
         return [f"{where}: unknown group {group!r}"]
     found = []
     if status == "DONE-local":
-        refs = TEST_REF.findall(evidence)
+        refs, last = [], None
+        for ref in _ANY_REF.finditer(evidence):
+            file = ref.group(1) or ref.group(3) or last
+            func = ref.group(2) or ref.group(4)
+            last = file
+            if file is None:
+                found.append(f"{where}: ::{func} names no file")
+            elif _NEGATION.search(evidence[max(0, ref.start() - 60):ref.start()]):
+                found.append(f"{where}: {file}::{func} is cited as NOT covering the row")
+            else:
+                refs.append((file, func))
         if not refs:
             found.append(f"{where}: DONE-local cites no test")
         for file, func in refs:
@@ -116,8 +153,8 @@ def problems(rel: str, row: dict[str, str], current: str = CURRENT_GROUP) -> lis
                 found.append(f"{where}: cited test {file}::{func} is skipped (or may be, in CI)")
     if status == "DONE-live" and not _real_window(evidence):
         found.append(f"{where}: DONE-live must name the window")
-    if status == "DEFERRED" and not re.search(r"owner-agreed \d{4}-\d{2}-\d{2}", evidence):
-        found.append(f"{where}: DEFERRED needs 'owner-agreed YYYY-MM-DD'")
+    if status == "DEFERRED" and not _agreed(evidence):
+        found.append(f"{where}: DEFERRED must start with 'owner-agreed YYYY-MM-DD', a real past date")
     if status not in CLOSED and ORDER.index(group) <= ORDER.index(current):
         found.append(f"{where}: still {status} but group {group} is at or before {current}")
     return found
@@ -178,3 +215,46 @@ def test_a_test_skipped_by_alias_module_mark_or_importorskip_is_not_evidence(src
     assert _skipped("tests/x.py", src, m)
     plain = "import pytest\n\ndef test_a():\n    pass\n"
     assert not _skipped("tests/x.py", plain, re.search(r"^((?:@.*\n)*)def test_a\(", plain, re.MULTILINE))
+
+
+@pytest.mark.parametrize("src", [
+    "import pytest\nopt = pytest.importorskip('psycopg')\n\ndef test_a():\n    pass\n",
+    "import pytest\npytestmark = [\n    pytest.mark.skipif(True, reason='x'),\n]\n\ndef test_a():\n    pass\n",
+    "from pytest import mark\nneeds = mark.skipif(True, reason='x')\n\n@needs\ndef test_a():\n    pass\n",
+    "from helpers import needs_pg\n\n@needs_pg\ndef test_a():\n    pass\n",
+    "import pytest\n\n@pytest.mark.xfail\ndef test_a():\n    pass\n",
+    "import pytest\n\ndef test_a():\n    pytest.xfail('later')\n",
+])
+def test_a_module_level_multi_line_aliased_or_xfail_skip_is_not_evidence(src):
+    """Fourth review (2026-09-30, D #3): each of these passed the third review's guard."""
+    m = re.search(r"^((?:@.*\n)*)def test_a\(", src, re.MULTILINE)
+    assert _skipped("tests/x.py", src, m)
+
+
+def test_a_parametrized_test_is_still_evidence():
+    src = "import pytest\n\n@pytest.mark.parametrize('x', [1])\ndef test_a(x):\n    pass\n"
+    assert not _skipped("tests/x.py", src, re.search(r"^((?:@.*\n)*)def test_a\(", src, re.MULTILINE))
+
+
+@pytest.mark.parametrize(("evidence", "expect"), [
+    ("NOT covered: tests/test_register.py::test_the_registers_are_parsed_at_all", "NOT covering"),
+    ("no test yet - tests/test_register.py::test_the_registers_are_parsed_at_all", "NOT covering"),
+    ("::test_the_registers_are_parsed_at_all", "names no file"),
+    ("tests/test_register.py::test_the_registers_are_parsed_at_all, ::test_nothing_here", "does not exist"),
+])
+def test_a_negated_or_dangling_citation_is_not_evidence(evidence, expect):
+    row = {"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": evidence}
+    assert any(expect in p for p in problems("r", row, current="G0")), problems("r", row, current="G0")
+
+
+@pytest.mark.parametrize("evidence", ["NOT owner-agreed 2026-09-01", "owner-agreed 9999-99-99",
+                                      "owner-agreed 2099-01-01", "later; owner-agreed 2026-09-01"])
+def test_a_deferral_needs_a_real_past_agreement_first(evidence):
+    row = {"#": "X", "Group": "G1", "Status": "DEFERRED", "Evidence": evidence}
+    assert any("owner-agreed" in p for p in problems("r", row, current="G0"))
+
+
+def test_a_skip_allowed_in_ci_is_still_installed_there():
+    """SKIP_OK's reason for test_providers.py holds only while CI's unit job installs the extras."""
+    ci = (ROOT / ".github/workflows/ci-tool.yml").read_text(encoding="utf-8")
+    assert re.search(r'pip install -e "\.\[dev,all-providers', ci), "CI no longer installs the provider extras"
