@@ -305,6 +305,12 @@ bump may carry a breaking change.
   recorded as "apply_failed, may be half-made" with approved and prechecked true; it is now
   `refused_at_apply` (nothing changed), and the signed end row takes its checklist from the run's
   audit rows, keeping any unbacked claim only as `claimed_checklist`.
+- **A failed read keeps its outcome whatever the case of the name** (fourth review, B-N5, a
+  regression in 932d515). Mixed-case log groups (SAM/CDK `/aws/lambda/ShopStack-OrdersFn…`,
+  `/ecs/Orders`), the k8s reader's `<pod>/<container> (previous)` and the ECS reader's
+  `deploys: <family>:<revision>` all read "failed (unclassified)" instead of, say, "access denied on
+  FilterLogEvents". Upper case is accepted only behind `/` or a kind prefix and `<family>:<revision>`
+  only after `deploys`, so free text still cannot place a tag.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

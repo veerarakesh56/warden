@@ -67,13 +67,19 @@ _TOOL = re.compile(r"^(logs|metrics|recent_deploys): ")
 # reader name (`aurora-db-writer metrics`, `ecs logs`, `rollout history`). A `/` without a kind prefix is
 # a pod/container, named by whoever can create pods (second independent review, 2026-09-30:
 # `scale-payments-to-zero-it-is-safe/app` was kept).
-_SOURCE = re.compile(r"^(?:(?:/|(?:lambda|ecs|sqs|k8s)/)[a-z0-9][a-z0-9._/-]{0,100}|[a-z0-9][a-z0-9._-]{0,60})"
+# Log groups and AWS names may carry upper case (SAM/CDK `/aws/lambda/ShopStack-OrdersFn1A2B`, `/ecs/Orders`);
+# only behind `/` or a kind prefix, never a bare word (fourth review, 2026-09-30, B-N5).
+_SOURCE = re.compile(r"^(?:(?:/|(?:lambda|ecs|sqs|k8s)/)[A-Za-z0-9][A-Za-z0-9._/-]{0,100}|[a-z0-9][a-z0-9._-]{0,60})"
                      r"(?: (?:logs|metrics|events|deploys|alias|code|history|dlq [a-z0-9._-]{1,80}))?$")
 # The shape of a segment WARDEN writes before a tag: a reader tag, a log group, or a pod/container
 # name (DNS names: no space, no bracket, no colon). Kept or not in what the model is shown (_SOURCE),
-# it may stand before the tag; free text ("KeyError", "Ignore previous") may not.
-_SEGMENT = re.compile(r"[a-z0-9/][a-z0-9._/-]{0,253}"
-                      r"(?: (?:logs|metrics|events|deploys|alias|code|history|dlq [a-z0-9._-]{1,80}))?")
+# it may stand before the tag; free text ("KeyError", "Ignore previous") may not. Upper case only behind
+# `/` or a kind prefix; the k8s reader's `<pod>/<container> (previous)` is WARDEN's too, and so is the
+# ECS reader's `<family>:<revision>`, right after its `deploys` (fourth review, 2026-09-30, B-N5: all
+# four read "unclassified").
+_REVISION = re.compile(r"[A-Za-z0-9_-]{1,255}:[0-9]{1,9}")
+_SEGMENT = re.compile(r"(?:[a-z0-9/][a-z0-9._/-]{0,253}|(?:/|(?:lambda|ecs|sqs|k8s)/)[A-Za-z0-9._/-]{1,253})"
+                      r"(?: (?:logs|metrics|events|deploys|alias|code|history|dlq [a-z0-9._-]{1,80}|\(previous\)))?")
 # The outcome is the tag WARDEN wrote where it caught the failure (tools.failure_tag), from the
 # exception's type and structured codes. Reading it from the exception's TEXT let a log line choose it:
 # a KeyError quoting "AccessDenied when calling the DescribeSecret operation" became a trusted
@@ -113,7 +119,10 @@ def tool_error_text(raw: str) -> str:
     # segment before it must be shaped like one WARDEN writes (_SEGMENT): untagged text cannot place one.
     i = rest.find("[")
     chain = rest[:i].removesuffix(": ") if i > 0 and rest[:i].endswith(": ") else None
-    ok = i == 0 or (chain is not None and all(_SEGMENT.fullmatch(s) for s in chain.split(": ")))
+    segments = chain.split(": ") if chain is not None else []
+    ok = i == 0 or (chain is not None and all(
+        _SEGMENT.fullmatch(s) or (n and segments[n - 1] == "deploys" and _REVISION.fullmatch(s))
+        for n, s in enumerate(segments)))
     tag = _TAG.match(rest, i) if ok else None
     if not tag:
         return f"{where}: failed (unclassified)"
