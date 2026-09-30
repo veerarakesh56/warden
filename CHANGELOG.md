@@ -326,6 +326,21 @@ bump may carry a breaking change.
   `Ocp-Apim-Subscription-Key:`) is now masked; the entropy backstop needed upper case. Over every
   recorded run the 8,485 facts, the 337 trusted items and the 337 redacted contexts are unchanged.
   Still open: other leetspeak (`8` for `c`) - the quarantine is one layer, not the only one.
+- **The verifier reads evidence and targets as they are written** (fourth review, C-4, C-6, C-7).
+  - P15 read `restarts: 0 -> 6`, "could not obtain lock", "no free memory" and "no response from
+    primary" as no support (22 of the reviewer's 36), and let `"restartCount": 0`, `== 0`, `(0)`,
+    "never restarted" and `exit code 0` support an action (16 of 37). It now reads the value a key
+    reports - a transition's last value, zeros written any way - and a negation reaches only its own
+    clause; a zero of something good ("0/3 passing", "cache hit: 0%") is a shortage. Both tables: 0.
+  - P14 accepted a flag after `=`, `/`, `:` or `@`, dash look-alikes outside the dash category,
+    lists without `=` (`orders payments`, `{orders,payments}`), patterns (`.+`, `%`), whole-namespace
+    spellings (`namespace/x`, `(namespace=x)`, "all pods in x", the bare namespace), redirects and
+    commands. Targets are ASCII, and a namespace that only qualifies a resource is looked past, so
+    `deployment=checkout, namespace=shop` is no longer refused.
+  - Replica lag is read through a unit whitelist: `replication_lag_bytes`, `_count`, `_alarm` and
+    `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
+  - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
+    now reads as a list.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

@@ -198,8 +198,34 @@ def _deploy_of_target(alert, context, target: str) -> bool:
 
 # The unit may be followed by an aggregate or a resource (third review: `replica_lag_seconds_max`,
 # `replica_lag_msec`, `replica_lag_seconds_orders` were no longer read).
-_LAG = re.compile(r"(?:replica|replication)_lag(?:_(ms|msec|millis|milliseconds|s|sec|secs|seconds))?"
-                  r"(?:_[a-z0-9]+)*$")
+_LAG = re.compile(r"(?:^|_)(?:replica|replication)_lag((?:_[a-z0-9]+)*)$")
+# Fourth review (2026-09-30, C-7): any suffix was read as seconds - `replication_lag_bytes`,
+# `replica_lag_count`, `replica_lag_alarm`, `max_replica_lag_seconds_threshold` counted as lag, and
+# `replica_lag_p99_ms` (a unit after an aggregate) read 40,000 ms as 40,000 s. Units are now a whitelist,
+# converted, at most one per name, before or after aggregates; a name with a word that is not lag, or an
+# ambiguous unit (`h`, `min`), is not a lag measurement. Other words are a resource (`_orders`).
+_LAG_UNITS = {**dict.fromkeys(("ms", "msec", "millis", "milliseconds"), 0.001),
+              **dict.fromkeys(("s", "sec", "secs", "second", "seconds"), 1.0),
+              **dict.fromkeys(("us", "usec", "micros", "microseconds"), 0.000001),
+              **dict.fromkeys(("mins", "minute", "minutes"), 60.0)}
+_NOT_LAG = frozenset({"b", "byte", "bytes", "kb", "kib", "mb", "mib", "gb", "gib", "count", "total", "alarm",
+                      "alarms", "state", "status", "threshold", "limit", "target", "ratio", "pct", "percent",
+                      "h", "hr", "hrs", "hour", "hours", "min", "d", "day", "days", "ns", "nanoseconds"})
+
+
+def _lag_seconds(name: str, value: float) -> float | None:
+    m = _LAG.search(name)
+    if not m:
+        return None
+    scale = None
+    for word in m.group(1).split("_")[1:]:
+        if word in _NOT_LAG:
+            return None
+        if word in _LAG_UNITS:
+            if scale is not None:
+                return None   # two units: `replica_lag_seconds_ms` - which one?
+            scale = _LAG_UNITS[word]
+    return value * (1.0 if scale is None else scale)
 
 
 def replica_lag_s(metrics: dict[str, float]) -> float | None:
@@ -212,9 +238,9 @@ def replica_lag_s(metrics: dict[str, float]) -> float | None:
         # The unit is read from the metric's OWN name, before any `__<resource>` suffix: `_ms` in
         # `__payments_msvc` read 47 s as 47 ms, and `redis_replication_lag_s` was unknown (second
         # review, 2026-09-30).
-        m = _LAG.search(key.split("__", 1)[0])
-        if m:
-            lags.append(value / 1000.0 if m.group(1) in ("ms", "msec", "millis", "milliseconds") else value)
+        lag = _lag_seconds(key.split("__", 1)[0], value)
+        if lag is not None:
+            lags.append(lag)
     return max(lags) if lags else None
 
 
@@ -458,7 +484,8 @@ def verify(
     # P14 - the target must be a resource WARDEN knows exists. Rejects: acting on a name the
     # evidence does not contain is acting on a guess.
     if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
-        problem = target_problem(proposal, evidence.inventory(alert, context))
+        scopes = {v for k, v in alert.labels.items() if k in ("namespace", "cluster") and v} - {alert.service}
+        problem = target_problem(proposal, evidence.inventory(alert, context), scopes)
         if problem:
             rejected = True
             policies.append("P14-TARGET-NOT-IN-EVIDENCE")

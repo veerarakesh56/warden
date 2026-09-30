@@ -104,6 +104,20 @@ def test_every_replica_lag_name_is_read_in_seconds(name, value, seconds):
     assert replica_lag_s({name: value}) == seconds
 
 
+@pytest.mark.parametrize("name, value, seconds", [
+    ("replica_lag_p99_ms", 40000, 40), ("replica_lag_ms_p99", 40000, 40), ("aurora_replica_lag_maximum_ms", 40000, 40),
+    ("replica_lag_us", 40_000_000, 40), ("replica_lag_minutes", 2, 120), ("replica_lag_sec_avg", 40, 40),
+    ("replication_lag_bytes", 5_000_000, None), ("replica_lag_count", 3, None), ("replica_lag_alarm", 1, None),
+    ("max_replica_lag_seconds_threshold", 30, None), ("replica_lag_seconds_ms", 40000, None),
+    ("replica_lag_h", 1, None), ("replica_lag_min", 2, None),
+])
+def test_a_replica_lag_unit_is_read_only_from_a_whitelist(name, value, seconds):
+    """Fourth review (2026-09-30, C-7): any suffix was read as seconds; a unit after an aggregate was not
+    read at all."""
+    got = replica_lag_s({name: value})
+    assert got == (None if seconds is None else pytest.approx(seconds)), (name, got)
+
+
 def test_custom_openai_headers_never_go_to_another_host(monkeypatch):
     """The OpenAI SDK reads OPENAI_CUSTOM_HEADERS itself and sends them - Authorization included - to
     every host it talks to."""
