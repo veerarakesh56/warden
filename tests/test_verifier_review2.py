@@ -52,7 +52,9 @@ def test_p15_accepts_wardens_own_fact_spellings(action, quote):
 
 
 def test_p5_accepts_a_target_naming_the_service_and_its_deployed_function():
-    deploys = [{"kind": "lambda", "service": "warden-pg-fs-checkout", "at": "2026-09-28T09:59:00Z"}]
+    """The deployed function is the service behind a CONFIGURED environment prefix (third review,
+    2026-09-30: any name component also let payments-orders count as orders)."""
+    deploys = [{"kind": "lambda", "service": "warden-dev-checkout", "at": "2026-09-28T09:59:00Z"}]
     from test_verifier_review import ALERT
 
     alert = ALERT.model_copy(update={"service": "checkout"})
@@ -62,7 +64,7 @@ def test_p5_accepts_a_target_naming_the_service_and_its_deployed_function():
     ctx = ContextBundle(logs=[f"CONFIG {CITE}", "checkout ERROR a", "checkout ERROR b"],
                         metrics={"error_rate": 0.1}, recent_deploys=deploys)
     rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote=CITE)])
-    target = "checkout (lambda warden-pg-fs-checkout, version 7 -> 6)"
+    target = "checkout (lambda warden-dev-checkout, version 7 -> 6)"
     assert P5 not in verify(alert, ctx, rc, _prop(ActionKind.rollback_deploy, target)).policy_ids
     for borrowed in ("checkout (after payments deploy)", "checkout, payments"):
         other = [{"kind": "lambda", "service": "payments", "at": "2026-09-28T09:59:00Z"}]

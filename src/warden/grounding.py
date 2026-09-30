@@ -68,13 +68,25 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
 }
 
 
+# A measurement that says "none": zero, false, none, no. The key's word group may run on before the
+# `=` - after the camelCase split `restartCount=0` reads `restart count=0` (third review, 2026-09-30:
+# 18 of 24 zero-valued quotes supported an action again).
+_NOTHING = re.compile(r"[\w ]{0,30}?\s*[=:]\s*(?:0+(?:\.0+)?|false|none|no|null)(?![\w.])")
+# ... or a negation just before it: "no OOMKilled events", "without restarts", "0 crash loops".
+_NEGATED = re.compile(r"(?:^|[^\w])(?:no|not|zero|without|0)\s+(?:[\w-]+\s+){0,2}$")
+
+
 def _supports(quote: str, key: str) -> bool:
     """`key` starts a word in `quote` (audit A-C-6: "ready" in "already", "lag" in "flag"), a short key
-    also ends one (review 2026-09-28: "miss" in "missing"), and a measurement of zero does not count
-    (`crashloop_containers=0` is evidence of NO crash loop)."""
+    also ends one (review 2026-09-28: "miss" in "missing"), and a measurement or a phrase that says
+    "none" does not count (`crashloop_containers=0`, `OOMKilled=false`, "no OOMKilled events" are
+    evidence of NO such thing)."""
     end = r"(?:s|es|ed)?(?![a-z])" if len(key) <= 4 else ""
     for m in re.finditer(rf"(?<![a-z0-9]){re.escape(key)}{end}", quote):
-        if not re.match(r"[\w]*\s*[=:]\s*0+(?:\.0+)?(?![\d.])", quote[m.end():]):
+        if key.startswith("not "):
+            if not _NEGATED.search(quote[:m.start()]):
+                return True
+        elif not _NOTHING.match(quote[m.end():]) and not _NEGATED.search(quote[:m.start()]):
             return True
     return False
 
@@ -107,7 +119,20 @@ _LEADING = re.compile(r"^[\s\u200b-\u200f\ufeff]+")
 # A flag anywhere in the target - at the start or after a space - with any dash a CLI or a person
 # might read as one (review 2026-09-28: `orders --all`, `orders -A`, and U+2010-2015, U+2212, U+FE63,
 # U+FF0D before a letter).
-_FLAGLIKE = re.compile(r"(?:^|\s)[-\u2010-\u2015\u2212\ufe63\uff0d]{1,2}[A-Za-z]")
+# Every Unicode dash (category Pd) and the minus signs a person might read as one (third review:
+# U+02D7 and U+2E3A passed).
+_DASHES = "".join(sorted({chr(c) for c in range(0x10000) if unicodedata.category(chr(c)) == "Pd"}
+                         | {"\U00010ead", "\u2212", "\u02d7", "\u2796", "\ufe63", "\uff0d"}))
+# ... after a space, a quote, a bracket or a comma (third review: `orders "--all"`, `(-A)`, `orders,--all`).
+_FLAGLIKE = re.compile(r"(?:^|[\s\"'`(\[{,;<])[" + re.escape(_DASHES) + r"]{1,2}[A-Za-z]")
+# Characters a resource name never holds and a reader may not see: format, combining and private-use
+# marks, and the blank "letters" (Hangul fillers, braille blank) - third review: U+3164, U+115F,
+# U+034F, U+FE0F and U+2800 hid a flag once only Cf was removed.
+_BLANKS = frozenset("\u115f\u1160\u3164\uffa0\u2800")
+
+
+def _invisible(ch: str) -> bool:
+    return unicodedata.category(ch) in ("Cf", "Mn", "Me", "Co", "Cn", "Cc", "Zl", "Zp") or ch in _BLANKS
 _SHELL = re.compile(r"[;|&$\\`]")
 _RESOURCE_KINDS = frozenset({"deployment", "namespace", "service", "statefulset", "daemonset", "pod", "function",
                              "lambda", "cluster", "table", "queue", "topic", "rule", "instance", "database", "db"})
@@ -125,11 +150,22 @@ def target_problem(proposal: RemediationProposal, inventory: set[str]) -> str | 
     # Invisible format characters go first: a soft hyphen or U+180E before `-n` hid the flag
     # (second review, 2026-09-30). `kind=name` with a resource kind is a name, as models write it
     # (`deployment=checkout (namespace=shop)`); any other `x=y` is a selector or an assignment.
-    plain = "".join(ch for ch in proposal.target if unicodedata.category(ch) != "Cf")
+    # models.inert() puts a zero-width space before a leading "-": that one is looked past (it is
+    # still a flag). Any other invisible character refuses the target outright.
+    unprefixed = _LEADING.sub("", proposal.target)
+    if any(_invisible(ch) for ch in unprefixed):
+        return f"target {proposal.target!r} contains invisible characters"
+    plain = unprefixed
     assigned = re.findall(r"([\w.-]+)=", plain)
-    if (_FLAGLIKE.search(_LEADING.sub("", plain)) or plain.count("=") != len(assigned)
+    if (_FLAGLIKE.search(plain) or plain.count("=") != len(assigned)
             or any(k.lower() not in _RESOURCE_KINDS for k in assigned)):
         return f"target {proposal.target!r} looks like a flag or an assignment, not a resource name"
+    # One named resource, not a pattern or a list (third review: `pod=orders-*`, `namespace=*`,
+    # `deployment=orders,payments`), and not a whole namespace or cluster (`namespace=warden-pg`).
+    if re.search(r"[*?]", plain) or re.search(r"=[^\s()=]*,", plain):
+        return f"target {proposal.target!r} is a pattern or a list, not one resource"
+    if re.match(r"\s*(?:namespace|cluster)\s*=", plain, re.IGNORECASE):
+        return f"target {proposal.target!r} names a whole namespace or cluster"
     found = tokens(proposal.target)
     if not found & inventory:
         return f"target {proposal.target!r} names no resource in the inventory"

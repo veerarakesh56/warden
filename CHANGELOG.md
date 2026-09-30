@@ -231,6 +231,19 @@ bump may carry a breaking change.
     workflow sandbox importer whenever a workflow logged (180 warnings; a pytest `filterwarnings =
     error` did not catch it, because the error is swallowed inside the worker - a test records it).
   - Readability cost: a line the gate changed loses its list or heading formatting.
+- **Verifier and provider fixes** (third review, A-C-6, A-C-18, A-C-25).
+  - P15: `restartCount=0`, `OOMKilled=false` and "no OOMKilled events" support no action. The
+    camelCase split (45773cb) had hidden the zero from the check.
+  - Replica lag named with a unit and a suffix (`replica_lag_seconds_max`, `replica_lag_msec`) is
+    read again, in seconds.
+  - P5: a deployed name counts as the alert's service only behind a configured environment prefix
+    (`warden-dev-checkout`). `payments-orders` is not `orders`.
+  - P14 refuses any invisible character, a flag after a quote, bracket or comma, every Unicode dash,
+    patterns and lists (`pod=orders-*`), and a whole namespace or cluster.
+  - `OPENAI_CUSTOM_HEADERS` is refused for any host but OpenAI: the SDK sent those headers,
+    Authorization included, everywhere. The Gemini client's debug mode is set off explicitly:
+    `GOOGLE_GENAI_CLIENT_MODE=replay` answered from files on disk.
+  - Replayed over the 337 recorded reports: no verdict changed.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

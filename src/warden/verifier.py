@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 from . import evidence, tripwire
-from .environments import EnvironmentPolicies, default_environment_policies
+from .environments import EnvironmentPolicies, default_environment_policies, strip_prefix
 from .evidence import tokens
 from .grounding import action_support_problem, citation_problems, target_problem
 from .models import (
@@ -189,13 +189,17 @@ def _deploy_of_target(alert, context, target: str) -> bool:
     if not named & deployed:
         return False
     own = tokens(alert.service)
-    # The service counts as deployed when a deployed name IS it or has it as a name component:
-    # `warden-pg-fs-checkout` is checkout's function (second review, 2026-09-30).
-    own_deployed = own & deployed or {o for o in own for d in deployed if o in re.split(r"[-_.:/]", d)}
+    # The service counts as deployed when a deployed name IS it, or is it behind a configured
+    # environment's prefix (`warden-dev-checkout`). Not any name component: `payments-orders`,
+    # `billing-api`, `orders-db` and `orders-canary` are other services (third review, 2026-09-30).
+    own_deployed = own & deployed or {o for o in own for d in deployed if strip_prefix(d) == o}
     return not (named & own) or bool(own_deployed)
 
 
-_LAG = re.compile(r"(?:replica|replication)_lag(?:_(ms|s|seconds))?$")
+# The unit may be followed by an aggregate or a resource (third review: `replica_lag_seconds_max`,
+# `replica_lag_msec`, `replica_lag_seconds_orders` were no longer read).
+_LAG = re.compile(r"(?:replica|replication)_lag(?:_(ms|msec|millis|milliseconds|s|sec|secs|seconds))?"
+                  r"(?:_[a-z0-9]+)*$")
 
 
 def replica_lag_s(metrics: dict[str, float]) -> float | None:
@@ -210,7 +214,7 @@ def replica_lag_s(metrics: dict[str, float]) -> float | None:
         # review, 2026-09-30).
         m = _LAG.search(key.split("__", 1)[0])
         if m:
-            lags.append(value / 1000.0 if m.group(1) == "ms" else value)
+            lags.append(value / 1000.0 if m.group(1) in ("ms", "msec", "millis", "milliseconds") else value)
     return max(lags) if lags else None
 
 

@@ -36,6 +36,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 
 class ProviderError(RuntimeError):
@@ -177,8 +178,13 @@ class GeminiProvider:
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Get a free key at aistudio.google.com.")
         # timeout is in MILLISECONDS here; attempts=1 means no internal retry (see _sdk_timeout_s).
+        from google.genai.client import DebugConfig
+
         self._client = genai.Client(
             api_key=api_key,
+            # ALWAYS explicit: the SDK otherwise reads GOOGLE_GENAI_CLIENT_MODE, where `replay` answers
+            # from files on disk and `record` writes every prompt to disk (third review, 2026-09-30).
+            debug_config=DebugConfig(client_mode=None, replays_directory=None, replay_id=None),
             http_options=types.HttpOptions(
                 # ALWAYS explicit: the SDK otherwise reads GOOGLE_GEMINI_BASE_URL itself, and the key
                 # went to whatever host that named, plain http included (second review, 2026-09-30).
@@ -243,6 +249,11 @@ class OpenAICompatProvider:
         api_key = os.environ.get(key_env) if key_env else "local-no-key"
         if not api_key:
             raise ProviderError(f"{key_env} is not set (or set WARDEN_BASE_URL for a local model).")
+        # The SDK reads OPENAI_CUSTOM_HEADERS itself and sends those headers - Authorization included -
+        # to whatever host it talks to (third review, 2026-09-30). They are meant for OpenAI only.
+        if os.environ.get("OPENAI_CUSTOM_HEADERS") is not None and base_url.rstrip("/") != OPENAI_DEFAULT_BASE_URL:
+            raise ProviderError("OPENAI_CUSTOM_HEADERS is set; the SDK would send those headers to "
+                                f"{urlparse(base_url).hostname}. Unset it for any host but OpenAI.")
         kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
         kw["base_url"] = base_url
         self._client = OpenAI(**kw)
@@ -480,8 +491,6 @@ _LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
 
 def key_env_for(base_url: str | None) -> str | None:
     """The environment variable holding the key for this host; None for a loopback model."""
-    from urllib.parse import urlparse
-
     host = (urlparse(base_url).hostname or "") if base_url else "api.openai.com"
     if host in _LOOPBACK:
         return None
