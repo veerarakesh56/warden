@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from . import approvals, bounds, catalog
 from .audit import AuditLog
@@ -114,7 +115,8 @@ class RemediationActivities:
             problems.append(f"{approval.approver} has already approved this plan")
         kind = "approval.refused" if problems else "approval.accepted"
         self.audit.append(plan.incident_id, kind, {"workflow_id": plan.workflow_id, "approver": approval.approver,
-                                                   "nonce": approval.nonce, "problems": problems})
+                                                   "nonce": approval.nonce, "plan_hash": plan.plan_hash,
+                                                   "problems": problems})
         valid = accepted + ([approval] if not problems else [])
         return ApprovalResult(problems=problems, enough=approvals.enough(valid, plan.tier, self.policy))
 
@@ -130,8 +132,28 @@ class RemediationActivities:
                           {"workflow_id": plan.workflow_id, "problems": problems})
         return problems
 
+    def _not_approved(self, plan: Plan) -> list[str]:
+        """Why `plan` may not be applied, from WARDEN's OWN audit log - never from what the workflow
+        says (second review, 2026-09-30: a forged or replayed activity result could carry a workflow
+        past its approval wait). The plan must be one resolve_plan made for this workflow, with no
+        problems, and approved by as many distinct approvers as its tier needs."""
+        made = [e["body"] for e in self.audit.entries(plan.incident_id, kinds=("remediation.plan",))
+                if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash]
+        if (not made or made[-1].get("problems") or made[-1].get("entry") != plan.entry
+                or made[-1].get("params") != plan.params):
+            return ["no such plan was made for this workflow"]
+        approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",))
+                     if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash}
+        need = self.policy.required.get(made[-1].get("tier", ""), 1)
+        return [] if len(approvers) >= need else [f"{len(approvers)} of {need} approval(s) recorded for this plan"]
+
     @activity.defn
     def apply(self, plan: Plan, service: str) -> str:
+        refused = self._not_approved(plan)
+        if refused:
+            self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
+                                                                       "plan_hash": plan.plan_hash, "why": refused})
+            raise ApplicationError("apply refused: " + "; ".join(refused), non_retryable=True)
         done = [e for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
                 if e["body"].get("plan_hash") == plan.plan_hash]
         if done:  # idempotent: a retried activity never applies twice

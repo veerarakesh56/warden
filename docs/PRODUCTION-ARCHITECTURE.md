@@ -127,6 +127,10 @@ The Claude Max CLI remains the development and benchmark backend.
 - **Backups and restore:** backups plus point-in-time recovery, with a measured restore drill (RTO and
   RPO published).
 - **Key rotation:** a table per secret.
+- **The codec server** is not built yet. Every payload is bound to its namespace and workflow id
+  (2026-09-30), so the server must receive the workflow id with each payload. Whether the Temporal
+  web UI sends it is to be verified live in G6. If it does not, the UI shows payloads as refused
+  rather than decrypting them unbound.
 - **Data retention:** covered in `DATA-RETENTION.md`.
 - **Threat model:** in `THREAT-MODEL.md`.
 

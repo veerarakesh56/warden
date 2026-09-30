@@ -89,6 +89,7 @@ def _run(world, drive, **req):
             await drive(handle)
             outcome = await handle.result()
             world["history"] = await handle.fetch_history()
+            world["namespace"] = env.client.namespace
             return outcome
     return asyncio.run(main())
 
@@ -207,5 +208,7 @@ def test_the_ttl_is_honoured(world, owner):
 def test_a_recorded_history_replays_deterministically(world, owner):
     """The workflow code must make the same decisions when Temporal replays it after a worker restart."""
     _run(world, _approve_with(owner))
-    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER)
+    # Payloads are bound to their namespace and workflow (codec.py), so a replay names the namespace
+    # the history was recorded in.
+    asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER, namespace=world["namespace"])
                 .replay_workflow(world["history"]))
