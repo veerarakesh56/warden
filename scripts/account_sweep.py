@@ -43,7 +43,8 @@ from warden.environments import EnvironmentPolicies
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ROLE = "warden-pg-sweep"
 TRUST_FILE = ROOT / "terraform" / "proving-ground" / "sweep-role-trust.local.json"
-ENVIRONMENTS = set(EnvironmentPolicies.load().known_environments)
+_POLICIES = EnvironmentPolicies.load()
+ENVIRONMENTS = set(_POLICIES.known_environments) | ({_POLICIES.runtime_environment} - {None})
 NOT_ENABLED = {"SubscriptionRequiredException", "OptInRequired"}
 LIVE = ("pending", "available", "running", "stopping", "stopped", "creating", "modifying")
 

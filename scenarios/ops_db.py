@@ -40,7 +40,7 @@ from .ops import OpError
 # setup; every op checks it before touching anything.
 SENTINEL_TABLE = "warden_proving_ground"
 PROVING_GROUND_DB = "warden"
-PROJECT_TAG = ("Project", "warden-proving-ground")
+STACK_TAG = ("Stack", "warden-proving-ground")  # see scenarios/ops.py STACK_TAG
 # How long the lock-contention blocker may wait for its own lock before refusing (see that op).
 LOCK_TIMEOUT_S = 15
 
@@ -276,7 +276,7 @@ def op_db_revoke_ingress(clients: Clients, target: Target, *, account: str = "",
     groups = clients.ec2.describe_security_groups(GroupIds=[target.security_group_id])
     group = (groups.get("SecurityGroups") or [{}])[0]
     tags = {t.get("Key"): t.get("Value") for t in group.get("Tags") or []}
-    key, value = PROJECT_TAG
+    key, value = STACK_TAG
     if tags.get(key) != value:
         raise OpError(
             f"security group {target.security_group_id} is not tagged {key}={value}. Refusing."

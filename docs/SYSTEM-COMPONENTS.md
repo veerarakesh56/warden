@@ -2,7 +2,7 @@
 
 Sections 1-9 were checked on 2026-09-27, under the earlier rule of **free or open-source only**. The
 owner replaced that rule on 2026-09-28 with **quality first** (section 10). **Section 11 has the live
-prices, checked 2026-09-29, for the components chosen since.** Where a row in sections 1-9 disagrees
+prices, checked 2026-09-28 UTC / 2026-09-29 IST, for the components chosen since.** Where a row in sections 1-9 disagrees
 with sections 10-11, sections 10-11 win.
 
 AWS prices are US list prices, and ap-south-2 can differ. The AWS Free plan is USD 200 of credits
@@ -117,10 +117,13 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 3. **Temporal Cloud** instead of a self-hosted Temporal. **Secrets Manager** for every secret, SSM
    for plain config. **Bedrock Opus 5.5** as the production model. **KMS Ed25519** for audit signing.
    **Passkeys** for approvals, on the owner's Cloudflare domain.
-4. The prices for these choices are in section 11, checked live on 2026-09-29. Rows in sections 1-9
+4. The prices for these choices are in section 11, checked live on 2026-09-28 UTC / 2026-09-29 IST. Rows in sections 1-9
    that still say "free-only" reflect the old rule.
 
-## 11. Live prices, checked 2026-09-29 (region ap-south-2, Hyderabad)
+## 11. Live prices, checked 2026-09-28 UTC / 2026-09-29 IST (region ap-south-2, Hyderabad)
+
+Re-checked 2026-09-30 by the second independent review against freshly downloaded ap-south-2 Price List
+files: every AWS price below matched. The Temporal Developer-plan conflict remains UNCERTAIN.
 
 **Sources:**
 - AWS prices come from AWS's own Price List files for ap-south-2
@@ -175,4 +178,5 @@ window.
   - always on, it would be about $204 a month.
 - **Not included:** data processing charges, logs beyond the free tier, and model tokens. For
   example, 10M input + 1M output tokens cost $30 on Sonnet 5 or $60 on Opus 5.5. Temporal is covered
-  by the trial's credits.
+  by the trial's credits only until about 2026-12-27 (90 days from 2026-09-28). That is before the
+  G6 windows, which will be paid (ROADMAP calendar).

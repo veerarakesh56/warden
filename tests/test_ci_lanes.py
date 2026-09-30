@@ -61,3 +61,15 @@ def test_deploy_workflows_offer_exactly_the_configured_environments():
         assert "WARDEN_FS_" not in text and "environment: fullstack" not in text, name
         job = next(j for j in wf["jobs"].values() if "id-token" in (j.get("permissions") or {}))
         assert job["environment"] == "${{ inputs.environment }}", name
+
+
+def test_every_action_is_pinned_to_a_full_commit_sha():
+    """A tag can be moved to other code (the tj-actions and Trivy compromises did exactly that); a
+    40-character commit id cannot. zizmor checks this in CI; this test makes it a named control."""
+    import re
+
+    uses = [(f.name, m.group(1)) for f in CI.parent.glob("*.yml")
+            for m in re.finditer(r"^\s*-?\s*uses:\s*(\S+)", f.read_text(encoding="utf-8"), re.MULTILINE)]
+    assert uses
+    loose = [(f, u) for f, u in uses if not u.startswith("./") and not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", u)]
+    assert loose == [], loose

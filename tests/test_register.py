@@ -22,6 +22,10 @@ ORDER = ("G0", "W0-now", "G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
 CURRENT_GROUP = "G0"  # advance only when every row of the group is closed
 STATUSES = {"OPEN", "DONE-local", "DONE-live", "DEFERRED", "WITHHELD"}
 CLOSED = {"DONE-local", "DONE-live", "DEFERRED"}
+# A real window of the plan, and the date it ran. `\bW[\w-]+` let "Worked on my machine" and an invented
+# "W-research" through (second independent review, 2026-09-30).
+WINDOWS = ("W-T", "W0-now", "W0", "W-B", "W1", "W2", "W3")
+WINDOW = re.compile(r"(?<![\w-])(?:" + "|".join(re.escape(w) for w in WINDOWS) + r")(?![\w-])[^|]*\d{4}-\d{2}-\d{2}")
 TEST_REF = re.compile(r"(tests/[\w/]+\.py)::(test_\w+)")
 
 
@@ -74,7 +78,7 @@ def problems(rel: str, row: dict[str, str], current: str = CURRENT_GROUP) -> lis
                 found.append(f"{where}: cited test {file}::{func} does not exist")
             elif "skip" in m.group(1):
                 found.append(f"{where}: cited test {file}::{func} is skipped")
-    if status == "DONE-live" and not re.search(r"\bW[\w-]+", evidence):
+    if status == "DONE-live" and not WINDOW.search(evidence):
         found.append(f"{where}: DONE-live must name the window")
     if status == "DEFERRED" and not re.search(r"owner-agreed \d{4}-\d{2}-\d{2}", evidence):
         found.append(f"{where}: DEFERRED needs 'owner-agreed YYYY-MM-DD'")
@@ -100,6 +104,9 @@ def test_the_registers_are_parsed_at_all():
     ({"#": "X", "Group": "G1", "Status": "DONE-local", "Evidence": "trust me"}, "cites no test"),
     ({"#": "X", "Group": "G1", "Status": "DEFERRED", "Evidence": "later"}, "owner-agreed"),
     ({"#": "X", "Group": "G1", "Status": "DONE-live", "Evidence": "it worked"}, "name the window"),
+    ({"#": "X", "Group": "G1", "Status": "DONE-live", "Evidence": "Worked on my machine 2026-09-30"}, "name the window"),
+    ({"#": "X", "Group": "G1", "Status": "DONE-live", "Evidence": "W-research 2026-09-28"}, "name the window"),
+    ({"#": "X", "Group": "G1", "Status": "DONE-live", "Evidence": "W1 with no date"}, "name the window"),
     ({"#": "X", "Group": "G0", "Status": "OPEN", "Evidence": ""}, "at or before"),
     ({"#": "X", "Group": "G0", "Status": "done", "Evidence": ""}, "unknown status"),
 ])

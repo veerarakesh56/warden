@@ -31,7 +31,8 @@ OP = f"arn:aws:iam::{acct}:policy/WardenProvingGroundOperator"
 BOUNDARY = f"arn:aws:iam::{acct}:policy/WardenProvingGroundBoundary"
 TRUST = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {
     "Service": "ecs-tasks.amazonaws.com"}, "Action": "sts:AssumeRole"}]})
-TAGS = [{"Key": "Project", "Value": "warden-proving-ground"}, {"Key": "Purpose", "Value": "boundary-probe"}]
+TAGS = [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"},
+        {"Key": "Stack", "Value": "warden-proving-ground"}, {"Key": "Purpose", "Value": "boundary-probe"}]
 results = []
 
 

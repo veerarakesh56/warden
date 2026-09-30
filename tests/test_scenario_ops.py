@@ -24,8 +24,8 @@ from scenarios import ops
 from scenarios.ops import Clients, OpError, Target, run_steps
 
 ACCOUNT = "111122223333"
-TAGS_OK = [{"key": "Project", "value": "warden-proving-ground"}]
-EC2_TAGS_OK = [{"Key": "Project", "Value": "warden-proving-ground"}]
+TAGS_OK = [{"key": "Stack", "value": "warden-proving-ground"}]
+EC2_TAGS_OK = [{"Key": "Stack", "Value": "warden-proving-ground"}]
 
 
 # --------------------------------------------------------------------------- fakes
@@ -453,10 +453,10 @@ def test_every_variant_named_in_the_catalog_exists():
 def test_a_registered_variant_is_tagged_so_teardown_can_find_it(clients, target):
     ops.op_ecs_deploy_variant(clients, target, variant="oom", account=ACCOUNT)
     tags = clients.ecs.registered[-1].get("tags") or []
-    assert {"key": "Project", "value": "warden-proving-ground"} in tags
+    assert {"key": "Stack", "value": "warden-proving-ground"} in tags
 
 
 def test_the_recreated_log_group_is_tagged_so_teardown_can_find_it(clients, target):
     ops.op_logs_create_group(clients, target, log_group="/ecs/checkout")
     created = [kw for name, kw in clients.logs.calls if name == "create_log_group"]
-    assert created and created[-1].get("tags") == {"Project": "warden-proving-ground"}
+    assert created and created[-1].get("tags") == ops.CREATE_TAGS

@@ -52,12 +52,12 @@ it cannot drift from this table.
 3. An **AWS Budget** at `var.budget_usd` (default $5) emails you at 60% / 90% of *forecast* and
    100% of actual. Forecast matters: by the time actual spend crosses $5, a forgotten cluster has
    already been up for two days. Budgets are free.
-4. Every resource is tagged `Project = warden-proving-ground`, so anything a failed destroy left
+4. Every resource is tagged `Stack = warden-proving-ground` (and `Project = warden`, `Environment`), so anything a failed destroy left
    behind can be found:
 
    ```bash
    aws resourcegroupstaggingapi get-resources \
-     --tag-filters Key=Project,Values=warden-proving-ground \
+     --tag-filters Key=Stack,Values=warden-proving-ground \
      --query 'ResourceTagMappingList[].ResourceARN'
    ```
 

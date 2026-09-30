@@ -39,7 +39,13 @@ use step G at once.
   `Key=x509Subject,Value=CN=warden-operator-laptop,O=warden`.
 
 **Cost:**
-- IAM Roles Anywhere: no additional cost (AWS, 2022 launch notice; re-checked 2026-09-28).
+- IAM Roles Anywhere: no additional cost. The source is AWS's announcements (the 2022 launch and
+  the 2023 region additions); no current pricing page says otherwise (searched 2026-09-30). WARDEN
+  uses its own certificate authority, so no AWS Private CA charge applies.
+- Whether a **Free-plan** account may use it is NOT confirmed. AWS says a Free-plan account gets
+  "access to select AWS services" and lists none as blocked. On 2026-09-30 a read-only API call from
+  this account got an ordinary IAM refusal (the old operator lacks the permission), not a plan block.
+  That is evidence, not proof. Step B1 is the real test.
 - IAM: free.
 - Secrets Manager: USD 0.40 per secret per month plus USD 0.05 per 10,000 calls, so about USD 0.40
   a month, covered by the Free-plan credits.
@@ -59,6 +65,12 @@ Side effect: until step B works, Claude cannot run `scripts/validate_policies.py
 removed policy granted Access Analyzer.
 
 **B1. The trust anchor** (region Hyderabad).
+
+⚠ If the console refuses because of the account plan (a message about the Free plan, upgrading, or a
+subscription), stop there and tell Claude. Step A stays done (it is a fix on its own), the laptop
+keeps its access key, and the alternative is decided with you. Upgrading to the paid plan would end
+the Free plan's no-charge guarantee; the credits would still apply.
+
 1. Open **IAM Roles Anywhere** → **Create a trust anchor**.
 2. Name: `warden-operator`.
 3. CA source: **External certificate bundle**. Paste the whole content of
@@ -153,8 +165,15 @@ Claude compares the stored value with the file by hash, never printing either.
    - the moved credentials file;
    - `%USERPROFILE%\.warden\slack-webhook`;
    - `%USERPROFILE%\.warden\fs-secrets.tfvars` (it holds no secret, only comments);
-   - `terraform\fullstack\terraform.tfvars` and `terraform\proving-ground\terraform.tfvars` (your
-     IP and budget email; the stacks read these from Parameter Store now).
+   - `terraform\fullstack\terraform.tfvars` (your IP and budget email; that stack reads them from
+     Parameter Store now);
+   - `%APPDATA%\temporalio\temporal.toml` and `temporal.toml.bak-before-cloud-setup` next to it.
+     They hold the Temporal trial API key, which expired on 2026-09-29. Claude deletes the files
+     without opening them. WARDEN's own Temporal key comes later, from Secrets Manager.
+
+   `terraform\proving-ground\terraform.tfvars` STAYS: the proving ground still reads your IP and
+   budget email from it, and deleting it would break its next plan. It holds no secret and git
+   ignores it.
 
 **F. One date to read.** In the Temporal Cloud web UI (cloud.temporal.io), under Settings /
 Billing or Plan, read when the trial ends and the credits left, and tell Claude.
@@ -169,8 +188,9 @@ AWS's notification warns 45 days before. To renew:
 1. Claude runs `python scripts/roles_anywhere_cert.py issue`.
 2. You replace the trust anchor's certificate bundle with the new `ca.pem`. It is the same anchor
    and the same ARN, so there are no trust policy changes.
-3. Claude removes the old certificate. Until then the helper picks the newer one
-   (`--reuse-latest-expiring-certificate`).
+3. Claude removes the old certificate. Until then the helper picks the newer one, because the
+   profile's `credential_process` passes `--use-latest-expiring-certificate`. Claude writes it that
+   way in step E2; the flag was checked in `aws_signing_helper credential-process --help` 1.8.5.
 
 **Undo, if ever needed:**
 - A: user → **Add permissions** → attach `WardenProvingGroundOperator` again.

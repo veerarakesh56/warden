@@ -44,7 +44,7 @@ output "task_definition_bad" {
 # --------------------------------------------------------------------------- what the harness breaks
 #
 # The fault injector refuses to touch anything it was not handed here, and cross-checks each one
-# against the Project=warden-proving-ground tag before acting.
+# against the Stack=warden-proving-ground tag before acting.
 
 output "service_security_group_id" {
   description = "The task security group. Scenario ecs-12 revokes its egress and restores it verbatim."
@@ -89,7 +89,7 @@ output "eks_cluster" {
 
 output "teardown_check" {
   description = "Run this after `terraform destroy`. An empty list is the only acceptable answer."
-  value       = "aws resourcegroupstaggingapi get-resources --region ${var.region} --tag-filters Key=Project,Values=warden-proving-ground --query 'ResourceTagMappingList[].ResourceARN'"
+  value       = "aws resourcegroupstaggingapi get-resources --region ${var.region} --tag-filters Key=Stack,Values=warden-proving-ground --query 'ResourceTagMappingList[].ResourceARN'"
 }
 
 output "estimated_hourly_usd" {

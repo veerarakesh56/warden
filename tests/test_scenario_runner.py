@@ -31,7 +31,7 @@ class FakeEcs:
 
     def describe_clusters(self, **kw):
         self.calls.append(("describe_clusters", kw))
-        return {"clusters": [{"tags": [{"key": "Project", "value": "warden-proving-ground"}]}]}
+        return {"clusters": [{"tags": [{"key": "Stack", "value": "warden-proving-ground"}]}]}
 
     def update_service(self, **kw):
         self.calls.append(("update_service", kw))

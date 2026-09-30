@@ -9,7 +9,7 @@ Three rules this module exists to enforce:
 
 1. **It only touches the proving ground.** Every call is scoped to the cluster, service, security
    group and roles created by `terraform/proving-ground/`: `_guard_cluster()` refuses any cluster
-   not tagged `Project=warden-proving-ground`, and role operations refuse names without the
+   not tagged `Stack=warden-proving-ground`, and role operations refuse names without the
    `warden-` prefix. A fault injector that can reach production is not
    a test harness, it is an outage waiting for a typo.
 
@@ -37,7 +37,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-PROJECT_TAG = ("Project", "warden-proving-ground")
+# The proving ground's own tag (terraform/proving-ground/main.tf `Stack`), checked before anything is
+# touched. It was `Project=warden-proving-ground` until the stacks moved to Project=warden +
+# Environment (owner rule R53, a7a9b10); the guards did not move with it, so every injection refused
+# and the teardown sweep lost its tag filter (second review, 2026-09-30). tests/test_proving_ground_tags.py
+# reads main.tf, so the two cannot drift apart again.
+STACK_TAG = ("Stack", "warden-proving-ground")
+# What the harness puts on what it creates: what Terraform puts on its own (the sweep's tag audit).
+CREATE_TAGS = {"Project": "warden", "Environment": "dev", "Stack": STACK_TAG[1]}
 
 
 class OpError(RuntimeError):
@@ -88,7 +95,7 @@ def _guard_cluster(clients: Clients, target: Target) -> None:
     if not clusters:
         raise OpError(f"cluster {target.cluster!r} not found - refusing to inject anything")
     tags = {t["key"]: t["value"] for t in clusters[0].get("tags") or []}
-    key, value = PROJECT_TAG
+    key, value = STACK_TAG
     if tags.get(key) != value:
         raise OpError(
             f"cluster {target.cluster!r} is not tagged {key}={value}. This harness only breaks the "
@@ -239,7 +246,7 @@ def _register_variant(clients: Clients, target: Target, variant: str, account: s
     # ⛔ Tagged, so teardown can find it. Every variant registered here is a new revision the
     # Terraform state has never heard of; untagged, it is invisible to the teardown sweep, which then
     # reports "0 resources remaining" while leaving one revision per scenario per wave behind.
-    kwargs["tags"] = [{"key": PROJECT_TAG[0], "value": PROJECT_TAG[1]}]
+    kwargs["tags"] = [{"key": k, "value": v} for k, v in CREATE_TAGS.items()]
 
     registered = clients.ecs.register_task_definition(**kwargs)
     return registered["taskDefinition"]["taskDefinitionArn"]
@@ -317,7 +324,7 @@ def op_logs_create_group(clients: Clients, target: Target, *, log_group: str,
         # tags; this RE-created one is a different resource that Terraform only finds by name, and
         # the tag sweep - the check that says "nothing is left" - never finds it at all.
         clients.logs.create_log_group(
-            logGroupName=log_group, tags={PROJECT_TAG[0]: PROJECT_TAG[1]},
+            logGroupName=log_group, tags=dict(CREATE_TAGS),
         )
     except Exception as exc:
         if "ResourceAlreadyExists" not in str(exc):
@@ -338,7 +345,7 @@ def op_sg_revoke_all_egress(clients: Clients, target: Target, **_):
     resp = clients.ec2.describe_security_groups(GroupIds=[target.security_group_id])
     group = resp["SecurityGroups"][0]
     tags = {t["Key"]: t["Value"] for t in group.get("Tags") or []}
-    key, value = PROJECT_TAG
+    key, value = STACK_TAG
     if tags.get(key) != value:
         raise OpError(f"security group {target.security_group_id} is not tagged {key}={value}")
 
@@ -371,7 +378,7 @@ def op_route_delete_default(clients: Clients, target: Target, **_):
     resp = clients.ec2.describe_route_tables(RouteTableIds=[target.route_table_id])
     table = resp["RouteTables"][0]
     tags = {t["Key"]: t["Value"] for t in table.get("Tags") or []}
-    key, value = PROJECT_TAG
+    key, value = STACK_TAG
     if tags.get(key) != value:
         raise OpError(f"route table {target.route_table_id} is not tagged {key}={value}")
 

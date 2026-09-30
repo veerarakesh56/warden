@@ -10,14 +10,14 @@ skipped, and an open row cannot belong to a group that has already been finished
 
 | # | Requirement (owner's words, shortened) | Group | Status | Evidence |
 |---|---|---|---|---|
-| R1 | "Honesty, not polish… don't flatter me" — the docs must never overclaim | G0 | DONE-local | tests/test_docs_honesty.py::test_no_known_false_claim_is_back |
+| R1 | "Honesty, not polish… don't flatter me" — the docs must never overclaim | G8 | OPEN | a standing rule, not a task: it cannot be DONE, and saying so was itself an overclaim (second independent review, 2026-09-30). Enforced for every KNOWN false claim by tests/test_docs_honesty.py::test_no_known_false_claim_is_back; review 2 found more (README approval-gate line, ROADMAP cost table, FAILURE-MODES B5, the redaction 'raises' claims, owner-step flag and tfvars), corrected and pinned. Re-checked by an independent docs review before v1.0 (G8) |
 | R2 | Don't pitch WARDEN as novel or as something a company should adopt as-is | G0 | DONE-local | tests/test_docs_honesty.py::test_the_readme_does_not_pitch_adoption |
 | R3 | No email or account ID anywhere in the repo | G0 | DONE-local | tests/test_check_publishable.py::test_the_repository_as_it_stands_is_publishable |
 | R4 | Every time given in UTC and IST (docs, reports, Slack, approval page) | G3 | OPEN | |
 | R5 | "Do it yourself; if you need a permission, add it to the policy" — owner steps only where unavoidable | G1 | OPEN | |
 | R6 | Complete, paste-ready files and console-only click steps | G1 | OPEN | |
 | R7 | Check IAM against official AWS docs and validators | G1 | OPEN | |
-| R8 | Research live, up to today, before choosing or claiming anything | G0 | DONE-live | W-research 2026-09-28: docs/research/2026-09-28 (12 reports) |
+| R8 | Research live, up to today, before choosing or claiming anything | G8 | OPEN | a standing working rule, not a window: 'W-research' was invented to mark it DONE-live (second independent review, 2026-09-30). Each decision's research is dated in docs/research/2026-09-28/ and in the commit that uses it; re-checked before v1.0 (G8) |
 | R9 | Prefer ready-made production tools over building from scratch | G4 | OPEN | |
 | R10 | Quality first; cost only to trim waste; flag every paid item with its cost | G3 | OPEN | |
 | R11 | Cost safety: nothing left running and billing | G0 | DONE-local | tests/test_account_sweep.py::test_untagged_billable_resources_are_found_and_free_defaults_are_not (the sweep tool; running it and the next-day billing check after every window is a procedure, recorded per window in OWNER-CONSOLE-STEPS) |
@@ -40,7 +40,7 @@ skipped, and an open row cannot belong to a group that has already been finished
 | R28 | Approve and deny from Slack | G5 | OPEN | |
 | R29 | Screenshots, JSON reports and proofs of every live run | G6 | OPEN | |
 | R30 | A full, current architecture diagram in the README | G6 | OPEN | |
-| R31 | CI failures fixed, and CI never red | G3 | OPEN | review 2026-09-28: regrouped from G0. CI on main was red for ab900cd and 54180fb (a k3d-only assertion; fixed in 0fcbfbb) - no test can prove 'never red'. The control is branch protection with required checks, an owner step in window W0 (G3) |
+| R31 | CI failures fixed, and CI never red | G3 | OPEN | review 2026-09-28: regrouped from G0. CI on main was red for FOUR commits - ab900cd and 54180fb (a k3d-only assertion; fixed in 0fcbfbb), then bdb8a13 and 5a753da (no torch in CI; fixed in e8278f2) - each time because a push was made before CI on the previous one was green. No test can prove 'never red'. The control is branch protection with required checks, an owner step in window W0 (G3) |
 | R32 | Zero hardcoding; secrets only in AWS (Secrets Manager for secrets, SSM for config) | G3 | OPEN | |
 | R33 | No long-lived access keys anywhere | W0-now | OPEN | |
 | R34 | Per-environment everything: dev, staging, qa-staging, pre-prod, qa-prod, prod | G6 | OPEN | |
@@ -61,8 +61,8 @@ skipped, and an open row cannot belong to a group that has already been finished
 | R49 | Temporal Cloud (owner's trial) | G0 | DONE-live | W-T 2026-09-28: namespace active in aws-ap-south-2; the Temporal SAMPLE Workflow completed and recovered from an injected failure. WARDEN itself on Temporal Cloud is not yet proven - that is window W2 (G6) |
 | R50 | A single approver, stated honestly | G5 | OPEN | |
 | R51 | WARDEN never creates database indexes | G1 | OPEN | |
-| R52 | Public and private subnets done properly | G0 | DONE-local | tests/test_fullstack_infra.py::test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_internet |
-| R53 | Every resource tagged, including Environment | G0 | DONE-local | tests/test_fullstack_infra.py::test_everything_the_stack_creates_carries_project_and_environment_tags |
+| R52 | Public and private subnets done properly | G1 | OPEN | proven for terraform/fullstack only (tests/test_fullstack_infra.py::test_only_the_nat_lives_in_a_public_subnet_and_nothing_is_open_to_the_internet); second independent review 2026-09-30: the proving ground runs ECS tasks with public IPs and EKS nodes and RDS in public subnets (deliberate for the Wave 1-3 lab, documented, but not 'done properly') - G1-I |
+| R53 | Every resource tagged, including Environment | G1 | OPEN | proven for terraform/fullstack only (tests/test_fullstack_infra.py::test_everything_the_stack_creates_carries_project_and_environment_tags); second independent review 2026-09-30: the proving ground's EKS node group has no launch template (its instances and volumes are untagged) and the ECS service does not propagate tags; the harness guards now follow the tags Terraform applies (tests/test_proving_ground_tags.py) - G1-I |
 | R54 | Sweeps never trust tags | G0 | DONE-local | tests/test_account_sweep.py::test_a_resource_without_both_tags_or_with_an_unknown_environment_is_reported |
 | R55 | Subnets, tags and isolation proven on a live stack | G6 | OPEN | |
 | R56 | Helios checks every Terraform change | G8 | OPEN | |

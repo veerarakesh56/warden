@@ -123,3 +123,18 @@ def test_credentials_ref_is_a_pointer_per_environment_and_none_when_unknown():
     assert pol.for_env("staging").credentials_ref == "warden-staging-deploy"
     # An unrecognised environment inherits the default's (null) reference — no account leaks in.
     assert pol.for_env("totally-made-up").credentials_ref is None
+
+
+def test_wardens_own_runtime_environment_has_names_but_no_app_role():
+    """Second review (2026-09-30): the W0-now owner steps tag the runtime's secrets Environment=ops,
+    and `ops` existed nowhere. It is WARDEN's OWN environment - named, tag-audited, and never one an
+    app pipeline deploys to or WARDEN remediates."""
+    from warden.environments import names
+
+    policies = default_environment_policies()
+    assert policies.runtime_environment == "ops"
+    assert "ops" not in policies.known_environments  # no app pipeline, no app IAM render
+    n = names("ops")
+    assert (n.prefix, n.ssm, n.tags) == ("warden-ops", "/warden/ops/", {"Project": "warden", "Environment": "ops"})
+    ops = policies.for_env("ops")
+    assert [a for a in ActionKind if ops.permits(a)] == [ActionKind.no_action, ActionKind.escalate_to_human]

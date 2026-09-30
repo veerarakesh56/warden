@@ -149,3 +149,10 @@ def test_a_service_the_account_is_not_signed_up_for_is_not_enabled_not_blind():
     _, blind, _, not_enabled = sweep_mod.sweep(session, ["ap-south-2", "us-east-1"])
     assert not_enabled == ["kinesis"]
     assert blind == ["ap-south-2 sqs.list_queues: AccessDenied", "us-east-1 sqs.list_queues: AccessDenied"]
+
+
+def test_the_runtime_environment_is_a_valid_tag():
+    """W0-now tags the runtime's secrets Environment=ops; the first sweep after it must not call
+    them untagged (second review, 2026-09-30)."""
+    assert sweep_mod.tag_problem({"Project": "warden", "Environment": "ops"}) is None
+    assert sweep_mod.tag_problem({"Project": "warden", "Environment": "opz"})

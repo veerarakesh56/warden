@@ -31,12 +31,16 @@ S2 had been closed. The corrected statuses are below.
 | B2 | Grounding: a misquote escalates (P13) | G0 | DONE-local | tests/test_grounding.py::test_a_misquote_escalates |
 | B3 | A target not in the inventory is rejected (P14) | G0 | DONE-local | tests/test_grounding.py::test_the_fs03_hallucinated_function_is_rejected |
 | B4 | Quarantine: an injected log line never reaches the model | G0 | DONE-local | tests/test_quarantine.py::test_an_injected_log_line_never_reaches_the_model_and_does_not_change_the_action |
-| B5 | The model CLI gets no credential (environment allowlist) | G0 | DONE-local | tests/test_claude_cli_provider.py::test_no_credential_in_the_parent_environment_reaches_the_model_process |
+| B5 | The model CLI gets no credential but its own Claude login token (`CLAUDE_CODE_OAUTH_TOKEN`, since 6504f71): no cloud, database or other model key (environment allowlist) | G0 | DONE-local | tests/test_claude_cli_provider.py::test_no_credential_in_the_parent_environment_reaches_the_model_process |
 | B6 | Outbound gate: a planted image or link never reaches Slack | G0 | DONE-local | tests/test_gate.py::test_a_planted_image_or_link_echoed_by_the_model_never_reaches_the_slack_payload |
 | B7 | Signed approvals: a forged signature is refused | G0 | DONE-local | tests/test_approvals.py::test_a_forged_signature_is_refused |
 | B8 | Tamper-evident audit: a row rewritten with a recomputed chain is caught | G0 | DONE-local | tests/test_audit_log.py::test_rewriting_a_row_and_recomputing_every_later_hash_is_caught_by_the_signature |
 | B9 | Kill switch: only a signed approval of that specific trip resets it | G0 | DONE-local | tests/test_bounds.py::test_only_a_signed_approval_of_this_trip_resets_it_and_only_once |
 | B10 | MCP cannot approve, sign, reset or execute | G0 | DONE-local | tests/test_mcp_workflows.py::test_no_tool_can_approve_sign_reset_or_execute_and_none_takes_a_credential |
+| B11 | The model CLI runs sandboxed: an empty tool list, no MCP servers, no operator settings (`--tools ""`, `--strict-mcp-config`, `--setting-sources ""`) | G0 | DONE-local | tests/test_claude_cli_provider.py::test_no_tool_no_mcp_server_and_no_operator_setting_is_loaded |
+| B12 | Breaker: two failed success checks within an hour trip the kill switch | G0 | DONE-local | tests/test_bounds.py::test_two_failed_success_checks_in_an_hour_trip_the_kill_switch |
+| B13 | MCP caller claims are never trusted: claimed evidence escalates, never approves | G0 | DONE-local | tests/test_mcp_server.py::test_a_clean_case_on_claimed_evidence_is_escalated_never_approved |
+| B14 | CI actions are pinned to full commit SHAs, never tags | G0 | DONE-local | tests/test_ci_lanes.py::test_every_action_is_pinned_to_a_full_commit_sha |
 
 **Known weaknesses of these controls.** The 2026-09-28 audit found gaps in several of them (the
 quarantine, the gate's coverage, the tripwire) and some vacuous tests. These are listed in

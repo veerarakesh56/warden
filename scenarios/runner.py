@@ -1017,7 +1017,7 @@ class _FakeAws:
 
 _FAKE_RESPONSES: dict[str, Callable[[str], dict]] = {
     "describe_clusters": lambda tag: {
-        "clusters": [{"tags": [{"key": "Project", "value": tag}]}]
+        "clusters": [{"tags": [{"key": "Stack", "value": tag}]}]
     },
     "describe_task_definition": lambda tag: {
         "taskDefinition": {
@@ -1042,13 +1042,13 @@ _FAKE_RESPONSES: dict[str, Callable[[str], dict]] = {
     "list_role_policies": lambda tag: {"PolicyNames": ["warden-reader-inline"]},
     "describe_security_groups": lambda tag: {
         "SecurityGroups": [{
-            "Tags": [{"Key": "Project", "Value": tag}],
+            "Tags": [{"Key": "Stack", "Value": tag}],
             "IpPermissionsEgress": [{"IpProtocol": "-1"}],
         }]
     },
     "describe_route_tables": lambda tag: {
         "RouteTables": [{
-            "Tags": [{"Key": "Project", "Value": tag}],
+            "Tags": [{"Key": "Stack", "Value": tag}],
             "Routes": [{"DestinationCidrBlock": "0.0.0.0/0", "GatewayId": "igw-fake"}],
         }]
     },
@@ -1326,7 +1326,7 @@ class _FakeDbEc2:
     def describe_security_groups(self, **_kw: Any) -> dict:
         return {"SecurityGroups": [{
             "IpPermissions": self._RULES,
-            "Tags": [{"Key": "Project", "Value": "warden-proving-ground"}],
+            "Tags": [{"Key": "Stack", "Value": "warden-proving-ground"}],
         }]}
 
     def revoke_security_group_ingress(self, **_kw: Any) -> dict:

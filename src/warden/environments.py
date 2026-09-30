@@ -83,7 +83,8 @@ class EnvPolicy:
 
 
 class EnvironmentPolicies:
-    def __init__(self, default: EnvPolicy, environments: dict[str, EnvPolicy]) -> None:
+    def __init__(self, default: EnvPolicy, environments: dict[str, EnvPolicy], runtime: str | None = None) -> None:
+        self.runtime_environment = runtime
         self._default = default
         self._envs = environments
 
@@ -126,7 +127,10 @@ class EnvironmentPolicies:
             envs[name] = cls._parse(name, raw)
         if not envs:
             raise EnvironmentPolicyError("environment policy defines no environments")
-        return cls(default, envs)
+        runtime = doc.get("runtime")
+        if runtime is not None and (not isinstance(runtime, str) or runtime in envs):
+            raise EnvironmentPolicyError("`runtime` must name WARDEN's own environment, not an application one")
+        return cls(default, envs, runtime)
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:
@@ -183,10 +187,16 @@ class EnvNames:
     tags: dict[str, str]
 
 
+def _all_names() -> tuple[str, ...]:
+    """The application environments and WARDEN's own runtime environment."""
+    policies = default_environment_policies()
+    return policies.known_environments + ((policies.runtime_environment,) if policies.runtime_environment else ())
+
+
 def strip_prefix(name: str) -> str:
     """`warden-<env>-checkout` -> `checkout` for any configured environment; other names unchanged.
     Longest environment first, so `warden-qa-staging-x` is not read as environment `qa`."""
-    for env in sorted(default_environment_policies().known_environments, key=len, reverse=True):
+    for env in sorted(_all_names(), key=len, reverse=True):
         if name.startswith(f"warden-{env}-"):
             return name[len(f"warden-{env}-"):]
     return name
@@ -195,9 +205,7 @@ def strip_prefix(name: str) -> str:
 def names(env: str) -> EnvNames:
     """The names for `env`, which must be a configured environment. Unlike for_env(), an unknown name
     RAISES here: the policy side fails closed to `default`, but a typo must never become an AWS name."""
-    if env not in default_environment_policies().known_environments:
-        raise EnvironmentPolicyError(
-            f"unknown environment {env!r}; configured: "
-            f"{', '.join(default_environment_policies().known_environments)}")
+    if env not in _all_names():
+        raise EnvironmentPolicyError(f"unknown environment {env!r}; configured: {', '.join(_all_names())}")
     return EnvNames(env=env, prefix=f"warden-{env}", ssm=f"/warden/{env}/", role=f"warden-{env}-deploy",
                     boundary=f"WardenEnvBoundary-{env}", tags={"Project": "warden", "Environment": env})

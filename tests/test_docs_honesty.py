@@ -59,6 +59,15 @@ FALSE_CLAIMS = [
     ("docs/OWNER-CONSOLE-STEPS.md", "it can never touch another environment's resources",
      "tag-based isolation has gaps"),
     ("docs/OWNER-CONSOLE-STEPS.md", "It also runs a negative check", "no negative OIDC check exists yet"),
+    # second review (2026-09-30): the owner steps named a flag helper 1.8.5 does not have, and
+    # told the owner to delete a file the proving ground still reads
+    ("docs/OWNER-CONSOLE-STEPS.md", "--reuse-latest-expiring-certificate", "the flag is --use-latest-expiring-certificate"),
+    ("README.md", "approval-gate case was silently skipped and is being fixed", "fixed; 35/35 caught 2026-09-30"),
+    ("docs/ROADMAP.md", "SYSTEM-COMPONENTS cost table still owed", "delivered in 40f5f0e"),
+    ("docs/FAILURE-MODES.md", "The model CLI gets no credential (environment allowlist)",
+     "its own login token passes since 6504f71"),
+    ("docs/SYSTEM-COMPONENTS.md", "Temporal is covered\n  by the trial's credits.", "only until about 2026-12-27"),
+    ("docs/OWNER-CONSOLE-STEPS.md", "and `terraform\\proving-ground\\terraform.tfvars` (your", "the proving ground still reads its tfvars"),
     ("docs/AWS-SETUP.md", "your buckets' contents, or your existing databases", "see audit A-I-4"),
     ("docs/PRODUCTION-ARCHITECTURE.md", "boundary-capped", "the proving-ground boundary has no env dimension"),
     ("docs/SYSTEM-COMPONENTS.md", "| **IAM Identity Center** | replaces", "Identity Center needs Organizations"),

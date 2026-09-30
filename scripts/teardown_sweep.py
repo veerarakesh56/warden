@@ -38,7 +38,7 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
-PROJECT = ("Project", "warden-proving-ground")
+STACK = ("Stack", "warden-proving-ground")  # the proving ground's own tag; see scenarios/ops.py STACK_TAG
 DEFAULT_REGION = "ap-south-2"
 # ECS throttles a burst of DeregisterTaskDefinition calls, and boto3's own retries give up at 4.
 THROTTLE_CODES = ("ThrottlingException", "Throttling", "RequestLimitExceeded",
@@ -82,11 +82,11 @@ def _revisions(ecs: Any, family: str, status: str) -> list[str]:
             return arns
 
 
-def _project_tag(ecs: Any, arn: str) -> str | None:
-    """The revision's Project tag, or None when it has none."""
+def _stack_tag(ecs: Any, arn: str) -> str | None:
+    """The revision's Stack tag, or None when it has none."""
     resp = ecs.describe_task_definition(taskDefinition=arn, include=["TAGS"])
     tags = {t["key"]: t["value"] for t in resp.get("tags") or []}
-    return tags.get(PROJECT[0])
+    return tags.get(STACK[0])
 
 
 def _chunks(items: list[str], size: int) -> Iterable[list[str]]:
@@ -101,9 +101,9 @@ def plan(ecs: Any, logs: Any, family: str, log_group: str) -> dict[str, list[str
     ours: list[str] = []
     refused: list[str] = []
     for arn in active + inactive:
-        tag = _project_tag(ecs, arn)
-        if tag not in (None, PROJECT[1]):
-            refused.append(f"{arn.rsplit('/', 1)[-1]} (Project={tag})")
+        tag = _stack_tag(ecs, arn)
+        if tag not in (None, STACK[1]):
+            refused.append(f"{arn.rsplit('/', 1)[-1]} (Stack={tag})")
         else:
             ours.append(arn)
     groups = [g["logGroupName"] for g in
@@ -173,7 +173,7 @@ def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
           cluster: str, ec2: Any = None) -> dict[str, list[str]]:
     """What is still there, by tag AND by name. Empty lists everywhere means clean."""
     tagged = [r["ResourceARN"] for r in tagging.get_resources(
-        TagFilters=[{"Key": PROJECT[0], "Values": [PROJECT[1]]}],
+        TagFilters=[{"Key": STACK[0], "Values": [STACK[1]]}],
     ).get("ResourceTagMappingList") or []]
     # An INACTIVE cluster cannot be removed further and costs nothing; listing it as "left behind"
     # would make the sweep permanently red for something no action can fix.

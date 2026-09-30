@@ -59,7 +59,7 @@ in W0-now, and the owner is told before any window they affect.
 
 | Milestone | Target (UTC / IST) |
 |---|---|
-| G0 complete | 2026-10-01 / 2026-10-01 (records corrected after the 2026-09-28 independent review; SYSTEM-COMPONENTS cost table still owed) |
+| G0 complete | 2026-10-01 / 2026-10-01 (records corrected after the 2026-09-28 independent review; SYSTEM-COMPONENTS cost table delivered in 40f5f0e) |
 | W0-now window | 2026-10-01 to 2026-10-02 (owner's choice of time) |
 | v0.10.1 (G1) | 2026-10-16 / 2026-10-16 |
 | v0.11.0 (G2 + G3) | 2026-11-13 / 2026-11-13 |
@@ -68,6 +68,11 @@ in W0-now, and the owner is told before any window they affect.
 | v0.14.0 (G6 + W1–W3) | 2027-02-26 / 2027-02-26 |
 | v0.15.0 (G7) | 2027-03-12 / 2027-03-12 |
 | v1.0 (G8) | 2027-03-24 / 2027-03-24 |
+
+⚠ **Known date that affects the plan:** the Temporal Cloud trial ($150 of credits for 90 days from
+2026-09-28) ends around **2026-12-27**, before the G6 windows (W1-W3, 2027-02). After that, Temporal
+Cloud is paid (about $50 per million Actions; SYSTEM-COMPONENTS section 11). The exact date is read in
+W0-now step F. The owner decides before W1 whether to pay, and the decision is recorded here.
 
 The dates are whole days, so UTC and IST fall on the same date. Window start and end times are
 always given in both.

@@ -34,7 +34,7 @@ class FakeEcs:
     def describe_task_definition(self, *, taskDefinition, include=None):
         rev = taskDefinition.rsplit("/", 1)[-1]
         tag = self.tags.get(rev)
-        return {"tags": [{"key": "Project", "value": tag}] if tag else []}
+        return {"tags": [{"key": "Stack", "value": tag}] if tag else []}
 
     def deregister_task_definition(self, *, taskDefinition):
         rev = taskDefinition.rsplit("/", 1)[-1]

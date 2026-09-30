@@ -93,7 +93,7 @@ class FakeEc2:
         self.authorized: list[list[dict]] = []
 
     def describe_security_groups(self, **_kw):
-        tags = [{"Key": "Project", "Value": "warden-proving-ground"}] if self.tagged else []
+        tags = [{"Key": "Stack", "Value": "warden-proving-ground"}] if self.tagged else []
         return {"SecurityGroups": [{"IpPermissions": self.rules, "Tags": tags}]}
 
     def revoke_security_group_ingress(self, **kw):
