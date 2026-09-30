@@ -319,8 +319,6 @@ def _kind(placeholder: str) -> str:
     return placeholder.strip("<>").rsplit("_", 1)[0]
 
 
-_PLAIN_WORD = re.compile(r"[A-Za-z][A-Za-z._-]*")
-_ASSIGNMENT = re.compile(r"\w=.")
 # Every copy, anywhere: plain str.replace, which is what the escaped regex did.
 _EVERY_COPY = object()
 
@@ -331,13 +329,12 @@ def _sweep(placeholder: str, original: str):
     if len(original) < 3:
         return None
     if _kind(placeholder) in SECRET_KINDS and len(original) >= 4:
-        # A plain word or an assignment is not swept (third review, 2026-09-30): one log line
-        # `password=OutOfMemoryError token=timed api_key=reserved_concurrency=0` erased those words from
-        # every line, WARDEN's own config read included. A credential is neither; a value that is one is
-        # a weak password or a planted one, and it stays masked where the pattern found it. Known limit:
-        # a letters-only password repeated elsewhere WITHOUT its key is not masked there.
-        if _PLAIN_WORD.fullmatch(original) or _ASSIGNMENT.search(original):
-            return None
+        # Every copy, whatever it looks like. An exemption for "plain words and assignments" (932d515)
+        # left real secrets in clear - a base64 key ending in `==`, a passphrase, a letters-only
+        # password - and the gate passed them (fourth review, 2026-09-30). Known limit, open (audit
+        # B-N4 row): a log writer who plants `password=<word>` masks that word in every line, WARDEN's
+        # own reads included. A secret or an identifier must never stay in clear, so that limit is
+        # handled by escalating, not by leaving copies unmasked.
         return _EVERY_COPY
     if (original.isdigit() and len(original) < 6) or original.lower() in _COMMON:
         return None

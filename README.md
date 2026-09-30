@@ -87,8 +87,9 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
     patterns;
   - a short all-digit identifier (`user_id=500`) or a common word is masked where the pattern
     matched it, but not elsewhere, because a bare "500" is usually a status code;
-  - a password that is a plain word or an assignment is masked where it was found but not swept
-    from other lines: sweeping it let a log writer erase chosen words from all evidence;
+  - a log writer can plant `password=<word>` and so mask that word in every line, WARDEN's own
+    config reads included. A secret must never stay in clear, so the copies are masked; making such
+    an incident escalate to a person is open (audit, fourth review B-N4);
   - a password equal to a usage word (`--password PASSWORD`, `api_key=true`) is not masked at all.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.

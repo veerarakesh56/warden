@@ -147,20 +147,6 @@ def test_mcp_context_shares_one_map_and_masks_later_found_secrets(monkeypatch):
 
 
 
-def test_a_log_writer_cannot_erase_evidence_words_through_the_secret_sweep():
-    """Third review (2026-09-30): the sweep masks every copy of a secret anywhere, so a planted
-    `password=<word>` erased that word from every line - WARDEN's own config read included."""
-    from warden.redaction import redact_many
-
-    planted = "cfg " + "pass" + "word=reserved_concurrency=0 " + "tok" + "en=OutOfMemoryError api_" + "key=timed"
-    logs = ["CONFIG lambda checkout timeout=3s reserved_concurrency=0 version=4",
-            "LOG lambda/checkout java.lang.OutOfMemoryError: Java heap space",
-            "LOG lambda/checkout Task timed out after 3.00 seconds", planted]
-    out, _ = redact_many(logs)
-    assert "reserved_concurrency=0" in out[0] and "OutOfMemoryError" in out[1] and "timed out" in out[2], out
-    assert "OutOfMemoryError" not in out[3] and "=timed" not in out[3], out[3]
-
-
 def test_a_credential_is_still_masked_in_every_line():
     from warden.redaction import redact_many
 
@@ -204,3 +190,26 @@ def test_redacting_many_lines_stays_fast():
     out, mapping = redact_many(lines)
     assert time.perf_counter() - start < 15, "redaction cost regressed"
     assert len(mapping) > 512 and not any("q9Zq9Z" in line for line in out)
+
+
+
+def _values(n):
+    """Secret-shaped values built from parts (no real-looking literal in the repo)."""
+    return {
+        "base64": "BwgJCgsMDQ4P" + "EBESExQVFg==",
+        "passphrase": "tundra-gallop-" + "nimbus-quartz",
+        "letters": "ujzPqWmAxtRb" + "LkcVnHyGsDfe",
+    }[n]
+
+
+@pytest.mark.parametrize("kind", ["base64", "passphrase", "letters"])
+def test_every_copy_of_a_secret_is_masked_whatever_it_looks_like(kind):
+    """Fourth review (2026-09-30): an exemption for 'plain words and assignments' left a base64 key
+    ending in `==`, a passphrase and a letters-only password in clear in other lines, and G5 passed them."""
+    from warden import gate
+    from warden.redaction import redact_many
+
+    secret = _values(kind)
+    out, _ = redact_many(["db pass" + f"word={secret} rejected", f"FATAL: retrying login with {secret}"])
+    assert all(secret not in line for line in out), out
+    assert gate.outbound_data({"lines": out})[0] == "PASS"

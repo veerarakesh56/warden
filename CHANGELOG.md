@@ -248,9 +248,11 @@ bump may carry a breaking change.
   - A failed read's outcome tag is read behind any depth of WARDEN's own prefixes. Nested stack
     lines read "unclassified" (a regression in ea65387). The previous-revision gap line is tagged.
   - A log writer could erase chosen words from all evidence, WARDEN's own config read included,
-    with one planted `password=<word>`: every copy of a secret was swept. A secret value that is a
-    plain word or an assignment is now masked where it was found only. Known limit: such a password
-    repeated elsewhere without its key stays visible.
+    with one planted `password=<word>`: every copy of a secret was swept. 932d515 stopped sweeping a
+    secret that is a plain word or an assignment. **Withdrawn (fourth review):** that exemption left
+    real secrets in clear in other lines - a base64 key ending in `==`, a passphrase, a letters-only
+    password - and the gate passed them. Every copy of every secret is masked again; the planted-word
+    masking is an open, recorded limit (B-N4).
   - `redact_many` is fast again: 300 lines took 122 s, now 0.45 s; 2,000 lines take 13.6 s. The
     output is byte-identical.
   - The prompt is redacted as one text with one map: two new values in two parts got the same
@@ -271,6 +273,13 @@ bump may carry a breaking change.
     escalate to a person, up from 1. The owner chose this trade: a false alarm costs a review.
   - The scan reads the labels key by key, as the prompt does: redacted as one dict,
     `{'token': '<SECRET_1>'}` scored 0.93 and escalated every such incident.
+- **Every copy of every secret is masked again** (fourth review, B-N1, a regression in 932d515).
+  An exemption for "plain words and assignments" left a base64 key, a passphrase and a letters-only
+  password in clear wherever they were repeated, and the outbound gate passed them. A test covers
+  each shape and checks the gate. Open (B-N4): a planted `password=<word>` still masks that word in
+  WARDEN's own reads; the planned fix escalates such an incident rather than leaving any copy
+  unmasked (a trusted-lines exemption was tried and dropped: it left a user id from a log line in
+  clear inside a config read).
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).
