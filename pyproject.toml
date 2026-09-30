@@ -26,7 +26,7 @@ dependencies = [
     "temporalio>=1.33,<2",
     # The outbound gate finds code regions the way CommonMark does (MIT, pure Python). A line-by-line
     # tracker could not follow fences inside lists and quotes (third review, 2026-09-30).
-    "markdown-it-py>=3.0",
+    "markdown-it-py>=4.2.0",
 ]
 
 [project.optional-dependencies]
