@@ -191,6 +191,12 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         # URL query-param value at the next parameter. Char-by-char, so no catastrophic backtracking.
         r"((?:[^\s\"'<;,&]|,(?!\s*[\w.\-]+\s*[:=]))+)"
     )),
+    # A hex key under a name no pattern above lists - `ENCRYPTION_KEY=`, `hmac_key=`, `signing_key:`,
+    # `DD_APP_KEY=`, `Ocp-Apim-Subscription-Key:` - 32 or more hex characters after a name ending in
+    # "key" (fourth review, 2026-09-30, B-N8). HIGHENTROPY below needs upper case, lower case and a
+    # digit, so a lowercase hex key passed it.
+    ("SECRET", re.compile(r"(?i)(?:^|[\s\"',;{(\[?&])[\w.\-]{0,40}key[\"']?\s*[:=]\s*[\"']?"
+                          r"([0-9a-f]{32,})(?![0-9a-z])")),
     # Last: a long high-entropy run no named pattern claimed - a bare AWS secret key, one line of a
     # private key logged line by line (a pod log splits it), a base64 credential. Upper, lower AND a
     # digit, so hex digests, ids and plain words do not match.

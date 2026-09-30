@@ -119,6 +119,12 @@ def _encoded_prose(value: str) -> bool:
 
 # Digits read as the letters they stand in for (`r0llb4ck_ch3ck0ut`), for the word checks only.
 _DIGIT_FOLD = str.maketrans("013457", "oieast")
+# ... and `1`, `I` and `|` read as `l` (`ro11back`, `roIIback`, `ro||back`; fourth review, 2026-09-30,
+# B-N7): a second reading, since `1` also stands for `i`.
+_L_FOLD = str.maketrans("1I|", "lll")
+# Key names that carry a verdict or an instruction inside a compound word (`rootcause=`, `truecause=`):
+# the word-by-word deny list saw one unknown word (B-N7).
+_SQUASHED_KEY_DENY = re.compile(r"cause|remediat|instruct|command|verdict|recommend|suggest|proposal|advice")
 
 
 def _plain(value: str, limit: int) -> bool:
@@ -128,13 +134,15 @@ def _plain(value: str, limit: int) -> bool:
         return False
     squashed = re.sub(r"[^a-z]", "", value.lower())
     folded = re.sub(r"[^a-z]", "", value.lower().translate(_DIGIT_FOLD))
+    folded_l = re.sub(r"[^a-z]", "", value.translate(_L_FOLD).lower().translate(_DIGIT_FOLD))
     return (len(value) <= limit and not _STEER.search(value)
-            and not any(_SQUASHED_STEER.search(w) or _ACTION_WORDS.search(w) for w in (squashed, folded))
+            and not any(_SQUASHED_STEER.search(w) or _ACTION_WORDS.search(w) for w in (squashed, folded, folded_l))
             and not _encoded_prose(value))
 
 
 def _key_ok(key: str) -> bool:
-    return _plain(key, 40) and not {w.lower() for w in _KEY_WORD.findall(key)} & _DENY_KEY_WORDS
+    return (_plain(key, 40) and not {w.lower() for w in _KEY_WORD.findall(key)} & _DENY_KEY_WORDS
+            and not _SQUASHED_KEY_DENY.search(re.sub(r"[^a-z]", "", key.lower())))
 
 
 @functools.cache

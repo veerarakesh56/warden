@@ -319,6 +319,13 @@ bump may carry a breaking change.
   are line breaks, indented like any other, so they cannot forge a record. The MCP server prints an
   uncaught error as one gated line on stderr instead of a raw traceback, and routes warnings through
   the same gate.
+- **More steering spellings stay out of the facts; hex keys under any key name are masked** (fourth
+  review, B-N7, B-N8). `ro11back`, `roIIback`, `ro||back` (read as `l`), `rolback`, `revert`, and key
+  names like `rootcause=` reached the model as facts, as values or through the `code=`/`object=`
+  carriers. A 32+ character hex value after a name ending in "key" (`ENCRYPTION_KEY=`, `hmac_key=`,
+  `Ocp-Apim-Subscription-Key:`) is now masked; the entropy backstop needed upper case. Over every
+  recorded run the 8,485 facts, the 337 trusted items and the 337 redacted contexts are unchanged.
+  Still open: other leetspeak (`8` for `c`) - the quarantine is one layer, not the only one.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

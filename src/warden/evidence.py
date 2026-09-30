@@ -98,8 +98,10 @@ READ_OPERATIONS = frozenset({
 })
 # Steering words looked for with the separators removed: STEER needs a non-letter on each side, so
 # `ignoreallpreviousinstructions` passed it (review 2026-09-28).
+# `revert` and the misspelled `rolback` too (fourth review, 2026-09-30, B-N7).
 _SQUASHED_STEER = re.compile(r"ignore|instruct|previous|propose|approv|override|disregard|execute|pretend|"
-                             r"forget|rollback|rollingback|failover|thefix|youmust|mustbe|should|resolved")
+                             r"forget|rol+back|rol+ingback|revert|failover|thefix|youmust|mustbe|should|"
+                             r"resolved")
 
 
 def tool_error_text(raw: str) -> str:
