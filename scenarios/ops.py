@@ -43,8 +43,6 @@ from typing import Any
 # and the teardown sweep lost its tag filter (second review, 2026-09-30). tests/test_proving_ground_tags.py
 # reads main.tf, so the two cannot drift apart again.
 STACK_TAG = ("Stack", "warden-proving-ground")
-# What the harness puts on what it creates: what Terraform puts on its own (the sweep's tag audit).
-CREATE_TAGS = {"Project": "warden", "Environment": "dev", "Stack": STACK_TAG[1]}
 
 
 class OpError(RuntimeError):
@@ -67,9 +65,20 @@ class Target:
     # Scenario ecs-11 removes one of them, which only means anything because WARDEN really
     # runs under this role rather than under the operator's own credentials.
     warden_role_name: str = ""
+    # The stack's own tags (terraform output `resource_tags`): what the harness tags with.
+    tags: dict[str, str] = field(default_factory=dict)
     # Populated by ops that must remember what they replaced, so revert is exact rather than
     # reconstructed from assumptions.
     saved: dict[str, Any] = field(default_factory=dict)
+
+
+def create_tags(target: Target) -> dict[str, str]:
+    """What the harness puts on what it creates: exactly what Terraform puts on its own (terraform
+    output `resource_tags`: Project and Environment for the sweep's tag audit, and Stack). Read from
+    the stack, never typed here (owner rule: no hardcoding)."""
+    if target.tags.get(STACK_TAG[0]) != STACK_TAG[1] or not target.tags.get("Project") or not target.tags.get("Environment"):
+        raise OpError("the target carries no proving-ground tags (terraform output `resource_tags`) - refusing to create anything")
+    return dict(target.tags)
 
 
 @dataclass
@@ -246,7 +255,7 @@ def _register_variant(clients: Clients, target: Target, variant: str, account: s
     # ⛔ Tagged, so teardown can find it. Every variant registered here is a new revision the
     # Terraform state has never heard of; untagged, it is invisible to the teardown sweep, which then
     # reports "0 resources remaining" while leaving one revision per scenario per wave behind.
-    kwargs["tags"] = [{"key": k, "value": v} for k, v in CREATE_TAGS.items()]
+    kwargs["tags"] = [{"key": k, "value": v} for k, v in create_tags(target).items()]
 
     registered = clients.ecs.register_task_definition(**kwargs)
     return registered["taskDefinition"]["taskDefinitionArn"]
@@ -324,7 +333,7 @@ def op_logs_create_group(clients: Clients, target: Target, *, log_group: str,
         # tags; this RE-created one is a different resource that Terraform only finds by name, and
         # the tag sweep - the check that says "nothing is left" - never finds it at all.
         clients.logs.create_log_group(
-            logGroupName=log_group, tags=dict(CREATE_TAGS),
+            logGroupName=log_group, tags=create_tags(target),
         )
     except Exception as exc:
         if "ResourceAlreadyExists" not in str(exc):

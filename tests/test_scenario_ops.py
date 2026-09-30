@@ -164,6 +164,8 @@ def target():
         baseline_task_definition="arn:aws:ecs:r:1:task-definition/checkout:2",
         security_group_id="sg-123", route_table_id="rtb-123",
         warden_role_name="warden-pg-a1b2-reader",
+        # stands in for terraform output `resource_tags`
+        tags={"Project": "p", "Environment": "e", ops.STACK_TAG[0]: ops.STACK_TAG[1]},
     )
 
 
@@ -459,4 +461,4 @@ def test_a_registered_variant_is_tagged_so_teardown_can_find_it(clients, target)
 def test_the_recreated_log_group_is_tagged_so_teardown_can_find_it(clients, target):
     ops.op_logs_create_group(clients, target, log_group="/ecs/checkout")
     created = [kw for name, kw in clients.logs.calls if name == "create_log_group"]
-    assert created and created[-1].get("tags") == ops.CREATE_TAGS
+    assert created and created[-1].get("tags") == target.tags

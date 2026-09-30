@@ -17,6 +17,7 @@ Prints codes only - AWS error messages carry the account id.
 """
 import json
 import pathlib
+import subprocess
 import time
 import urllib.parse
 
@@ -31,8 +32,10 @@ OP = f"arn:aws:iam::{acct}:policy/WardenProvingGroundOperator"
 BOUNDARY = f"arn:aws:iam::{acct}:policy/WardenProvingGroundBoundary"
 TRUST = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {
     "Service": "ecs-tasks.amazonaws.com"}, "Action": "sts:AssumeRole"}]})
-TAGS = [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": "dev"},
-        {"Key": "Stack", "Value": "warden-proving-ground"}, {"Key": "Purpose", "Value": "boundary-probe"}]
+# The stack's own tags (terraform output `resource_tags`), never literals (owner rule: no hardcoding).
+_TAGS = json.loads(subprocess.run(["terraform", "output", "-json", "resource_tags"], cwd=REPO, check=True,
+                                  capture_output=True, text=True).stdout)
+TAGS = [{"Key": k, "Value": v} for k, v in _TAGS.items()] + [{"Key": "Purpose", "Value": "boundary-probe"}]
 results = []
 
 

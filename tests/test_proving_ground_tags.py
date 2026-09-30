@@ -38,12 +38,25 @@ def test_every_guard_checks_the_tag_terraform_applies():
 
 
 def test_what_the_harness_creates_carries_what_terraform_puts_on_its_own():
-    tags = _terraform_tags()
-    for key in ("Project", "Environment", "Stack"):
-        assert ops.CREATE_TAGS[key] == tags[key], key
+    """No literal tags in the harness or the probe (owner rule: no hardcoding): Terraform outputs the
+    tags it applies, and both put exactly those on what they create."""
+    outputs = (ROOT / "terraform" / "proving-ground" / "outputs.tf").read_text(encoding="utf-8")
+    assert re.search(r'output "resource_tags" \{\s+value = \{ for key in \["Project", "Environment", "Stack"\] : '
+                     r'key => local\.tags\[key\] \}', outputs), "outputs.tf must output the stack's own tags"
+    tags = {k: v for k, v in _terraform_tags().items() if k in ("Project", "Environment", "Stack")}
+    target = ops.Target(region="r", cluster="c", service="s", log_group="g", baseline_task_definition="t", tags=tags)
+    assert ops.create_tags(target) == tags
     probe = (ROOT / "scripts" / "prove_boundary.py").read_text(encoding="utf-8")
-    for key in ("Project", "Environment", "Stack"):
-        assert f'{{"Key": "{key}", "Value": "{tags[key]}"}}' in probe, key
+    assert '"terraform", "output", "-json", "resource_tags"' in probe
+    assert not re.search(r'"(?:Project|Environment|Stack)",\s*"Value":', probe), "a literal tag value in the probe"
+
+
+def test_nothing_is_created_without_the_stacks_tags():
+    import pytest as _pytest
+
+    bare = ops.Target(region="r", cluster="c", service="s", log_group="g", baseline_task_definition="t")
+    with _pytest.raises(ops.OpError):
+        ops.create_tags(bare)
 
 
 def test_the_proof_script_looks_for_leftovers_by_the_tag_terraform_applies():

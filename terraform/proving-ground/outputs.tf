@@ -7,6 +7,12 @@ output "region" {
   value = var.region
 }
 
+# The tags the harness (scenarios/ops.py create_tags) and scripts/prove_boundary.py put on what they
+# create: exactly what this stack puts on its own, read from here - never typed into the harness.
+output "resource_tags" {
+  value = { for key in ["Project", "Environment", "Stack"] : key => local.tags[key] }
+}
+
 output "account_id" {
   description = "Used only to prove in the evidence bundle that this ran against a real account. Redacted before anything is published."
   value       = data.aws_caller_identity.current.account_id

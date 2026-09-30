@@ -328,7 +328,7 @@ def terraform_outputs(tf_dir: pathlib.Path = TF_DIR) -> dict[str, Any]:
 
 
 def target_from_outputs(out: dict[str, Any]) -> ops.Target:
-    required = ("region", "ecs_cluster", "ecs_service", "log_group", "baseline_task_definition")
+    required = ("region", "ecs_cluster", "ecs_service", "log_group", "baseline_task_definition", "resource_tags")
     missing = [key for key in required if not out.get(key)]
     if missing:
         raise RunnerError(
@@ -343,6 +343,7 @@ def target_from_outputs(out: dict[str, Any]) -> ops.Target:
         security_group_id=out.get("service_security_group_id") or "",
         route_table_id=out.get("route_table_id") or "",
         warden_role_name=out.get("warden_reader_role_name") or "",
+        tags=dict(out["resource_tags"]),
     )
 
 
@@ -1090,12 +1091,17 @@ _DRY_REPORT: dict[str, Any] = {
 }
 
 
+# The dry run's stand-in for terraform output `resource_tags`: fake, like every value in it.
+_DRY_TAGS = {"Project": "dry-run", "Environment": "dry-run", ops.STACK_TAG[0]: ops.STACK_TAG[1]}
+
+
 def _dry_harness() -> Harness:
     target = ops.Target(
         region="ap-south-2", cluster="warden-proving-ground", service="checkout",
         log_group="/ecs/checkout",
         baseline_task_definition="arn:aws:ecs:ap-south-2:111122223333:task-definition/checkout:1",
         security_group_id="sg-fake", route_table_id="rtb-fake", warden_role_name="warden-reader",
+        tags=dict(_DRY_TAGS),
     )
     shared = _FakeAws()
     clients = ops.Clients(ecs=shared, logs=shared, ec2=shared, iam=shared)
