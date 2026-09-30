@@ -442,7 +442,10 @@ Measured 2026-09-27 on this repository's recorded incidents:
     k8s event and padding.
 
 The misses are why this is a tripwire on top of quarantine and the outbound gate, never a replacement
-for them. The default threshold is 0.9 (`WARDEN_TRIPWIRE_THRESHOLD`); lowering it caught nothing more.
+for them. The default threshold is 0.9 (`WARDEN_TRIPWIRE_THRESHOLD`, at most 0.99: the strongest real scores
+are about 0.998, so a higher setting would switch detection off); lowering it caught nothing more. One
+scan scores at most 32,768 model tokens (recorded incidents need at most 14,121); more than that
+escalates the incident unscanned, so a flood of log text buys neither a pass nor a stall.
 
 **The model is not part of WARDEN and is never bundled with it.** Each deployment downloads it from
 Hugging Face under its own account, after accepting Meta's **Llama 4 Community License** and Acceptable

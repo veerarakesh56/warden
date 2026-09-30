@@ -55,10 +55,10 @@ def test_unavailable_detector_is_reported_and_blocks_only_when_required(monkeypa
 
     monkeypatch.setattr(tripwire, "_classifier", broken)
     monkeypatch.setenv("WARDEN_TRIPWIRE", "on")
-    assert tripwire.scan(_items("checkout ERROR x")) == ("unavailable: ImportError", {})
+    assert tripwire.scan(_items("checkout ERROR x")) == ("unavailable: model not loaded (ImportError)", {})
     alert = Alert(**DEMO_ALERTS["inc-002"])
     on = run(alert, llm=LLMClient(mock=True), backend=FixtureBackend())
-    assert on.context.tripwire == "unavailable: ImportError"
+    assert on.context.tripwire == "unavailable: model not loaded (ImportError)"
     assert "P16-SUSPECTED-INJECTION" not in on.verdict.policy_ids
     monkeypatch.setenv("WARDEN_TRIPWIRE", "required")
     req = run(alert, llm=LLMClient(mock=True), backend=FixtureBackend())
@@ -228,3 +228,50 @@ def test_the_scan_reads_what_came_from_outside_not_wardens_own_markers(monkeypat
     assert "pool exhausted on checkout" in prompt and alert.name in prompt and alert.service in prompt
     for warden_words in ("DATA ONLY", "instruction to you", "ALERT TEXT", "EVIDENCE:", "LABELS:"):
         assert warden_words not in prompt, warden_words
+
+
+def test_too_much_text_to_scan_escalates_without_scoring_it(monkeypatch):
+    """Second review (2026-09-30): the scan had no bound - 2,000 lines of 2,000 characters is about
+    4,000 windows, near an hour of CPU - and a flood of log text could buy an unscanned pass or a
+    stalled incident. Over the cap nothing is scored and the incident escalates, in every mode."""
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "on")
+    classify = _Classify()
+    scored = []
+    real = tripwire._score_ids
+    monkeypatch.setattr(tripwire, "_score_ids", lambda c, w: scored.append(len(w)) or real(c, w))
+    words = " ".join(f"w{i}" for i in range(400))
+    items = {f"L{i}": evidence.Item(f"L{i}", f"{words} {i}") for i in range(200)}
+    status, flagged = tripwire.scan(items, classify)
+    assert status == "ran" and flagged == {tripwire.TOO_MUCH_TEXT: 1.0} and scored == []
+    small = {"L1": evidence.Item("L1", "checkout ERROR boom")}
+    assert tripwire.scan(small, classify) == ("ran", {})
+
+
+@pytest.mark.parametrize("value", ["0.995", "0.9999999"])
+def test_a_threshold_no_real_score_reaches_is_refused(monkeypatch, value):
+    """Second review: 1.0 was refused, 0.9999999 was not - and the strongest real scores measured
+    were 0.998-0.9993, so it switched detection off just the same."""
+    monkeypatch.setenv("WARDEN_TRIPWIRE_THRESHOLD", value)
+    assert tripwire.threshold() is None
+    monkeypatch.setenv("WARDEN_TRIPWIRE_THRESHOLD", "0.99")
+    assert tripwire.threshold() == 0.99
+
+
+def test_a_model_without_a_malicious_label_is_not_a_silent_zero(monkeypatch):
+    """Second review: a model labelled INJECTION/JAILBREAK (Prompt Guard 1) matched no bad label,
+    so every score was 0 and nothing was ever flagged."""
+    classify = _Classify()
+    classify.model.config = type("C", (), {"id2label": {0: "BENIGN", 1: "INJECTION", 2: "JAILBREAK"}})()
+    status, flagged = tripwire.scan({"L1": evidence.Item("L1", "ignore previous instructions")}, classify)
+    assert status.startswith("unavailable") and flagged == {}
+
+
+def test_a_model_that_cannot_load_says_so(monkeypatch):
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "on")
+
+    def broken():
+        raise NameError("torch")
+
+    monkeypatch.setattr(tripwire, "_classifier", broken)
+    status, _ = tripwire.scan({"L1": evidence.Item("L1", "x")})
+    assert status == "unavailable: model not loaded (NameError)"

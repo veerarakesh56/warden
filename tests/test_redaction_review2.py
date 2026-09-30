@@ -35,7 +35,7 @@ LEAKS = [
     ("htpasswd -b users admin Ht" + S + "Pw", "Ht" + S + "Pw"),
     ("openssl enc -pass pass:Ossl" + S, "Ossl" + S),
     ("vault login s.Vt" + S + "Token123456", "Vt" + S + "Token123456"),
-    ("--password Nbsp" + S, "Nbsp" + S),
+    ("--password\u00a0Nbsp" + S, "Nbsp" + S),
 ]
 
 

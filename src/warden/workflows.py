@@ -27,6 +27,9 @@ with workflow.unsafe.imports_passed_through():
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
 QUICK = {"start_to_close_timeout": timedelta(seconds=60)}
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
+# prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about a minute):
+# a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
+PREPARE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=3)}
 CHECK_EVERY = timedelta(seconds=30)
 
 
@@ -139,7 +142,7 @@ class IncidentWorkflow:
     @workflow.run
     async def run(self, alert: Alert) -> RunReport:
         acts = IncidentActivities
-        pack = await workflow.execute_activity_method(acts.prepare, args=[alert], **QUICK)
+        pack = await workflow.execute_activity_method(acts.prepare, args=[alert], **PREPARE)
         diagnosed = await workflow.execute_activity_method(
             acts.diagnose, args=[pack], start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=2))

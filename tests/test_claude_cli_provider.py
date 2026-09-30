@@ -331,3 +331,11 @@ def test_no_credential_in_the_parent_environment_reaches_the_model_process(provi
     leaked = sorted(set(planted) & set(rec.kwargs["env"]))
     assert leaked == [], f"reaches the model's process: {leaked}"
     assert set(rec.kwargs["env"]) <= set(type(provider)._ENV_ALLOW)
+
+
+def test_the_prompt_is_not_saved_to_the_operators_profile(provider, monkeypatch):
+    """Second review (2026-09-30): every call left the full prompt as a session transcript under the
+    operator's profile (70 WARDEN prompts found there). The CLI's own switch turns that off."""
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    assert "--no-session-persistence" in rec.cmd

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from temporalio import activity
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -19,6 +20,7 @@ from warden.activities import IncidentActivities
 from warden.cli import DEMO_ALERTS, _alert_from
 from warden.graph import run as graph_run
 from warden.llm import LLMClient
+from warden.models import Alert
 from warden.workflows import IncidentWorkflow
 
 QUEUE = "incident-test"
@@ -119,3 +121,32 @@ def test_every_step_is_in_the_signed_audit_log(results):
     for alert_id, (report, _) in by_workflow.items():
         rows = log.entries(alert_id)
         assert [r["kind"] for r in rows] == [f"incident.{s['node']}" for s in report.audit], alert_id
+
+
+def test_a_prepare_that_keeps_failing_ends_the_incident_instead_of_retrying_forever(tmp_path):
+    """Second review: `prepare` ran with the default retry policy (unlimited), so an input that made
+    every attempt fail or time out held the incident forever, visible nowhere."""
+    from temporalio.client import WorkflowFailureError
+
+    class _Broken(IncidentActivities):
+        attempts = 0
+
+        @activity.defn(name="prepare")
+        def prepare(self, alert):
+            _Broken.attempts += 1
+            raise RuntimeError("cannot prepare")
+
+    async def main():
+        log = audit.AuditLog(tmp_path / "audit.db", key=Ed25519PrivateKey.generate())
+        acts = _Broken(audit=log, llm_factory=lambda: LLMClient(mock=True))
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env, Worker(env.client, task_queue=QUEUE, workflows=[IncidentWorkflow],
+                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activity_executor=ThreadPoolExecutor(2)):
+            handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
+                                                     id="inc-broken", task_queue=QUEUE)
+            with pytest.raises(WorkflowFailureError):
+                await asyncio.wait_for(handle.result(), 120)
+
+    asyncio.run(main())
+    assert 1 <= _Broken.attempts <= 3

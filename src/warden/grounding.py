@@ -13,6 +13,7 @@ compound resource-like token (`shop-prod-checkout`) the inventory lacks. Observe
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from .evidence import Item, tokens
 from .models import ActionKind, RemediationProposal, RootCause
@@ -57,8 +58,8 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     # Not "replica" or "running": replica LAG is a reason NOT to scale down (P11), and it passed here.
     ActionKind.scale_down: ("cpu", "memory", "capacity", "idle", "cost", "utili", "underused", "over-provisioned"),
     ActionKind.restart_pods: ("restart", "crash", "backoff", "back-off", "oom", "killed", "unhealthy",
-                              "probe", "exit", "unready", "not ready", "hang", "stuck", "leak"),
-    ActionKind.terminate_connections: ("idle_in_transaction", "idle in transaction", "lock", "block",
+                              "probe", "exit", "unready", "not ready", "hang", "stuck", "leak", "out of memory"),
+    ActionKind.terminate_connections: ("idle_in_transaction", "idle in transaction", "lock", "deadlock", "block",
                                        "connection", "pool", "long_running", "long-running", "stuck",
                                        "session"),
     ActionKind.failover_replica: ("replica", "lag", "failover", "unreachable", "refused", "timeout",
@@ -78,6 +79,9 @@ def _supports(quote: str, key: str) -> bool:
     return False
 
 
+_CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
 def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
                            items: dict[str, Item]) -> str | None:
     keys = ACTION_EVIDENCE.get(proposal.action)
@@ -86,7 +90,9 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     # The QUOTED span, not the whole item: the model must quote the words that support the action
     # (P13 checks the quote is really in the item). Not a T item: WARDEN's own "connection failed"
     # wording supported scale_up and terminate_connections (independent review 2026-09-28).
-    quotes = [c.quote.lower() for c in root_cause.citations
+    # Words split at camelCase first: WARDEN's own facts spell codes `OOMKilled`, `exitCode=137`,
+    # `CPUUtilization`, and none of those "contained" oom, exit or cpu (second review, 2026-09-30).
+    quotes = [_CAMEL.sub(" ", c.quote).lower() for c in root_cause.citations
               if c.id.strip().strip("[]") in items and not c.id.strip().strip("[]").startswith("T")]
     if any(_supports(q, k) for q in quotes for k in keys):
         return None
@@ -103,6 +109,8 @@ _LEADING = re.compile(r"^[\s\u200b-\u200f\ufeff]+")
 # U+FF0D before a letter).
 _FLAGLIKE = re.compile(r"(?:^|\s)[-\u2010-\u2015\u2212\ufe63\uff0d]{1,2}[A-Za-z]")
 _SHELL = re.compile(r"[;|&$\\`]")
+_RESOURCE_KINDS = frozenset({"deployment", "namespace", "service", "statefulset", "daemonset", "pod", "function",
+                             "lambda", "cluster", "table", "queue", "topic", "rule", "instance", "database", "db"})
 
 
 def target_problem(proposal: RemediationProposal, inventory: set[str]) -> str | None:
@@ -114,7 +122,13 @@ def target_problem(proposal: RemediationProposal, inventory: set[str]) -> str | 
     # `x=y` as an assignment or a selector (audit A-C-25).
     # models.inert() prefixes a leading "-" with a zero-width space so no CLI reads it as a flag;
     # the name is still not a resource name, so look past that prefix.
-    if _FLAGLIKE.search(_LEADING.sub("", proposal.target)) or "=" in proposal.target:
+    # Invisible format characters go first: a soft hyphen or U+180E before `-n` hid the flag
+    # (second review, 2026-09-30). `kind=name` with a resource kind is a name, as models write it
+    # (`deployment=checkout (namespace=shop)`); any other `x=y` is a selector or an assignment.
+    plain = "".join(ch for ch in proposal.target if unicodedata.category(ch) != "Cf")
+    assigned = re.findall(r"([\w.-]+)=", plain)
+    if (_FLAGLIKE.search(_LEADING.sub("", plain)) or plain.count("=") != len(assigned)
+            or any(k.lower() not in _RESOURCE_KINDS for k in assigned)):
         return f"target {proposal.target!r} looks like a flag or an assignment, not a resource name"
     found = tokens(proposal.target)
     if not found & inventory:

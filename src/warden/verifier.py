@@ -8,6 +8,8 @@ re-running anything.
 
 from __future__ import annotations
 
+import re
+
 from . import evidence, tripwire
 from .environments import EnvironmentPolicies, default_environment_policies
 from .evidence import tokens
@@ -187,7 +189,13 @@ def _deploy_of_target(alert, context, target: str) -> bool:
     if not named & deployed:
         return False
     own = tokens(alert.service)
-    return not (named & own) or bool(own & deployed)
+    # The service counts as deployed when a deployed name IS it or has it as a name component:
+    # `warden-pg-fs-checkout` is checkout's function (second review, 2026-09-30).
+    own_deployed = own & deployed or {o for o in own for d in deployed if o in re.split(r"[-_.:/]", d)}
+    return not (named & own) or bool(own_deployed)
+
+
+_LAG = re.compile(r"(?:replica|replication)_lag(?:_(ms|s|seconds))?$")
 
 
 def replica_lag_s(metrics: dict[str, float]) -> float | None:
@@ -195,7 +203,14 @@ def replica_lag_s(metrics: dict[str, float]) -> float | None:
     differently - `replica_lag_seconds` (database.py), `reader_replica_lag_seconds` and
     `aurora_replica_lag_ms` (aws_stack.py), each possibly suffixed per resource. A check that knew only
     the first never fired on the AWS stack (independent review 2026-09-28)."""
-    lags = [v / 1000.0 if "_ms" in k else v for k, v in metrics.items() if "replica_lag" in k]
+    lags = []
+    for key, value in metrics.items():
+        # The unit is read from the metric's OWN name, before any `__<resource>` suffix: `_ms` in
+        # `__payments_msvc` read 47 s as 47 ms, and `redis_replication_lag_s` was unknown (second
+        # review, 2026-09-30).
+        m = _LAG.search(key.split("__", 1)[0])
+        if m:
+            lags.append(value / 1000.0 if m.group(1) == "ms" else value)
     return max(lags) if lags else None
 
 

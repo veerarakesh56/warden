@@ -180,6 +180,9 @@ class GeminiProvider:
         self._client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(
+                # ALWAYS explicit: the SDK otherwise reads GOOGLE_GEMINI_BASE_URL itself, and the key
+                # went to whatever host that named, plain http included (second review, 2026-09-30).
+                base_url=GEMINI_BASE_URL,
                 timeout=int(_sdk_timeout_s() * 1000),
                 retry_options=types.HttpRetryOptions(attempts=1),
             ),
@@ -243,6 +246,10 @@ class OpenAICompatProvider:
         kw = {"api_key": api_key, "timeout": _sdk_timeout_s(), "max_retries": 0}
         kw["base_url"] = base_url
         self._client = OpenAI(**kw)
+        if base_url.rstrip("/") != OPENAI_DEFAULT_BASE_URL:
+            # The SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sends them as headers; they
+            # identify the OpenAI account and go to OpenAI only (second review, 2026-09-30).
+            self._client.organization = self._client.project = None
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         # `schema` is accepted and not used. `json_object` mode is the only shape control every
@@ -394,6 +401,9 @@ class ClaudeCliProvider:
             "--tools", "",
             "--strict-mcp-config",
             "--setting-sources", "",
+            # Not saved to the operator's profile: every call used to leave the whole prompt there as
+            # a session transcript (second review, 2026-09-30).
+            "--no-session-persistence",
         ]
         try:
             proc = subprocess.run(
@@ -458,6 +468,7 @@ _REGISTRY = {
 # OpenRouter, or any custom WARDEN_BASE_URL. A key is a credential for ONE vendor; each host reads
 # its own variable, and only a loopback host needs none.
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 _KEY_ENV_BY_HOST = {
     "api.openai.com": "OPENAI_API_KEY",

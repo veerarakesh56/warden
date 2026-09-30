@@ -191,3 +191,28 @@ def test_openai_itself_still_gets_the_openai_key(monkeypatch):
     monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-the-openai-key")
     assert OpenAICompatProvider()._client.api_key == "sk-the-openai-key"
+
+
+def test_the_gemini_key_goes_only_to_google(monkeypatch):
+    """Second review (2026-09-30): the Google SDK reads GOOGLE_GEMINI_BASE_URL itself, so the Gemini
+    key went to whatever host that named - http included. The base URL is now explicit."""
+    pytest.importorskip("google.genai", reason="pip install -e '.[gemini]'")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-only")
+    monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", "http://evil.example/")
+    client = resolve("gemini")._client
+    assert client._api_client._http_options.base_url == "https://generativelanguage.googleapis.com/"
+
+
+@pytest.mark.parametrize("alias", ["groq", "openrouter"])
+def test_openai_org_and_project_ids_stay_with_openai(monkeypatch, alias):
+    """Second review: the OpenAI SDK reads OPENAI_ORG_ID / OPENAI_PROJECT_ID itself and sent them to
+    every OpenAI-compatible host."""
+    monkeypatch.delenv("WARDEN_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_ORG_ID", "org-the-openai-org")
+    monkeypatch.setenv("OPENAI_PROJECT_ID", "proj-the-openai-project")
+    monkeypatch.setenv("GROQ_API_KEY", "g")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "o")
+    headers = {k: v for k, v in resolve(alias)._client.default_headers.items() if isinstance(v, str)}
+    assert "org-the-openai-org" not in str(headers) and "proj-the-openai-project" not in str(headers)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-the-openai-key")
+    assert OpenAICompatProvider()._client.organization == "org-the-openai-org"

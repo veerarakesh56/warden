@@ -39,18 +39,26 @@ WINDOW_TOKENS, STEP_TOKENS = 500, 400   # + the model's special tokens <= 512; 1
                                         # an instruction straddling a cut is still whole in one window
 MAX_TOKENS = 512
 WINDOW_CHARS, STEP_CHARS = 400, 300     # a stand-in classifier without a model (tests): characters
+# The most model tokens one scan scores. Recorded incidents need at most 14,121 (p99 11,630, measured
+# 2026-09-30 over 337 reports); a full 512-token window costs about 0.85 s on a laptop CPU, so this
+# bounds a scan to about a minute. Over it, nothing is scored and the incident escalates (second
+# review, 2026-09-30): a flood of log text must buy neither an unscanned pass nor a stalled incident.
+MAX_SCAN_TOKENS = 32_768
+MAX_THRESHOLD = 0.99
+TOO_MUCH_TEXT = "TOO-MUCH-TEXT"
 PROMPT_ID = "PROMPT"  # the rendered prompt, scanned as one more untrusted text (audit A-C-11)
 
 
 def threshold() -> float | None:
     """The score at which a window is flagged, or None if the setting is unusable. ⛔ Audit A-C-12:
     `float("nan")` was accepted, and every comparison with nan is False - detection silently off.
-    1.0 is refused too: no real score reaches it, so it switches detection off the same way."""
+    A threshold no real score reaches switches detection off the same way: the strongest real scores
+    measured were 0.998-0.9993 (second review, 2026-09-30), so the setting is capped at 0.99."""
     try:
         t = float(os.environ.get("WARDEN_TRIPWIRE_THRESHOLD", "0.9"))
     except ValueError:
         return None
-    return t if math.isfinite(t) and 0.0 < t < 1.0 else None
+    return t if math.isfinite(t) and 0.0 < t <= MAX_THRESHOLD else None
 
 
 def _starts(n: int, window: int, step: int) -> list[int]:
@@ -81,6 +89,8 @@ def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
         raise ValueError("a window exceeds the model's input")  # never truncate silently
     labels = {i: str(name).upper() for i, name in model.config.id2label.items()}
     bad = [i for i, name in labels.items() if name in ("MALICIOUS", "LABEL_1")]
+    if not bad:  # another model's labels (INJECTION/JAILBREAK): every score would be 0, silently
+        raise ValueError("the model has no MALICIOUS label")
     scores: list[float] = []
     for start in range(0, len(rows), 16):
         batch = rows[start:start + 16]
@@ -138,12 +148,18 @@ def scan(items: dict[str, Item], classify: Any = None, *, prompt: str = "") -> t
         return "ran", {}
     try:
         classify = classify or _classifier()
+    except Exception as exc:  # noqa: BLE001 - the extra is missing, or the weights are not available
+        return f"unavailable: model not loaded ({type(exc).__name__})", {}
+    try:
         exact = hasattr(classify, "model") and hasattr(classify, "tokenizer")
         windows, owner = [], []
         for item_id, text in texts:
             for window in (_id_windows(text, classify.tokenizer) if exact else _char_windows(text)):
                 windows.append(window)
                 owner.append(item_id)
+        size = sum(len(w) for w in windows) if exact else sum(len(w) for w in windows) // 4
+        if size > MAX_SCAN_TOKENS:
+            return "ran", {TOO_MUCH_TEXT: 1.0}
         if exact:
             scores = _score_ids(classify, windows)
         else:
