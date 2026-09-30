@@ -280,7 +280,7 @@ MUTATIONS = [
     ),
     (
         "the cluster CI job swallows the database suite again",
-        "../../.github/workflows/ci.yml",
+        "../../.github/workflows/ci-tool.yml",
         "          pytest tests/integration/test_live_cluster.py tests/integration/test_live_remediation.py -q -rs | tee it.txt",
         "          pytest tests/integration -q -rs | tee it.txt",
         (

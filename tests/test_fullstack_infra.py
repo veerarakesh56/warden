@@ -474,26 +474,32 @@ def _workflow(name: str) -> dict:
     return doc
 
 
-def test_infra_workflow_triggers_only_on_terraform_and_applies_only_on_dispatch():
-    wf = _workflow("infra.yml")
+def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
+    wf = _workflow("ci-infra.yml")
     # The infra pipeline's own test file counts as infra: the tool CI skips infra-only changes.
-    assert all(p.startswith(("terraform/fullstack/", ".github/workflows/infra.yml", "tests/test_fullstack_infra.py"))
+    assert all(p.startswith(("terraform/fullstack/", ".github/workflows/", "tests/test_fullstack_infra.py"))
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"])
-    assert wf["on"]["workflow_dispatch"]["inputs"]["action"]["options"] == ["plan", "apply", "destroy"]
-    assert wf["jobs"]["run"]["if"] == "github.event_name == 'workflow_dispatch'"
-    assert wf["jobs"]["run"]["permissions"]["id-token"] == "write"
-    text = (ROOT / ".github" / "workflows" / "infra.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch" not in wf["on"]
+    for name in ("ci-infra.yml", "_infra-validate.yml"):
+        text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert "id-token" not in text and "configure-aws-credentials" not in text, name
+    deploy = _workflow("_infra-deploy.yml")
+    assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}  # only ever called
+    assert deploy["jobs"]["run"]["permissions"]["id-token"] == "write"
+    text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     assert "aws-access-key-id" not in text and "AWS_SECRET_ACCESS_KEY" not in text
 
 
-def test_apps_workflow_triggers_only_on_app_code_and_deploys_only_on_dispatch():
-    wf = _workflow("apps.yml")
+def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform():
+    wf = _workflow("ci-apps.yml")
     paths = wf["on"]["push"]["paths"]
     assert not any(p.startswith("terraform/") for p in paths)
     assert "scenarios/fullstack/**" in paths and "k8s/fullstack/**" in paths
-    assert wf["jobs"]["deploy"]["if"] == "github.event_name == 'workflow_dispatch'"
-    text = (ROOT / ".github" / "workflows" / "apps.yml").read_text(encoding="utf-8")
-    assert not re.search(r"^\s*(- run: |run: )?terraform ", text, re.MULTILINE), "the apps pipeline calls terraform"
+    assert "workflow_dispatch" not in wf["on"]
+    deploy = _workflow("_apps-deploy.yml")
+    assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}
+    text = (ROOT / ".github" / "workflows" / "_apps-deploy.yml").read_text(encoding="utf-8")
+    assert not re.search(r"^\s*(- run: |run: )?terraform ", text, re.MULTILINE), "the apps deploy calls terraform"
     assert "aws-access-key-id" not in text
 
 
@@ -699,7 +705,7 @@ def test_aurora_status_says_whether_the_cluster_is_up():
 
 
 def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
-    text = (ROOT / ".github" / "workflows" / "infra.yml").read_text(encoding="utf-8")
+    text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     assert text.index("terraform/fullstack apply") < text.index("aurora_express.py create") < text.index("aws s3 cp")
     assert text.index("aurora_express.py destroy") < text.index("terraform/fullstack destroy")
     assert "MASTER_PASSWORD" not in text and "db_master_password" not in text

@@ -1,6 +1,6 @@
 # WARDEN
 
-[![CI](https://github.com/veerarakesh56/warden/actions/workflows/ci.yml/badge.svg)](https://github.com/veerarakesh56/warden/actions/workflows/ci.yml)
+[![CI](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml/badge.svg)](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -919,7 +919,7 @@ flowchart TB
 
 ### 10. CI - what every push proves
 
-`.github/workflows/ci.yml`, five jobs, on every push to `main` and every pull request. None touches AWS: the measurements are the
+`.github/workflows/ci-tool.yml`, six jobs, on every push to `main` and every pull request. None touches AWS: the measurements are the
 benchmark waves above; CI keeps what they measured from regressing.
 
 ```mermaid

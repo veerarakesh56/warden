@@ -54,7 +54,7 @@ ALLOWED = {
 # waved through, so it is deliberately tiny, it is never widened to a directory, and every entry
 # below was verified by opening the file rather than by trusting the filename.
 ALLOWED_PATHS: dict[str, str] = {
-    ".github/workflows/ci.yml":
+    ".github/workflows/ci-tool.yml":
         "service-container DSNs bound to 127.0.0.1 inside an ephemeral runner that is destroyed "
         "with the job. `sa:Warden!Passw0rd1` is MSSQL's complexity requirement, not a secret.",
     "src/warden/redaction.py":

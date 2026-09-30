@@ -1,0 +1,29 @@
+name: "_ apps · check"
+
+# Shared by CI · apps and every Deploy · <env>: lint, tests, every artifact built. No credentials.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install ruff pytest pyyaml "psycopg[binary]" redis boto3 packaging
+      - run: ruff check scenarios/fullstack scripts/deploy_fullstack_apps.py tests/test_deploy_fullstack_apps.py
+      - run: python -m compileall -q scenarios/fullstack
+      # test_fullstack_infra also checks the k8s manifests and the apps' SQL/handlers.
+      - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py -q
+      - name: build artifacts (zips + image)
+        run: python scripts/deploy_fullstack_apps.py --out "$RUNNER_TEMP/build" build --tag "${GITHUB_SHA::12}"
+      - name: render k8s/fullstack
+        run: kubectl kustomize k8s/fullstack > /dev/null

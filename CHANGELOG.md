@@ -318,13 +318,27 @@ bump may carry a breaking change.
 - **CI is faster and stricter.**
   - Unit tests run in parallel across the runner's cores (pytest-xdist 3.8); pip downloads are
     cached. The check job went from 145 s to 98 s.
-  - Image builds reuse cached layers (BuildKit's GitHub Actions cache), and the Dockerfile installs
-    dependencies in their own layer, so a source change does not reinstall them.
+  - The k3d job starts the image build in the background, so it runs while the cluster starts and
+    pip installs. A BuildKit layer cache was tried first (e51fe1d) and measured SLOWER (the k3d job
+    124 s -> 176 s, the docker job 32 s -> 47 s: loading the image out of BuildKit and exporting the
+    cache cost more than the build), so it was removed with its Dockerfile change.
   - A newer push to a pull request cancels the run it supersedes; every job has a timeout.
   - k3d is a pinned release checked against a pinned SHA-256 (A-I-24); it was the install script from
     k3d's main branch, piped into bash.
   - A workflow scan (zizmor) runs on every change, including the infra and apps pipelines that
     hold cloud credentials: the tool pipeline's path filters skipped it for them (A-I-15).
+- **The pipelines are laid out by purpose and by environment.**
+  - `CI · tool`, `CI · infra`, `CI · apps`: each checks its own part on every change, with no
+    credentials. `Scan · workflows` scans every workflow on every change.
+  - `Deploy · <env>`: one workflow per environment (dev, staging, qa-staging, pre-prod, qa-prod,
+    prod), run by hand, from `main` only (A-I-10). Each one picks infra (plan, apply or destroy) or
+    apps (all, lambdas, ecs or k8s).
+  - The steps live once in shared workflows (`_infra-*.yml`, `_apps-*.yml`). A test keeps the six
+    deploy files identical apart from the environment's name, and matching `environments.yaml`.
+  - No region is written into any workflow: each GitHub Environment carries `AWS_REGION`, the same
+    as its role and state bucket.
+  - Same-repository workflows are referenced with GitHub's self-repository syntax (`$/`, July 2026),
+    which resolves at the running commit.
 
 ### ⚠ Correction to the entries above (independent review, 2026-09-28)
 

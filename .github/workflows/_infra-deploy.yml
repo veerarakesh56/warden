@@ -1,78 +1,30 @@
-# INFRA pipeline for the full stack (terraform/fullstack). One of three independent pipelines:
-# infra (this), apps (apps.yml), and WARDEN's own CI (ci.yml).
-#
-# push / pull_request: fmt, init -backend=false, validate. No credentials, no AWS call.
-# workflow_dispatch:   plan | apply | destroy of ONE environment (dev, staging, ... - the keys of
-#                      src/warden/data/environments.yaml), through GitHub OIDC.
-#
-# ⛔ NO AWS KEYS ARE STORED ANYWHERE (v2 Phase 1.5). Per environment, the owner creates once, in the
-# AWS console (docs/OWNER-CONSOLE-STEPS.md):
-#   - the role warden-<env>-deploy from iam/<env>/{trust,deploy,boundary}.json. Its trust accepts
-#     GitHub's token ONLY from this repository's GitHub environment of the same name;
-#   - the SSM parameters /warden/<env>/tf/my_ip_cidr and /warden/<env>/tf/budget_email;
-#   - a state bucket warden-<env>-tfstate-<random>.
-# and in GitHub a GitHub Environment named <env> with the variables AWS_ROLE_ARN and TF_STATE_BUCKET
-# (optional EKS_PUBLIC_CIDRS, EKS_ADMINS), and required reviewers for pre-prod, qa-prod and prod.
-# No secrets: nothing personal or secret passes through GitHub.
-#
+name: "_ infra · deploy"
+
+# plan | apply | destroy the full stack in ONE environment, through GitHub OIDC. Called only by
+# Deploy · <env>. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
+# (docs/OWNER-CONSOLE-STEPS.md): the role warden-<env>-deploy (its trust accepts only this repository's
+# GitHub Environment of the same name), the SSM parameters /warden/<env>/tf/*, a state bucket, and a
+# GitHub Environment <env> with the variables AWS_ROLE_ARN, AWS_REGION and TF_STATE_BUCKET (optional
+# EKS_PUBLIC_CIDRS, EKS_ADMINS) and required reviewers for pre-prod, qa-prod and prod.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
-name: infra
-
 on:
-  push:
-    paths:
-      - "terraform/fullstack/**"
-      - "tests/test_fullstack_infra.py"
-      - ".github/workflows/infra.yml"
-  pull_request:
-    paths:
-      - "terraform/fullstack/**"
-      - "tests/test_fullstack_infra.py"
-      - ".github/workflows/infra.yml"
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      action:
-        description: "plan, apply or destroy the full stack"
-        type: choice
-        options: [plan, apply, destroy]
-        default: plan
       environment:
-        description: "which environment (src/warden/data/environments.yaml)"
-        type: choice
-        options: [dev, staging, qa-staging, pre-prod, qa-prod, prod]
-        default: dev
+        type: string
+        required: true
+      action:
+        type: string
+        required: true
 
 permissions:
   contents: read
 
-concurrency:
-  group: infra-${{ inputs.environment || github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
-      - run: terraform -chdir=terraform/fullstack fmt -check -recursive
-      - run: terraform -chdir=terraform/fullstack init -backend=false -input=false
-      - run: terraform -chdir=terraform/fullstack validate
-      # The tool CI skips infra-only changes, so the infra checks run here: every name carries the
-      # prefix, every role its boundary, alarm text names no cause, the policies fit their limits.
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: "3.13"
-      - run: pip install pytest pyyaml
-      - run: pytest tests/test_fullstack_infra.py -q
-
   run:
-    if: github.event_name == 'workflow_dispatch'
-    needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
@@ -81,8 +33,20 @@ jobs:
       ACTION: ${{ inputs.action }}
       WARDEN_ENV: ${{ inputs.environment }}
       BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
       TF_IN_AUTOMATION: "1"
     steps:
+      - name: Deploys run from main only
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::deploys run from main only (audit A-I-10)"
+          exit 1
+      - name: A known action
+        run: |
+          case "$ACTION" in plan|apply|destroy) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+      - name: The environment names its region
+        run: |
+          test -n "$AWS_REGION" || { echo "::error::set the variable AWS_REGION on this GitHub Environment"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
@@ -90,7 +54,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           role-session-name: gha-${{ github.run_id }}
-          aws-region: ap-south-2
+          aws-region: ${{ vars.AWS_REGION }}
           mask-aws-account-id: true
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
         with:
@@ -112,7 +76,7 @@ jobs:
           printf 'terraform {\n  backend "s3" {}\n}\n' > terraform/fullstack/backend_override.tf
           terraform -chdir=terraform/fullstack init -input=false \
             -backend-config="bucket=$BUCKET" -backend-config="key=fullstack/terraform.tfstate" \
-            -backend-config="region=ap-south-2" -backend-config="use_lockfile=true"
+            -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
           # The environment IS the workspace; terraform refuses any other (main.tf precondition).
           terraform -chdir=terraform/fullstack workspace select -or-create "$WARDEN_ENV"
       - name: plan
@@ -135,5 +99,5 @@ jobs:
           python terraform/fullstack/aurora_express.py destroy
           terraform -chdir=terraform/fullstack destroy -input=false -auto-approve -no-color
           aws s3 rm "s3://$BUCKET/fullstack/stack.json" --only-show-errors || true
-          aws resourcegroupstaggingapi get-resources --region ap-south-2 \
+          aws resourcegroupstaggingapi get-resources --region "$AWS_REGION" \
             --tag-filters Key=Project,Values=warden "Key=Environment,Values=$WARDEN_ENV" --query 'length(ResourceTagMappingList)'

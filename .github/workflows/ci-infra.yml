@@ -1,0 +1,29 @@
+name: "CI · infra"
+
+# The full stack's Terraform (terraform/fullstack), checked on every change to it: fmt, validate and the
+# infra tests. No credentials, no AWS call. Changing an environment: Deploy · <env>.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/fullstack/**"
+      - "tests/test_fullstack_infra.py"
+      - ".github/workflows/ci-infra.yml"
+      - ".github/workflows/_infra-validate.yml"
+  pull_request:
+    paths:
+      - "terraform/fullstack/**"
+      - "tests/test_fullstack_infra.py"
+      - ".github/workflows/ci-infra.yml"
+      - ".github/workflows/_infra-validate.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-infra-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    uses: $/.github/workflows/_infra-validate.yml

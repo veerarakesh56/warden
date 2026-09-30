@@ -304,6 +304,7 @@ three times.
 `dev` → **Configure environment**.
 - Under **Environment variables**, add:
   - `AWS_ROLE_ARN` = the ARN from step 3
+  - `AWS_REGION` = `ap-south-2` (the region the stack lives in; the deploy workflows read it from here)
   - `TF_STATE_BUCKET` = the bucket name from step 5
 - For `pre-prod`, `qa-prod` and `prod` only:
   - tick **Required reviewers** and add yourself;

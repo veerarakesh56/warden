@@ -23,9 +23,9 @@ application code:
 
 | pipeline | what | how | reads |
 |---|---|---|---|
-| infra | this directory | `terraform apply` locally, or `.github/workflows/infra.yml` (dispatch) | - |
-| apps | Lambdas, container image, `k8s/fullstack` | `scripts/deploy_fullstack_apps.py`, or `.github/workflows/apps.yml` (dispatch) | `stack.json` |
-| WARDEN CI | the tool | `.github/workflows/ci.yml` | - |
+| infra | this directory | `terraform apply` locally, or `.github/workflows/deploy-<env>.yml` (by hand; part: infra) | - |
+| apps | Lambdas, container image, `k8s/fullstack` | `scripts/deploy_fullstack_apps.py`, or `.github/workflows/deploy-<env>.yml` (by hand; part: apps) | `stack.json` |
+| WARDEN CI | the tool | `.github/workflows/ci-tool.yml` | - |
 
 Lambdas are created from a placeholder zip, ECS from a placeholder container that answers 200 on
 every path; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
@@ -99,7 +99,7 @@ USD 50 is about four days of this stack left running. Destroy it when a run ends
 
 5. **CI only:** the per-environment OIDC role `warden-<env>-deploy`, the state bucket
    `warden-<env>-tfstate-*` and the GitHub Environment variables - the list is at the top of
-   `.github/workflows/infra.yml`. No AWS keys are
+   `.github/workflows/deploy-<env>.yml`. No AWS keys are
    stored anywhere.
 
 ## Apply (the environment's deploy role)

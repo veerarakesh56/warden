@@ -35,9 +35,9 @@ already measure.
 
 | pipeline | owns | triggers | product |
 |---|---|---|---|
-| **infra** (`.github/workflows/infra.yml`) | `terraform/fullstack/` only | validate on a change to its files; apply/destroy only by manual dispatch | `stack.json` (`terraform output -json`) |
-| **apps** (`.github/workflows/apps.yml`, `scripts/deploy_fullstack_apps.py`) | the code that runs ON the stack: Lambdas, the container image, `k8s/fullstack/`, the DB bootstrap SQL | test/build on a change to its files; deploy only by manual dispatch | running workloads |
-| **tool** (`.github/workflows/ci.yml`) | WARDEN itself | any change outside the infra/apps directories | a tested WARDEN |
+| **infra** (`.github/workflows/ci-infra.yml`; deploys: `deploy-<env>.yml`) | `terraform/fullstack/` only | validate on a change to its files; apply/destroy only by manual dispatch | `stack.json` (`terraform output -json`) |
+| **apps** (`.github/workflows/ci-apps.yml`, `scripts/deploy_fullstack_apps.py`; deploys: `deploy-<env>.yml`) | the code that runs ON the stack: Lambdas, the container image, `k8s/fullstack/`, the DB bootstrap SQL | test/build on a change to its files; deploy only by manual dispatch | running workloads |
+| **tool** (`.github/workflows/ci-tool.yml`) | WARDEN itself | any change outside the infra/apps directories | a tested WARDEN |
 
 Each is usable alone: someone can take only the infra, only the apps, or only WARDEN. Terraform
 never deploys application code (it creates functions with a placeholder and ignores code changes);

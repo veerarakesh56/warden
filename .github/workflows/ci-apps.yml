@@ -1,0 +1,35 @@
+name: "CI · apps"
+
+# The code that runs ON the full stack (Lambdas, the container image, k8s/fullstack), checked on every
+# change to it: lint, tests, every artifact built. No credentials. Deploying it: Deploy · <env>.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scenarios/fullstack/**"
+      - "k8s/fullstack/**"
+      - "scripts/deploy_fullstack_apps.py"
+      - "tests/test_deploy_fullstack_apps.py"
+      - "tests/test_fullstack_infra.py"
+      - ".github/workflows/ci-apps.yml"
+      - ".github/workflows/_apps-check.yml"
+  pull_request:
+    paths:
+      - "scenarios/fullstack/**"
+      - "k8s/fullstack/**"
+      - "scripts/deploy_fullstack_apps.py"
+      - "tests/test_deploy_fullstack_apps.py"
+      - "tests/test_fullstack_infra.py"
+      - ".github/workflows/ci-apps.yml"
+      - ".github/workflows/_apps-check.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-apps-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    uses: $/.github/workflows/_apps-check.yml

@@ -1,0 +1,29 @@
+name: "_ infra · validate"
+
+# Shared by CI · infra and every Deploy · <env>: a plan or an apply never runs on Terraform that fails
+# these checks.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+      - run: terraform -chdir=terraform/fullstack fmt -check -recursive
+      - run: terraform -chdir=terraform/fullstack init -backend=false -input=false
+      - run: terraform -chdir=terraform/fullstack validate
+      # Every name carries the prefix, every role its boundary, alarm text names no cause, the policies
+      # fit their limits.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install pytest pyyaml
+      - run: pytest tests/test_fullstack_infra.py -q

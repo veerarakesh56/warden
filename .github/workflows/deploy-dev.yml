@@ -1,0 +1,60 @@
+name: "Deploy · dev"
+
+# The dev environment, by hand, from main only. infra: plan, apply or destroy the full stack.
+# apps: deploy the code that runs on it. The steps are shared (_infra-*.yml, _apps-*.yml); this file only
+# names the environment - tests/test_ci_lanes.py keeps the deploy files identical apart from that name.
+on:
+  workflow_dispatch:
+    inputs:
+      part:
+        description: "infra (the stack) or apps (the code that runs on it)"
+        type: choice
+        options: [infra, apps]
+        default: infra
+      infra_action:
+        description: "infra only: plan, apply or destroy"
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+      apps_target:
+        description: "apps only: what to deploy"
+        type: choice
+        options: [all, lambdas, ecs, k8s]
+        default: all
+
+permissions:
+  contents: read
+
+# One change at a time per environment, infra and apps together; never cancelled half-way.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  infra-validate:
+    if: inputs.part == 'infra'
+    uses: $/.github/workflows/_infra-validate.yml
+  infra:
+    if: inputs.part == 'infra'
+    needs: infra-validate
+    uses: $/.github/workflows/_infra-deploy.yml
+    with:
+      environment: dev
+      action: ${{ inputs.infra_action }}
+    permissions:
+      contents: read
+      id-token: write
+
+  apps-check:
+    if: inputs.part == 'apps'
+    uses: $/.github/workflows/_apps-check.yml
+  apps:
+    if: inputs.part == 'apps'
+    needs: apps-check
+    uses: $/.github/workflows/_apps-deploy.yml
+    with:
+      environment: dev
+      target: ${{ inputs.apps_target }}
+    permissions:
+      contents: read
+      id-token: write
