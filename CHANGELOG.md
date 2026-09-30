@@ -315,6 +315,8 @@ bump may carry a breaking change.
   aws-actions/configure-aws-credentials 4.3.1 → 6.3.0 (c902592), hashicorp/setup-terraform
   3.1.2 → 4.0.1 (8980a43), actions/setup-python 5.6.0 → 7.0.0 (940ba81). Each stays pinned by SHA.
 - **SYSTEM-COMPONENTS lists live-verified prices** for the chosen components (40f5f0e, G0).
+- **CI is faster.** Unit tests run in parallel across the runner's cores (pytest-xdist 3.8), and pip
+  downloads are cached. Before: 2 min 21 s per push, the unit tests alone 100 s on one core.
 
 ### ⚠ Correction to the entries above (independent review, 2026-09-28)
 
