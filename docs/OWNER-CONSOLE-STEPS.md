@@ -16,7 +16,10 @@ Avoid the root user.
 > `sts:SetSourceIdentity`, no step sent the profile ARN, the old key could have been used by mistake,
 > and some plan items were missing. The second and third (2026-09-30): a wrong helper flag, a file
 > that must be kept, no stop if the first sign-in is refused, no next-day check, an incomplete undo,
-> and a policy deleted before its decision (A-I-18). This version fixes them. The go-ahead comes only
+> and a policy deleted before its decision (A-I-18). The fourth (2026-09-30): the undo was in the
+> wrong order, step C's undo had no saved trust to paste back, the Access Analyzer check named no
+> region, the calendar left too little time before E3, and the sweep role could be assumed in any
+> account. This version fixes them. The go-ahead comes only
 > after these steps are re-verified and CI on `main` is green.
 
 What this gives:
@@ -108,7 +111,9 @@ pins that exact anchor and the laptop certificate's name (CN and O). The file is
 5. Tags `Project` = `warden`, `Environment` = `ops` → **Create role**.
 
 There is no permissions boundary on this role. Its only non-read permission is assuming the
-read-only sweep role, so a boundary would limit nothing. The test keeps it that way.
+read-only sweep role - and only in this account: the policy's condition
+`aws:ResourceAccount = ${aws:PrincipalAccount}` names no account number. A boundary would limit
+nothing more. The test keeps it that way.
 
 **B4. The profile** (region Hyderabad).
 1. IAM Roles Anywhere → **Create a profile**.
@@ -136,7 +141,9 @@ Claude then:
    end dates.
 
 **C. The sweep role's trust** (only after Claude confirms B works).
-1. IAM → **Roles** → `warden-pg-sweep` → **Trust relationships** → **Edit trust policy**.
+1. IAM → **Roles** → `warden-pg-sweep` → **Trust relationships**. First keep the current trust for the
+   undo: click in the JSON shown, **Ctrl+A**, **Ctrl+C**, paste it into Notepad and save it as
+   `%USERPROFILE%\.warden\sweep-role-trust.before.json`. Then **Edit trust policy**.
 2. Paste the local file `C:\work\warden\terraform\proving-ground\sweep-role-trust.local.json`.
    It trusts the new role instead of the old user, and allows `sts:SetSourceIdentity`: a Roles
    Anywhere session always carries one, and without that permission the chained AssumeRole fails.
@@ -184,10 +191,16 @@ Claude compares the stored value with the file by hash, never printing either.
    budget email from it, and deleting it would break its next plan. It holds no secret and git
    ignores it.
 
+   After this, the laptop has no Slack webhook: nothing in WARDEN reads the secret from Secrets
+   Manager yet (chatops reads the `WARDEN_SLACK_WEBHOOK` environment variable). Slack delivery from
+   the laptop is off until G5 brings the bot token, unless Claude exports the value from Secrets
+   Manager for a single test post.
+
 **E5. The next day** (after E1, and after every later AWS window).
 1. **Billing and Cost Management** → **Bills**: this month's charges. Tell Claude any service with a
    charge above USD 0.00 other than Secrets Manager.
-2. **IAM** → **Access analyzer** → **Resource analysis** → **Active**: no findings is the goal.
+2. Region **Asia Pacific (Hyderabad)** (the analyzer is regional) → **IAM** → **Access analyzer** →
+   **Resource analysis** → **Active**: no findings is the goal.
 3. Claude runs the all-region sweep (`python scripts/account_sweep.py`) through the new role, and
    records all three results, with the date in UTC and IST, under "W0-now results".
 
@@ -212,16 +225,18 @@ AWS's notification warns 45 days before. To renew:
 The new certificate comes from a new CA, and the anchor trusts only the bundle it holds. So between
 step 1 and step 2 every sign-in fails: replace the bundle right after Claude runs `issue`.
 
-**Undo, if ever needed:**
-- A: user → **Add permissions** → attach `WardenProvingGroundOperator` again, and
-  `WardenProvingGroundOperatorRdsEks` if step A4 removed it.
-- B: delete the profile, the role, the policy and the trust anchor.
-- C: paste the previous trust (it named `user/warden-operator`).
-- D: Secrets Manager → `warden/ops/slack-webhook` → **Actions** → **Delete secret**. AWS keeps it for
-  a recovery window of 7 to 30 days before it is gone; choose 7. The webhook file stays on the laptop
-  until step E4, so nothing is lost.
-- E1: reactivate the key, and Claude restores the credentials file. There is no undo after E3
-  step 1, which is why E waits two days.
+**Undo, if ever needed** - in this order, the reverse of the steps, stopping at the last step you did:
+1. E1: reactivate the key, and Claude restores the credentials file. First, because every later undo
+   step needs a working way in once the role is gone. There is no undo after E3 step 1, which is why
+   E waits two days.
+2. D: Secrets Manager → `warden/ops/slack-webhook` → **Actions** → **Delete secret**. AWS keeps it for
+   a recovery window of 7 to 30 days before it is gone; choose 7. The webhook file stays on the laptop
+   until step E4, so nothing is lost.
+3. C: paste the trust you saved in C1 (`sweep-role-trust.before.json`; it names `user/warden-operator`).
+   Before B's undo: this trust names the new role, which B's undo deletes.
+4. B: delete the profile, the role, the policy and the trust anchor.
+5. A: user → **Add permissions** → attach `WardenProvingGroundOperator` again, and
+   `WardenProvingGroundOperatorRdsEks` if step A4 removed it.
 
 **W0-now results** (Claude fills this in; nothing is recorded yet):
 

@@ -25,7 +25,12 @@
         "sts:AssumeRole",
         "sts:SetSourceIdentity"
       ],
-      "Resource": "arn:aws:iam::*:role/warden-pg-sweep"
+      "Resource": "arn:aws:iam::*:role/warden-pg-sweep",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "${aws:PrincipalAccount}"
+        }
+      }
     },
     {
       "Sid": "ReadWhatTheOwnerPastedToCompareWithTheRepo",

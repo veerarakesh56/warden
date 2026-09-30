@@ -61,7 +61,7 @@ in W0-now, and the owner is told before any window they affect.
 | Milestone | Target (UTC / IST) |
 |---|---|
 | G0 complete | 2026-10-01 / 2026-10-01 (records corrected after the 2026-09-28 independent review; SYSTEM-COMPONENTS cost table delivered in 40f5f0e) |
-| W0-now window | 2026-10-01 to 2026-10-02 (owner's choice of time) |
+| W0-now window | from Claude's go-ahead, planned 2026-10-01 to 2026-10-04: A-E1 on day 1, E5 the next day, E3 at least two days after E1 (earliest day 3), then E4 |
 | v0.10.1 (G1) | 2026-10-16 / 2026-10-16 |
 | v0.11.0 (G2 + G3) | 2026-11-13 / 2026-11-13 |
 | v0.12.0 (G4) | 2026-12-04 / 2026-12-04 |
