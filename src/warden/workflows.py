@@ -20,7 +20,14 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
-    from .activities import FixOutcome, FixRequest, IncidentActivities, Plan, RemediationActivities
+    from .activities import (
+        FixOutcome,
+        FixRequest,
+        IncidentActivities,
+        Plan,
+        Recorded,
+        RemediationActivities,
+    )
     from .approvals import SignedApproval
     from .models import Alert, RunReport
 
@@ -120,8 +127,14 @@ class RemediationWorkflow:
         recovered = False
         while workflow.now() < until and not recovered:
             await workflow.sleep(CHECK_EVERY)
-            recovered = await workflow.execute_activity_method(acts.check_success, args=[req.service], **QUICK)
-        await workflow.execute_activity_method(acts.record_result, args=[plan, req.service, recovered], **QUICK)
+            recovered = await workflow.execute_activity_method(acts.check_success, args=[plan, req.service],
+                                                               **QUICK)
+        # The verdict is WARDEN's audit of THIS run's own checks, returned with the run it belongs to: a
+        # result replayed from an earlier run of this workflow id carries that run's id and is refused.
+        recorded = await workflow.execute_activity_method(acts.record_result, args=[plan, req.service, recovered],
+                                                          **QUICK)
+        recovered = (isinstance(recorded, Recorded) and recorded.ok is True
+                     and recorded.run_id == workflow.info().run_id)
         if recovered:
             done["verified"] = True
             return await end("recovered")

@@ -280,6 +280,12 @@ bump may carry a breaking change.
   WARDEN's own reads; the planned fix escalates such an incident rather than leaving any copy
   unmasked (a trusted-lines exemption was tried and dropped: it left a user id from a log line in
   clear inside a config read).
+- **A fix is verified only by the run's own health checks** (fourth review, B-N2). `rem-<service>`
+  is reused and a payload is bound to the workflow id, not the run, so an earlier run's "healthy"
+  result, completed into a later run's check, marked that run recovered with no check made: no
+  rollback, and a signed audit row saying ok. Each real check now writes an audit row with its run;
+  the verdict is taken from those rows and returned with the run id, and the workflow accepts only
+  its own. A forged claim leaves a `remediation.result_mismatch` row. Test fails without the fix.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

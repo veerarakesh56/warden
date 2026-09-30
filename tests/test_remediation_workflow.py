@@ -120,8 +120,10 @@ def test_an_approved_fix_is_applied_once_verified_and_fully_audited(world, owner
     assert out.status == "recovered" and out.checklist == dict.fromkeys(STEPS, True)
     assert world["platform"].applied == [("k8s_rollout_undo", REQ["params"])]
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
-    assert kinds == ["remediation.plan", "remediation.gate", "approval.accepted", "remediation.precheck",
-                     "remediation.intent", bounds.APPLIED, bounds.RESULT, "workflow.end"]
+    assert "remediation.check" in kinds  # every real health check is on the record (fourth review)
+    assert [k for k in kinds if k != "remediation.check"] == [
+        "remediation.plan", "remediation.gate", "approval.accepted", "remediation.precheck",
+        "remediation.intent", bounds.APPLIED, bounds.RESULT, "workflow.end"]
     assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0
 
 

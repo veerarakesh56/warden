@@ -63,6 +63,12 @@ class ApprovalResult(BaseModel):
     enough: bool = False
 
 
+class Recorded(BaseModel):
+    """The verdict of a remediation, as WARDEN's own audit shows it, and the run it belongs to."""
+    run_id: str
+    ok: bool
+
+
 class FixOutcome(BaseModel):
     status: str
     reasons: list[str] = Field(default_factory=list)
@@ -194,13 +200,29 @@ class RemediationActivities:
         return detail
 
     @activity.defn
-    def check_success(self, service: str) -> bool:
-        return self.platform.healthy(service)
+    def check_success(self, plan: Plan, service: str) -> bool:
+        healthy = bool(self.platform.healthy(service))
+        # Every real check is on the record with its run: the verdict is taken from these rows, never from
+        # what an activity result or the workflow claims (fourth review, 2026-09-30: run 1's "healthy"
+        # replayed into run 2 marked a fix verified with no health check made).
+        self.audit.append(plan.incident_id, "remediation.check",
+                          {"workflow_id": plan.workflow_id, "run_id": _run_id(), "plan_hash": plan.plan_hash,
+                           "healthy": healthy})
+        return healthy
 
     @activity.defn
-    def record_result(self, plan: Plan, service: str, ok: bool) -> None:
-        bounds.record_result(self.audit, plan.incident_id, service=service, ok=ok, now=datetime.now(UTC),
+    def record_result(self, plan: Plan, service: str, ok: bool) -> Recorded:
+        run = _run_id()
+        checks = [e["body"] for e in self.audit.entries(plan.incident_id, kinds=("remediation.check",))
+                  if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                  and e["body"].get("plan_hash") == plan.plan_hash]
+        verified = bool(checks) and checks[-1].get("healthy") is True
+        if verified != ok:
+            self.audit.append(plan.incident_id, "remediation.result_mismatch",
+                              {"workflow_id": plan.workflow_id, "run_id": run, "claimed": ok, "recorded": verified})
+        bounds.record_result(self.audit, plan.incident_id, service=service, ok=verified, now=datetime.now(UTC),
                              limits=self.limits)
+        return Recorded(run_id=run, ok=verified)
 
     @activity.defn
     def rollback(self, plan: Plan) -> str:
