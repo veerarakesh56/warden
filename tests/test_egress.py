@@ -224,3 +224,19 @@ def test_every_cli_command_and_the_mcp_server_gate_their_logs(monkeypatch):
     monkeypatch.setattr(anyio, "run", lambda fn: None)
     mcp_server.main()
     assert len(calls) == 2, calls
+
+
+
+def test_the_log_gate_is_installed_once_even_after_a_module_reload():
+    """Fourth review: after importlib.reload(warden.observability), the class check no longer saw the
+    installed handler as the gate, a second was added, and every record went out twice."""
+    import importlib
+    import logging
+
+    from warden import observability
+
+    root = logging.getLogger()
+    observability.install_log_gate()
+    importlib.reload(observability)
+    observability.install_log_gate()
+    assert sum(getattr(h, "warden_log_gate", False) for h in root.handlers) == 1

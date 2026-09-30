@@ -13,7 +13,7 @@
 # and tagged Project=warden (what every fault injector checks before it touches anything).
 
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.10"
   required_providers {
     aws     = { source = "hashicorp/aws", version = ">= 5.80" }
     archive = { source = "hashicorp/archive", version = ">= 2.4" }

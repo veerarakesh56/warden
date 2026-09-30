@@ -149,9 +149,12 @@ def install_log_gate(level: int | None = None) -> None:
     handler, Python's last-resort one prints a warning's raw text - exception text included - so every
     CLI command and the MCP server install this first (third review: only `warden worker` did)."""
     root = logging.getLogger()
-    if not any(isinstance(h.formatter, GatedFormatter) for h in root.handlers):
+    # A marker, not the class: after a module reload the old handler's class is another object, and a
+    # second handler printed every record twice (fourth review, 2026-09-30).
+    if not any(getattr(h, "warden_log_gate", False) for h in root.handlers):
         handler = _StderrHandler()
         handler.setFormatter(GatedFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler.warden_log_gate = True
         root.addHandler(handler)
     if level is not None:
         root.setLevel(level)

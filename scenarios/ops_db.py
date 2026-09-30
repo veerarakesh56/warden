@@ -119,7 +119,7 @@ def op_db_open_idle_transactions(clients: Clients, target: Target, *, count: int
         conn = clients.connect()
         cur = conn.cursor()
         cur.execute("BEGIN")
-        cur.execute("SELECT count(*) FROM " + SENTINEL_TABLE)  # a real statement, then nothing
+        cur.execute("SELECT count(*) FROM " + SENTINEL_TABLE)  # nosec B608 - a constant table name; a real statement, then nothing
         _HELD.append(conn)
         opened += 1
     return {"opened_idle_in_transaction": opened, "held_total": len(_HELD)}

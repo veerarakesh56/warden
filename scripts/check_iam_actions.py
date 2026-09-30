@@ -37,7 +37,7 @@ DEFAULT_GLOB = "terraform/proving-ground/operator-policy*.json"
 def fetch_actions(url: str = SOURCE, timeout: float = 60.0) -> dict[str, set[str]]:
     """service prefix -> every action AWS lists for it."""
     # A fixed https URL, not user input.
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
+    with urllib.request.urlopen(url, timeout=timeout) as resp:  # nosec B310 - a fixed https URL
         raw = resp.read().decode("utf-8")
     config = json.loads(raw.split("=", 1)[1])
     by_prefix: dict[str, set[str]] = {}

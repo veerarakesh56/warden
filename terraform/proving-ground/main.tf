@@ -5,7 +5,7 @@
 # cost sheet and for the one deliberate deviation (public subnets, no NAT Gateway).
 
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.10"
   required_providers {
     aws    = { source = "hashicorp/aws", version = ">= 5.40" }
     random = { source = "hashicorp/random", version = ">= 3.6" }

@@ -97,3 +97,25 @@ def test_every_action_is_pinned_to_a_full_commit_sha():
     assert uses
     loose = [(f, u) for f, u in uses if not u.startswith("$/") and not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", u)]
     assert loose == [], loose
+
+
+def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_triggers():
+    """Fourth review (2026-09-30): the tool CI skips terraform/fullstack and the infra/apps/deploy
+    workflows, and three tests that guard those files (the reader role's least privilege among them)
+    ran only in the tool CI - a change to reader.tf alone ran none of them."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    flows = root / ".github" / "workflows"
+    runs = {
+        "terraform/fullstack": (flows / "_infra-validate.yml").read_text(encoding="utf-8"),
+        "k8s/fullstack": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
+        "scenarios/fullstack/": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
+        '".github" / "workflows"': (flows / "scan-workflows.yml").read_text(encoding="utf-8"),
+    }
+    # Named in a string only, not read: the register's reason for a module-level skip, and this test's
+    # own table (it runs in the workflow scan).
+    exempt = {"test_register.py", "test_ci_lanes.py"}
+    missing = [(p.name, path) for p in sorted((root / "tests").glob("test_*.py")) if p.name not in exempt
+               for path, workflow in runs.items() if path in p.read_text(encoding="utf-8") and p.name not in workflow]
+    assert not missing, missing

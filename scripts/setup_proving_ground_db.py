@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             "  created_at timestamptz NOT NULL DEFAULT now())"
         )
         cur.execute(
-            f"INSERT INTO {SENTINEL} (id, note) VALUES (1, %s)",
+            f"INSERT INTO {SENTINEL} (id, note) VALUES (1, %s)",  # nosec B608 - SENTINEL is a constant table name
             ("this database is a WARDEN benchmark proving ground and is broken on purpose",),
         )
 

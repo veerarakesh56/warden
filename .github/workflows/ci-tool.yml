@@ -17,6 +17,9 @@ on:
       - ".github/workflows/deploy-*.yml"
       - ".github/workflows/_*.yml"
       - ".github/workflows/scan-workflows.yml"
+  # Weekly, so pip-audit sees a newly published vulnerability in a dependency nothing changed.
+  schedule:
+    - cron: "17 3 * * 1"
   pull_request:
     paths-ignore:
       - "terraform/fullstack/**"
@@ -37,10 +40,11 @@ env:
 permissions:
   contents: read
 
-# A newer push to the same pull request cancels the run it supersedes. On main every commit is
-# checked to the end: a red main must be traceable to one commit.
+# A newer push to the same pull request cancels the run it supersedes. On main each commit is its own
+# group, so none is dropped or cancelled: a red main must be traceable to one commit (a shared group
+# cancels the PENDING run when a third commit arrives - fourth review, 2026-09-30).
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -67,7 +71,7 @@ jobs:
       - name: Dependencies with known vulnerabilities
         run: pip-audit --skip-editable
       - name: Python security lint
-        run: bandit -q -r src -ll
+        run: bandit -q -r src scenarios scripts -ll
       - name: Workflow audit
         run: zizmor --offline --format plain .github
 
@@ -111,7 +115,7 @@ jobs:
       # In parallel across the runner's cores (pytest-xdist): 100 s on one core. Every test must stay
       # independent of the others - a test that needs another's state fails here first.
       - name: Unit tests
-        run: pytest tests -q -n auto
+        run: pytest tests -q -n auto -rs
 
       - name: Eval gate
         run: pytest evals -q
@@ -518,7 +522,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
         with:
-          terraform_version: "1.9.8"
+          terraform_version: "1.16.4"
 
       - name: Format check
         run: terraform -chdir=terraform fmt -check -recursive

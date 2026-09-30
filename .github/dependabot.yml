@@ -10,9 +10,20 @@ updates:
     cooldown:
       default-days: 7  # never propose a release younger than a week: most hijacked releases are caught by then
   - package-ecosystem: pip
-    directory: /
+    directories:
+      - /
+      - /scenarios/fullstack/app
+      - /scenarios/fullstack/lambdas/*
     schedule:
       interval: weekly
     cooldown:
       default-days: 7  # never propose a release younger than a week: most hijacked releases are caught by then
     open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /scenarios/fullstack/app
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

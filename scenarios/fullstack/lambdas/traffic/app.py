@@ -22,10 +22,12 @@ SKUS = [f"sku-{n}" for n in range(1, 21)]
 
 
 def _call(method, url, body=None):
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("only http(s) URLs are called")
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 - scheme checked above
             return resp.status
     except urllib.error.HTTPError as exc:
         return exc.code

@@ -9,6 +9,20 @@ bitten in practice. Tests must never depend on ambient credentials.
 exercise the live path is still honoured; this only supplies the default the Makefile otherwise would.
 """
 
+import logging
 import os
 
+import pytest
+
 os.environ.setdefault("WARDEN_MOCK", "1")
+
+
+@pytest.fixture(autouse=True)
+def _root_logger_restored():
+    """Every CLI command installs the log gate on the root logger. Each test starts and ends with the
+    root logger as it was, so no test depends on which ran before it (fourth review: one did)."""
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)

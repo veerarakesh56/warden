@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: scan-workflows-${{ github.ref }}
+  group: scan-workflows-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -30,3 +30,9 @@ jobs:
         run: |
           pip install "zizmor==1.30.1"
           zizmor --offline .github/workflows
+      # The workflows' own structure (one deploy per environment, main only, no region, SHA pins,
+      # every integration file run): a change to a deploy or shared workflow triggers only this scan.
+      - name: Workflow structure tests
+        run: |
+          pip install -e . pytest pyyaml
+          pytest tests/test_ci_lanes.py tests/test_fullstack_infra.py -q -rs
