@@ -67,6 +67,31 @@ def test_a_plain_signal_after_apply_does_not_stop_the_rollback():
 
 
 
+def test_the_log_gate_imports_nothing_while_a_workflow_runs():
+    """A record logged from workflow code is formatted under Temporal's sandbox importer. The gated
+    formatter imported gate and redaction lazily there: 180 "imported after initial workflow load"
+    warnings in the suite once every command installed the log gate (2026-09-30) - a module re-imported
+    mid-workflow is a determinism risk. A pytest `filterwarnings = error` did NOT catch it: the error is
+    raised inside the worker and swallowed. So the warning is recorded here and must not appear."""
+    import logging
+    import warnings
+
+    from warden.observability import install_log_gate
+
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    try:
+        install_log_gate(logging.INFO)
+        with warnings.catch_warnings(record=True) as seen:
+            warnings.simplefilter("always")
+            test_a_plain_signal_after_apply_does_not_stop_the_rollback()
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(level)
+    late = [str(w.message) for w in seen if "imported after initial workflow load" in str(w.message)]
+    assert not late, late[:5]
+
+
 def _policy_and_owner():
     owner = Ed25519PrivateKey.generate()
     pem = owner.public_key().public_bytes(serialization.Encoding.PEM,

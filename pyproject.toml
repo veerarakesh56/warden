@@ -24,10 +24,13 @@ dependencies = [
     # Durable workflows: approvals as signals, timers, retries, replay (self-hosted OSS, MIT; never
     # Temporal Cloud). Tests use its time-skipping test server.
     "temporalio>=1.33,<2",
+    # The outbound gate finds code regions the way CommonMark does (MIT, pure Python). A line-by-line
+    # tracker could not follow fences inside lists and quotes (third review, 2026-09-30).
+    "markdown-it-py>=3.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6", "markdown-it-py>=3.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
 anthropic = ["anthropic>=1.0"]
 gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
 openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via WARDEN_BASE_URL

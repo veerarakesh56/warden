@@ -522,7 +522,9 @@ def main() -> int:
     import anyio
 
     from .cli import _load_environment
+    from .observability import install_log_gate
 
+    install_log_gate()  # stderr only: stdout is the protocol
     _load_environment()
 
     async def _run() -> None:

@@ -170,9 +170,10 @@ def test_prose_file_names_in_inline_code_are_not_defanged():
 
 
 def test_the_gate_finds_fences_in_the_text_it_writes():
-    """A fence hidden behind a control character is a fence to the renderer once the character is
-    stripped - so the gate strips first and then looks: what follows the closing fence is prose, and
-    is sanitised."""
+    """A fence hidden behind a control character must not leave prose unsanitised. Since the third
+    review the gate reads the text as CommonMark does: the hidden closer is no closer, the fence is
+    unclosed, so all of it is prose - the control is stripped and the run broken, so the gate's output
+    holds no fence either, and what follows is sanitised."""
     out = gate.sanitise_text("```\ncode\n\u200e```\nafter ![x](https://evil.com/p.png)")
-    assert out.split("\n")[2] == "```" and "evil" not in out, out
+    assert "evil" not in out and "\u200e" not in out and "```" not in out, out
     assert gate.sanitise_text("a\r![x](https://evil.com/p.png)") == "a\n[image removed]"

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -30,6 +31,12 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SpanExporter
 
 from . import __version__
+
+# At module level, not inside the formatter: a record logged from workflow code is formatted under
+# Temporal's sandbox importer, where a lazy import is re-done and warned about (third review work,
+# 2026-09-30).
+from .gate import strip_controls
+from .redaction import redact
 
 _CONFIGURED = False
 
@@ -92,13 +99,18 @@ def span(name: str, **attrs: Any) -> Iterator[trace.Span]:
             raise
 
 
-def _safe_error(exc: BaseException) -> str:
-    from .gate import strip_controls
-    from .redaction import redact
+def _redact_then_cut(text: str, limit: int) -> str:
+    """Redacted FIRST, then cut: cut first, a secret straddling the cut left a prefix the redactor no
+    longer recognised (`AKIAIOSFO`, third review 2026-09-30). The raw text is bounded far above the
+    limit to keep redaction cheap, and the token that bound cuts is dropped whole."""
+    if len(text) > 8 * limit:
+        text = re.sub(r"\S*\Z", "", text[: 8 * limit])
+    return redact(text).text[:limit]
 
-    text = " ".join(strip_controls(str(exc)).split())[:300]
+
+def _safe_error(exc: BaseException) -> str:
     try:
-        return redact(text).text
+        return _redact_then_cut(" ".join(strip_controls(str(exc)).split()), 300)
     except Exception:  # noqa: BLE001 - a redaction failure must not hide the original error
         return "(error text withheld)"
 
@@ -111,14 +123,38 @@ class GatedFormatter(logging.Formatter):
     LIMIT = 8000
 
     def format(self, record: logging.LogRecord) -> str:
-        from .gate import strip_controls
-        from .redaction import redact
-
-        text = strip_controls(super().format(record))[: self.LIMIT]
         try:
-            return redact(text).text
+            text = _redact_then_cut(strip_controls(super().format(record)), self.LIMIT)
         except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
             return f"{record.levelname} {record.name}: (log text withheld)"
+        # Every further line is indented, so text inside a record cannot pass for a record of its own
+        # (third review: a message carrying "\n<date> INFO ...: approved" forged a line).
+        return text.replace("\n", "\n    ")
+
+
+class _StderrHandler(logging.StreamHandler):
+    """Writes to whatever sys.stderr is when a record is written, not when the handler was made."""
+
+    @property
+    def stream(self):  # type: ignore[override]
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, _value) -> None:
+        pass
+
+
+def install_log_gate(level: int | None = None) -> None:
+    """Every log record the process writes goes out through GatedFormatter, on stderr. Without a
+    handler, Python's last-resort one prints a warning's raw text - exception text included - so every
+    CLI command and the MCP server install this first (third review: only `warden worker` did)."""
+    root = logging.getLogger()
+    if not any(isinstance(h.formatter, GatedFormatter) for h in root.handlers):
+        handler = _StderrHandler()
+        handler.setFormatter(GatedFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        root.addHandler(handler)
+    if level is not None:
+        root.setLevel(level)
 
 
 def record_cost(sp: trace.Span, *, input_tokens: int, output_tokens: int, usd: float) -> None:

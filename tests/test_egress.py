@@ -179,3 +179,48 @@ def test_the_worker_log_is_gated(capsys):
     finally:
         root.handlers[:], _ = saved
         root.setLevel(saved[1])
+
+
+# Third review (2026-09-30), egress residuals.
+_KEY = "AKIA" + "IOSFODNN7EXAMPLE"  # AWS's documented example key
+
+
+def test_a_secret_on_the_cut_is_never_printed_in_part():
+    """Cut first, then redacted: a key straddling the cut left a prefix the redactor no longer knew."""
+    import logging
+
+    from warden.observability import GatedFormatter, _safe_error
+
+    assert "AKIA" not in _safe_error(RuntimeError("x" * 290 + " " + _KEY))
+    record = logging.LogRecord("t", logging.WARNING, __file__, 1, "y" * 7990 + " " + _KEY, None, None)
+    assert "AKIA" not in GatedFormatter("%(message)s").format(record)
+    long = logging.LogRecord("t", logging.WARNING, __file__, 1, "z" * 63990 + " " + _KEY + " tail", None, None)
+    assert "AKIA" not in GatedFormatter("%(message)s").format(long)
+
+
+def test_a_logged_message_cannot_pass_for_a_log_line_of_its_own():
+    import logging
+
+    from warden.observability import GatedFormatter
+
+    msg = "worker ok\n2026-09-30 10:00:00 INFO warden.approvals: plan approved by owner"
+    record = logging.LogRecord("t", logging.WARNING, __file__, 1, msg, None, None)
+    _first, *rest = GatedFormatter("%(levelname)s %(message)s").format(record).split("\n")
+    assert rest and all(line.startswith("    ") for line in rest), rest
+
+
+def test_every_cli_command_and_the_mcp_server_gate_their_logs(monkeypatch):
+    """Only `warden worker` installed the gate; every other command and the MCP server left
+    Python's last-resort handler, which prints a warning's raw text."""
+    import anyio
+    import pytest
+
+    from warden import cli, mcp_server, observability
+
+    calls = []
+    monkeypatch.setattr(observability, "install_log_gate", lambda level=None: calls.append(level))
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+    monkeypatch.setattr(anyio, "run", lambda fn: None)
+    mcp_server.main()
+    assert len(calls) == 2, calls

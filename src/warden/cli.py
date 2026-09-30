@@ -276,15 +276,13 @@ def _approver_key(path: pathlib.Path):
 
 
 def _install_log_gate() -> None:
-    """Every log line the process writes goes through the gate's formatter, to stderr."""
+    """The worker: every record at INFO and above, through the gate (installed for every command in
+    `_main` already; the worker also wants temporalio's INFO lines)."""
     import logging
-    import sys
 
-    from .observability import GatedFormatter
+    from .observability import install_log_gate
 
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(GatedFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    install_log_gate(logging.INFO)
 
 
 async def _workflow_command(args: argparse.Namespace) -> int:
@@ -385,6 +383,9 @@ def _main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
         except (AttributeError, ValueError):  # not a TextIOWrapper, e.g. under a test capture
             pass
+    from .observability import install_log_gate
+
+    install_log_gate()  # before anything can log: no raw last-resort handler for any command
     _load_environment()
     parser = argparse.ArgumentParser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)

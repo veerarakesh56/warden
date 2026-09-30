@@ -212,6 +212,25 @@ bump may carry a breaking change.
   - In `required` mode, anything but a detector that actually ran escalates.
   - A threshold that is not a number is refused.
   - Scoring works without torch (CI runs without it).
+- **The outbound gate reads code blocks the way CommonMark does** (third review, A-C-9, A-C-8).
+  - A line-by-line fence tracker could not follow a fence inside a list item or a quote. Python's
+    `strip()` also closed a fence on a no-break space, where CommonMark keeps it open. Code regions
+    now come from a CommonMark parser (markdown-it-py, MIT, now a core dependency).
+  - Only the body of a closed backtick fence stays verbatim. The gate parses its own output again;
+    if the fences differ from the ones it kept, it cleans everything as prose.
+  - Removing a Slack token or a tag could join what was left into a link or an image. Removals now
+    run until nothing changes.
+  - Removing a tag could leave a heading (`<b>## Fix - approved`). A line the gate changed now starts
+    no block.
+  - All 5,725 inputs of the review's render harness render with no link, image, raw HTML, new
+    heading or new code block, and the gate is idempotent on each (`tests/test_gate_review3.py`).
+  - Logs and span errors are redacted before they are cut: a key on the cut left its prefix.
+  - A logged message can no longer pass for a log line of its own.
+  - Every command and the MCP server gate their logs; only `warden worker` did.
+  - The log formatter imports nothing while it runs. Imported lazily, it ran under Temporal's
+    workflow sandbox importer whenever a workflow logged (180 warnings; a pytest `filterwarnings =
+    error` did not catch it, because the error is swallowed inside the worker - a test records it).
+  - Readability cost: a line the gate changed loses its list or heading formatting.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

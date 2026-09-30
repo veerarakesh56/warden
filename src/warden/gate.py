@@ -23,6 +23,14 @@ v0 (Phase 0 of the v2 re-architecture, 2026-09-27). Two of the planned rules:
   - a run of three backticks or tildes inside a line is broken - Slack opens code at one anywhere;
   - the inside of a `~~~` block is sanitised like prose: Slack has no `~~~` fences;
   - every domain outside inline code is defanged, whatever its top-level domain, emails included.
+  Since the third review (2026-09-30):
+  - code regions come from a CommonMark parser (markdown-it-py), not a line tracker: a fence inside
+    a list item ends with the item, and Python's `strip()` closed fences CommonMark keeps open. Only
+    the body of a CLOSED backtick fence stays verbatim. The gate parses its own output again, and if
+    the fences differ from the ones it kept, everything is cleaned as prose;
+  - removals run until nothing changes: removing one token could join the rest into a link or image;
+  - a line the gate changed starts no block (heading, quote, list, fence, indented code);
+  - a mention becomes `at-here` (`(at)here` after a removed link was a link).
 - **G5, leaks.** If the final text still contains anything the redactor classes as secret (every
   kind except the identifiers an operator may choose to show), the message is BLOCKED and a stub
   goes out instead: a person reads the full report locally.
@@ -48,6 +56,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from markdown_it import MarkdownIt
+
 from .redaction import redact
 
 # Identifier kinds an operator may choose to show (reporting.REVEALABLE). Anything else found in an
@@ -67,7 +77,7 @@ _REFDEF = re.compile(r"^\s{0,3}(?:(?:[-*+]|\d{1,9}[.)])\s+|>\s*)*" + _LABEL + r"
 # Any scheme with `//`, the schemes that act without one, and protocol-relative `//host.`.
 _URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{1,30}://|\b(?:https?|mailto|data|javascript|vbscript|tel|slack|"
                   r"ms-teams|vscode|ssh|smb|file|sms|facetime|skype|zoommtg|itms-services):"
-                  r"|(?<![\w:/])//[\w-]+\.)[^\s)>\]'\"]*", re.IGNORECASE)
+                  r"|(?<![\w:/])//[\w-]+(?:\.|%2e))[^\s)>\]'\"]*", re.IGNORECASE)
 # An IP address with a port or a path is a link to a chat client.
 _IP_LINK = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?/\S*")
 # A tag, not a `<TENANT_1>` placeholder (placeholders carry `_`, which a tag name never does here).
@@ -100,6 +110,14 @@ _ENTITY = re.compile(r"&(?!amp;)(#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-
 _LT = re.compile(r"<(?![A-Z][A-Z0-9]*_\d+>)")
 _RUN = re.compile(r"`{3,}|~{3,}")
 _BLOCK_START = re.compile(r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[`~]{3})")
+# Any block a line can start: heading, quote, list item, fence, indented code (third review: removing
+# `<b>` from `<b>## Fix - approved` left a real heading).
+_ANY_BLOCK = re.compile(r"^(?: {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|[`~]{3})"
+                        r"| {4}|[ ]{0,3}\t)")
+_MD = MarkdownIt("commonmark")
+# The opener or closer of a fence, after any container markers (list items, quotes). A backtick
+# fence's info string holds no backtick.
+_FENCE_LINE = re.compile(r"^([ \t>*+\-0-9.)]*?)(`{3,}(?=[^`]*$)|~{3,})(.*)$")
 _SETEXT = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 # Inline code both CommonMark and Slack agree on: single backticks, not escaped, nothing inside.
 _INLINE_CODE = re.compile(r"(?<![`\\])(`[^`\n]+`)(?!`)")
@@ -138,18 +156,24 @@ def _clean_line(line: str) -> str:
     # 2026-09-30). A reference is neutralised below instead, so `h&#116;tps://` is never a link and
     # `&#96;&#96;&#96;` never a fence, in any renderer.
     line = strip_controls(line)
-    if _REFDEF.match(line):
-        return "[link definition removed]"
-    line = _IMAGE.sub("[image removed]", line)
-    line = _MDLINK.sub(r"\1 [link removed]", line)
-    line = _SLACK.sub("", line)
-    line = _URL.sub("[link removed]", line)
-    line = _IP_LINK.sub("[link removed]", line)
-    line = _HTML.sub("", line)
+    # To a fixed point: removing one token can join what is left into a new one (third review:
+    # `![a]<!here>(//evil%2Ecom/p.png)` became an image once `<!here>` was gone).
+    for _ in range(50):
+        if _REFDEF.match(line):
+            return "[link definition removed]"
+        before = line
+        line = _IMAGE.sub("[image removed]", line)
+        line = _MDLINK.sub(r"\1 [link removed]", line)
+        line = _SLACK.sub("", line)
+        line = _URL.sub("[link removed]", line)
+        line = _IP_LINK.sub("[link removed]", line)
+        line = _HTML.sub("", line)
+        if line == before:
+            break
     line = _LT.sub("\u2039", line)
     line = _ENTITY.sub(r"&amp;\1", line)
     line = _break_runs(line.replace("]:", "]\u200b:"))
-    line = _MENTION.sub(r"(at)\1", line)
+    line = _MENTION.sub(r"at-\1", line)  # not `(at)`: after `[link removed]` that is a link
     return _defang_outside_code(line)
 
 
@@ -157,45 +181,75 @@ def _clean_prose(lines: list[str]) -> list[str]:
     """One run of non-code lines: tags that span lines go first, then each line."""
     if not lines:
         return []
-    out = [_clean_line(line) for line in _HTML.sub("", "\n".join(lines)).split("\n")]
+    joined = _HTML.sub("", "\n".join(lines)).split("\n")
+    out = [_clean_line(line) for line in joined]
+    # A line cleaning changed starts no block: the gate did not write that structure, the input did not
+    # have it. (A tag across lines shifts the lines: then every line counts as changed.)
+    same = len(joined) == len(lines)
+    out = ["\u200b" + c if _ANY_BLOCK.match(c) and not (same and c == lines[i]) else c
+           for i, c in enumerate(out)]
     # A setext underline turns the line above it into a heading.
     return ["\u200b" + line if i and _SETEXT.match(line) and out[i - 1].strip() else line
             for i, line in enumerate(out)]
 
 
+def _closed_fences(text: str) -> list[tuple[int, int, str]]:
+    """(opener line, closer line, marker character) of every CLOSED fence, as CommonMark reads the
+    text - inside lists and quotes too, where a fence ends with its container (third review,
+    2026-09-30). An unclosed fence is not listed: Slack shows its marker as text, so it is prose."""
+    lines = text.split("\n")
+    spans = []
+    for t in _MD.parse(text):
+        if t.type != "fence" or not t.map:
+            continue
+        start, last = t.map[0], t.map[1] - 1
+        m = _FENCE_LINE.match(lines[last]) if last > start else None
+        if (m and m.group(2)[0] == t.markup[0] and len(m.group(2)) >= len(t.markup)
+                and not m.group(3).strip(" \t")):
+            spans.append((start, last, t.markup[0]))
+    return spans
+
+
+def _all_prose(lines: list[str]) -> str:
+    return "\n".join(_clean_prose(lines))
+
+
 def sanitise_text(text: str) -> str:
-    """G3 over markdown: every line outside a fenced code block (CommonMark fence rules)."""
-    # CR is a line ending to CommonMark; controls go BEFORE fences are found (second review: a leading
-    # LRM hid a fence from the gate that stripping then revealed to the renderer).
-    lines = [strip_controls(line) for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    """G3 over markdown. Only the body of a CLOSED backtick fence stays verbatim - CommonMark shows it
+    as code and Slack toggles code on its ``` lines. A closed `~~~` fence stays a fence with its body
+    cleaned (Slack has no `~~~`); everything else, indented code included, is cleaned as prose. The code regions come from a CommonMark parser, and the output is
+    parsed again: if its fences are not exactly the ones kept, everything is cleaned as prose."""
+    # CR is a line ending to CommonMark. The parser reads the text as a renderer gets it, controls
+    # included: a control before ``` makes that line prose, which is cleaned - and cleaning strips the
+    # control, breaks the run, and counts the line as changed, so it starts no block.
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out: list[str] = []
-    prose: list[str] = []
-    fence, opened = None, -1
-    for line in lines:
-        m = _FENCE.match(line)
-        if fence is None:
-            # A backtick fence's info string cannot contain a backtick; then it is not a fence.
-            if m and not (m.group(1)[0] == "`" and "`" in line[m.end():]):
-                out += _clean_prose(prose)
-                prose = []
-                fence, opened = m.group(1), len(out)
-                out.append(line)
-            else:
-                prose.append(line)
-        else:
-            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
-                fence = None
-                out.append(line)
-            elif fence[0] == "~":
-                out += _clean_prose([line])  # Slack has no ~~~ fence: it renders this as prose
-            else:
-                out.append(_break_runs(line))  # Slack closes code at ``` anywhere on a line
-    out += _clean_prose(prose)
-    if fence is not None:
-        # Never closed. CommonMark runs it to the end; Slack shows the fence as text and renders what
-        # follows. Sanitise what follows, so neither reading leaves an active link.
-        out[opened + 1:] = _clean_prose(out[opened + 1:])
-    return "\n".join(out)
+    kept: list[tuple[int, int]] = []
+    pos = 0
+    for start, last, char in _closed_fences("\n".join(lines)):
+        opener, closer = _FENCE_LINE.match(lines[start]), _FENCE_LINE.match(lines[last])
+        if not opener or not closer:
+            return _all_prose(lines)
+        out += _clean_prose(lines[pos:start])
+        begin = len(out)
+        # Markers normalised to three: the body holds no run, so three close it as the original marker
+        # did. The info string is cleaned (Slack shows it).
+        out.append(opener.group(1) + char * 3 + _clean_line(opener.group(3)))
+        body = lines[start + 1:last]
+        # A backtick body is code in both readers (Slack closes code at ``` anywhere, so runs are broken;
+        # a control could hide one). Slack has no ~~~: that body is prose to it and is cleaned.
+        out += ([_break_runs(strip_controls(line)) for line in body] if char == "`"
+                else [_clean_line(line) for line in body])
+        out.append(closer.group(1) + char * 3)
+        kept.append((begin, len(out) - 1, char))
+        pos = last + 1
+    out += _clean_prose(lines[pos:])
+    result = "\n".join(out)
+    markers = {i for k in kept for i in k[:2]}
+    if _closed_fences(result) != kept or _RUN.search("\n".join(
+            line for i, line in enumerate(out) if i not in markers)):
+        return _all_prose(lines)
+    return result
 
 
 def sanitise_data(value: Any) -> Any:
