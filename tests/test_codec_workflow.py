@@ -179,3 +179,98 @@ def test_a_replayed_approval_does_not_apply_another_workflow():
             return applied
 
     assert asyncio.run(main()) == []
+
+
+
+def test_a_replay_from_an_earlier_run_of_the_same_workflow_id_does_not_apply():
+    """Third review (2026-09-30), the reviewer's attack: run 1 of `rem-orders` is approved and its apply
+    fails; run 2 of the same id is approved by nobody. Run 1's encrypted approve signal is replayed into
+    run 2 and run 2's check_approval is completed with run 1's recorded result."""
+    from temporalio.api.common.v1 import WorkflowExecution
+    from temporalio.api.taskqueue.v1 import TaskQueue
+    from temporalio.api.workflowservice.v1 import (
+        PollActivityTaskQueueRequest,
+        RespondActivityTaskCompletedRequest,
+        SignalWorkflowExecutionRequest,
+    )
+
+    wid = "rem-orders"
+
+    async def main():
+        policy, owner = _policy_and_owner()
+        platform, methods = _world(policy)
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env:
+            ns, svc = env.client.namespace, env.client.workflow_service
+            platform.apply_error = "throttled"
+            async with Worker(env.client, task_queue="r1", workflows=[RemediationWorkflow], activities=methods,
+                              activity_executor=ThreadPoolExecutor(4)):
+                h1 = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**REQ), id=wid, task_queue="r1")
+                plan = await _until_awaiting_approval(h1)
+                await h1.signal(RemediationWorkflow.approve, approvals.sign(
+                    owner, approver="owner", now=datetime.now(UTC), workflow_id=wid,
+                    plan_hash=plan.plan_hash, tier=plan.tier))
+                await h1.result()
+            events = (await h1.fetch_history()).events
+            signal = next(e.workflow_execution_signaled_event_attributes.input for e in events
+                          if e.HasField("workflow_execution_signaled_event_attributes"))
+            kinds = {e.event_id: e.activity_task_scheduled_event_attributes.activity_type.name for e in events
+                     if e.HasField("activity_task_scheduled_event_attributes")}
+            result = next(e.activity_task_completed_event_attributes.result for e in events
+                          if e.HasField("activity_task_completed_event_attributes")
+                          and kinds[e.activity_task_completed_event_attributes.scheduled_event_id] == "check_approval")
+            platform.apply_error = None
+            without_check = [m for m in methods if m.__name__ != "check_approval"]
+            async with Worker(env.client, task_queue="r2", workflows=[RemediationWorkflow], activities=without_check,
+                              activity_executor=ThreadPoolExecutor(4)):
+                h2 = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**REQ), id=wid, task_queue="r2")
+                await _until_awaiting_approval(h2)
+                await svc.signal_workflow_execution(SignalWorkflowExecutionRequest(
+                    namespace=ns, workflow_execution=WorkflowExecution(workflow_id=wid), signal_name="approve",
+                    input=signal, identity="replayer"))
+                for _ in range(40):
+                    try:
+                        task = await svc.poll_activity_task_queue(PollActivityTaskQueueRequest(
+                            namespace=ns, task_queue=TaskQueue(name="r2"), identity="replayer"),
+                            timeout=timedelta(seconds=2))
+                    except RPCError:
+                        continue
+                    if task.task_token and task.activity_type.name == "check_approval":
+                        await svc.respond_activity_task_completed(RespondActivityTaskCompletedRequest(
+                            namespace=ns, task_token=task.task_token, result=result, identity="replayer"))
+                        break
+                out = await asyncio.wait_for(h2.result(), 120)
+            return out, list(platform.applied)
+
+    out, applied = asyncio.run(main())
+    assert applied == [], "run 2 applied with nobody approving it"
+    assert out.status != "recovered"
+
+
+def test_an_unreadable_gate_answer_blocks_instead_of_passing():
+    """Third review (2026-09-30): a gate result that decodes to None (a forged or replayed payload)
+    passed `if blocked:`, so a tripped kill switch was skipped. Only an explicit empty list passes."""
+    from temporalio import activity as temporal_activity
+
+    policy, _ = _policy_and_owner()
+    log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
+
+    class _NullGate(RemediationActivities):
+        @temporal_activity.defn(name="gate")
+        def gate(self, plan, service):
+            return None
+
+    platform = FakePlatform(healthy_after=1)
+    acts = _NullGate(audit=log, policy=policy, platform=platform)
+    methods = [acts.resolve_plan, acts.gate, acts.check_approval, acts.precheck, acts.apply, acts.check_success,
+               acts.record_result, acts.rollback, acts.finish]
+
+    async def main():
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env, Worker(env.client, task_queue="nullgate", workflows=[RemediationWorkflow],
+                               activities=methods, activity_executor=ThreadPoolExecutor(4)):
+            return await asyncio.wait_for(env.client.execute_workflow(
+                RemediationWorkflow.run, FixRequest(**REQ), id=f"rem-{uuid.uuid4()}", task_queue="nullgate"), 60)
+
+    out = asyncio.run(main())
+    assert out.status == "blocked" and platform.applied == []

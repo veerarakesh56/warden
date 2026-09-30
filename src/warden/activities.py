@@ -48,6 +48,16 @@ class Plan(BaseModel):
     problems: list[str] = Field(default_factory=list)
 
 
+def _run_id() -> str:
+    """The Temporal run this activity belongs to. Every remediation row records it, and apply counts only
+    rows of its own run: `rem-<service>` is reused, and a replay of an earlier run's approval and
+    results applied a later run nobody approved (third review, 2026-09-30). Empty outside an activity."""
+    try:
+        return activity.info().workflow_run_id or ""
+    except RuntimeError:  # called directly (tests, tools), not by a worker
+        return ""
+
+
 class ApprovalResult(BaseModel):
     problems: list[str]
     enough: bool = False
@@ -93,7 +103,7 @@ class RemediationActivities:
                     plan_hash=plan_hash(req.entry, req.params, snapshot), created_at=datetime.now(UTC),
                     problems=problems)
         self.audit.append(req.incident_id, "remediation.plan",
-                          {"workflow_id": workflow_id, "entry": req.entry, "tier": plan.tier,
+                          {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "params": req.params, "plan_hash": plan.plan_hash, "problems": problems})
         return plan
 
@@ -101,7 +111,8 @@ class RemediationActivities:
     def gate(self, plan: Plan, service: str) -> list[str]:
         reasons = bounds.blocked(self.audit, service=service, action_class=plan.entry, now=datetime.now(UTC),
                                  limits=self.limits)
-        self.audit.append(plan.incident_id, "remediation.gate", {"workflow_id": plan.workflow_id, "blocked": reasons})
+        self.audit.append(plan.incident_id, "remediation.gate", {"workflow_id": plan.workflow_id, "run_id": _run_id(),
+                                                                  "blocked": reasons})
         return reasons
 
     @activity.defn
@@ -114,7 +125,8 @@ class RemediationActivities:
         if any(a.approver == approval.approver for a in accepted):
             problems.append(f"{approval.approver} has already approved this plan")
         kind = "approval.refused" if problems else "approval.accepted"
-        self.audit.append(plan.incident_id, kind, {"workflow_id": plan.workflow_id, "approver": approval.approver,
+        self.audit.append(plan.incident_id, kind, {"workflow_id": plan.workflow_id, "run_id": _run_id(),
+                                                   "approver": approval.approver,
                                                    "nonce": approval.nonce, "plan_hash": plan.plan_hash,
                                                    "problems": problems})
         valid = accepted + ([approval] if not problems else [])
@@ -129,27 +141,43 @@ class RemediationActivities:
         if plan_hash(plan.entry, plan.params, live.get("state", {})) != plan.plan_hash:
             problems.append("the target changed after the plan was made; it needs a new plan")
         self.audit.append(plan.incident_id, "remediation.precheck",
-                          {"workflow_id": plan.workflow_id, "problems": problems})
+                          {"workflow_id": plan.workflow_id, "run_id": _run_id(), "plan_hash": plan.plan_hash,
+                           "problems": problems})
         return problems
 
-    def _not_approved(self, plan: Plan) -> list[str]:
+    def _not_approved(self, plan: Plan, service: str) -> list[str]:
         """Why `plan` may not be applied, from WARDEN's OWN audit log - never from what the workflow
-        says (second review, 2026-09-30: a forged or replayed activity result could carry a workflow
-        past its approval wait). The plan must be one resolve_plan made for this workflow, with no
-        problems, and approved by as many distinct approvers as its tier needs."""
-        made = [e["body"] for e in self.audit.entries(plan.incident_id, kinds=("remediation.plan",))
-                if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash]
+        says, and only rows of THIS run (a replayed or forged activity result can carry a workflow past
+        any of its steps: second and third reviews, 2026-09-30):
+        - the plan resolve_plan made for this workflow and run, same entry and parameters, no problems;
+        - as many distinct approvers of that plan hash, in this run, as its tier needs;
+        - a clean precheck of that plan hash, in this run, AFTER the approvals (drift);
+        - bounds and the kill switch, checked again now - the gate ran before the approval wait."""
+        run = _run_id()
+
+        def rows(kind: str) -> list[dict[str, Any]]:
+            return [e for e in self.audit.entries(plan.incident_id, kinds=(kind,))
+                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                    and e["body"].get("plan_hash") == plan.plan_hash]
+
+        made = [e["body"] for e in rows("remediation.plan")]
         if (not made or made[-1].get("problems") or made[-1].get("entry") != plan.entry
                 or made[-1].get("params") != plan.params):
-            return ["no such plan was made for this workflow"]
-        approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",))
-                     if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash}
+            return ["no such plan was made for this workflow run"]
+        approved = rows("approval.accepted")
         need = self.policy.required.get(made[-1].get("tier", ""), 1)
-        return [] if len(approvers) >= need else [f"{len(approvers)} of {need} approval(s) recorded for this plan"]
+        if len({e["body"].get("approver") for e in approved}) < need:
+            return [f"{len({e['body'].get('approver') for e in approved})} of {need} approval(s) recorded for this plan"]
+        last_approval = max(e["seq"] for e in approved)
+        checks = [e for e in rows("remediation.precheck") if e["seq"] > last_approval]
+        if not checks or checks[-1]["body"].get("problems"):
+            return ["no clean precheck of this plan after its approval"]
+        return bounds.blocked(self.audit, service=service, action_class=plan.entry, now=datetime.now(UTC),
+                              limits=self.limits)
 
     @activity.defn
     def apply(self, plan: Plan, service: str) -> str:
-        refused = self._not_approved(plan)
+        refused = self._not_approved(plan, service)
         if refused:
             self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
                                                                        "plan_hash": plan.plan_hash, "why": refused})

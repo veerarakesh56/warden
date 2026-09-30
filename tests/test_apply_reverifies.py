@@ -59,6 +59,7 @@ def test_apply_proceeds_with_a_recorded_approval():
     acts, platform, owner = _acts()
     plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
     assert _approve(acts, owner, plan, "rem-1").enough
+    assert acts.precheck(plan) == []
     acts.apply(plan, REQ["service"])
     assert platform.applied
 
@@ -81,5 +82,57 @@ def test_apply_refuses_a_plan_that_had_problems_even_if_approved():
     assert plan.problems
     _approve(acts, owner, plan, "rem-1")
     with pytest.raises(ApplicationError, match="plan"):
+        acts.apply(plan, REQ["service"])
+    assert platform.applied == []
+
+
+
+def _ready(acts, owner):
+    plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
+    assert _approve(acts, owner, plan, "rem-1").enough
+    return plan
+
+
+def test_apply_needs_a_clean_precheck_of_this_plan_after_the_approval():
+    """Third review (2026-09-30): a precheck result replayed from another slot skipped the drift check;
+    apply never looked. Now it needs WARDEN's own clean precheck row, after the approvals."""
+    acts, platform, owner = _acts()
+    plan = _ready(acts, owner)
+    with pytest.raises(ApplicationError, match="precheck"):
+        acts.apply(plan, REQ["service"])
+    platform.state["revision"] = "99"  # the target drifted: the precheck row records problems
+    assert acts.precheck(plan)
+    with pytest.raises(ApplicationError, match="precheck"):
+        acts.apply(plan, REQ["service"])
+    assert platform.applied == []
+
+
+def test_a_kill_switch_tripped_while_waiting_for_approval_stops_the_apply():
+    """Third review: the gate ran once, before the approval wait (up to its TTL); a kill switch tripped
+    during the wait did not stop the apply. No attacker needed."""
+    from warden import bounds
+
+    acts, platform, owner = _acts()
+    plan = acts.resolve_plan(FixRequest(**REQ), "rem-1")
+    assert acts.gate(plan, REQ["service"]) == []
+    bounds.trip(acts.audit, "owner", "owner: stop everything")
+    assert _approve(acts, owner, plan, "rem-1").enough
+    assert acts.precheck(plan) == []
+    with pytest.raises(ApplicationError, match="kill switch"):
+        acts.apply(plan, REQ["service"])
+    assert platform.applied == []
+
+
+def test_rows_of_another_run_of_the_same_workflow_do_not_count(monkeypatch):
+    """Third review: `rem-<service>` is reused, and a replay of run 1's approval and results into run 2
+    applied with nobody approving run 2. Every row now carries the Temporal run id."""
+    from warden import activities
+
+    acts, platform, owner = _acts()
+    monkeypatch.setattr(activities, "_run_id", lambda: "run-1")
+    plan = _ready(acts, owner)
+    assert acts.precheck(plan) == []
+    monkeypatch.setattr(activities, "_run_id", lambda: "run-2")
+    with pytest.raises(ApplicationError):
         acts.apply(plan, REQ["service"])
     assert platform.applied == []

@@ -72,8 +72,10 @@ class RemediationWorkflow:
         done["planned"] = True
 
         blocked = await workflow.execute_activity_method(acts.gate, args=[plan, req.service], **QUICK)
-        if blocked:
-            return await end("blocked", blocked)
+        # Only an explicit empty list is "not blocked": an unreadable or forged answer decodes to None,
+        # which `if blocked:` read as a pass (third review, 2026-09-30).
+        if blocked != []:
+            return await end("blocked", blocked or ["the gate's answer could not be read"])
         done["policy"] = True
 
         self._stage = "awaiting_approval"
@@ -100,8 +102,8 @@ class RemediationWorkflow:
 
         self._stage = "prechecking"
         drift = await workflow.execute_activity_method(acts.precheck, args=[plan], **QUICK)
-        if drift:
-            return await end("drifted", drift)
+        if drift != []:  # as for the gate: only an explicit empty list is clean
+            return await end("drifted", drift or ["the precheck's answer could not be read"])
         done["prechecked"] = True
 
         self._stage = "applying"

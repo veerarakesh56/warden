@@ -16,8 +16,11 @@ once, so one bad payload would fail every task of its workflow (second review, 2
 Honest limits:
 - Workflow ids, activity and signal names, and timestamps stay in plain text; only payloads are
   encrypted.
-- Within ONE workflow an old payload can be replayed into a later slot of the same kind; approvals are
-  single-use (nonces) and `apply` re-verifies its plan and approvals from WARDEN's own audit log.
+- Payloads of one workflow id - of any slot, and of earlier runs of the same id - still decrypt in each
+  other's place: the binding is namespace and workflow id only (third review, 2026-09-30). So nothing
+  trusts an activity result for safety: `apply` re-reads WARDEN's own audit rows of its OWN run (plan,
+  approvals, a clean precheck after them) and re-checks bounds and the kill switch; the workflow counts
+  only an explicit empty gate or precheck answer as clean.
 - Anyone who can complete a workflow's activity tasks can make it stop (an unreadable result fails its
   workflow task) - the same principals can terminate it outright. The watchdog for a remediation that
   never finishes is out of band (plan G6).

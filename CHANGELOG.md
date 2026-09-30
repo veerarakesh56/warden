@@ -137,6 +137,15 @@ bump may carry a breaking change.
   - Measured 2026-09-30 on 36 benign alert texts: 0 flagged, down from 7-8.
   - "Ignore previous instructions" in an alert is still caught (0.997-0.999).
   - Label values can no longer rewrite WARDEN's prompt markers.
+- **An apply is approved for its own run, or not at all** (third review, A-B-L13).
+  - `rem-<service>` is reused. The codec binds only the namespace and the workflow id, so payloads
+    recorded in an earlier run, or in another step of the same run, could carry a run past its
+    approval, gate or precheck.
+  - A kill switch tripped during the approval wait was also missed, with no attacker needed.
+  - `apply` now counts only WARDEN's own audit rows of its own Temporal run: the plan, the
+    approvals, and a clean precheck after them. It also re-checks the bounds and the kill switch.
+  - The workflow treats only an explicit empty gate or precheck answer as clean.
+  - The reviewer's six attack scripts now end with nothing applied.
 - **No real-looking token in the repository** (2026-09-30).
   - A test held a string shaped exactly like a Stripe webhook signing secret. It was the review's
     invented example, not a real key, and GitHub secret scanning flagged it.

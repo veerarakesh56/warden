@@ -1,6 +1,8 @@
 """Bounds, the kill switch and the circuit breaker - all read from the audit log.
 
-Before any apply, `blocked()` lists every reason it must not happen:
+`blocked()` lists every reason an apply must not happen. It runs at the gate, before the approval wait,
+AND again inside `apply` itself - a kill switch tripped during the wait used to be missed (third review,
+2026-09-30):
 - the kill switch is on;
 - this service already had `per_service_per_hour` applies in the last hour;
 - this action class already had `per_class_per_day` applies in the last day.
