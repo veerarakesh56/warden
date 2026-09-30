@@ -39,7 +39,70 @@ TOOL_TIMEOUT_S = float(os.environ.get("WARDEN_TOOL_TIMEOUT", "5.0"))
 
 
 class ToolError(RuntimeError):
-    pass
+    """A read WARDEN could not do. `outcome` says how, in the fixed vocabulary of OUTCOMES, when WARDEN
+    knows it (no live pods, an unsupported DSN); otherwise its cause decides (outcome_of)."""
+
+    def __init__(self, message: str, *, outcome: str | None = None) -> None:
+        super().__init__(message)
+        self.outcome = outcome
+
+
+# How a read can fail - the only words a T item may use for it (evidence.tool_error_text).
+OUTCOMES = ("access denied", "credentials rejected or missing", "throttled", "timed out", "connection failed",
+            "not found", "no live pods", "output truncated", "not supported", "rejected as a bad request",
+            "failed (unclassified)")
+# Structured codes and exception type names -> outcome. Matched against a botocore error CODE, a
+# database SQLSTATE class or an exception's class names - never against a message, which can quote a
+# log line (second independent review, 2026-09-30).
+_CODE_OUTCOMES = (
+    ("access denied", r"AccessDenied|UnauthorizedOperation|Forbidden|AuthorizationError|NotAuthorized"),
+    ("credentials rejected or missing", r"ExpiredToken|InvalidClientTokenId|UnrecognizedClient|"
+                                        r"NoCredentials|PartialCredentials|CredentialRetrieval|InvalidSignature"),
+    ("throttled", r"Throttl|TooManyRequests|RequestLimitExceeded|SlowDown|ProvisionedThroughputExceeded"),
+    ("timed out", r"Timeout|TimedOut"),
+    ("connection failed", r"EndpointConnection|ConnectionRefused|ConnectionReset|ConnectionClosed|"
+                          r"ConnectionError|gaierror|OperationalError"),
+    ("not found", r"NotFound|NoSuch"),
+    ("rejected as a bad request", r"Validation|InvalidParameter|BadRequest|MalformedQuery"),
+)
+_HTTP_OUTCOMES = {400: "rejected as a bad request", 401: "credentials rejected or missing", 403: "access denied",
+                  404: "not found", 408: "timed out", 429: "throttled", 504: "timed out"}
+_SQLSTATE_OUTCOMES = {"28": "credentials rejected or missing", "42501": "access denied", "57014": "timed out",
+                      "08": "connection failed", "53": "throttled"}
+
+
+def outcome_of(exc: BaseException) -> str:
+    """How a read failed, from the exception's TYPE and structured codes only."""
+    import re
+
+    if isinstance(exc, ToolError):
+        if exc.outcome:
+            return exc.outcome
+        return outcome_of(exc.__cause__) if exc.__cause__ is not None else OUTCOMES[-1]
+    code = str(((getattr(exc, "response", None) or {}).get("Error") or {}).get("Code") or "") \
+        if isinstance(getattr(exc, "response", None), dict) else ""
+    status = getattr(exc, "status", None)
+    sqlstate = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+    if isinstance(status, int) and not code and status in _HTTP_OUTCOMES:
+        return _HTTP_OUTCOMES[status]
+    if isinstance(sqlstate, str) and sqlstate:
+        for prefix, outcome in _SQLSTATE_OUTCOMES.items():
+            if sqlstate.startswith(prefix):
+                return outcome
+    names = code or " ".join(t.__name__ for t in type(exc).__mro__)
+    return next((word for word, rx in _CODE_OUTCOMES if re.search(rx, names)), OUTCOMES[-1])
+
+
+def failure_tag(exc: BaseException) -> str:
+    """`[<outcome>[ on <operation>]]` - the only part of a tool error a T item reads."""
+    op = getattr(exc, "operation_name", None)
+    return "[" + outcome_of(exc) + (f" on {op}" if isinstance(op, str) and op.isidentifier() else "") + "]"
+
+
+def failure(exc: BaseException) -> str:
+    """The tag, then the exception's first line (redacted later, shown to people, never to the model)."""
+    text = str(exc).strip()
+    return f"{failure_tag(exc)} {(text.splitlines()[0] if text else '')[:200]}"
 
 
 # A backend that reads many things (several pods' logs, say) may succeed on most and fail on one.
@@ -179,10 +242,10 @@ def _bounded(lines: list, tool_errors: list[str]) -> list[str]:
     lines = [str(x) for x in lines]
     long = sum(1 for x in lines if len(x) > MAX_LINE_CHARS)
     if len(lines) > MAX_LOG_LINES:
-        tool_errors.append(f"logs: kept the newest {MAX_LOG_LINES} of {len(lines)} lines")
+        tool_errors.append(f"logs: [output truncated] kept the newest {MAX_LOG_LINES} of {len(lines)} lines")
         lines = lines[-MAX_LOG_LINES:]
     if long:
-        tool_errors.append(f"logs: {long} line(s) cut to {MAX_LINE_CHARS} characters")
+        tool_errors.append(f"logs: [output truncated] {long} line(s) cut to {MAX_LINE_CHARS} characters")
         lines = [x[:MAX_LINE_CHARS] for x in lines]
     return lines
 
@@ -236,12 +299,12 @@ def gather(
                 setattr(bundle, sink, result)
                 sp.set_attribute("warden.tool.ok", True)
             except FutureTimeout:
-                msg = f"{name}: timed out after {timeout:.1f}s"
+                msg = f"{name}: [timed out] timed out after {timeout:.1f}s"
                 bundle.tool_errors.append(msg)
                 sp.set_attribute("warden.tool.ok", False)
                 sp.set_attribute("warden.tool.error", msg)
             except Exception as exc:  # noqa: BLE001 - a tool failing is data, not a crash
-                msg = f"{name}: {exc}"
+                msg = f"{name}: {failure(exc)}"
                 bundle.tool_errors.append(msg)  # raw, like the logs: node_redact scrubs it (A-C-5)
                 sp.set_attribute("warden.tool.ok", False)
                 # The span leaves for a tracing backend on its own: scrubbed, stripped of control

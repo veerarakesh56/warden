@@ -437,7 +437,8 @@ def test_a_failed_metric_read_keeps_the_api_evidence_and_says_so():
     b = _backend(clients)
     a = _alert(**{"lambda": f"{P}checkout"})
     lines = b.logs(a)
-    assert f"{PARTIAL_PREFIX}lambda/{P}checkout metrics: throttled" in lines
+    # A plain RuntimeError says nothing structured about how it failed: its words are not trusted.
+    assert f"{PARTIAL_PREFIX}lambda/{P}checkout metrics: [failed (unclassified)] throttled" in lines
     assert any(x.startswith("CONFIG lambda") for x in lines)
     assert b.metrics(a)["lambda_timeout_s"] == 1
 
@@ -447,7 +448,7 @@ def test_a_failed_config_read_keeps_the_lambda_logs():
     b = _backend(_clients(**{"lambda": lam}, logs=_events({f"/aws/lambda/{P}checkout": [("s", "boom")]})))
     lines = b.logs(_alert(**{"lambda": f"{P}checkout"}))
     assert any(x.endswith(" boom") and x.startswith(f"LOG lambda/{P}checkout") for x in lines)
-    assert f"{PARTIAL_PREFIX}lambda/{P}checkout: denied" in lines
+    assert f"{PARTIAL_PREFIX}lambda/{P}checkout: [failed (unclassified)] denied" in lines
 
 
 def test_a_missing_alias_is_normal_not_a_partial():
@@ -461,7 +462,7 @@ def test_a_missing_dsn_is_a_partial_not_silence(monkeypatch):
     monkeypatch.delenv("WARDEN_STACK_DB_WRITER_DSN", raising=False)
     monkeypatch.delenv("WARDEN_STACK_DB_READER_DSN", raising=False)
     lines = _backend().logs(_alert(aurora_cluster=f"{P}aurora"))
-    assert any(x.startswith(f"{PARTIAL_PREFIX}aurora-db-writer: WARDEN_STACK_DB_WRITER_DSN") for x in lines)
+    assert any(x.startswith(f"{PARTIAL_PREFIX}aurora-db-writer: [failed (unclassified)] WARDEN_STACK_DB_WRITER_DSN") for x in lines)
     assert any(x.startswith("CLUSTER aurora") for x in lines)
 
 
@@ -540,7 +541,7 @@ def test_a_failed_code_download_keeps_the_frame_and_reports_the_gap():
     b = _backend(_clients(logs=_events({f"/aws/lambda/{P}checkout": [("s/[7]x", msg)]})), download=fail)
     lines = b.logs(_alert(**{"lambda": f"{P}checkout"}))
     assert f"CODE {P}checkout app.py:41 in handler: KeyError: 'sku'" in lines
-    assert f"{PARTIAL_PREFIX}lambda/{P}checkout code: timed out" in lines
+    assert f"{PARTIAL_PREFIX}lambda/{P}checkout code: [timed out] timed out" in lines
 
 
 def test_download_is_https_only_and_size_capped(monkeypatch):

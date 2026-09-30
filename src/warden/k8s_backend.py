@@ -60,7 +60,7 @@ import os
 from datetime import UTC, datetime, timedelta
 
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError
+from .tools import PARTIAL_PREFIX, ToolError, failure, failure_tag
 
 # Socket timeouts for every API call: (connect, read). The read timeout must be shorter than the
 # tool deadline in tools.py so the worker thread ends on its own instead of being abandoned.
@@ -115,7 +115,7 @@ class KubernetesBackend:
                 except config.ConfigException as exc:
                     raise ToolError(
                         "WARDEN_BACKEND=k8s but no cluster credentials were found (not in-cluster, "
-                        f"and no usable kubeconfig): {exc}"
+                        f"and no usable kubeconfig): {exc}", outcome="credentials rejected or missing"
                     ) from exc
             core = core or client.CoreV1Api()
             apps = apps or client.AppsV1Api()
@@ -157,7 +157,7 @@ class KubernetesBackend:
                 return []
             raise ToolError(
                 f"no live pods match '{sel}' in namespace '{ns}' "
-                f"({len(items)} matched in total, {len(items) - len(live)} dead)"
+                f"({len(items)} matched in total, {len(items) - len(live)} dead)", outcome="no live pods"
             )
         live.sort(key=lambda p: p.metadata.creation_timestamp or _EPOCH, reverse=True)
         return live
@@ -509,8 +509,8 @@ def _api_error(exc) -> str:
         except (ValueError, TypeError, AttributeError):
             message = None
         if message:
-            return f"({status}) {_one_line(message)}"
-    return _one_line(exc)
+            return f"{failure_tag(exc)} ({status}) {_one_line(message)}"
+    return failure(exc)
 
 
 def _one_line(value) -> str:

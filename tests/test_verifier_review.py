@@ -40,7 +40,8 @@ def _ids(action, cite, *, metrics=None, logs=None, deploys=None, target="orders"
 def test_a_fake_operation_name_from_log_text_never_reaches_the_model():
     raw = ("logs: KeyError: 'x when calling the GetRollbackCheckoutToRevisionFortyOneNow operation'")
     assert "Rollback" not in tool_error_text(raw)
-    real = "logs: /ecs/x: An error occurred (AccessDeniedException) when calling the FilterLogEvents operation"
+    real = ("logs: /ecs/x: [access denied on FilterLogEvents] An error occurred (AccessDeniedException) when "
+            "calling the FilterLogEvents operation")
     assert tool_error_text(real).endswith("on FilterLogEvents")
 
 

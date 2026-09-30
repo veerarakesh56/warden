@@ -21,7 +21,7 @@ import os
 from urllib.parse import urlparse
 
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError
+from .tools import PARTIAL_PREFIX, ToolError, failure
 
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_DB_CONNECT_TIMEOUT", "4.0"))
 # A connection counts as "stuck" (terminate-eligible, and evidence in its own right) once it has been
@@ -44,7 +44,8 @@ _SCHEME_ENGINE = {
 def engine_of(dsn: str) -> str:
     scheme = urlparse(dsn).scheme.lower()
     if scheme not in _SCHEME_ENGINE:
-        raise ToolError(f"unsupported database DSN scheme '{scheme}'. Known: {sorted(set(_SCHEME_ENGINE))}")
+        raise ToolError(f"unsupported database DSN scheme '{scheme}'. Known: {sorted(set(_SCHEME_ENGINE))}",
+                        outcome="not supported")
     return _SCHEME_ENGINE[scheme]
 
 
@@ -442,7 +443,7 @@ _ADAPTERS = {a.engine: a for a in (_Postgres, _MySQL, _Redis, _Mongo, _MSSQL)}
 
 def adapter_for(engine: str):
     if engine not in _ADAPTERS:
-        raise ToolError(f"no database adapter for engine '{engine}'")
+        raise ToolError(f"no database adapter for engine '{engine}'", outcome="not supported")
     return _ADAPTERS[engine]
 
 
@@ -489,7 +490,7 @@ class DatabaseBackend:
         try:
             ops = adapter.problem_ops(conn, IDLE_SECS)
         except Exception as exc:  # noqa: BLE001 - partial: metrics may still be usable
-            return [f"{PARTIAL_PREFIX}problem_ops: {_one_line(exc)}"]
+            return [f"{PARTIAL_PREFIX}problem_ops: {failure(exc)}"]
         # An adapter may report a PARTIAL of its own (e.g. connections whose age cannot be judged
         # because of clock skew). Those must reach `gather()` with the prefix INTACT — prefixing them
         # as evidence would turn "I could not measure this" into a log line the verifier counts.
@@ -503,7 +504,7 @@ class DatabaseBackend:
             try:
                 lines += adapter.activity(conn)
             except Exception as exc:  # noqa: BLE001 - partial, reported as such
-                lines.append(f"{PARTIAL_PREFIX}activity: {_one_line(exc)}")
+                lines.append(f"{PARTIAL_PREFIX}activity: {failure(exc)}")
         return lines
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:

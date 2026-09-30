@@ -56,7 +56,7 @@ from .aws_backend import (
 )
 from .environments import strip_prefix
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError
+from .tools import PARTIAL_PREFIX, ToolError, failure
 
 # Re-exported so the report/harness can import the windows from the backend they describe.
 __all__ = [
@@ -127,7 +127,7 @@ def _retag_aws_line(tag: str, line: str) -> str:
 
 
 def _partial(reader: str, line_or_exc) -> str:
-    text = line_or_exc if isinstance(line_or_exc, str) else _one_line(line_or_exc)
+    text = line_or_exc if isinstance(line_or_exc, str) else failure(line_or_exc)
     return f"{PARTIAL_PREFIX}{reader}: {text.removeprefix(PARTIAL_PREFIX)}"
 
 

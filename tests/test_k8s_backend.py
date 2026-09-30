@@ -649,7 +649,7 @@ def test_an_api_failure_keeps_the_servers_reason():
             return "(400)\nReason: Bad Request\nHTTP response headers: ..."
 
     out = _api_error(ApiException())
-    assert out.startswith("(400) ") and "trying and failing to pull image" in out
+    assert out.startswith("[rejected as a bad request] (400) ") and "trying and failing to pull image" in out
 
 
 def test_a_failed_log_read_is_not_labelled_logs_twice():

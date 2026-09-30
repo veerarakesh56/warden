@@ -76,7 +76,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError
+from .tools import PARTIAL_PREFIX, ToolError, failure
 
 # (connect, read) seconds. See note 2 in the module docstring about the budget.
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_AWS_CONNECT_TIMEOUT", "2.0"))
@@ -194,7 +194,8 @@ class AwsBackend:
             )
             raise ToolError(
                 f"no active ECS service '{service}' in cluster '{cluster}'"
-                + (f" ({failures})" if failures else "")
+                + (f" ({failures})" if failures else ""),
+                outcome="not found",
             )
         return live[0]
 
@@ -231,12 +232,12 @@ class AwsBackend:
                     break
                 kwargs["nextToken"] = token
                 if page == LOG_MAX_PAGES - 1:
-                    partial.append(f"{PARTIAL_PREFIX}logs: stopped after {LOG_MAX_PAGES} pages "
+                    partial.append(f"{PARTIAL_PREFIX}logs: [output truncated] stopped after {LOG_MAX_PAGES} pages "
                                    "(raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)")
         except Exception as exc:  # noqa: BLE001 - a missing group is data, not a crash
             if not events:
-                return [f"{PARTIAL_PREFIX}logs: {group}: {_one_line(exc)}"]
-            partial.append(f"{PARTIAL_PREFIX}logs: {group}: {_one_line(exc)}")
+                return [f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}"]
+            partial.append(f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}")
 
         lines: list[str] = []
         for event in sorted(events, key=lambda e: e.get("timestamp") or 0):
@@ -252,7 +253,7 @@ class AwsBackend:
             older_errors = [ln for ln in lines[:cut] if _ERRORISH.search(ln)][-LOG_ERROR_EXTRA:]
             dropped = cut - len(older_errors)
             lines = older_errors + lines[cut:]
-            partial.append(f"{PARTIAL_PREFIX}logs: truncated: kept the newest {LOG_MAX_LINES} lines and "
+            partial.append(f"{PARTIAL_PREFIX}logs: [output truncated] kept the newest {LOG_MAX_LINES} lines and "
                            f"{len(older_errors)} older error line(s), dropped {dropped} "
                            "(raise WARDEN_AWS_LOG_MAX_LINES to see more)")
         return lines + partial
@@ -366,12 +367,12 @@ class AwsBackend:
         task_def_arn = primary.get("taskDefinition") or service.get("taskDefinition") or ""
         family, revision = _family_revision(task_def_arn)
         if not family:
-            return [f"{PARTIAL_PREFIX}deploys: unparseable task definition '{task_def_arn}'"]
+            return [f"{PARTIAL_PREFIX}deploys: [failed (unclassified)] unparseable task definition '{task_def_arn}'"]
 
         try:
             current = self._task_definition(f"{family}:{revision}")
         except Exception as exc:  # noqa: BLE001
-            return [f"{PARTIAL_PREFIX}deploys: {family}:{revision}: {_one_line(exc)}"]
+            return [f"{PARTIAL_PREFIX}deploys: {family}:{revision}: {failure(exc)}"]
         current_images = _images_of(current)
 
         # ⛔ WHAT TO COMPARE AGAINST, AND WHY revision-1 IS WRONG.

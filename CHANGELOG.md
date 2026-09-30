@@ -137,6 +137,17 @@ bump may carry a breaking change.
   - Measured 2026-09-30 on 36 benign alert texts: 0 flagged, down from 7-8.
   - "Ignore previous instructions" in an alert is still caught (0.997-0.999).
   - Label values can no longer rewrite WARDEN's prompt markers.
+- **A failed read's outcome comes from what failed, not from what its message says** (second
+  review, A-C-2).
+  - WARDEN writes a tag such as `[access denied on FilterLogEvents]` where it catches the failure.
+    The tag comes from the exception's type and structured codes: botocore's error code and
+    operation, the Kubernetes status, the database SQLSTATE. The trusted T item reads only the tag.
+  - A KeyError quoting "AccessDenied when calling the DescribeSecret operation" is now
+    "failed (unclassified)".
+  - A pod name is no longer taken for a reader tag.
+  - A config line with run-together steering words is no longer trusted.
+  - Replays of runs recorded before this change show their tool errors as "failed (unclassified)",
+    because those strings carry no tag.
 - **Verifier, tripwire and provider fixes** (second review: A-C-6, A-C-12, A-C-18, A-C-25, A-C-26).
   - **P11** reads every lag metric the backends emit, `redis_replication_lag_s` included. It takes the
     unit from the metric's own name: a resource suffix such as `__payments_msvc` read seconds as ms.
