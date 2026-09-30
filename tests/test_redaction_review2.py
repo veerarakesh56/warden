@@ -213,3 +213,71 @@ def test_every_copy_of_a_secret_is_masked_whatever_it_looks_like(kind):
     out, _ = redact_many(["db pass" + f"word={secret} rejected", f"FATAL: retrying login with {secret}"])
     assert all(secret not in line for line in out), out
     assert gate.outbound_data({"lines": out})[0] == "PASS"
+
+
+
+def _lines(n, k):
+    ip = lambda i, j: f"10.{(i * 7 + j) % 250}.{(i + j * 13) % 250}.{(i * j) % 250}"
+    uid = lambda i, j: f"{i:08x}-{j:04x}-4{i % 4096:03x}-a{j % 4096:03x}-{i * 1000 + j:012x}"
+    return [" ".join(f"from {ip(i, j)} req={uid(i, j)} pass" + f"word=s3cr{i}x{j}Q" for j in range(k))
+            for i in range(n)]
+
+
+def test_many_distinct_values_per_line_stay_fast():
+    """Fourth review (2026-09-30): the sweep tested every found value against every line - 2,000 lines of
+    ten values each took 217 s, and prepare runs it two or three times. One trie-shaped finder now tells
+    each line which values it holds."""
+    import time
+
+    from warden.redaction import redact_many
+
+    lines = _lines(1000, 10)
+    start = time.perf_counter()
+    out, mapping = redact_many(lines)
+    assert time.perf_counter() - start < 20, "the sweep is quadratic again"
+    assert len(mapping) > 20_000 and not any("s3cr" in line for line in out)
+
+
+def test_the_finder_and_the_exact_per_value_loop_agree():
+    """Values that contain, start or end each other are the hard case for a finder: the output must be
+    what the exact longest-first loop gives."""
+    from warden import redaction
+
+    words = ["tok", "tok1", "tok12", "k12", "12x"]
+    lines = ["pass" + f"word={w}{i} and {w}{i}x user{i}@example.org" for i in range(30) for w in words]
+    fast, fast_map = redaction.redact_many(lines)
+    r = redaction._Redactor(None)
+    found = [r.find(line) for line in lines]
+    r._build()
+    r._finder, r._slow = None, list(r._rules)  # force the exact per-value loop
+    slow = [r.sweep(text) for text in found]
+    assert fast == slow and fast_map == r.mapping
+
+
+def test_deeply_nested_values_fall_back_safely():
+    """A log writer could plant values that are prefixes of each other; the finder must not crash the
+    redactor, and every copy must still be masked."""
+    from warden import redaction
+    from warden.redaction import redact_many
+
+    lines = ["pass" + f"word={'a' * n}Z end {'a' * n}Z" for n in range(4, 1300)]  # a branch at every character
+    out, _ = redact_many(lines)
+    assert all("aaaaZ" not in line for line in out)
+    r = redaction._Redactor(None)
+    for line in lines:
+        r.find(line)
+    r._build()
+    assert r._slow, "the nested chain must be checked one by one"
+
+
+def test_a_planted_nested_chain_does_not_make_every_value_slow():
+    """The per-value path is only for the nested values: a chain plus 20,000 ordinary values stays fast."""
+    import time
+
+    from warden.redaction import redact_many
+
+    chain = ["pass" + f"word={'a' * n}Z" for n in range(4, 1300)]
+    start = time.perf_counter()
+    out, mapping = redact_many(chain + _lines(1000, 10))
+    assert time.perf_counter() - start < 30, "a nested chain made the sweep quadratic"
+    assert not any("s3cr" in line for line in out) and len(mapping) > 20_000

@@ -16,6 +16,7 @@ from __future__ import annotations
 import functools
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 # Ordered deliberately: the greedy/most-specific patterns run before the narrow ones, otherwise a
 # narrow pattern eats part of a broader secret (a UUID inside an ARN, an EMAIL inside a connection
@@ -242,60 +243,143 @@ def redact(text: str, *, mapping: dict[str, str] | None = None, _sweep_copies: b
     Passing an existing `mapping` keeps placeholders stable across many strings in one run, so the
     model still sees that two log lines refer to the same host.
     """
-    mapping = dict(mapping or {})
-    reverse = {v: k for k, v in mapping.items()}
-    counters: dict[str, int] = dict.fromkeys(_LABELS, 0)
-    for k in mapping:
-        kind = _kind(k)
-        if kind in counters:
-            counters[kind] += 1
+    r = _Redactor(mapping)
+    out = r.find(text)
+    if _sweep_copies:  # redact_many's first pass only FINDS values; its second pass masks
+        out = r.sweep(out)
+    return RedactionResult(text=out, mapping=r.mapping)
 
-    out = text
-    for label, pattern in PATTERNS:
 
-        def _sub(m: re.Match[str], label: str = label) -> str:
-            # group(1) exists for TENANT, where only the value is sensitive, not the key name.
-            original = m.group(1) if m.groups() else m.group(0)
-            if label == "SECRET" and original.lower().strip(".,;:)(") in _NOT_A_VALUE:
-                return m.group(0)
-            if original in reverse:
-                placeholder = reverse[original]
-            else:
-                counters[label] += 1
-                placeholder = f"<{label}_{counters[label]}>"
-                mapping[placeholder] = original
-                reverse[original] = placeholder
-            return m.group(0).replace(original, placeholder)
+class _Redactor:
+    """One placeholder namespace (map, reverse map, counters) shared by every text of one call."""
 
-        out = pattern.sub(_sub, out)
+    def __init__(self, mapping: dict[str, str] | None) -> None:
+        self.mapping = dict(mapping or {})
+        self.reverse = {v: k for k, v in self.mapping.items()}
+        self.counters: dict[str, int] = dict.fromkeys(_LABELS, 0)
+        for k in self.mapping:
+            kind = _kind(k)
+            if kind in self.counters:
+                self.counters[kind] += 1
+        self._built_for = -1
+        self._rules: dict[str, tuple[int, str, Any]] = {}
+        self._finder: re.Pattern[str] | None = None
+        self._slow: list[str] = []  # values checked one by one: nested too deep for the finder
+        self._ordered: list[tuple[str, str]] = []
 
-    # Final literal sweep. The patterns FIND values; this masks the copies a regex boundary missed,
-    # by the rule in _sweep: every copy of a secret, every standalone copy of an identifier. Real example from a live cluster: a Kubernetes "failed to reserve container name"
-    # event embeds the pod UID inside `..._default_<uid>_0`, where the trailing `b_` is not a `\b`
-    # boundary, so the `(uid)` copy was masked and the `_0`-suffixed copy was not.
-    #
-    # ⛔ The sweep must NOT run inside placeholders already placed. If a TENANT value happens to be
-    # the literal `UUID_1`, a naive sweep rewrites the neighbouring `<UUID_1>` to `<<TENANT_1>>` -
-    # no leak, but two distinct secrets collapse to one label and restore() breaks. So the text is
-    # split on placeholder tokens and only the segments BETWEEN them are swept. Longest originals
-    # first, so a value that is a substring of another does not corrupt the longer replacement.
-    if not _sweep_copies:  # redact_many's first pass only FINDS values; its second pass masks
-        return RedactionResult(text=out, mapping=mapping)
-    ordered = sorted(mapping.items(), key=lambda kv: -len(kv[1]))
-    parts = _PLACEHOLDER.split(out)  # even indices = free text, odd indices = whole placeholders
-    for i in range(0, len(parts), 2):
-        for placeholder, original in ordered:
-            # A substring test first: most values are not in most lines. Every value compiled and run
-            # over every line cost 68 s on 300 lines once there were more values than Python's regex
-            # cache holds (third review, 2026-09-30).
-            if original not in parts[i]:
-                continue
+    def find(self, text: str) -> str:
+        out = text
+        for label, pattern in PATTERNS:
+
+            def _sub(m: re.Match[str], label: str = label) -> str:
+                # group(1) exists for TENANT, where only the value is sensitive, not the key name.
+                original = m.group(1) if m.groups() else m.group(0)
+                if label == "SECRET" and original.lower().strip(".,;:)(") in _NOT_A_VALUE:
+                    return m.group(0)
+                if original in self.reverse:
+                    placeholder = self.reverse[original]
+                else:
+                    self.counters[label] += 1
+                    placeholder = f"<{label}_{self.counters[label]}>"
+                    self.mapping[placeholder] = original
+                    self.reverse[original] = placeholder
+                return m.group(0).replace(original, placeholder)
+
+            out = pattern.sub(_sub, out)
+        return out
+
+    def _build(self) -> None:
+        self._ordered = sorted(self.mapping.items(), key=lambda kv: -len(kv[1]))
+        self._rules = {}
+        for n, (placeholder, original) in enumerate(self._ordered):
             rule = _sweep(placeholder, original)
-            if rule is None:
+            if rule is not None and original not in self._rules:
+                self._rules[original] = (n, placeholder, rule)
+        # Values nested deeper than _MAX_NESTING (a planted chain like `aaaaZ`, `aaaaaZ`, ...) would nest the
+        # finder's groups past the recursion limit; they are checked one by one, the finder covers the rest.
+        trie = _trie(self._rules)
+        self._slow = [w for w in self._rules if _nesting(trie, w) > _MAX_NESTING]
+        fast = [w for w in self._rules if w not in set(self._slow)]
+        try:
+            self._finder = re.compile("(?=(" + _trie_regex(_trie(fast)) + "))") if fast else None
+        except (RecursionError, re.error, OverflowError):
+            self._finder, self._slow = None, list(self._rules)  # the exact per-value loop
+        self._built_for = len(self.mapping)
+
+    def sweep(self, out: str) -> str:
+        # Final literal sweep. The patterns FIND values; this masks the copies a regex boundary missed,
+        # by the rule in _sweep: every copy of a secret, every standalone copy of an identifier. Real
+        # example from a live cluster: a Kubernetes "failed to reserve container name" event embeds the pod
+        # UID inside `..._default_<uid>_0`, where the trailing `b_` is not a `\b` boundary, so the `(uid)`
+        # copy was masked and the `_0`-suffixed copy was not.
+        #
+        # ⛔ The sweep must NOT run inside placeholders already placed. If a TENANT value happens to be
+        # the literal `UUID_1`, a naive sweep rewrites the neighbouring `<UUID_1>` to `<<TENANT_1>>` -
+        # no leak, but two distinct secrets collapse to one label and restore() breaks. So the text is
+        # split on placeholder tokens and only the segments BETWEEN them are swept. Longest originals
+        # first, so a value that is a substring of another does not corrupt the longer replacement.
+        #
+        # Which values occur in a segment is found by ONE trie-shaped regex over all of them, built once
+        # per map: testing every value against every segment was quadratic - 217 s for 2,000 lines of
+        # 22,500 distinct values (fourth review, 2026-09-30).
+        if self._built_for != len(self.mapping):
+            self._build()
+        parts = _PLACEHOLDER.split(out)  # even indices = free text, odd indices = whole placeholders
+        for i in range(0, len(parts), 2):
+            segment = parts[i]
+            if not segment:
                 continue
-            parts[i] = parts[i].replace(original, placeholder) if rule is _EVERY_COPY else rule.sub(placeholder, parts[i])
-    out = "".join(parts)
-    return RedactionResult(text=out, mapping=mapping)
+            present = {m.group(1) for m in self._finder.finditer(segment)} if self._finder is not None else set()
+            present |= {w for w in self._slow if w in segment}
+            todo = sorted((self._rules[o] for o in present if o in self._rules), key=lambda r: r[0])
+            todo = [(self._ordered[n][1], ph, rule) for n, ph, rule in todo]
+            for original, placeholder, rule in todo:
+                if original not in segment:
+                    continue
+                segment = segment.replace(original, placeholder) if rule is _EVERY_COPY else rule.sub(placeholder, segment)
+            parts[i] = segment
+        return "".join(parts)
+
+
+_MAX_NESTING = 200
+
+
+def _trie(words) -> dict[str, dict]:
+    root: dict[str, dict] = {}
+    for w in words:
+        node = root
+        for ch in w:
+            node = node.setdefault(ch, {})
+        node[""] = {}
+    return root
+
+
+def _nesting(root: dict[str, dict], word: str) -> int:
+    """How many groups the finder would nest along `word`: its branching or ending nodes."""
+    depth, node = 0, root
+    for ch in word:
+        node = node[ch]
+        depth += len(node) > 1 or "" in node
+    return depth
+
+
+def _trie_regex(root: dict[str, dict]) -> str:
+    """One regex matching any word of the trie at a position, longest first (greedy)."""
+
+    def build(node: dict[str, dict]) -> str:
+        alts = []
+        for ch in sorted(k for k in node if k):
+            chars, child = [ch], node[ch]
+            while len(child) == 1 and "" not in child:  # a chain with no branch: one literal
+                ((nxt, child),) = child.items()
+                chars.append(nxt)
+            alts.append(re.escape("".join(chars)) + build(child))
+        if not alts:
+            return ""
+        body = alts[0] if len(alts) == 1 else "(?:" + "|".join(alts) + ")"
+        return "(?:" + body + ")?" if "" in node else body
+
+    return build(root)
 
 
 # ⛔ Audit A-C-4: the sweep replaced every copy of every found value, so a TENANT `user_id=500` turned
@@ -350,12 +434,6 @@ def redact_many(items: list[str], mapping: dict[str, str] | None = None) -> tupl
     """Redact several strings as ONE text, with one placeholder namespace: a value found in any of them
     is masked in all of them. One pass left a secret found in a later line in clear in the earlier
     ones (second review, 2026-09-30); the first pass now only finds, the second masks."""
-    mapping = dict(mapping or {})
-    for item in items:
-        mapping = redact(item, mapping=mapping, _sweep_copies=False).mapping
-    out: list[str] = []
-    for item in items:
-        result = redact(item, mapping=mapping)
-        mapping = result.mapping
-        out.append(result.text)
-    return out, mapping
+    r = _Redactor(mapping)
+    found = [r.find(item) for item in items]
+    return [r.sweep(text) for text in found], r.mapping

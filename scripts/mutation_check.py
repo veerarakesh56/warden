@@ -74,8 +74,8 @@ MUTATIONS = [
     (
         "redaction one-text pass disabled",
         "redaction.py",
-        "        mapping = redact(item, mapping=mapping, _sweep_copies=False).mapping",
-        "        pass",
+        "    found = [r.find(item) for item in items]\n    return [r.sweep(text) for text in found], r.mapping",
+        "    return [r.sweep(r.find(item)) for item in items], r.mapping",
         "a secret found in a later line would stay in clear in the earlier ones",
     ),
     (

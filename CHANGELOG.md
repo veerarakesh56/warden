@@ -286,6 +286,13 @@ bump may carry a breaking change.
   rollback, and a signed audit row saying ok. Each real check now writes an audit row with its run;
   the verdict is taken from those rows and returned with the run id, and the workflow accepts only
   its own. A forged claim leaves a `remediation.result_mismatch` row. Test fails without the fix.
+- **Redaction stays fast whatever the logs hold** (fourth review, B-N3). The sweep tested every found
+  value against every line: 2,000 lines of ten values each took 217 s, and prepare runs it two or
+  three times, so a log writer could push an incident past its timeout. One trie-shaped finder now
+  tells each line which values it holds, and the map is kept once per call instead of copied per
+  line: that case takes 4.3 s, and 2,000 ordinary lines 0.9 s (13.6 s before). Values nested too
+  deeply for the finder (a planted chain) are checked one by one, alone. The output is
+  byte-identical: benchmark digests, the reviewer's inputs and all 337 recorded contexts.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).
