@@ -26,3 +26,21 @@ def _root_logger_restored():
     yield
     root.handlers[:] = handlers
     root.setLevel(level)
+
+
+
+def pytest_configure(config):
+    """Under pytest-xdist, start Temporal's time-skipping test server once in the controller, before any
+    worker exists: the SDK downloads its binary on first use to one shared path, and several workers doing
+    that at once failed with "Text file busy" (CI, 2026-09-30, commit 14e32e1). Workers then find it."""
+    if hasattr(config, "workerinput") or not config.getoption("numprocesses", default=None):
+        return
+    import asyncio
+
+    from temporalio.testing import WorkflowEnvironment
+
+    async def warm() -> None:
+        env = await WorkflowEnvironment.start_time_skipping()
+        await env.shutdown()
+
+    asyncio.run(warm())
