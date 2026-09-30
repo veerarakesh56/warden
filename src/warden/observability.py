@@ -131,8 +131,10 @@ class GatedFormatter(logging.Formatter):
         except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
             return f"{record.levelname} {record.name}: (log text withheld)"
         # Every further line is indented, so text inside a record cannot pass for a record of its own
-        # (third review: a message carrying "\n<date> INFO ...: approved" forged a line).
-        return text.replace("\n", "\n    ")
+        # (third review: a message carrying "\n<date> INFO ...: approved" forged a line). Line and
+        # paragraph separators break lines for some viewers, so they are line breaks here too (fourth
+        # review, 2026-09-30, A-4).
+        return text.replace("\u2028", "\n").replace("\u2029", "\n").replace("\n", "\n    ")
 
 
 class _StderrHandler(logging.StreamHandler):

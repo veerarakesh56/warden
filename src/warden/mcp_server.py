@@ -519,12 +519,35 @@ def build_server() -> Server:
 
 
 def main() -> int:
-    import anyio
+    """The MCP server. An uncaught error - at startup or while serving - is one gated line on stderr,
+    never a raw traceback: stdout is the protocol, and the text can quote evidence or a key (fourth
+    review, 2026-09-30, A-8). Warnings go through the same gate."""
+    import logging
 
-    from .cli import _load_environment
     from .observability import install_log_gate
 
     install_log_gate()  # stderr only: stdout is the protocol
+    logging.captureWarnings(True)
+    log = logging.getLogger("warden.mcp")
+    try:
+        return _serve()
+    except SystemExit as exc:
+        if isinstance(exc.code, str):
+            log.error("error: %s", exc.code)
+            return 2
+        raise
+    except KeyboardInterrupt:
+        raise
+    except Exception as exc:  # noqa: BLE001 - the last line of defence for what reaches the terminal
+        log.error("error: %s: %s", type(exc).__name__, exc)
+        return 1
+
+
+def _serve() -> int:
+    import anyio
+
+    from .cli import _load_environment
+
     _load_environment()
 
     async def _run() -> None:

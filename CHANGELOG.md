@@ -311,6 +311,14 @@ bump may carry a breaking change.
   `deploys: <family>:<revision>` all read "failed (unclassified)" instead of, say, "access denied on
   FilterLogEvents". Upper case is accepted only behind `/` or a kind prefix and `<family>:<revision>`
   only after `deploys`, so free text still cannot place a tag.
+- **Slack text, log lines and the MCP server's errors hold their shape** (fourth review, A-2, A-3,
+  A-4, A-8). The Slack conversion tracked code fences at column 0 only, so a split inside an indented
+  block left the rest - URLs included - as prose; it now tracks a fence anywhere in the line. Line and
+  paragraph separators (U+2028/2029), which Markdown does not break on, became headings in Slack; they
+  are spaces there now, and a no-break space after `#` no longer makes a heading. In log lines they
+  are line breaks, indented like any other, so they cannot forge a record. The MCP server prints an
+  uncaught error as one gated line on stderr instead of a raw traceback, and routes warnings through
+  the same gate.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

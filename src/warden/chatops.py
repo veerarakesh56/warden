@@ -162,7 +162,12 @@ def resolve_sinks() -> list[ChatOpsSink]:
 
 
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
-_HEADING = re.compile(r"^#{1,6}\s+(.*)$")
+# A space or tab after the hashes, as CommonMark requires: `\s` also took a no-break space, so
+# "#<NBSP>Fix - approved" became a bold Slack line that renders as plain text everywhere else.
+_HEADING = re.compile(r"^#{1,6}[ \t]+(.*)$")
+# Line and paragraph separators: not line breaks in Markdown, but splitlines() - and some viewers -
+# broke on them, so "ok<U+2028># Fix - approved" became a heading (fourth review, 2026-09-30, A-3).
+_SEPARATORS = re.compile("[\u2028\u2029]")
 
 
 def to_slack_mrkdwn(md: str) -> str:
@@ -174,9 +179,12 @@ def to_slack_mrkdwn(md: str) -> str:
     Code blocks and inline code are left alone; Slack renders both.
     """
     text = md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = _SEPARATORS.sub(" ", text)
     out, in_code = [], False
-    for line in text.splitlines():
-        if line.startswith("```"):
+    # A fence anywhere in the line: the gate keeps fences inside list items and quotes, and leaves ```
+    # nowhere but on fence lines (fourth review, 2026-09-30, A-2: column 0 only desynchronised here).
+    for line in text.split("\n"):
+        if "```" in line:
             in_code = not in_code
             out.append(line)
             continue
@@ -204,7 +212,7 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
     parts: list[list[str]] = [[]]
     size, in_code = 0, False
     for line in text.split("\n"):
-        fence = line.startswith("```")
+        fence = "```" in line
         if size + len(line) + 1 > limit - 16 and parts[-1]:
             if in_code:
                 parts[-1].append("```")
