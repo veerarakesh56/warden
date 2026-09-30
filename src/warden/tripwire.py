@@ -2,7 +2,8 @@
 
 The quarantine (quarantine.py) already keeps untrusted text away from the model structurally. This
 adds a SECOND, independent signal: Meta's Llama Prompt Guard 2 (86M), a classifier trained on a
-large corpus of prompt-injection and jailbreak attempts, runs locally on each log line and event.
+large corpus of prompt-injection and jailbreak attempts, runs locally on every untrusted part the
+model reads (alert text, labels, trusted items, typed facts) and on each log line and event.
 A line it flags does not change what the model sees; it changes what the gate allows: policy P16
 escalates the incident to a person, so a flagged line can never lead to an automatic or pre-approved
 fix. It is a tripwire, never a gate that clears text as safe - published work bypasses such
@@ -48,7 +49,10 @@ SHORT_TOKENS, SHORT_STEP = 64, 32
 SHORT_CHARS, SHORT_STEP_CHARS = 120, 60
 # ... and sentence by sentence, field by field: an instruction written as its own sentence or field is
 # scored without the benign text around it (short windows alone still let 8 of 35 padded placements
-# through, measured 2026-09-30 with the real model).
+# through, measured 2026-09-30 with the real model). With both: 34 of 35 padded placements caught
+# (23 of 35 before), recall 51 of 132 attacks (46 before), 0 of 36 benign alerts flagged, and 3 of 14
+# benign texts worded as instructions escalated (1 before) - the owner accepted the extra escalations:
+# a false alarm costs one human review.
 _SEGMENT = re.compile(r"(?<=[.;!?])\s+|\n+|,\s+|\s+(?=[A-Za-z_][\w.-]*=)")
 MIN_SEGMENT_CHARS = 20
 # The most model tokens one scan scores. Recorded incidents need at most 14,121 (p99 11,630, measured
@@ -58,6 +62,14 @@ MIN_SEGMENT_CHARS = 20
 MAX_SCAN_TOKENS = 32_768
 MAX_THRESHOLD = 0.99
 TOO_MUCH_TEXT = "TOO-MUCH-TEXT"
+_PARTIAL = re.compile(r"ran-partial: \d+ of \d+ log lines")
+
+
+def ran(status: str) -> bool:
+    """The detector ran over everything the model reads: "ran", or exactly the "ran-partial: <n> of <m>
+    log lines" that scan() writes. Fourth review (2026-09-30, C-9): a prefix match let any status that
+    merely started with "ran-partial" count as a run in required mode."""
+    return status == "ran" or _PARTIAL.fullmatch(status) is not None
 
 
 def threshold() -> float | None:

@@ -277,6 +277,24 @@ def test_log_lines_past_the_budget_are_reported_not_escalated(monkeypatch):
     assert "P16-SUSPECTED-INJECTION" not in verify(alert, ctx, rc, prop).policy_ids
 
 
+
+@pytest.mark.parametrize("status", ["ran-partial", "ran-partial: crashed", "ran-partial: 3 of 9 log lines; unavailable",
+                                    "ran-partial: x of 9 log lines", "ran "])
+def test_only_the_exact_partial_status_counts_as_a_run(monkeypatch, status):
+    """Fourth review (2026-09-30, C-9): "ran-partial" was matched by prefix, so any status that began
+    with it - a caller's evidence never scanned - passed required mode."""
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "required")
+    from warden.models import ActionKind, Citation, RemediationProposal, RootCause
+    from warden.verifier import verify
+
+    assert tripwire.ran("ran") and tripwire.ran("ran-partial: 3 of 9 log lines")
+    ctx = ContextBundle(logs=["checkout ERROR a"], metrics={"error_rate": 0.1}, tripwire=status)
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="M1", quote="error_rate=0.1")])
+    prop = RemediationProposal(action=ActionKind.escalate_to_human, target="checkout", reasoning="r",
+                               expected_effect="e", blast_radius="single_service", reversible=True)
+    alert = Alert(**DEMO_ALERTS["inc-002"])
+    assert "P16-SUSPECTED-INJECTION" in verify(alert, ctx, rc, prop).policy_ids
+
 def _diluting(texts, batch_size=16):
     """Like the real model measured in the third review: an attack scores high alone, and low once
     enough other text shares its window (0.99 alone, 0.36 next to real config lines)."""

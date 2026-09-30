@@ -273,6 +273,8 @@ bump may carry a breaking change.
     escalate to a person, up from 1. The owner chose this trade: a false alarm costs a review.
   - The scan reads the labels key by key, as the prompt does: redacted as one dict,
     `{'token': '<SECRET_1>'}` scored 0.93 and escalated every such incident.
+  - In required mode only the exact `ran-partial: <n> of <m> log lines` counts as a run (C-9): any
+    status merely starting with "ran-partial" passed.
 - **Every copy of every secret is masked again** (fourth review, B-N1, a regression in 932d515).
   An exemption for "plain words and assignments" left a base64 key, a passphrase and a letters-only
   password in clear wherever they were repeated, and the outbound gate passed them. A test covers

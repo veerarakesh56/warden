@@ -450,7 +450,7 @@ def verify(
     # by a caller that never ran the detector) used to pass.
     # "ran-partial" is a run: everything the model reads was scanned; only raw log lines the model never
     # sees went past the budget.
-    elif tripwire.mode() == "required" and context.tripwire != "ran" and not context.tripwire.startswith("ran-partial"):
+    elif tripwire.mode() == "required" and not tripwire.ran(context.tripwire):
         escalate = True
         policies.append("P16-SUSPECTED-INJECTION")
         reasons.append(f"The injection detector is required here and could not run ({context.tripwire}).")
