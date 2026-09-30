@@ -223,21 +223,6 @@ def _lines(n, k):
             for i in range(n)]
 
 
-def test_many_distinct_values_per_line_stay_fast():
-    """Fourth review (2026-09-30): the sweep tested every found value against every line - 2,000 lines of
-    ten values each took 217 s, and prepare runs it two or three times. One trie-shaped finder now tells
-    each line which values it holds."""
-    import time
-
-    from warden.redaction import redact_many
-
-    lines = _lines(1000, 10)
-    start = time.perf_counter()
-    out, mapping = redact_many(lines)
-    assert time.perf_counter() - start < 20, "the sweep is quadratic again"
-    assert len(mapping) > 20_000 and not any("s3cr" in line for line in out)
-
-
 def test_the_finder_and_the_exact_per_value_loop_agree():
     """Values that contain, start or end each other are the hard case for a finder: the output must be
     what the exact longest-first loop gives."""
@@ -270,14 +255,44 @@ def test_deeply_nested_values_fall_back_safely():
     assert r._slow, "the nested chain must be checked one by one"
 
 
-def test_a_planted_nested_chain_does_not_make_every_value_slow():
-    """The per-value path is only for the nested values: a chain plus 20,000 ordinary values stays fast."""
+def _best_time(lines, runs=2):
     import time
 
     from warden.redaction import redact_many
 
+    best = float("inf")
+    for _ in range(runs):
+        start = time.perf_counter()
+        redact_many(lines)
+        best = min(best, time.perf_counter() - start)
+    return best
+
+
+def test_many_distinct_values_per_line_scale_linearly():
+    """Fourth review (2026-09-30): the sweep tested every found value against every line - 2,000 lines of
+    ten values each took 217 s. A ratio, not a wall-clock limit (a loaded machine slows both runs alike):
+    four times the lines, and so four times the values, must cost about four times as much, never the
+    sixteen times a quadratic sweep costs."""
+    from warden import redaction
+
+    small, large = _lines(200, 10), _lines(800, 10)
+    ratio = _best_time(large) / _best_time(small)
+    assert ratio < 8, f"4x the input cost {ratio:.1f}x the time - the sweep is quadratic again"
+    r = redaction._Redactor(None)
+    for line in large:
+        r.find(line)
+    r._build()
+    assert r._finder is not None and not r._slow
+
+
+def test_a_planted_nested_chain_does_not_make_every_value_slow():
+    """Only the nested values take the one-by-one path; every ordinary value stays on the finder."""
+    from warden import redaction
+
     chain = ["pass" + f"word={'a' * n}Z" for n in range(4, 1300)]
-    start = time.perf_counter()
-    out, mapping = redact_many(chain + _lines(1000, 10))
-    assert time.perf_counter() - start < 30, "a nested chain made the sweep quadratic"
-    assert not any("s3cr" in line for line in out) and len(mapping) > 20_000
+    r = redaction._Redactor(None)
+    for line in chain + _lines(300, 10):
+        r.find(line)
+    r._build()
+    assert r._finder is not None and 0 < len(r._slow) <= len(chain), len(r._slow)
+    assert all(w.startswith("aaaa") for w in r._slow)

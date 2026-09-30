@@ -293,6 +293,10 @@ bump may carry a breaking change.
   line: that case takes 4.3 s, and 2,000 ordinary lines 0.9 s (13.6 s before). Values nested too
   deeply for the finder (a planted chain) are checked one by one, alone. The output is
   byte-identical: benchmark digests, the reviewer's inputs and all 337 recorded contexts.
+  Follow-up found by a re-test: building the finder was itself quadratic (a set rebuilt for every
+  value) and compiled a pattern for every found identifier; it now takes 1.1 s for 6,000 values
+  (6.7 s before), identifier patterns are compiled only for values a line holds, and the timing test
+  compares 4x the input against 1x instead of a wall-clock limit. Output still byte-identical.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

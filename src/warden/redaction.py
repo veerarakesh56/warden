@@ -299,7 +299,8 @@ class _Redactor:
         # finder's groups past the recursion limit; they are checked one by one, the finder covers the rest.
         trie = _trie(self._rules)
         self._slow = [w for w in self._rules if _nesting(trie, w) > _MAX_NESTING]
-        fast = [w for w in self._rules if w not in set(self._slow)]
+        slow = set(self._slow)
+        fast = [w for w in self._rules if w not in slow]
         try:
             self._finder = re.compile("(?=(" + _trie_regex(_trie(fast)) + "))") if fast else None
         except (RecursionError, re.error, OverflowError):
@@ -336,7 +337,10 @@ class _Redactor:
             for original, placeholder, rule in todo:
                 if original not in segment:
                     continue
-                segment = segment.replace(original, placeholder) if rule is _EVERY_COPY else rule.sub(placeholder, segment)
+                if rule is _EVERY_COPY:
+                    segment = segment.replace(original, placeholder)
+                else:
+                    segment = _standalone(original).sub(placeholder, segment)
             parts[i] = segment
         return "".join(parts)
 
@@ -405,6 +409,8 @@ def _kind(placeholder: str) -> str:
 
 # Every copy, anywhere: plain str.replace, which is what the escaped regex did.
 _EVERY_COPY = object()
+# Every standalone copy: the pattern is compiled when the value is found in a segment, not for every value.
+_STANDALONE = object()
 
 
 def _sweep(placeholder: str, original: str):
@@ -422,7 +428,7 @@ def _sweep(placeholder: str, original: str):
         return _EVERY_COPY
     if (original.isdigit() and len(original) < 6) or original.lower() in _COMMON:
         return None
-    return _standalone(original)
+    return _STANDALONE
 
 
 @functools.lru_cache(maxsize=8192)
