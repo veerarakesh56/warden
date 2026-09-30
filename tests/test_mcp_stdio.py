@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 
 from warden.observability import _build_exporter
 
@@ -32,11 +33,28 @@ def test_stdout_is_pure_json_rpc_with_console_tracing_on():
     ]
     env = {**os.environ, "WARDEN_TRACE_CONSOLE": "1", "PYTHONIOENCODING": "utf-8"}
     env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
-    proc = subprocess.run([sys.executable, "-m", "warden.mcp_server"],
-                          input="".join(json.dumps(r) + "\n" for r in requests),
-                          capture_output=True, text=True, encoding="utf-8", env=env, timeout=60, check=False)
-    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
-    assert lines, proc.stderr[-2000:]
+    # stdin stays open until the tool call is answered, as a real client keeps it: closed at once, the
+    # server could read EOF and exit before answering (CI, 2026-09-30).
+    proc = subprocess.Popen([sys.executable, "-m", "warden.mcp_server"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env)
+    watchdog = threading.Timer(120, proc.kill)
+    watchdog.start()
+    try:
+        proc.stdin.write("".join(json.dumps(r) + "\n" for r in requests))
+        proc.stdin.flush()
+        lines = []
+        for line in proc.stdout:
+            if line.strip():
+                lines.append(line)
+                if json.loads(line).get("id") == 2:
+                    break
+        proc.stdin.close()
+        rest, err = proc.communicate(timeout=60)
+    finally:
+        watchdog.cancel()
+        proc.kill()
+    lines += [ln for ln in rest.splitlines() if ln.strip()]
+    assert lines, err[-2000:]
     for line in lines:
         msg = json.loads(line)  # a span printed here would fail this
         assert msg.get("jsonrpc") == "2.0", line[:200]

@@ -462,9 +462,6 @@ def _prompt_parts(state: WardenState, *, facts: bool = True) -> list[tuple[str, 
 def node_tripwire(state: WardenState) -> WardenState:
     """The trained injection detector over the untrusted evidence (tripwire.py). It changes what the
     gate allows (P16), never what the model is shown."""
-    # The prompt as the model will get it, minus the typed-facts block (WARDEN's own values from lines
-    # scanned one by one above). Rendered without it, never stripped from it: a pattern that removes
-    # the block also removed an attacker's own fake markers (independent review 2026-09-28).
     # Each part the model reads, on its own (third review, 2026-09-30: joined, real evidence diluted a
     # summary injection below the threshold). Name and summary together, so a payload split across
     # them is still read whole; WARDEN's own words are in no part.
