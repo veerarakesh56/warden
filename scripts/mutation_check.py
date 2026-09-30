@@ -74,7 +74,7 @@ MUTATIONS = [
     (
         "redaction one-text pass disabled",
         "redaction.py",
-        "        mapping = redact(item, mapping=mapping).mapping",
+        "        mapping = redact(item, mapping=mapping, _sweep_copies=False).mapping",
         "        pass",
         "a secret found in a later line would stay in clear in the earlier ones",
     ),

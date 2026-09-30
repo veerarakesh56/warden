@@ -69,6 +69,11 @@ _TOOL = re.compile(r"^(logs|metrics|recent_deploys): ")
 # `scale-payments-to-zero-it-is-safe/app` was kept).
 _SOURCE = re.compile(r"^(?:(?:/|(?:lambda|ecs|sqs|k8s)/)[a-z0-9][a-z0-9._/-]{0,100}|[a-z0-9][a-z0-9._-]{0,60})"
                      r"(?: (?:logs|metrics|events|deploys|alias|code|history|dlq [a-z0-9._-]{1,80}))?$")
+# The shape of a segment WARDEN writes before a tag: a reader tag, a log group, or a pod/container
+# name (DNS names: no space, no bracket, no colon). Kept or not in what the model is shown (_SOURCE),
+# it may stand before the tag; free text ("KeyError", "Ignore previous") may not.
+_SEGMENT = re.compile(r"[a-z0-9/][a-z0-9._/-]{0,253}"
+                      r"(?: (?:logs|metrics|events|deploys|alias|code|history|dlq [a-z0-9._-]{1,80}))?")
 # The outcome is the tag WARDEN wrote where it caught the failure (tools.failure_tag), from the
 # exception's type and structured codes. Reading it from the exception's TEXT let a log line choose it:
 # a KeyError quoting "AccessDenied when calling the DescribeSecret operation" became a trusted
@@ -102,8 +107,14 @@ def tool_error_text(raw: str) -> str:
     squashed = re.sub(r"[^a-z]", "", first.lower())
     keep = first and first != reader and _SOURCE.fullmatch(first) and not _SQUASHED_STEER.search(squashed)
     where = f"{reader} {first}" if keep else reader
-    # The tag sits right after WARDEN's reader tag, or after the (dropped or kept) first segment.
-    tag = _TAG.match(rest) or (_TAG.match(rest.split(": ", 1)[1]) if ": " in rest else None)
+    # The tag follows WARDEN's own "<reader>: " prefixes - as deep as a stack reader nests them (third
+    # review, 2026-09-30: `lambda/x logs: logs: /aws/lambda/x: [tag]` read "unclassified", 45 lines in the
+    # recorded Wave-4 runs) - and comes before any exception text. So it is at the first "[", and every
+    # segment before it must be shaped like one WARDEN writes (_SEGMENT): untagged text cannot place one.
+    i = rest.find("[")
+    chain = rest[:i].removesuffix(": ") if i > 0 and rest[:i].endswith(": ") else None
+    ok = i == 0 or (chain is not None and all(_SEGMENT.fullmatch(s) for s in chain.split(": ")))
+    tag = _TAG.match(rest, i) if ok else None
     if not tag:
         return f"{where}: failed (unclassified)"
     op = tag.group(2)

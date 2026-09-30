@@ -38,7 +38,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 | | |
 |---|---|
 | **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
-| **Safety** | 16 policies (P1–P16), closed action enum, redaction with a re-scan, token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
+| **Safety** | 16 policies (P1–P16), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
 | **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. No live platform is connected yet (Phase 4). The older in-process live backends are being removed (audit B-H1..H3) |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
@@ -83,10 +83,13 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   curated, plus a narrow high-entropy backstop (`HIGHENTROPY`) that masks secret-shaped tokens while
   preserving evidence-shaped ones (git SHAs, trace/request ids).
   **Honest limits:**
-  - the re-scan can only look for values a pattern found, so a secret no pattern knows is not
-    caught;
+  - a secret no pattern knows is not caught - by the redactor or by the gate, which runs the same
+    patterns;
   - a short all-digit identifier (`user_id=500`) or a common word is masked where the pattern
-    matched it, but not elsewhere, because a bare "500" is usually a status code.
+    matched it, but not elsewhere, because a bare "500" is usually a status code;
+  - a password that is a plain word or an assignment is masked where it was found but not swept
+    from other lines: sweeping it let a log writer erase chosen words from all evidence;
+  - a password equal to a usage word (`--password PASSWORD`, `api_key=true`) is not masked at all.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
 - **A deterministic gate.** Sixteen policies (P1–P16) in plain Python decide what happens. No prompt, no

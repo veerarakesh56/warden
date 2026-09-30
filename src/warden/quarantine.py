@@ -117,10 +117,20 @@ def _encoded_prose(value: str) -> bool:
     return False
 
 
+# Digits read as the letters they stand in for (`r0llb4ck_ch3ck0ut`), for the word checks only.
+_DIGIT_FOLD = str.maketrans("013457", "oieast")
+
+
 def _plain(value: str, limit: int) -> bool:
+    # ASCII only (third review, 2026-09-30): Cyrillic look-alikes (`іgnоrе`), fullwidth letters and
+    # zero-width joins spelled steering words the word checks could not see. A measurement is ASCII.
+    if not value.isascii():
+        return False
     squashed = re.sub(r"[^a-z]", "", value.lower())
-    return (len(value) <= limit and not _STEER.search(value) and not _SQUASHED_STEER.search(squashed)
-            and not _ACTION_WORDS.search(squashed) and not _encoded_prose(value))
+    folded = re.sub(r"[^a-z]", "", value.lower().translate(_DIGIT_FOLD))
+    return (len(value) <= limit and not _STEER.search(value)
+            and not any(_SQUASHED_STEER.search(w) or _ACTION_WORDS.search(w) for w in (squashed, folded))
+            and not _encoded_prose(value))
 
 
 def _key_ok(key: str) -> bool:

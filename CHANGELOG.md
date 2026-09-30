@@ -244,6 +244,22 @@ bump may carry a breaking change.
     Authorization included, everywhere. The Gemini client's debug mode is set off explicitly:
     `GOOGLE_GENAI_CLIENT_MODE=replay` answered from files on disk.
   - Replayed over the 337 recorded reports: no verdict changed.
+- **Redaction, evidence and quarantine fixes** (third review, A-C-2, A-C-4, A-C-10, A-C-23).
+  - A failed read's outcome tag is read behind any depth of WARDEN's own prefixes. Nested stack
+    lines read "unclassified" (a regression in ea65387). The previous-revision gap line is tagged.
+  - A log writer could erase chosen words from all evidence, WARDEN's own config read included,
+    with one planted `password=<word>`: every copy of a secret was swept. A secret value that is a
+    plain word or an assignment is now masked where it was found only. Known limit: such a password
+    repeated elsewhere without its key stays visible.
+  - `redact_many` is fast again: 300 lines took 122 s, now 0.45 s; 2,000 lines take 13.6 s. The
+    output is byte-identical.
+  - The prompt is redacted as one text with one map: two new values in two parts got the same
+    placeholder. WARDEN's facts-block markers are never redacted: a label `token=DATA` rewrote them.
+    A resource label is no longer masked as a secret in the prompt.
+  - Quarantined facts must be ASCII, and the steering check also reads digits as letters
+    (`r0llb4ck`): Cyrillic, fullwidth and zero-width look-alikes spelled instructions.
+  - The README no longer describes the removed re-scan.
+  - Replayed over the recorded runs: no context, fact or verdict changed.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

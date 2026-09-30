@@ -87,6 +87,8 @@ FALSE_CLAIMS = [
     ("docs/REQUIREMENTS-TRACE.md", "recorded per window in OWNER-CONSOLE-STEPS", "it was not; step E5"),
     ("docs/AUDIT-2026-09-28.md", "W0-now step A detaches the policy", "step A leaves WardenFullstackOperator"),
     ("src/warden/data/environments.yaml", "secrets under /warden/ops/", "the secret is in Secrets Manager"),
+    ("README.md", "redaction with a re-scan", "the re-scan was removed; G5 is the check"),
+    ("README.md", "the re-scan can only look for values", "the re-scan was removed"),
 ]
 
 

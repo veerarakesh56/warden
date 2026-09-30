@@ -13,6 +13,7 @@ it was removed - second review, 2026-09-30.)
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass, field
 
@@ -215,6 +216,7 @@ _NOT_A_VALUE = frozenset({
 })
 
 # A placeholder token, captured so `re.split` keeps it as its own segment: `<LABEL_123>`.
+_LABELS = tuple(dict.fromkeys(label for label, _ in PATTERNS))
 _PLACEHOLDER = re.compile(r"(<[A-Z][A-Z0-9]*_\d+>)")
 
 
@@ -234,7 +236,7 @@ class RedactionResult:
         return text
 
 
-def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResult:
+def redact(text: str, *, mapping: dict[str, str] | None = None, _sweep_copies: bool = True) -> RedactionResult:
     """Scrub `text`, then prove the scrub worked.
 
     Passing an existing `mapping` keeps placeholders stable across many strings in one run, so the
@@ -242,9 +244,11 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
     """
     mapping = dict(mapping or {})
     reverse = {v: k for k, v in mapping.items()}
-    counters: dict[str, int] = {}
-    for label, _ in PATTERNS:
-        counters[label] = sum(1 for k in mapping if k.startswith(f"<{label}_"))
+    counters: dict[str, int] = dict.fromkeys(_LABELS, 0)
+    for k in mapping:
+        kind = _kind(k)
+        if kind in counters:
+            counters[kind] += 1
 
     out = text
     for label, pattern in PATTERNS:
@@ -275,13 +279,21 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
     # no leak, but two distinct secrets collapse to one label and restore() breaks. So the text is
     # split on placeholder tokens and only the segments BETWEEN them are swept. Longest originals
     # first, so a value that is a substring of another does not corrupt the longer replacement.
+    if not _sweep_copies:  # redact_many's first pass only FINDS values; its second pass masks
+        return RedactionResult(text=out, mapping=mapping)
     ordered = sorted(mapping.items(), key=lambda kv: -len(kv[1]))
     parts = _PLACEHOLDER.split(out)  # even indices = free text, odd indices = whole placeholders
     for i in range(0, len(parts), 2):
         for placeholder, original in ordered:
-            rx = _sweep(placeholder, original)
-            if rx is not None:
-                parts[i] = rx.sub(placeholder, parts[i])
+            # A substring test first: most values are not in most lines. Every value compiled and run
+            # over every line cost 68 s on 300 lines once there were more values than Python's regex
+            # cache holds (third review, 2026-09-30).
+            if original not in parts[i]:
+                continue
+            rule = _sweep(placeholder, original)
+            if rule is None:
+                continue
+            parts[i] = parts[i].replace(original, placeholder) if rule is _EVERY_COPY else rule.sub(placeholder, parts[i])
     out = "".join(parts)
     return RedactionResult(text=out, mapping=mapping)
 
@@ -307,13 +319,33 @@ def _kind(placeholder: str) -> str:
     return placeholder.strip("<>").rsplit("_", 1)[0]
 
 
-def _sweep(placeholder: str, original: str) -> re.Pattern[str] | None:
+_PLAIN_WORD = re.compile(r"[A-Za-z][A-Za-z._-]*")
+_ASSIGNMENT = re.compile(r"\w=.")
+# Every copy, anywhere: plain str.replace, which is what the escaped regex did.
+_EVERY_COPY = object()
+
+
+def _sweep(placeholder: str, original: str):
+    """How the copies of `original` are swept: every copy (_EVERY_COPY), every standalone copy (a
+    compiled pattern), or not at all (None)."""
     if len(original) < 3:
         return None
     if _kind(placeholder) in SECRET_KINDS and len(original) >= 4:
-        return re.compile(re.escape(original))
+        # A plain word or an assignment is not swept (third review, 2026-09-30): one log line
+        # `password=OutOfMemoryError token=timed api_key=reserved_concurrency=0` erased those words from
+        # every line, WARDEN's own config read included. A credential is neither; a value that is one is
+        # a weak password or a planted one, and it stays masked where the pattern found it. Known limit:
+        # a letters-only password repeated elsewhere WITHOUT its key is not masked there.
+        if _PLAIN_WORD.fullmatch(original) or _ASSIGNMENT.search(original):
+            return None
+        return _EVERY_COPY
     if (original.isdigit() and len(original) < 6) or original.lower() in _COMMON:
         return None
+    return _standalone(original)
+
+
+@functools.lru_cache(maxsize=8192)
+def _standalone(original: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![A-Za-z0-9]){re.escape(original)}(?![A-Za-z0-9])")
 
 
@@ -323,7 +355,7 @@ def redact_many(items: list[str], mapping: dict[str, str] | None = None) -> tupl
     ones (second review, 2026-09-30); the first pass now only finds, the second masks."""
     mapping = dict(mapping or {})
     for item in items:
-        mapping = redact(item, mapping=mapping).mapping
+        mapping = redact(item, mapping=mapping, _sweep_copies=False).mapping
     out: list[str] = []
     for item in items:
         result = redact(item, mapping=mapping)

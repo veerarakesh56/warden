@@ -416,9 +416,10 @@ class AwsBackend:
                 # ⭐ The important branch. Without the previous revision we cannot tell a real
                 # deploy from a force-new-deployment, and reporting it anyway would let policy P5
                 # approve a rollback on a restart. Report the gap; report no deploy.
+                # Tagged at the source like every tool error: the model reads only the tag.
                 gap = (
-                    f"{PARTIAL_PREFIX}deploys: previous revision {previous_ref} "
-                    f"unreadable, cannot prove a template change: {_one_line(exc)}"
+                    f"{PARTIAL_PREFIX}deploys: {failure(exc)} (previous revision {previous_ref} "
+                    "unreadable, cannot prove a template change)"
                 )
                 return [gap]
             if previous_images == current_images:
