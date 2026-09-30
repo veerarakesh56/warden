@@ -16,8 +16,8 @@ from warden.redaction import redact
 S = "5ecret"  # every fake credential below carries this, joined at run time
 
 LEAKS = [
-    ("whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD", "b5sSYspob7oD"),
-    ("Webhook-Secret: whsec_Zm9vYmFyYmF6cXV4Zm9vYmFy/Zm9vYmFy+YmF6", "YmF6"),
+    (("whsec_" "C2FVsBQIhrscChlQIMV+b5sSYspob7oD"), "b5sSYspob7oD"),
+    (("Webhook-Secret: whsec_" "Zm9vYmFyYmF6cXV4Zm9vYmFy/Zm9vYmFy+YmF6"), "YmF6"),
     ('["--db-password", "Dbpw' + S + '"]', "Dbpw" + S),
     ('["--client-secret","Cl' + S + 'V"]', "Cl" + S + "V"),
     ("kubectl create secret docker-registry regcred --docker-password Dock" + S + " --docker-username ci",

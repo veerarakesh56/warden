@@ -192,8 +192,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Last: a long high-entropy run no named pattern claimed - a bare AWS secret key, one line of a
     # private key logged line by line (a pod log splits it), a base64 credential. Upper, lower AND a
     # digit, so hex digests, ids and plain words do not match.
+    # It may start right after `=`: the lookbehind used to exclude it, so a secret after `blob=` (a key
+    # no credential pattern names) was never masked (found 2026-09-30).
     ("HIGHENTROPY", re.compile(
-        r"(?<![A-Za-z0-9+/=_\-])(?=[A-Za-z0-9+/=_\-]*[A-Z])(?=[A-Za-z0-9+/=_\-]*[a-z])"
+        r"(?<![A-Za-z0-9+/_\-])(?=[A-Za-z0-9+/=_\-]*[A-Z])(?=[A-Za-z0-9+/=_\-]*[a-z])"
         r"(?=[A-Za-z0-9+/=_\-]*\d)[A-Za-z0-9+/_\-]{40,}={0,2}(?![A-Za-z0-9+/=_\-])")),
 ]
 

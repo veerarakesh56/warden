@@ -89,13 +89,13 @@ teardown() {
     note "destroy completed"
   else
     printf '\n\033[31m⛔ DESTROY FAILED. The environment is STILL BILLING.\033[0m\n'
-    printf '   Find what is left:\n   aws resourcegroupstaggingapi get-resources --tag-filters Key=Project,Values=warden-proving-ground\n'
+    printf '   Find what is left:\n   aws resourcegroupstaggingapi get-resources --tag-filters Key=Stack,Values=warden-proving-ground\n'
     return 1
   fi
   # Trust the query, not the exit code: a destroy can report success and leave a node group behind.
   local left
   left="$(aws resourcegroupstaggingapi get-resources \
-            --tag-filters Key=Project,Values=warden-proving-ground \
+            --tag-filters Key=Stack,Values=warden-proving-ground \
             --query 'length(ResourceTagMappingList)' --output text 2>/dev/null || echo unknown)"
   note "resources still tagged warden-proving-ground: $left"
   echo "$left" > "$OUT/teardown-remaining.txt"

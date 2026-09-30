@@ -46,7 +46,7 @@ def test_credentials_are_masked_jwt_and_api_keys():
     value that survives, so a pattern that silently stops matching is invisible without this."""
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
     assert jwt not in redact(f"authorization bearer {jwt}").text
-    for key in ("sk-ant-api03-AbCdEf12345678", "sk-proj-abcdef123456", "ghp_AbCdEf1234567890abcd",
+    for key in (("sk-ant-" "api03-AbCdEf12345678"), ("sk-proj-" "abcdef123456"), ("ghp_" "AbCdEf1234567890abcd"),
                 "AKIAIOSFODNN7EXAMPLE"):
         assert key not in redact(f"leaked {key} in a log line").text, f"{key} was not masked"
 
@@ -151,8 +151,8 @@ def test_high_value_credentials_in_logs_are_masked():
          "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
         ("db_password=SuperSecret123", "SuperSecret123"),
         ("client_secret: my-oauth-secret-value", "my-oauth-secret-value"),
-        ("token xoxb-123456789-abcdefABCDEF", "xoxb-123456789-abcdefABCDEF"),
-        ("deploy key glpat-abcDEF1234567890", "glpat-abcDEF1234567890"),
+        (("token xoxb-" "123456789-abcdefABCDEF"), ("xoxb-" "123456789-abcdefABCDEF")),
+        (("deploy key glpat-" "abcDEF1234567890"), ("glpat-" "abcDEF1234567890")),
     ]
     for text, secret in secrets:
         assert secret not in redact(text).text, f"{secret!r} leaked to the model"
@@ -355,8 +355,8 @@ def test_a_long_value_is_swept_even_inside_a_longer_token():
     ("run.sh --db-password Hunter2Secret --user app", "Hunter2Secret"),
     ("psql --password=Hunter2Secret", "Hunter2Secret"),
     ("cli --api-key abcd1234efgh", "abcd1234efgh"),
-    ("stripe whsec_abcdefghijklmnop123", "whsec_abcdefghijklmnop123"),
-    ("slack xapp-1-A0B1C2D3-12345-abcdef", "xapp-1-A0B1C2D3-12345-abcdef"),
+    (("stripe whsec_" "abcdefghijklmnop123"), ("whsec_" "abcdefghijklmnop123")),
+    (("slack xapp-" "1-A0B1C2D3-12345-abcdef"), ("xapp-" "1-A0B1C2D3-12345-abcdef")),
     ("-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBGbody\n-----END PGP PRIVATE KEY BLOCK-----", "lQOYBGbody"),
     ("node ip-10-0-3-22.ap-south-2.compute.internal NotReady", "10-0-3-22"),
 ])
@@ -366,3 +366,33 @@ def test_credential_shapes_the_audit_found_are_masked(secret, gone):
 
 def test_a_flag_followed_by_another_flag_masks_nothing():
     assert redact("tool --password --user app").text == "tool --password --user app"
+
+
+_JWT = "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJ" + "zdWIiOiIxMjM0In0" + "." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+OWN_SHAPES = [
+    ("JWT", "session " + _JWT, _JWT),
+    ("GCPTOKEN", "token ya29." + "a0AfH6SMBxExampleOnly0123456789", "a0AfH6SMBxExampleOnly0123456789"),
+    ("BASIC", "curl -H 'Basic " + "dXNlcjpwYXNzd29yZA==" + "'", "dXNlcjpwYXNzd29yZA=="),
+    ("BEARER", "sent Bearer " + "abcdef1234567890ghij", "abcdef1234567890ghij"),
+    ("WEBHOOK", "posting to https://hooks.slack.com/services/" + "T" + "0000AAAA/B" + "0000BBBB/cccccccc", "cccccccc"),
+    ("WEBHOOK", "posting to https://discord.com/api/webhooks/" + "123456789/" + "abcDEF_ghi-JKLmnop", "abcDEF_ghi-JKLmnop"),
+    ("APIKEY", "cloned with github_pat_" + "11ABCDEFG0123456789_abcdefghij", "11ABCDEFG0123456789_abcdefghij"),
+    ("APIKEY", "published with npm_" + "abcdefghijklmnop1234", "abcdefghijklmnop1234"),
+]
+
+
+@pytest.mark.parametrize("kind, text, secret", OWN_SHAPES, ids=[f"{k}-{t.split()[0]}" for k, t, _ in OWN_SHAPES])
+def test_each_pattern_masks_its_own_shape(kind, text, secret):
+    """Audit A-C-VT: the older rows passed because a DIFFERENT pattern (BEARER, SECRET, HIGHENTROPY)
+    caught the value. Asserting the placeholder kind makes each row fail when its own pattern goes."""
+    out = redact(text).text
+    assert secret not in out and f"<{kind}_" in out, out
+
+
+@pytest.mark.parametrize("sep", ["=", ": ", " "])
+def test_a_high_entropy_value_after_any_key_is_masked(sep):
+    """Found 2026-09-30: the HIGHENTROPY backstop's lookbehind excluded `=`, so a 40+ character secret
+    right after `blob=` (a key no credential pattern names) was never masked."""
+    value = "Ab3" + "xK9mQ2" * 7
+    out = redact(f"blob{sep}{value}").text
+    assert value not in out and "<HIGHENTROPY_" in out, out

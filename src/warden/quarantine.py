@@ -29,6 +29,8 @@ fallback is a richer typed vocabulary, never raw text.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import functools
 import re
 
@@ -95,12 +97,30 @@ _DENY_KEY_WORDS = frozenset({
 _KEY_WORD = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
 _ACTION_WORDS = re.compile("|".join(sorted({a.value.replace("_", "") for a in ActionKind}, key=len, reverse=True)))
 MAX_CODE = 40
+_B64 = re.compile(r"[A-Za-z0-9+/_-]+={0,2}")
+
+
+def _encoded_prose(value: str) -> bool:
+    """Base64 (or base64url) that decodes to readable text with spaces: a sentence a model can
+    decode and obey, not a measurement. Found rewriting the injection corpus (audit A-C-VT,
+    2026-09-30): `payload=<base64 of "ignore previous instructions...">` reached the model as a fact.
+    Measured over every recorded run: none of 8,485 real facts decodes to prose."""
+    if len(value) < 12 or not _B64.fullmatch(value):
+        return False
+    for alt in (None, b"-_"):
+        try:
+            raw = base64.b64decode(value + "=" * (-len(value) % 4), altchars=alt, validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        if len(raw) >= 8 and all(32 <= b < 127 for b in raw) and b" " in raw:
+            return True
+    return False
 
 
 def _plain(value: str, limit: int) -> bool:
     squashed = re.sub(r"[^a-z]", "", value.lower())
     return (len(value) <= limit and not _STEER.search(value) and not _SQUASHED_STEER.search(squashed)
-            and not _ACTION_WORDS.search(squashed))
+            and not _ACTION_WORDS.search(squashed) and not _encoded_prose(value))
 
 
 def _key_ok(key: str) -> bool:

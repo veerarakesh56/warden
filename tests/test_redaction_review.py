@@ -51,7 +51,7 @@ def test_a_found_value_reaches_a_trusted_config_item_masked():
     ("curl -u admin:Curl5ecret https://x", "Curl5ecret"),
     ("sshpass -p Ssh5ecret ssh host", "Ssh5ecret"),
     ("docker login -u me -p Dock5ecret reg", "Dock5ecret"),
-    ("whsec_abcdef+b5sSYspob7oD/xyz", "b5sSYspob7oD"),
+    (("whsec_" "abcdef+b5sSYspob7oD/xyz"), "b5sSYspob7oD"),
     ("host ec2-54-12-34-56.compute-1.amazonaws.com", "54-12-34-56"),
     ("pod 10-0-3-22.default.pod.cluster.local", "10-0-3-22"),
     ("-----BEGIN " + "PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC",  # split: the publish check

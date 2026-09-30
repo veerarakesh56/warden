@@ -56,12 +56,12 @@ OUTCOMES = ("access denied", "credentials rejected or missing", "throttled", "ti
 # log line (second independent review, 2026-09-30).
 _CODE_OUTCOMES = (
     ("access denied", r"AccessDenied|UnauthorizedOperation|Forbidden|AuthorizationError|NotAuthorized"),
-    ("credentials rejected or missing", r"ExpiredToken|InvalidClientTokenId|UnrecognizedClient|"
-                                        r"NoCredentials|PartialCredentials|CredentialRetrieval|InvalidSignature"),
+    ("credentials rejected or missing", (r"ExpiredToken|InvalidClientTokenId|UnrecognizedClient|"
+                                        r"NoCredentials|PartialCredentials|CredentialRetrieval|InvalidSignature")),
     ("throttled", r"Throttl|TooManyRequests|RequestLimitExceeded|SlowDown|ProvisionedThroughputExceeded"),
     ("timed out", r"Timeout|TimedOut"),
-    ("connection failed", r"EndpointConnection|ConnectionRefused|ConnectionReset|ConnectionClosed|"
-                          r"ConnectionError|gaierror|OperationalError"),
+    ("connection failed", (r"EndpointConnection|ConnectionRefused|ConnectionReset|ConnectionClosed|"
+                          r"ConnectionError|gaierror|OperationalError")),
     ("not found", r"NotFound|NoSuch"),
     ("rejected as a bad request", r"Validation|InvalidParameter|BadRequest|MalformedQuery"),
 )

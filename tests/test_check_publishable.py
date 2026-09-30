@@ -257,3 +257,26 @@ def test_a_bare_account_id_is_refused_and_the_documented_example_is_not(tmp_path
     assert code != 0 and "account id" in out.lower(), out
     code, out = _scan_one(tmp_path, "b", "b.md", "account 123456789012 is the AWS docs example\n")
     assert code == 0, out
+
+
+
+@pytest.mark.parametrize("value", [
+    "whsec_" + "C2FVsBQIhrscChlQIMV+b5sSYspob7oD",
+    "sk_live_" + "abcdefghijklmnopqrst",
+    "github_pat_" + "11ABCDEFG0123456789_abcdefghij",
+    "glpat-" + "abcDEF1234567890xyz",
+    "npm_" + "abcdefghijklmnopqrstuvwxyz0123456789",
+    "SG." + "abcdefghijklmnopq" + "." + "abcdefghijklmnopq",
+    "hvs." + "CAESIabcdefghijklmnopqrstuvwxyz",
+    "xapp-" + "1-A0B1C2D3-12345-abcdef",
+])
+def test_vendor_token_shapes_are_caught(tmp_path, value):
+    """2026-09-30: a Stripe webhook secret shape in a test file reached GitHub (its secret scanning
+    flagged it) because this guard had no pattern for it."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_publishable", SCRIPT)
+    cp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cp)
+    names = [name for name, rx, _ in cp.PATTERNS if rx.search(f"x = '{value}'")]
+    assert names, value

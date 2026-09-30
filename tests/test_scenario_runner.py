@@ -108,13 +108,13 @@ def test_warden_never_sees_the_operators_credentials(monkeypatch, target):
 
 def test_the_model_provider_key_does_come_through(monkeypatch, target):
     """The allowlist has to be narrow AND sufficient: WARDEN cannot reason without a key."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-" "not-a-real-key")
     monkeypatch.setenv("WARDEN_PROVIDER", "anthropic")
     env = runner.warden_env(
         {"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "b", "AWS_SESSION_TOKEN": "c"},
         target, {},
     )
-    assert env["ANTHROPIC_API_KEY"] == "sk-ant-not-a-real-key"
+    assert env["ANTHROPIC_API_KEY"] == "sk-ant-" "not-a-real-key"
     assert env["WARDEN_PROVIDER"] == "anthropic"
     assert env["WARDEN_BACKEND"] == "aws"
     assert env["WARDEN_AWS_CLUSTER"] == target.cluster

@@ -137,6 +137,26 @@ bump may carry a breaking change.
   - Measured 2026-09-30 on 36 benign alert texts: 0 flagged, down from 7-8.
   - "Ignore previous instructions" in an alert is still caught (0.997-0.999).
   - Label values can no longer rewrite WARDEN's prompt markers.
+- **No real-looking token in the repository** (2026-09-30).
+  - A test held a string shaped exactly like a Stripe webhook signing secret. It was the review's
+    invented example, not a real key, and GitHub secret scanning flagged it.
+  - Every vendor-token-shaped test value is now built from parts.
+  - `check_publishable` gained the shapes it lacked: Stripe, GitHub fine-grained, GitLab, npm,
+    SendGrid, Vault, Slack app.
+- **Vacuous tests now fail without their guard** (audit A-C-VT; 16 plant checks).
+  - Each redaction row asserts its own placeholder kind.
+  - Each injection payload carries its own marker, and all of them fail with the quarantine off.
+  - `node_redact` and `notify` are tested on their own output.
+  - The eval pins its safe-action set.
+  - LLM call counts are exact.
+  - The rewrite found two real gaps, both fixed:
+    - base64 of an instruction passed the quarantine;
+    - the high-entropy backstop never matched a value right after `key=`.
+- **The model budget is checked before every call** (A-C-15, A-C-16, A-C-17). The call over the
+  ceiling is never made. Retries are checked too. An explicit budget wins over `WARDEN_MAX_USD`, and
+  a budget that is not a positive number is refused.
+- **The proving ground's proof script** looked for leftovers by the old `Project` tag. Its
+  post-destroy check could only ever report 0 left. A test now reads it.
 - **A failed read's outcome comes from what failed, not from what its message says** (second
   review, A-C-2).
   - WARDEN writes a tag such as `[access denied on FilterLogEvents]` where it catches the failure.

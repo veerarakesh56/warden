@@ -23,7 +23,6 @@ from warden.cli import DEMO_ALERTS
 from warden.graph import run
 from warden.llm import LLMClient
 from warden.models import ActionKind, Alert, VerdictStatus
-from warden.verifier import AUTO_SAFE_ACTIONS
 
 CASES = [
     # incident, expected action,               expected verdict,               why this case exists
@@ -64,7 +63,9 @@ def test_nothing_is_ever_auto_executed_against_infrastructure(incident):
     if v.status is VerdictStatus.auto_safe:
         # Only inert actions may skip approval - and "inert" has exactly one definition, in the
         # verifier. Importing it here means this safety assertion can never drift from the gate.
-        assert report.proposal.action in AUTO_SAFE_ACTIONS
+        # Pinned HERE, not imported (audit A-C-VT): an import let a loosened verifier set loosen this
+        # check with it. Only doing nothing or handing to a person may ever skip approval.
+        assert report.proposal.action in {ActionKind.no_action, ActionKind.escalate_to_human}
     else:
         assert v.requires_approval is True
 

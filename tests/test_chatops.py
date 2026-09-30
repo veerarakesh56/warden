@@ -70,11 +70,14 @@ def test_the_transmitted_text_is_redacted_even_if_the_report_had_a_hole():
     """notify() re-redacts the exact payload; a raw secret injected after build_report must not leave."""
     rep = _report()
     # Simulate an upstream bug: shove a raw identifier into the already-built markdown.
-    leaky = rep.__class__(markdown=rep.markdown + "\nDEBUG token AKIA" + "IOSFODNN7EXAMPLE",
+    # An identifier the gate's G5 lets through (an operator may choose to show emails), so only
+    # notify's own re-redaction can mask it (audit A-C-VT: a key was BLOCKED by G5 anyway, so the
+    # test could not tell the two apart).
+    leaky = rep.__class__(markdown=rep.markdown + "\nDEBUG contact on-call.person@corp.io",
                           data=rep.data, promotion=rep.promotion)
     cap = _CaptureSink()
     notify(leaky, sinks=[cap])
-    assert "AKIA" + "IOSFODNN7EXAMPLE" not in cap.text, "notify must redact the payload it transmits"
+    assert "on-call.person" not in cap.text, "notify must redact the payload it transmits"  # the gate defangs the domain
 
 
 def test_notify_delivers_a_redacted_report_to_a_live_sink():

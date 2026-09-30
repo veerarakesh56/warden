@@ -134,3 +134,13 @@ def test_no_read_failure_means_no_t_item():
     """The system prompt defines T items as failed reads, so their absence says none failed."""
     blob = _evidence_blob(_state_after_redact())
     assert "[T" not in blob and "[F1]" in blob
+
+
+def test_node_redact_scrubs_the_deploys_it_hands_on():
+    """Audit A-C-VT: the prompt is redacted again on its way out, so a test on the prompt could not
+    see whether node_redact scrubbed the deploys - and RunReport.context, the exported artefact, is
+    node_redact's output."""
+    state = _state_after_redact()
+    deploys = str(state["context"].recent_deploys)
+    for secret in ("123456789012", "alice@corp.io", "priya.nair@corp.io", "10.4.12.9", "acme-42"):
+        assert secret not in deploys, f"{secret} survived node_redact in the deploys"

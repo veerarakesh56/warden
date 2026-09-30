@@ -120,7 +120,7 @@ def test_the_budget_stops_a_run_mid_retry():
     c = _client(p, max_usd=0.0004)
     with pytest.raises(BudgetExceeded):
         c.structured(system="s", user="u", schema=Toy, retries=5)
-    assert p.calls < 6, "the ceiling did not interrupt the retry loop"
+    assert p.calls == 1, "the ceiling did not interrupt the retry loop"  # one call: $0.00105 > $0.0004
 
 
 class _HangingProvider:
@@ -234,6 +234,7 @@ def test_call_ceiling_is_enforced_across_separate_calls():
     c.structured(system="s", user="u", schema=Toy)
     with pytest.raises(BudgetExceeded):
         c.structured(system="s", user="u", schema=Toy)
+    assert p.calls == 2, "audit A-C-15: the call over the ceiling was made (and paid for) before it was refused"
 
 
 def test_provider_and_model_are_reported_for_the_audit_trail():
@@ -289,3 +290,28 @@ def test_an_exhausted_provider_is_called_once_not_retried():
     with pytest.raises(ProviderExhausted):
         client.structured(system="s", user="u", schema=_Schema)
     assert provider.calls == 1
+
+
+def test_the_ceiling_is_checked_before_every_retry_not_only_the_first(monkeypatch):
+    """Audit A-C-17: the call and cost checks ran before the first attempt only, so retries of an
+    invalid answer ran past the call ceiling."""
+    p = FakeProvider("garbage")
+    c = _client(p, max_calls=2, max_usd=999)
+    with pytest.raises(BudgetExceeded):
+        c.structured(system="s", user="u", schema=Toy, retries=5)
+    assert p.calls == 2
+
+
+def test_an_explicit_budget_wins_and_a_non_number_is_refused(monkeypatch):
+    """Audit A-C-16: WARDEN_MAX_USD overrode the explicit argument, and "nan" disabled the budget
+    (every comparison with nan is False)."""
+    monkeypatch.setenv("WARDEN_MAX_USD", "1000")
+    assert _client(FakeProvider("x"), max_usd=0.01).max_usd == 0.01
+    assert _client(FakeProvider("x")).max_usd == 1000.0
+    for bad in ("nan", "inf", "-1", "0"):
+        monkeypatch.setenv("WARDEN_MAX_USD", bad)
+        with pytest.raises(ValueError):
+            _client(FakeProvider("x"))
+    monkeypatch.delenv("WARDEN_MAX_USD")
+    with pytest.raises(ValueError):
+        _client(FakeProvider("x"), max_usd=float("nan"))

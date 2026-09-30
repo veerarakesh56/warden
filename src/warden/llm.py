@@ -17,6 +17,7 @@ CI and the eval suite use. A demo that only works with a paid key is a demo nobo
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 from typing import Any, TypeVar
@@ -86,12 +87,17 @@ class LLMClient:
         self,
         *,
         provider: Provider | None = None,
-        max_usd: float = 0.50,
+        max_usd: float | None = None,
         max_calls: int = 8,
         mock: bool | None = None,
         call_timeout_s: float | None = None,
     ) -> None:
-        self.max_usd = float(os.environ.get("WARDEN_MAX_USD", max_usd))
+        # The explicit argument wins; the environment is only the default (audit A-C-16). A budget
+        # that is not a positive finite number is refused: nan compared False everywhere and
+        # switched the ceiling off.
+        self.max_usd = float(max_usd if max_usd is not None else os.environ.get("WARDEN_MAX_USD", "0.50"))
+        if not math.isfinite(self.max_usd) or self.max_usd <= 0:
+            raise ValueError(f"the model budget must be a positive number of USD, not {self.max_usd!r}")
         self.max_calls = max_calls
         self.cost = CostRecord()
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
@@ -122,6 +128,12 @@ class LLMClient:
         if self.cost.calls > self.max_calls:
             raise BudgetExceeded(f"run made {self.cost.calls} calls, ceiling is {self.max_calls}")
 
+    def _before_a_call(self, est_usd: float) -> None:
+        if self.cost.calls + 1 > self.max_calls:
+            raise BudgetExceeded(f"a call would be number {self.cost.calls + 1}; the ceiling is {self.max_calls}")
+        if self.cost.usd + est_usd > self.max_usd:
+            raise BudgetExceeded(f"this call (~${est_usd:.4f} of input) would take the run past ${self.max_usd:.2f}")
+
     # ------------------------------------------------------------------ public
 
     def structured(
@@ -137,6 +149,7 @@ class LLMClient:
         if self.mock:
             if mock_factory is None:
                 raise ModelRefused(f"mock mode needs a mock_factory for {schema.__name__}")
+            self._before_a_call(0.0)
             self._charge(len(system) // 4 + len(user) // 4, 120)
             # Called with NO arguments on purpose. An earlier version passed the prompt text and
             # the mock branched on substrings in it - which matched the field LABELS ("RECENT
@@ -154,14 +167,16 @@ class LLMClient:
         if est_in > MAX_PROMPT_TOKENS:
             raise BudgetExceeded(f"prompt of ~{est_in} tokens exceeds the {MAX_PROMPT_TOKENS} ceiling")
         est_usd = (est_in / 1e6) * PRICE_PER_MTOK_IN
-        if self.cost.usd + est_usd > self.max_usd:
-            raise BudgetExceeded(
-                f"this call (~${est_usd:.4f} of input) would take the run past ${self.max_usd:.2f}")
 
         last: Exception | None = None
         attempts = 0
         for _ in range(retries + 1):
             attempts += 1
+            # Before EVERY attempt, retries included (audit A-C-15, A-C-17): the call over the ceiling
+            # is never made, and a retry that would pass the budget on its input alone is not sent.
+            # Honest limit: a response's OUTPUT cost is known only after it arrives, so one call can
+            # still end above the ceiling; the next is then refused.
+            self._before_a_call(est_usd)
             try:
                 # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
                 # same env var) is the one that actually ends the worker thread and lets the process

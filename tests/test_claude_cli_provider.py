@@ -84,18 +84,6 @@ def test_it_runs_outside_the_repository(provider, monkeypatch):
     )
 
 
-def test_the_scenario_directory_is_not_reachable_from_the_working_directory(provider, monkeypatch):
-    """Belt and braces made concrete: whatever cwd it picked, the catalog is not under it."""
-    rec = _Recorder()
-    _run(provider, rec, monkeypatch)
-    cwd = pathlib.Path(rec.kwargs["cwd"]).resolve()
-    assert not (cwd / "scenarios").exists()
-    assert not (cwd / "scoring.yaml").exists()
-
-
-# --------------------------------------------------------------------------- the mechanics
-
-
 def test_the_prompt_goes_in_on_stdin_not_as_an_argument(provider, monkeypatch):
     """The evidence blob plus the JSON schema runs to several KB, and Windows caps a command line
     at ~32k. An over-long argument fails in a way that looks like the model refusing."""

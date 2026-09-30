@@ -44,3 +44,12 @@ def test_what_the_harness_creates_carries_what_terraform_puts_on_its_own():
     probe = (ROOT / "scripts" / "prove_boundary.py").read_text(encoding="utf-8")
     for key in ("Project", "Environment", "Stack"):
         assert f'{{"Key": "{key}", "Value": "{tags[key]}"}}' in probe, key
+
+
+def test_the_proof_script_looks_for_leftovers_by_the_tag_terraform_applies():
+    """Review 3 (2026-09-30): scripts/aws_proof.sh still filtered Key=Project,Values=warden-proving-ground
+    after the tags changed, so its post-destroy check always found 0 leftovers - a false "clean"."""
+    stack = _terraform_tags()["Stack"]
+    proof = (ROOT / "scripts" / "aws_proof.sh").read_text(encoding="utf-8")
+    filters = re.findall(r"--tag-filters (Key=\w+,Values=[\w-]+)", proof)
+    assert filters and set(filters) == {f"Key=Stack,Values={stack}"}, filters

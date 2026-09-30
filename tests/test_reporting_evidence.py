@@ -33,7 +33,7 @@ EMAIL = "priya.nair@corp.io"
 HOST = "10.0.7.22"
 SECRETS = {
     "password": "hunter2-Sup3r-s3cret",
-    "apikey": "sk-ant-api03-AAAAAAAAAAAAAAAAAAAA",
+    "apikey": "sk-ant-" "api03-AAAAAAAAAAAAAAAAAAAA",
     "account": "123456789012",
     "uuid": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
 }

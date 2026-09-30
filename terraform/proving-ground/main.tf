@@ -53,7 +53,7 @@ locals {
     # evaluates once and hides it; `plan -out=FILE` followed by `apply FILE` does not. The error
     # blames the provider, which sends you to the wrong issue tracker.
     #
-    # Nothing read the tag. `Project` is what the teardown sweep queries and the $5 budget is what
+    # Nothing read the tag. `Stack` is what the teardown sweep queries and the $5 budget is what
     # actually catches a forgotten environment, so the date was a nicety that cost a real apply.
     Lifecycle = "ephemeral"
   }

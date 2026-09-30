@@ -142,6 +142,16 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
      "a Groq API key"),
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"),
      "a GitHub token"),
+    # 2026-09-30: a Stripe webhook secret shape in a test reached GitHub and its secret scanner
+    # flagged it; these shapes had no pattern here. A test builds such values by concatenation.
+    ("stripe-secret", re.compile(r"\b(?:whsec|sk_live|sk_test|rk_live|rk_test|pk_live)_[A-Za-z0-9+/=]{12,}"),
+     "a Stripe key or webhook signing secret"),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "a GitHub fine-grained token"),
+    ("gitlab-token", re.compile(r"\bgl(?:pat|rt)-[A-Za-z0-9_-]{16,}"), "a GitLab token"),
+    ("npm-token", re.compile(r"\bnpm_[A-Za-z0-9]{30,}"), "an npm token"),
+    ("sendgrid-key", re.compile(r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"), "a SendGrid key"),
+    ("vault-token", re.compile(r"\bhv[sb]\.[A-Za-z0-9_-]{20,}"), "a HashiCorp Vault token"),
+    ("slack-app-token", re.compile(r"\bxapp-[A-Za-z0-9-]{10,}"), "a Slack app token"),
     ("dsn-password", re.compile(r"://[^\s:/@]+:([^\s:/@]{6,})@"),
      "a password inside a connection string"),
     ("bearer", re.compile(r"[Aa]uthorization:\s*Bearer\s+[A-Za-z0-9._-]{20,}"),
