@@ -48,6 +48,9 @@ class Plan(BaseModel):
     problems: list[str] = Field(default_factory=list)
 
 
+APPLY_REFUSED = "ApplyRefused"
+
+
 def _run_id() -> str:
     """The Temporal run this activity belongs to. Every remediation row records it, and apply counts only
     rows of its own run: `rem-<service>` is reused, and a replay of an earlier run's approval and
@@ -183,20 +186,24 @@ class RemediationActivities:
 
     @activity.defn
     def apply(self, plan: Plan, service: str) -> str:
+        run = _run_id()
         refused = self._not_approved(plan, service)
         if refused:
             self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
-                                                                       "plan_hash": plan.plan_hash, "why": refused})
-            raise ApplicationError("apply refused: " + "; ".join(refused), non_retryable=True)
+                                                                       "run_id": run, "plan_hash": plan.plan_hash,
+                                                                       "why": refused})
+            # Its own type: the workflow reports "nothing was changed", not "may be half-made" (fourth review).
+            raise ApplicationError("apply refused: " + "; ".join(refused), type=APPLY_REFUSED, non_retryable=True)
         done = [e for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
-                if e["body"].get("plan_hash") == plan.plan_hash]
-        if done:  # idempotent: a retried activity never applies twice
-            return "already applied"
+                if e["body"].get("plan_hash") == plan.plan_hash and e["body"].get("workflow_id") == plan.workflow_id
+                and e["body"].get("run_id", "") == run]
+        if done:  # idempotent WITHIN this run: a retried activity never applies twice. Scoped to the run
+            return "already applied"  # (fourth review): a later approved run of the same plan applied nothing
         self.audit.append(plan.incident_id, "remediation.intent", {"workflow_id": plan.workflow_id,
-                                                                   "plan_hash": plan.plan_hash})
+                                                                   "run_id": run, "plan_hash": plan.plan_hash})
         detail = self.platform.apply(plan.entry, plan.params)
         bounds.record_applied(self.audit, plan.incident_id, service=service, action_class=plan.entry,
-                              plan_hash=plan.plan_hash, detail=detail)
+                              plan_hash=plan.plan_hash, detail=detail, workflow_id=plan.workflow_id, run_id=run)
         return detail
 
     @activity.defn
@@ -221,7 +228,8 @@ class RemediationActivities:
             self.audit.append(plan.incident_id, "remediation.result_mismatch",
                               {"workflow_id": plan.workflow_id, "run_id": run, "claimed": ok, "recorded": verified})
         bounds.record_result(self.audit, plan.incident_id, service=service, ok=verified, now=datetime.now(UTC),
-                             limits=self.limits)
+                             limits=self.limits, workflow_id=plan.workflow_id, run_id=run,
+                             plan_hash=plan.plan_hash)
         return Recorded(run_id=run, ok=verified)
 
     @activity.defn
@@ -232,7 +240,25 @@ class RemediationActivities:
 
     @activity.defn
     def finish(self, incident_id: str, workflow_id: str, outcome: FixOutcome) -> None:
-        self.audit.append(incident_id, "workflow.end", {"workflow_id": workflow_id, **outcome.model_dump()})
+        # The signed end row states what THIS run's audit rows show, not what the workflow claims (fourth
+        # review: a refused apply was recorded with approved and prechecked True).
+        run = _run_id()
+
+        def ours(kind: str) -> list[dict[str, Any]]:
+            return [e["body"] for e in self.audit.entries(incident_id, kinds=(kind,))
+                    if e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id", "") == run
+                    and (not outcome.plan_hash or e["body"].get("plan_hash") == outcome.plan_hash)]
+
+        recorded = dict(outcome.checklist)
+        recorded["approved"] = bool(ours("approval.accepted"))
+        recorded["prechecked"] = any(not b.get("problems") for b in ours("remediation.precheck"))
+        recorded["applied"] = bool(ours(bounds.APPLIED))
+        results = ours(bounds.RESULT)
+        recorded["verified"] = bool(results) and results[-1].get("ok") is True
+        body = {"workflow_id": workflow_id, "run_id": run, **outcome.model_dump(), "checklist": recorded}
+        if recorded != outcome.checklist:
+            body["claimed_checklist"] = outcome.checklist
+        self.audit.append(incident_id, "workflow.end", body)
         self.audit.checkpoint()
 
 

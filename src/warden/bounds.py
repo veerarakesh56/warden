@@ -95,8 +95,8 @@ def record_applied(log: AuditLog, correlation_id: str, *, service: str, action_c
 
 
 def record_result(log: AuditLog, correlation_id: str, *, service: str, ok: bool, now: datetime,
-                  limits: Limits = DEFAULT_LIMITS) -> None:
-    log.append(correlation_id, RESULT, {"service": service, "ok": ok})
+                  limits: Limits = DEFAULT_LIMITS, **detail) -> None:
+    log.append(correlation_id, RESULT, {"service": service, "ok": ok, **detail})
     failures = [e for e in log.entries(kinds=(RESULT,), since=now - limits.breaker_window) if not e["body"]["ok"]]
     if len(failures) >= limits.breaker_failures:
         trip(log, correlation_id, f"{len(failures)} remediations failed their success check within "

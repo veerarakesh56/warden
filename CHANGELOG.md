@@ -299,6 +299,12 @@ bump may carry a breaking change.
   value) and compiled a pattern for every found identifier; it now takes 1.1 s for 6,000 values
   (6.7 s before), identifier patterns are compiled only for values a line holds, and the timing test
   compares 4x the input against 1x instead of a wall-clock limit. Output still byte-identical.
+- **Apply bookkeeping is per run; the end record states what the audit shows** (fourth review,
+  B-N6, B-N9). "Already applied" was checked across runs: a second approved run of the same plan applied
+  nothing, then rolled back a change it never made, and tripped the kill switch. A refused apply was
+  recorded as "apply_failed, may be half-made" with approved and prechecked true; it is now
+  `refused_at_apply` (nothing changed), and the signed end row takes its checklist from the run's
+  audit rows, keeping any unbacked claim only as `claimed_checklist`.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

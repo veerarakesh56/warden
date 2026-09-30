@@ -17,10 +17,11 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from .activities import (
+        APPLY_REFUSED,
         FixOutcome,
         FixRequest,
         IncidentActivities,
@@ -118,6 +119,9 @@ class RemediationWorkflow:
         try:
             await workflow.execute_activity_method(acts.apply, args=[plan, req.service], **ONCE)
         except ActivityError as exc:
+            if isinstance(exc.cause, ApplicationError) and exc.cause.type == APPLY_REFUSED:
+                # Refused before anything was touched: nothing to roll back, nothing half-made.
+                return await end("refused_at_apply", [str(exc.cause)])
             # The change may be half-made; the state is unknown, so no automatic rollback - a person.
             return await end("apply_failed", [f"apply failed: {exc.cause or exc}"])
         done["applied"] = True
