@@ -210,7 +210,7 @@ _LAG_UNITS = {**dict.fromkeys(("ms", "msec", "millis", "milliseconds"), 0.001),
               **dict.fromkeys(("mins", "minute", "minutes"), 60.0)}
 _NOT_LAG = frozenset({"b", "byte", "bytes", "kb", "kib", "mb", "mib", "gb", "gib", "count", "total", "alarm",
                       "alarms", "state", "status", "threshold", "limit", "target", "ratio", "pct", "percent",
-                      "h", "hr", "hrs", "hour", "hours", "min", "d", "day", "days", "ns", "nanoseconds"})
+                      "h", "hr", "hrs", "hour", "hours", "min", "d", "day", "days", "ns"})
 
 
 def _lag_seconds(name: str, value: float) -> float | None:
