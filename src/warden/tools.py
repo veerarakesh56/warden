@@ -22,8 +22,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 
 from .models import Alert, ContextBundle
-from .observability import span
-from .redaction import redact
+from .observability import _safe_error, span
 
 # Fixtures live INSIDE the package and are shipped as package data.
 #
@@ -244,7 +243,8 @@ def gather(
                 msg = f"{name}: {exc}"
                 bundle.tool_errors.append(msg)  # raw, like the logs: node_redact scrubs it (A-C-5)
                 sp.set_attribute("warden.tool.ok", False)
-                # The span leaves for a tracing backend on its own: scrubbed here, with its own map.
-                sp.set_attribute("warden.tool.error", redact(msg).text)
+                # The span leaves for a tracing backend on its own: scrubbed, stripped of control
+                # characters and bounded, like a span's exception event (review 2A defect 5).
+                sp.set_attribute("warden.tool.error", f"{name}: {_safe_error(exc)}")
 
     return bundle

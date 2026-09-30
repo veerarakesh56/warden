@@ -161,7 +161,9 @@ def test_identifiers_the_operator_asked_to_see_survive_the_trip_to_slack():
     notify(_evidence_report(show=True), sinks=[cap])
     for identifier in ("initech-4", "priya.nair@corp.io", "10.0.7.22"):
         assert identifier in cap.text, f"{identifier} was re-masked on the way to Slack"
-        assert identifier in str(cap.data)
+        # In the data a domain is defanged (second review, 2026-09-30: a consumer may linkify it);
+        # the identifier is still shown, not masked.
+        assert identifier.replace("corp.io", "corp[.]io") in str(cap.data)
 
 
 def test_with_identifiers_off_slack_gets_none_of_them():

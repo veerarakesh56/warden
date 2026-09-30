@@ -13,6 +13,16 @@ v0 (Phase 0 of the v2 re-architecture, 2026-09-27). Two of the planned rules:
   - strips terminal and text-direction control characters;
   - tracks fences the CommonMark way, so an indented or `~~~` line cannot switch sanitising off;
   - sanitises what follows a fence that is never closed.
+  Since the second review (2026-09-30), G3 never writes text it did not inspect:
+  - an HTML/character reference is neutralised (`&#96;` -> `&amp;#96;`), never decoded: decoding it
+    and writing the result out turned `&#96;&#96;&#96;` into a real fence the gate had never seen;
+  - `<` becomes `‹` outside `<KIND_n>` placeholders, so no HTML block, comment or autolink starts;
+  - `]:` is broken (no link reference definition, whatever its label spans), and so is a setext
+    underline;
+  - control characters and CR line endings are removed BEFORE fences are found;
+  - a run of three backticks or tildes inside a line is broken - Slack opens code at one anywhere;
+  - the inside of a `~~~` block is sanitised like prose: Slack has no `~~~` fences;
+  - every domain outside inline code is defanged, whatever its top-level domain, emails included.
 - **G5, leaks.** If the final text still contains anything the redactor classes as secret (every
   kind except the identifiers an operator may choose to show), the message is BLOCKED and a stub
   goes out instead: a person reads the full report locally.
@@ -34,7 +44,6 @@ P13 in the verifier; the report says when it fired. G4 (commands only from an ap
 
 from __future__ import annotations
 
-import html
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -56,7 +65,7 @@ _MDLINK = re.compile(_LABEL + r"\(\s*[^)\s]+[^)]*\)")
 # plus `![x][r]` rendered a zero-click image with verdict PASS).
 _REFDEF = re.compile(r"^\s{0,3}(?:(?:[-*+]|\d{1,9}[.)])\s+|>\s*)*" + _LABEL + r":\s*\S")
 # Any scheme with `//`, the schemes that act without one, and protocol-relative `//host.`.
-_URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{1,30}://|\b(?:mailto|data|javascript|vbscript|tel|slack|"
+_URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{1,30}://|\b(?:https?|mailto|data|javascript|vbscript|tel|slack|"
                   r"ms-teams|vscode|ssh|smb|file|sms|facetime|skype|zoommtg|itms-services):"
                   r"|(?<![\w:/])//[\w-]+\.)[^\s)>\]'\"]*", re.IGNORECASE)
 # An IP address with a port or a path is a link to a chat client.
@@ -73,10 +82,11 @@ _MENTION = re.compile(r"(?<![\w@])@(here|channel|everyone)\b", re.IGNORECASE)
 # ride in a subdomain or a path (audit A-C-9). Every two-letter top-level domain (country codes), the
 # common generic ones, punycode, and any non-ASCII label (lookalikes such as a Cyrillic "е") are
 # covered - a partial list let `evil.sh`, `evil.it` and `evil.zip` through (review 2026-09-28).
-_TLDS = ("[a-z]{2}|com|net|org|info|biz|dev|app|xyz|cloud|site|online|top|link|click|page|tech|store|"
-         "live|world|space|website|fun|icu|buzz|lol|ninja|rocks|zip|mov|run|shop|blog|news|club|pro|"
-         r"tools|email|support|help|host|name|mobi|asia|work|today|life|xn--[a-z0-9-]+|[^\x00-\x7f\W\d_]{2,}")
-_DOMAIN = re.compile(rf"(?<![\w@.\[/-])((?:[\w-]+\.)+)({_TLDS})(?![\w-])", re.IGNORECASE)
+# Any alphabetic top-level domain: a list let `evil.digital` through (second review, 2026-09-30),
+# and Slack links a bare domain under any real TLD.
+_TLDS = r"[a-z]{2,24}|xn--[a-z0-9-]+|[^\x00-\x7f\W\d_]{2,}"
+# Not an email's local part (`priya.nair@`): only what follows the `@` is a host.
+_DOMAIN = re.compile(rf"(?<![\w.\[/-])((?:[\w-]+\.)+)({_TLDS})(?![\w@-])", re.IGNORECASE)
 _NON_ASCII_HOST = re.compile(r"(?<![\w@.\[/-])((?:[\w-]*[^\x00-\x7f][\w-]*\.)+)([\w-]+)")
 # CommonMark fences: at most 3 spaces of indent, ``` or ~~~, closed by the same character at least as
 # long. `lstrip().startswith("```")` let a 4-space-indented or ~~~ line flip the state and leave the
@@ -85,6 +95,14 @@ _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 # Terminal and text-direction control characters: an ESC sequence can rewrite what a terminal shows
 # (or make a hyperlink); bidi overrides reorder what a reader sees.
 _CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+# A reference CommonMark would decode. `&amp;` itself is left: it decodes to a plain `&`.
+_ENTITY = re.compile(r"&(?!amp;)(#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-z0-9]{1,31};)")
+_LT = re.compile(r"<(?![A-Z][A-Z0-9]*_\d+>)")
+_RUN = re.compile(r"`{3,}|~{3,}")
+_BLOCK_START = re.compile(r"^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[`~]{3})")
+_SETEXT = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+# Inline code both CommonMark and Slack agree on: single backticks, not escaped, nothing inside.
+_INLINE_CODE = re.compile(r"(?<![`\\])(`[^`\n]+`)(?!`)")
 
 
 @dataclass
@@ -99,13 +117,27 @@ def strip_controls(text: str) -> str:
 
 
 def _defang(m: re.Match[str]) -> str:
-    return f"{m.group(1)[:-1]}[.]{m.group(2)}"
+    # Every dot: GFM links `www.evil` on its own, so `www.evil[.]digital` was still a link.
+    return m.group(0).replace(".", "[.]")
+
+
+def _break_runs(line: str) -> str:
+    return _RUN.sub(lambda m: "\u200b".join(m.group(0)), line)
+
+
+def _defang_outside_code(line: str) -> str:
+    """Domains are defanged except inside inline code, where no renderer makes a link. Only when the
+    line's backticks are unambiguous (no double run) - otherwise everything is defanged."""
+    parts = [line] if "``" in line else _INLINE_CODE.split(line)
+    return "".join(part if i % 2 else _DOMAIN.sub(_defang, _NON_ASCII_HOST.sub(_defang, part))
+                   for i, part in enumerate(parts))
 
 
 def _clean_line(line: str) -> str:
-    # HTML entities first: CommonMark decodes `&#116;` inside a link destination, so `h&#116;tps://`
-    # is a live https link that the URL rule would not see (review 2026-09-28).
-    line = strip_controls(html.unescape(line))
+    # ⛔ Nothing here decodes: the gate writes out exactly the text it checked (second review,
+    # 2026-09-30). A reference is neutralised below instead, so `h&#116;tps://` is never a link and
+    # `&#96;&#96;&#96;` never a fence, in any renderer.
+    line = strip_controls(line)
     if _REFDEF.match(line):
         return "[link definition removed]"
     line = _IMAGE.sub("[image removed]", line)
@@ -114,22 +146,28 @@ def _clean_line(line: str) -> str:
     line = _URL.sub("[link removed]", line)
     line = _IP_LINK.sub("[link removed]", line)
     line = _HTML.sub("", line)
+    line = _LT.sub("\u2039", line)
+    line = _ENTITY.sub(r"&amp;\1", line)
+    line = _break_runs(line.replace("]:", "]\u200b:"))
     line = _MENTION.sub(r"(at)\1", line)
-    line = _NON_ASCII_HOST.sub(_defang, line)
-    return _DOMAIN.sub(_defang, line)
+    return _defang_outside_code(line)
 
 
 def _clean_prose(lines: list[str]) -> list[str]:
     """One run of non-code lines: tags that span lines go first, then each line."""
     if not lines:
         return []
-    joined = _HTML.sub("", html.unescape("\n".join(lines)))
-    return [_clean_line(line) for line in joined.split("\n")]
+    out = [_clean_line(line) for line in _HTML.sub("", "\n".join(lines)).split("\n")]
+    # A setext underline turns the line above it into a heading.
+    return ["\u200b" + line if i and _SETEXT.match(line) and out[i - 1].strip() else line
+            for i, line in enumerate(out)]
 
 
 def sanitise_text(text: str) -> str:
     """G3 over markdown: every line outside a fenced code block (CommonMark fence rules)."""
-    lines = text.split("\n")
+    # CR is a line ending to CommonMark; controls go BEFORE fences are found (second review: a leading
+    # LRM hid a fence from the gate that stripping then revealed to the renderer).
+    lines = [strip_controls(line) for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     out: list[str] = []
     prose: list[str] = []
     fence, opened = None, -1
@@ -141,13 +179,17 @@ def sanitise_text(text: str) -> str:
                 out += _clean_prose(prose)
                 prose = []
                 fence, opened = m.group(1), len(out)
-                out.append(strip_controls(line))
+                out.append(line)
             else:
                 prose.append(line)
         else:
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
                 fence = None
-            out.append(strip_controls(line))
+                out.append(line)
+            elif fence[0] == "~":
+                out += _clean_prose([line])  # Slack has no ~~~ fence: it renders this as prose
+            else:
+                out.append(_break_runs(line))  # Slack closes code at ``` anywhere on a line
     out += _clean_prose(prose)
     if fence is not None:
         # Never closed. CommonMark runs it to the end; Slack shows the fence as text and renders what
@@ -160,7 +202,9 @@ def sanitise_data(value: Any) -> Any:
     """G3 over structured data (a generic webhook, an MCP result): every string and every KEY,
     recursively - a key built from backend data is text like any other (review 2026-09-28)."""
     if isinstance(value, str):
-        return "\n".join(_clean_prose(value.split("\n")))
+        lines = _clean_prose(value.replace("\r\n", "\n").replace("\r", "\n").split("\n"))
+        # A consumer may render a string as markdown: no line may start a heading, quote or fence.
+        return "\n".join("\u200b" + ln if _BLOCK_START.match(ln) else ln for ln in lines)
     if isinstance(value, list):
         return [sanitise_data(v) for v in value]
     if isinstance(value, dict):

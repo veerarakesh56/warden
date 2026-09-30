@@ -275,12 +275,25 @@ def _approver_key(path: pathlib.Path):
     return audit.load_private_key(path, os.environ.get("WARDEN_APPROVER_KEY_PASSPHRASE", "").encode() or None)
 
 
+def _install_log_gate() -> None:
+    """Every log line the process writes goes through the gate's formatter, to stderr."""
+    import logging
+    import sys
+
+    from .observability import GatedFormatter
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(GatedFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+
+
 async def _workflow_command(args: argparse.Namespace) -> int:
     from . import approvals, runtime
     from .workflows import IncidentWorkflow
 
     client = await runtime.connect()
     if args.cmd == "worker":
+        _install_log_gate()
         policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
         async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend()):
             _out(f"worker running on task queue {runtime.TASK_QUEUE!r}; Ctrl+C to stop")
@@ -457,9 +470,12 @@ def _main(argv: list[str] | None = None) -> int:
             path.parent.mkdir(parents=True, exist_ok=True)
             # Redacted once more with the run's own map (audit A-C-8): the artefact gets attached
             # to tickets, and a value an upstream step missed must not ride along.
-            data, _ = _scrub(report.model_dump(mode="json"), dict(report.redaction_map))
+            raw = report.model_dump(mode="json")
+            data, _ = _scrub(raw, dict(report.redaction_map))
             data = _no_controls(data)  # `jq -r` would print an ESC live again
-            leaks = gate.data_leaks(data)
+            # Checked BEFORE the scrub too (review 2A defect 7): after it, every value is already
+            # masked, so a check there alone could never fire on a value an upstream step missed.
+            leaks = sorted(set(gate.data_leaks(raw)) | set(gate.data_leaks(data)))
             if leaks:  # an upstream miss: the artefact is refused, not written with a secret in it
                 _out(f"report NOT written: the outbound gate found {', '.join(leaks)} in it", err=True)
                 return 3

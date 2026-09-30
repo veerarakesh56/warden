@@ -243,3 +243,23 @@ def test_no_overrides_leaves_the_alert_untouched(tmp_path):
     assert payload["alert"]["started_at"] == DEMO_ALERTS["inc-002"]["started_at"]
     assert payload["alert"]["service"] == DEMO_ALERTS["inc-002"]["service"]
     assert payload["alert"]["labels"] == {}
+
+
+def test_json_artefact_is_refused_when_the_pipeline_missed_a_secret(monkeypatch, tmp_path, capsys):
+    """Review 2A defect 7: the refusal looked only after `_scrub` had masked every value, so it could
+    never fire. An upstream miss is now refused, not silently patched over."""
+    from warden import cli
+
+    real_run = cli.run
+    key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+
+    def missed(*a, **kw):
+        report = real_run(*a, **kw)
+        report.context.logs.append(f"ERROR leaked {key}")
+        return report
+
+    monkeypatch.setattr(cli, "run", missed)
+    out_file = tmp_path / "r.json"
+    assert main(["run", "--incident", "inc-002", "--json", str(out_file)]) == 3
+    assert not out_file.exists()
+    assert key not in capsys.readouterr().out

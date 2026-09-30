@@ -94,7 +94,10 @@ def test_a_secret_still_in_the_outgoing_text_blocks_the_message():
 
 
 def test_identifiers_an_operator_may_show_do_not_block_and_clean_text_passes():
-    assert enforce("user a@corp.io on 10.2.3.4").verdict == "PASS"
+    shown = enforce("user a@corp.io on 10.2.3.4")
+    # Not blocked; the email's domain is defanged like any domain (second review, 2026-09-30).
+    assert shown.verdict == "REWRITE" and shown.text == "user a@corp[.]io on 10.2.3.4"
+    assert enforce("user `a@corp.io` on 10.2.3.4").verdict == "PASS"
     assert enforce("## Heading\n```\nhttps://in.code/is-verbatim\n```").verdict == "PASS"
 
 
@@ -166,8 +169,11 @@ def test_a_fence_trick_cannot_turn_sanitising_off(text):
 
 
 def test_real_code_blocks_stay_verbatim():
-    kept = "```\n![x](https://evil.example/c)\n```\n~~~\n<img src=x>\n~~~"
+    kept = "```\n![x](https://evil.example/c)\n```"
     assert sanitise_text(kept) == kept
+    # A ~~~ block is code to CommonMark but prose to Slack, which has no ~~~ fence (second review,
+    # 2026-09-30): its inside is sanitised.
+    assert sanitise_text("~~~\n<img src=x>\n~~~") == "~~~\n\n~~~"
 
 
 def test_the_terminal_gets_no_secret_and_no_escape_sequence():

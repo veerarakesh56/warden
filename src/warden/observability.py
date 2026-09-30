@@ -17,6 +17,7 @@ crashing a run.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from collections.abc import Iterator
@@ -100,6 +101,24 @@ def _safe_error(exc: BaseException) -> str:
         return redact(text).text
     except Exception:  # noqa: BLE001 - a redaction failure must not hide the original error
         return "(error text withheld)"
+
+
+class GatedFormatter(logging.Formatter):
+    """A log record as the outbound gate would let it out: no control character, redacted, bounded.
+    The worker's libraries log exception text and tracebacks - temporalio logs every failed activity
+    with exc_info - and exception text is not WARDEN's words (review 2A defect 6)."""
+
+    LIMIT = 8000
+
+    def format(self, record: logging.LogRecord) -> str:
+        from .gate import strip_controls
+        from .redaction import redact
+
+        text = strip_controls(super().format(record))[: self.LIMIT]
+        try:
+            return redact(text).text
+        except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
+            return f"{record.levelname} {record.name}: (log text withheld)"
 
 
 def record_cost(sp: trace.Span, *, input_tokens: int, output_tokens: int, usd: float) -> None:

@@ -130,3 +130,52 @@ def test_a_span_records_the_error_scrubbed_and_bounded(monkeypatch):
     for bad in ("\x1b", "hunter2hunter2", KEY):
         assert bad not in everything, bad
     assert sp.status.description == "RuntimeError"
+
+
+def test_a_failed_tool_span_records_the_error_scrubbed_and_bounded(monkeypatch):
+    """Review 2A defect 5: `warden.tool.error` was redacted only - an escape sequence and a markdown
+    image in a backend exception reached the tracing backend verbatim."""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from warden import observability, tools
+    from warden.models import Alert
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(observability, "tracer", lambda: provider.get_tracer("t"))
+
+    class _Boom(tools.FixtureBackend):
+        def logs(self, alert):
+            raise RuntimeError("denied \x1b]52;c;Y3VybA==\x07 password=hunter2hunter2 " + "x" * 2000)
+
+    alert = Alert(alert_id="a", name="n", severity="high", service="checkout", environment="staging",
+                  summary="s", started_at="2026-09-28T10:00:00Z")
+    tools.gather(alert, _Boom())
+    [err] = [s.attributes["warden.tool.error"] for s in exporter.get_finished_spans() if s.name == "tool.logs"]
+    assert "\x1b" not in err and "hunter2hunter2" not in err and len(err) < 400, err
+
+
+def test_the_worker_log_is_gated(capsys):
+    """Review 2A defect 6: temporalio logs a failed activity with exc_info, and with no handler the
+    last-resort one printed the raw exception text - escapes and secrets - to stderr."""
+    import logging
+
+    from warden import cli
+
+    root = logging.getLogger()
+    saved = root.handlers[:], root.level
+    try:
+        cli._install_log_gate()
+        try:
+            raise RuntimeError("model refused: \x1b]52;c;Y3VybA==\x07 password=hunter2hunter2 " + "y" * 20000)
+        except RuntimeError:
+            logging.getLogger("temporalio.activity").warning("Completing activity as failed", exc_info=True)
+        err = capsys.readouterr().err
+        assert "Completing activity as failed" in err and "Traceback" in err
+        assert "\x1b" not in err and "hunter2hunter2" not in err and len(err) < 10000
+    finally:
+        root.handlers[:], _ = saved
+        root.setLevel(saved[1])
