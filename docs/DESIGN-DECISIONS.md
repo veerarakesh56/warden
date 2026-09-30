@@ -228,3 +228,15 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
   - The operator role only reads (`iam/operator/`).
 - **One AWS account, hardened, for the lab** (owner decision). Separate accounts per environment are
   the production recommendation, and the IaC supports them.
+- **Quarantine keys are filtered word by word, not by an allowlist** (audit A-C-10, 2026-09-30).
+  The plan said "allowlist". Measured over every recorded run (4,722 distinct untrusted lines), the
+  only application keys were the bench apps' own (`cart_id`, `orders`, `rejected` ...). A fixed list
+  would fit only the bench, or would drop every real application's keys. Instead:
+  - a key is dropped if any of its words (split on `_ . -` and camelCase) names an instruction:
+    `action`, `next`, `step`, `recommended`, `fix`, `plan` ...;
+  - every value, including an error code, is length-capped;
+  - a value is dropped if it uses a steering word, spaced or run together, or names one of
+    WARDEN's own actions.
+
+  None of the 2,667 recorded value facts was dropped. Honest limit: a compound key with no
+  separator (`actionplan`) counts as one word.

@@ -64,4 +64,6 @@ def test_every_pattern_suggestion_would_pass_the_harness_allow_list():
             assert "put-role-policy" not in c["command"], (fid, c)
         suggested += bool(r.data["pattern_suggestions"])
         assert r.data["fix_commands"] == [], (fid, "nothing is executable without an approved verdict")
-    assert suggested >= 20, suggested  # 20 of 28 faults on 2026-09-27; fewer = a detector lost
+    # 20 of 28 faults on 2026-09-27; 19 since 2026-09-30 (audit A-C-14: fs-19's health path came from
+    # an access log, so it has no command now). Fewer = a detector lost.
+    assert suggested >= 19, suggested

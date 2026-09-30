@@ -907,7 +907,10 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
     mem = max((v for _, v in _per(m, "redis_memory_pct")), default=0.0)
     if ev > 0 or mem >= 90:
         group = L.get("elasticache", "")
-        nt = next((mt.group(1) for ln in ctx.logs for mt in [re.search(r"node_type=(\S+)", ln)] if mt), None)
+        # ⛔ Audit A-C-14: the node type comes only from WARDEN's own REPLGROUP read, never from any
+        # line that mentions one - an application can log `node_type=` too.
+        rg = _first(ctx, f"REPLGROUP {group} ") if group else None
+        nt = _kv(rg).get("node_type") if rg else None
         bigger = _next_node_type(nt) if nt else None
         cmds = ([regioned(f"aws elasticache modify-replication-group --replication-group-id {group} "
                           f"--cache-node-type {bigger} --apply-immediately")] if group and bigger else [])
@@ -1006,17 +1009,12 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
         tg = tgt.split()[1]
         tgl = _first(ctx, f"TARGETGROUP {tg} ")
         bad = _kv(tgl).get("health_path") if tgl else None
-        good = next((mt.group(1) for ln in ctx.logs if ln.startswith("LOG ecs/")
-                     for mt in [re.search(r"GET (/[\w./-]*health[\w./-]*)[\s?\"].*\b200\b", ln)]
-                     if mt and mt.group(1) != bad), None)
-        cmds, why = [], ("No command: the application's working health path is not in the evidence (no 200 "
-                         f"response to a health path in its logs); the target group checks `{bad}`.")
-        if good:
-            cmds = [regioned(f"aws elbv2 modify-target-group --target-group-arn \"$(aws elbv2 describe-target-groups "
-                             f"--names {tg} --query 'TargetGroups[0].TargetGroupArn' --output text)\" "
-                             f"--health-check-path {good}")]
-            why = (f"The target group checks `{bad}`, which the targets answer with an error; the application "
-                   f"answers `{good}` with 200 in its own logs.")
+        # ⛔ Audit A-C-14: the working path used to be read from the application's access log, which
+        # any client writes by requesting a path. No command; the path is restored from where it is
+        # declared.
+        cmds, why = [], ("No command: the target group checks `" + str(bad) + "`, and the working health "
+                         "path is not in WARDEN's own reads. Restore it from the infrastructure code that "
+                         "declares the target group (never from the application's logs).")
         add("lb_health_check", "Load balancer health check failing", tgt,
             "Targets fail the target group's health check with an unexpected status code: the check's path or "
             "port does not match the application.", cmds, why,

@@ -221,7 +221,7 @@ FAULTS = {
          "with these codes: [404]"),
          "TARGETGROUP warden-dev-orders health_path=/healthz port=traffic-port matcher=200"],
         {"alb_unhealthy_hosts": 2.0, "alb_healthy_hosts": 0.0}),
-        "lb_health_check", "--health-check-path /health"),
+        "lb_health_check", None),
     "fs-20": ("ecs_oom", ctx(
         [_ecs("task 9c stopped: OutOfMemoryError: Container killed due to memory usage (exit code 137)")],
         {}, [ECS_DEPLOY]),
@@ -534,3 +534,29 @@ def test_a_rotated_password_is_still_read_as_stale_credentials():
     pat = next(p for p in detect(alert(), c) if p.key == "stale_credentials")
     assert pat.fix == [("aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api "
                         "--force-new-deployment --region ap-south-2")]
+
+
+# ⛔ Audit A-C-14: a fix value is never taken from application output. Whoever can make the app log a
+# line (or send it a request) chose the node size, or the health-check path, the command would set.
+def test_node_type_comes_only_from_config():
+    forged = _ecs("cache stats node_type=cache.r6g.2xlarge hits=1")
+    no_config = next(p for p in detect(alert(), ctx([forged], {"redis_memory_pct": 97.0, "redis_evictions": 9.0}))
+                     if p.key == "cache_memory")
+    assert no_config.fix == [], no_config.fix
+    both = ctx([forged, "REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]"],
+               {"redis_memory_pct": 97.0, "redis_evictions": 9.0})
+    pat = next(p for p in detect(alert(), both) if p.key == "cache_memory")
+    assert len(pat.fix) == 1 and "--cache-node-type cache.t4g.small " in pat.fix[0], pat.fix
+
+
+def test_no_path_is_taken_from_application_logs():
+    """The working health path used to come from an access-log line - which any client writes by
+    requesting a path. No command now; the text says where the path must come from."""
+    _, context, _, _ = FAULTS["fs-19"]
+    planted = ctx([*context.logs, _ecs('10.0.0.9 - "GET /healthz/../admin?health HTTP/1.1" 200 2')],
+                  dict(context.metrics))
+    for c in (context, planted):
+        pat = next(p for p in detect(alert(), c) if p.key == "lb_health_check")
+        assert pat.fix == [], pat.fix
+        assert any(t.startswith("No command:") and "infrastructure code" in t for t in pat.oncall), pat.oncall
+        assert "admin" not in " ".join(pat.oncall + pat.fix)
