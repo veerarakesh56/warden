@@ -207,7 +207,9 @@ bump may carry a breaking change.
   commits bdb8a13 and e8278f2).
   - It is scored by token ids in windows of up to 512 tokens, so nothing is truncated.
   - Everything the model reads that came from outside WARDEN is scanned, each part on its own: the
-    alert's name and summary, its labels, and each trusted item. The raw log lines, which the model
+    alert's name and summary, its labels, and each trusted item. The typed facts (F items) are not
+    scanned themselves; they are covered through the log lines they came from, which a scan past its
+    budget may skip ("ran-partial"). The raw log lines, which the model
     never sees, get the remaining budget; lines past it are reported as "ran-partial", not escalated.
   - In `required` mode, anything but a detector that actually ran escalates.
   - A threshold that is not a number is refused.
@@ -351,6 +353,7 @@ bump may carry a breaking change.
   from a helper module, `xfail`, a citation the cell calls "NOT covered", and a DEFERRED cell saying
   "NOT owner-agreed" or dated 9999-99-99 all counted as evidence. Only decorators known never to skip
   are accepted, DEFERRED must start with a real past agreement, and `::test_x` shorthands are checked.
+- **No hardcoded environment in the proving-ground harness** (9f16e30).
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).
@@ -496,6 +499,11 @@ confirms the fixes.
   `importorskip` as evidence. Both are now refused.
 - **CI on main was red a fifth time,** at ea65387: a ruff finding shown as a "hidden fix" was not run
   to zero before the push. Fixed in 7d175af.
+- **...and a sixth and a seventh time** (found by the fourth review and by CI): at 584e89a (2026-09-30
+  10:34 UTC / 16:04 IST) the MCP stdio test raced, closing stdin before the answer; fixed in 4a2caa9.
+  At 14e32e1 (14:18 UTC / 19:48 IST) parallel test workers raced to download Temporal's test server;
+  fixed in a1b73ce, which downloads it once before the workers start. The control is branch
+  protection with required checks (owner steps, A9).
 
 ## [0.10.0] - 2026-09-28
 

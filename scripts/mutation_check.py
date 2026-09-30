@@ -310,7 +310,9 @@ def run_suite() -> bool:
     # check=False on purpose: a NON-ZERO exit is the expected, desirable outcome for a mutated
     # build. Raising on it would abort the very thing this script measures.
     r = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider"],
+        # On parallel workers, as CI runs it: serially one run took 17 minutes (2026-10-01), so 36 runs
+        # did not finish in an hour. -x still stops at the first failure.
+        [sys.executable, "-m", "pytest", "-q", "-x", "-n", "auto", "--no-header", "-p", "no:cacheprovider"],
         cwd=ROOT, capture_output=True, text=True, check=False,
         env={**os.environ, "WARDEN_MOCK": "1", "WARDEN_TRACE": "0"},
     )

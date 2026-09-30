@@ -245,7 +245,10 @@ def test_deeply_nested_values_fall_back_safely():
     from warden import redaction
     from warden.redaction import redact_many
 
-    lines = ["pass" + f"word={'a' * n}Z end {'a' * n}Z" for n in range(4, 1300)]  # a branch at every character
+    # A branch at every character, just past _MAX_NESTING: enough for the fallback, without the minute a
+    # 1,300-deep chain costs (recorded as an open cost in the audit, R4-B-N3).
+    depth = redaction._MAX_NESTING + 60
+    lines = ["pass" + f"word={'a' * n}Z end {'a' * n}Z" for n in range(4, depth)]
     out, _ = redact_many(lines)
     assert all("aaaaZ" not in line for line in out)
     r = redaction._Redactor(None)

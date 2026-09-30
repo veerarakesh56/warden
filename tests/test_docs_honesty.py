@@ -110,3 +110,22 @@ def test_the_v0_10_0_correction_stays_visible():
     text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     head = text[: text.index("## [0.9.0]")]
     assert "Correction" in head and "That was false" in head
+
+
+def test_the_readme_test_count_is_a_lower_bound(request):
+    """Fourth review (2026-09-30, D #2): the README said 2,840 tests when there were 2,969. It now states a
+    lower bound, and this keeps it one. A partial run (one file, -k) counts the whole suite itself."""
+    import re
+    import subprocess
+    import sys
+
+    m = re.search(r"Over ([\d,]+) tests", (ROOT / "README.md").read_text(encoding="utf-8"))
+    assert m, "the README no longer states its test count as a lower bound"
+    claimed = int(m.group(1).replace(",", ""))
+    count = len(request.session.items)
+    if count < claimed:
+        out = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
+                              "tests", "evals"], capture_output=True, text=True, cwd=ROOT, check=False).stdout
+        found = re.search(r"(\d+) tests? collected", out)
+        count = int(found.group(1)) if found else 0
+    assert count >= claimed, f"the README claims over {claimed} tests; {count} are collected"

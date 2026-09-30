@@ -69,7 +69,8 @@ def all_rows() -> list[tuple[str, dict[str, str]]]:
 # Module-level skips that CI does NOT hit, each with its reason. Anything else skipping is refused.
 SKIP_OK = {
     "tests/test_fullstack_infra.py": "skips only when terraform/fullstack is absent; it is in this repository",
-    "tests/test_providers.py": "skips only without the openai extra; CI's unit job installs .[dev,all-providers,...]",
+    "tests/test_providers.py": ("skips (module and in-test importorskip) only without a provider extra; CI's unit job "
+                                "installs .[dev,all-providers,...]"),
 }
 
 
@@ -85,10 +86,13 @@ def _skipped(file: str, src: str, m: re.Match) -> bool:
         return True
     body = src[m.end():]
     nxt = re.search(r"^(?:def |class |@)", body, re.MULTILINE)
-    if re.search(r"importorskip\(|\bskip\(|\bxfail\(", body[:nxt.start() if nxt else len(body)]):
+    body = body[:nxt.start() if nxt else len(body)]
+    if re.search(r"\bskip\(|\bxfail\(", body):
         return True
-    if file in SKIP_OK:
+    if file in SKIP_OK:   # its importorskip is excused, with the reason given there; nothing else is
         return False
+    if "importorskip(" in body:
+        return True
     module_mark = re.search(r"^pytestmark\s*=.*(?:\n[ \t\])].*)*", src, re.MULTILINE)
     if module_mark and re.search(r"skip|xfail", module_mark.group(0)):
         return True

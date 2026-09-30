@@ -21,7 +21,7 @@ headline is 14 runs the gate should have stopped and did not — measured under 
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
 own bugs, both disclosed. **RDS PostgreSQL:** 6 scenarios (5 faults + 1 healthy control) × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
-count it. 2,840 tests (2026-09-30) plus 23 opt-in live-infrastructure tests (10 against a live
+count it. Over 3,000 tests (3,229 on 2026-10-01; `tests/test_docs_honesty.py` keeps this a lower bound) plus 23 opt-in live-infrastructure tests (10 against a live
 Kubernetes cluster, 13 against five real database engines), 26 evals, a mutation check that breaks
 the code on purpose and requires the suite to notice, and CI that asserts the actual verdicts rather
 than the exit code. **Honest caveat:** the 2026-09-28 audit found tests that pass even with the guard
@@ -40,7 +40,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 | **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
 | **Safety** | 16 policies (P1–P16), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
-| **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. No live platform is connected yet (Phase 4). The older in-process live backends are being removed (audit B-H1..H3) |
+| **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. No live platform is connected yet (Phase 4). The older in-process live backends are still in the code, armed only by `WARDEN_REMEDIATION=live`, until they are removed (D16; audit A-B-H1..H3, open) |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
 | **Reporting** | an incident report for every team - impact, what was read and when, diagnosis, detected patterns, risks before steps, a runbook with real names, per-team follow-ups - redacted, → Slack, Teams or any webhook |
 | **Integrations** | MCP server · OpenTelemetry GenAI conventions · Terraform ECS module |

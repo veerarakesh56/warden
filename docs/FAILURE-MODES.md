@@ -30,9 +30,9 @@ S2 had been closed. The corrected statuses are below.
 | B1 | Grounding: an invented citation id escalates (P13) | G0 | DONE-local | tests/test_grounding.py::test_an_invented_id_escalates |
 | B2 | Grounding: a misquote escalates (P13) | G0 | DONE-local | tests/test_grounding.py::test_a_misquote_escalates |
 | B3 | A target not in the inventory is rejected (P14) | G0 | DONE-local | tests/test_grounding.py::test_the_fs03_hallucinated_function_is_rejected |
-| B4 | Quarantine: an injected log line never reaches the model | G0 | DONE-local | tests/test_quarantine.py::test_an_injected_log_line_never_reaches_the_model_and_does_not_change_the_action |
+| B4 | Quarantine: the planted injected log line never reaches the model (other spellings: audit A-C-10, open) | G0 | DONE-local | tests/test_quarantine.py::test_an_injected_log_line_never_reaches_the_model_and_does_not_change_the_action |
 | B5 | The model CLI gets no credential but its own Claude login token (`CLAUDE_CODE_OAUTH_TOKEN`, since 6504f71): no cloud, database or other model key (environment allowlist) | G0 | DONE-local | tests/test_claude_cli_provider.py::test_no_credential_in_the_parent_environment_reaches_the_model_process |
-| B6 | Outbound gate: a planted image or link never reaches Slack | G0 | DONE-local | tests/test_gate.py::test_a_planted_image_or_link_echoed_by_the_model_never_reaches_the_slack_payload |
+| B6 | Outbound gate: the planted image or link never reaches Slack (other structure: audit A-C-9, open) | G0 | DONE-local | tests/test_gate.py::test_a_planted_image_or_link_echoed_by_the_model_never_reaches_the_slack_payload |
 | B7 | Signed approvals: a forged signature is refused | G0 | DONE-local | tests/test_approvals.py::test_a_forged_signature_is_refused |
 | B8 | Tamper-evident audit: a row rewritten with a recomputed chain is caught | G0 | DONE-local | tests/test_audit_log.py::test_rewriting_a_row_and_recomputing_every_later_hash_is_caught_by_the_signature |
 | B9 | Kill switch: only a signed approval of that specific trip resets it | G0 | DONE-local | tests/test_bounds.py::test_only_a_signed_approval_of_this_trip_resets_it_and_only_once |
