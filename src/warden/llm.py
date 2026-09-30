@@ -98,6 +98,13 @@ class LLMClient:
         self.max_usd = float(max_usd if max_usd is not None else os.environ.get("WARDEN_MAX_USD", "0.50"))
         if not math.isfinite(self.max_usd) or self.max_usd <= 0:
             raise ValueError(f"the model budget must be a positive number of USD, not {self.max_usd!r}")
+        # A price that is not a finite, non-negative number switched the USD ceiling off: nan made every
+        # cost nan, a negative price made it shrink (fourth review, 2026-09-30). Zero is a free tier.
+        for name, price in (("WARDEN_PRICE_IN", PRICE_PER_MTOK_IN), ("WARDEN_PRICE_OUT", PRICE_PER_MTOK_OUT)):
+            if not math.isfinite(price) or price < 0:
+                raise ValueError(f"{name} must be a non-negative number of USD per 1M tokens, not {price!r}")
+        if isinstance(max_calls, bool) or not isinstance(max_calls, int) or max_calls < 1:
+            raise ValueError(f"max_calls must be a positive whole number, not {max_calls!r}")
         self.max_calls = max_calls
         self.cost = CostRecord()
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
@@ -205,6 +212,9 @@ class LLMClient:
                 # A permanent 4xx (401 bad key, 400 malformed) will fail identically every attempt, so
                 # retrying it just delays a failure the operator must fix — fail fast instead.
                 last = exc
+                # The request was made: it counts toward the call ceiling like any other (fourth review:
+                # 15 failed requests were made under a ceiling of 2, none counted). Its cost is unknown.
+                self.cost.add(0, 0, 0.0)
                 if not _is_transient(exc):
                     break
         plural = "attempt" if attempts == 1 else "attempts"

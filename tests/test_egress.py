@@ -240,3 +240,18 @@ def test_the_log_gate_is_installed_once_even_after_a_module_reload():
     importlib.reload(observability)
     observability.install_log_gate()
     assert sum(getattr(h, "warden_log_gate", False) for h in root.handlers) == 1
+
+
+
+def test_cutting_a_huge_single_token_is_fast_and_withholds_it():
+    """Fourth review: `\\S*\\Z` backtracked quadratically - a 63,000-character token took 31 s, holding
+    the logging handler's lock and stalling the worker."""
+    import time
+
+    from warden.observability import _redact_then_cut
+
+    start = time.perf_counter()
+    out = _redact_then_cut("x" * 70_000 + " tail", 8000)
+    assert time.perf_counter() - start < 2, "the cut is quadratic again"
+    assert "withheld" in out and "xxxx" not in out
+    assert _redact_then_cut("keep " + "y" * 70_000, 8000).startswith("keep")

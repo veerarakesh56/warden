@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -104,7 +103,11 @@ def _redact_then_cut(text: str, limit: int) -> str:
     longer recognised (`AKIAIOSFO`, third review 2026-09-30). The raw text is bounded far above the
     limit to keep redaction cheap, and the token that bound cuts is dropped whole."""
     if len(text) > 8 * limit:
-        text = re.sub(r"\S*\Z", "", text[: 8 * limit])
+        cut = text[: 8 * limit]
+        # The last whitespace, found by scanning back once: a regex (`\S*\Z`) was quadratic on one long
+        # token - 31 s for a 63,000-character record, holding the handler lock (fourth review).
+        end = max(cut.rfind(" "), cut.rfind("\n"), cut.rfind("\t"))
+        text = cut[: end + 1] if end >= 0 else "(one token longer than the log limit, withheld)"
     return redact(text).text[:limit]
 
 

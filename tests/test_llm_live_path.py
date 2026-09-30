@@ -315,3 +315,46 @@ def test_an_explicit_budget_wins_and_a_non_number_is_refused(monkeypatch):
     monkeypatch.delenv("WARDEN_MAX_USD")
     with pytest.raises(ValueError):
         _client(FakeProvider("x"), max_usd=float("nan"))
+
+
+
+# Fourth review (2026-09-30): the USD ceiling and the call ceiling could still be switched off or bypassed.
+@pytest.mark.parametrize("value", ["nan", "-3", "inf"])
+def test_a_price_that_is_not_a_real_price_is_refused(monkeypatch, value):
+    from warden import llm
+
+    monkeypatch.setattr(llm, "PRICE_PER_MTOK_IN", float(value))
+    with pytest.raises(ValueError, match="WARDEN_PRICE_IN"):
+        llm.LLMClient(mock=True)
+
+
+@pytest.mark.parametrize("value", [0, -1, 2.5, True])
+def test_the_call_ceiling_must_be_a_positive_whole_number(value):
+    from warden.llm import LLMClient
+
+    with pytest.raises(ValueError, match="max_calls"):
+        LLMClient(mock=True, max_calls=value)
+
+
+def test_failed_provider_requests_count_toward_the_call_ceiling():
+    from pydantic import BaseModel
+
+    from warden.llm import BudgetExceeded, LLMClient, ModelRefused
+
+    class Answer(BaseModel):
+        x: int
+
+    class Down:
+        name, model = "fake", "fake"
+        requests = 0
+
+        def complete(self, *, system, user, schema=None):
+            Down.requests += 1
+            raise ConnectionError("503 upstream")
+
+    client = LLMClient(provider=Down(), max_calls=2, mock=False, call_timeout_s=5)
+    with pytest.raises((BudgetExceeded, ModelRefused)):
+        client.structured(system="s", user="u", schema=Answer)
+    with pytest.raises(BudgetExceeded):
+        client.structured(system="s", user="u", schema=Answer)
+    assert Down.requests == 2, Down.requests

@@ -146,9 +146,12 @@ class IncidentWorkflow:
     async def run(self, alert: Alert) -> RunReport:
         acts = IncidentActivities
         pack = await workflow.execute_activity_method(acts.prepare, args=[alert], **PREPARE)
+        # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
+        # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
+        # (fourth review, 2026-09-30).
         diagnosed = await workflow.execute_activity_method(
             acts.diagnose, args=[pack], start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=2))
+            retry_policy=RetryPolicy(maximum_attempts=1))
         verified = await workflow.execute_activity_method(acts.verify, args=[pack, diagnosed], **QUICK)
         return RunReport(alert=pack.alert, redaction_map_size=pack.masked, context=pack.context,
                          root_cause=diagnosed.root_cause, proposal=diagnosed.proposal, verdict=verified.verdict,
