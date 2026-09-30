@@ -180,17 +180,26 @@ def test_it_is_registered_under_both_spellings(monkeypatch):
 # environment first.
 
 
-def test_the_operators_own_claude_configuration_is_stripped(provider, monkeypatch):
-    for var in ("USERPROFILE", "HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"):
+def test_variables_that_redirect_the_cli_to_other_configuration_are_stripped(provider, monkeypatch):
+    for var in ("CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "ANTHROPIC_API_KEY"):
         monkeypatch.setenv(var, f"/home/operator/{var.lower()}")
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
     env = rec.kwargs["env"]
-    for var in ("USERPROFILE", "HOME", "CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"):
-        assert var not in env, (
-            f"{var} survives, so the CLI loads the operator's CLAUDE.md and the benchmark measures "
-            "their assistant rather than a model"
-        )
+    for var in ("CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "ANTHROPIC_API_KEY"):
+        assert var not in env, f"{var} reaches the model process"
+
+
+@pytest.mark.parametrize("var", ["HOME", "USERPROFILE", "CLAUDE_CODE_OAUTH_TOKEN"])
+def test_what_the_cli_needs_to_find_its_home_and_log_in_does_survive(provider, monkeypatch, var):
+    """A-C-19, decided 2026-09-30 on evidence: the isolation is the flags (pinned by
+    test_no_tool_no_mcp_server_and_no_operator_setting_is_loaded), not a missing HOME. Re-measured:
+    no operator instructions loaded with or without HOME/USERPROFILE; without them a container whose
+    user has no passwd entry cannot find its home at all."""
+    monkeypatch.setenv(var, "value")
+    rec = _Recorder()
+    _run(provider, rec, monkeypatch)
+    assert rec.kwargs["env"].get(var) == "value"
 
 
 def test_it_does_not_rely_on_the_caller_having_sanitised_the_environment(provider, monkeypatch):

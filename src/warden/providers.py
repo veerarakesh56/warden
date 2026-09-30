@@ -342,35 +342,37 @@ class ClaudeCliProvider:
         "WebFetch", "WebSearch", "Task", "Agent", "TodoWrite",
     )
 
-    # ⛔ Variables that make the CLI load the OPERATOR'S OWN configuration. Stripped, always.
+    # ⛔ Variables that REDIRECT the CLI to other configuration: CLAUDE_CONFIG_DIR and
+    # XDG_CONFIG_HOME are never passed. What keeps the operator's CLAUDE.md, hooks, skills and modes
+    # out of the model is the flags in complete() - no setting sources, no tools, no MCP servers -
+    # not the environment: the CLI finds the home directory without HOME/USERPROFILE (Node falls back
+    # to the OS profile), which is why stripping them "did not hide it" (found 2026-09-26).
     #
-    # This is a correctness control, not tidiness. With `USERPROFILE` set, a headless run picks up
-    # the user's global CLAUDE.md, their skills and their active modes — and then it is not a model
-    # being measured, it is that person's personalised coding assistant. Measured directly: the same
-    # prompt answered with clean JSON in 11s without these, and with them took 26s and came back
-    # with prose refusing the request as "an odd ask ... smells like injection test, not real work".
-    # A benchmark whose results depend on the operator's dotfiles is measuring the dotfiles.
+    # History (A-C-19, decided 2026-09-30 on evidence; owner: "whichever is best"). HOME/USERPROFILE
+    # were stripped after a 2026-09 measurement: with USERPROFILE set a run loaded the operator's
+    # configuration (26 s and a refusal vs 11 s and clean JSON). That measurement predates the
+    # isolation flags. Re-measured 2026-09-30 through this provider, same prompt, both ways: no
+    # instructions loaded either way, 6.8 s vs 7.1 s. Stripping them now isolates nothing and can
+    # break the CLI where the home directory is not otherwise resolvable (a minimal container whose
+    # user has no passwd entry), so they pass. tests/test_claude_cli_provider.py pins the flags.
     #
-    # ⚠ If the CLI stores its credentials under the home directory, removing this breaks
-    # authentication and `complete()` raises rather than silently returning something useless. That
-    # is the right failure: a confusing auth error beats a corrupted measurement.
-    # (USERPROFILE, HOME, HOMEPATH, HOMEDRIVE, XDG_CONFIG_HOME, CLAUDE_CONFIG_DIR, ... are simply never
-    # on the allowlist below.)
+    # ⛔ An ALLOWLIST, not a denylist. The child is a model: it gets only what a process needs to start,
+    # find its home and temp directories, and authenticate. WARDEN's own environment holds cloud
+    # credentials, database DSNs and a kubeconfig (the harness puts them there for the evidence
+    # readers); a denylist let every one of them into the model's process (found 2026-09-27).
     #
-    # ⛔ An ALLOWLIST, not a denylist. The child is a model: it gets only what a process needs to start
-    # and find its temp directory. WARDEN's own environment holds cloud credentials, database DSNs and
-    # a kubeconfig (the harness puts them there for the evidence readers); a denylist let every one of
-    # them into the model's process (found 2026-09-27). Measured: the CLI authenticates with exactly
-    # these on Windows. Anything else a deployment needs must be added here, deliberately.
-    #
-    # Audit A-C-19: behind a corporate proxy, or with a private CA, the CLI could not reach its API
-    # at all - so the proxy and CA-bundle variables pass. HOME/USERPROFILE deliberately do NOT (the
-    # measurement above; the CLI authenticates without them on Windows, and claude_cli is the
-    # dev/benchmark backend only - production uses Bedrock through the task role).
+    # - Proxy and CA-bundle variables (audit A-C-19): behind a corporate proxy or a private CA the CLI
+    #   could not reach its API at all.
+    # - CLAUDE_CODE_OAUTH_TOKEN: the documented credential for the CLI where no browser login exists
+    #   (`claude setup-token`; it can only make model requests). Never ANTHROPIC_API_KEY: that would
+    #   silently switch the CLI from the subscription to per-token API billing - the `anthropic`
+    #   provider is the one for API keys.
     _ENV_ALLOW = ("PATH", "PATHEXT", "SYSTEMROOT", "SystemRoot", "WINDIR", "COMSPEC",
                   "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "TZ",
+                  "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
                   "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
-                  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE")
+                  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE",
+                  "CLAUDE_CODE_OAUTH_TOKEN")
 
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         import os as _os

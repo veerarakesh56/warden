@@ -69,9 +69,17 @@ bump may carry a breaking change.
   - OpenRouter reads `OPENROUTER_API_KEY`;
   - a custom `WARDEN_BASE_URL` reads `WARDEN_API_KEY`;
   - a loopback model needs no key.
-- **The Claude CLI works behind a proxy or a private CA** (audit A-C-19). The proxy and CA-bundle
-  variables now pass to the CLI. HOME/USERPROFILE are still stripped, on purpose, because
-  measurement showed they load the operator's own configuration.
+- **The Claude CLI works behind a proxy, with a private CA, and in a minimal container** (audit
+  A-C-19). The proxy and CA-bundle variables pass to the CLI, and so do HOME/USERPROFILE and
+  `CLAUDE_CODE_OAUTH_TOKEN`.
+  - Why HOME/USERPROFILE now pass (decided 2026-09-30):
+    - they had been stripped because a 2026-09 measurement showed them loading the operator's own
+      configuration;
+    - that measurement predates the isolation flags (no setting sources, no tools, no MCP servers);
+    - re-measured with the flags: no configuration loaded either way, and the same latency.
+  - Still stripped:
+    - `CLAUDE_CONFIG_DIR` and `XDG_CONFIG_HOME`, which point the CLI at other configuration;
+    - `ANTHROPIC_API_KEY`, which would switch the subscription to API billing.
 - **Console tracing writes to stderr** (audit A-C-20). Spans on stdout corrupted the MCP server's
   JSON-RPC stream. A test runs the real server with tracing on and parses every stdout line. The
   span `service.version` now comes from the package: it said 0.8.0.
