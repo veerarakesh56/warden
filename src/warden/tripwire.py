@@ -55,10 +55,12 @@ SHORT_CHARS, SHORT_STEP_CHARS = 120, 60
 # a false alarm costs one human review.
 _SEGMENT = re.compile(r"(?<=[.;!?])\s+|\n+|,\s+|\s+(?=[A-Za-z_][\w.-]*=)")
 MIN_SEGMENT_CHARS = 20
-# The most model tokens one scan scores. Recorded incidents need at most 14,121 (p99 11,630, measured
-# 2026-09-30 over 337 reports); a full 512-token window costs about 0.85 s on a laptop CPU, so this
-# bounds a scan to about a minute. Over it, nothing is scored and the incident escalates (second
-# review, 2026-09-30): a flood of log text must buy neither an unscanned pass nor a stalled incident.
+# The most tokens of text one scan takes, counted in its long windows (about 1.25x the text, from their
+# overlap): some 26,000 tokens of what the model reads. Recorded incidents need at most 14,121 (p99
+# 11,630, measured 2026-09-30 over 337 reports). With the short windows and sentences, 14,003 tokens
+# took 86 s on a laptop CPU with the real model (2026-10-01), so a scan at the budget runs about three
+# minutes, inside prepare's 15. Over it, nothing is scored and the incident escalates (second review,
+# 2026-09-30): a flood of log text must buy neither an unscanned pass nor a stalled incident.
 MAX_SCAN_TOKENS = 32_768
 MAX_THRESHOLD = 0.99
 TOO_MUCH_TEXT = "TOO-MUCH-TEXT"
@@ -114,6 +116,10 @@ def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
     bad = [i for i, name in labels.items() if name in ("MALICIOUS", "LABEL_1")]
     if not bad:  # another model's labels (INJECTION/JAILBREAK): every score would be 0, silently
         raise ValueError("the model has no MALICIOUS label")
+    # In length order: a batch is padded to its longest row, and a 64-token window batched with 500-token
+    # ones cost as much as they did (a 4,003-token scan took 102 s; measured 2026-10-01, real model).
+    order = sorted(range(len(rows)), key=lambda i: len(rows[i]))
+    rows = [rows[i] for i in order]
     scores: list[float] = []
     for start in range(0, len(rows), 16):
         batch = rows[start:start + 16]
@@ -131,7 +137,10 @@ def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
             top = max(row)
             exp = [math.exp(v - top) for v in row]
             scores.append(sum(exp[i] for i in bad) / sum(exp))
-    return scores
+    out = [0.0] * len(scores)
+    for position, index in enumerate(order):
+        out[index] = scores[position]
+    return out
 
 
 def mode() -> str:
@@ -201,12 +210,17 @@ def scan(items: dict[str, Item], classify: Any = None, *,
         def cost(ws: list) -> int:
             return sum(len(w) for w in ws) if exact else sum(len(w) for w in ws) // 4
 
+        # The budget counts the text the model reads, once. Its short windows and sentences score that
+        # same text again (about 3x its tokens) and are bounded by it: counted too, 8,000 tokens of real
+        # evidence - under the 14,121 recorded incidents need - escalated as too much text (measured
+        # 2026-10-01 with the real model).
         windows, owner, size = [], [], 0
         for item_id, text in must:
-            ws = windows_of(text) + short_windows_of(text) + segment_windows_of(text)
+            long = windows_of(text)
+            ws = long + short_windows_of(text) + segment_windows_of(text)
             windows += ws
             owner += [item_id] * len(ws)
-            size += cost(ws)
+            size += cost(long)
         if size > MAX_SCAN_TOKENS:
             return "ran", {TOO_MUCH_TEXT: 1.0}
         scanned = 0

@@ -275,6 +275,11 @@ bump may carry a breaking change.
     `{'token': '<SECRET_1>'}` scored 0.93 and escalated every such incident.
   - In required mode only the exact `ran-partial: <n> of <m> log lines` counts as a run (C-9): any
     status merely starting with "ran-partial" passed.
+  - Correction found by re-timing with the real model (2026-10-01): the short windows were batched with
+    the long ones and padded to their length, so a 4,003-token scan took 102 s (15.5 s before), and the
+    budget counted every re-scoring, so 8,000 tokens of evidence - under what recorded incidents need -
+    escalated as too much text. Windows are now scored in length order (scores identical: 28 windows,
+    difference 0.000000) and the budget counts the text once: 4,003 tokens take 26 s, 14,003 take 86 s.
 - **Every copy of every secret is masked again** (fourth review, B-N1, a regression in 932d515).
   An exemption for "plain words and assignments" left a base64 key, a passphrase and a letters-only
   password in clear wherever they were repeated, and the outbound gate passed them. A test covers

@@ -35,7 +35,7 @@ with workflow.unsafe.imports_passed_through():
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
 QUICK = {"start_to_close_timeout": timedelta(seconds=60)}
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
-# prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about a minute):
+# prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
