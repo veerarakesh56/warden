@@ -22,6 +22,7 @@ from __future__ import annotations
 import functools
 import math
 import os
+import re
 from typing import Any
 
 from .evidence import Item
@@ -39,6 +40,17 @@ WINDOW_TOKENS, STEP_TOKENS = 500, 400   # + the model's special tokens <= 512; 1
                                         # an instruction straddling a cut is still whole in one window
 MAX_TOKENS = 512
 WINDOW_CHARS, STEP_CHARS = 400, 300     # a stand-in classifier without a model (tests): characters
+# The parts the MODEL reads are also scored in short windows. In one 500-token window, about 300 benign
+# characters before an instruction brought its score from 0.99 to below the threshold: 13 of 25 padded
+# placements were caught (fourth review, 2026-09-30). An instruction of up to 32 tokens lies whole in a
+# 64-token window with at most 32 tokens of anything else.
+SHORT_TOKENS, SHORT_STEP = 64, 32
+SHORT_CHARS, SHORT_STEP_CHARS = 120, 60
+# ... and sentence by sentence, field by field: an instruction written as its own sentence or field is
+# scored without the benign text around it (short windows alone still let 8 of 35 padded placements
+# through, measured 2026-09-30 with the real model).
+_SEGMENT = re.compile(r"(?<=[.;!?])\s+|\n+|,\s+|\s+(?=[A-Za-z_][\w.-]*=)")
+MIN_SEGMENT_CHARS = 20
 # The most model tokens one scan scores. Recorded incidents need at most 14,121 (p99 11,630, measured
 # 2026-09-30 over 337 reports); a full 512-token window costs about 0.85 s on a laptop CPU, so this
 # bounds a scan to about a minute. Over it, nothing is scored and the incident escalates (second
@@ -65,13 +77,13 @@ def _starts(n: int, window: int, step: int) -> list[int]:
     return sorted({*range(0, last, step), last})
 
 
-def _char_windows(text: str) -> list[str]:
-    return [text[s:s + WINDOW_CHARS] for s in _starts(len(text), WINDOW_CHARS, STEP_CHARS)]
+def _char_windows(text: str, window: int = WINDOW_CHARS, step: int = STEP_CHARS) -> list[str]:
+    return [text[s:s + window] for s in _starts(len(text), window, step)]
 
 
-def _id_windows(text: str, tokenizer: Any) -> list[list[int]]:
+def _id_windows(text: str, tokenizer: Any, window: int = WINDOW_TOKENS, step: int = STEP_TOKENS) -> list[list[int]]:
     ids = tokenizer(text, add_special_tokens=False)["input_ids"]
-    return [ids[s:s + WINDOW_TOKENS] for s in _starts(len(ids), WINDOW_TOKENS, STEP_TOKENS)]
+    return [ids[s:s + window] for s in _starts(len(ids), window, step)]
 
 
 def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
@@ -160,12 +172,26 @@ def scan(items: dict[str, Item], classify: Any = None, *,
         def windows_of(text: str) -> list:
             return _id_windows(text, classify.tokenizer) if exact else _char_windows(text)
 
+        def short_windows_of(text: str) -> list:
+            """Only where the text is longer than one short window: otherwise the long one IS it."""
+            if exact:
+                ws = _id_windows(text, classify.tokenizer, SHORT_TOKENS, SHORT_STEP)
+            else:
+                ws = _char_windows(text, SHORT_CHARS, SHORT_STEP_CHARS)
+            return ws if len(ws) > 1 else []
+
+        def segment_windows_of(text: str) -> list:
+            parts = [seg for seg in _SEGMENT.split(text) if len(seg.strip()) >= MIN_SEGMENT_CHARS]
+            if len(parts) < 2:
+                return []
+            return [w for seg in parts for w in windows_of(seg)]
+
         def cost(ws: list) -> int:
             return sum(len(w) for w in ws) if exact else sum(len(w) for w in ws) // 4
 
         windows, owner, size = [], [], 0
         for item_id, text in must:
-            ws = windows_of(text)
+            ws = windows_of(text) + short_windows_of(text) + segment_windows_of(text)
             windows += ws
             owner += [item_id] * len(ws)
             size += cost(ws)

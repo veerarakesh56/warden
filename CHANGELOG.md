@@ -260,6 +260,17 @@ bump may carry a breaking change.
     (`r0llb4ck`): Cyrillic, fullwidth and zero-width look-alikes spelled instructions.
   - The README no longer describes the removed re-scan.
   - Replayed over the recorded runs: no context, fact or verdict changed.
+- **The tripwire reads short windows and single sentences too** (fourth review, A-C-11).
+  - Benign padding in the same part diluted an injection: about 300 characters before it in an
+    alert summary, a long alert name, or ten fields in a deploy record let 12 of 35 padded
+    placements through. The parts the model reads are now also scored in 64-token windows and
+    sentence by sentence (field by field).
+  - Real Prompt Guard 2, 2026-09-30: 34 of 35 padded placements caught (was 23). On the 132-placement
+    set, 51 caught (was 46). No benign alert of 36 was flagged. 3 of 14 instruction-worded benign
+    texts (a "Revert: disregard the previous release" deploy note, a SYSTEM_PROMPT config) now
+    escalate to a person, up from 1. The owner chose this trade: a false alarm costs a review.
+  - The scan reads the labels key by key, as the prompt does: redacted as one dict,
+    `{'token': '<SECRET_1>'}` scored 0.93 and escalated every such incident.
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
   node-group instances and the ECS service's tasks are not tagged yet).

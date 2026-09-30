@@ -481,11 +481,15 @@ def node_tripwire(state: WardenState) -> WardenState:
     # them is still read whole; WARDEN's own words are in no part.
     alert, mapping = state["alert"], state.get("redaction_map", {})
     trusted = [i for i in evidence.view(state["context"]).values() if i.trusted and i.id[0] != "F"]
-    # One text, one map, as _prompt_parts does it.
-    red, _ = redact_many([_one_line(alert.name), _one_line(alert.summary), str(alert.labels),
-                          *(i.text for i in trusted)], mapping)
-    outside = {"ALERT": red[0] + "\n" + red[1], "LABELS": " ".join([red[2], alert.service, alert.environment])}
-    outside.update({i.id: t for i, t in zip(trusted, red[3:], strict=True)})
+    keys = list(alert.labels)
+    # One text, one map, and the labels key by key and value by value - exactly as _prompt_parts builds
+    # what the model reads. Redacted as one dict, `{'token': '<SECRET_1>'}` scored 0.93 on Prompt Guard 2
+    # and escalated every such incident, and the model read a value the scan never saw (fourth review).
+    red, _ = redact_many([_one_line(alert.name), _one_line(alert.summary), *keys,
+                          *(str(alert.labels[k]) for k in keys), *(i.text for i in trusted)], mapping)
+    labels = dict(zip(red[2:2 + len(keys)], red[2 + len(keys):2 + 2 * len(keys)], strict=True))
+    outside = {"ALERT": red[0] + "\n" + red[1], "LABELS": " ".join([str(labels), alert.service, alert.environment])}
+    outside.update({i.id: t for i, t in zip(trusted, red[2 + 2 * len(keys):], strict=True)})
     status, flagged = tripwire.scan(evidence.index(state["context"]), outside=outside)
     context = state["context"].model_copy(update={"tripwire": status, "suspected": flagged})
     return {"context": context,
