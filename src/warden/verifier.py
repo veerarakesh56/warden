@@ -436,11 +436,17 @@ def verify(
     if context.suspected:
         escalate = True
         policies.append("P16-SUSPECTED-INJECTION")
-        flagged = ", ".join(f"{i} ({s:.2f})" for i, s in sorted(context.suspected.items()))
-        reasons.append(f"The injection detector flagged untrusted evidence: {flagged}.")
+        if set(context.suspected) == {tripwire.TOO_MUCH_TEXT}:
+            reasons.append(f"The text the model reads is larger than the injection detector's budget "
+                           f"({tripwire.MAX_SCAN_TOKENS} tokens), so it was not scanned; a person reads it.")
+        else:
+            flagged = ", ".join(f"{i} ({s:.2f})" for i, s in sorted(context.suspected.items()))
+            reasons.append(f"The injection detector flagged untrusted evidence: {flagged}.")
     # ⛔ Audit A-C-12: in `required` mode ANY status but "ran" escalates - "off" (evidence handed in
     # by a caller that never ran the detector) used to pass.
-    elif tripwire.mode() == "required" and context.tripwire != "ran":
+    # "ran-partial" is a run: everything the model reads was scanned; only raw log lines the model never
+    # sees went past the budget.
+    elif tripwire.mode() == "required" and context.tripwire != "ran" and not context.tripwire.startswith("ran-partial"):
         escalate = True
         policies.append("P16-SUSPECTED-INJECTION")
         reasons.append(f"The injection detector is required here and could not run ({context.tripwire}).")

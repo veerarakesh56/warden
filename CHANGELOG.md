@@ -12,8 +12,9 @@ bump may carry a breaking change.
   its raw exception text as a trusted T item. That text can quote log content: a `KeyError` names
   the key it looked up. The model now sees `<reader>[ <source>]: <outcome>[ on <read operation>]`,
   built from a fixed vocabulary (access denied, timed out, not found, ...). The redacted raw text
-  stays in the audit and in the human report. Every tool error recorded in past runs keeps its
-  decisive fact under the new wording.
+  stays in the audit and in the human report. The outcome is tagged where the error is raised
+  (ea65387); an error recorded before that carries no tag and reaches the model as "failed
+  (unclassified)", never as its text.
 - **A log stream name can no longer forge a trusted config item** (audit A-C-3). Any task role can
   create a CloudWatch stream and choose its name, spaces included, and the name sits where WARDEN's
   own line structure is. Two fixes:
@@ -51,14 +52,16 @@ bump may carry a breaking change.
     - `whsec_` and `xapp-` tokens;
     - PGP private key blocks;
     - EC2 host names that carry an IP.
-  - The redactor no longer claims to be "verified": the re-scan proves that every value it found is
-    gone, not that nothing was missed.
+  - The redactor no longer claims to be "verified" (A-C-23). Its re-scan could only look for values
+    it had already found; it is removed (below), and the gate's G5 is the independent check.
 - **P15 needs evidence that bears on the action** (audit A-C-6):
   - a key must start a word ("ready" no longer matches "already");
   - generic symptoms (error, 5xx, timeout, request) no longer support `scale_up`;
   - `scale_down` on replica lag is now a P11 contradiction.
 
-  Replayed over all four recorded waves, not one verdict changed.
+  Replayed over the 60 recorded reports that carry citations (2026-09-30; the bench reports carry
+  none, so P13-P15 never ran on them): the first version changed three verdicts (k8s-02, -04, -05,
+  found by the second review); 45773cb restores them.
 - **The mutation check really runs every mutation on Windows.** It read files as bytes, so each
   multi-line anchor in a CRLF checkout was reported "missing" (6 of 35). It now matches line
   endings and restores byte for byte, and a test runs its real code path on every file. All 35 are
@@ -88,7 +91,9 @@ bump may carry a breaking change.
   - P5 needs a deploy of the rollback's target, not of any service;
   - P14 refuses targets that read as a flag or an assignment.
 
-  Replayed over the four recorded waves, no verdict changed.
+  Replayed over the 60 recorded reports that carry citations (2026-09-30): one verdict changed. A
+  db-05 proposal to act on `pid=4934` went from escalated to rejected; it names no resource and was
+  already P13.
 - **The outbound gate writes only text it has checked** (second review, A-C-1, A-C-8, A-C-9).
   - HTML entities are neutralised, never decoded.
   - `<` is neutralised outside placeholders, so no HTML block, comment or autolink can start.
@@ -134,7 +139,7 @@ bump may carry a breaking change.
     as the independent check.
 - **The tripwire reads what came from outside, not WARDEN's own words** (second review, A-C-11).
   - The real Prompt Guard 2 scored WARDEN's header 0.98.
-  - Measured 2026-09-30 on 36 benign alert texts: 0 flagged, down from 7-8.
+  - Measured 2026-09-30 on 36 benign alert texts: 0 flagged, down from 7 in WARDEN's own run and 9 in the second review's.
   - "Ignore previous instructions" in an alert is still caught (0.997-0.999).
   - Label values can no longer rewrite WARDEN's prompt markers.
 - **An apply is approved for its own run, or not at all** (third review, A-B-L13).
@@ -201,12 +206,15 @@ bump may carry a breaking change.
 - **The tripwire scores what the model sees, and fails closed** (audit A-C-11, A-C-12, A-C-21;
   commits bdb8a13 and e8278f2).
   - It is scored by token ids in windows of up to 512 tokens, so nothing is truncated.
-  - The rendered prompt is scanned as well as the untrusted lines.
+  - Everything the model reads that came from outside WARDEN is scanned, each part on its own: the
+    alert's name and summary, its labels, and each trusted item. The raw log lines, which the model
+    never sees, get the remaining budget; lines past it are reported as "ran-partial", not escalated.
   - In `required` mode, anything but a detector that actually ran escalates.
   - A threshold that is not a number is refused.
   - Scoring works without torch (CI runs without it).
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
-- **Every Terraform root tags `Project` and `Environment`** (owner rule R53).
+- **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its
+  node-group instances and the ECS service's tasks are not tagged yet).
   - The proving ground's `Project` tag changed from `warden-proving-ground` to `warden`.
   - This broke the harness's guards and the teardown sweep's tag filter: every fault injection
     would have refused, and leftovers tagged that way would not have been found. CI missed it
@@ -254,6 +262,12 @@ bump may carry a breaking change.
     - no step sent the profile ARN;
     - the old key could have been used by mistake.
 
+### Changed
+- **CI actions updated by Dependabot** (2026-09-28): actions/checkout 4.4.0 → 7.0.1 (9c63776),
+  aws-actions/configure-aws-credentials 4.3.1 → 6.3.0 (c902592), hashicorp/setup-terraform
+  3.1.2 → 4.0.1 (8980a43), actions/setup-python 5.6.0 → 7.0.0 (940ba81). Each stays pinned by SHA.
+- **SYSTEM-COMPONENTS lists live-verified prices** for the chosen components (40f5f0e, G0).
+
 ### ⚠ Correction to the entries above (independent review, 2026-09-28)
 
 An independent adversarial review refuted most of the G1 fixes listed above: they were incomplete,
@@ -271,7 +285,9 @@ all closed. In short:
 - **Several other checks were weaker than claimed (A-C-5, A-C-6, A-C-18, A-C-22, A-C-23, A-C-25).**
 - **CI on main was red for four commits:** ab900cd and 54180fb before 0fcbfbb fixed them, then
   bdb8a13 and 5a753da (2026-09-28 18:32 and 18:55 UTC / 2026-09-29 00:02 and 00:25 IST) before
-  e8278f2 fixed them. Each time the cause was a push made before CI on the previous one was green.
+  e8278f2 fixed them. ab900cd and bdb8a13 were pushed after the previous run was green and failed on
+  conditions only CI has (the k3d job; no torch). 54180fb and 5a753da were pushed onto the red main.
+  (Corrected 2026-09-30: this note first said every push came before CI was green.)
 
 ### ⚠ Second correction (second independent review, 2026-09-30)
 
@@ -294,6 +310,29 @@ was found. This note is removed only when a third review confirms the fixes.
 - **Records:** the proving-ground `Project` tag change broke the harness guards and the teardown
   sweep (a regression). The `ops` environment the W0-now steps tag with did not exist, and two owner
   steps named a wrong flag or a wrong file.
+
+### ⚠ Third correction (third independent review, 2026-09-30)
+
+A third independent review confirmed six fixes (A-C-1, A-C-5, A-C-12, A-C-14, A-C-22, A-C-26); their
+rows are closed. It found that the others still did not fully hold. Each open row in
+`docs/AUDIT-2026-09-28.md` names what was found. This note is removed only when a fourth review
+confirms the fixes.
+- **An approval could be replayed into a later run of the same workflow id (A-B-L13).** A kill switch
+  tripped during the approval wait was also missed. Fixed in 024d32c.
+- **The tripwire lost recall (A-C-11).** Joined into one text, real evidence in the same window
+  diluted an injection in the alert summary below the threshold: 38 of 132 caught. It now scans each
+  part on its own: 46 of 132 with the real model (2026-09-30), and 45 of 55 for the five payloads the
+  model flags at all. The other seven score below 0.04 even alone: the detector is a tripwire, and the
+  quarantine is what keeps log text from the model. No benign alert of 36 was flagged.
+- **The outbound gate can still be led to write structure (A-C-9),** with residual egress gaps (A-C-8).
+- **Partial:** tool-error tags (A-C-2, a regression in ea65387), redaction (A-C-4, A-C-23), P15
+  (A-C-6, a regression in 45773cb), quarantine (A-C-10), provider settings (A-C-18), P5 and P14
+  (A-C-25).
+- **Records:** R11, R31 and A-I-18 said things that were not true. The register accepted a planned or
+  negated window as DONE-live, and a test skipped through a marker alias, a module `pytestmark` or
+  `importorskip` as evidence. Both are now refused.
+- **CI on main was red a fifth time,** at ea65387: a ruff finding shown as a "hidden fix" was not run
+  to zero before the push. Fixed in 7d175af.
 
 ## [0.10.0] - 2026-09-28
 

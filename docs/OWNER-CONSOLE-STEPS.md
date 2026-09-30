@@ -11,10 +11,13 @@ Avoid the root user.
 
 ## ▶ NOW: W0-now - no more long-lived key (about 25 minutes of clicks, in 5 short sittings)
 
-> ⏸ **Wait for Claude's go-ahead before starting.** An independent review (2026-09-28) found gaps
-> in the first version of these steps: the chained sweep role was missing `sts:SetSourceIdentity`,
-> no step sent the profile ARN, the old key could have been used by mistake, and some plan items
-> were missing. This version fixes them. It will be re-verified before you are asked to start.
+> ⏸ **Wait for Claude's go-ahead before starting.** Independent reviews found gaps in earlier
+> versions of these steps. The first (2026-09-28): the chained sweep role was missing
+> `sts:SetSourceIdentity`, no step sent the profile ARN, the old key could have been used by mistake,
+> and some plan items were missing. The second and third (2026-09-30): a wrong helper flag, a file
+> that must be kept, no stop if the first sign-in is refused, no next-day check, an incomplete undo,
+> and a policy deleted before its decision (A-I-18). This version fixes them. The go-ahead comes only
+> after these steps are re-verified and CI on `main` is green.
 
 What this gives:
 - The laptop stops using an access key. It signs in to AWS with a certificate whose private key
@@ -45,7 +48,9 @@ use step G at once.
 - Whether a **Free-plan** account may use it is NOT confirmed. AWS says a Free-plan account gets
   "access to select AWS services" and lists none as blocked. On 2026-09-30 a read-only API call from
   this account got an ordinary IAM refusal (the old operator lacks the permission), not a plan block.
-  That is evidence, not proof. Step B1 is the real test.
+  That is evidence, not proof. The real test is Claude's first sign-in with the certificate, right
+  after B4. If the console refuses in B1, or that sign-in is refused because of the account plan,
+  the same stop applies (see B1).
 - IAM: free.
 - Secrets Manager: USD 0.40 per secret per month plus USD 0.05 per 10,000 calls, so about USD 0.40
   a month, covered by the Free-plan credits.
@@ -67,7 +72,8 @@ removed policy granted Access Analyzer.
 **B1. The trust anchor** (region Hyderabad).
 
 ⚠ If the console refuses because of the account plan (a message about the Free plan, upgrading, or a
-subscription), stop there and tell Claude. Step A stays done (it is a fix on its own), the laptop
+subscription), stop there and tell Claude. The same stop applies if Claude's first sign-in after B4
+is refused that way. Step A stays done (it is a fix on its own), the laptop
 keeps its access key, and the alternative is decided with you. Upgrading to the paid plan would end
 the Free plan's no-charge guarantee; the credits would still apply.
 
@@ -138,7 +144,8 @@ Claude then:
 
 **D. The Slack webhook into Secrets Manager** (region Hyderabad).
 1. Secrets Manager → **Store a new secret** → **Other type of secret** → **Plaintext** tab.
-2. Delete the `{}` and paste the one line from `%USERPROFILE%\.warden\slack-webhook` (Notepad).
+2. Click in the box, **Ctrl+A**, then paste the one line from `%USERPROFILE%\.warden\slack-webhook`
+   (Notepad).
 3. Encryption key `aws/secretsmanager` → **Next**.
 4. Name `warden/ops/slack-webhook`. Tags `Project` = `warden`, `Environment` = `ops` → **Next**.
 5. Leave rotation **off**. A webhook cannot rotate itself, and the Slack bot token replaces it
@@ -158,8 +165,10 @@ Claude compares the stored value with the file by hash, never printing either.
 3. Two days later, if nothing broke:
    1. Delete that access key.
    2. Delete the user `warden-operator`.
-   3. Delete the policies `WardenProvingGroundOperator`, `WardenProvingGroundOperatorRdsEks` (if it
-      exists) and `WardenFullstackOperator`, each only if its **Entities attached** tab is empty.
+   3. Delete the policies `WardenProvingGroundOperator` and `WardenProvingGroundOperatorRdsEks` (if
+      it exists), each only if its **Entities attached** tab is empty. Keep `WardenFullstackOperator`:
+      who runs the proving-ground harness is still undecided (audit A-I-18), and deleting it would
+      also make the 2026-09-28 undo below impossible.
    4. Keep `WardenOperatorGuardrails` and `WardenProvingGroundBoundary` until Claude says otherwise.
 4. Claude then deletes the plaintext files:
    - the moved credentials file;
@@ -174,6 +183,13 @@ Claude compares the stored value with the file by hash, never printing either.
    `terraform\proving-ground\terraform.tfvars` STAYS: the proving ground still reads your IP and
    budget email from it, and deleting it would break its next plan. It holds no secret and git
    ignores it.
+
+**E5. The next day** (after E1, and after every later AWS window).
+1. **Billing and Cost Management** → **Bills**: this month's charges. Tell Claude any service with a
+   charge above USD 0.00 other than Secrets Manager.
+2. **IAM** → **Access analyzer** → **Resource analysis** → **Active**: no findings is the goal.
+3. Claude runs the all-region sweep (`python scripts/account_sweep.py`) through the new role, and
+   records all three results, with the date in UTC and IST, under "W0-now results".
 
 **F. One date to read.** In the Temporal Cloud web UI (cloud.temporal.io), under Settings /
 Billing or Plan, read when the trial ends and the credits left, and tell Claude.
@@ -190,12 +206,20 @@ AWS's notification warns 45 days before. To renew:
    and the same ARN, so there are no trust policy changes.
 3. Claude removes the old certificate. Until then the helper picks the newer one, because the
    profile's `credential_process` passes `--use-latest-expiring-certificate`. Claude writes it that
-   way in step E2; the flag was checked in `aws_signing_helper credential-process --help` 1.8.5.
+   way when it adds the profile after B4 (step E2 only makes it the default); the flag was checked in
+   `aws_signing_helper credential-process --help` 1.8.5.
+
+The new certificate comes from a new CA, and the anchor trusts only the bundle it holds. So between
+step 1 and step 2 every sign-in fails: replace the bundle right after Claude runs `issue`.
 
 **Undo, if ever needed:**
-- A: user → **Add permissions** → attach `WardenProvingGroundOperator` again.
+- A: user → **Add permissions** → attach `WardenProvingGroundOperator` again, and
+  `WardenProvingGroundOperatorRdsEks` if step A4 removed it.
 - B: delete the profile, the role, the policy and the trust anchor.
 - C: paste the previous trust (it named `user/warden-operator`).
+- D: Secrets Manager → `warden/ops/slack-webhook` → **Actions** → **Delete secret**. AWS keeps it for
+  a recovery window of 7 to 30 days before it is gone; choose 7. The webhook file stays on the laptop
+  until step E4, so nothing is lost.
 - E1: reactivate the key, and Claude restores the credentials file. There is no undo after E3
   step 1, which is why E waits two days.
 
@@ -209,6 +233,7 @@ AWS's notification warns 45 days before. To renew:
 | Anthropic use-case form submitted | - | - |
 | Opus 5.5 global-profile quotas | - | - |
 | Temporal Cloud trial ends / credits left | - | - |
+| Next-day check (E5): charges, Access Analyzer findings, sweep | - | - |
 
 ---
 

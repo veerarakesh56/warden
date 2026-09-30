@@ -74,6 +74,19 @@ FALSE_CLAIMS = [
     (".github/dependabot.yml", "Every PR still runs the full CI, security job included",
      "paths-ignore skips the security job for infra/apps-only PRs"),
     ("tests/test_fullstack_infra.py", "retired in Phase 1.5 part 5", "the policy is still attached"),
+    # third review (2026-09-30): false records and owner steps
+    ("docs/OWNER-CONSOLE-STEPS.md", "exists) and `WardenFullstackOperator`, each only if",
+     "A-I-18 is undecided; keep WardenFullstackOperator"),
+    ("docs/OWNER-CONSOLE-STEPS.md", "Delete the `{}` and paste", "the box holds more than {}; Ctrl+A"),
+    ("docs/OWNER-CONSOLE-STEPS.md", "Step B1 is the real test.", "the real test is the first sign-in after B4"),
+    ("docs/ROADMAP.md", "~1 hour of the owner's time", "the steps say about 25 minutes"),
+    ("CHANGELOG.md", "Each time the cause was a push made before CI on the previous one was green.",
+     "ab900cd and bdb8a13 were pushed after green"),
+    ("CHANGELOG.md", "Every tool error recorded in past runs keeps its", "old runs read failed (unclassified)"),
+    ("CHANGELOG.md", "The rendered prompt is scanned as well", "only outside text is scanned"),
+    ("docs/REQUIREMENTS-TRACE.md", "recorded per window in OWNER-CONSOLE-STEPS", "it was not; step E5"),
+    ("docs/AUDIT-2026-09-28.md", "W0-now step A detaches the policy", "step A leaves WardenFullstackOperator"),
+    ("src/warden/data/environments.yaml", "secrets under /warden/ops/", "the secret is in Secrets Manager"),
 ]
 
 

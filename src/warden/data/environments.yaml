@@ -41,8 +41,9 @@
 
 version: 1
 
-# WARDEN's OWN environment: the runtime (runtime.yml in G6; names warden-ops-*, parameters and
-# secrets under /warden/ops/ - the W0-now secrets live there). NOT an application environment: no
+# WARDEN's OWN environment: the runtime (runtime.yml in G6; names warden-ops-*, parameters under
+# /warden/ops/, secrets in Secrets Manager under warden/ops/ - the W0-now Slack webhook is
+# warden/ops/slack-webhook). NOT an application environment: no
 # app pipeline deploys into it, no app IAM is rendered for it, and WARDEN never remediates it - it
 # gets the restrictive default policy, so an alert about WARDEN itself can only be escalated to a
 # person (P22 SELF-TARGET, planned). environments.names() and the account sweep's tag audit accept it.

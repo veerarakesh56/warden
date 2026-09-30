@@ -3,8 +3,10 @@
 Everything the owner has asked for across every session, from the requirements trace of
 2026-09-28, with the work group that delivers it (see [`ROADMAP.md`](ROADMAP.md)) and its status.
 
-`tests/test_register.py` enforces the statuses: a done row must cite a test that exists and is not
-skipped, and an open row cannot belong to a group that has already been finished.
+`tests/test_register.py` enforces the statuses: a DONE-local row must cite a test that exists and is
+not marked to skip (directly, through a marker alias, a module `pytestmark` or `importorskip`); a
+DONE-live row must start with the window and a past date; an open row cannot belong to a group that
+has already been finished. A skip decided at run time any other way is not detected.
 
 ## Requirements
 
@@ -20,7 +22,7 @@ skipped, and an open row cannot belong to a group that has already been finished
 | R8 | Research live, up to today, before choosing or claiming anything | G8 | OPEN | a standing working rule, not a window: 'W-research' was invented to mark it DONE-live (second independent review, 2026-09-30). Each decision's research is dated in docs/research/2026-09-28/ and in the commit that uses it; re-checked before v1.0 (G8) |
 | R9 | Prefer ready-made production tools over building from scratch | G4 | OPEN | |
 | R10 | Quality first; cost only to trim waste; flag every paid item with its cost | G3 | OPEN | |
-| R11 | Cost safety: nothing left running and billing | G0 | DONE-local | tests/test_account_sweep.py::test_untagged_billable_resources_are_found_and_free_defaults_are_not (the sweep tool; running it and the next-day billing check after every window is a procedure, recorded per window in OWNER-CONSOLE-STEPS) |
+| R11 | Cost safety: nothing left running and billing | G0 | DONE-local | tests/test_account_sweep.py::test_untagged_billable_resources_are_found_and_free_defaults_are_not (the sweep tool). Running it, plus the next-day billing and Access Analyzer check, after every window is an owner procedure: written as step E5 of W0-now in OWNER-CONSOLE-STEPS (added 2026-09-30 - the earlier claim that it was 'recorded per window' was untrue, third review). Last sweep: 2026-09-28 19:49 UTC / 2026-09-29 01:19 IST, clean |
 | R12 | Soak before faults; watch 30 min before destroy | G6 | OPEN | review 2026-09-28: regrouped from G0. The runner refuses a fault before a soak, but `--min-minutes` overrides the minimum and nothing enforces the 30-minute watch before destroy; enforcing both belongs to the W2/W3 runtime work |
 | R13 | Separate pipelines for infra, apps and the tool itself | G6 | OPEN | |
 | R14 | Claude Max CLI for development and benchmarks | G0 | DONE-local | tests/test_claude_cli_provider.py::test_it_is_registered_under_both_spellings (the claude_cli provider exists and resolves; which backend a run uses is configuration) |
@@ -40,7 +42,7 @@ skipped, and an open row cannot belong to a group that has already been finished
 | R28 | Approve and deny from Slack | G5 | OPEN | |
 | R29 | Screenshots, JSON reports and proofs of every live run | G6 | OPEN | |
 | R30 | A full, current architecture diagram in the README | G6 | OPEN | |
-| R31 | CI failures fixed, and CI never red | G3 | OPEN | review 2026-09-28: regrouped from G0. CI on main was red for FOUR commits - ab900cd and 54180fb (a k3d-only assertion; fixed in 0fcbfbb), then bdb8a13 and 5a753da (no torch in CI; fixed in e8278f2) - each time because a push was made before CI on the previous one was green. No test can prove 'never red'. The control is branch protection with required checks, an owner step in window W0 (G3) |
+| R31 | CI failures fixed, and CI never red | G3 | OPEN | review 2026-09-28: regrouped from G0. CI on main was red for FIVE commits: ab900cd (pushed after green; failed on the k3d-only job) and 54180fb (pushed onto the red main), fixed in 0fcbfbb; bdb8a13 (pushed after green; failed because CI has no torch) and 5a753da (pushed onto the red main), fixed in e8278f2; ea65387 (2026-09-30, a ruff error shown as a 'hidden fix' and not run to zero before the push), fixed in 7d175af. No test can prove 'never red'. The control is branch protection with required checks, an owner step in window W0 (after G3) |
 | R32 | Zero hardcoding; secrets only in AWS (Secrets Manager for secrets, SSM for config) | G3 | OPEN | |
 | R33 | No long-lived access keys anywhere | W0-now | OPEN | |
 | R34 | Per-environment everything: dev, staging, qa-staging, pre-prod, qa-prod, prod | G6 | OPEN | |

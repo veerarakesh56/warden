@@ -46,7 +46,6 @@ WINDOW_CHARS, STEP_CHARS = 400, 300     # a stand-in classifier without a model 
 MAX_SCAN_TOKENS = 32_768
 MAX_THRESHOLD = 0.99
 TOO_MUCH_TEXT = "TOO-MUCH-TEXT"
-PROMPT_ID = "PROMPT"  # the rendered prompt, scanned as one more untrusted text (audit A-C-11)
 
 
 def threshold() -> float | None:
@@ -127,24 +126,29 @@ def _malicious(result: list[dict]) -> float:
     return max((r["score"] for r in result if r["label"].upper() in ("MALICIOUS", "LABEL_1")), default=0.0)
 
 
-def scan(items: dict[str, Item], classify: Any = None, *, prompt: str = "") -> tuple[str, dict[str, float]]:
-    """(status, {id: score}) for every untrusted item - and the rendered `prompt`, as PROMPT - at or
-    above the threshold.
+def scan(items: dict[str, Item], classify: Any = None, *,
+         outside: dict[str, str] | None = None) -> tuple[str, dict[str, float]]:
+    """(status, {id: score}) for every text at or above the threshold.
 
-    ⛔ Audit A-C-11: only L/E lines were scanned, never the text that actually reaches the model -
-    the alert's own name and summary, labels, and anything a backend let through as trusted.
+    `outside` is what the MODEL reads that came from outside WARDEN - the alert's text, its labels, each
+    trusted item - scanned in full, EACH PART ON ITS OWN. Joined into one text, the real evidence in the
+    same 512-token window diluted a summary injection the model scores 0.99 alone down to 0.36 (third
+    review, 2026-09-30; audit A-C-11). The untrusted L/E lines are never shown to the model (only their
+    typed facts are); they are scanned with whatever budget is left, and a line past it is reported in
+    the status ("ran-partial: ..."), not escalated - a flood of log text must buy neither a pass for what
+    the model reads nor an escalation of every noisy incident.
 
-    status: "off", "ran", or "unavailable: <why>" (never the text of an error that could carry data).
+    status: "off", "ran", "ran-partial: <n> of <m> log lines", or "unavailable: <why>" (never the text of
+    an error that could carry data).
     """
     if mode() == "off" and classify is None:
         return "off", {}
     limit = threshold()
     if limit is None:
         return "unavailable: bad threshold", {}
-    texts = [(i.id, i.text) for i in items.values() if not i.trusted]
-    if prompt.strip():
-        texts.append((PROMPT_ID, prompt))
-    if not texts:
+    must = [(k, v) for k, v in (outside or {}).items() if v.strip()]
+    logs = [(i.id, i.text) for i in items.values() if not i.trusted]
+    if not must and not logs:
         return "ran", {}
     try:
         classify = classify or _classifier()
@@ -152,21 +156,40 @@ def scan(items: dict[str, Item], classify: Any = None, *, prompt: str = "") -> t
         return f"unavailable: model not loaded ({type(exc).__name__})", {}
     try:
         exact = hasattr(classify, "model") and hasattr(classify, "tokenizer")
-        windows, owner = [], []
-        for item_id, text in texts:
-            for window in (_id_windows(text, classify.tokenizer) if exact else _char_windows(text)):
-                windows.append(window)
-                owner.append(item_id)
-        size = sum(len(w) for w in windows) if exact else sum(len(w) for w in windows) // 4
+
+        def windows_of(text: str) -> list:
+            return _id_windows(text, classify.tokenizer) if exact else _char_windows(text)
+
+        def cost(ws: list) -> int:
+            return sum(len(w) for w in ws) if exact else sum(len(w) for w in ws) // 4
+
+        windows, owner, size = [], [], 0
+        for item_id, text in must:
+            ws = windows_of(text)
+            windows += ws
+            owner += [item_id] * len(ws)
+            size += cost(ws)
         if size > MAX_SCAN_TOKENS:
             return "ran", {TOO_MUCH_TEXT: 1.0}
+        scanned = 0
+        for item_id, text in logs:
+            ws = windows_of(text)
+            if size + cost(ws) > MAX_SCAN_TOKENS:
+                continue
+            windows += ws
+            owner += [item_id] * len(ws)
+            size += cost(ws)
+            scanned += 1
         if exact:
-            scores = _score_ids(classify, windows)
+            scores = _score_ids(classify, windows) if windows else []
         else:
-            scores = [_malicious(r) for r in classify(windows, batch_size=16)]
+            scores = [_malicious(r) for r in classify(windows, batch_size=16)] if windows else []
         worst: dict[str, float] = {}
         for item_id, score in zip(owner, scores, strict=True):
             worst[item_id] = max(worst.get(item_id, 0.0), score)
     except Exception as exc:  # noqa: BLE001 - missing library, no model access, a classify error (A-C-12)
         return f"unavailable: {type(exc).__name__}", {}
-    return "ran", {i: round(s, 3) for i, s in worst.items() if s >= limit}
+    status = "ran" if scanned == len(logs) else f"ran-partial: {scanned} of {len(logs)} log lines"
+    return status, {i: round(s, 3) for i, s in worst.items() if s >= limit}
+
+

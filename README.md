@@ -21,7 +21,7 @@ headline is 14 runs the gate should have stopped and did not — measured under 
 diagnoses got through (all `scale_up` on an OOM kill) and the harness stopped itself twice on its
 own bugs, both disclosed. **RDS PostgreSQL:** 6 scenarios (5 faults + 1 healthy control) × 3 runs, where no wrong diagnosis got
 through and the model was right wherever WARDEN could see the problem - and wrong where it could only
-count it. 2,797 tests (2026-09-30) plus 23 opt-in live-infrastructure tests (10 against a live
+count it. 2,840 tests (2026-09-30) plus 23 opt-in live-infrastructure tests (10 against a live
 Kubernetes cluster, 13 against five real database engines), 26 evals, a mutation check that breaks
 the code on purpose and requires the suite to notice, and CI that asserts the actual verdicts rather
 than the exit code. **Honest caveat:** the 2026-09-28 audit found tests that pass even with the guard

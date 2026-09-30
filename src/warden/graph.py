@@ -465,8 +465,19 @@ def node_tripwire(state: WardenState) -> WardenState:
     # The prompt as the model will get it, minus the typed-facts block (WARDEN's own values from lines
     # scanned one by one above). Rendered without it, never stripped from it: a pattern that removes
     # the block also removed an attacker's own fake markers (independent review 2026-09-28).
-    outside = "\n".join(text for text, came_from_outside in _prompt_parts(state, facts=False) if came_from_outside)
-    status, flagged = tripwire.scan(evidence.index(state["context"]), prompt=outside)
+    # Each part the model reads, on its own (third review, 2026-09-30: joined, real evidence diluted a
+    # summary injection below the threshold). Name and summary together, so a payload split across
+    # them is still read whole; WARDEN's own words are in no part.
+    alert, mapping = state["alert"], state.get("redaction_map", {})
+
+    def red(text: str) -> str:
+        return redact(text, mapping=mapping).text
+
+    outside = {"ALERT": red(_one_line(alert.name)) + "\n" + red(_one_line(alert.summary)),
+               "LABELS": " ".join([red(str(alert.labels)), alert.service, alert.environment])}
+    outside.update({i.id: red(i.text) for i in evidence.view(state["context"]).values()
+                    if i.trusted and i.id[0] != "F"})
+    status, flagged = tripwire.scan(evidence.index(state["context"]), outside=outside)
     context = state["context"].model_copy(update={"tripwire": status, "suspected": flagged})
     return {"context": context,
             "audit": [{"node": "tripwire", "status": status, "flagged": sorted(flagged)}]}

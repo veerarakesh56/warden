@@ -31,10 +31,11 @@ it, and every register row is either done or deferred with the owner's agreement
 |---|---|---|---|
 | W-T | Temporal Cloud namespace (aws-ap-south-2) | owner + Claude | **done 2026-09-28** |
 | G0 | Honesty and records: CHANGELOG/README corrections, the audit register, requirements trace, research record, `test_register`, docs honesty test, mutation-check fix, publish-check patterns | local | ~3 days |
-| W0-now | Urgent live fixes: the operator policy, IAM Roles Anywhere for the laptop (no password, no key), secrets moved to Secrets Manager and plaintext files deleted, Bedrock access check, trial and Free-plan end dates | owner console | ~1 hour of the owner's time |
+| W0-now | Urgent live fixes: the operator policy, IAM Roles Anywhere for the laptop (no password, no key), secrets moved to Secrets Manager and plaintext files deleted, Bedrock access check, trial and Free-plan end dates | owner console | about 25 minutes of clicks in 5 sittings, plus a next-day check (step E5) |
 | G1 | Security-critical fixes: quarantine holes, outbound gate on every egress, tripwire, redaction, removal of the in-process live paths, MCP read scoping, codec fail-closed, IAM isolation and CI hardening, vacuous tests rewritten | local | ~2 weeks → **v0.10.1** |
 | G2 | Workflow correctness: bounded retries, every path audited, the ≤ 2 model-call cap, remediation bound to incident/verdict/environment/target, full `plan_hash`, re-plan on drift, trust-zone queues, worker versioning | local | ~1.5 weeks |
 | G3 | The remaining Phase-2 register rows: intake, alert-text quarantine (measured first), real success checks, conflicts, freeze windows, model pinning and qualification, degraded mode, caps, Postgres audit, supply chain, zero hardcoding, backend and harness fixes | local | ~3 weeks → **v0.11.0** |
+| W0 | GitHub: branch protection with required checks, CODEOWNERS, every environment deploys only from `main`, the OIDC sub-claim customisation | owner (GitHub web UI) | after G3, $0 |
 | G4 | The new failure modes plus the research adoptions: compromised-model tests, ControlArena, blind diagnosis, admission policy and chaos in CI, sandbox-runtime, Scorecard/Checkov, model-weight verification | local + CI | ~3 weeks → **v0.12.0** |
 | G5a | Integrations: Prometheus evidence, GitOps detection, PagerDuty, Slack bot, passkey approval page, KMS signer, Bedrock provider | local | ~2.5 weeks |
 | W-B | Live Bedrock: model qualification (Opus 5.5 / Fable 5.1 / Sonnet 5), Petri audit, Gemini test | owner + Claude | 1 window |
