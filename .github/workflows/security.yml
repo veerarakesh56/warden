@@ -1,0 +1,32 @@
+name: workflow-scan
+
+# Every workflow file is scanned on EVERY change. The tool pipeline (ci.yml) is path-filtered so that
+# infra and apps changes do not run it - and with it, the workflow scan used to be skipped for exactly
+# the pipelines that hold cloud credentials (audit A-I-15).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-scan-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: zizmor over every workflow
+        run: |
+          pip install "zizmor==1.30.1"
+          zizmor --offline .github/workflows

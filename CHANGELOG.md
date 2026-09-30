@@ -315,8 +315,16 @@ bump may carry a breaking change.
   aws-actions/configure-aws-credentials 4.3.1 → 6.3.0 (c902592), hashicorp/setup-terraform
   3.1.2 → 4.0.1 (8980a43), actions/setup-python 5.6.0 → 7.0.0 (940ba81). Each stays pinned by SHA.
 - **SYSTEM-COMPONENTS lists live-verified prices** for the chosen components (40f5f0e, G0).
-- **CI is faster.** Unit tests run in parallel across the runner's cores (pytest-xdist 3.8), and pip
-  downloads are cached. Before: 2 min 21 s per push, the unit tests alone 100 s on one core.
+- **CI is faster and stricter.**
+  - Unit tests run in parallel across the runner's cores (pytest-xdist 3.8); pip downloads are
+    cached. The check job went from 145 s to 98 s.
+  - Image builds reuse cached layers (BuildKit's GitHub Actions cache), and the Dockerfile installs
+    dependencies in their own layer, so a source change does not reinstall them.
+  - A newer push to a pull request cancels the run it supersedes; every job has a timeout.
+  - k3d is a pinned release checked against a pinned SHA-256 (A-I-24); it was the install script from
+    k3d's main branch, piped into bash.
+  - A workflow scan (zizmor) runs on every change, including the infra and apps pipelines that
+    hold cloud credentials: the tool pipeline's path filters skipped it for them (A-I-15).
 
 ### ⚠ Correction to the entries above (independent review, 2026-09-28)
 
