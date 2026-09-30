@@ -1,6 +1,6 @@
 import pytest
 
-from warden.redaction import RedactionLeak, redact, redact_many
+from warden.redaction import redact, redact_many
 
 
 def test_scrubs_the_obvious_identifiers():
@@ -207,17 +207,15 @@ def test_restore_round_trips():
     assert r.restore(r.text) == text
 
 
-def test_leak_guard_can_fire():
-    """The guard has to be able to fail, or it is not a guard.
+def test_the_independent_leak_check_is_the_gate_not_the_redactor():
+    """The re-scan inside redact() used the sweep's own rule, so it could never fire on a real leak
+    (second review, 2026-09-30) and was removed. The independent check is the outbound gate's G5,
+    which re-runs every pattern on what leaves - and blocks."""
+    from warden import gate
 
-    The final sweep masks the copies the patterns' boundaries missed, by the rule in `_sweep`, so a
-    normal `redact()` run leaves nothing for the check to find. The guard is tested directly: hand
-    `_assert_clean` an output where a mapped original survived, and it must raise.
-    """
-    from warden.redaction import _assert_clean
-
-    with pytest.raises(RedactionLeak):
-        _assert_clean("the secret alice@corp.io is still here", {"<EMAIL_1>": "alice@corp.io"})
+    assert "EMAIL" not in gate.leaked_kinds("the secret alice@corp.io is still here")  # showable kind
+    key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+    assert gate.enforce(f"a key {key} is still here").verdict == "BLOCK"
 
 
 def test_survives_a_value_embedded_in_a_larger_token():
@@ -247,7 +245,7 @@ def test_a_secret_that_looks_like_a_placeholder_token_does_not_corrupt():
     must leave existing placeholders alone, and the leak guard must not false-alarm on the coincidence.
     """
     text = "tenant_id=UUID_1 trace 3f2504e0-4f89-11d3-9a0c-0305e82c3301"
-    r = redact(text)  # must not raise RedactionLeak
+    r = redact(text)
     assert "<<" not in r.text and ">>" not in r.text, f"corrupted placeholder: {r.text!r}"
     assert r.text.count("<UUID_1>") == 1
     assert r.text.count("<TENANT_1>") == 1

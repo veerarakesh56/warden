@@ -72,11 +72,11 @@ MUTATIONS = [
         ),
     ),
     (
-        "redaction leak check disabled",
+        "redaction one-text pass disabled",
         "redaction.py",
-        "        if rx is not None and rx.search(free_text):",
-        "        if False:",
-        "a secret surviving redaction would be silently sent to the model",
+        "        mapping = redact(item, mapping=mapping).mapping",
+        "        pass",
+        "a secret found in a later line would stay in clear in the earlier ones",
     ),
     (
         "redaction sweep stops protecting existing placeholders",

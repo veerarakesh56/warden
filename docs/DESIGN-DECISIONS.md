@@ -21,11 +21,16 @@ Redaction after the fact is not a control; it is a cleanup.
 
 ## 3. How is the redaction known to work?
 
-It re-scans its own output and raises `RedactionLeak` if a value it found survived: every copy of a
-secret, every standalone copy of an identifier (a bare "500" is not taken for the tenant
-`user_id=500`). It cannot see a secret no pattern matched. **The guard has a test proving it can
-fail** — `test_leak_guard_can_fire` in `tests/test_redaction.py`. A guard nobody has watched reject
-something is not a guard.
+Patterns find values; a sweep then masks every copy of a found secret and every standalone copy of a
+found identifier (a bare "500" is not taken for the tenant `user_id=500`), across all of an
+incident's text at once (`redact_many`: a value found in a later line is masked in the earlier ones).
+A plain word after a credential key ("--token not set", "api_key=true") is not taken for its value.
+Nothing here can see a secret no pattern matched.
+
+The check that CAN fail is the outbound gate's G5, which re-runs every pattern on what leaves and
+blocks the message (`tests/test_gate.py`, `tests/test_cli.py`). An earlier re-scan inside `redact()`
+used the sweep's own rule, so it could never fire on a real leak; the second independent review
+(2026-09-30) found that, and it was removed.
 
 ⚠ Honest limit: it is regex-based. Strong against accidental leakage, not a guarantee against a
 determined adversary.

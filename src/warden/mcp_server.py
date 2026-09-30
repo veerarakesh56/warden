@@ -37,7 +37,7 @@ from .models import (
     RootCause,
     Severity,
 )
-from .redaction import redact
+from .redaction import redact, redact_many
 from .tools import FixtureBackend, gather
 from .verifier import MIN_CONFIDENCE, MIN_LOG_LINES, MIN_METRICS, verify
 
@@ -149,7 +149,7 @@ def _tools() -> list[types.Tool]:
                 "connection-string passwords, JWTs/bearer tokens, and cloud credentials across AWS "
                 "(ARN, account/secret keys), GCP (AIza, ya29. tokens) and Azure (AccountKey, SAS "
                 "sig), plus GitHub/GitLab/Slack/Stripe keys, password=/secret= values and tenant "
-                "ids. Fails if a value it found survived; it cannot see a secret no pattern knows. "
+                "ids; every copy of a found secret is masked. It cannot see a secret no pattern knows. "
                 "Use before putting logs into any prompt."
             ),
             input_schema={
@@ -387,30 +387,27 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                 started_at="1970-01-01T00:00:00Z",
             )
             ctx = gather(alert, FixtureBackend())
-            redacted, mapping = [], {}
-            for line in ctx.logs:
-                r = redact(line, mapping=mapping)
-                mapping = r.mapping
-                redacted.append(r.text)
+            # ONE text (second review, 2026-09-30): logs, deploys and tool errors share one map, so one
+            # host is one placeholder and a secret found anywhere is masked everywhere.
+            deploy_keys = [(i, k) for i, d in enumerate(ctx.recent_deploys) for k in d]
+            texts = [*ctx.logs, *(str(ctx.recent_deploys[i][k]) for i, k in deploy_keys), *ctx.tool_errors]
+            out, mapping = redact_many(texts)
+            redacted = out[:len(ctx.logs)]
+            redacted_deploys = [{} for _ in ctx.recent_deploys]
+            for (i, k), text in zip(deploy_keys, out[len(ctx.logs):len(ctx.logs) + len(deploy_keys)], strict=True):
+                redacted_deploys[i][k] = text
+            redacted_errors = out[len(ctx.logs) + len(deploy_keys):]
             # recent_deploys must be scrubbed too. This handler reads the bundled fixtures only, whose
             # deploys carry identifiers; a live backend's would carry ECR refs (the host embeds the
             # account id) and role ARNs. This payload goes to the external MCP client/model; returning deploys raw was the same leak
             # the graph path had (fixed there), on a second code path. Tool errors share the map
             # (audit A-C-5); metrics are floats.
-            redacted_deploys = []
-            for deploy in ctx.recent_deploys:
-                scrubbed = {}
-                for key, value in deploy.items():
-                    dr = redact(str(value), mapping=mapping)
-                    mapping = dr.mapping
-                    scrubbed[key] = dr.text
-                redacted_deploys.append(scrubbed)
             return _ok(
                 {
                     "logs": redacted,
                     "metrics": ctx.metrics,
                     "recent_deploys": redacted_deploys,
-                    "tool_errors": [redact(e, mapping=mapping).text for e in ctx.tool_errors],
+                    "tool_errors": redacted_errors,
                     "identifiers_masked": len(mapping),
                 }
             )

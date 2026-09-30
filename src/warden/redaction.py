@@ -1,13 +1,14 @@
-"""Pattern-based redaction, with a check that every value it FOUND is gone.
+"""Pattern-based redaction.
 
-Every string is scrubbed before it can reach the model. After substitution the output is re-scanned
-for each value a pattern matched - every copy of a SECRET, and every standalone copy of an
-identifier - and one that survives is a hard failure that halts the run rather than a warning nobody
-reads. A bare "500" elsewhere in the text is not treated as the tenant `user_id=500` (see _sweep).
+Every string is scrubbed before it can reach the model. Patterns FIND values; a final sweep then masks
+the other copies of each found value - every copy of a SECRET, every standalone copy of an identifier
+(see _sweep). Strings that belong together (one incident's lines, labels, errors) are redacted as ONE
+text: a value found in any of them is masked in all of them (redact_many, second review 2026-09-30).
 
-⚠ What that check is not (audit A-C-23): it cannot see a secret NO pattern matched. It proves the
-substitution was complete, not that the patterns are. The patterns are the control; HIGHENTROPY is
-their backstop; the outbound gate's G5 re-runs them on everything that leaves.
+⚠ What this is not (audit A-C-23): nothing here can see a secret NO pattern matches. The patterns are
+the control; HIGHENTROPY is their backstop; the outbound gate's G5 re-runs them, independently, on
+everything that leaves. (A re-scan inside redact() used the sweep's own rule and could never fire, so
+it was removed - second review, 2026-09-30.)
 """
 
 from __future__ import annotations
@@ -25,9 +26,11 @@ from dataclasses import dataclass, field
 # placeholder (`api_key=<APIKEY_1>`) is never re-matched and corrupted.
 # A credential command-line flag: any name with `--`; with a single `-` only password/passwd, since
 # `-token` or `-secret` is as often a word in a message as a flag.
-_CRED_FLAG = (r"(?i)(?<![\w-])(?:--(?:db-|admin-|root-|master-|client-|auth-|access-|api-)?"
+_CRED_FLAG = (r"(?i)(?<![\w-])(?:--(?:[a-z0-9]+-){0,2}"
               r"(?:password|passwd|pass|pwd|secret|token|api-?key|access-key|secret-key|private-key|"
               r"auth-token|access-token)|-(?:password|passwd))(?![\w-])")
+# Space between a flag and its value: a no-break space (and the other Unicode spaces) as well.
+_SP = "[ \t\u00a0\u2000-\u200a\u202f\u205f\u3000]"
 
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # A whole PEM private key block — the highest-value secret that turns up in a misconfig dump.
@@ -42,10 +45,12 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Slack (xoxb-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_), npm (npm_).
     # AKIA/ASIA share one shape (prefix + 16 base32); ASIA is the temporary sibling that travels
     # with a session token in AssumeRole/SSO bundles and appears bare in botocore errors.
-    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|glrt-|AIza|npm_|hf_|hvs\.|hvb\.|whsec_|xapp-)[A-Za-z0-9_\-]{8,}\b")),
+    ("APIKEY", re.compile(r"\b(?:sk-ant-|sk-|sk_live_|sk_test_|rk_live_|rk_test_|pk_live_|github_pat_|ghp_|gho_|ghu_|ghs_|ghr_|AKIA|ASIA|xox[baprs]-|glpat-|glrt-|AIza|npm_|hf_|hvs\.|hvb\.|xapp-)[A-Za-z0-9_\-]{8,}\b")),
     # 2026-09-27 audit: shapes that passed unredacted. SendGrid keys carry dots.
     ("APIKEY", re.compile(r"\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}")),
     ("APIKEY", re.compile(r"\bwhsec_[A-Za-z0-9+/=_\-]{8,}")),  # Stripe webhook secrets carry + and /
+    # Legacy Vault tokens: s. (service), b. (batch), r. (recovery), with a digit somewhere.
+    ("APIKEY", re.compile(r"\b[sbr]\.(?=[A-Za-z]*\d)[A-Za-z0-9]{16,}\b")),
     # GCP OAuth2 access token (ya29.<long>). Masked whole and BEFORE the phone pattern, which would
     # otherwise fragment a digit-run inside it and leave the rest exposed. Cloud-neutral: GCP.
     ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
@@ -137,20 +142,26 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Header values and client flags that carry a credential whole (2026-09-27 audit).
     ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
     ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
-    ("SECRET", re.compile(r"\bmysql(?:dump|admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
     # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
     # `--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
     # resource names from the evidence). Same line only; a value never starts with `-` or a quote.
     # `=` or whitespace before the opening quote: in JSON argv `"--password","x"` the quote right
     # after the flag is the flag's own closing quote, not the value's opening one.
-    ("SECRET", re.compile(_CRED_FLAG + r"(?:[ \t]*=[ \t]*|[ \t]+)\"([^\"\n<][^\"\n]{0,255})\"")),
-    ("SECRET", re.compile(_CRED_FLAG + r"(?:[ \t]*=[ \t]*|[ \t]+)'([^'\n<][^'\n]{0,255})'")),
-    ("SECRET", re.compile(_CRED_FLAG + r"(?:=|[ \t]+)(?![-\"'])([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"(?i)\"--?(?:password|passwd|api-key|apikey|token|secret)\"\s*,\s*\"([^\"<]{1,256})\"")),
+    ("SECRET", re.compile(_CRED_FLAG + rf"(?:{_SP}*={_SP}*|{_SP}+)\"([^\"\n<][^\"\n]{{0,255}})\"")),
+    ("SECRET", re.compile(_CRED_FLAG + rf"(?:{_SP}*={_SP}*|{_SP}+)'([^'\n<][^'\n]{{0,255}})'")),
+    # `docker build --secret id=npmrc,src=.npmrc` names a secret; it is not one.
+    ("SECRET", re.compile(_CRED_FLAG + rf"(?:=|{_SP}+(?![A-Za-z_][\w.-]*=))(?![-\"'])([^\s\"'<]{{3,}})")),
+    ("SECRET", re.compile(r"(?i)\"--?(?:[a-z0-9]+-){0,2}(?:password|passwd|pass|pwd|api-?key|apikey|token|secret)"
+                          r"\"\s*,\s*\"([^\"<]{1,256})\"")),
+    # Client tools whose short flag carries the password (same line only).
     ("SECRET", re.compile(r"\bredis-cli\b[^\r\n]*?[ \t]-a[ \t]+([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"\bsshpass[ \t]+-p[ \t]*([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\bdocker[ \t]+login\b[^\r\n]*?[ \t]-p[ \t]+([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u|--user)[ \t]+[^:\s]+:([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\b(?:docker[ \t]+login|mongo(?:sh)?|az[ \t]+login)\b[^\r\n]*?[ \t]-p[ \t]+([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bsqlcmd\b[^\r\n]*?[ \t]-P[ \t]*([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bldap\w*\b[^\r\n]*?[ \t]-w[ \t]+([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bhtpasswd\b[^\r\n]*?[ \t]-\w*b\w*[ \t]+\S+[ \t]+\S+[ \t]+([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u[ \t]*|--user(?:=|[ \t]+))[^:\s]+:([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
     # A quoted secret value is masked WHOLE: `password='hunter 2 x'` used to leak "2 x".
     ("SECRET", re.compile(
@@ -169,7 +180,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"|key[_\-]?data|cert(?:ificate)?[_\-]?data"
         # session cookies are live bearer credentials: sessionid, JSESSIONID, PHPSESSID, connect.sid.
         r"|session[_\-]?id|jsessionid|phpsessid|sessid|connect\.sid"
-        r"|client[_\-]?secret|credential|token|pass(?=[\"']?\s*[:=])|session(?=[\"']?\s*[:=]))[\w.\-]{0,20}"
+        r"|client[_\-]?secret|credential|token|pass(?=[\"']?\s*[:=])|auth(?=[\"']?\s*[:=])"
+        r"|session(?=[\"']?\s*[:=]))[\w.\-]{0,20}"
         # optional closing quote after the key so a JSON credential ("password": "x") is matched too
         r"[\"']?\s*[:=]\s*[\"']?"
         # The value: any non-separator char, OR a comma that does NOT begin a new key=value pair
@@ -186,12 +198,22 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+# Words that follow a credential key or flag in prose - "--token not set", "password: field
+# required", "api_key=true", usage text "--password PASSWORD" - and are not its value. Masked, each
+# was also swept from every other line ("invalidating" -> "<SECRET_1>ating", second review 2026-09-30).
+# A password that IS one of these words is not protected by redaction anyway.
+_NOT_A_VALUE = frozenset({
+    "not", "set", "unset", "flag", "flags", "argument", "arguments", "option", "options", "is", "was",
+    "are", "be", "required", "missing", "invalid", "field", "value", "values", "must", "should", "true",
+    "false", "null", "none", "nil", "empty", "provided", "given", "supplied", "expired", "rejected",
+    "denied", "incorrect", "wrong", "deprecated", "changed", "rotated", "reset", "found", "specified",
+    "configured", "needed", "ok", "yes", "no", "on", "off", "enabled", "disabled", "password",
+    "passwd", "pass", "pwd", "secret", "secrets", "token", "tokens", "key", "apikey", "api_key",
+    "credential", "credentials", "redacted", "hidden", "masked", "file", "env", "stdin",
+})
+
 # A placeholder token, captured so `re.split` keeps it as its own segment: `<LABEL_123>`.
 _PLACEHOLDER = re.compile(r"(<[A-Z][A-Z0-9]*_\d+>)")
-
-
-class RedactionLeak(RuntimeError):
-    """A secret survived redaction. Always fatal — never downgraded to a warning."""
 
 
 @dataclass
@@ -228,6 +250,8 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
         def _sub(m: re.Match[str], label: str = label) -> str:
             # group(1) exists for TENANT, where only the value is sensitive, not the key name.
             original = m.group(1) if m.groups() else m.group(0)
+            if label == "SECRET" and original.lower().strip(".,;:)(") in _NOT_A_VALUE:
+                return m.group(0)
             if original in reverse:
                 placeholder = reverse[original]
             else:
@@ -257,8 +281,6 @@ def redact(text: str, *, mapping: dict[str, str] | None = None) -> RedactionResu
             if rx is not None:
                 parts[i] = rx.sub(placeholder, parts[i])
     out = "".join(parts)
-
-    _assert_clean(out, mapping)
     return RedactionResult(text=out, mapping=mapping)
 
 
@@ -293,28 +315,13 @@ def _sweep(placeholder: str, original: str) -> re.Pattern[str] | None:
     return re.compile(rf"(?<![A-Za-z0-9]){re.escape(original)}(?![A-Za-z0-9])")
 
 
-def _assert_clean(redacted: str, mapping: dict[str, str]) -> None:
-    """Read the value back. A setter that succeeds can still have clamped.
-
-    Only the text OUTSIDE placeholders counts. A secret value that happens to equal a placeholder's
-    internal text - a tenant literally named `UUID_1`, which collides with the token `<UUID_1>` - is
-    not a leak of that value; the real value is gone and only the label coincides. Stripping whole
-    `<LABEL_N>` tokens first means a genuine free-text leak is still caught (it is not part of a
-    token, so it survives the strip), while the coincidence is not a false alarm that refuses the run.
-    """
-    free_text = _PLACEHOLDER.sub(" ", redacted)
-    for placeholder, original in mapping.items():
-        rx = _sweep(placeholder, original)
-        if rx is not None and rx.search(free_text):
-            raise RedactionLeak(
-                f"{placeholder} was substituted but its original value is still present in the "
-                f"redacted text. Refusing to send this to the model."
-            )
-
-
-def redact_many(items: list[str]) -> tuple[list[str], dict[str, str]]:
-    """Redact a list while keeping one shared placeholder namespace."""
-    mapping: dict[str, str] = {}
+def redact_many(items: list[str], mapping: dict[str, str] | None = None) -> tuple[list[str], dict[str, str]]:
+    """Redact several strings as ONE text, with one placeholder namespace: a value found in any of them
+    is masked in all of them. One pass left a secret found in a later line in clear in the earlier
+    ones (second review, 2026-09-30); the first pass now only finds, the second masks."""
+    mapping = dict(mapping or {})
+    for item in items:
+        mapping = redact(item, mapping=mapping).mapping
     out: list[str] = []
     for item in items:
         result = redact(item, mapping=mapping)

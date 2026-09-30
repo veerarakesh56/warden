@@ -10,7 +10,7 @@ import pytest
 
 from warden.graph import node_redact
 from warden.models import Alert, ContextBundle
-from warden.redaction import RedactionLeak, _assert_clean, redact
+from warden.redaction import redact
 
 ALERT = Alert(alert_id="r", name="n", severity="high", service="orders", environment="staging",
               summary="s", started_at="2026-09-28T10:00:00Z")
@@ -35,12 +35,6 @@ def test_a_value_found_once_is_masked_everywhere(found, elsewhere, value):
 def test_status_codes_and_common_words_are_not_rewritten():
     out = redact("user_id=500 tenant_id=prod GET /cart HTTP 500 in prod")
     assert "HTTP 500 in prod" in out.text
-
-
-def test_the_leak_check_catches_a_surviving_secret():
-    """A-C-4: `_assert_clean` re-ran the sweep's own rule, so it could never fire."""
-    with pytest.raises(RedactionLeak):
-        _assert_clean("then abc12 again", {"<SECRET_1>": "abc12"})
 
 
 def test_a_found_value_reaches_a_trusted_config_item_masked():

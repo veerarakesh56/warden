@@ -19,6 +19,12 @@ FALSE_CLAIMS = [
     ("docs/DESIGN-DECISIONS.md", "raises `RedactionLeak` if any original value survived",
      "found values only, by the _sweep rule"),
     ("src/warden/redaction.py", "GUARANTEES none of the found values", "the sweep follows _sweep's rule"),
+    # second review (2026-09-30): the in-redact re-scan could never fire and was removed
+    ("README.md", "a re-scan raises if one survived", "the independent check is the gate's G5"),
+    ("docs/ai-boundary.md", "raises if a value it found survived", "the independent check is the gate's G5"),
+    ("docs/DESIGN-DECISIONS.md", "raises `RedactionLeak` if a value it found survived", "removed; G5 is the check"),
+    ("src/warden/mcp_server.py", "Fails if a value it found survived", "the re-scan was removed"),
+    ("README.md", "156 recorded incident prompts: no false alarm", "7-8 of 36 benign alert texts were flagged"),
     ("tests/test_redaction.py", "can no longer produce a leak", "the sweep follows _sweep's rule"),
     ("docs/SYSTEM-COMPONENTS.md", "verifier P1–P15", "there are sixteen (P1-P16)"),
     # audit A-C-18: each vendor host reads its own key variable

@@ -27,9 +27,10 @@ Two nodes carry the argument.
 
 **`redact` runs before any token reaches the model.** Not because the model is untrustworthy with
 data, but because sending customer identifiers to a third party is a decision the system should not
-be able to make by accident. The redactor re-scans its own output and raises if a value it found survived (every copy of a
-secret; every standalone copy of an identifier) - the check can fail, and a test proves it does. It
-cannot see a secret no pattern matched.
+be able to make by accident. The redactor masks every copy of a secret it found and every standalone
+copy of an identifier, across all of an incident's text at once. The independent check is the
+outbound gate's G5, which re-runs every pattern on what leaves and blocks a secret. Nothing can see a
+secret no pattern matched.
 
 **`verify` runs after everything the model produced.** It is plain Python over typed data: no
 prompt, no probability, no model call. It answers a different question from the model's. The model

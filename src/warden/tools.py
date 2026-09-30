@@ -226,7 +226,8 @@ def gather(
                         # ⛔ Audit A-C-5: raw here, like the logs. node_redact scrubs tool errors with
                         # the run's ONE placeholder map; scrubbing them here with a fresh map gave
                         # `<IPV4_1>` two meanings - one host in a tool error, another in the logs.
-                        bundle.tool_errors.append(f"{name}: {p[len(PARTIAL_PREFIX):]}")
+                        text = p[len(PARTIAL_PREFIX):]
+                        bundle.tool_errors.append(text if text.startswith(f"{name}: ") else f"{name}: {text}")
                     sp.set_attribute("warden.tool.partial_failures", len(partial))
                     if sink == "logs":
                         result = _bounded(result, bundle.tool_errors)

@@ -60,6 +60,15 @@ _LABEL_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}")
 # no metacharacter, and would still be read as a flag where the value lands in a command.
 _LABEL_VALUE = re.compile(r"(?!-)(?!.*[,=]-)[A-Za-z0-9._:/@,=+-]{0,253}")
 NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,252}$"
+# Label keys whose value is a RESOURCE NAME WARDEN reads (the backends' `labels.get(...)` keys). Their
+# values are never redacted as credentials: `secret=warden-dev-db-app` names a Secrets Manager secret,
+# and masking it also masked the resource in WARDEN's own config lines (second review, 2026-09-30).
+RESOURCE_LABELS = frozenset({
+    "alb_target_group", "apigw", "app", "aurora_cluster", "cluster", "database", "db_instance", "deployment",
+    "dynamodb_table", "ecs_cluster", "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule",
+    "instance_id", "lambda", "log_group", "log_stream_prefix", "namespace", "region", "secret", "selector",
+    "sns_topic", "sqs",
+})
 
 
 class Alert(BaseModel):
