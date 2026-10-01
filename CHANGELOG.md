@@ -494,6 +494,9 @@ bump may carry a breaking change.
   Three tests that weaker code passed now fail it: the hook test judges each hook by itself (a fix
   taking all three whenever `sys.excepthook` is Python's - pytest's own case - passed), the fence test
   uses markers past 12 characters, and the weekly-audit test checks that its cron fires every week.
+  A bad command-line argument is printed through the gate like every other error: argparse echoed it raw,
+  so an escape sequence or a key typed on the command line reached the terminal (sixth review NEW-3, still
+  present at the seventh). A usage error now exits 2 with one gated line.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

@@ -384,6 +384,16 @@ def _no_controls(value):
     return value
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse writes a bad argument back to stderr raw - an escape sequence, or a key typed on the command line
+    (sixth review NEW-3, seventh review). Its error becomes SystemExit text, which main() prints through the gate
+    like every other error; the usage line holds nothing typed and is printed as argparse does."""
+
+    def error(self, message: str):  # type: ignore[override]
+        self.print_usage(sys.stderr)
+        raise SystemExit(f"{self.prog}: {message}")
+
+
 def main(argv: list[str] | None = None) -> int:
     """The CLI. An uncaught error is printed as one gated line, never as a raw traceback: the error
     text can quote evidence, a key or an escape sequence (independent review 2026-09-28)."""
@@ -422,7 +432,7 @@ def _main(argv: list[str] | None = None) -> int:
 
     install_log_gate()  # before anything can log: no raw last-resort handler for any command
     _load_environment()
-    parser = argparse.ArgumentParser(prog="warden", description=__doc__)
+    parser = _Parser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_run = sub.add_parser("run", help="run one incident through the graph")

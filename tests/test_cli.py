@@ -8,8 +8,6 @@ other module was tested through its API while the actual entry point was not exe
 import json
 from datetime import UTC, datetime
 
-import pytest
-
 from warden.cli import DEMO_ALERTS, main
 
 
@@ -90,9 +88,10 @@ def test_budget_flag_is_wired_through(capsys):
     assert "error: BudgetExceeded" in err and "Traceback" not in err
 
 
-def test_no_subcommand_is_rejected():
-    with pytest.raises(SystemExit):
-        main([])
+def test_no_subcommand_is_rejected(capsys):
+    # A usage error is one gated line and exit status 2, like any other error (seventh review: argparse printed raw).
+    assert main([]) == 2
+    assert "error: warden: the following arguments are required" in capsys.readouterr().err
 
 
 def test_run_report_flag_prints_the_report_and_safety_line(capsys):
@@ -263,3 +262,16 @@ def test_json_artefact_is_refused_when_the_pipeline_missed_a_secret(monkeypatch,
     assert main(["run", "--incident", "inc-002", "--json", str(out_file)]) == 3
     assert not out_file.exists()
     assert key not in capsys.readouterr().out
+
+
+def test_a_bad_argument_is_printed_through_the_gate(capsys):
+    """Sixth review NEW-3, still present at the seventh: argparse echoed the argument raw - an ESC sequence that
+    can rewrite the operator's terminal, and a key typed on the command line."""
+    from warden import cli
+
+    key = "AKIA" + "IOSFODNN7EXAMPLE"
+    for argv in (["demo", f"x{chr(27)}[2Jkey={key}"], ["run", "--max-usd", key], ["nosuchcommand", key]):
+        assert cli.main(argv) == 2
+        err = capsys.readouterr().err
+        assert chr(27) not in err and key not in err, err
+        assert "error:" in err or "withheld by the outbound gate" in err, err  # a line holding a key is withheld
