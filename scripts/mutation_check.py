@@ -207,8 +207,8 @@ MUTATIONS = [
     (
         "the k8s platform stops refusing entries it does not do",
         "platforms/k8s.py",
-        "        if entry not in _ENTRIES:\n            raise KubernetesPlatformError(",
-        "        if False:\n            raise KubernetesPlatformError(",
+        "        if entry not in _ENTRIES:\n            raise KubernetesPlatformRefused(",
+        "        if False:\n            raise KubernetesPlatformRefused(",
         "the write path would attempt a rollout undo or anything else it has no safe way to perform",
     ),
     (
@@ -347,6 +347,11 @@ def run_suite(paths: list[str] | None = None, limit: int = 1800) -> bool | str:
     except subprocess.TimeoutExpired:
         _kill_tree(proc)
         return TIMED_OUT
+    except BaseException:
+        # Ctrl-C: the run is in its own session on POSIX, so the terminal's signal never reaches its workers
+        # (sixth review, 2026-10-01) - stop them before the mutated file is restored.
+        _kill_tree(proc)
+        raise
 
 
 def _kill_tree(proc: subprocess.Popen) -> None:

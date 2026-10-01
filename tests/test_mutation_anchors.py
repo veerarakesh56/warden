@@ -40,3 +40,21 @@ def test_every_mutation_applies_to_the_file_as_it_is_on_disk(label, filename, fi
 def test_a_multi_line_anchor_is_found_in_a_crlf_file():
     mutated = mutation_check.mutate(b"a\r\nb\r\nc\r\n", "a\nb", "x\ny")
     assert mutated == b"x\r\ny\r\nc\r\n"
+
+
+def test_an_interrupted_run_stops_its_workers(monkeypatch):
+    """Sixth review (2026-10-01): on Ctrl-C the run - in its own session on POSIX - kept its workers going while
+    the mutated file was restored under them."""
+    stopped = []
+
+    class Run:
+        pid = 4242
+
+        def wait(self, timeout=None):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(mutation_check.subprocess, "Popen", lambda *a, **k: Run())
+    monkeypatch.setattr(mutation_check, "_kill_tree", stopped.append)
+    with pytest.raises(KeyboardInterrupt):
+        mutation_check.run_suite(["tests/test_x.py"], limit=5)
+    assert len(stopped) == 1

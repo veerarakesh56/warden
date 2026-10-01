@@ -31,6 +31,12 @@ class KubernetesPlatformError(RuntimeError):
     pass
 
 
+class KubernetesPlatformRefused(KubernetesPlatformError):
+    """Refused before anything was written: the workflow reports "nothing was changed" (sixth review)."""
+
+    nothing_changed = True
+
+
 class KubernetesPlatform:
     def __init__(self, *, apps: Any = None, namespace: str | None = None, kubeconfig: str | None = None,
                  max_replicas: int = MAX_REPLICAS) -> None:
@@ -102,7 +108,7 @@ class KubernetesPlatform:
 
     def apply(self, entry: str, params: dict[str, Any]) -> str:
         if entry not in _ENTRIES:
-            raise KubernetesPlatformError(f"{entry} is not something the Kubernetes platform does "
+            raise KubernetesPlatformRefused(f"{entry} is not something the Kubernetes platform does "
                                           f"(it does {', '.join(sorted(_ENTRIES))} only)")
         self._same_namespace(params)
         if entry == "k8s_restart":
@@ -124,7 +130,7 @@ class KubernetesPlatform:
 
     def _same_namespace(self, params: dict[str, Any]) -> None:
         if params.get("namespace") != self._ns:
-            raise KubernetesPlatformError(f"namespace {params.get('namespace')!r} is not the one this platform "
+            raise KubernetesPlatformRefused(f"namespace {params.get('namespace')!r} is not the one this platform "
                                           f"serves ({self._ns})")
 
     def _restart(self, deployment: str) -> str:
@@ -140,12 +146,12 @@ class KubernetesPlatform:
         try:
             current = _replicas(self._read(deployment))
         except Exception as exc:
-            raise KubernetesPlatformError(f"could not read deployment/{deployment}: {_one_line(exc)}") from exc
+            raise KubernetesPlatformRefused(f"could not read deployment/{deployment}: {_one_line(exc)}") from exc
         # The catalogue's bound, again, against what was just read: the count may have moved since the
         # approval, and an approved "4" means "one or two above what we saw", not "4 whatever happens".
         if not isinstance(replicas, int) or isinstance(replicas, bool) \
                 or not (current < replicas <= min(current + 2, self._max)) or replicas < 1:
-            raise KubernetesPlatformError(f"scaling deployment/{deployment} to {replicas!r} is outside the bound "
+            raise KubernetesPlatformRefused(f"scaling deployment/{deployment} to {replicas!r} is outside the bound "
                                           f"(above {current}, at most {min(current + 2, self._max)})")
         return self._write_replicas(deployment, expect=current, to=replicas)
 
@@ -160,7 +166,7 @@ class KubernetesPlatform:
                                                    _request_timeout=REQUEST_TIMEOUT)
         except Exception as exc:
             if getattr(exc, "status", None) in (409, 422):
-                raise KubernetesPlatformError(f"deployment/{deployment} no longer has {expect} replica(s): "
+                raise KubernetesPlatformRefused(f"deployment/{deployment} no longer has {expect} replica(s): "
                                               f"something else scaled it; nothing was changed") from exc
             raise KubernetesPlatformError(f"scaling deployment/{deployment} failed: {_one_line(exc)}") from exc
         return f"scaled deployment/{deployment} in {self._ns} from {expect} to {to} replica(s)"

@@ -32,6 +32,12 @@ class DatabasePlatformError(RuntimeError):
     pass
 
 
+class DatabasePlatformRefused(DatabasePlatformError):
+    """Refused before any session was closed: "nothing was changed" (sixth review)."""
+
+    nothing_changed = True
+
+
 def _as_ids(rows: Any) -> list[int]:
     """Ids the server returned, coerced to int: MySQL's and SQL Server's KILL take no placeholders, so the
     int is what keeps an id from becoming SQL."""
@@ -208,18 +214,18 @@ class DatabasePlatform:
 
     def _apply(self, entry: str, params: dict[str, Any]) -> str:
         if entry != _ENTRY:
-            raise DatabasePlatformError(f"{entry} is not something the database platform does "
+            raise DatabasePlatformRefused(f"{entry} is not something the database platform does "
                                         f"(it does {_ENTRY} only)")
         if not self._users:
-            raise DatabasePlatformError("no application logins are named (WARDEN_DB_APP_USERS); nothing is closed")
+            raise DatabasePlatformRefused("no application logins are named (WARDEN_DB_APP_USERS); nothing is closed")
         name = self._database()
         if name is None or params.get("database") != name:
-            raise DatabasePlatformError(f"database {params.get('database')!r} is not the one this platform is "
+            raise DatabasePlatformRefused(f"database {params.get('database')!r} is not the one this platform is "
                                         f"connected to ({name})")
         idle, limit = params.get("min_idle_seconds"), params.get("max_sessions")
         if not all(isinstance(v, int) and not isinstance(v, bool) for v in (idle, limit)) \
                 or idle < IDLE_SECS or not 1 <= limit <= self._max:
-            raise DatabasePlatformError(f"min_idle_seconds={idle!r} / max_sessions={limit!r} are outside the "
+            raise DatabasePlatformRefused(f"min_idle_seconds={idle!r} / max_sessions={limit!r} are outside the "
                                         f"bounds (idle at least {IDLE_SECS}s, 1..{self._max} sessions)")
         conn = self._connection()
         try:
@@ -227,17 +233,17 @@ class DatabasePlatform:
             cur.execute(self._sql.ME)
             own = cur.fetchone()[0]
         except Exception as exc:
-            raise DatabasePlatformError(f"could not read this platform's own login: {_one_line(exc)}") from exc
+            raise DatabasePlatformRefused(f"could not read this platform's own login: {_one_line(exc)}") from exc
         if own in self._users:
             # The terminate role closing sessions of its own login - other WARDEN workers - is not an application
             # fix (sixth review, 2026-10-01).
-            raise DatabasePlatformError(f"WARDEN_DB_APP_USERS names this platform's own login {own!r}; "
+            raise DatabasePlatformRefused(f"WARDEN_DB_APP_USERS names this platform's own login {own!r}; "
                                         "nothing is closed")
         try:
             # The ceiling again in Python: a broken LIMIT must not widen what is closed.
             ids = self._sql.candidates(conn, idle, limit, self._users)[:limit]
         except Exception as exc:
-            raise DatabasePlatformError(f"could not list idle sessions in {name}: {_one_line(exc)}") from exc
+            raise DatabasePlatformRefused(f"could not list idle sessions in {name}: {_one_line(exc)}") from exc
         if not ids:
             return f"no session of {', '.join(sorted(self._users))} in {name} was idle in a transaction for " \
                    f"{idle}s or more; nothing closed"

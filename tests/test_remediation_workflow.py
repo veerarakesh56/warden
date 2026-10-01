@@ -285,3 +285,17 @@ def test_health_is_asked_only_of_the_platform_that_made_the_change():
     assert routed.healthy_for("k8s_scale", "orders") is True and db.asked == 0
     assert routed.healthy_for("db_terminate_idle_in_tx", "orders") is False
     assert RoutedPlatform(db=db).healthy_for("k8s_scale", "orders") is False  # none connected: not healthy
+
+
+def test_a_platform_that_refuses_before_writing_reports_nothing_changed(world, owner):
+    """Sixth review (2026-10-01): a platform's own refusal - the count moved, a bound re-checked - was reported
+    `apply_failed`, "may be half-made", though nothing was written."""
+    from warden.platforms.k8s import KubernetesPlatformRefused
+
+    def refuse(entry, params):
+        raise KubernetesPlatformRefused("deployment/orders no longer has 3 replica(s); nothing was changed")
+
+    world["platform"].apply = refuse
+    out = _run(world, _approve_with(owner))
+    assert out.status == "refused_at_apply" and not out.checklist["applied"], out
+    assert world["log"].entries("inc-42", kinds=("remediation.refused",))

@@ -209,7 +209,16 @@ class RemediationActivities:
             return "already applied"  # (fourth review): a later approved run of the same plan applied nothing
         self.audit.append(plan.incident_id, "remediation.intent", {"workflow_id": plan.workflow_id,
                                                                    "run_id": run, "plan_hash": plan.plan_hash})
-        detail = self.platform.apply(plan.entry, plan.params)
+        try:
+            detail = self.platform.apply(plan.entry, plan.params)
+        except Exception as exc:
+            if not getattr(exc, "nothing_changed", False):
+                raise  # the change may be half-made: the workflow says so, and a person decides
+            why = f"the platform refused before changing anything: {_safe_error(exc)}"
+            self.audit.append(plan.incident_id, "remediation.refused", {"workflow_id": plan.workflow_id,
+                                                                       "run_id": run, "plan_hash": plan.plan_hash,
+                                                                       "why": [why]})
+            raise ApplicationError(f"apply refused: {why}", type=APPLY_REFUSED, non_retryable=True) from None
         bounds.record_applied(self.audit, plan.incident_id, service=service, action_class=plan.entry,
                               plan_hash=plan.plan_hash, detail=detail, workflow_id=plan.workflow_id, run_id=run)
         return detail
