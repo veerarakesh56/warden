@@ -359,6 +359,8 @@ bump may carry a breaking change.
   WARDEN's reader role names only the stack's own resources wherever AWS allows it and the code passes
   the resource (16 reads); 11 that AWS cannot scope keep "*" (A-I-19; AWS's Service Reference, read
   2026-10-01).
+  Each deploy role's trust also requires the main branch and one of the two reusable deploy workflows
+  (`ref`, `job_workflow_ref`; A-I-10's code half - the GitHub half is the owner's step G1).
 - **Sixth independent review, the write path** (2026-10-01; rows A-R6): a failed rollback ends
   `rollback_failed`, signed, and trips the kill switch (it crashed the workflow); a rollback undoes only
   what its own run applied, and its row names the run and plan; a fix with nothing to undo (a restart)

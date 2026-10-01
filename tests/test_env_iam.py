@@ -129,7 +129,9 @@ def test_only_the_same_named_github_environment_may_assume(env):
     [gh] = doc["Statement"]  # deploys run only in GitHub Actions: nothing and nobody else is trusted
     cond = gh["Condition"]
     assert list(cond) == ["StringEquals"], "exact match only - no StringLike, no wildcards"
-    assert cond["StringEquals"] == {"token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+    # aud and sub here; ref and job_workflow_ref in test_only_main_and_the_two_deploy_workflows_may_assume.
+    assert {k: v for k, v in cond["StringEquals"].items() if k.endswith((":aud", ":sub"))} == {
+                                    "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                                     "token.actions.githubusercontent.com:sub":
                                         f"repo:veerarakesh56/warden:environment:{env}"}
     assert gh["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com")
@@ -243,3 +245,15 @@ def test_the_deploy_role_can_do_what_the_first_real_deploy_needed(env):
     esm = "arn:aws:lambda:region:111122223333:event-source-mapping:0a1b2c3d-aaaa-bbbb-cccc-ddddeeeeffff"
     for action in ("lambda:TagResource", "lambda:UntagResource", "lambda:ListTags"):
         assert allowed(action, esm), action
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_only_main_and_the_two_deploy_workflows_may_assume(env):
+    """Audit A-I-10: any workflow run in the repository's `<env>` environment - from any branch - could assume the
+    deploy role. The trust now also requires `ref` = main and a `job_workflow_ref` of one of the two reusable
+    deploy workflows on main (IAM condition keys for GitHub's tokens, read 2026-10-01)."""
+    cond = _load(env, "trust")["Statement"][0]["Condition"]
+    assert cond["StringEquals"]["token.actions.githubusercontent.com:ref"] == "refs/heads/main"
+    refs = cond["StringEquals"]["token.actions.githubusercontent.com:job_workflow_ref"]
+    assert all(r.endswith("@refs/heads/main") for r in refs), refs
+    assert sorted(r.split("@")[0].rsplit("/", 1)[-1] for r in refs) == ["_apps-deploy.yml", "_infra-deploy.yml"]
