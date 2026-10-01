@@ -305,24 +305,52 @@ def mutate(original: bytes, find: str, replace: str) -> bytes | None:
     return (text.replace("\n", "\r\n") if crlf else text).encode("utf-8")
 
 
-def run_suite() -> bool:
-    """True if the suite passes."""
-    # check=False on purpose: a NON-ZERO exit is the expected, desirable outcome for a mutated
-    # build. Raising on it would abort the very thing this script measures.
-    r = subprocess.run(
-        # On parallel workers, as CI runs it: serially one run took 17 minutes (2026-10-01), so 36 runs
-        # did not finish in an hour. -x still stops at the first failure.
-        [sys.executable, "-m", "pytest", "-q", "-x", "-n", "auto", "--no-header", "-p", "no:cacheprovider"],
-        cwd=ROOT, capture_output=True, text=True, check=False,
+def related_tests(filename: str) -> list[str]:
+    """The test and eval files whose text names the mutated file - the ones expected to catch it. Their
+    failing proves the mutation is caught; their passing proves nothing, so a survivor is re-run against
+    the whole suite before it is reported."""
+    stem = pathlib.Path(filename).stem
+    found = [str(f.relative_to(ROOT)) for d in ("tests", "evals") for f in sorted((ROOT / d).rglob("*.py"))
+             if f.name.startswith(("test_", "eval")) and stem in f.read_text(encoding="utf-8", errors="replace")]
+    return found or ["tests", "evals"]
+
+
+TIMED_OUT = "timed out"
+
+
+def run_suite(paths: list[str] | None = None, limit: int = 1800) -> bool | str:
+    """True if the suite (or the given test paths) passes, False if it fails, TIMED_OUT if it runs past
+    `limit` seconds - then the run and every worker it started are stopped."""
+    # Non-zero is the expected, desirable outcome for a mutated build; it is not an error here.
+    # On parallel workers, as CI runs it: serially one run took 17 minutes (2026-10-01). -x still stops
+    # at the first failure, but waits for tests already running - hence the limit.
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "pytest", "-q", "-x", "-n", "auto", "--no-header", "-p", "no:cacheprovider",
+         *(paths or [])],
+        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         env={**os.environ, "WARDEN_MOCK": "1", "WARDEN_TRACE": "0"},
     )
-    return r.returncode == 0
+    try:
+        return proc.wait(timeout=limit) == 0
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        return TIMED_OUT
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Stop the run and its workers: killing only pytest leaves xdist workers running on Windows."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],  # nosec B603 B607
+                       capture_output=True, check=False)
+    else:
+        proc.kill()
+    proc.wait()
 
 
 def main() -> int:
     print("Baseline: running the suite unmodified...")
-    if not run_suite():
-        print("BASELINE IS RED. Fix the suite before mutation testing means anything.")
+    if run_suite() is not True:
+        print("BASELINE IS RED (or ran past its limit). Fix the suite before mutation testing means anything.")
         return 2
     print("Baseline GREEN.\n")
 
@@ -337,8 +365,13 @@ def main() -> int:
             continue
         try:
             path.write_bytes(mutated)
-            caught = not run_suite()
-            status = "CAUGHT" if caught else "*** SURVIVED ***"
+            # The files that name it first (seconds to minutes); the whole suite only if they all pass.
+            result = run_suite(related_tests(filename), limit=600)
+            if result is True:
+                result = run_suite()
+            caught = result is not True
+            status = ("CAUGHT (the suite ran past its limit)" if result == TIMED_OUT else "CAUGHT") if caught \
+                else "*** SURVIVED ***"
             print(f"[{status}] {label}\n          why it matters: {why}")
             if not caught:
                 survived.append(label)
