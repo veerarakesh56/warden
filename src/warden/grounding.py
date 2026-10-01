@@ -229,8 +229,10 @@ _DESCRIPTORS = frozenset({
 # Whole words only: `public.ecr.aws` in an image name is not the aws CLI.
 # After anything but a name character (fifth review, 2026-10-01: `orders (kubectl/delete/ns/x)`, `orders(rm)`
 # passed): still not inside a name - `public.ecr.aws` is no aws CLI.
+# A trailing period ends the word, it does not continue a name: "orders (rm.)" (sixth review, 2026-10-01).
 _COMMAND_WORDS = re.compile(r"(?<![\w.-])(?:kubectl|aws|gcloud|az|helm|psql|redis-cli|mysql|rm|delete|drop|truncate|"
-                            r"curl|wget|sh|bash|sudo|exec|eval)(?![\w.-])", re.IGNORECASE)
+                            r"curl|wget|sh|bash|sudo|exec|eval|kill|pkill|killall|terraform|shutdown|reboot|"
+                            r"eksctl|systemctl)(?![\w-]|\.(?!(?:exe|sh|bat|cmd|ps1)\b)\w)", re.IGNORECASE)
 # An image reference with a real tag or digest (`python:3.12-alpine`, `repo/app@sha256:...`): the state a
 # rollback returns to, not a second resource. A word after a colon (`x:payments`) is not a tag.
 _IMAGE = re.compile(r"[\w.-]+(?:/[\w.-]+)*(?::(?:v?\d[\w.-]*|latest)\b|@sha256:[0-9a-f]{12,})", re.IGNORECASE)

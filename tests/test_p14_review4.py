@@ -137,3 +137,11 @@ def test_an_image_to_return_to_is_not_a_second_resource(target):
 
 def test_a_word_after_a_colon_is_not_an_image_tag():
     assert _problem("orders (x:payments)") is not None
+
+
+@pytest.mark.parametrize("target", ["orders (rm.)", "orders (DELETE.)", "orders (and delete.)", "orders (kubectl.exe)",
+                                    "orders (kill)", "orders then terraform destroy", "orders (shutdown)",
+                                    "orders (pkill -f app)"])
+def test_more_commands_and_a_command_before_a_period_are_refused(target):
+    """Sixth review (2026-10-01): a trailing period read as part of a name, and unlisted commands passed."""
+    assert _problem(target) is not None
