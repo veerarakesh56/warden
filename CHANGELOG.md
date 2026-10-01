@@ -536,8 +536,11 @@ confirms the fixes.
   uv.lock older than pyproject.toml, which `uv sync --locked` refused in every pipeline (fixed in
   362356c, with a test that compares the two locally). c99bc86 (07:23 UTC / 12:53 IST) added two
   trigger paths after running only the CI tests, not the full suite; a test pinning those paths
-  failed (fixed in the next commit). Rule kept from here: the full suite before every push, however
-  small the change.
+  failed (fixed in 83f65e6). Rule kept from here: the full suite before every push, however small the
+  change. A tenth followed at 83f65e6 (07:29 UTC / 12:59 IST): CI · apps builds the Lambda zips with
+  pip, which a uv environment lacks, and no local run builds them; fixed in ce1051c (pip locked in
+  both apps groups, a test tying the script to them, and a hash-checked `--no-deps` install that also
+  builds on Windows).
 
 ## [0.10.0] - 2026-09-28
 
