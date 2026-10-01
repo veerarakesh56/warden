@@ -258,6 +258,10 @@ _RESOURCE_KINDS = frozenset({"deployment", "namespace", "service", "statefulset"
                              "lambda", "cluster", "table", "queue", "topic", "rule", "instance", "database", "db"})
 
 
+# Actions whose target can only be a database or a cache: it sits in no namespace and no compute cluster.
+DATA_ONLY = frozenset({ActionKind.failover_replica, ActionKind.clear_cache, ActionKind.terminate_connections})
+
+
 def target_problem(proposal: RemediationProposal, inventory: set[str],
                    scopes: frozenset[str] | set[str] = frozenset(),
                    containers: frozenset[str] | set[str] = frozenset()) -> str | None:
@@ -311,11 +315,22 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
                 if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
 
     named = resources(outside)
-    # One resource, and beside it a whole namespace or cluster - after an arrow, in parentheses, after "and" - is a
-    # second target (eighth review: `warden-pg-fs-aurora -> warden-pg-fs-ecs` passed once the database was no longer
-    # a scope). A scope that only qualifies the resource (`deployment=x (namespace=shop)`) was cut from `rest` above.
-    if named and tokens(rest) & (set(scopes) | set(containers)) - named:
-        return f"target {proposal.target!r} names a resource and a whole namespace or cluster"
+    wide = set(scopes) | set(containers)
+    # A database or a cache sits in no namespace or compute cluster: one named anywhere in its target - with a kind
+    # word or without, named beside it or alone - is a second target or the wrong one (ninth review: `aurora ->
+    # cluster=warden-dev-ecs` and `redis, namespace=shop` passed, the kind word cut as a qualifier; a failover of
+    # `shop`, the recorded alert's namespace named like its service, passed because a resource was named).
+    if proposal.action in DATA_ONLY and tokens(plain) & set(containers):
+        return f"target {proposal.target!r} names a namespace or a compute cluster, not a database or cache"
+    # One resource, and beside it a whole namespace or cluster - after an arrow, a comma or "and" - is a second
+    # target (eighth review: `warden-pg-fs-aurora -> warden-pg-fs-ecs` passed once the database was no longer a
+    # scope). One that qualifies it - `deployment=x (namespace=shop)`, `cluster/service` (an ECS service's ARN
+    # path), `service (cluster)`, `service on cluster` - is not (ninth review: those were refused).
+    if named:
+        after = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest), maxsplit=1)[1:]
+        beside = re.split(r",|\band\b", outside, flags=re.IGNORECASE)[1:]
+        if tokens(" ".join(after + beside)) & wide - named:
+            return f"target {proposal.target!r} names a resource and a whole namespace or cluster"
     if not named and proposal.action is ActionKind.failover_replica:
         # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it - even
         # when the alert labels that cluster (fifth and sixth reviews). A namespace is never one.

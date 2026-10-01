@@ -438,6 +438,11 @@ bump may carry a breaking change.
   boundary held them - any environment's role could rewrite prod's default NACL (HIGH, pre-existing). The boundary
   now denies changing a NACL entry, a security group's rules or a route on an untagged ACL, group or table; the
   stacks never change one, and a rule being created is untagged, so the deny names the three resource types.
+  P14: a key led by an acronym (`ECSCluster`, `K8SNamespace`, `AWSECSCluster`) is split into words again, and plural,
+  `compute_`, `fargate_`, `k3s_`, `ocp_` and platform-only keys are scopes (a regression from 71b0d0d). A failover,
+  cache clear or connection kill names no namespace or compute cluster anywhere in its target - a kind word hid the
+  second one, and a failover of the namespace named like its service passed. A cluster qualifying a pod target
+  (`cluster/service`, `service (cluster)`) is not a second target; after an arrow, a comma or "and" it is.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

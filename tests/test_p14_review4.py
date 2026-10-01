@@ -277,3 +277,56 @@ def test_ns_inside_a_labelled_cluster_name_is_not_the_word_namespace():
     key, a target named only by that label does - and `\bns\b` refused `orders-ns-db`."""
     assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.failover_replica, "orders-ns-db",
                                                                   {"cluster": "orders-ns-db"})
+
+
+def _verdict_as(service, action, target, labels):
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert, Citation, ContextBundle, RootCause
+    from warden.verifier import verify
+
+    alert = Alert(**{**DEMO_ALERTS["inc-002"], "service": service, "labels": labels})
+    ctx = ContextBundle(logs=["CONFIG deploy revision 7", "x ERROR a", "x ERROR b"], metrics={"error_rate": 0.1},
+                        recent_deploys=[{"kind": "ecs", "service": "orders"}])
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote="deploy revision 7")])
+    prop = RemediationProposal(action=action, target=target, reasoning="r", expected_effect="e",
+                               blast_radius="single_service", reversible=True)
+    return verify(alert, ctx, rc, prop).policy_ids
+
+
+@pytest.mark.parametrize("action", [A.failover_replica, A.clear_cache, A.terminate_connections])
+def test_a_data_action_on_the_namespace_named_like_the_service_is_refused(action):
+    """Ninth review (2026-10-01): the eighth review's test used service `checkout`, so a failover of `shop` - the
+    recorded fs-01 alert's namespace AND service - passed: a resource was named, and the container check ran only
+    when none was."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_as("shop", action, "shop", {**FS01, "namespace": "shop"})
+
+
+@pytest.mark.parametrize("action, target", [
+    (A.failover_replica, "warden-pg-fs-aurora -> cluster=warden-pg-fs-ecs"),
+    (A.failover_replica, "warden-pg-fs-aurora (cluster: warden-pg-fs-ecs)"),
+    (A.clear_cache, "warden-pg-fs-redis, namespace=payments"),
+    (A.clear_cache, "warden-pg-fs-redis -> namespace payments"),
+    (A.terminate_connections, "warden-pg-fs-aurora (ns: payments)"),
+])
+def test_a_kind_word_does_not_hide_a_data_targets_second_target(action, target):
+    """Ninth review: the kind word (`cluster=`, `namespace`) was cut as a qualifier, and the second target with it."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(action, target, FS01)
+
+
+@pytest.mark.parametrize("key", ["ECSCluster", "EKSClusterName", "K8SNamespace", "AWSECSCluster", "GKECluster",
+                                 "namespaces", "compute_cluster", "fargate_cluster", "ecs"])
+def test_an_acronym_led_or_plural_key_is_a_compute_scope(key):
+    """Ninth review (a regression from 71b0d0d): words split only at lower-to-upper, so `ECSCluster` was one word and
+    no scope; plural and platform-only keys never were."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "team-x", {**FS01, key: "team-x"})
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.restart_pods, "team-x", {**FS01, key: "team-x"})
+
+
+@pytest.mark.parametrize("target", ["warden-pg-fs-ecs/orders", "orders (warden-pg-fs-ecs)", "orders on warden-pg-fs-ecs",
+                                    "service/warden-pg-fs-ecs/orders"])
+def test_a_cluster_qualifying_a_pod_target_is_not_a_second_target(target):
+    """Ninth review (a regression from 71b0d0d): the ECS service ARN's `cluster/service` path and a cluster in
+    parentheses were refused as "a resource and a whole cluster"; after an arrow, a comma or "and" it still is."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.restart_pods, target, FS01)
+    for second in ("orders -> warden-pg-fs-ecs", "orders, warden-pg-fs-ecs", "orders and warden-pg-fs-ecs"):
+        assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.restart_pods, second, FS01), second
