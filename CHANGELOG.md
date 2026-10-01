@@ -451,6 +451,9 @@ bump may carry a breaking change.
   defaults, block public access for images, snapshots and the VPC, ECS account defaults, account log policies),
   ways out (another account's access to a queue, topic or layer, peering, accepting an attachment) and committing
   money (reservations, purchases); a Lambda permission names exactly the two service principals the stack grants.
+  A database plan's `server` is read the way libpq reads a URL - after the last `@`: a password holding `?` or `#`
+  put the user and the password's start into the plan the approver signs (pre-existing). What is left must look
+  like hosts, or it is not shown.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

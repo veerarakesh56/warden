@@ -268,6 +268,14 @@ def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
     ("mysql", "mysql://u:{pw}@db-staging/orders?host=db-prod", {}, "db-staging"),
     ("postgres", "password=S3cr.host=hunter2 dbname=orders", {}, "the local socket"),
     ("postgres", "password='x port=6543' host=db.prod dbname=orders", {}, "host=db.prod"),
+    # Ninth review: urlsplit ends the authority at `?` or `#` - the user and the password's start were the "server".
+    ("postgres", "postgresql://orders_app:{pw}" + "?x@db.prod:5432/orders", {}, "db.prod:5432"),
+    ("postgres", "postgresql://orders_app:{pw}" + "#x@db.prod/orders", {}, "db.prod"),
+    ("postgres", "postgresql://orders_app:{pw}" + "?host=evil@db.prod/orders?port=6543", {}, "db.prod port=6543"),
+    ("postgres", "postgresql://orders_app:{pw}" + "/x@db.prod/orders", {}, "db.prod"),
+    ("mysql", "mysql://orders_app:{pw}" + "?x@db-staging/orders", {}, "db-staging"),
+    ("postgres", "postgresql://db.prod/orders?application_name=a@b&password={pw}", {},
+     "a host the DSN does not state plainly (not shown)"),
 ])
 def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine, dsn, env, where):
     """Eighth review (2026-10-01): a service file and PGHOST showed "the local socket"; MySQL with no host is TCP to
@@ -280,6 +288,7 @@ def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine
     p = DatabasePlatform(dsn=dsn.format(pw=pw), engine=engine, conn=_Conn(), app_users=APP)
     state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
     assert state["server"] == where and pw not in str(state) and "hunter2" not in str(state), state["server"]
+    assert "orders_app" not in state["server"], state["server"]
 
 
 @pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])

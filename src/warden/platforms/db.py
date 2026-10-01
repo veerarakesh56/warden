@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import threading
 from typing import Any
 
@@ -235,19 +236,24 @@ class DatabasePlatform:
         """Where the connection goes, in the plan the approver signs (sixth review) - never the user or password.
         Every host libpq may use, and the `host`/`hostaddr`/`port` parameters that override them; it never raises:
         a multi-host DSN made `.port` raise, and the plan was never written (seventh review, 2026-10-01)."""
-        from urllib.parse import parse_qs, urlsplit
+        from urllib.parse import parse_qs
 
         if not self._dsn:
             return ""
         if "://" not in self._dsn:  # libpq's `key=value` form, read pair by pair: a value is never searched
             params = _conninfo(self._dsn)
             return " ".join(f"{k}={params[k]}" for k in _WHERE if k in params) or self._unstated()
+        # After the LAST `@`, cut at the first `/`, `?` or `#`: urlsplit ends the authority at `?` or `#`, so a password
+        # holding one showed the user and the password's start (ninth review); libpq reads to the `@`. The query is
+        # read from there too - never from inside the password. What is left must look like hosts, or it is not shown.
+        rest = self._dsn.split("://", 1)[1].rpartition("@")[2]
+        hosts = re.split(r"[/?#]", rest, maxsplit=1)[0]
+        if not re.fullmatch(r"[\w.\-:\[\],%]*", hosts):
+            return "a host the DSN does not state plainly (not shown)"
         try:
-            u = urlsplit(self._dsn)
-            query = parse_qs(u.query)
+            query = parse_qs(rest.partition("?")[2].partition("#")[0])
         except ValueError:
             return "a DSN that could not be read"
-        hosts = u.netloc.rpartition("@")[2]
         if self._engine != "postgres":  # only libpq reads `?host=`; pymysql and pymssql ignore it (eighth review)
             return hosts or ("localhost:3306 (TCP)" if self._engine == "mysql" else "localhost (TCP)")
         over = [f"{k}={query[k][-1]}" for k in _WHERE if k in query]
