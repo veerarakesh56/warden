@@ -104,6 +104,7 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
     workflows, and three tests that guard those files (the reader role's least privilege among them)
     ran only in the tool CI - a change to reader.tf alone ran none of them."""
     import pathlib
+    import re
 
     root = pathlib.Path(__file__).resolve().parents[1]
     flows = root / ".github" / "workflows"
@@ -111,11 +112,32 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
         "terraform/fullstack": (flows / "_infra-validate.yml").read_text(encoding="utf-8"),
         "k8s/fullstack": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
         "scenarios/fullstack/": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
-        '".github" / "workflows"': (flows / "scan-workflows.yml").read_text(encoding="utf-8"),
+        ".github/workflows": (flows / "scan-workflows.yml").read_text(encoding="utf-8"),
     }
     # Named in a string only, not read: the register's reason for a module-level skip, and this test's
     # own table (it runs in the workflow scan).
     exempt = {"test_register.py", "test_ci_lanes.py"}
+    # Joined spellings read as one path: `ROOT / "k8s" / "fullstack"` named no path the table knew, and
+    # the test could leave the apps check unnoticed (fifth review, 2026-10-01).
+    joined = re.compile(r'''(["'])\s*/\s*(["'])''')
     missing = [(p.name, path) for p in sorted((root / "tests").glob("test_*.py")) if p.name not in exempt
-               for path, workflow in runs.items() if path in p.read_text(encoding="utf-8") and p.name not in workflow]
+               for path, workflow in runs.items()
+               if path in joined.sub("/", p.read_text(encoding="utf-8")) and p.name not in workflow]
     assert not missing, missing
+
+
+def test_a_run_on_main_is_never_cancelled_by_the_next_push():
+    """Fourth review E-6: a group per branch on main cancelled the PENDING run of the commit in between, which
+    was then never checked. Each push to main gets its own group; only pull requests cancel."""
+    import pathlib
+
+    import yaml
+
+    flows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    checked = 0
+    for name in ("ci-tool.yml", "ci-infra.yml", "ci-apps.yml", "scan-workflows.yml"):
+        group = yaml.safe_load((flows / name).read_text(encoding="utf-8"))["concurrency"]
+        assert group["group"].endswith("${{ github.event_name == 'pull_request' && github.ref || github.sha }}"), name
+        assert group["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}", name
+        checked += 1
+    assert checked == 4

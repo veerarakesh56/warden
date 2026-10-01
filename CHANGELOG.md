@@ -383,7 +383,15 @@ bump may carry a breaking change.
     `__del__`, and a `SystemExit` carrying a tuple go through the log gate; a `~~~` block stays code in
     the Slack conversion; full-width dots are defanged; the stub of a withheld report cleans the alert
     id; a long record joined by any whitespace is cut, not withheld.
-  - Still open: quarantine spellings (an open-ended list); P14 still needs a label to know a bare name
+  - CI (area E, low): the path guard reads joined spellings (`ROOT / "k8s" / "fullstack"`); the Lambda
+    build checks the requirements of the extras each Lambda asks for (`psycopg[binary]`); the k3s node
+    image, k3d's tools image and the proving ground's placeholder are pinned by digest (read
+    2026-10-01 09:45 UTC / 15:15 IST); a test keeps every push to main checked (no cancelled runs).
+  - Register: the review-4 rows the fifth review confirmed are DONE-local (B-N1, B-N2, C-1, C-3, A-1,
+    A-2, E-5, E-6); the others carry its verdict and stay open.
+  - Still open: Dependabot does not renew the digests of workflow service images, `k8s/test` and k3d's
+    images; downloads after cloud credentials in the deploy jobs are hash-checked but not ordered
+    before them; quarantine spellings (an open-ended list); P14 still needs a label to know a bare name
     is a namespace or cluster; Temporal's own core logs to stdout ungated (no secret with WARDEN's
     codec); the link-label pattern is quadratic on a line of about 10,000 `[`.
 - **One write path: the RemediationWorkflow and its platforms** (decision D16; audit A-B-H1..H3). The

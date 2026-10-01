@@ -84,7 +84,22 @@ def lambda_names() -> list[str]:
 LAMBDA_PYTHON = "3.12"  # the runtime terraform/fullstack/lambda.tf declares
 
 
-def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTHON) -> list[str]:
+def requested_extras(requirements: pathlib.Path) -> dict[str, set[str]]:
+    """The extras each top-level requirement asks for: `psycopg[binary]` -> {"psycopg": {"binary"}}."""
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    out: dict[str, set[str]] = {}
+    for line in requirements.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            req = Requirement(line)
+            out.setdefault(canonicalize_name(req.name), set()).update(req.extras)
+    return out
+
+
+def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTHON,
+                         extras: dict[str, set[str]] | None = None) -> list[str]:
     """Requirements of the packages in `target` that are not themselves in `target`, with environment
     markers evaluated for the LAMBDA's Python.
 
@@ -105,9 +120,12 @@ def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTH
     present = {canonicalize_name(d.metadata["Name"]) for d in dists}
     missing = set()
     for d in dists:
+        # The extras the Lambda asks for count too: without `psycopg-binary` a `psycopg[binary]` Lambda dies
+        # on import, and an extra's requirements were never checked (fifth review, 2026-10-01).
+        asked = {"", *(extras or {}).get(canonicalize_name(d.metadata["Name"]), ())}
         for raw in d.requires or []:
             req = Requirement(raw)
-            applies = req.marker is None or req.marker.evaluate(env)
+            applies = req.marker is None or any(req.marker.evaluate({**env, "extra": e}) for e in asked)
             if applies and canonicalize_name(req.name) not in present:
                 missing.add(req.name)
     return sorted(missing)
@@ -130,7 +148,8 @@ def build_lambdas(out: pathlib.Path, run=run) -> dict[str, pathlib.Path]:
                 run([sys.executable, "-m", "pip", "install", "--quiet", "--no-deps", "--require-hashes", "-r", str(req),
                      "--target", str(stage), "--platform", "manylinux2014_x86_64", "--only-binary=:all:",
                      "--implementation", "cp", "--python-version", LAMBDA_PYTHON])
-                missing = missing_dependencies(stage)
+                wanted = src / "requirements.in"
+                missing = missing_dependencies(stage, extras=requested_extras(wanted) if wanted.is_file() else {})
                 if missing:
                     raise SystemExit(f"{fn}: the package lacks {missing} - a dependency whose marker pip "
                                      f"evaluated for THIS Python, not the Lambda's {LAMBDA_PYTHON}. Pin it "

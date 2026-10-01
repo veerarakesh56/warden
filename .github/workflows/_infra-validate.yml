@@ -35,4 +35,4 @@ jobs:
       # The tool CI skips infra-only changes, so every test that reads terraform/fullstack runs here
       # (tests/test_ci_lanes.py keeps this list complete).
       - run: uv sync --locked --extra aws --extra dev
-      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py -q -rs
+      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py -q -rs

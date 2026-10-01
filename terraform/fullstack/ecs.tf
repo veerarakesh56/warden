@@ -109,7 +109,7 @@ resource "aws_ecs_task_definition" "orders_api" {
 
   container_definitions = jsonencode([{
     name         = "orders-api"
-    image        = "public.ecr.aws/docker/library/python:3.12-alpine"
+    image        = "public.ecr.aws/docker/library/python:3.12-alpine@sha256:4c47124a8391cb7a9f571164147d154777cf012a4ece5f86097130d7a4478111"
     essential    = true
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]
     command = [

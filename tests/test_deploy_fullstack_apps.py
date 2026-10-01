@@ -257,3 +257,16 @@ def test_the_task_definition_revision_carries_project_and_environment_tags():
     td = tool.task_definition(STACK, "repo:tag")
     assert td["tags"] == [{"key": "Project", "value": "warden"}, {"key": "Environment", "value": "dev"}]
 
+
+def test_an_extra_the_lambda_asks_for_is_checked(tmp_path):
+    """Fifth review (2026-10-01): `psycopg[binary]` without psycopg-binary passed the check, and the Lambda would
+    die on import."""
+    _dist(tmp_path, "psycopg", ['psycopg-binary==3.3.5; extra == "binary"', 'psycopg-pool; extra == "pool"'])
+    assert tool.missing_dependencies(tmp_path) == []
+    assert tool.missing_dependencies(tmp_path, extras={"psycopg": {"binary"}}) == ["psycopg-binary"]
+
+
+def test_the_build_reads_the_extras_each_lambda_asks_for():
+    asked = {fn: tool.requested_extras(tool.LAMBDA_SRC / fn / "requirements.in") for fn in tool.lambda_names()
+             if (tool.LAMBDA_SRC / fn / "requirements.in").is_file()}
+    assert any(extras.get("psycopg") == {"binary"} for extras in asked.values()), asked
