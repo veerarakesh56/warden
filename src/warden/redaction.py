@@ -238,6 +238,19 @@ _NOT_A_VALUE = frozenset({
 # A placeholder token, captured so `re.split` keeps it as its own segment: `<LABEL_123>`.
 _LABELS = tuple(dict.fromkeys(label for label, _ in PATTERNS))
 _PLACEHOLDER = re.compile(r"(<[A-Z][A-Z0-9]*_\d+>)")
+# A terminal escape sequence (colour, cursor, title): not text, and glued to a key it hid the key from every pattern
+# that needs a word boundary - `ESC[1mAKIA...` read as `mAKIA...` (ninth review, 2026-10-01).
+_ANSI = re.compile(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-Z\\-_]")
+
+
+def strip_ansi(text: str) -> str:
+    """Escape sequences removed; a space where one stood between two word characters, so a boundary stays."""
+    def cut(m: re.Match[str]) -> str:
+        s, e = m.start(), m.end()
+        glued = s > 0 and e < len(text) and (text[s - 1].isalnum() or text[s - 1] == "_") and \
+            (text[e].isalnum() or text[e] == "_")
+        return " " if glued else ""
+    return _ANSI.sub(cut, text) if "\x1b" in text or "\x9b" in text else text
 
 
 @dataclass
@@ -287,7 +300,7 @@ class _Redactor:
         self._ordered: list[tuple[str, str]] = []
 
     def find(self, text: str) -> str:
-        out = text
+        out = strip_ansi(text)
         for label, pattern in PATTERNS:
 
             def _sub(m: re.Match[str], label: str = label) -> str:

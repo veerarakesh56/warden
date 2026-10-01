@@ -35,7 +35,7 @@ from . import __version__
 # At module level, not inside the formatter: a record logged from workflow code is formatted under
 # Temporal's sandbox importer, where a lazy import is re-done and warned about (third review work,
 # 2026-09-30).
-from .gate import strip_controls
+from .gate import normalise
 from .redaction import redact
 
 _CONFIGURED = False
@@ -116,7 +116,8 @@ def _redact_then_cut(text: str, limit: int) -> str:
 
 def _safe_error(exc: BaseException) -> str:
     try:
-        return _redact_then_cut(" ".join(strip_controls(str(exc)).split()), 300)
+        # Redacted as written, then normalised (ninth review: stripping controls first glued text to a key).
+        return _redact_then_cut(" ".join(normalise(redact(str(exc)).text).split()), 300)
     except Exception:  # noqa: BLE001 - a redaction failure must not hide the original error
         return "(error text withheld)"
 
@@ -130,7 +131,9 @@ class GatedFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         try:
-            text = _redact_then_cut(strip_controls(super().format(record)), self.LIMIT)
+            # Redacted as written first - a control character between a letter and a key is the boundary the
+            # patterns need - then normalised and redacted again, for what the normalising joined (ninth review).
+            text = _redact_then_cut(normalise(redact(super().format(record)).text), self.LIMIT)
         except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
             return f"{record.levelname} {record.name}: (log text withheld)"
         # Every further line is indented, so text inside a record cannot pass for a record of its own

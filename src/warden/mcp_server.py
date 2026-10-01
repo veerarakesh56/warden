@@ -303,6 +303,9 @@ def _ok(payload: dict[str, Any], *, scrub_links: bool = True) -> types.CallToolR
 
 
 def _err(message: str) -> types.CallToolResult:
+    # Checked as it arrived and as it leaves: G3 removing a control or a tag can glue a key back together (ninth
+    # review: `unknown tool: x<BEL>AKIA...` went out whole).
+    message = gate.for_terminal(message)
     message = gate.for_terminal(gate.sanitise_text(message))  # exception text can quote evidence
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=message)],

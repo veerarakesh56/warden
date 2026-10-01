@@ -58,7 +58,7 @@ from typing import Any
 
 from markdown_it import MarkdownIt
 
-from .redaction import redact
+from .redaction import redact, strip_ansi
 
 # Identifier kinds an operator may choose to show (reporting.REVEALABLE). Anything else found in an
 # outgoing message is a leak.
@@ -75,7 +75,8 @@ _MDLINK = re.compile(_LABEL + r"\(\s*[^)\s]+[^)]*\)")
 # plus `![x][r]` rendered a zero-click image with verdict PASS).
 _REFDEF = re.compile(r"^\s{0,3}(?:(?:[-*+]|\d{1,9}[.)])\s+|>\s*)*" + _LABEL + r":\s*\S")
 # Any scheme with `//`, the schemes that act without one, and protocol-relative `//host.`.
-_URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{1,30}://|\b(?:https?|mailto|data|javascript|vbscript|tel|slack|"
+# Any scheme, one letter too (`p://evil.com` - ninth review), and a bare `://host`.
+_URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{0,30}://|(?<![\w:])://[\w-]+(?:\.|%2e)|\b(?:https?|mailto|data|javascript|vbscript|tel|slack|"
                   r"ms-teams|vscode|ssh|smb|file|sms|facetime|skype|zoommtg|itms-services):"
                   r"|(?<![\w:/])//[\w-]+(?:\.|%2e))[^\s)>\]'\"]*", re.IGNORECASE)
 # An IP address with a port or a path is a link to a chat client.
@@ -154,12 +155,30 @@ _WIDE_DOTS = re.compile("[\u3002\uff0e\uff61]")
 _INVISIBLE = re.compile(r"[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff\U0001bca0-\U0001bca3\U000e0100-\U000e01ef]+")
 
 
+# Only between ASCII name characters - where it hides a link or splits a key - not everywhere: removing U+FE0F
+# everywhere broke emoji, a CJK or Mongolian variation selector was lost (ninth review, 2026-10-01).
+_INVISIBLE_IN_NAME = re.compile(r"(?<=[A-Za-z0-9_.:/@\-])" + _INVISIBLE.pattern + r"(?=[A-Za-z0-9_.:/@\-])")
+# A terminal escape written out as text - argparse's repr() of an argument: `'\x1b[2JAKIA...'`.
+_ANSI_AS_TEXT = re.compile(r"(?:\\x1[bB]|\\033|\\[eE]|\\u001[bB])\[[0-?]*[ -/]*[@-~]")
+
+
 def normalise(text: str) -> str:
     """The text as a browser or a terminal reads it: no control characters, none of the code points a URL parser
     drops. Done FIRST - before the leak check and before links are removed: done after, `htt<SHY>p://evil.com` hid
     from link removal and the gate itself then joined it into a live link, and `AKIA<ZWSP>...` passed G5 and
     went out whole (eighth review, 2026-10-01)."""
-    return _INVISIBLE.sub("", strip_controls(text))
+    return _INVISIBLE_IN_NAME.sub("", strip_controls(strip_ansi(text)))
+
+
+def _views(text: str) -> set[str]:
+    """Every way a reader may see `text`: as written; without escape sequences (a space where one glued two words,
+    and also written out as text); without control characters; and without any invisible character. A key split
+    by one of them is whole in some view, and a key the removal glues to a letter is bounded in another (ninth
+    review: checking only the normalised text sent `x<BEL>AKIA...` whole)."""
+    views = {text, strip_ansi(text), _ANSI_AS_TEXT.sub(" ", text)}
+    views |= {strip_controls(v) for v in list(views)}
+    views |= {_INVISIBLE.sub("", v) for v in list(views)}
+    return views
 
 
 def _defang_outside_code(line: str) -> str:
@@ -302,7 +321,7 @@ def hedge(text: str) -> str:
 
 def leaked_kinds(text: str) -> list[str]:
     """G5: secret kinds the redactor still finds in `text` - identifiers an operator may show excluded."""
-    found = redact(normalise(text)).mapping
+    found = [p for view in _views(text) for p in redact(view).mapping]
     kinds = {placeholder.strip("<>").rsplit("_", 1)[0] for placeholder in found}
     return sorted(kinds - _SHOWABLE)
 
@@ -327,13 +346,19 @@ def data_leaks(data: Any) -> list[str]:
     return sorted({k for s in _strings(data) for k in leaked_kinds(s)})
 
 
+def _sent(text: str) -> str:
+    """What G3 makes of `text` - checked by G5 too: removing `<b></b>`, `<!here>` or a comment from inside a key
+    assembled a key G5 had never seen (ninth review)."""
+    return sanitise_text(text)
+
+
 def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = None,
             data_before_redaction: Any = None) -> GateResult:
     """The gate over one outgoing text. `before_redaction`, when the caller re-redacts on the way
     out, is the text as it was built: G5 checks THAT, or it could never fire (audit A-C-8 - the
     re-redaction masked every leak first, and the gate then found none)."""
     leaks = sorted(set(leaked_kinds(text)) | set(leaked_kinds(before_redaction or ""))
-                   | set(data_leaks(data_before_redaction)))
+                   | set(data_leaks(data_before_redaction)) | set(leaked_kinds(_sent(text))))
     if leaks:
         # The id through the same cleaning as any text: `click.evil.example` is a valid alert id and was a
         # link in the stub (fifth review, 2026-10-01).
@@ -362,17 +387,18 @@ def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = Non
 def for_terminal(text: str) -> str:
     """What WARDEN prints: no secret (G5) and no control character. Links are left alone - a terminal
     does not fetch them, and the ESC sequence that would make one clickable is stripped."""
-    leaks = leaked_kinds(text)
+    out = strip_controls(strip_ansi(text))
+    leaks = sorted(set(leaked_kinds(text)) | set(leaked_kinds(out)))
     if leaks:
         return f"[withheld by the outbound gate: {', '.join(leaks)} in this text]"
-    return strip_controls(text)
+    return out
 
 
 def outbound_data(data: Any) -> tuple[str, Any]:
     """The gate over structured data leaving the process (an MCP result, a generic webhook):
     BLOCK on any secret, else G3 on every string. Returns (verdict, data)."""
-    leaks = data_leaks(data)
+    clean = sanitise_data(data)
+    leaks = sorted(set(data_leaks(data)) | set(data_leaks(clean)))  # and in what G3 made of it (ninth review)
     if leaks:
         return "BLOCK", {"withheld": True, "reasons": [f"G5: {k} in the outgoing data" for k in leaks]}
-    clean = sanitise_data(data)
     return ("PASS" if clean == data else "REWRITE"), clean

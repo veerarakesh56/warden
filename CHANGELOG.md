@@ -420,6 +420,14 @@ bump may carry a breaking change.
 - **Sixth independent review, the tripwire** (7f0178e): only the placeholders WARDEN issued are removed
   from what is scanned (any `<WORD_N>` was, hiding an injection written in that shape), and labels are
   scanned as sentences - a credential-named label no longer escalates a clean incident on the real model.
+- **Ninth independent review** (2026-10-01): a terminal colour code glued to a key (`ESC[1m<key>`) hid it from
+  every pattern needing a word boundary - the terminal, the gate, MCP data and the log sent it whole (HIGH,
+  pre-existing). Redaction now removes escape sequences first. The gate's G5 checks every view of a text - as
+  written, without escapes, without controls, without invisibles, and what G3 made of it: checking only the
+  normalised text glued `x<BEL>` to a key (a regression from c52f6db), and removing a tag from inside a key
+  assembled one G5 never saw (pre-existing). The log formatter redacts before it normalises. Invisible
+  characters are removed only between ASCII name characters, so emoji and CJK selectors pass unchanged. A
+  one-letter or bare scheme (`p://evil.com`) is a link.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
