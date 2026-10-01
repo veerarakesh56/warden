@@ -384,8 +384,9 @@ bump may carry a breaking change.
   The database platform uses its connection one thread at a time and reopens one that failed (it kept a
   broken connection until a restart). README: the Kubernetes example uses the namespace the RBAC binds, and
   states that a count moving between the final precheck and the write is stepped from (sixth review).
-  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok"; the plan does
-  not name the cluster or server; a second resource written as an image reference or behind a scope word
+  A plan names the Kubernetes API server or database server it writes to (`warden status` shows it, the
+  plan hash covers it), so staging's plan and prod's no longer look the same.
+  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok"; a second resource written as an image reference or behind a scope word
   (`orders (payments:latest)`, `orders (namespace payments)`) still passes P14.
   A Deployment is healthy only once its controller has seen the current spec and its rollout has not
   stalled (observedGeneration, Progressing).

@@ -336,6 +336,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         _out(f"stage: {stage}")
         if plan:
             _out(f"plan : {_one(plan.entry)} {plan.params} tier {plan.tier}")
+            _out(f"where: {_one(plan.snapshot.get('server') or 'not stated by the platform')}")
             _out(f"hash : {plan.plan_hash}")
             for problem in plan.problems:
                 _out(f"  refused: {problem}")

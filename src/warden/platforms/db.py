@@ -186,7 +186,16 @@ class DatabasePlatform:
         if not name:
             return {}
         return {"database": {name}, "state": {"engine": self._engine, "database": name,
-                                              "app_users": sorted(self._users)}}
+                                              "app_users": sorted(self._users), "server": self._server()}}
+
+    def _server(self) -> str:
+        """host:port of the server, in the plan the approver signs (sixth review) - never the user or password."""
+        from urllib.parse import urlparse
+
+        if not self._dsn:
+            return ""
+        u = urlparse(self._dsn)
+        return f"{u.hostname or ''}:{u.port}" if u.port else (u.hostname or "")
 
     def knows(self, service: str) -> bool:
         return self._database() == service

@@ -75,7 +75,13 @@ class KubernetesPlatform:
             return {}
         return {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
-                          "generation": dep.metadata.generation}}
+                          "generation": dep.metadata.generation, "server": self._server()}}
+
+    def _server(self) -> str:
+        """The API server this platform writes to, in the plan the approver signs: staging's plan and prod's no
+        longer look the same (sixth review, 2026-10-01). No credential is in it."""
+        config = getattr(getattr(self._apps, "api_client", None), "configuration", None)
+        return str(getattr(config, "host", "") or "")
 
     def knows(self, service: str) -> bool:
         try:

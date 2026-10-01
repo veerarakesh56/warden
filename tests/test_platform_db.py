@@ -223,3 +223,11 @@ def test_a_broken_connection_is_reopened_and_use_is_one_at_a_time(monkeypatch):
     for t in threads:
         t.join()
     assert live["most"] == 1, "two threads used the connection at once"
+
+
+def test_the_plan_names_the_database_server_but_no_credential():
+    pw = "s3cr3t" + "-pw"
+    p = DatabasePlatform(dsn=f"postgresql://warden_terminator:{pw}@prod-db.example:5432/orders", conn=_Conn(),
+                         app_users=APP)
+    state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
+    assert state["server"] == "prod-db.example:5432" and pw not in str(state) and "warden_terminator" not in str(state)

@@ -69,7 +69,7 @@ def test_live_reads_the_named_deployment_with_one_get_and_lists_nothing():
     live = _platform(apps).live("k8s_scale", {"deployment": "orders"})
     assert live["namespace"] == {NS} and live["deployment"] == {"orders"}
     assert live["current_replicas"] == 2 and live["state"] == {"deployment": "orders", "replicas": 2,
-                                                                "generation": 7}
+                                                                "generation": 7, "server": ""}
 
 
 def test_nothing_read_allows_nothing():
@@ -216,3 +216,13 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     for held in ("object.spec.template.spec == oldObject.spec.template.spec", "object.spec.selector ==",
                  "object.spec.replicas <= oldObject.spec.replicas + 2", "object.spec.replicas >= 1"):
         assert held in rules, held
+
+
+def test_the_plan_names_the_api_server_it_writes_to():
+    """Sixth review (2026-10-01): staging's plan and prod's looked the same to the approver."""
+    import types
+
+    apps = _Apps(replicas=2)
+    apps.api_client = types.SimpleNamespace(configuration=types.SimpleNamespace(host="https://prod-cluster.example:6443"))
+    state = _platform(apps).live("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})["state"]
+    assert state["server"] == "https://prod-cluster.example:6443"
