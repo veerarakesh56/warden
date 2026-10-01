@@ -146,13 +146,16 @@ def _break_runs(line: str) -> str:
 # Dots a browser turns into "." when a link is opened (fifth review, 2026-10-01: `evil` + U+3002 + `com`
 # passed): written as ASCII dots, so the domain is defanged like any other.
 _WIDE_DOTS = re.compile("[\u3002\uff0e\uff61]")
+# An invisible character next to a dot keeps a domain whole to the matcher, not to a reader or a browser (sixth
+# review, 2026-10-01: `evil.<ZWSP>com`, `evil.c<SHY>om`). Removed inside a name before a domain is matched.
+_HIDDEN_AT_DOT = re.compile(r"(?<=[\w.])[\u200b\u200c\u200d\u2060\ufeff\u00ad]+(?=[\w.])")
 
 
 def _defang_outside_code(line: str) -> str:
     """Domains are defanged except inside inline code, where no renderer makes a link. Only when the
     line's backticks are unambiguous (no double run) - otherwise everything is defanged."""
     parts = [line] if "``" in line else _INLINE_CODE.split(line)
-    return "".join(part if i % 2 else _DOMAIN.sub(_defang, _NON_ASCII_HOST.sub(_defang, _WIDE_DOTS.sub(".", part)))
+    return "".join(part if i % 2 else _DOMAIN.sub(_defang, _NON_ASCII_HOST.sub(_defang, _HIDDEN_AT_DOT.sub("", _WIDE_DOTS.sub(".", part))))
                    for i, part in enumerate(parts))
 
 
@@ -323,7 +326,7 @@ def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = Non
     if leaks:
         # The id through the same cleaning as any text: `click.evil.example` is a valid alert id and was a
         # link in the stub (fifth review, 2026-10-01).
-        alert_id = sanitise_text(alert_id) if alert_id else ""
+        alert_id = sanitise_text(redact(alert_id).text) if alert_id else ""  # a key-shaped id too (sixth review)
         stub = (f"WARDEN report{f' for alert {alert_id}' if alert_id else ''} was withheld by the outbound "
                 f"gate: it still contained {', '.join(leaks)} after redaction. A person must read the full "
                 "report where WARDEN ran - nothing was sent.")

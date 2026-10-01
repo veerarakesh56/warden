@@ -9,7 +9,7 @@ from warden import chatops, gate
 SECRET = "AKIA" + "IOSFODNN7EXAMPLE"
 
 
-@pytest.mark.parametrize("marker", ["- ", "> ", "1. ", "1) "])
+@pytest.mark.parametrize("marker", ["- ", "> ", "1. ", "1) ", "- - - ", "  > - 1. "])
 def test_a_fence_after_a_list_or_quote_marker_stays_code(marker):
     """The A-2 tests used a two-space indent only; `line.lstrip().startswith("```")` passed them, and a URL
     after a `- ```` marker became Slack prose once split."""
@@ -44,3 +44,16 @@ def test_the_stub_of_a_withheld_report_cleans_the_alert_id():
     result = gate.enforce(f"key {SECRET}", alert_id="click.evil.example")
     assert result.verdict == "BLOCK"
     assert "click[.]evil[.]example" in result.text and "click.evil.example" not in result.text
+
+
+def test_the_stub_of_a_withheld_report_redacts_a_key_shaped_alert_id():
+    """Sixth review (2026-10-01): the stub cleaned the id's links but never checked it for secrets."""
+    result = gate.enforce(f"key {SECRET}", alert_id=SECRET)
+    assert result.verdict == "BLOCK" and SECRET not in result.text, result.text
+
+
+@pytest.mark.parametrize("mark", [chr(0x200B), chr(0x2060), chr(0xFEFF), chr(0x00AD)])
+def test_an_invisible_character_at_a_dot_does_not_keep_a_domain_whole(mark):
+    """Sixth review (2026-10-01): `evil.<ZWSP>com` passed whole."""
+    out = gate.enforce(f"see evil.{mark}com/x and www{mark}.evil.com and evil.c{mark}om/y").text
+    assert "evil[.]com/x" in out and "www[.]evil[.]com" in out and "evil[.]com/y" in out, out
