@@ -28,16 +28,18 @@ class HangingBackend(FixtureBackend):
     """Stands in for a logging backend that has stopped responding mid-incident."""
 
     def logs(self, alert):
-        # 1.0s against a 0.3s ceiling: long enough to prove the deadline fires, short enough that
+        # 2.0s against a 0.3-0.8s ceiling: long enough to prove the deadline fires, short enough that
         # interpreter teardown does not sit joining an abandoned worker thread. Measured: a 5s hang
         # cost ~10s of pure teardown across this file for no extra coverage.
-        time.sleep(1.0)
+        time.sleep(2.0)
         return ["never returned"]
 
 
 def test_a_hanging_tool_does_not_hang_the_run():
     started = time.monotonic()
-    ctx = gather(_alert(), HangingBackend(), timeout=0.3)
+    # 0.8s: the tools that answer must answer inside it on a loaded machine too (it failed once with 0.3s
+    # while a mutation run shared the CPU, 2026-10-01).
+    ctx = gather(_alert(), HangingBackend(), timeout=0.8)
     elapsed = time.monotonic() - started
 
     assert elapsed < 3, f"gather() waited {elapsed:.1f}s on a hanging tool"
