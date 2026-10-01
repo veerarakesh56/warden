@@ -67,8 +67,49 @@ infra-deploy = ["boto3>=1.34"]   # terraform/fullstack/aurora_express.py: stdlib
 [tool.uv.build-backend]
 # uv_build packs everything under src/warden; a local .env or log file must never ship (fifth review E,
 # 2026-10-01: a planted src/warden/.env reached the wheel).
-source-exclude = ["**/.env", "**/.env.*", "**/*.log", "**/*.pem", "**/*.key"]
-wheel-exclude = ["**/.env", "**/.env.*", "**/*.log", "**/*.pem", "**/*.key"]
+# Secret-bearing files that .gitignore keeps out of git, kept out of the sdist and wheel too (sixth review).
+source-exclude = [
+    "**/.env",
+    "**/.env.*",
+    "**/*.log",
+    "**/*.log.*",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*.pfx",
+    "**/*.jks",
+    "**/*.tfstate",
+    "**/*.tfstate.*",
+    "**/*.tfvars",
+    "**/tfplan*",
+    "**/*.tfplan*",
+    "**/*.db",
+    "**/*.sqlite*",
+    "**/*credentials*",
+    "**/id_rsa*",
+    "**/id_ed25519*",
+]
+wheel-exclude = [
+    "**/.env",
+    "**/.env.*",
+    "**/*.log",
+    "**/*.log.*",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*.pfx",
+    "**/*.jks",
+    "**/*.tfstate",
+    "**/*.tfstate.*",
+    "**/*.tfvars",
+    "**/tfplan*",
+    "**/*.tfplan*",
+    "**/*.db",
+    "**/*.sqlite*",
+    "**/*credentials*",
+    "**/id_rsa*",
+    "**/id_ed25519*",
+]
 
 [tool.uv]
 # A range, not one version: Dependabot runs its own uv (0.12.18 on 2026-10-01) and refused "==0.12.21",

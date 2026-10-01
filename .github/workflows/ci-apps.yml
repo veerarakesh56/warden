@@ -32,6 +32,10 @@ on:
       - "uv.lock"
       - "pyproject.toml"
       - "tests/test_supply_chain.py"
+  # Weekly too: the deployed requirements are audited (pip-audit) even when nothing here changes - a new CVE
+  # in a pinned redis or psycopg was noticed only at the next change or deploy (sixth review, 2026-10-01).
+  schedule:
+    - cron: "23 3 * * 1"
 
 permissions:
   contents: read

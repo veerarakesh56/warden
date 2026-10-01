@@ -202,3 +202,25 @@ def test_the_groups_that_build_the_lambdas_carry_pip():
     groups = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["dependency-groups"]
     for name in ("apps-check", "apps-deploy"):
         assert any(_requirement(r)[0] == "pip" for r in groups[name]), name
+
+
+def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
+    """Sixth review (2026-10-01): five patterns - a git-ignored tfstate (the database master password in plaintext)
+    or tfvars under src/ would still ship from a local build."""
+    import tomllib
+
+    must = ['**/.env', '**/.env.*', '**/*.log', '**/*.log.*', '**/*.pem', '**/*.key', '**/*.p12', '**/*.pfx', '**/*.jks', '**/*.tfstate', '**/*.tfstate.*', '**/*.tfvars', '**/tfplan*', '**/*.tfplan*', '**/*.db', '**/*.sqlite*', '**/*credentials*', '**/id_rsa*', '**/id_ed25519*']
+    backend = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["uv"]["build-backend"]
+    docker = {ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()}
+    for name, have in (("source-exclude", set(backend["source-exclude"])), ("wheel-exclude", set(backend["wheel-exclude"])),
+                       (".dockerignore", docker)):
+        assert set(must) <= have, (name, sorted(set(must) - have))
+
+
+def test_the_deployed_requirements_are_audited_every_week():
+    """Sixth review (2026-10-01): the apps pipeline ran only on a change, so a new CVE in a pinned dependency of
+    what is deployed waited for the next change."""
+    apps = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-apps.yml").read_text(encoding="utf-8"))
+    assert apps[True].get("schedule"), "CI · apps has no schedule"
+    check = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
+    assert "pip-audit -r" in check

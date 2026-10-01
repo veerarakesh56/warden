@@ -366,14 +366,26 @@ bump may carry a breaking change.
   The database platform uses its connection one thread at a time and reopens one that failed (it kept a
   broken connection until a restart). README: the Kubernetes example uses the namespace the RBAC binds, and
   states that a count moving between the final precheck and the write is stepped from (sixth review).
-  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok"; a platform's own
-  refusal is reported "apply_failed" rather than "refused"; the plan does not name the cluster or server.
+  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok"; the plan does
+  not name the cluster or server; a second resource written as an image reference or behind a scope word
+  (`orders (payments:latest)`, `orders (namespace payments)`) still passes P14.
   A Deployment is healthy only once its controller has seen the current spec and its rollout has not
   stalled (observedGeneration, Progressing).
   P14 refuses a command before a period (`orders (rm.)`, `kubectl.exe`) and kill, pkill, terraform,
   shutdown, reboot, eksctl, systemctl. Replica lag in days and weeks is converted, more unit spellings
   are read right, more non-lag words refused, and DocumentDB's and Aurora Global Database's CloudWatch
   lag names read (milliseconds). The lag list stays open-ended by design: an unknown word is a resource.
+  A platform's refusal before writing anything (a count that moved, a bound re-checked, an unreadable
+  target) ends `refused_at_apply`, not `apply_failed`. P14 takes every spelling of a namespace or cluster
+  label as a scope (`aurora_cluster`, `NAMESPACE`, `k8s_namespace`, an ElastiCache group); a failover may
+  name the cluster its alert labels and never a namespace. The stub of a withheld report redacts its
+  alert id as well as defanging it. An invisible character at a dot (`evil.<ZWSP>com`) no longer keeps a domain
+  whole. The register guard judges a whole-suite run however its path is spelled (`.`, `tests/.`).
+  The package and the image keep out every secret-bearing file .gitignore names (tfstate, tfvars, saved
+  plans, key stores, databases) - checked by building a wheel and an sdist with a planted tfstate - and
+  the Slack fence tests use nested list markers (a weaker fence check passed them).
+  CI · apps also runs weekly, so the deployed requirements are audited without a change; an interrupted
+  mutation check stops its workers before restoring the mutated file.
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a
