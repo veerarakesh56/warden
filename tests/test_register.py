@@ -54,7 +54,11 @@ def rows(text: str, malformed: list[str] | None = None) -> list[dict[str, str]]:
     columns, and a row whose cells do not match its header, are reported in `malformed` (fifth review: an
     unescaped `||` split a cell and the row was dropped without a word)."""
     out: list[dict[str, str]] = []
-    lines = text.splitlines()
+    # Lines end only at a line feed, and blank means spaces and tabs only, as in GitHub's renderer: splitlines() and
+    # str.strip() also break on U+2028, U+0085, VT, FF and the separators, and called an NBSP line blank - one such
+    # character after a row hid every later row (seventh review, 2026-10-01). The registers carry none at all
+    # (test_the_registers_hold_no_invisible_line_breaks); this keeps the parser honest if one gets in.
+    lines = text.replace("\r\n", "\n").split("\n")
     header: list[str] | None = None
     i = 0
     while i < len(lines):
@@ -68,7 +72,7 @@ def rows(text: str, malformed: list[str] | None = None) -> list[dict[str, str]]:
                 continue
             i += 1
             continue
-        if not line.strip() or line.lstrip().startswith(("#", ">")):
+        if not line.strip(" \t") or _ENDS_TABLE.match(line):
             header = None
             i += 1
             continue
@@ -80,6 +84,11 @@ def rows(text: str, malformed: list[str] | None = None) -> list[dict[str, str]]:
                 malformed.append(line.strip()[:80])
         i += 1
     return out
+
+
+# What ends a table: an ATX heading (`#` to `######` then a space or the end) or a block quote. `#X-2 | ...` is a
+# row in GitHub's renderer, not a heading.
+_ENDS_TABLE = re.compile(r" {0,3}(?:#{1,6}(?:[ \t]|$)|>)")
 
 
 def all_rows() -> list[tuple[str, dict[str, str]]]:
@@ -330,3 +339,27 @@ def test_rows_github_shows_are_read_whatever_their_pipes():
     renamed = "| ID | Finding | Group | State | Evidence |\n|---|---|---|---|---|\n| X-5 | e | G0 | OPEN | e |\n"
     rows(renamed, bad)
     assert bad and "without Group and Status" in bad[0]
+
+
+def test_rows_end_where_githubs_tables_end():
+    """Seventh review (2026-10-01): an invisible line break or an NBSP line ended the table here while GitHub kept
+    showing the rows after it; a `#` row without a space did too."""
+    head = "| ID | Group | Status | Evidence |\n|---|---|---|---|\n| A-1 | G1 | DONE-local | x |"
+    for sep in ("\u2028", "\u0085", "\x0b", "\x0c", "\x1c", "\x1e"):
+        got = rows(head + sep + "\n| A-2 | G1 | OPEN | y |")
+        assert "A-2" in [r["ID"] for r in got], (repr(sep), got)  # the row after it is still read
+    assert [r["ID"] for r in rows(head + "\n#X-2 | G1 | OPEN | y |")] == ["A-1", "#X-2"]
+    assert [r["ID"] for r in rows(head + "\n## Next\n| A-3 | G1 | OPEN | z |")] == ["A-1"]  # a real heading ends it
+    malformed: list[str] = []
+    rows(head + "\n\u00a0\n| A-2 | G1 | OPEN | y |", malformed)  # an NBSP line is a row, not a blank: reported
+    assert malformed
+
+
+def test_the_registers_hold_no_invisible_line_breaks():
+    """No C0 control but tab and line feed, no C1, no U+2028/U+2029, no NBSP-family line in any register: each hid
+    rows from this parser while GitHub showed them (seventh review)."""
+    bad = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
+    for rel in REGISTERS:
+        text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
+        found = [(n, repr(m.group())) for n, line in enumerate(text.split("\n"), 1) for m in bad.finditer(line)]
+        assert not found, (rel, found[:5])

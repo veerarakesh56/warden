@@ -452,6 +452,9 @@ bump may carry a breaking change.
   swap, a renamed no-op or a wrapper bound under the name, a `pytest_pyfunc_call` answering for the call, a
   fixture swapping the test object (MED). Three of them, planted into a real full run, are now each named
   and fail it. The guard's own wiring (exit status, the rebound state, the worker check) is unit-tested.
+  The register parser ends lines only at a line feed and tables only at a real heading or quote, and the
+  registers may hold no invisible line break at all: one U+2028 after a row hid the rest of the A-I table
+  from it while GitHub showed every row, and `#X-2 | ...` ended a table GitHub kept (MED-LOW).
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
