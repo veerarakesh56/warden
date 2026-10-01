@@ -160,3 +160,14 @@ def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
         for trigger in ("push", "pull_request"):
             missing = runs - set(on[trigger]["paths"])
             assert runs and not missing, (lane, trigger, sorted(missing))
+
+
+def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
+    """Ninth review (2026-10-01): it accepted any "forbidden" - on 5fdcff4 the privileged pod was refused because the
+    namespace's default ServiceAccount did not exist yet, and the step went green without Pod Security deciding."""
+    text = (pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-tool.yml").read_text(
+        encoding="utf-8")
+    step = text.split("Pod Security must REJECT a privileged pod", 1)[1].split("- name:", 1)[0]
+    greps = re.findall(r"grep [^\n|]*?err\.txt", step)
+    assert greps == ['grep -q "violates PodSecurity" err.txt'], greps
+    assert "serviceaccount default -n warden" in step

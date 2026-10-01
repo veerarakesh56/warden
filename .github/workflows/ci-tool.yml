@@ -255,11 +255,14 @@ jobs:
       - name: Pod Security must REJECT a privileged pod in the warden namespace
         run: |
           # A positive test (the Job is admitted) cannot tell 'restricted is enforced' from 'the
-          # label is mistyped'. This can.
+          # label is mistyped'. This can. Only Pod Security's own reason counts: on 5fdcff4 the pod was refused
+          # because the namespace's default ServiceAccount did not exist yet, and any 'forbidden' passed (ninth
+          # review). So the ServiceAccount first.
+          for _ in $(seq 1 30); do kubectl get serviceaccount default -n warden >/dev/null 2>&1 && break; sleep 2; done
           if kubectl apply --dry-run=server -f k8s/test/privileged-must-fail.yaml 2>err.txt; then
             echo "::error::a privileged pod was ACCEPTED - Pod Security is not enforced"; exit 1
           fi
-          grep -qi "forbidden\|violates PodSecurity" err.txt || { echo "::error::rejected for the wrong reason:"; cat err.txt; exit 1; }
+          grep -q "violates PodSecurity" err.txt || { echo "::error::rejected for the wrong reason:"; cat err.txt; exit 1; }
           echo "rejected as expected:"; cat err.txt
 
       # RBAC from the API server's point of view, BOTH directions, MINIMAL not just read-only.
