@@ -31,7 +31,7 @@ class _Cursor:
             raise RuntimeError("boom: server unreachable")
         if sql.startswith(("SELECT current_database()", "SELECT DATABASE()", "SELECT DB_NAME()")):
             self.rows = [(self.conn.db,)]
-        elif sql in ("SELECT current_user", "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1)", "SELECT SUSER_SNAME()"):
+        elif sql in ("SELECT session_user", "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1)", "SELECT SUSER_SNAME()"):
             self.rows = [(self.conn.me,)]
         elif "pg_terminate_backend" in sql:
             self.conn.killed.append(params[0])
@@ -258,4 +258,34 @@ def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
     conn = _Conn(me="orders_app")
     with pytest.raises(DatabasePlatformError, match="own login"):
         _platform(engine, conn, users=[named]).apply("db_terminate_idle_in_tx", PARAMS)
+    assert conn.killed == []
+
+
+@pytest.mark.parametrize("engine, dsn, env, where", [
+    ("postgres", "postgresql:///orders?service=prod", {}, "service=prod"),
+    ("postgres", "postgresql:///orders", {"PGHOST": "db.prod"}, "PGHOST=db.prod"),
+    ("mysql", "mysql://u:{pw}@/orders", {}, "localhost:3306 (TCP)"),
+    ("mysql", "mysql://u:{pw}@db-staging/orders?host=db-prod", {}, "db-staging"),
+    ("postgres", "password=S3cr.host=hunter2 dbname=orders", {}, "the local socket"),
+    ("postgres", "password='x port=6543' host=db.prod dbname=orders", {}, "host=db.prod"),
+])
+def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine, dsn, env, where):
+    """Eighth review (2026-10-01): a service file and PGHOST showed "the local socket"; MySQL with no host is TCP to
+    localhost; pymysql ignores `?host=`; and text inside a password value was read as a host or a port."""
+    for k in ("PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    pw = "s3cr3t" + "-pw"
+    p = DatabasePlatform(dsn=dsn.format(pw=pw), engine=engine, conn=_Conn(), app_users=APP)
+    state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
+    assert state["server"] == where and pw not in str(state) and "hunter2" not in str(state), state["server"]
+
+
+@pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
+def test_its_own_login_reported_in_capitals_is_refused_too(engine):
+    """Eighth review: the fold was tested only with a lowercase own login - folding the allowlist alone passed."""
+    conn = _Conn(me="ORDERS_APP")
+    with pytest.raises(DatabasePlatformError, match="own login"):
+        _platform(engine, conn, users=["orders_app"]).apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == []

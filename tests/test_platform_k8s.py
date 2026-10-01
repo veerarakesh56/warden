@@ -338,3 +338,25 @@ def test_a_policy_refusal_is_not_read_as_a_moved_count_whatever_the_deployment_i
     p = _platform(_Refusing(_Denied(422, moved)))
     with pytest.raises(KubernetesPlatformRefused, match="something else scaled it"):
         p.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})
+
+
+def test_a_write_that_never_reached_the_api_server_changed_nothing():
+    """Eighth review: a refused connection - nothing sent - ended apply_failed and tripped the global kill switch."""
+    import urllib3
+
+    class _Down(_Apps):
+        def patch_namespaced_deployment(self, name, ns, body, **kw):
+            refused = urllib3.exceptions.NewConnectionError(None, "Failed to establish a new connection: refused")
+            raise urllib3.exceptions.MaxRetryError(None, "/apis/apps/v1", reason=refused)
+
+    p = _platform(_Down(replicas=2))
+    with pytest.raises(KubernetesPlatformRefused, match="could not reach the API server"):
+        p.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+
+    class _Reset(_Apps):
+        def patch_namespaced_deployment(self, name, ns, body, **kw):
+            raise urllib3.exceptions.ProtocolError("Connection aborted.", ConnectionResetError())
+
+    with pytest.raises(KubernetesPlatformError) as unknown:  # sent, then lost: nobody knows - not "refused"
+        _platform(_Reset(replicas=2)).apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+    assert not isinstance(unknown.value, KubernetesPlatformRefused)

@@ -462,6 +462,12 @@ bump may carry a breaking change.
   the kill switch - it left no end row and the switch off. Every unknown end is its own trip, and a reset
   must name the latest: a second one while the switch was on left no row, and one reset signed for the first
   cleared both. `warden killswitch` lists every trip since the last reset. A retried `finish` writes one end row.
+  The plan's "where" reads a libpq key=value DSN pair by pair (text inside a password was read as a host),
+  shows `service=` and PGHOST when they decide the server, and shows MySQL's TCP default and ignores `?host=`
+  there, as the driver does. A Kubernetes write that never reached the API server ends refused - it tripped
+  the global kill switch through apply_failed. PostgreSQL's own-login check uses `session_user`. CI's live
+  PostgreSQL and SQL Server tests now prove the idle threshold and that a session running a statement - or,
+  on SQL Server, one with no open transaction - is never selected.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

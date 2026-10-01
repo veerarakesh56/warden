@@ -28,6 +28,49 @@ MAX_TERMINATE = int(os.environ.get("WARDEN_DB_TERMINATE_MAX", "20"))
 _ENTRY = "db_terminate_idle_in_tx"
 
 
+# What decides the server a libpq DSN reaches, in the order the plan shows them.
+_WHERE = ("host", "hostaddr", "port", "service")
+
+
+def _conninfo(dsn: str) -> dict[str, str]:
+    """libpq's key=value DSN, read pair by pair as libpq does - quoted values with \\ escapes, whitespace between
+    pairs - so a value is never searched for keys: `password=S3cr.host=hunter2` holds no host (eighth review)."""
+    out: dict[str, str] = {}
+    i, n = 0, len(dsn)
+    while i < n:
+        while i < n and dsn[i].isspace():
+            i += 1
+        j = i
+        while j < n and (dsn[j].isalnum() or dsn[j] == "_"):
+            j += 1
+        key = dsn[i:j]
+        while j < n and dsn[j].isspace():
+            j += 1
+        if not key or j >= n or dsn[j] != "=":
+            break  # not a conninfo string libpq would accept: show nothing rather than guess
+        j += 1
+        while j < n and dsn[j].isspace():
+            j += 1
+        value = []
+        if j < n and dsn[j] == "'":
+            j += 1
+            while j < n and dsn[j] != "'":
+                if dsn[j] == "\\" and j + 1 < n:
+                    j += 1
+                value.append(dsn[j])
+                j += 1
+            j += 1
+        else:
+            while j < n and not dsn[j].isspace():
+                if dsn[j] == "\\" and j + 1 < n:
+                    j += 1
+                value.append(dsn[j])
+                j += 1
+        out[key] = "".join(value)
+        i = j
+    return out
+
+
 class DatabasePlatformError(RuntimeError):
     pass
 
@@ -45,7 +88,7 @@ def _as_ids(rows: Any) -> list[int]:
 
 
 class _Postgres:
-    ME = "SELECT current_user"
+    ME = "SELECT session_user"  # the login pg_stat_activity lists; current_user changes with SET ROLE (eighth review)
 
     @staticmethod
     def database(conn: Any) -> str:
@@ -192,21 +235,28 @@ class DatabasePlatform:
         """Where the connection goes, in the plan the approver signs (sixth review) - never the user or password.
         Every host libpq may use, and the `host`/`hostaddr`/`port` parameters that override them; it never raises:
         a multi-host DSN made `.port` raise, and the plan was never written (seventh review, 2026-10-01)."""
-        import re
         from urllib.parse import parse_qs, urlsplit
 
         if not self._dsn:
             return ""
-        if "://" not in self._dsn:  # libpq's `host=... port=...` form
-            return " ".join(f"{k}={v}" for k, v in re.findall(r"\b(host|hostaddr|port)\s*=\s*(\S+)", self._dsn))
+        if "://" not in self._dsn:  # libpq's `key=value` form, read pair by pair: a value is never searched
+            params = _conninfo(self._dsn)
+            return " ".join(f"{k}={params[k]}" for k in _WHERE if k in params) or self._unstated()
         try:
             u = urlsplit(self._dsn)
             query = parse_qs(u.query)
         except ValueError:
             return "a DSN that could not be read"
         hosts = u.netloc.rpartition("@")[2]
-        over = [f"{k}={query[k][-1]}" for k in ("host", "hostaddr", "port") if k in query]
-        return " ".join(([hosts] if hosts else []) + over) or "the local socket"
+        if self._engine != "postgres":  # only libpq reads `?host=`; pymysql and pymssql ignore it (eighth review)
+            return hosts or ("localhost:3306 (TCP)" if self._engine == "mysql" else "localhost (TCP)")
+        over = [f"{k}={query[k][-1]}" for k in _WHERE if k in query]
+        return " ".join(([hosts] if hosts else []) + over) or self._unstated()
+
+    def _unstated(self) -> str:
+        """No host in the DSN: libpq takes PGHOST or PGSERVICE from the environment, else the local socket."""
+        env = [f"{k}={os.environ[k]}" for k in ("PGHOST", "PGHOSTADDR", "PGPORT", "PGSERVICE") if os.environ.get(k)]
+        return " ".join(env) if env and self._engine == "postgres" else "the local socket"
 
     def knows(self, service: str) -> bool:
         return self._database() == service

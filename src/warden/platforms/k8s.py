@@ -192,6 +192,22 @@ class KubernetesPlatform:
         return f"scaled deployment/{deployment} in {self._ns} from {expect} to {to} replica(s)"
 
 
+def _never_sent(exc: BaseException) -> bool:
+    """A connection refused or never established (urllib3's NewConnectionError, inside the client's MaxRetryError):
+    the request never left - unlike a timeout or a reset, after which nobody knows."""
+    seen, todo = set(), [exc]
+    while todo:
+        e = todo.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
+        if isinstance(e, ConnectionRefusedError) or type(e).__name__ in ("NewConnectionError", "NameResolutionError"):
+            return True
+        todo += [getattr(e, "reason", None) if isinstance(getattr(e, "reason", None), BaseException) else None,
+                 e.__cause__, e.__context__]
+    return False
+
+
 def _a_policy(exc: Exception) -> bool:
     """An admission policy's refusal, as the API server words it ("ValidatingAdmissionPolicy ... denied request")."""
     return "denied request" in str(exc) or "AdmissionPolicy" in str(exc)
@@ -200,6 +216,11 @@ def _a_policy(exc: Exception) -> bool:
 def _refused_by_the_server(exc: Exception, deployment: str) -> None:
     """A write the API server refused - RBAC (403) or an admission policy (403/422) - was never persisted: nothing
     changed, and the run ends refused, not "may be half-made" (seventh review, 2026-10-01)."""
+    if _never_sent(exc):
+        # No connection was made, so nothing was written - and an unreachable API server tripped the global kill
+        # switch through apply_failed (eighth review, 2026-10-01).
+        raise KubernetesPlatformRefused(f"could not reach the API server for deployment/{deployment} "
+                                      f"({_one_line(exc)}); nothing was sent") from exc
     if getattr(exc, "status", None) in (403, 422):
         raise KubernetesPlatformRefused(f"the API server refused the write to deployment/{deployment} "
                                       f"(RBAC or an admission policy: {_one_line(getattr(exc, 'reason', '') or exc)}); "

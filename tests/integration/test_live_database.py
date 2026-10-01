@@ -191,6 +191,22 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
             cur.execute("SELECT pg_backend_pid()")
             own_pid = cur.fetchone()[0]
         assert own_pid not in candidates, "it selected its OWN connection for termination"
+        # Idle time is what counts, and only an idle-in-transaction session is selected - a session running a
+        # statement inside its transaction never is (eighth review: both could be dropped with every test green).
+        assert victim_pid not in platform_db._Postgres.candidates(admin, 3600, 20, [PG_USER]), \
+            "a session idle for a second was selected at an hour's threshold"
+        busy = psycopg.connect(PG_DSN, autocommit=False)
+        try:
+            busy_pid = busy.info.backend_pid
+            running = threading.Thread(target=lambda: busy.execute("SELECT pg_sleep(4)"))
+            running.start()
+            time.sleep(1.0)  # now active, inside its transaction
+            assert busy_pid not in platform_db._Postgres.candidates(admin, 0, 20, [PG_USER]), \
+                "a session running a statement was selected for termination"
+            running.join()
+        finally:
+            with contextlib.suppress(Exception):
+                busy.close()
 
         assert platform_db._Postgres.terminate(admin, [victim_pid]) == 1
 
@@ -385,6 +401,36 @@ def test_mssql_terminate_actually_kills_the_sleeping_transaction():
         ac.execute("SELECT @@SPID")
         own_spid = int(ac.fetchone()[0])
         assert own_spid not in candidates, "it selected its OWN session to KILL"
+        # Idle time, a sleeping session, and an open transaction - each filter can be seen to hold (eighth review:
+        # each could be dropped with every test green).
+        assert victim_spid not in platform_db._MSSQL.candidates(admin, 3600, 20, [MSSQL_USER]), \
+            "a session idle for two seconds was selected at an hour's threshold"
+
+        def connect(autocommit):
+            return pymssql.connect(server=u.hostname, port=str(u.port or 1433), user=u.username,
+                                   password=u.password or "", database=u.path.lstrip("/") or "master",
+                                   autocommit=autocommit)
+
+        busy, idle = connect(False), connect(True)
+        try:
+            bc = busy.cursor()
+            bc.execute("SELECT @@SPID")
+            busy_spid = int(bc.fetchone()[0])
+            bc.execute("BEGIN TRANSACTION")
+            running = threading.Thread(target=lambda: bc.execute("WAITFOR DELAY '00:00:04'"))
+            running.start()
+            ic = idle.cursor()
+            ic.execute("SELECT @@SPID")
+            idle_spid = int(ic.fetchone()[0])  # sleeping, but with no transaction open
+            time.sleep(1.5)
+            now = platform_db._MSSQL.candidates(admin, 0, 20, [MSSQL_USER])
+            assert busy_spid not in now, "a session running a batch was selected to KILL"
+            assert idle_spid not in now, "a sleeping session with no open transaction was selected to KILL"
+            running.join()
+        finally:
+            for c in (busy, idle):
+                with contextlib.suppress(Exception):
+                    c.close()
 
         assert platform_db._MSSQL.terminate(admin, [victim_spid]) == 1
         def still_there():
