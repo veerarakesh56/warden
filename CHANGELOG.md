@@ -468,6 +468,10 @@ bump may carry a breaking change.
   the global kill switch through apply_failed. PostgreSQL's own-login check uses `session_user`. CI's live
   PostgreSQL and SQL Server tests now prove the idle threshold and that a session running a statement - or,
   on SQL Server, one with no open transaction - is never selected.
+  P15 reads "0 remaining / left / free" as a shortage only when nothing bad is named in the measure - "blocked
+  connections: 0 remaining" or "probe failures: 0 left" still supported an action - and counts a capacity word
+  between the key and the value ("queue slots: 0 free"). "Idle" is a shortage again for scale_up only: an
+  exhausted pool ("pool: 0 idle") had stopped supporting it (a regression from 88bb9e5). The verify replay is unchanged.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

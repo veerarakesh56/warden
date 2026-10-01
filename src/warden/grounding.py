@@ -94,6 +94,11 @@ _GOOD = frozenset({"pass", "passing", "passed", "ready", "healthy", "available",
 # idle (seventh review, 2026-10-01: all three supported an action).
 _QUANTITY = frozenset({"free", "available", "left", "remaining", "spare", "headroom", "passing", "passed"})
 _CAPACITY = ("memory", "cpu", "concurrency", "pool", "connection", "capacity", "probe", "slot")
+# Words that make a measure a count of something bad, whatever capacity word it holds: "blocked connections: 0
+# remaining" is no blocked connection, "probe failures: 0 left" no failure (eighth review, 2026-10-01).
+_BAD = frozenset({"blocked", "failure", "failures", "failed", "error", "errors", "leak", "leaks", "killed", "oom",
+                  "deadlock", "deadlocks", "throttled", "rejected", "dropped", "timeout", "timeouts", "waiting",
+                  "stuck", "refused", "lost", "crash", "crashes", "evicted", "pending", "queued"})
 _NEGATORS = frozenset({"no", "not", "zero", "without", "none", "never", "0"})
 # A negation does not reach past a clause or a preposition: "could not connect then restarted", "no
 # response from primary". "or" and "and" do not break it: "no restarts or OOM kills".
@@ -124,7 +129,7 @@ def _negated(before: str, key: str, shortage: bool) -> bool:
     return False
 
 
-def _reports_none(after: str, key: str, shortage: bool) -> bool:
+def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_short: bool = False) -> bool:
     """The key is followed by a value, and that value (the last of a transition) says none."""
     m = _FIRST.match(after)
     if not m:
@@ -148,15 +153,21 @@ def _reports_none(after: str, key: str, shortage: bool) -> bool:
     # A good word after the value: after a fraction it is a shortage ("0/3 passing"); after a plain zero only a
     # quantity word is ("0 free"), a status word is another field ("restarts: 0 ok") - fifth and sixth reviews.
     after_word = word.group(1) if word else ""
+    # A quantity word after a zero is a shortage only of a measure of capacity - the key, or a capacity word
+    # between it and the value ("queue slots: 0 free") - with no bad thing named beside it; "idle" only where an
+    # idle pool is the shortage (scale_up), not where idle sessions are the fault (eighth review).
+    measured = set(re.findall(r"[a-z]+", f"{before} {phrase}"))
+    capacity = key.startswith(_CAPACITY) or any(w.startswith(_CAPACITY) for w in re.findall(r"[a-z]+", phrase))
+    quantity = after_word in _QUANTITY or (idle_short and after_word == "idle")
     if shortage and (key in _GOOD or _GOOD & set(re.findall(r"[a-z]+", phrase))
                      or (after_word in _GOOD and "/" in value)
-                     or (after_word in _QUANTITY and key.startswith(_CAPACITY))):
+                     or (quantity and capacity and not measured & _BAD)):
         return False
     number = value.split("/")[0]
     return float(number) == 0 if number[-1].isdigit() else True
 
 
-def _supports(quote: str, key: str, shortage: bool = True) -> bool:
+def _supports(quote: str, key: str, shortage: bool = True, idle_short: bool = False) -> bool:
     """`key` starts a word in `quote` (audit A-C-6: "ready" in "already", "lag" in "flag"), a short key
     also ends one (review 2026-09-28: "miss" in "missing"), and a measurement or a phrase that says
     "none" does not count (`crashloop_containers=0`, `OOMKilled=false`, "no OOMKilled events" are
@@ -165,7 +176,9 @@ def _supports(quote: str, key: str, shortage: bool = True) -> bool:
     for m in re.finditer(rf"(?<![a-z0-9]){re.escape(key)}{end}", quote):
         if _negated(quote[:m.start()], key, shortage):
             continue
-        if key.startswith("not ") or not _reports_none(quote[m.end():], key, shortage):
+        # The words naming the measure: the two before the key and the word the key starts ("blocked").
+        before = " ".join([*re.findall(r"[a-z]+", quote[:m.start()])[-2:], re.match(r"[a-z]*", quote[m.start():])[0]])
+        if key.startswith("not ") or not _reports_none(quote[m.end():], key, shortage, before, idle_short):
             return True
     return False
 
@@ -186,7 +199,8 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     quotes = [_CAMEL.sub(" ", c.quote).lower() for c in root_cause.citations
               if c.id.strip().strip("[]") in items and not c.id.strip().strip("[]").startswith("T")]
     shortage = proposal.action is not ActionKind.scale_down
-    if any(_supports(q, k, shortage) for q in quotes for k in keys):
+    idle_short = proposal.action is ActionKind.scale_up
+    if any(_supports(q, k, shortage, idle_short) for q in quotes for k in keys):
         return None
     return (f"none of the cited evidence bears on {proposal.action.value} "
             f"(it names none of: {', '.join(keys[:6])}...)")

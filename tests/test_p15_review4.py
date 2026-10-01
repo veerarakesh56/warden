@@ -195,3 +195,20 @@ def test_the_seventh_reviews_p15_quotes(action, quote, supports):
 @pytest.mark.parametrize(("action", "quote", "supports"), SIXTH)
 def test_the_sixth_reviews_p15_quotes(action, quote, supports):
     assert _supports(action, quote) is supports
+
+
+# Eighth review (2026-10-01): a capacity keyword inside a count of something bad still read as a shortage, and "idle"
+# left the quantity words for every action - an exhausted pool stopped supporting scale_up.
+EIGHTH = [
+    (A.terminate_connections, "blocked connections: 0 remaining", False),
+    (A.restart_pods, "probe failures: 0 remaining", False), (A.scale_up, "memory leaks: 0 remaining", False),
+    (A.scale_up, "connection errors: 0 left", False), (A.terminate_connections, "connections: 0 idle", False),
+    (A.scale_up, "pool: 0 idle", True), (A.scale_up, "connection pool: 0 idle", True),
+    (A.scale_up, "connections: 0 idle", True), (A.scale_up, "queue slots: 0 free", True),
+    (A.scale_up, "connections: 0 free", True), (A.restart_pods, "probes: 0 passing", True),
+]
+
+
+@pytest.mark.parametrize(("action", "quote", "supports"), EIGHTH)
+def test_the_eighth_reviews_p15_quotes(action, quote, supports):
+    assert _supports(action, quote) is supports
