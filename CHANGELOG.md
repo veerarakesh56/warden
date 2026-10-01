@@ -361,6 +361,9 @@ bump may carry a breaking change.
   2026-10-01).
   Each deploy role's trust also requires the main branch and one of the two reusable deploy workflows
   (`ref`, `job_workflow_ref`; A-I-10's code half - the GitHub half is the owner's step G1).
+  Event source mappings and task definitions are the environment's own (`lambda:FunctionArn`, the
+  family name); only DeregisterTaskDefinition, which AWS gives no resource or condition, stays
+  region-bound (A-I-8).
 - **Sixth independent review, the write path** (2026-10-01; rows A-R6): a failed rollback ends
   `rollback_failed`, signed, and trips the kill switch (it crashed the workflow); a rollback undoes only
   what its own run applied, and its row names the run and plan; a fix with nothing to undo (a restart)

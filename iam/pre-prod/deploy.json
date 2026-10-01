@@ -31,17 +31,37 @@
       }
     },
     {
-      "Sid": "EsmAndTaskDefs",
+      "Sid": "EsmsOfOwnFunctions",
       "Effect": "Allow",
       "Action": [
         "lambda:CreateEventSourceMapping",
         "lambda:GetEventSourceMapping",
         "lambda:UpdateEventSourceMapping",
-        "lambda:DeleteEventSourceMapping",
+        "lambda:DeleteEventSourceMapping"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        },
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:*:*:function:warden-pre-prod-*"
+        }
+      }
+    },
+    {
+      "Sid": "OwnTaskDefinitions",
+      "Effect": "Allow",
+      "Action": [
         "ecs:RegisterTaskDefinition",
-        "ecs:DeregisterTaskDefinition",
         "ecs:DeleteTaskDefinitions"
       ],
+      "Resource": "arn:aws:ecs:*:*:task-definition/warden-pre-prod-*"
+    },
+    {
+      "Sid": "DeregisterTaskDefinitions",
+      "Effect": "Allow",
+      "Action": "ecs:DeregisterTaskDefinition",
       "Resource": "*",
       "Condition": {
         "StringEquals": {

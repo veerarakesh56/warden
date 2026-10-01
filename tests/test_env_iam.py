@@ -257,3 +257,18 @@ def test_only_main_and_the_two_deploy_workflows_may_assume(env):
     refs = cond["StringEquals"]["token.actions.githubusercontent.com:job_workflow_ref"]
     assert all(r.endswith("@refs/heads/main") for r in refs), refs
     assert sorted(r.split("@")[0].rsplit("/", 1)[-1] for r in refs) == ["_apps-deploy.yml", "_infra-deploy.yml"]
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_mappings_and_task_definitions_are_the_environments_own(env):
+    """Audit A-I-8: event-source-mapping and task-definition grants were Resource "*" with a region condition only.
+    The mappings are bound to this environment's functions (lambda:FunctionArn), task definitions to its families;
+    DeregisterTaskDefinition has no resource and no condition key (AWS Service Reference, read 2026-10-01)."""
+    by_sid = {st["Sid"]: st for st in _deploy(env)["Statement"]}
+    esm = by_sid["EsmsOfOwnFunctions"]
+    assert esm["Condition"]["ArnLike"]["lambda:FunctionArn"] == f"arn:aws:lambda:*:*:function:warden-{env}-*"
+    assert by_sid["OwnTaskDefinitions"]["Resource"] == f"arn:aws:ecs:*:*:task-definition/warden-{env}-*"
+    unbound = [a for st in _deploy(env)["Statement"] if st["Effect"] == "Allow" and st.get("Resource") == "*"
+               and "ArnLike" not in st.get("Condition", {}) for a in _list(st["Action"])
+               if "EventSourceMapping" in a or "TaskDefinition" in a]
+    assert unbound == ["ecs:DeregisterTaskDefinition"], unbound
