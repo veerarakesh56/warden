@@ -454,6 +454,11 @@ bump may carry a breaking change.
   A database plan's `server` is read the way libpq reads a URL - after the last `@`: a password holding `?` or `#`
   put the user and the password's start into the plan the approver signs (pre-existing). What is left must look
   like hosts, or it is not shown.
+  The register guard: only the file's one module-level `def` under the cited name is evidence (a same-named
+  staticmethod, or a second `def`, counted); its verdicts travel on the reports from its own records, not in
+  user_properties a fixture can forge or strip; a callback replayed by a wrapper is no return; a blank `-k` no
+  longer turns judging off, and `--cache-show` is not judged. A table behind a quote or a list marker is refused
+  in the registers. Every weakening a reviewer named is now caught by the guard's own tests.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

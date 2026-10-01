@@ -370,6 +370,28 @@ def test_the_registers_hold_no_table_the_parser_cannot_read():
     neither - planted on the real AUDIT, a quoted row set to DONE-local with Evidence "trust me" passed every check."""
     for rel in REGISTERS:
         text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
-        quoted = [n for n, line in enumerate(text.split("\n"), 1) if re.match(r" {0,3}>", line) and "|" in line]
+        quoted = [n for n, line in enumerate(text.split("\n"), 1) if _unread_table_line(line)]
         html = [n for n, line in enumerate(text.split("\n"), 1) if re.search(r"<(?:table|tr|td|th)\b", line, re.IGNORECASE)]
         assert not quoted and not html, (rel, quoted[:5], html[:5])
+
+
+def _unread_table_line(line: str) -> bool:
+    """A table line behind a quote or a list marker: GitHub shows it, rows() reads none. Any indent and any list
+    markers before the quote (ninth review: `1.  > | ID |`, `-   > `, `- - > ` and the item's `    > |` lines all
+    rendered); and a list line holding a table row."""
+    return bool((re.match(r"\s*(?:(?:[-+*]|\d{1,9}[.)])\s+)*>", line) and "|" in line)
+                or re.match(r"\s*(?:[-+*]|\d{1,9}[.)])\s+[^\n]*\|[^\n]*\|", line))
+
+
+@pytest.mark.parametrize("line", ["> | ID | Status |", "   > | a |", "1.  > | ID | Status |", "    > | R1 | DONE-local |",
+                                  "-   > | a |", "10. > | a |", "- - > | a |", "- | ID | Status |"])
+def test_a_table_behind_a_quote_or_a_list_marker_is_refused(line):
+    """Ninth review: the ban matched ` {0,3}>` only - a quoted table inside a list item, shown by GitHub with a
+    DONE-local "trust me" row, was read by nobody."""
+    assert _unread_table_line(line)
+
+
+@pytest.mark.parametrize("line", ["| R1 | x | G1 | DONE-local | t |", "   | R1 | x |", "- a list item, no table",
+                                  "Prose with a | pipe."])
+def test_a_plain_table_row_or_prose_is_not_refused(line):
+    assert not _unread_table_line(line)

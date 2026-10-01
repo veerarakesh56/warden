@@ -71,7 +71,7 @@ def pytest_collection_modifyitems(session, config, items):
                        and pathlib.Path(inspect.getsourcefile(fn) or "").resolve() == pathlib.Path(item.path).resolve())
         except (TypeError, OSError):
             genuine = False
-        item.user_properties.append(("warden_genuine", genuine))
+        _GENUINE[item.nodeid] = genuine
 
 
 @functools.cache
@@ -85,13 +85,18 @@ def _cited() -> frozenset[tuple[str, str]]:
 _MONITORING = getattr(sys, "monitoring", None)
 _TOOLS = (4, 3)  # free sys.monitoring tool ids: 0-2 and 5 are the debugger, coverage, profiler and optimizer
 _DEFINED: dict[str, dict[str, list]] = {}
+# The guard's own verdicts, kept here and put on the reports by its own hook - not in user_properties, which any
+# fixture can append to or strip (ninth review: an autouse fixture appending ("warden_body_ran", True) passed).
+_GENUINE: dict[str, bool] = {}
+_RAN: dict[str, bool | None] = {}
 
 
 def _defined(module, config) -> dict[str, list]:
-    """The code objects the test file itself defines - module-level functions and class methods, never a def nested
-    in a function - compiled exactly as pytest loaded the file (its assertion rewriting included). A code object
-    with the def's file, line and name but another body (`code.replace(...)`, `compile()` padded to the line, a
-    nested def bound under the name) is not equal to these (eighth review, 2026-10-01)."""
+    """The code objects the test file itself defines at module level - never a def nested in a function or in a
+    class - compiled exactly as pytest loaded the file (its assertion rewriting included). A code object with the
+    def's file, line and name but another body (`code.replace(...)`, `compile()` padded to the line, a nested def
+    bound under the name) is not equal to these (eighth review, 2026-10-01). A cited test is `file::name`, so a
+    class's methods were never one - and a class's same-named staticmethod counted (ninth review)."""
     import types
 
     origin = str(module.__spec__.origin)
@@ -103,16 +108,9 @@ def _defined(module, config) -> dict[str, list]:
         else:
             code = compile(pathlib.Path(origin).read_bytes(), origin, "exec", dont_inherit=True)
         found: dict[str, list] = {}
-
-        def walk(body) -> None:
-            for const in body.co_consts:
-                if isinstance(const, types.CodeType):
-                    if const.co_flags & 0x1:  # CO_OPTIMIZED: a function defined at this level
-                        found.setdefault(const.co_name, []).append(const)
-                    else:  # a class body: its methods
-                        walk(const)
-
-        walk(code)
+        for const in code.co_consts:
+            if isinstance(const, types.CodeType) and const.co_flags & 0x1:  # CO_OPTIMIZED: a module-level function
+                found.setdefault(const.co_name, []).append(const)
         _DEFINED[origin] = found
     return _DEFINED[origin]
 
@@ -127,10 +125,13 @@ def pytest_pyfunc_call(pyfuncitem):
     if (pyfuncitem.nodeid.split("::", 1)[0], pyfuncitem.originalname) not in _cited():
         return (yield)
     if _MONITORING is None:  # Python 3.11 has none: cannot be checked, and the run says so at its end
-        pyfuncitem.user_properties.append(("warden_body_ran", None if sys.version_info < (3, 12) else False))
+        _RAN[pyfuncitem.nodeid] = None if sys.version_info < (3, 12) else False
         return (yield)
     mon, name = _MONITORING, pyfuncitem.originalname
+    # A name the file defines twice is no evidence: `def test_x(): assert False`, `del test_x`, `def test_x(): pass`
+    # passed with the second body (ninth review).
     expected = _defined(pyfuncitem.module, pyfuncitem.config).get(name, [])
+    expected = expected if len(expected) == 1 else []
     seen = {"started": 0, "returned": 0, "unwound": 0}
     watched: list = []
 
@@ -141,8 +142,11 @@ def pytest_pyfunc_call(pyfuncitem):
             return None
         return mon.DISABLE
 
+    # Called by the interpreter, the callback's caller is the frame of the code that returned; a wrapper that took
+    # the callbacks back from register_callback and called them itself is not (ninth review). A replayed start
+    # alone is no evidence: only the body's own return counts.
     def returned(code, _offset, _value):
-        if any(code is w for w in watched):
+        if any(code is w for w in watched) and sys._getframe(1).f_code is code:
             seen["returned"] += 1
             return None
         return mon.DISABLE
@@ -153,7 +157,7 @@ def pytest_pyfunc_call(pyfuncitem):
 
     tool = next((t for t in _TOOLS if mon.get_tool(t) is None), None)
     if tool is None:  # every id we may use is taken: no evidence rather than a crash that hides the result
-        pyfuncitem.user_properties.append(("warden_body_ran", False))
+        _RAN[pyfuncitem.nodeid] = False
         return (yield)
     events = mon.events
     mon.use_tool_id(tool, "warden-register-guard")
@@ -169,18 +173,27 @@ def pytest_pyfunc_call(pyfuncitem):
         for event in (events.PY_START, events.PY_RETURN, events.PY_UNWIND):
             mon.register_callback(tool, event, None)
         mon.free_tool_id(tool)
-        ran = seen["started"] > 0 and seen["returned"] > 0 and seen["unwound"] == 0
-        pyfuncitem.user_properties.append(("warden_body_ran", ran))
+        _RAN[pyfuncitem.nodeid] = seen["started"] > 0 and seen["returned"] > 0 and seen["unwound"] == 0
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """The guard's verdicts on the report, set here; xdist carries a report's attributes to the controller."""
+    report = yield
+    report.warden_genuine = _GENUINE.get(item.nodeid, False)
+    if call.when == "call":
+        report.warden_body_ran = _RAN.pop(item.nodeid, False)
+    return report
 
 
 def pytest_runtest_logreport(report):
     states = _REPORTS.setdefault(report.nodeid, set())
     states.add("skipped" if report.skipped else f"{report.when}:{report.outcome}")
-    if ("warden_genuine", False) in report.user_properties:
+    if getattr(report, "warden_genuine", False) is not True:
         states.add("not-genuine")
-    if report.when == "call" and ("warden_body_ran", True) in report.user_properties:
+    if report.when == "call" and getattr(report, "warden_body_ran", False) is True:
         states.add("body-ran")
-    if report.when == "call" and ("warden_body_ran", None) in report.user_properties:
+    if report.when == "call" and hasattr(report, "warden_body_ran") and report.warden_body_ran is None:
         states.add("body-unverifiable")
 
 
@@ -197,10 +210,12 @@ def _full_run(config) -> bool:
     # Modes that run no test bodies are not judged: they printed the red evidence line (`--fixtures`) or failed the
     # run (`--setup-plan`) - eighth review.
     if any(config.getoption(o, default=False) for o in ("showfixtures", "show_fixtures_per_test", "setuponly",
-                                                        "setupplan")):
+                                                        "setupplan", "cacheshow")):
         return False
+    # A blank `-k " "` selects every test (pytest strips it): it is no filter, and must not turn judging off (ninth).
     return (not config.getoption("collectonly", default=False)
-            and not config.getoption("keyword", default="") and not config.getoption("markexpr", default="")
+            and not str(config.getoption("keyword", default="") or "").strip()
+            and not str(config.getoption("markexpr", default="") or "").strip()
             and not config.getoption("lf", default=False) and not config.getoption("deselect", default=None)
             and any(covers(a) for a in config.args))
 
