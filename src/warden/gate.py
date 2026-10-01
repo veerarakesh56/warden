@@ -151,14 +151,22 @@ _WIDE_DOTS = re.compile("[\u3002\uff0e\uff61]")
 # The code points a WHATWG URL parser drops from a host (Node 22's, over all 1.1M code points; seventh review,
 # 2026-10-01): a browser joins `evil.<U+FE0F>com` into one domain. Not ZWNJ/ZWJ: the parser keeps those, and
 # removing them rewrote Persian text.
-_HIDDEN_AT_DOT = re.compile(r"(?<=[\w.])[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff\U0001bca0-\U0001bca3\U000e0100-\U000e01ef]+(?=[\w.])")
+_INVISIBLE = re.compile(r"[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff\U0001bca0-\U0001bca3\U000e0100-\U000e01ef]+")
+
+
+def normalise(text: str) -> str:
+    """The text as a browser or a terminal reads it: no control characters, none of the code points a URL parser
+    drops. Done FIRST - before the leak check and before links are removed: done after, `htt<SHY>p://evil.com` hid
+    from link removal and the gate itself then joined it into a live link, and `AKIA<ZWSP>...` passed G5 and
+    went out whole (eighth review, 2026-10-01)."""
+    return _INVISIBLE.sub("", strip_controls(text))
 
 
 def _defang_outside_code(line: str) -> str:
     """Domains are defanged except inside inline code, where no renderer makes a link. Only when the
     line's backticks are unambiguous (no double run) - otherwise everything is defanged."""
     parts = [line] if "``" in line else _INLINE_CODE.split(line)
-    return "".join(part if i % 2 else _DOMAIN.sub(_defang, _NON_ASCII_HOST.sub(_defang, _HIDDEN_AT_DOT.sub("", _WIDE_DOTS.sub(".", part))))
+    return "".join(part if i % 2 else _DOMAIN.sub(_defang, _NON_ASCII_HOST.sub(_defang, _WIDE_DOTS.sub(".", part)))
                    for i, part in enumerate(parts))
 
 
@@ -166,7 +174,7 @@ def _clean_line(line: str) -> str:
     # ⛔ Nothing here decodes: the gate writes out exactly the text it checked (second review,
     # 2026-09-30). A reference is neutralised below instead, so `h&#116;tps://` is never a link and
     # `&#96;&#96;&#96;` never a fence, in any renderer.
-    line = strip_controls(line)
+    line = normalise(line)
     # To a fixed point: removing one token can join what is left into a new one (third review:
     # `![a]<!here>(//evil%2Ecom/p.png)` became an image once `<!here>` was gone).
     for _ in range(50):
@@ -294,7 +302,7 @@ def hedge(text: str) -> str:
 
 def leaked_kinds(text: str) -> list[str]:
     """G5: secret kinds the redactor still finds in `text` - identifiers an operator may show excluded."""
-    found = redact(text).mapping
+    found = redact(normalise(text)).mapping
     kinds = {placeholder.strip("<>").rsplit("_", 1)[0] for placeholder in found}
     return sorted(kinds - _SHOWABLE)
 
@@ -331,9 +339,15 @@ def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = Non
         # link in the stub (fifth review, 2026-10-01).
         # Redacted WITH the blocked text, so a value found there is masked in the id too: an id that is a secret
         # only in context went out in the stub (seventh review, 2026-10-01); a key-shaped one too (sixth).
+        # With the blocked DATA too, normalised, and left out when it is part of a value withheld (eighth review:
+        # a secret in the data, an invisible inside the id, or a prefix of the secret went out in the stub).
         if alert_id:
-            blocked = f"{before_redaction or text}{chr(10)}"
-            alert_id = sanitise_text(redact(blocked + " ".join(alert_id.split())).text.rsplit(chr(10), 1)[-1])
+            blocked = normalise("\n".join([before_redaction or text, *_strings(data_before_redaction)]))
+            ident = " ".join(normalise(alert_id).split())
+            masked = redact(f"{blocked}\n{ident}")
+            shown = masked.text.rsplit("\n", 1)[-1]
+            hidden = ident and any(ident in v for v in masked.mapping.values() if len(ident) >= 4)
+            alert_id = "" if hidden else sanitise_text(shown)
         stub = (f"WARDEN report{f' for alert {alert_id}' if alert_id else ''} was withheld by the outbound "
                 f"gate: it still contained {', '.join(leaks)} after redaction. A person must read the full "
                 "report where WARDEN ran - nothing was sent.")

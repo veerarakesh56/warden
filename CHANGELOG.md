@@ -435,6 +435,12 @@ bump may carry a breaking change.
   8ce403d), reads scope labels in any spelling (`ClusterName`, `k8s.namespace.name`, `gke_cluster`) as words, not
   substrings (`sandbox_namespace` held "db"), and never lets a failover target the alert's namespace even when it
   is named like the service. The verify replay over 337 reports and the 2,696-row target replay are unchanged.
+  The outbound gate normalises first: control characters and the code points a URL parser drops are
+  removed before the leak check and before links are removed. Removed after, `htt<SHY>p://evil.com/x` hid
+  from link removal and the gate itself joined it into a live link (a regression from d5763ff, widened by
+  d40fc9a; MED), and a key split by one invisible or control character passed G5 and went out whole -
+  from Slack, the terminal, MCP results, and the CLI's argument errors (MED). The stub of a withheld
+  report redacts its id with the blocked data too, and leaves it out when it is part of a withheld value.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
