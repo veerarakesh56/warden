@@ -10,7 +10,9 @@ from warden.redaction import redact
 SECRET = "AKIA" + "IOSFODNN7EXAMPLE"
 
 
-@pytest.mark.parametrize("marker", ["- ", "> ", "1. ", "1) ", "- - - ", "  > - 1. "])
+# Markers long enough that a check of the line's first 12 characters misses the fence (seventh review: it passed
+# every marker here up to 9 characters).
+@pytest.mark.parametrize("marker", ["- ", "> ", "1. ", "1) ", "- - - ", "  > - 1. ", "- - - - 1. ", "> > > - - 10. "])
 def test_a_fence_after_a_list_or_quote_marker_stays_code(marker):
     """The A-2 tests used a two-space indent only; `line.lstrip().startswith("```")` passed them, and a URL
     after a `- ```` marker became Slack prose once split."""

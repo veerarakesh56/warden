@@ -491,6 +491,9 @@ bump may carry a breaking change.
   in CloudShell (OWNER-CONSOLE-STEPS 2b), so the deploy role gets the log-delivery actions but never
   `logs:PutResourcePolicy`, which the boundary denies. Unproven live until the first window; the API's
   authentication is still open.
+  Three tests that weaker code passed now fail it: the hook test judges each hook by itself (a fix
+  taking all three whenever `sys.excepthook` is Python's - pytest's own case - passed), the fence test
+  uses markers past 12 characters, and the weekly-audit test checks that its cron fires every week.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

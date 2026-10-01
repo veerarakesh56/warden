@@ -237,5 +237,10 @@ def test_the_deployed_requirements_are_audited_every_week():
     what is deployed waited for the next change."""
     apps = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-apps.yml").read_text(encoding="utf-8"))
     assert apps[True].get("schedule"), "CI · apps has no schedule"
+    # And it fires every week: any day of the month and month, one fixed minute, hour and weekday - a cron that never
+    # fires (`0 0 31 2 *`) passed the check above (seventh review, 2026-10-01).
+    [cron] = [s["cron"] for s in apps[True]["schedule"]]
+    minute, hour, dom, month, dow = cron.split()
+    assert dom == "*" and month == "*" and minute.isdigit() and hour.isdigit() and dow in tuple("0123456"), cron
     check = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
     assert "pip-audit -r" in check

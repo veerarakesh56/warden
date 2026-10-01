@@ -86,3 +86,29 @@ def test_a_hook_another_program_installed_is_left_alone(monkeypatch):
     monkeypatch.setattr(sys, "unraisablehook", mine)
     install_log_gate()
     assert sys.excepthook is mine and threading.excepthook is mine and sys.unraisablehook is mine
+
+
+@pytest.mark.parametrize("custom", ["sys.excepthook", "threading.excepthook", "sys.unraisablehook"])
+def test_only_the_hooks_still_pythons_own_are_taken(monkeypatch, custom):
+    """Seventh review (2026-10-01): with all three replaced by one function, a fix that takes all three whenever
+    sys.excepthook is Python's passed - and that is pytest's own case (excepthook default, the other two its own),
+    so the sixth-review bug came back with the test green. Each hook is judged by itself."""
+    import threading
+
+    from warden.observability import install_log_gate
+
+    def mine(*args):
+        return None
+
+    defaults = {"sys.excepthook": sys.__excepthook__, "threading.excepthook": threading.__excepthook__,
+                "sys.unraisablehook": sys.__unraisablehook__}
+    for name, default in defaults.items():
+        owner, attr = (threading, "excepthook") if name.startswith("threading") else (sys, name.split(".")[1])
+        monkeypatch.setattr(owner, attr, mine if name == custom else default)
+    install_log_gate()
+    now = {"sys.excepthook": sys.excepthook, "threading.excepthook": threading.excepthook,
+           "sys.unraisablehook": sys.unraisablehook}
+    assert now[custom] is mine, custom
+    for name, default in defaults.items():
+        if name != custom:
+            assert now[name] is not default and now[name] is not mine, name
