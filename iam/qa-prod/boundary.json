@@ -102,21 +102,14 @@
         "iam:UpdateRole",
         "iam:TagRole",
         "iam:UntagRole",
-        "iam:ListRoleTags",
-        "iam:ListRolePolicies",
-        "iam:ListAttachedRolePolicies",
-        "iam:ListInstanceProfilesForRole",
         "iam:PutRolePolicy",
         "iam:GetRolePolicy",
         "iam:DeleteRolePolicy",
         "iam:AttachRolePolicy",
         "iam:DetachRolePolicy",
         "iam:PutRolePermissionsBoundary",
-        "iam:CreateInstanceProfile",
-        "iam:DeleteInstanceProfile",
-        "iam:GetInstanceProfile",
-        "iam:AddRoleToInstanceProfile",
-        "iam:RemoveRoleFromInstanceProfile"
+        "iam:List*",
+        "iam:*InstanceProfile"
       ],
       "Resource": [
         "arn:aws:iam::*:role/warden-qa-prod-*",
@@ -252,12 +245,27 @@
         "s3:DeleteBucket"
       ],
       "NotResource": [
-        "arn:aws:rds:ap-south-2:*:cluster:warden-qa-prod-*",
-        "arn:aws:rds:ap-south-2:*:db:warden-qa-prod-*",
-        "arn:aws:dynamodb:ap-south-2:*:table/warden-qa-prod-*",
-        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-qa-prod-*",
+        "arn:aws:rds:*:*:cluster:warden-qa-prod-*",
+        "arn:aws:rds:*:*:db:warden-qa-prod-*",
+        "arn:aws:dynamodb:*:*:table/warden-qa-prod-*",
+        "arn:aws:secretsmanager:*:*:secret:warden-qa-prod-*",
         "arn:aws:s3:::warden-qa-prod-*"
       ]
+    },
+    {
+      "Sid": "DenyOtherClusters",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:*Service",
+        "ecs:*Task",
+        "ecs:*TaskSet"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "ecs:cluster": "arn:aws:ecs:*:*:cluster/warden-qa-prod-*"
+        }
+      }
     },
     {
       "Sid": "DenyDeletingSnapshots",

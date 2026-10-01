@@ -434,6 +434,12 @@ bump may carry a breaking change.
   HIGH). The unit test places every field of the API's DeploymentSpec and ObjectMeta, and CI refuses each
   change on the real API server. A write the API server refuses (RBAC, a policy) ends refused - it never
   persisted - not "may be half-made".
+  ECS writes stay in the environment's own clusters: a service's ARN is `service/<cluster>/<name>`, so
+  the dev deploy role's `*/warden-dev-*` matched a dev-named service in prod's cluster, and CreateService
+  authorizes the new, untagged service - the tag deny never fired; RunTask authorizes only the task
+  definition (HIGH). The boundary, which binds every role the deploy role creates, denies ECS writes on
+  `ecs:cluster` unless the cluster is `warden-<env>-*`; its IAM ceiling folds the list and
+  instance-profile actions into two wildcards on the same resources to make room.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

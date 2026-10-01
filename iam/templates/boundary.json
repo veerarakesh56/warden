@@ -102,21 +102,14 @@
         "iam:UpdateRole",
         "iam:TagRole",
         "iam:UntagRole",
-        "iam:ListRoleTags",
-        "iam:ListRolePolicies",
-        "iam:ListAttachedRolePolicies",
-        "iam:ListInstanceProfilesForRole",
         "iam:PutRolePolicy",
         "iam:GetRolePolicy",
         "iam:DeleteRolePolicy",
         "iam:AttachRolePolicy",
         "iam:DetachRolePolicy",
         "iam:PutRolePermissionsBoundary",
-        "iam:CreateInstanceProfile",
-        "iam:DeleteInstanceProfile",
-        "iam:GetInstanceProfile",
-        "iam:AddRoleToInstanceProfile",
-        "iam:RemoveRoleFromInstanceProfile"
+        "iam:List*",
+        "iam:*InstanceProfile"
       ],
       "Resource": [
         "arn:aws:iam::*:role/warden-${env}-*",
@@ -252,12 +245,27 @@
         "s3:DeleteBucket"
       ],
       "NotResource": [
-        "arn:aws:rds:ap-south-2:*:cluster:warden-${env}-*",
-        "arn:aws:rds:ap-south-2:*:db:warden-${env}-*",
-        "arn:aws:dynamodb:ap-south-2:*:table/warden-${env}-*",
-        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-${env}-*",
+        "arn:aws:rds:*:*:cluster:warden-${env}-*",
+        "arn:aws:rds:*:*:db:warden-${env}-*",
+        "arn:aws:dynamodb:*:*:table/warden-${env}-*",
+        "arn:aws:secretsmanager:*:*:secret:warden-${env}-*",
         "arn:aws:s3:::warden-${env}-*"
       ]
+    },
+    {
+      "Sid": "DenyOtherClusters",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:*Service",
+        "ecs:*Task",
+        "ecs:*TaskSet"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "ecs:cluster": "arn:aws:ecs:*:*:cluster/warden-${env}-*"
+        }
+      }
     },
     {
       "Sid": "DenyDeletingSnapshots",

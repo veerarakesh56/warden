@@ -272,3 +272,29 @@ def test_mappings_and_task_definitions_are_the_environments_own(env):
                and "ArnLike" not in st.get("Condition", {}) for a in _list(st["Action"])
                if "EventSourceMapping" in a or "TaskDefinition" in a]
     assert unbound == ["ecs:DeregisterTaskDefinition"], unbound
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_ecs_writes_stay_in_the_environments_own_clusters(env):
+    """Seventh review (2026-10-01, HIGH): an ECS service's ARN is service/<cluster>/<name>, so `*/warden-dev-*`
+    matched a dev-named service in prod's cluster, and CreateService authorizes the new, untagged service - the tag
+    deny never fired; RunTask authorizes only the task definition. The boundary - binding every role the deploy
+    role creates too - denies ECS writes into any cluster but the environment's own, on `ecs:cluster`, which every
+    action these patterns match carries (Service Reference, 2026-10-01)."""
+    st = {s["Sid"]: s for s in _load(env, "boundary")["Statement"]}
+    deny = st["DenyOtherClusters"]
+    assert deny["Effect"] == "Deny" and deny["Resource"] == "*"
+    for action in ("ecs:CreateService", "ecs:UpdateService", "ecs:DeleteService", "ecs:RunTask", "ecs:StartTask",
+                   "ecs:StopTask", "ecs:CreateTaskSet", "ecs:UpdateTaskSet"):
+        assert any(fnmatch.fnmatchcase(action, p) for p in _list(deny["Action"])), action
+    for read in ("ecs:DescribeServices", "ecs:ListServices", "ecs:DescribeTasks"):
+        assert not any(fnmatch.fnmatchcase(read, p) for p in _list(deny["Action"])), read
+    [(op, cond)] = deny["Condition"].items()
+    [pattern] = cond.values()
+    assert op == "ArnNotLike" and list(cond) == ["ecs:cluster"]
+    other = next(e for e in ENVS if e != env)
+    assert fnmatch.fnmatchcase(f"arn:aws:ecs:x:1:cluster/warden-{env}-ecs", pattern)
+    assert not fnmatch.fnmatchcase(f"arn:aws:ecs:x:1:cluster/warden-{other}-ecs", pattern)  # denied: not its own
+    # The folded IAM ceiling grants no new kind of IAM write: never a role's trust.
+    ceiling = _allows(_load(env, "boundary"))
+    assert not any(fnmatch.fnmatchcase("iam:UpdateAssumeRolePolicy", p) for p in ceiling)
