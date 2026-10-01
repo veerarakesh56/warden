@@ -77,3 +77,15 @@ def test_the_stub_masks_an_alert_id_that_is_a_secret_in_the_blocked_text(before)
     gate blocked a value and then sent it in the stub."""
     result = gate.enforce(redact(before).text, before_redaction=before, alert_id="Tr0ub4dor-x9q")
     assert result.verdict == "BLOCK" and "Tr0ub4dor" not in result.text, result.text
+
+
+# Every code point a WHATWG URL parser drops from a host (Node 22, all 1.1M code points; seventh review). The test
+# named 10 of the 270, and a class narrowed to those 10 passed (eighth review).
+_WHATWG = [0x00AD, 0x034F, *range(0x180B, 0x180E), 0x180F, 0x200B, 0x2060, 0x2064, *range(0xFE00, 0xFE10), 0xFEFF,
+           *range(0x1BCA0, 0x1BCA4), *range(0xE0100, 0xE01F0)]
+
+
+def test_every_code_point_a_url_parser_drops_is_looked_past():
+    assert len(_WHATWG) == 270
+    missed = [hex(cp) for cp in _WHATWG if "evil[.]com" not in gate.enforce(f"see evil.{chr(cp)}com/x").text]
+    assert not missed, missed

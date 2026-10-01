@@ -476,6 +476,11 @@ bump may carry a breaking change.
   reader's ARN test refuses a widening `*` before the stack's name, an environment may not be named like
   another's prefix (`qa` beside `qa-prod` would collide in every IAM pattern), and the proving ground's alert says
   why it carries `environment: prod` (the benchmark's policy environment, whatever stack it runs on).
+  The packaging excludes are still a list, and the seventh entry's "every secret-bearing name stays out" was
+  an overclaim: 27 more shipped (`plan.json`, `*.tfstate~`, `.pgpass`, `.my.cnf`, `.kube/config`, `secrets.yaml`,
+  key stores...). Each is excluded now - a real build with 56 planted names ships none. Tests that weaker code
+  passed now fail it: every one of the 270 invisible code points, a valid cron, the image's final stage copying
+  only the installed environment, and no `.dockerignore` line re-including what the excludes keep out.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

@@ -222,14 +222,32 @@ def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
                "prod.auto.tfvars.json", "tfplan", "x.tfplan", "plan.out", "trust.local.json", "audit.db",
                "audit.db-wal", "audit.db-journal", "audit.db-shm", "x.sqlite3", "aws_credentials", ".netrc",
                ".pypirc", ".npmrc", "kubeconfig", "prod.kubeconfig", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
-               "putty.ppk", "service-account.json", "x.keystore", "vault.kdbx"]
+               "putty.ppk", "service-account.json", "x.keystore", "vault.kdbx",
+               # eighth review: 27 more shipped
+               "plan.json", "terraform.tfstate~", "prod.tfvars~", ".prod.tfvars.swp", ".terraformrc", "terraform.rc",
+               "prod.env", "secrets.env", "#.env#", ".pgpass", ".my.cnf", ".vault-token", ".htpasswd", "client.ovpn",
+               "token.txt", "secrets.yaml", "secrets.json", "key.p8", "x.pkcs12", "x.jceks", "secring.gpg",
+               "private.asc", "x.key.enc", "audit.db~"]
     for patterns, where in ((backend["wheel-exclude"], "the wheel and sdist"), (docker, ".dockerignore")):
         shipped = [n for n in planted if not any(fnmatch.fnmatchcase(n, p.removeprefix("**/")) for p in patterns)]
         assert not shipped, (where, shipped)
+    # Files inside a client's config directory, by directory.
+    for path in (".docker/config.json", ".kube/config", ".azure/accessTokens.json"):
+        assert any(fnmatch.fnmatchcase(path, p.removeprefix("**/")) for p in backend["wheel-exclude"]), path
+    # Nothing re-includes what the excludes keep out: the last matching line wins, and `!src/**` after them would
+    # bring everything back (eighth review).
+    lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+             if ln.strip() and not ln.startswith("#")]
+    first_exclude = next(i for i, ln in enumerate(lines) if ln.startswith("**/"))
+    assert not any(ln.startswith("!") for ln in lines[first_exclude:]), lines[first_exclude:]
     # And the image keeps no copy of the source in any layer: it is built in two stages.
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     final = dockerfile.split("\nFROM ")[-1]
-    assert " AS build" in dockerfile and "COPY src" not in final and "COPY --from=build /opt/warden" in final
+    assert " AS build" in dockerfile
+    # The final stage copies the installed environment and nothing else (eighth review: a string check passed
+    # `COPY --from=build /app /app`, the source back in the image).
+    copies = [ln.split() for ln in final.splitlines() if ln.strip().upper().startswith(("COPY", "ADD"))]
+    assert copies == [["COPY", "--from=build", "/opt/warden", "/opt/warden"]], copies
 
 
 def test_the_deployed_requirements_are_audited_every_week():
@@ -242,5 +260,6 @@ def test_the_deployed_requirements_are_audited_every_week():
     [cron] = [s["cron"] for s in apps[True]["schedule"]]
     minute, hour, dom, month, dow = cron.split()
     assert dom == "*" and month == "*" and minute.isdigit() and hour.isdigit() and dow in tuple("0123456"), cron
+    assert 0 <= int(minute) <= 59 and 0 <= int(hour) <= 23, cron  # `99 25 * * 1` is rejected by GitHub: it never runs
     check = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
     assert "pip-audit -r" in check
