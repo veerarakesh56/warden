@@ -145,8 +145,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # No `<` in the value: `Authorization: Basic <BASIC_1>` is already masked, and taking the placeholder as a
     # value gave one credential two labels that restore() could not undo (fifth review, 2026-10-01).
     ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"'<]{8,})")),
-    ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
-    ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
+    # No `<` in a value: a value that is already a placeholder is never wrapped in a second one (sixth review).
+    ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n<]{4,})")),
+    ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"'<]{3,})")),
     # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
     # `--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
     # resource names from the evidence). Same line only; a value never starts with `-` or a quote.
@@ -166,7 +167,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("SECRET", re.compile(r"\bldap\w*\b[^\r\n]*?[ \t]-w[ \t]+([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"\bhtpasswd\b[^\r\n]*?[ \t]-\w*b\w*[ \t]+\S+[ \t]+\S+[ \t]+([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u[ \t]*|--user(?:=|[ \t]+))[^:\s]+:([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
+    ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"<]{8,})\"")),
     # A quoted secret value is masked WHOLE: `password='hunter 2 x'` used to leak "2 x".
     ("SECRET", re.compile(
         r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
@@ -200,7 +201,8 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # swept from every line, so a commit sha vanished from WARDEN's own deploy record (fifth review).
     ("SECRET", re.compile(r"(?i)(?:^|[\s\"',;{(\[?&])[\w.\-]{0,40}?(?:encryption|encrypt|crypt|hmac|signing|"
                           r"sign|secret|private|master|app|application|api|access|subscription|client|account|"
-                          r"auth|service|license|webhook|session|storage|shared)[_\-.]?key[\"']?\s*[:=]\s*"
+                          r"auth|service|license|webhook|session|storage|shared|vault|consumer|root|data|"
+                          r"deploy|host|oauth|token|master|wrapping|kms|cmk|dek|kek)[_\-.]?key[\"']?\s*[:=]\s*"
                           r"[\"']?([0-9a-f]{32,})(?![0-9a-z])")),
     # Last: a long high-entropy run no named pattern claimed - a bare AWS secret key, one line of a
     # private key logged line by line (a pod log splits it), a base64 credential. Upper, lower AND a

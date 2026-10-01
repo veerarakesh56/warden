@@ -360,6 +360,9 @@ bump may carry a breaking change.
   "0 days ago" read right. A failed incident may be diagnosed again (Temporal's ALLOW_DUPLICATE_FAILED_ONLY);
   a completed one still may not, and a test now starts it twice on the time-skipping server. The log gate
   installs its hooks only where Python's defaults are, leaving another program's (pytest's) in place.
+  Redaction: a lowercase-hex credential under vault/consumer/root/data/deploy/host/KMS key names is masked
+  again (the fifth review's narrowing left them out), and cookie, `mysql -p` and `"auth"` values never wrap
+  a placeholder in a second one (restore left the inner one in an operator's report).
   Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok".
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
@@ -412,7 +415,8 @@ bump may carry a breaking change.
     scope; the Postgres terminate integration test waits for the session to go.
   - Redaction cost: values nested past the finder's depth are split into shallow groups with a finder
     each, instead of being checked one by one against every segment - the reviewer's worst case (a comb
-    of 8,008 values within the log caps) went from 126-144 s to 9.8 s a pass; output identical.
+    of 8,008 values within the log caps) went from 126-144 s to 9.8-18.4 s a pass (two measurements under
+    load); output identical.
   - P14: a second resource in parentheses or after an arrow is refused (an image to return to is not
     one); every cluster label scopes the target; a command after punctuation is refused; a failover may
     name its cluster.

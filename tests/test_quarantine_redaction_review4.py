@@ -74,3 +74,24 @@ def test_one_credential_gets_one_placeholder_and_restores():
     out, mapping = redact_many(lines)
     assert not any(v.startswith("<") for v in mapping.values()), mapping
     assert [RedactionResult(o, mapping).restore(o) for o in out] == lines
+
+
+@pytest.mark.parametrize("name", ["vault_key", "consumer_key", "root_key", "data_key", "deploy_key", "host_key",
+                                  "oauth_key", "kms_key", "wrapping_key", "dek_key"])
+def test_a_hex_credential_under_more_key_names_is_masked(name):
+    """Sixth review (2026-10-01): narrowing the hex-key rule to credential names left real ones out - a 64-digit
+    lowercase hex value has no upper case for the high-entropy backstop."""
+    value = "deadbeef" * 8
+    out = redact(f"{name}={value}").text
+    assert value not in out, out
+
+
+def test_a_cookie_holding_a_token_restores_to_the_token():
+    """Sixth review: the cookie class took `<`, so `session=<JWT_1>` was wrapped again as `<SECRET_1>` and restore
+    left `<JWT_1>` in the operator's report."""
+    head, body, sig = "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "c2lnbmF0dXJlLXZhbHVlLXg5"  # parts, never one literal
+    jwt = f"{head}.{body}.{sig}"
+    original = f"Cookie: session={jwt}; path=/"
+    result = redact(original)
+    assert jwt not in result.text
+    assert result.restore(result.text) == original, (result.text, result.mapping)
