@@ -195,3 +195,24 @@ def test_healthy_needs_the_current_spec_seen_and_a_rollout_not_stalled():
                                                        reason="ProgressDeadlineExceeded")]
     apps.read_namespaced_deployment = lambda *a, **k: stalled
     assert not p.healthy("orders")
+
+
+def test_an_admission_policy_narrows_what_the_remediator_may_patch():
+    """Audit A-I-11: get+patch on deployments could rewrite the pod template. The policy, applied with the
+    ServiceAccount, holds the pod spec, selector, labels, strategy and other annotations to what they were, and the
+    replica count to within two (the live test proves it on a real API server)."""
+    import pathlib
+
+    import yaml
+
+    text = (pathlib.Path(__file__).resolve().parents[1] / "k8s" / "remediation-rbac.yaml").read_text(encoding="utf-8")
+    docs = {d["kind"]: d for d in yaml.safe_load_all(text) if d}
+    vap, binding = docs["ValidatingAdmissionPolicy"], docs["ValidatingAdmissionPolicyBinding"]
+    assert vap["spec"]["failurePolicy"] == "Fail" and binding["spec"]["validationActions"] == ["Deny"]
+    assert binding["spec"]["policyName"] == vap["metadata"]["name"]
+    [who] = vap["spec"]["matchConditions"]
+    assert who["expression"] == 'request.userInfo.username == "system:serviceaccount:warden:warden-remediator"'
+    rules = " ".join(v["expression"] for v in vap["spec"]["validations"])
+    for held in ("object.spec.template.spec == oldObject.spec.template.spec", "object.spec.selector ==",
+                 "object.spec.replicas <= oldObject.spec.replicas + 2", "object.spec.replicas >= 1"):
+        assert held in rules, held

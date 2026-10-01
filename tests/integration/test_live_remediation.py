@@ -136,3 +136,34 @@ def test_the_platform_works_as_the_least_privilege_service_account(apps, target)
     assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before + 1
     p.rollback("k8s_scale", _params(replicas=before + 1), {"replicas": before})
     assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before
+
+
+def _as_remediator():
+    from kubernetes import client
+
+    api = client.ApiClient()
+    api.set_default_header("Impersonate-User", "system:serviceaccount:warden:warden-remediator")
+    return client.AppsV1Api(api)
+
+
+def test_the_admission_policy_refuses_a_pod_spec_change_by_the_remediator(apps, target):
+    """Audit A-I-11: `patch deployments` could rewrite the pod template - an image, a command, a service account.
+    The ValidatingAdmissionPolicy in k8s/remediation-rbac.yaml refuses that for the remediator, on the real API
+    server."""
+    from kubernetes.client.exceptions import ApiException
+
+    before = apps.read_namespaced_deployment(NAME, NS).spec.template.spec.containers[0].image
+    patch = {"spec": {"template": {"spec": {"containers": [{"name": "pause", "image": "busybox:1.36"}]}}}}
+    with pytest.raises(ApiException) as refused:
+        _as_remediator().patch_namespaced_deployment(NAME, NS, patch)
+    assert refused.value.status in (403, 422), refused.value
+    assert apps.read_namespaced_deployment(NAME, NS).spec.template.spec.containers[0].image == before
+    with pytest.raises(ApiException):
+        _as_remediator().patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 9}})
+
+
+def test_the_remediator_can_still_restart_through_the_policy(apps, target):
+    p = KubernetesPlatform(apps=_as_remediator(), namespace=NS)
+    p.apply("k8s_restart", _params())
+    ann = apps.read_namespaced_deployment(NAME, NS).spec.template.metadata.annotations or {}
+    assert RESTARTED_AT in ann

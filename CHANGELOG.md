@@ -364,6 +364,8 @@ bump may carry a breaking change.
   Event source mappings and task definitions are the environment's own (`lambda:FunctionArn`, the
   family name); only DeregisterTaskDefinition, which AWS gives no resource or condition, stays
   region-bound (A-I-8).
+  A ValidatingAdmissionPolicy holds the Kubernetes remediator's patches to the replica count (within two)
+  and the restart annotation; a pod spec change by it is refused on the real API server in CI (A-I-11).
 - **Sixth independent review, the write path** (2026-10-01; rows A-R6): a failed rollback ends
   `rollback_failed`, signed, and trips the kill switch (it crashed the workflow); a rollback undoes only
   what its own run applied, and its row names the run and plan; a fix with nothing to undo (a restart)

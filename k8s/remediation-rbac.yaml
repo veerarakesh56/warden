@@ -5,10 +5,11 @@
 # Deployment or scale it up by at most two. This ServiceAccount is the boundary for that: it can `get`
 # and `patch` deployments and no other verb or resource.
 #
-# ⚠ AUDIT 2026-09-28 (A-I-11): `patch deployments` is NOT "restart or scale only". It can rewrite the
-# whole pod template (image, command, serviceAccountName, secret env/volume mounts), which is
-# equivalent to running any code as any SA in the namespace and reading its Secrets. Being replaced by
-# `deployments/scale` plus a ValidatingAdmissionPolicy that allows only the restart annotation.
+# AUDIT 2026-09-28 (A-I-11): `patch deployments` alone is NOT "restart or scale only" - it could rewrite
+# the whole pod template (image, command, serviceAccountName, secret mounts). The ValidatingAdmissionPolicy
+# at the end of this file narrows it: for this ServiceAccount, an update may change the replica count by at
+# most two (up for a scale, down for its rollback) and the template's restartedAt annotation - nothing
+# else. Proven in CI against the real API server (tests/integration/test_live_remediation.py).
 #
 # Proven from the API server's own view, both sides, in CI:
 #   kubectl auth can-i patch  deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> yes
@@ -64,3 +65,62 @@ roleRef:
   kind: ClusterRole
   name: warden-remediator
   apiGroup: rbac.authorization.k8s.io
+---
+# A-I-11: what the remediator's patches may change. Matched only for its own requests; everyone else's
+# updates are untouched. Fail closed: if the policy cannot be evaluated, the update is refused.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: warden-remediator-narrow-writes
+  labels:
+    app.kubernetes.io/name: warden
+    app.kubernetes.io/component: remediation
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["deployments"]
+  matchConditions:
+    - name: only-the-remediator
+      expression: request.userInfo.username == "system:serviceaccount:warden:warden-remediator"
+  variables:
+    - name: ann
+      expression: "has(object.spec.template.metadata.annotations) ? object.spec.template.metadata.annotations : {}"
+    - name: oldAnn
+      expression: "has(oldObject.spec.template.metadata.annotations) ? oldObject.spec.template.metadata.annotations : {}"
+  validations:
+    - expression: object.spec.template.spec == oldObject.spec.template.spec
+      message: the remediator may not change the pod spec (image, command, service account, volumes)
+    - expression: object.spec.selector == oldObject.spec.selector
+      message: the remediator may not change the selector
+    - expression: >-
+        (has(object.spec.template.metadata.labels) ? object.spec.template.metadata.labels : {}) ==
+        (has(oldObject.spec.template.metadata.labels) ? oldObject.spec.template.metadata.labels : {})
+      message: the remediator may not change the pod labels
+    - expression: >-
+        variables.ann.all(k, k == "kubectl.kubernetes.io/restartedAt" || (k in variables.oldAnn && variables.oldAnn[k] == variables.ann[k])) &&
+        variables.oldAnn.all(k, k == "kubectl.kubernetes.io/restartedAt" || k in variables.ann)
+      message: the remediator may change only the restartedAt annotation
+    - expression: >-
+        has(object.spec.strategy) == has(oldObject.spec.strategy) &&
+        (!has(object.spec.strategy) || object.spec.strategy == oldObject.spec.strategy) &&
+        (has(object.spec.paused) ? object.spec.paused : false) == (has(oldObject.spec.paused) ? oldObject.spec.paused : false)
+      message: the remediator may not change the rollout strategy or pause a rollout
+    - expression: >-
+        object.spec.replicas >= 1 && object.spec.replicas <= oldObject.spec.replicas + 2 &&
+        object.spec.replicas >= oldObject.spec.replicas - 2
+      message: the remediator may change the replica count by at most two, never below one
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: warden-remediator-narrow-writes
+  labels:
+    app.kubernetes.io/name: warden
+    app.kubernetes.io/component: remediation
+spec:
+  policyName: warden-remediator-narrow-writes
+  validationActions: ["Deny"]

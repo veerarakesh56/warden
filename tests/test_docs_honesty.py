@@ -56,6 +56,7 @@ FALSE_CLAIMS = [
     ("terraform/README.md", "with a validation rule that rejects an empty list. WARDEN",
      "subnet_ids is unused, so nothing enforces private subnets"),
     ("k8s/remediation-rbac.yaml", "deployments and NOTHING else", "patch deployments rewrites the pod template"),
+    ("k8s/remediation-rbac.yaml", "Being replaced by", "the admission policy is in place (A-I-11)"),
     ("docs/OWNER-CONSOLE-STEPS.md", "it can never touch another environment's resources",
      "tag-based isolation has gaps"),
     ("docs/OWNER-CONSOLE-STEPS.md", "It also runs a negative check", "no negative OIDC check exists yet"),

@@ -397,11 +397,12 @@ The Kubernetes platform does two things: a rollout **restart** (the `restartedAt
 `WARDEN_REMEDIATION_MAX_REPLICAS`, written with a JSON Patch `test` of the count it just read. A count
 that moved before the final precheck is refused; one that moves in the moment between that precheck and
 the write is stepped from if the step is still in bounds, and a rollback returns to the count the approver
-saw (stated by the sixth review, 2026-10-01). A rollout undo reads no revisions yet, so
-it is refused until an admission policy narrows the write (audit A-I-11). Its credential is the
-`warden-remediator` ServiceAccount (get and patch deployments; `kubectl auth can-i` proves the verbs
-both ways in CI). CI runs the platform against a live k3d cluster, once with the runner's admin
-kubeconfig and once impersonating `warden-remediator` (scale and rollback); it has not been executed on EKS.
+saw (stated by the sixth review, 2026-10-01). A rollout undo reads no revisions yet, so it is refused.
+Its credential is the `warden-remediator` ServiceAccount (get and patch deployments; `kubectl auth can-i`
+proves the verbs both ways in CI), and a ValidatingAdmissionPolicy in the same file (audit A-I-11) holds its
+patches to the replica count (by at most two) and the restart annotation. CI runs the platform against a
+live k3d cluster, once with the runner's admin kubeconfig and once impersonating `warden-remediator` (scale,
+rollback, restart, and a pod spec change the policy refuses); it has not been executed on EKS.
 Nothing yet makes a worker use that ServiceAccount: on a laptop it uses the current kubeconfig context.
 
 
