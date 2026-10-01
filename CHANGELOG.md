@@ -420,6 +420,10 @@ bump may carry a breaking change.
 - **Sixth independent review, the tripwire** (7f0178e): only the placeholders WARDEN issued are removed
   from what is scanned (any `<WORD_N>` was, hiding an injection written in that shape), and labels are
   scanned as sentences - a credential-named label no longer escalates a clean incident on the real model.
+- **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
+  after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
+  the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
+  restored, so restore() gives it back in one step and no value class has to stop at `<`.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

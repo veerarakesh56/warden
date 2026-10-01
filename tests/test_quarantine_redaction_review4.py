@@ -95,3 +95,41 @@ def test_a_cookie_holding_a_token_restores_to_the_token():
     result = redact(original)
     assert jwt not in result.text
     assert result.restore(result.text) == original, (result.text, result.mapping)
+
+
+def _jwt() -> str:
+    head, body, sig = "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxIn0", "c2lnbmF0dXJlLXZhbHVlLXg5"  # parts, never one literal
+    return f"{head}.{body}.{sig}"
+
+
+@pytest.mark.parametrize("line, secret", [
+    ("Cookie: device={uuid}; sid={hex}", "{hex}"),
+    ("Cookie: a={jwt}; remember=hunter2x99", "hunter2x99"),
+    ("Set-Cookie: id={jwt}; token=Zq8wPx2mLk; Path=/", "Zq8wPx2mLk"),
+])
+def test_a_masked_cookie_does_not_leave_the_cookies_after_it_in_clear(line, secret):
+    """Seventh review (2026-10-01, HIGH): excluding `<` from the cookie value made a placeholder earlier in the
+    header end the match, and every later cookie went out in clear - past the gate's re-scan, which uses the same
+    patterns. Measured at 3acea5b; at 3acea5b^ all three were masked."""
+    u1, u2, u3, u4, u5 = "3f2b8c1e", "9a7d", "4e5f", "8b6a", "1c2d3e4f5a6b"
+    parts = {"uuid": f"{u1}-{u2}-{u3}-{u4}-{u5}", "hex": "6f1e" * 8, "jwt": _jwt()}
+    original, secret = line.format(**parts), secret.format(**parts)
+    result = redact(original)
+    assert secret not in result.text, result.text
+    assert result.restore(result.text) == original, (result.text, result.mapping)
+
+
+@pytest.mark.parametrize("line", ['password="hunter2 {jwt}"', '--password "x {jwt}"', '{{"auth": "ab12cd34 {jwt}"}}'])
+def test_a_quoted_secret_holding_a_token_restores_in_one_step(line):
+    """Seventh review: a quoted value wrapping a placeholder kept it inside the stored value, so restore() left
+    `<JWT_1>` in the operator's report. The stored value is the restored text."""
+    original = line.format(jwt=_jwt())
+    result = redact(original)
+    assert _jwt() not in result.text and "hunter2" not in result.text.replace("<", " ")
+    assert not any("<" in v for v in result.mapping.values()), result.mapping
+    assert result.restore(result.text) == original, (result.text, result.mapping)
+
+
+def test_a_cookie_that_is_only_a_token_keeps_its_own_label():
+    result = redact(f"Cookie: {_jwt()}")
+    assert result.text == "Cookie: <JWT_1>", result.text

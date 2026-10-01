@@ -145,8 +145,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # No `<` in the value: `Authorization: Basic <BASIC_1>` is already masked, and taking the placeholder as a
     # value gave one credential two labels that restore() could not undo (fifth review, 2026-10-01).
     ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"'<]{8,})")),
-    # No `<` in a value: a value that is already a placeholder is never wrapped in a second one (sixth review).
-    ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n<]{4,})")),
+    # The whole header: a value may hold placeholders already placed (they are stored restored, see find()).
+    # Stopping at `<` left every cookie after a masked one in clear (seventh review, 2026-10-01).
+    ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
     ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"'<]{3,})")),
     # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
     # `--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
@@ -167,7 +168,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("SECRET", re.compile(r"\bldap\w*\b[^\r\n]*?[ \t]-w[ \t]+([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"\bhtpasswd\b[^\r\n]*?[ \t]-\w*b\w*[ \t]+\S+[ \t]+\S+[ \t]+([^\s\"'<]{3,})")),
     ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u[ \t]*|--user(?:=|[ \t]+))[^:\s]+:([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"<]{8,})\"")),
+    ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
     # A quoted secret value is masked WHOLE: `password='hunter 2 x'` used to leak "2 x".
     ("SECRET", re.compile(
         r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
@@ -289,13 +290,19 @@ class _Redactor:
                 original = m.group(1) if m.groups() else m.group(0)
                 if label == "SECRET" and original.lower().strip(".,;:)(") in _NOT_A_VALUE:
                     return m.group(0)
-                if original in self.reverse:
-                    placeholder = self.reverse[original]
+                # A value holding placeholders already placed (`Cookie: a=<JWT_1>; sid=...`) is stored restored,
+                # so restore() gives the original back in one step; one that is nothing but placeholders is
+                # masked already (seventh review: excluding `<` instead left the cookies after it in clear).
+                full = _PLACEHOLDER.sub(lambda p: self.mapping.get(p.group(1), p.group(1)), original)
+                if full != original and not re.search(r"[A-Za-z0-9]", _PLACEHOLDER.sub("", original)):
+                    return m.group(0)
+                if full in self.reverse:
+                    placeholder = self.reverse[full]
                 else:
                     self.counters[label] += 1
                     placeholder = f"<{label}_{self.counters[label]}>"
-                    self.mapping[placeholder] = original
-                    self.reverse[original] = placeholder
+                    self.mapping[placeholder] = full
+                    self.reverse[full] = placeholder
                 return m.group(0).replace(original, placeholder)
 
             out = pattern.sub(_sub, out)
