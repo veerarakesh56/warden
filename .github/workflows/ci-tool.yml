@@ -189,6 +189,10 @@ jobs:
           python-version: "3.13"
           activate-environment: true
 
+      # Seconds with uv; pip took 98 s here (measured 2026-10-01).
+      - name: Install with the k8s extra (locked)
+        run: uv sync --locked --extra dev --extra k8s
+
       # A pinned release, checked against a pinned SHA-256 (audit A-I-24): the old step piped the
       # install script from k3d's main branch into bash on every push.
       - name: Install k3d (pinned, checksum verified)
@@ -207,6 +211,10 @@ jobs:
           k3d cluster create warden-ci --no-lb --wait --timeout 300s
           kubectl get nodes -o wide
           kubectl wait --for=condition=Ready node --all --timeout=120s
+
+      # Started now, so its crash loop builds up while the checks below run (the wait took 24 s in line).
+      - name: Start the synthetic OOM workload
+        run: kubectl apply -f k8s/test/oom-workload.yaml
 
       - name: Validate manifests against the live API server - including the documented entry point
         run: |
@@ -310,9 +318,8 @@ jobs:
           deny patch  deployments.apps -n kube-system
           deny patch  deployments.apps -n warden
 
-      - name: Deploy the synthetic OOM workload and wait until it is GENUINELY crash-looping
+      - name: The OOM workload must be GENUINELY crash-looping
         run: |
-          kubectl apply -f k8s/test/oom-workload.yaml
           # The scenario is "a pod stuck in CrashLoopBackOff from OOM", not "a pod that died once".
           # One kill gives a fresh pod with thin evidence and the verifier correctly escalates it;
           # the proof of the APPROVED path needs the state an on-call engineer would actually see:
@@ -331,9 +338,6 @@ jobs:
           # The kubelet's own record above is the proof. The log is shown for the reader, not asserted -
           # a non-interactive shell does not reliably print 'Killed'.
           kubectl logs -l app=checkout --tail=5 --previous 2>/dev/null || kubectl logs -l app=checkout --tail=5 || true
-
-      - name: Install with the k8s extra (locked)
-        run: uv sync --locked --extra dev --extra k8s
 
       - name: Integration tests against the live cluster - and they must have RUN, not skipped
         env:
@@ -419,9 +423,7 @@ jobs:
           [ "$job2" != "$job" ] || { echo "::error::generateName did not mint a new Job"; exit 1; }
           echo "second diagnosis job/$job2 created alongside job/$job"
 
-      - name: Tear down
-        if: always()
-        run: k3d cluster delete warden-ci || true
+      # No teardown: the runner and its cluster are thrown away with the job.
 
   # Real databases, not stubs. Service containers give every push a PostgreSQL, MySQL, Redis,
   # MongoDB and SQL Server to run against, so "it terminates a stuck connection" is proven against the servers'
