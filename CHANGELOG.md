@@ -497,6 +497,8 @@ bump may carry a breaking change.
   A bad command-line argument is printed through the gate like every other error: argparse echoed it raw,
   so an escape sequence or a key typed on the command line reached the terminal (sixth review NEW-3, still
   present at the seventh). A usage error now exits 2 with one gated line.
+  CI's k3d job waits for the API server to serve before its first kubectl call: k3d reported the cluster
+  ready and the next call got ServiceUnavailable (CI on 71790df, a flake unrelated to the change).
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
