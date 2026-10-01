@@ -205,6 +205,10 @@ def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
     missing = [a for st in guard["Statement"] for a in _list(st["Action"])
                if any(fnmatch.fnmatchcase(a.lower(), p.lower()) for p in ceiling)
                and not any(fnmatch.fnmatchcase(a.lower(), d.lower()) and c == st.get("Condition") for d, c in denied)]
+    # Stricter than the guardrail is allowed: AddPermission is denied for any principal that is not an AWS service -
+    # "*" included, and another account by id, which Access Analyzer does not see on an alias (eighth review).
+    stricter = {"StringNotLike": {"lambda:Principal": "*.amazonaws.com"}}
+    missing = [a for a in missing if not (a == "lambda:AddPermission" and ("lambda:AddPermission", stricter) in denied)]
     assert not missing, missing
     for action in ("s3:PutBucketPublicAccessBlock", "s3:DeleteBucketPublicAccessBlock", "s3:PutBucketPolicy"):
         assert any(fnmatch.fnmatchcase(action.lower(), d.lower()) and c is None for d, c in denied), action
@@ -336,3 +340,26 @@ def test_no_role_shares_an_event_bus_or_the_image_registry_outside(env):
                    "logs:PutResourcePolicy"):
         assert any(fnmatch.fnmatchcase(action, p) for p in denied), action
     assert not any(fnmatch.fnmatchcase(a, p) for a in ("ecr:PutImage", "ecr:PutLifecyclePolicy") for p in denied)
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functions(env):
+    """Eighth review (2026-10-01): RunTask and StartTask carry no subnet key, and ECS's own role makes the task's
+    network interface - a dev role could run a task with prod's subnets and security groups (HIGH). Nothing in the
+    stack runs one, so both are denied. Also: daemons in another cluster, EventBridge's bus policy API, account-wide
+    log policies, and a function permission for another account (by id, or on an alias Access Analyzer misses)."""
+    statements = _load(env, "boundary")["Statement"]
+    flat = [a for st in statements if st["Effect"] == "Deny" and "Condition" not in st and st.get("Resource") == "*"
+            for a in _list(st["Action"])]
+    for action in ("ecs:RunTask", "ecs:StartTask", "ec2:RunInstances", "ec2:PurchaseHostReservation",
+                   "events:PutResourcePolicy", "logs:PutAccountPolicy"):
+        assert any(fnmatch.fnmatchcase(action, p) for p in flat), action
+    for kept in ("ecs:CreateService", "ec2:CreateTags", "logs:PutRetentionPolicy", "events:PutRule"):
+        assert not any(fnmatch.fnmatchcase(kept, p) for p in flat), kept
+    clusters = next(st for st in statements if st["Sid"] == "DenyOtherClusters")
+    assert any(fnmatch.fnmatchcase("ecs:CreateDaemon", p) for p in _list(clusters["Action"]))
+    invoke = next(st for st in statements if st["Sid"] == "DenyInvokeByAll")
+    assert invoke["Condition"] == {"StringNotLike": {"lambda:Principal": "*.amazonaws.com"}}
+    for principal in ("*", "111122223333"):
+        assert not fnmatch.fnmatchcase(principal, "*.amazonaws.com")  # denied
+    assert fnmatch.fnmatchcase("apigateway.amazonaws.com", "*.amazonaws.com")  # what the stack grants: allowed

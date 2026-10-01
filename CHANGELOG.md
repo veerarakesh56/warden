@@ -446,6 +446,13 @@ bump may carry a breaking change.
   body - a rebuilt `__code__`, a nested def, `compile()` padded to the line, a failure swallowed by a wrapper, a
   hook, a report rewrite or a thread, `sys.monitoring` deleted by a fixture (MED). Planted into a real full run,
   all eight are named and fail it. On Python 3.11, which has no `sys.monitoring`, the run says it did not check.
+  The boundary denies RunTask and StartTask: they carry no subnet key and ECS's own role makes the task's network
+  interface, so a dev role could run a task with prod's subnets and security groups and reach prod's Redis
+  (HIGH; nothing in the stack runs one). It also holds daemons to their own cluster, denies EventBridge's bus
+  policy API and account-wide log policies, and allows a function permission only for an AWS service - not
+  another account by id, which IAM Access Analyzer misses on an alias. An ECS service may still be given another
+  environment's subnets (no IAM key ties a subnet to an environment) - Redis authentication and TLS are the
+  planned fix. The owner's CloudShell step stops on any error and on an unread account number.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

@@ -359,7 +359,9 @@ The console has no page for this policy; CloudShell is part of the console.
 2. Paste this whole block and press Enter. It reads your account number itself; nothing is typed in:
 
 ```bash
+set -euo pipefail
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+[[ "$ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo "could not read the account number - stop and tell Claude"; exit 1; }
 REGION=ap-south-2
 cat > warden-log-delivery.json <<EOF
 {

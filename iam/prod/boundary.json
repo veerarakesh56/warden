@@ -258,7 +258,8 @@
       "Action": [
         "ecs:*Service",
         "ecs:*Task",
-        "ecs:*TaskSet"
+        "ecs:*TaskSet",
+        "ecs:*Daemon"
       ],
       "Resource": "*",
       "Condition": {
@@ -280,14 +281,13 @@
       "Sid": "DenyCompute",
       "Effect": "Deny",
       "Action": [
-        "ec2:RunInstances",
-        "ec2:RequestSpotInstances",
-        "ec2:RequestSpotFleet",
+        "ec2:Run*",
+        "ec2:RequestSpot*",
+        "ec2:Purchase*",
         "ec2:CreateFleet",
-        "ec2:RunScheduledInstances",
-        "ec2:PurchaseReservedInstancesOffering",
-        "ec2:PurchaseHostReservation",
-        "ec2:AllocateHosts"
+        "ec2:AllocateHosts",
+        "ecs:RunTask",
+        "ecs:StartTask"
       ],
       "Resource": "*"
     },
@@ -309,7 +309,9 @@
         "logs:PutSubscriptionFilter",
         "logs:PutDestination*",
         "events:PutPermission",
-        "ecr:PutRe*"
+        "ecr:PutRe*",
+        "events:PutResourcePolicy",
+        "logs:PutAccountPolicy"
       ],
       "Resource": "*"
     },
@@ -333,8 +335,8 @@
       "Action": "lambda:AddPermission",
       "Resource": "*",
       "Condition": {
-        "StringEquals": {
-          "lambda:Principal": "*"
+        "StringNotLike": {
+          "lambda:Principal": "*.amazonaws.com"
         }
       }
     },
