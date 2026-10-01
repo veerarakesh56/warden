@@ -11,6 +11,7 @@ Phase 4, so no activity here holds a credential yet.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -210,7 +211,12 @@ class RemediationActivities:
         self.audit.append(plan.incident_id, "remediation.intent", {"workflow_id": plan.workflow_id,
                                                                    "run_id": run, "plan_hash": plan.plan_hash})
         try:
-            detail = self.platform.apply(plan.entry, plan.params)
+            # The approved snapshot goes to a platform that can hold the write to it (sixth review: a count that
+            # moved after the precheck was stepped from).
+            if "snapshot" in inspect.signature(self.platform.apply).parameters:
+                detail = self.platform.apply(plan.entry, plan.params, snapshot=plan.snapshot)
+            else:
+                detail = self.platform.apply(plan.entry, plan.params)
         except Exception as exc:
             if not getattr(exc, "nothing_changed", False):
                 raise  # the change may be half-made: the workflow says so, and a person decides

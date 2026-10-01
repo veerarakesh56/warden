@@ -395,9 +395,8 @@ warden approve rem-... --plan-hash <hash> --approver owner --key owner.pem
 The Kubernetes platform does two things: a rollout **restart** (the `restartedAt` annotation, as
 `kubectl rollout restart` does) and a **scale up** by at most two replicas, never past
 `WARDEN_REMEDIATION_MAX_REPLICAS`, written with a JSON Patch `test` of the count it just read. A count
-that moved before the final precheck is refused; one that moves in the moment between that precheck and
-the write is stepped from if the step is still in bounds, and a rollback returns to the count the approver
-saw (stated by the sixth review, 2026-10-01). A rollout undo reads no revisions yet, so it is refused.
+that moved since the plan was approved is refused with nothing changed: the write is held to the count
+the approver saw (sixth review, 2026-10-01: a move just before the write used to be stepped from). A rollout undo reads no revisions yet, so it is refused.
 Its credential is the `warden-remediator` ServiceAccount (get and patch deployments; `kubectl auth can-i`
 proves the verbs both ways in CI), and a ValidatingAdmissionPolicy in the same file (audit A-I-11) holds its
 patches to the replica count (by at most two) and the restart annotation. CI runs the platform against a

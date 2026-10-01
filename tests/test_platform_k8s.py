@@ -226,3 +226,15 @@ def test_the_plan_names_the_api_server_it_writes_to():
     apps.api_client = types.SimpleNamespace(configuration=types.SimpleNamespace(host="https://prod-cluster.example:6443"))
     state = _platform(apps).live("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})["state"]
     assert state["server"] == "https://prod-cluster.example:6443"
+
+
+def test_a_count_that_moved_after_the_approval_is_refused_not_stepped_from():
+    """Sixth review (2026-10-01): approved on 3, the count moved to 2 before the write; the scale wrote 2 -> 4 and a
+    rollback returned to 3. The platform now holds the write to the count the plan was approved on."""
+    apps = _Apps(replicas=2)
+    p = _platform(apps)
+    with pytest.raises(KubernetesPlatformError, match="not the 3 the plan was approved on"):
+        p.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4}, snapshot={"replicas": 3})
+    assert apps.patches == []
+    p.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3}, snapshot={"replicas": 2})
+    assert apps.patches

@@ -8,6 +8,7 @@ entry it was given, re-checking its own bounds against what it reads at that mom
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from ..catalog import CATALOG
@@ -28,10 +29,12 @@ class RoutedPlatform:
         p = self._for(entry)
         return p.live(entry, params) if p else {}
 
-    def apply(self, entry: str, params: dict[str, Any]) -> str:
+    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None) -> str:
         p = self._for(entry)
         if p is None:
             raise RuntimeError(f"no platform is connected for {entry}")
+        if "snapshot" in inspect.signature(p.apply).parameters:
+            return p.apply(entry, params, snapshot=snapshot)
         return p.apply(entry, params)
 
     def healthy(self, service: str) -> bool:

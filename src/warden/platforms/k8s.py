@@ -112,14 +112,15 @@ class KubernetesPlatform:
 
     # ------------------------------------------------------------------ writes
 
-    def apply(self, entry: str, params: dict[str, Any]) -> str:
+    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None) -> str:
         if entry not in _ENTRIES:
             raise KubernetesPlatformRefused(f"{entry} is not something the Kubernetes platform does "
                                           f"(it does {', '.join(sorted(_ENTRIES))} only)")
         self._same_namespace(params)
         if entry == "k8s_restart":
             return self._restart(params["deployment"])
-        return self._scale(params["deployment"], params["replicas"])
+        approved = (snapshot or {}).get("replicas")
+        return self._scale(params["deployment"], params["replicas"], approved if isinstance(approved, int) else None)
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
         self._same_namespace(params)
@@ -148,11 +149,16 @@ class KubernetesPlatform:
             raise KubernetesPlatformError(f"rollout restart of {deployment} failed: {_one_line(exc)}") from exc
         return f"rollout restart of deployment/{deployment} in {self._ns} (restartedAt={stamp})"
 
-    def _scale(self, deployment: str, replicas: Any) -> str:
+    def _scale(self, deployment: str, replicas: Any, approved: int | None = None) -> str:
         try:
             current = _replicas(self._read(deployment))
         except Exception as exc:
             raise KubernetesPlatformRefused(f"could not read deployment/{deployment}: {_one_line(exc)}") from exc
+        # The count the approver saw, not one that moved since: a move between the final precheck and this
+        # read was stepped from (2 -> 4 with 3 approved) - sixth review, 2026-10-01.
+        if approved is not None and current != approved:
+            raise KubernetesPlatformRefused(f"deployment/{deployment} has {current} replica(s), not the {approved} "
+                                          f"the plan was approved on; nothing was changed")
         # The catalogue's bound, again, against what was just read: the count may have moved since the
         # approval, and an approved "4" means "one or two above what we saw", not "4 whatever happens".
         if not isinstance(replicas, int) or isinstance(replicas, bool) \

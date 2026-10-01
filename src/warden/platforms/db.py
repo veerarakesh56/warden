@@ -212,7 +212,8 @@ class DatabasePlatform:
                 self._drop()
                 return False
 
-    def apply(self, entry: str, params: dict[str, Any]) -> str:
+    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None) -> str:
+        # `snapshot` (what the approver saw) adds nothing here: the sessions are chosen afresh by the bounds.
         with self._lock:
             try:
                 return self._apply(entry, params)

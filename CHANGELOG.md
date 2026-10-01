@@ -386,6 +386,8 @@ bump may carry a breaking change.
   states that a count moving between the final precheck and the write is stepped from (sixth review).
   A plan names the Kubernetes API server or database server it writes to (`warden status` shows it, the
   plan hash covers it), so staging's plan and prod's no longer look the same.
+  A scale is held to the replica count the plan was approved on: a count that moved just before the
+  write was stepped from (2 -> 4 with 3 approved) and is now refused with nothing changed.
   A Deployment is healthy only once its controller has seen the current spec and its rollout has not
   stalled (observedGeneration, Progressing).
   P14 refuses a command before a period (`orders (rm.)`, `kubectl.exe`) and kill, pkill, terraform,
@@ -405,8 +407,7 @@ bump may carry a breaking change.
   mutation check stops its workers before restoring the mutated file.
   Still open: "not a single one of the pods restarted", "cpu (idle): 0%" and "probe: 0 ok" in P15; a second
   resource written as an image reference or behind a scope word (`orders (payments:latest)`,
-  `orders (namespace payments)`) still passes P14; a count that moves between the final precheck and the
-  write is stepped from.
+  `orders (namespace payments)`) still passes P14.
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a
