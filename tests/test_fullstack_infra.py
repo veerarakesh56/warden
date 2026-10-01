@@ -477,8 +477,10 @@ def _workflow(name: str) -> dict:
 
 def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     wf = _workflow("ci-infra.yml")
-    # The infra pipeline's own test file counts as infra: the tool CI skips infra-only changes.
+    # The infra pipeline's own test file counts as infra: the tool CI skips infra-only changes. Its jobs
+    # install from uv.lock, so the lock and pyproject.toml trigger it too (2026-10-01).
     assert all(p.startswith(("terraform/fullstack/", ".github/workflows/", "tests/test_fullstack_infra.py"))
+               or p in ("uv.lock", "pyproject.toml")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"])
     assert "workflow_dispatch" not in wf["on"]
     for name in ("ci-infra.yml", "_infra-validate.yml"):

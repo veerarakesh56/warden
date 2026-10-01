@@ -532,6 +532,12 @@ confirms the fixes.
   At 14e32e1 (14:18 UTC / 19:48 IST) parallel test workers raced to download Temporal's test server;
   fixed in a1b73ce, which downloads it once before the workers start. The control is branch
   protection with required checks (owner steps, A9).
+- **...and an eighth and ninth time, both mine, on 2026-10-01:** 00c08ab (07:15 UTC / 12:45 IST) pushed a
+  uv.lock older than pyproject.toml, which `uv sync --locked` refused in every pipeline (fixed in
+  362356c, with a test that compares the two locally). c99bc86 (07:23 UTC / 12:53 IST) added two
+  trigger paths after running only the CI tests, not the full suite; a test pinning those paths
+  failed (fixed in the next commit). Rule kept from here: the full suite before every push, however
+  small the change.
 
 ## [0.10.0] - 2026-09-28
 
