@@ -295,7 +295,8 @@ def test_the_boundary_still_denies_key_deletion_everywhere():
 def test_the_boundary_allows_the_new_services_only_on_our_names():
     st = next(s for s in _stmts(ENV_BOUNDARY) if s["Sid"] == "CeilingOwnNames")
     for r in _list(st["Resource"]):
-        assert "warden-dev-" in r or r.endswith(("parametergroup:default.*", "/apis*", "/tags/*")), r
+        assert "warden-dev-" in r or "parameter/warden/dev/" in r or r.endswith(("parametergroup:default.*", "/apis*",
+                                                                                  "/tags/*")), r
     slr = next(s for s in _stmts(ENV_BOUNDARY) if s["Sid"] == "CeilingCreateSlrs")
     assert "elasticache.amazonaws.com" in slr["Condition"]["StringEquals"]["iam:AWSServiceName"]
 

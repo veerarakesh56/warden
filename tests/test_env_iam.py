@@ -371,3 +371,37 @@ def test_no_environment_name_is_another_ones_prefix():
     for a in ENVS:
         for b in ENVS:
             assert a == b or not b.startswith(f"{a}-"), (a, b)
+
+
+def _denied_untagged(boundary: dict, action: str, resource: str, tags: dict) -> bool:
+    """A deny whose only condition is that the resource carries no Environment tag."""
+    for st in boundary["Statement"]:
+        null = st.get("Condition", {}).get("Null", {}).get("aws:ResourceTag/Environment")
+        if st["Effect"] == "Deny" and null == "true" and set(st["Condition"]) == {"Null"} \
+                and any(fnmatch.fnmatchcase(action, a) for a in _list(st["Action"])) \
+                and any(fnmatch.fnmatchcase(resource, r) for r in _list(st["Resource"])) and "Environment" not in tags:
+            return True
+    return False
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_no_role_changes_a_vpcs_untagged_defaults(env):
+    """Ninth review (2026-10-01, HIGH, pre-existing): a VPC's default network ACL, default security group and main
+    route table are made by AWS untagged, so the other-environment deny never applied - any environment's role
+    could rewrite prod's default NACL. Scoped to the ACL, group and table themselves: a security-group RULE is
+    untagged when it is made, and the stack's own rules must still go through; reads are never denied."""
+    boundary = _load(env, "boundary")
+    acl, sg, rtb = (f"arn:aws:ec2:{_region()}:111122223333:{kind}" for kind in
+                    ("network-acl/acl-0abc", "security-group/sg-0abc", "route-table/rtb-0abc"))
+    for action, resource in [("ec2:CreateNetworkAclEntry", acl), ("ec2:ReplaceNetworkAclEntry", acl),
+                             ("ec2:DeleteNetworkAclEntry", acl), ("ec2:AuthorizeSecurityGroupIngress", sg),
+                             ("ec2:AuthorizeSecurityGroupEgress", sg), ("ec2:RevokeSecurityGroupIngress", sg),
+                             ("ec2:RevokeSecurityGroupEgress", sg), ("ec2:ModifySecurityGroupRules", sg),
+                             ("ec2:CreateRoute", rtb), ("ec2:ReplaceRoute", rtb), ("ec2:DeleteRoute", rtb)]:
+        assert _denied_untagged(boundary, action, resource, {}), (action, resource)
+        assert not _denied_untagged(boundary, action, resource, {"Environment": env}), (action, resource)
+    rule = f"arn:aws:ec2:{_region()}:111122223333:security-group-rule/sgr-0abc"
+    assert not _denied_untagged(boundary, "ec2:AuthorizeSecurityGroupIngress", rule, {})
+    for read, resource in [("ec2:DescribeNetworkAcls", "*"), ("ec2:DescribeSecurityGroups", "*"),
+                           ("ec2:DescribeSecurityGroupRules", "*"), ("ec2:DescribeRouteTables", "*")]:
+        assert not _denied_untagged(boundary, read, acl, {}) and not _denied_untagged(boundary, read, resource, {})

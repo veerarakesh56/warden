@@ -434,6 +434,10 @@ bump may carry a breaking change.
   `"authorization":` is matched. A tool saying there is none (`<nil>`, `<none>`, `cookie=missing`) is not a
   secret, and a value the cleaning did not assemble is not a new leak. A secret inside a compound value is swept
   alone too.
+  A VPC's default network ACL, default security group and main route table are untagged, so no environment's
+  boundary held them - any environment's role could rewrite prod's default NACL (HIGH, pre-existing). The boundary
+  now denies changing a NACL entry, a security group's rules or a route on an untagged ACL, group or table; the
+  stacks never change one, and a rule being created is untagged, so the deny names the three resource types.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

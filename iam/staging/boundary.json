@@ -48,7 +48,15 @@
         "sns:*",
         "secretsmanager:*",
         "elasticache:*",
-        "apigateway:*"
+        "apigateway:*",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath",
+        "budgets:ViewBudget",
+        "budgets:ModifyBudget",
+        "budgets:TagResource",
+        "budgets:UntagResource",
+        "budgets:ListTagsForResource"
       ],
       "Resource": [
         "arn:aws:s3:::warden-staging-*",
@@ -59,18 +67,10 @@
         "arn:aws:elasticache:ap-south-2:*:*:warden-staging-*",
         "arn:aws:elasticache:ap-south-2:*:parametergroup:default.*",
         "arn:aws:apigateway:ap-south-2::/apis*",
-        "arn:aws:apigateway:ap-south-2::/tags/*"
+        "arn:aws:apigateway:ap-south-2::/tags/*",
+        "arn:aws:ssm:ap-south-2:*:parameter/warden/staging/tf/*",
+        "arn:aws:budgets::*:budget/warden-staging-*"
       ]
-    },
-    {
-      "Sid": "CeilingOwnParameters",
-      "Effect": "Allow",
-      "Action": [
-        "ssm:GetParameter",
-        "ssm:GetParameters",
-        "ssm:GetParametersByPath"
-      ],
-      "Resource": "arn:aws:ssm:ap-south-2:*:parameter/warden/staging/tf/*"
     },
     {
       "Sid": "CeilingKmsViaServices",
@@ -109,21 +109,14 @@
         "iam:DetachRolePolicy",
         "iam:PutRolePermissionsBoundary",
         "iam:List*",
-        "iam:*InstanceProfile"
+        "iam:*InstanceProfile",
+        "iam:PassRole",
+        "sts:AssumeRole"
       ],
       "Resource": [
         "arn:aws:iam::*:role/warden-staging-*",
         "arn:aws:iam::*:instance-profile/warden-staging-*"
       ]
-    },
-    {
-      "Sid": "CeilingPassAssumeOwnEnv",
-      "Effect": "Allow",
-      "Action": [
-        "iam:PassRole",
-        "sts:AssumeRole"
-      ],
-      "Resource": "arn:aws:iam::*:role/warden-staging-*"
     },
     {
       "Sid": "CeilingCreateSlrs",
@@ -151,18 +144,6 @@
       "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     },
     {
-      "Sid": "CeilingOwnBudget",
-      "Effect": "Allow",
-      "Action": [
-        "budgets:ViewBudget",
-        "budgets:ModifyBudget",
-        "budgets:TagResource",
-        "budgets:UntagResource",
-        "budgets:ListTagsForResource"
-      ],
-      "Resource": "arn:aws:budgets::*:budget/warden-staging-*"
-    },
-    {
       "Sid": "CeilingWhoAmI",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",
@@ -183,9 +164,20 @@
       }
     },
     {
-      "Sid": "DenyBoundaryRemoval",
+      "Sid": "DenyAlways",
       "Effect": "Deny",
-      "Action": "iam:DeleteRolePermissionsBoundary",
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary",
+        "rds:DeleteDBSnapshot",
+        "rds:DeleteDBClusterSnapshot",
+        "ec2:Run*",
+        "ec2:RequestSpot*",
+        "ec2:Purchase*",
+        "ec2:CreateFleet",
+        "ec2:AllocateHosts",
+        "ecs:RunTask",
+        "ecs:StartTask"
+      ],
       "Resource": "*"
     },
     {
@@ -234,6 +226,26 @@
       }
     },
     {
+      "Sid": "DenyUntaggedNetwork",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:*NetworkAclEntry",
+        "ec2:*SecurityGroup*gress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:*Route"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*:*:*/acl-*",
+        "arn:aws:ec2:*:*:*/sg-*",
+        "arn:aws:ec2:*:*:*/rtb-*"
+      ],
+      "Condition": {
+        "Null": {
+          "aws:ResourceTag/Environment": "true"
+        }
+      }
+    },
+    {
       "Sid": "DenyDestroyingOthers",
       "Effect": "Deny",
       "Action": [
@@ -267,29 +279,6 @@
           "ecs:cluster": "arn:aws:ecs:*:*:cluster/warden-staging-*"
         }
       }
-    },
-    {
-      "Sid": "DenyDeletingSnapshots",
-      "Effect": "Deny",
-      "Action": [
-        "rds:DeleteDBSnapshot",
-        "rds:DeleteDBClusterSnapshot"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyCompute",
-      "Effect": "Deny",
-      "Action": [
-        "ec2:Run*",
-        "ec2:RequestSpot*",
-        "ec2:Purchase*",
-        "ec2:CreateFleet",
-        "ec2:AllocateHosts",
-        "ecs:RunTask",
-        "ecs:StartTask"
-      ],
-      "Resource": "*"
     },
     {
       "Sid": "DenyPublicData",
