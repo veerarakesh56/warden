@@ -485,15 +485,24 @@ def node_tripwire(state: WardenState) -> WardenState:
     # One text, one map, and the labels key by key and value by value - exactly as _prompt_parts builds
     # what the model reads. Redacted as one dict, `{'token': '<SECRET_1>'}` scored 0.93 on Prompt Guard 2
     # and escalated every such incident, and the model read a value the scan never saw (fourth review).
-    red, _ = redact_many([_one_line(alert.name), _one_line(alert.summary), *keys,
-                          *(str(alert.labels[k]) for k in keys), *(i.text for i in trusted)], mapping)
-    labels = dict(zip(red[2:2 + len(keys)], red[2 + len(keys):2 + 2 * len(keys)], strict=True))
-    outside = {"ALERT": red[0] + "\n" + red[1], "LABELS": " ".join([str(labels), alert.service, alert.environment])}
-    outside.update({i.id: t for i, t in zip(trusted, red[2 + 2 * len(keys):], strict=True)})
-    # WARDEN's placeholders are WARDEN's words, not the outside world's: `{'token': '<SECRET_1>'}` still
-    # scored 0.996 and escalated a clean incident (fifth review, 2026-10-01). Removing them only removes text
-    # - a payload split by a placeholder-looking string is read whole.
-    outside = {k: _PLACEHOLDER.sub("", v) for k, v in outside.items()}
+    red, issued = redact_many([_one_line(alert.name), _one_line(alert.summary), *keys,
+                               *(str(alert.labels[k]) for k in keys), *(i.text for i in trusted)], mapping)
+
+    # The placeholders THIS redaction issued are WARDEN's words, not the outside world's, and are removed.
+    # Only those: any `<WORD_N>` was removed before, so an injection written as `<IGNORE_1> <ALL_1> ...` -
+    # which the model reads - was invisible to the scan (sixth review, 2026-10-01).
+    def theirs(text: str) -> str:
+        return _PLACEHOLDER.sub(lambda m: "" if m.group(0) in issued else m.group(0), text)
+
+    # Labels as sentences, every key and value word as written: as a dict, a credential-NAMED label alone
+    # scored as an injection - `{'password': ''}` 0.999, 6 of 8 such keys flagged - while an injection in a
+    # key or a value still scores 0.999 as a sentence (real Prompt Guard 2, 2026-10-01; sixth review).
+    pairs = zip(red[2:2 + len(keys)], red[2 + len(keys):2 + 2 * len(keys)], strict=True)
+    said = [f"label {theirs(k)} is {v}" if (v := theirs(value).strip()) else f"label {theirs(k)} is set (value withheld)"
+            for k, value in pairs]
+    outside = {"ALERT": theirs(red[0] + "\n" + red[1]),
+               "LABELS": "; ".join([*said, f"service {alert.service}", f"environment {alert.environment}"])}
+    outside.update({i.id: theirs(t) for i, t in zip(trusted, red[2 + 2 * len(keys):], strict=True)})
     status, flagged = tripwire.scan(evidence.index(state["context"]), outside=outside)
     context = state["context"].model_copy(update={"tripwire": status, "suspected": flagged})
     return {"context": context,
