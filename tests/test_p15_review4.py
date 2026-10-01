@@ -212,3 +212,9 @@ EIGHTH = [
 @pytest.mark.parametrize(("action", "quote", "supports"), EIGHTH)
 def test_the_eighth_reviews_p15_quotes(action, quote, supports):
     assert _supports(action, quote) is supports
+
+
+@pytest.mark.parametrize(("action", "quote"), [(A.scale_up, "cpu: 0 free"), (A.scale_up, "memory: 0 left")])
+def test_memory_and_cpu_are_capacity(action, quote):
+    """Eighth review (test strength): dropping memory and cpu from the capacity words passed every test."""
+    assert _supports(action, quote) is True

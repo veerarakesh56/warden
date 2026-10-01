@@ -263,3 +263,17 @@ def test_a_scope_label_in_any_spelling_scopes_a_pod_action(key):
     may name a database cluster, so a failover may still target it - sixth review.)"""
     assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.rollback_deploy, "warden-pg-fs-group",
                                                               {key: "warden-pg-fs-group"})
+
+
+def test_a_failover_may_target_its_labelled_database_and_never_its_eks_cluster():
+    """Eighth review (test strength): removing failover from the data actions, or EKS from the compute words, passed."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.failover_replica, "warden-pg-fs-aurora", FS01)
+    labels = {**FS01, "eks_cluster": "warden-pg-fs-eks"}
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "warden-pg-fs-eks", labels)
+
+
+def test_ns_inside_a_labelled_cluster_name_is_not_the_word_namespace():
+    """Eighth review: the earlier test never reached the failover branch; with the cluster labelled under a generic
+    key, a target named only by that label does - and `\bns\b` refused `orders-ns-db`."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(A.failover_replica, "orders-ns-db",
+                                                                  {"cluster": "orders-ns-db"})

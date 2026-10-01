@@ -247,3 +247,38 @@ def test_a_timed_out_call_counts_as_a_call():
     with _pytest.raises(ModelCallTimeout):
         client.structured(system="s", user="u", schema=RootCause)
     assert client.cost.calls == 1 and client.unanswered == 0
+
+
+def test_the_next_run_starts_from_both_the_usd_and_the_calls_spent():
+    """Eighth review (test strength): carrying only the USD, or only the call count, passed every test."""
+    seen = []
+
+    class Records:
+        name, model = "fake", "fake"
+
+        def complete(self, *, system, user, schema=None):
+            seen.append((clients[-1].cost.calls, round(clients[-1].cost.usd, 6)))
+            return Completion("not json at all", 10, 10)
+
+    clients = []
+
+    def factory():
+        clients.append(LLMClient(provider=Records(), max_calls=8, max_usd=0.50, mock=False, call_timeout_s=5))
+        return clients[-1]
+
+    async def main():
+        log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
+        alert = _alert_from(next(iter(DEMO_ALERTS)))
+        log.append(alert.alert_id, "incident.llm_spend", {"run_id": "earlier", "usd": 0.25, "calls": 3, "unanswered": 0,
+                                                           "input_tokens": 0, "output_tokens": 0})
+        acts = IncidentActivities(audit=log, llm_factory=factory)
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
+                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activity_executor=ThreadPoolExecutor(2)):
+            h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-carried", task_queue="q")
+            with contextlib.suppress(Exception):
+                await h.result()
+
+    asyncio.run(main())
+    assert seen and seen[0] == (3, 0.25), seen  # the first call of the new run sees both, carried
