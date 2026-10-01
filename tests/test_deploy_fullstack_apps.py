@@ -276,7 +276,10 @@ def test_the_build_reads_the_extras_each_lambda_asks_for():
 
 @pytest.mark.parametrize("users", [None, {"app": "app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro"},
                                    {"app": "warden_dev_app; DROP TABLE orders", "catalog": "x", "ro": "y"},
-                                   {"app": "warden_dev_app", "catalog": "warden_dev_catalog"}])
+                                   {"app": "warden_dev_app", "catalog": "warden_dev_catalog"},
+                                   # seventh review: another environment's users, one name for all three
+                                   {"app": "warden_prod_app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro"},
+                                   {"app": "warden_dev_app", "catalog": "warden_dev_app", "ro": "warden_dev_app"}])
 def test_the_database_users_must_be_the_environments_own(users):
     """Audit A-I-2: users carry the environment, and nothing that is not a plain user name reaches the SQL."""
     stack = {**STACK, "db_users": users} if users is not None else {k: v for k, v in STACK.items() if k != "db_users"}

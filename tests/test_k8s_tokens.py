@@ -29,7 +29,11 @@ def test_every_pod_says_whether_it_gets_a_token_and_only_the_job_does():
     pods = []
     for path, doc in _docs():
         kind = doc["kind"]
-        spec = doc["spec"]["template"]["spec"] if kind in ("Deployment", "StatefulSet", "DaemonSet", "Job") else \
+        # Every kind that makes pods, a CronJob through its job template (seventh review: ReplicaSet and CronJob
+        # were not read).
+        spec = doc["spec"]["template"]["spec"] if kind in ("Deployment", "StatefulSet", "DaemonSet", "Job",
+                                                           "ReplicaSet") else \
+            doc["spec"]["jobTemplate"]["spec"]["template"]["spec"] if kind == "CronJob" else \
             doc["spec"] if kind == "Pod" else None
         if spec is not None:
             pods.append(((path.name, kind), spec.get("automountServiceAccountToken")))

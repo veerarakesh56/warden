@@ -478,6 +478,9 @@ bump may carry a breaking change.
   The database platform's own login is refused in any letter case (MySQL and SQL Server match logins
   without it), and CI's live MySQL test now proves a session running a statement inside a transaction is
   never selected and idle time is what counts: removing the "sleeping only" filter passed every test.
+  The proving ground's app deploy accepts only the database users Terraform derives for the stack's own
+  environment - a shape check took another environment's names, or one name for all three. The
+  service-account token test reads ReplicaSets and CronJobs too, and CI's throwaway Deployment mounts no token.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

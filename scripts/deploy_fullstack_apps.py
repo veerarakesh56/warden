@@ -320,6 +320,12 @@ def db_users(stack: dict) -> dict[str, str]:
     bad = [u for u in users.values() if not (isinstance(u, str) and _DB_USER.fullmatch(u))]
     if bad:
         raise SystemExit(f"stack.json db_users holds a name that is not a database user: {bad}")
+    # Exactly the names Terraform derives for THIS stack's environment: a shape check accepted another
+    # environment's users, or one name for all three - the read-only user merged into the app's (seventh review).
+    env = stack.get("environment")
+    want = {k: f"warden_{str(env).replace('-', '_')}_{k}" for k in users}
+    if not env or users != want:
+        raise SystemExit(f"stack.json db_users are not environment {env!r}'s own: {users} (expected {want})")
     return users
 
 
