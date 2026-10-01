@@ -259,7 +259,10 @@ jobs:
       - name: RBAC must allow exactly the six reads the code makes
         run: |
           SA=system:serviceaccount:warden:warden
-          allow() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
+          # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
+          # its error shown; only yes or no is ever accepted.
+          ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
+          allow() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
           allow list pods -n default
           # ⛔ NOT `get pods/log`: in kubectl's grammar TYPE/NAME means "a pod NAMED log", so that
           # form passed under the old over-broad role (which had `get pods`) for the WRONG reason
@@ -273,7 +276,7 @@ jobs:
       - name: RBAC must deny writes, unused read verbs, secrets, other namespaces and cluster scope
         run: |
           SA=system:serviceaccount:warden:warden
-          deny() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "no" ] || { echo "::error::$* must be denied"; exit 1; }; }
+          deny() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "no" ] || { echo "::error::$* must be denied"; exit 1; }; }
           # writes
           deny delete pods -n default
           deny create pods -n default
@@ -314,8 +317,11 @@ jobs:
           # its boundary from the API server's own view, both directions.
           kubectl apply -f k8s/remediation-rbac.yaml
           SA=system:serviceaccount:warden:warden-remediator
-          allow() { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
-          deny()  { r=$(kubectl auth can-i "$@" --as=$SA 2>/dev/null || true); echo "$* -> $r"; [ "$r" = "no" ]  || { echo "::error::$* must be denied";  exit 1; }; }
+          # An empty answer is a failed request (a settling cluster, CI on 5fdcff4): asked again,
+          # its error shown; only yes or no is ever accepted.
+          ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
+          allow() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "yes" ] || { echo "::error::$* should be allowed"; exit 1; }; }
+          deny()  { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "no" ]  || { echo "::error::$* must be denied";  exit 1; }; }
           # exactly the two the backend calls
           allow patch deployments.apps -n default
           allow get   deployments.apps -n default
