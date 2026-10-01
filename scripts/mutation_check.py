@@ -339,6 +339,8 @@ def run_suite(paths: list[str] | None = None, limit: int = 1800) -> bool | str:
          *(paths or [])],
         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         env={**os.environ, "WARDEN_MOCK": "1", "WARDEN_TRACE": "0"},
+        # Its own process group on POSIX, so a time limit stops the xdist workers too.
+        start_new_session=os.name != "nt",
     )
     try:
         return proc.wait(timeout=limit) == 0
@@ -353,7 +355,9 @@ def _kill_tree(proc: subprocess.Popen) -> None:
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],  # nosec B603 B607
                        capture_output=True, check=False)
     else:
-        proc.kill()
+        import signal
+
+        os.killpg(proc.pid, signal.SIGKILL)
     proc.wait()
 
 

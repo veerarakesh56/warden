@@ -62,6 +62,18 @@ needs_mongo = pytest.mark.skipif(not MONGO_DSN, reason="WARDEN_TEST_MONGO_DSN no
 needs_mssql = pytest.mark.skipif(not MSSQL_DSN, reason="WARDEN_TEST_MSSQL_DSN not set")
 
 
+def _gone(count, seconds=10.0):
+    """True once `count()` reaches 0. Closing a session is a signal the server acts on a moment later
+    (pg_terminate_backend returns before the backend exits): checking once raced, and turned the db job red
+    at c99bc86 (fifth review, 2026-10-01)."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if count() == 0:
+            return True
+        time.sleep(0.2)
+    return count() == 0
+
+
 def _connect_or_fail(adapter, dsn, label):
     """A configured-but-unreachable database is a FAILURE. Skipping here would turn a broken
     integration run into a green one."""
@@ -181,10 +193,12 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
 
         assert platform_db._Postgres.terminate(admin, [victim_pid]) == 1
 
-        with admin.cursor() as cur:
-            cur.execute("SELECT count(*) FROM pg_stat_activity WHERE pid = %s", (victim_pid,))
-            still_there = cur.fetchone()[0]
-        assert still_there == 0, "the connection was reported terminated but is still on the server"
+        def still_there():
+            with admin.cursor() as cur:
+                cur.execute("SELECT count(*) FROM pg_stat_activity WHERE pid = %s", (victim_pid,))
+                return cur.fetchone()[0]
+
+        assert _gone(still_there), "the connection was reported terminated but is still on the server"
     finally:
         # The victim was just terminated, so closing it may itself raise - that IS the success case.
         with contextlib.suppress(Exception):
@@ -237,11 +251,12 @@ def test_mysql_terminate_actually_kills_the_sleeping_transaction():
         assert own_id not in candidates, "it selected its OWN session to KILL"
 
         assert platform_db._MySQL.terminate(admin, [victim_id]) == 1
-        time.sleep(0.5)
-        with admin.cursor() as cur:
-            cur.execute("SELECT count(*) FROM information_schema.processlist WHERE id = %s", (victim_id,))
-            still_there = cur.fetchone()[0]
-        assert still_there == 0, "the session was reported killed but is still in the processlist"
+        def still_there():
+            with admin.cursor() as cur:
+                cur.execute("SELECT count(*) FROM information_schema.processlist WHERE id = %s", (victim_id,))
+                return cur.fetchone()[0]
+
+        assert _gone(still_there), "the session was reported killed but is still in the processlist"
     finally:
         with contextlib.suppress(Exception):
             victim.close()
@@ -348,10 +363,12 @@ def test_mssql_terminate_actually_kills_the_sleeping_transaction():
         assert own_spid not in candidates, "it selected its OWN session to KILL"
 
         assert platform_db._MSSQL.terminate(admin, [victim_spid]) == 1
-        time.sleep(1.0)
-        ac = admin.cursor()
-        ac.execute("SELECT count(*) FROM sys.dm_exec_sessions WHERE session_id = %d", (victim_spid,))
-        assert int(ac.fetchone()[0]) == 0, "the session was reported killed but is still connected"
+        def still_there():
+            ac = admin.cursor()
+            ac.execute("SELECT count(*) FROM sys.dm_exec_sessions WHERE session_id = %d", (victim_spid,))
+            return int(ac.fetchone()[0])
+
+        assert _gone(still_there), "the session was reported killed but is still connected"
     finally:
         with contextlib.suppress(Exception):
             victim.close()

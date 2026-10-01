@@ -151,7 +151,9 @@ jobs:
       # tool failed, context came back empty and all four incidents returned AUTO_SAFE.
       - name: Build the container and assert its output
         run: |
-          docker build -t warden:ci .
+          # The host's network, not Docker's bridge: package downloads inside the build crawled at
+          # ~20-60 KB/s on some runners (fifth review E, 2026-10-01) while the host fetched the same in seconds.
+          docker build --network=host -t warden:ci .
           out=$(docker run --rm -e WARDEN_MOCK=1 -e WARDEN_TRACE=0 warden:ci demo)
           echo "$out"
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
@@ -177,10 +179,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # The image builds in the background while the cluster starts and pip installs (35 s in line).
+      # The image builds in the background while the cluster starts and the job installs. The host's network,
+      # not Docker's bridge: here the build's downloads crawled (3m49s-4m44s for 48 packages, fifth review E).
       - name: Start the image build
         run: |
-          (docker build -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
+          (docker build --network=host -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
 
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:

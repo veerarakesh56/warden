@@ -44,7 +44,7 @@ from .models import (
     VerdictStatus,
 )
 from .observability import record_cost, record_model_call, span
-from .redaction import redact_many
+from .redaction import _PLACEHOLDER, redact_many
 from .tools import FixtureBackend, gather
 from .verifier import verify
 
@@ -490,6 +490,10 @@ def node_tripwire(state: WardenState) -> WardenState:
     labels = dict(zip(red[2:2 + len(keys)], red[2 + len(keys):2 + 2 * len(keys)], strict=True))
     outside = {"ALERT": red[0] + "\n" + red[1], "LABELS": " ".join([str(labels), alert.service, alert.environment])}
     outside.update({i.id: t for i, t in zip(trusted, red[2 + 2 * len(keys):], strict=True)})
+    # WARDEN's placeholders are WARDEN's words, not the outside world's: `{'token': '<SECRET_1>'}` still
+    # scored 0.996 and escalated a clean incident (fifth review, 2026-10-01). Removing them only removes text
+    # - a payload split by a placeholder-looking string is read whole.
+    outside = {k: _PLACEHOLDER.sub("", v) for k, v in outside.items()}
     status, flagged = tripwire.scan(evidence.index(state["context"]), outside=outside)
     context = state["context"].model_copy(update={"tripwire": status, "suspected": flagged})
     return {"context": context,

@@ -3,7 +3,9 @@
 The quarantine (quarantine.py) already keeps untrusted text away from the model structurally. This
 adds a SECOND, independent signal: Meta's Llama Prompt Guard 2 (86M), a classifier trained on a
 large corpus of prompt-injection and jailbreak attempts, runs locally on every untrusted part the
-model reads (alert text, labels, trusted items, typed facts) and on each log line and event.
+model reads (alert text, labels, trusted items) and on each log line and event. The typed facts are not
+scanned themselves: they are covered through the lines they came from - so facts from lines past the scan
+budget are covered only by the quarantine's filters (fifth review, 2026-10-01).
 A line it flags does not change what the model sees; it changes what the gate allows: policy P16
 escalates the incident to a person, so a flagged line can never lead to an automatic or pre-approved
 fix. It is a tripwire, never a gate that clears text as safe - published work bypasses such

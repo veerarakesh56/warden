@@ -312,9 +312,18 @@ async def _workflow_command(args: argparse.Namespace) -> int:
                  "Ctrl+C to stop")
             await asyncio.Event().wait()
     if args.cmd == "incident":
+        from temporalio.common import WorkflowIDReusePolicy
+        from temporalio.exceptions import WorkflowAlreadyStartedError
+
         alert = _alert_from(args.incident)
-        report = await client.execute_workflow(IncidentWorkflow.run, alert, id=f"inc-{alert.alert_id}",
-                                               task_queue=runtime.TASK_QUEUE)
+        wid = f"inc-{alert.alert_id}"
+        try:
+            # One alert is one incident, with one model budget: its id is never reused (fifth review).
+            report = await client.execute_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
+                                                   id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE)
+        except WorkflowAlreadyStartedError:
+            _out(f"{wid} was already diagnosed; its report:")
+            report = await client.get_workflow_handle(wid).result()
         _print_report(report, verbose=False)
         return 0
     if args.cmd == "status":

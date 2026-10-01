@@ -75,9 +75,13 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
 # counts; a zero, a false or a "never" says the thing did not happen.
 _VALUE = r"(-?\d+(?:\.\d+)?(?:/\d+)?(?![\d.:])|(?:zero|none|false|no|null|never)(?![a-z]))"
 _FIRST = re.compile(r"([\w \-\"']{0,30}?)\s*(?:==|=>|->|\u2192|=|:|\(|\bis\b)?\s*[\"'\[(]*\s*" + _VALUE)
-_NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->|=>|\u2192|\bnow\b|\bto\b)"
+_NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->|=>|\u2192|\bnow\b|\bto\b|\bthen\b)"
                    r"\s*[\"'\[(]*\s*" + _VALUE)
-_WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)")
+_WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)(?![a-z_]*\s*[=:])")
+# A zero that says WHEN, not how many: "restarted 0s ago" is a restart (fifth review, 2026-10-01).
+_AGO = re.compile(r"\s*(?:s|sec|secs|seconds?|m|min|mins|minutes?|h|hrs?|hours?)?\s*ago\b")
+# For scale_down a zero of USE is its evidence: "cpu: 0%" is an idle service (fifth review).
+_USE = frozenset({"cpu", "memory", "utili"})
 # A zero of something good is a shortage, not an absence: "0/3 passing", "cache hit: 0%", "no free
 # memory", "0 free connection slots", "no spare capacity". Not for scale_down, whose evidence is spare
 # capacity: "idle=0" is no reason to remove replicas.
@@ -98,7 +102,9 @@ def _negated(before: str, key: str, shortage: bool) -> bool:
     between: list[str] = []
     for w in reversed(re.findall(r"\d[\d.:/]*|\w[\w.-]*|[^\w\s]", before)[-3:]):
         if w in _NEGATORS or re.fullmatch(r"0+(?:\.0+)?", w):
-            if w == "not" and between:
+            # "not" reaches only the next word, or past an article: "not a single restart" is none (fifth
+            # review), "not responding pod restarted" is a restart.
+            if w == "not" and any(b not in ("a", "an", "the", "single", "one", "any") for b in between):
                 return False
             return not (shortage and (key in _GOOD or any(b in _GOOD for b in between)))
         if not re.fullmatch(r"[\w-]+", w) or w in _BREAK:
@@ -113,11 +119,17 @@ def _reports_none(after: str, key: str, shortage: bool) -> bool:
     if not m:
         return False
     phrase, value, pos = m.group(1), m.group(2), m.end()
+    if _AGO.match(after, pos):
+        return False
+    if not shortage and key in _USE and not _GOOD & set(re.findall(r"[a-z]+", phrase)):
+        return False  # "cpu: 0%" is idle; "cpu idle: 0" is not
     while nxt := _NEXT.match(after, pos):
         value, pos = nxt.group(1), nxt.end()
     word = _WORD_AFTER.match(after, pos)
+    # A good word after the value counts only after a fraction ("0/3 passing"): after a plain zero it is
+    # another field ("restarts: 0 ok") - fifth review, 2026-10-01.
     if shortage and (key in _GOOD or _GOOD & set(re.findall(r"[a-z]+", phrase))
-                     or (word and word.group(1) in _GOOD)):
+                     or (word and word.group(1) in _GOOD and "/" in value)):
         return False
     number = value.split("/")[0]
     return float(number) == 0 if number[-1].isdigit() else True
@@ -181,6 +193,10 @@ _BLANKS = frozenset("\u115f\u1160\u3164\uffa0\u2800")
 
 def _invisible(ch: str) -> bool:
     return unicodedata.category(ch) in ("Cf", "Mn", "Me", "Co", "Cn", "Cc", "Zl", "Zp") or ch in _BLANKS
+# Characters ordinary model prose puts in a target - dashes, curly quotes, x, >=, <=, an arrow, an ellipsis
+# (fifth review, 2026-10-01: "checkout \u2014 revert to revision 6" was refused). A dash before a letter is
+# still a flag (_FLAGLIKE).
+_PROSE = frozenset("\u2014\u2013\u2019\u2018\u201c\u201d\u00d7\u2265\u2264\u2192\u2026")
 _SHELL = re.compile(r"[;|&$\\`<>]")
 # Arrows and redaction placeholders are how targets are written; any other `<` or `>` is a redirect.
 _NOT_SHELL = re.compile(r"<[A-Z][A-Z0-9]*_\d+>|->|=>")
@@ -210,7 +226,7 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
         return f"target {proposal.target!r} contains shell syntax"
     # Resource names are ASCII. Characters outside every dash category still read as one (fourth
     # review, 2026-09-30, C-6: U+2043, U+2500, U+30FC, U+4E00, U+02C9, U+FF70 before `A` or `all`).
-    if any(ord(ch) > 127 and ch != "\u2192" and not _invisible(ch) for ch in _LEADING.sub("", proposal.target)):
+    if any(ord(ch) > 127 and ch not in _PROSE and not _invisible(ch) for ch in _LEADING.sub("", proposal.target)):
         return f"target {proposal.target!r} holds characters a resource name never does"
     # A target is a resource name. `-n kube-system` or `--all` would be read by a CLI as a flag, and
     # `x=y` as an assignment or a selector (audit A-C-25).

@@ -238,6 +238,7 @@ def _workflow_tools() -> list[types.Tool]:
 
 async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> types.CallToolResult:
     from temporalio.client import WorkflowExecutionStatus
+    from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
 
     from . import runtime
@@ -249,9 +250,12 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
             alert = Alert.model_validate(args.get("alert") or {})
             wid = f"inc-{alert.alert_id}"
             try:
-                await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE)
+                # One alert is one incident, with one model budget: the id is never reused, even after the
+                # run ended (fifth review, 2026-10-01: each new run got a fresh budget).
+                await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
+                                            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE)
             except WorkflowAlreadyStartedError:
-                return _ok({"workflow_id": wid, "note": "already running for this alert"})
+                return _ok({"workflow_id": wid, "note": "this alert is already diagnosed or being diagnosed"})
             return _ok({"workflow_id": wid})
         if name == "request_remediation":
             req = FixRequest.model_validate({k: args.get(k) for k in ("incident_id", "service", "entry", "params")})

@@ -348,6 +348,33 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **Fifth independent review, fixed** (2026-10-01; rows A-R5 in the audit). Each with a test that fails
+  without the fix:
+  - Supply chain: Dependabot could not run uv (`required-version` is now a range CI's pin lies in); the
+    deploy jobs restore no uv cache (uv does not re-verify unpacked entries); a local `.env` or log can
+    no longer reach the wheel or the image; the wheel carries the LICENSE again (the "every file" claim
+    of 00c08ab was false); the image is compiled to bytecode and keeps neither uv's cache nor the source
+    copy; the deployed app and Lambda requirements are audited and the deployed code bandit-scanned where
+    it changes; CI's image builds use the host network (the k8s job's build crawled; to be measured); the
+    mutation check kills its workers on POSIX too.
+  - Redaction: a shorter secret starting where a longer found value starts is masked again (a
+    regression in e809f4b); the hex-key rule takes credential names only (it erased `cache_key=<sha>`
+    from WARDEN's own deploy record); one credential gets one placeholder.
+  - Workflow records: the signed end row says approved only with the tier's quorum; a success needs
+    this run's apply; one alert is one incident - its workflow id is never reused, so the model budget is
+    per incident.
+  - Tags: `sqs/<q> dlq <MixedCase>`, `sns policy <queue>` and `eventbridge/<Rule>` keep their outcome.
+  - Tripwire and verifier: WARDEN's placeholders are not scanned as injections; P15 no longer reads the
+    next field as what was counted, reads "0s ago" and "then", and takes zero use as scale_down's
+    evidence; P14 accepts the dashes, curly quotes and symbols of ordinary prose (a dash before a word is
+    still a flag); lag units in more spellings, hours and CloudWatch's own names.
+  - Records and owner steps: the full run fails if cited evidence did not run and pass; malformed
+    register rows are errors; the GitHub steps say the ruleset's boxes are ticked by default, note the
+    admin bypass, and cite the right test; the undo and trust-copy steps are clearer; R31 states its
+    scope; the Postgres terminate integration test waits for the session to go.
+  - Still open: the nested-chain redaction cost (R5-B2, now measured at up to 144 s a pass); P14 cluster
+    labels and lists in parentheses; quarantine spellings (an open-ended list); the orphaned Dependabot
+    pull requests.
 - **One write path: the RemediationWorkflow and its platforms** (decision D16; audit A-B-H1..H3). The
   in-process live backends (`remediation_k8s.py`, `database_remediation.py`, `WARDEN_REMEDIATION=live`)
   are removed; `warden run --principal --approve` is a dry run. A live change goes through the
@@ -397,6 +424,12 @@ bump may carry a breaking change.
   from a helper module, `xfail`, a citation the cell calls "NOT covered", and a DEFERRED cell saying
   "NOT owner-agreed" or dated 9999-99-99 all counted as evidence. Only decorators known never to skip
   are accepted, DEFERRED must start with a real past agreement, and `::test_x` shorthands are checked.
+  Correction (fifth review): a source check cannot list every way pytest skips (a decorator over two
+  lines, `raise unittest.SkipTest`, an empty parametrize, a skipping fixture...). The full run now checks
+  the outcome itself: it fails if any test a DONE-local row cites did not run and pass (planted: a
+  two-line `skipif` the source check missed fails the run, naming only that test). A row whose cell count
+  does not match its header is now an error, not dropped: A-C-10's `ro||back` had split its cell, so the
+  guard never read it and GitHub cut it short.
 - **No hardcoded environment in the proving-ground harness** (9f16e30).
 - **The publish guard catches personal email addresses** (`scripts/check_publishable.py`).
 - **The proving ground tags `Project=warden` and `Environment`** (owner rule R53, still open: its

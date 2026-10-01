@@ -142,7 +142,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
     # Header values and client flags that carry a credential whole (2026-09-27 audit).
-    ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
+    # No `<` in the value: `Authorization: Basic <BASIC_1>` is already masked, and taking the placeholder as a
+    # value gave one credential two labels that restore() could not undo (fifth review, 2026-10-01).
+    ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"'<]{8,})")),
     ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
     ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
     # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
@@ -191,12 +193,15 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         # URL query-param value at the next parameter. Char-by-char, so no catastrophic backtracking.
         r"((?:[^\s\"'<;,&]|,(?!\s*[\w.\-]+\s*[:=]))+)"
     )),
-    # A hex key under a name no pattern above lists - `ENCRYPTION_KEY=`, `hmac_key=`, `signing_key:`,
-    # `DD_APP_KEY=`, `Ocp-Apim-Subscription-Key:` - 32 or more hex characters after a name ending in
-    # "key" (fourth review, 2026-09-30, B-N8). HIGHENTROPY below needs upper case, lower case and a
-    # digit, so a lowercase hex key passed it.
-    ("SECRET", re.compile(r"(?i)(?:^|[\s\"',;{(\[?&])[\w.\-]{0,40}key[\"']?\s*[:=]\s*[\"']?"
-                          r"([0-9a-f]{32,})(?![0-9a-z])")),
+    # A hex key under a credential's name no pattern above lists - `ENCRYPTION_KEY=`, `hmac_key=`,
+    # `signing_key:`, `DD_APP_KEY=`, `Ocp-Apim-Subscription-Key:` - 32 or more hex characters (fourth
+    # review, 2026-09-30, B-N8; HIGHENTROPY below needs upper case, lower case and a digit). Only these
+    # names: "any name ending in key" also took `cache_key=<sha>` and `object_key=<digest>`, and a SECRET is
+    # swept from every line, so a commit sha vanished from WARDEN's own deploy record (fifth review).
+    ("SECRET", re.compile(r"(?i)(?:^|[\s\"',;{(\[?&])[\w.\-]{0,40}?(?:encryption|encrypt|crypt|hmac|signing|"
+                          r"sign|secret|private|master|app|application|api|access|subscription|client|account|"
+                          r"auth|service|license|webhook|session|storage|shared)[_\-.]?key[\"']?\s*[:=]\s*"
+                          r"[\"']?([0-9a-f]{32,})(?![0-9a-z])")),
     # Last: a long high-entropy run no named pattern claimed - a bare AWS secret key, one line of a
     # private key logged line by line (a pod log splits it), a base64 credential. Upper, lower AND a
     # digit, so hex digests, ids and plain words do not match.
@@ -307,8 +312,14 @@ class _Redactor:
         self._slow = [w for w in self._rules if _nesting(trie, w) > _MAX_NESTING]
         slow = set(self._slow)
         fast = [w for w in self._rules if w not in slow]
+        # The finder reports one value per position, the longest. A shorter value starting at the same position
+        # is always a prefix of it, and it must be checked too: when the longer one is an identifier that is
+        # not standalone there, it is not replaced, and a shorter SECRET inside it stayed in clear (fifth
+        # review, 2026-10-01). Read off the trie: the values ending along each value's path.
+        fast_trie = _trie(fast)
+        self._prefixes = {w: _prefixes(fast_trie, w) for w in fast}
         try:
-            self._finder = re.compile("(?=(" + _trie_regex(_trie(fast)) + "))") if fast else None
+            self._finder = re.compile("(?=(" + _trie_regex(fast_trie) + "))") if fast else None
         except (RecursionError, re.error, OverflowError):
             self._finder, self._slow = None, list(self._rules)  # the exact per-value loop
         self._built_for = len(self.mapping)
@@ -336,7 +347,8 @@ class _Redactor:
             segment = parts[i]
             if not segment:
                 continue
-            present = {m.group(1) for m in self._finder.finditer(segment)} if self._finder is not None else set()
+            found = {m.group(1) for m in self._finder.finditer(segment)} if self._finder is not None else set()
+            present = found.union(*(self._prefixes.get(w, ()) for w in found))
             present |= {w for w in self._slow if w in segment}
             todo = sorted((self._rules[o] for o in present if o in self._rules), key=lambda r: r[0])
             todo = [(self._ordered[n][1], ph, rule) for n, ph, rule in todo]
@@ -371,6 +383,16 @@ def _nesting(root: dict[str, dict], word: str) -> int:
         node = node[ch]
         depth += len(node) > 1 or "" in node
     return depth
+
+
+def _prefixes(root: dict[str, dict], word: str) -> list[str]:
+    """The other values of the trie that are prefixes of `word`."""
+    out, node = [], root
+    for i, ch in enumerate(word[:-1]):
+        node = node[ch]
+        if "" in node:
+            out.append(word[:i + 1])
+    return out
 
 
 def _trie_regex(root: dict[str, dict]) -> str:

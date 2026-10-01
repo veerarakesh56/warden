@@ -59,3 +59,22 @@ def test_not_one_named_resource_is_refused(target):
 @pytest.mark.parametrize("target", GOOD)
 def test_one_named_resource_passes(target):
     assert _problem(target) is None
+
+# Fifth review (2026-10-01): ordinary prose a model writes - refused once targets had to be ASCII.
+PROSE = [
+    'checkout \u2014 revert to revision 6',
+    'checkout \u2013 revision 7 to 6',
+    'checkout\u2019s deployment',
+    'checkout (namespace \u201cshop\u201d)',
+    'checkout (\xd72 replicas)',
+    'checkout (\u2265 3 replicas)',
+]
+
+
+@pytest.mark.parametrize("target", PROSE)
+def test_ordinary_prose_in_a_target_passes(target):
+    assert _problem(target) is None
+
+
+def test_a_prose_dash_before_a_word_is_still_a_flag():
+    assert _problem("orders \u2014all") is not None

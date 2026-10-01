@@ -61,3 +61,17 @@ def test_warden_segments_keep_their_tag(raw, expected):
 def test_free_text_still_cannot_place_a_tag(raw):
     """Upper case is accepted only behind `/` or a kind prefix, and `<name>:<n>` only after `deploys`."""
     assert evidence.tool_error_text(raw).endswith("failed (unclassified)"), evidence.tool_error_text(raw)
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    (f"metrics: sqs/orders dlq Orders-DLQ: {failure(_ce('AccessDeniedException', 'GetQueueAttributes'))}",
+     "access denied on GetQueueAttributes"),
+    (f"metrics: sns policy Orders-Queue: {failure(_ce('AccessDeniedException', 'GetQueueAttributes'))}",
+     "access denied on GetQueueAttributes"),
+    (f"metrics: eventbridge/OrdersNightlyRule: {failure(_ce('AccessDeniedException', 'DescribeRule'))}",
+     "access denied on DescribeRule"),
+])
+def test_more_warden_reader_tags_keep_their_outcome(raw, expected):
+    """Fifth review (2026-10-01): these readers' tags still read "failed (unclassified)"."""
+    out = evidence.tool_error_text(raw)
+    assert "unclassified" not in out and out.endswith(expected), (raw, out)

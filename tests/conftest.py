@@ -44,3 +44,42 @@ def pytest_configure(config):
         await env.shutdown()
 
     asyncio.run(warm())
+
+
+# Evidence must have run (fifth review, 2026-10-01). tests/test_register.py refuses the skips it can see in
+# the source, but pytest has more ways to skip than any source check can list (a decorator split over two
+# lines, `raise unittest.SkipTest`, an empty parametrize, a skipping fixture...). So the full run itself
+# checks: every test a DONE-local register row cites must have run its body and passed - not skipped, not
+# xfailed, not missing. Only a full run (`pytest`, `pytest tests evals`, no -k/-m) is judged.
+_REPORTS: dict[str, set[str]] = {}
+
+
+def pytest_runtest_logreport(report):
+    _REPORTS.setdefault(report.nodeid, set()).add(
+        "skipped" if report.skipped else f"{report.when}:{report.outcome}")
+
+
+def _full_run(config) -> bool:
+    args = [a.replace("\\", "/").rstrip("/") for a in config.args]
+    return (not config.getoption("keyword", default="") and not config.getoption("markexpr", default="")
+            and not config.getoption("lf", default=False) and not config.getoption("deselect", default=None)
+            and "tests" in [a.rsplit("/", 1)[-1] for a in args])
+
+
+def pytest_sessionfinish(session, exitstatus):
+    config = session.config
+    if hasattr(config, "workerinput") or not _full_run(config):
+        return
+    from test_register import cited_tests
+
+    missing = []
+    for file, func in sorted(cited_tests()):
+        ran = [states for nodeid, states in _REPORTS.items()
+               if nodeid == f"{file}::{func}" or nodeid.startswith(f"{file}::{func}[")]
+        if not ran or any("skipped" in st or "call:passed" not in st for st in ran):
+            missing.append(f"{file}::{func}")
+    if missing:
+        reporter = config.pluginmanager.get_plugin("terminalreporter")
+        if reporter:
+            reporter.write_line(f"REGISTER EVIDENCE DID NOT RUN AND PASS: {missing}", red=True)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED

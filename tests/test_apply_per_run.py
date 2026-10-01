@@ -93,3 +93,33 @@ def test_the_signed_end_row_states_what_the_audit_shows():
     row = log.entries("inc-42", kinds=("workflow.end",))[-1]["body"]
     assert row["checklist"]["approved"] is False and row["checklist"]["applied"] is False
     assert row["checklist"]["verified"] is False and row["claimed_checklist"]["approved"] is True
+
+
+def test_one_signature_of_a_two_person_tier_is_not_recorded_as_approved():
+    """Fifth review (2026-10-01): the signed end row said `approved: True` when one of two required approvers
+    had signed and the run expired."""
+    platform = FakePlatform(healthy_after=1)
+    owner, log, acts = _world(platform)
+    acts.policy.required["T2"] = 2
+
+    async def main():
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env:
+            return await _run_once(env, owner, acts)
+
+    out = asyncio.run(main())
+    assert out.status != "recovered" and platform.applied == [], out.status
+    row = log.entries("inc-42", kinds=("workflow.end",))[-1]["body"]
+    assert row["checklist"]["approved"] is False, row["checklist"]
+
+
+def test_a_success_needs_this_runs_apply():
+    """Fifth review (2026-10-01): a replayed apply result let a run with nothing applied record a healthy check
+    as a success. With no APPLIED row of this run, the result is not ok."""
+    platform = FakePlatform(healthy_after=1)
+    _, log, acts = _world(platform)
+    plan = acts.resolve_plan(FixRequest(**REQ), WID)
+    assert acts.check_success(plan, "orders") is True   # the service IS healthy...
+    recorded = acts.record_result(plan, "orders", True)
+    assert recorded.ok is False                         # ...but this run applied nothing
+    assert log.entries("inc-42", kinds=("remediation.result_mismatch",))

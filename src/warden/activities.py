@@ -223,7 +223,12 @@ class RemediationActivities:
         checks = [e["body"] for e in self.audit.entries(plan.incident_id, kinds=("remediation.check",))
                   if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                   and e["body"].get("plan_hash") == plan.plan_hash]
-        verified = bool(checks) and checks[-1].get("healthy") is True
+        # Verified only if THIS run applied the plan: a replayed apply result let a run with nothing applied
+        # end "recovered" and write a success row (fifth review, 2026-10-01).
+        applied = any(e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                      and e["body"].get("plan_hash") == plan.plan_hash
+                      for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,)))
+        verified = applied and bool(checks) and checks[-1].get("healthy") is True
         if verified != ok:
             self.audit.append(plan.incident_id, "remediation.result_mismatch",
                               {"workflow_id": plan.workflow_id, "run_id": run, "claimed": ok, "recorded": verified})
@@ -250,7 +255,12 @@ class RemediationActivities:
                     and (not outcome.plan_hash or e["body"].get("plan_hash") == outcome.plan_hash)]
 
         recorded = dict(outcome.checklist)
-        recorded["approved"] = bool(ours("approval.accepted"))
+        # Approved means the tier's quorum of different approvers, as the workflow requires - one signature
+        # of two was recorded as approved (fifth review, 2026-10-01).
+        plans = ours("remediation.plan")
+        tier = plans[-1].get("tier", "") if plans else ""
+        approvers = {b.get("approver") for b in ours("approval.accepted")}
+        recorded["approved"] = bool(plans) and len(approvers) >= self.policy.required.get(tier, 1)
         recorded["prechecked"] = any(not b.get("problems") for b in ours("remediation.precheck"))
         recorded["applied"] = bool(ours(bounds.APPLIED))
         results = ours(bounds.RESULT)

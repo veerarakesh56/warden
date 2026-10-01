@@ -38,22 +38,32 @@ _SAFE_DECORATORS = frozenset({"pytest.mark.parametrize", "pytest.mark.asyncio", 
                               "pytest.mark.filterwarnings"})
 
 
-def rows(text: str) -> list[dict[str, str]]:
-    """Every row of every markdown table that has Group and Status columns."""
+def _cells(line: str) -> list[str]:
+    """A table line's cells. `\\|` is a pipe inside a cell, as GitHub reads it."""
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+
+
+def rows(text: str, malformed: list[str] | None = None) -> list[dict[str, str]]:
+    """Every row of every markdown table that has Group and Status columns. A row whose cell count does
+    not match its header is reported in `malformed` (fifth review, 2026-10-01: an unescaped `||` split
+    A-C-10's evidence, the row was dropped without a word, and GitHub cut the cell there)."""
     out: list[dict[str, str]] = []
     header: list[str] | None = None
     for line in text.splitlines():
         if not line.startswith("|"):
             header = None
             continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        cells = _cells(line)
         if header is None:
             header = cells
             continue
         if set(line.replace("|", "").strip()) <= set("-: "):
             continue
-        if "Group" in header and "Status" in header and len(cells) == len(header):
-            out.append(dict(zip(header, cells, strict=True)))
+        if "Group" in header and "Status" in header:
+            if len(cells) == len(header):
+                out.append(dict(zip(header, cells, strict=True)))
+            elif malformed is not None:
+                malformed.append(line[:80])
     return out
 
 
@@ -97,6 +107,21 @@ def _skipped(file: str, src: str, m: re.Match) -> bool:
     if module_mark and re.search(r"skip|xfail", module_mark.group(0)):
         return True
     return bool(re.search(r"^\S.*(?:importorskip\(|\bskip\(|\bxfail\()", src, re.MULTILINE))
+
+
+def cited_tests() -> set[tuple[str, str]]:
+    """(file, test) for every test a DONE-local row cites as evidence (negated citations excluded)."""
+    cited: set[tuple[str, str]] = set()
+    for _, row in all_rows():
+        if row["Status"] != "DONE-local":
+            continue
+        evidence, last = row.get("Evidence", ""), None
+        for ref in _ANY_REF.finditer(evidence):
+            file = ref.group(1) or ref.group(3) or last
+            last = file
+            if file and not _NEGATION.search(evidence[max(0, ref.start() - 60):ref.start()]):
+                cited.add((file, ref.group(2) or ref.group(4)))
+    return cited
 
 
 def _real_window(evidence: str) -> bool:
@@ -167,6 +192,21 @@ def problems(rel: str, row: dict[str, str], current: str = CURRENT_GROUP) -> lis
 def test_every_register_row_is_backed_by_evidence():
     found = [p for rel, row in all_rows() for p in problems(rel, row)]
     assert not found, "\n".join(found)
+
+
+def test_no_register_row_is_dropped_for_its_shape():
+    malformed: list[str] = []
+    for rel in REGISTERS:
+        rows((ROOT / rel).read_text(encoding="utf-8"), malformed)
+    assert not malformed, malformed
+
+
+def test_a_row_split_by_a_pipe_is_reported_not_dropped():
+    table = "| ID | Group | Status | Evidence |\n|---|---|---|---|\n| X | G1 | OPEN | `a||b` |\n"
+    malformed: list[str] = []
+    assert rows(table, malformed) == [] and malformed
+    escaped = table.replace("a||b", "a\\|\\|b")
+    assert rows(escaped)[0]["Evidence"] == "`a\\|\\|b`"
 
 
 def test_the_registers_are_parsed_at_all():

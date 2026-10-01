@@ -203,14 +203,26 @@ _LAG = re.compile(r"(?:^|_)(?:replica|replication)_lag((?:_[a-z0-9]+)*)$")
 # `replica_lag_count`, `replica_lag_alarm`, `max_replica_lag_seconds_threshold` counted as lag, and
 # `replica_lag_p99_ms` (a unit after an aggregate) read 40,000 ms as 40,000 s. Units are now a whitelist,
 # converted, at most one per name, before or after aggregates; a name with a word that is not lag, or an
-# ambiguous unit (`h`, `min`), is not a lag measurement. Other words are a resource (`_orders`).
-_LAG_UNITS = {**dict.fromkeys(("ms", "msec", "millis", "milliseconds"), 0.001),
+# ambiguous unit (`min`: minutes or minimum?), is not a lag measurement. Other words are a resource (`_orders`).
+# Fifth review (2026-10-01): more spellings, each converted (`replica_lag_millisecond=500` was 500 s, and
+# hours were ignored). The word for a billionth of a second is built from parts: written whole it contains
+# the letters bandit reads as a suppression comment.
+_NANO = "nano" + "second"
+_LAG_UNITS = {**dict.fromkeys(("ms", "msec", "msecs", "millis", "millisec", "millisecs", "millisecond",
+                               "milliseconds"), 0.001),
               **dict.fromkeys(("s", "sec", "secs", "second", "seconds"), 1.0),
-              **dict.fromkeys(("us", "usec", "micros", "microseconds"), 0.000001),
-              **dict.fromkeys(("mins", "minute", "minutes"), 60.0)}
-_NOT_LAG = frozenset({"b", "byte", "bytes", "kb", "kib", "mb", "mib", "gb", "gib", "count", "total", "alarm",
-                      "alarms", "state", "status", "threshold", "limit", "target", "ratio", "pct", "percent",
-                      "h", "hr", "hrs", "hour", "hours", "min", "d", "day", "days", "ns"})
+              **dict.fromkeys(("us", "usec", "usecs", "micros", "microsec", "microsecond", "microseconds"), 0.000001),
+              **dict.fromkeys(("ns", "nsec", "nsecs", _NANO, _NANO + "s"), 0.000000001),
+              **dict.fromkeys(("mins", "minute", "minutes"), 60.0),
+              **dict.fromkeys(("h", "hr", "hrs", "hour", "hours"), 3600.0)}
+_NOT_LAG = frozenset({"b", "byte", "bytes", "kb", "kib", "mb", "mib", "gb", "gib", "kilobytes", "kibibytes",
+                      "megabytes", "mebibytes", "gigabytes", "gibibytes", "lsn", "pages", "txns", "transactions",
+                      "samples", "count", "total", "alarm", "alarms", "state", "status", "threshold", "limit",
+                      "target", "ratio", "pct", "percent", "min", "d", "day", "days"})
+# CloudWatch's own names, with the units CloudWatch reports them in (RDS ReplicaLag and ElastiCache
+# ReplicationLag in seconds, Aurora's in milliseconds) - an MCP caller may pass them as they are.
+_CLOUDWATCH_LAG = {"ReplicaLag": 1.0, "ReplicationLag": 1.0, "AuroraBinlogReplicaLag": 1.0,
+                   "AuroraReplicaLag": 0.001, "AuroraReplicaLagMaximum": 0.001, "AuroraReplicaLagMinimum": 0.001}
 
 
 def _lag_seconds(name: str, value: float) -> float | None:
@@ -238,7 +250,8 @@ def replica_lag_s(metrics: dict[str, float]) -> float | None:
         # The unit is read from the metric's OWN name, before any `__<resource>` suffix: `_ms` in
         # `__payments_msvc` read 47 s as 47 ms, and `redis_replication_lag_s` was unknown (second
         # review, 2026-09-30).
-        lag = _lag_seconds(key.split("__", 1)[0], value)
+        name = key.split("__", 1)[0]
+        lag = value * _CLOUDWATCH_LAG[name] if name in _CLOUDWATCH_LAG else _lag_seconds(name, value)
         if lag is not None:
             lags.append(lag)
     return max(lags) if lags else None
@@ -474,8 +487,9 @@ def verify(
             reasons.append(f"The injection detector flagged untrusted evidence: {flagged}.")
     # ⛔ Audit A-C-12: in `required` mode ANY status but "ran" escalates - "off" (evidence handed in
     # by a caller that never ran the detector) used to pass.
-    # "ran-partial" is a run: everything the model reads was scanned; only raw log lines the model never
-    # sees went past the budget.
+    # "ran-partial" is a run: the alert, the labels and the trusted items the model reads were scanned; only
+    # raw log lines went past the budget - the model never sees them, but it does see their typed facts,
+    # which then only the quarantine's filters cover (fifth review, 2026-10-01).
     elif tripwire.mode() == "required" and not tripwire.ran(context.tripwire):
         escalate = True
         policies.append("P16-SUSPECTED-INJECTION")

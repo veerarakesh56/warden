@@ -62,3 +62,22 @@ def test_a_failing_model_is_paid_for_once_per_incident():
     assert len(clients) == 1, f"{len(clients)} budgets for one incident"
     # One budget: at most one call past the cap (a response's cost is known only after it arrives, A-C-17).
     assert provider.calls <= 2 and sum(c.cost.usd for c in clients) < 0.50 + 0.31
+
+
+def test_one_alert_is_one_incident_with_one_budget():
+    """Fifth review (2026-10-01): an incident id was reusable once its run ended, and each new run got a fresh
+    model budget (three runs: $1.80 against max_usd 0.50). Every place that starts an IncidentWorkflow refuses
+    to reuse its id."""
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
+    starts = []
+    for path in root.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") in ("start_workflow", "execute_workflow") \
+                    and node.args and "IncidentWorkflow" in ast.unparse(node.args[0]):
+                kw = {k.arg: ast.unparse(k.value) for k in node.keywords}
+                starts.append((path.name, kw.get("id_reuse_policy", "")))
+    assert starts, "no IncidentWorkflow start found"
+    assert all(policy.endswith("REJECT_DUPLICATE") for _, policy in starts), starts

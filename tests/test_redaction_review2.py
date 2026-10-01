@@ -299,3 +299,28 @@ def test_a_planted_nested_chain_does_not_make_every_value_slow():
     r._build()
     assert r._finder is not None and 0 < len(r._slow) <= len(chain), len(r._slow)
     assert all(w.startswith("aaaa") for w in r._slow)
+
+
+def test_a_shorter_secret_starting_where_a_longer_value_starts_is_still_masked():
+    """Fifth review (2026-10-01): the finder reports only the longest value at a position. Here the longer
+    value is an identifier (`<secret>99`, found as a user id) that is not standalone inside `Q<secret>99`,
+    so it is not replaced - and the secret inside it was never checked, and stayed in clear."""
+    from warden.redaction import redact_many
+
+    secret = "Tr0ub4" + "dor"
+    out, _ = redact_many([f"db password={secret} rejected", f"lookup user_id={secret}99 ok",
+                          f"cache miss for key Q{secret}99"])
+    assert all(secret not in line for line in out), out
+
+
+def test_the_finder_agrees_with_the_exact_loop_when_values_share_a_start():
+    from warden import redaction
+
+    secret = "Tr0ub4" + "dor"
+    lines = [f"password={secret}", f"user_id={secret}99", f"key Q{secret}99", f"x {secret}99y"]
+    fast = redaction.redact_many(list(lines))[0]
+    r = redaction._Redactor(None)
+    found = [r.find(line) for line in lines]
+    r._build()
+    r._finder, r._slow = None, list(r._rules)  # the exact per-value loop
+    assert fast == [r.sweep(f) for f in found]

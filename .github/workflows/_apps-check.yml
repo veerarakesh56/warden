@@ -23,8 +23,17 @@ jobs:
           checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.12"
           activate-environment: true
-      - run: uv sync --locked --only-group apps-check
+      - run: uv sync --locked --only-group apps-check --only-group scan
       - run: ruff check scenarios/fullstack scripts/deploy_fullstack_apps.py tests/test_deploy_fullstack_apps.py
+      # What is deployed to AWS, audited and scanned here: the tool CI skips apps-only changes, and its
+      # pip-audit reads uv.lock, not these files (fifth review E, 2026-10-01).
+      - name: Deployed requirements with known vulnerabilities
+        run: |
+          for f in scenarios/fullstack/app/requirements.txt scenarios/fullstack/lambdas/*/requirements.txt; do
+            echo "== $f"; pip-audit -r "$f" --require-hashes --disable-pip
+          done
+      - name: Python security lint of the deployed code
+        run: bandit -q -r scenarios/fullstack scripts/deploy_fullstack_apps.py -ll
       - run: python -m compileall -q scenarios/fullstack
       # test_fullstack_infra also checks the k8s manifests and the apps' SQL/handlers.
       - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py tests/test_supply_chain.py -q

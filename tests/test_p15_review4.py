@@ -120,3 +120,35 @@ def test_real_support_is_not_hidden(action, quote):
 @pytest.mark.parametrize(("action", "quote"), NONE)
 def test_a_zero_supports_nothing(action, quote):
     assert not _supports(action, quote)
+
+
+# Fifth review (2026-10-01): the next field read as "what was counted", "not a single", time-ago zeros,
+# "then" transitions, and a zero of USE as scale_down's evidence.
+FIFTH_NONE = [
+    (A.restart_pods, "pod=orders restarts=0 ready=1/1"),
+    (A.restart_pods, "restarts=0 healthy=true"),
+    (A.restart_pods, "OOMKilled=0 live=1"),
+    (A.restart_pods, "restart_count=0 up=3"),
+    (A.restart_pods, "restarts: 0 ok"),
+    (A.restart_pods, "not a single restart"),
+    (A.scale_up, "throttled=0 available=3"),
+    (A.scale_up, "cpu=0 idle=3"),
+]
+FIFTH_REAL = [
+    (A.restart_pods, "container restarted 0s ago"),
+    (A.restart_pods, "OOMKilled 0 seconds ago"),
+    (A.restart_pods, "restarts: 0, then 6"),
+    (A.scale_down, "cpu: 0%"),
+    (A.scale_down, "cpu utilization: 0.0%"),
+    (A.scale_down, "memory used: 0 MiB"),
+]
+
+
+@pytest.mark.parametrize(("action", "quote"), FIFTH_NONE)
+def test_the_next_field_or_a_not_a_single_supports_nothing(action, quote):
+    assert not _supports(action, quote)
+
+
+@pytest.mark.parametrize(("action", "quote"), FIFTH_REAL)
+def test_a_time_ago_a_then_and_zero_use_for_scale_down_support(action, quote):
+    assert _supports(action, quote)

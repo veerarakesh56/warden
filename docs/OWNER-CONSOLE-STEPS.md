@@ -141,9 +141,10 @@ Claude then:
    end dates.
 
 **C. The sweep role's trust** (only after Claude confirms B works).
-1. IAM → **Roles** → `warden-pg-sweep` → **Trust relationships**. First keep the current trust for the
-   undo: click in the JSON shown, **Ctrl+A**, **Ctrl+C**, paste it into Notepad and save it as
-   `%USERPROFILE%\.warden\sweep-role-trust.before.json`. Then **Edit trust policy**.
+1. IAM → **Roles** → `warden-pg-sweep` → **Trust relationships** → **Edit trust policy**. First keep the
+   current trust for the undo: click inside the editor, **Ctrl+A**, **Ctrl+C**, paste it into Notepad and
+   save it as `%USERPROFILE%\.warden\sweep-role-trust.before.json` (it must start with `{`). Back in the
+   editor:
 2. Paste the local file `C:\work\warden\terraform\proving-ground\sweep-role-trust.local.json`.
    It trusts the new role instead of the old user, and allows `sts:SetSourceIdentity`: a Roles
    Anywhere session always carries one, and without that permission the chained AssumeRole fails.
@@ -225,7 +226,8 @@ AWS's notification warns 45 days before. To renew:
 The new certificate comes from a new CA, and the anchor trusts only the bundle it holds. So between
 step 1 and step 2 every sign-in fails: replace the bundle right after Claude runs `issue`.
 
-**Undo, if ever needed** - in this order, the reverse of the steps, stopping at the last step you did:
+**Undo, if ever needed** - in this order, the reverse of the steps: start from the last step you did, and
+skip any step you never did:
 1. E1: reactivate the key, and Claude restores the credentials file. First, because every later undo
    step needs a working way in once the role is gone. There is no undo after E3 step 1, which is why
    E waits two days.
@@ -271,7 +273,9 @@ For each of `dev`, `staging`, `qa-staging`, `pre-prod`, `qa-prod`, `prod` (the n
    rule** → **Ref type**: **Branch** → name pattern `main` → **Add rule**.
 4. Only for `pre-prod`, `qa-prod` and `prod`: tick **Required reviewers**, add yourself, then **Save
    protection rules**. Leave **Prevent self-review** unticked: you are the only approver, and with it
-   ticked no deploy you start could ever be approved.
+   ticked no deploy you start could ever be approved. **Allow administrators to bypass configured
+   protection rules** stays on (the default): you are the only administrator, and the approval is a
+   record of your decision, not a second person's check.
 5. Add no variables now. `AWS_ROLE_ARN`, `AWS_REGION` and `TF_STATE_BUCKET` are added per environment in
    its first cloud window.
 
@@ -281,7 +285,8 @@ For each of `dev`, `staging`, `qa-staging`, `pre-prod`, `qa-prod`, `prod` (the n
 2. **Ruleset name**: `main`. **Enforcement status**: **Active**.
 3. **Bypass list**: leave empty.
 4. **Target branches** → **Add a target** → **Include default branch**.
-5. Under **Branch protections** tick **Restrict deletions** and **Block force pushes**. Leave the others.
+5. Under **Branch protections**, make sure **Restrict deletions** and **Block force pushes** are both
+   ticked - GitHub ticks them by default, so clicking them would untick them. Leave the others unticked.
 6. **Create**.
 
 Not yet: **Require status checks before merging**. With it, a direct push to `main` is refused (the
@@ -290,8 +295,10 @@ change could never merge. It comes with a change to pull-request merges and one 
 every change - Claude prepares both first.
 
 **G3. Actions must be pinned to a commit.** A tag can be moved to other code; every workflow here is
-already pinned (`tests/test_supply_chain.py` and zizmor check it), and this makes GitHub refuse an
-unpinned one too.
+already pinned (`tests/test_ci_lanes.py::test_every_action_is_pinned_to_a_full_commit_sha` and zizmor
+check it), and this makes GitHub refuse an unpinned one too. Reusable workflows called by path are exempt.
+After G3 and G5, tell Claude: the first CodeQL and Dependabot runs are checked, since they use GitHub's own
+actions.
 1. **Settings** → **Actions** → **General** → **Actions permissions**.
 2. Tick **Require actions to be pinned to a full-length commit SHA** → **Save**.
 
@@ -376,8 +383,7 @@ three times.
 - Tags `Project` = `warden`, `Environment` = `dev`.
 - **Create bucket**. Copy its name for step 6.
 
-**6. GitHub.** In the repository → **Settings** → **Environments** → **New environment** → name
-`dev` → **Configure environment**.
+**6. GitHub.** In the repository → **Settings** → **Environments** → open `dev` (created in G1).
 - Under **Environment variables**, add:
   - `AWS_ROLE_ARN` = the ARN from step 3
   - `AWS_REGION` = `ap-south-2` (the region the stack lives in; the deploy workflows read it from here)

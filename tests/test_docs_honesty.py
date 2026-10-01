@@ -122,10 +122,14 @@ def test_the_readme_test_count_is_a_lower_bound(request):
     m = re.search(r"Over ([\d,]+) tests", (ROOT / "README.md").read_text(encoding="utf-8"))
     assert m, "the README no longer states its test count as a lower bound"
     claimed = int(m.group(1).replace(",", ""))
-    count = len(request.session.items)
+    # The README counts the unit tests; the opt-in live-infrastructure tests and the evals are listed apart
+    # ("plus 23 ... 26 evals"), so they are not counted here (fifth review, 2026-10-01).
+    count = len([i for i in request.session.items
+                 if i.nodeid.startswith("tests/") and not i.nodeid.startswith("tests/integration/")])
     if count < claimed:
         out = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
-                              "tests", "evals"], capture_output=True, text=True, cwd=ROOT, check=False).stdout
+                              "tests", "--ignore=tests/integration"],
+                             capture_output=True, text=True, cwd=ROOT, check=False).stdout
         found = re.search(r"(\d+) tests? collected", out)
         count = int(found.group(1)) if found else 0
     assert count >= claimed, f"the README claims over {claimed} tests; {count} are collected"

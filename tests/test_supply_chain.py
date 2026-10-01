@@ -13,7 +13,7 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOWS = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
-UV_VERSION = re.search(r'required-version = "==([\d.]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1)
+UV_RANGE = re.search(r'required-version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1)
 
 
 def _steps():
@@ -44,11 +44,22 @@ def test_uv_is_pinned_and_checksum_verified_everywhere():
     uses = [(wf, job, st) for wf, job, steps, _ in _steps() for st in steps
             if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")]
     assert uses
+    from packaging.specifiers import SpecifierSet
+
     for wf, job, st in uses:
         assert re.fullmatch(r"astral-sh/setup-uv@[0-9a-f]{40}", st["uses"]), (wf, job)
-        assert st["with"]["version"] == UV_VERSION, (wf, job, st["with"]["version"], UV_VERSION)
+        assert st["with"]["version"] in SpecifierSet(UV_RANGE), (wf, job, st["with"]["version"], UV_RANGE)
         assert re.fullmatch(r"[0-9a-f]{64}", st["with"]["checksum"]), (wf, job)
+    # One uv everywhere: one version, one checksum.
+    assert len({st["with"]["version"] for _, _, st in uses}) == 1
     assert len({st["with"]["checksum"] for _, _, st in uses}) == 1
+
+
+def test_dependabot_can_run_the_uv_the_project_asks_for():
+    """Dependabot's uv was 0.12.18 on 2026-10-01; an exact pin above it made every uv.lock update fail."""
+    from packaging.specifiers import SpecifierSet
+
+    assert "0.12.18" in SpecifierSet(UV_RANGE)
 
 
 def test_packages_are_installed_before_any_cloud_credentials():
@@ -59,6 +70,22 @@ def test_packages_are_installed_before_any_cloud_credentials():
             continue
         late = [n for n in names[creds:] if re.search(r"\buv sync\b|\bpip3? install\b", n)]
         assert not late, (wf, job, late)
+
+
+def test_a_job_that_holds_credentials_restores_no_cache():
+    """uv does not re-verify unpacked cache entries: a poisoned cache restored into a deploy job would install
+    unchecked (fifth review E, 2026-10-01)."""
+    for wf, job, steps, _ in _steps():
+        if not any("configure-aws-credentials" in str(st.get("uses", "")) for st in steps):
+            continue
+        for st in steps:
+            if str(st.get("uses", "")).startswith("astral-sh/setup-uv@"):
+                assert st["with"].get("enable-cache") is False, (wf, job)
+
+
+def test_the_deployed_requirements_are_audited_where_they_change():
+    text = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
+    assert "pip-audit -r" in text and "--require-hashes" in text and "bandit" in text
 
 
 def test_every_image_is_pinned_by_digest():
@@ -89,7 +116,13 @@ def test_the_build_downloads_no_unpinned_tool():
     """setuptools was fetched by build isolation outside uv.lock's hashes; uv builds with its own copy."""
     text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'build-backend = "uv_build"', text)
-    assert re.search(rf'requires = \["uv_build>={re.escape(UV_VERSION)},<', text)
+    # uv builds with its bundled backend only when its own version satisfies this - CI's pinned uv must.
+    from packaging.specifiers import SpecifierSet
+
+    ci = {st["with"]["version"] for _, _, steps, _ in _steps() for st in steps
+          if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")}
+    backend = re.search(r'requires = \["uv_build([^"]+)"\]', text).group(1)
+    assert ci and all(v in SpecifierSet(backend) for v in ci), (ci, backend)
     assert (ROOT / "uv.lock").is_file()
 
 

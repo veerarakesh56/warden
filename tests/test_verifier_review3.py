@@ -109,7 +109,7 @@ def test_every_replica_lag_name_is_read_in_seconds(name, value, seconds):
     ("replica_lag_us", 40_000_000, 40), ("replica_lag_minutes", 2, 120), ("replica_lag_sec_avg", 40, 40),
     ("replication_lag_bytes", 5_000_000, None), ("replica_lag_count", 3, None), ("replica_lag_alarm", 1, None),
     ("max_replica_lag_seconds_threshold", 30, None), ("replica_lag_seconds_ms", 40000, None),
-    ("replica_lag_h", 1, None), ("replica_lag_min", 2, None),
+    ("replica_lag_h", 1, 3600), ("replica_lag_min", 2, None),
 ])
 def test_a_replica_lag_unit_is_read_only_from_a_whitelist(name, value, seconds):
     """Fourth review (2026-09-30, C-7): any suffix was read as seconds; a unit after an aggregate was not
@@ -138,3 +138,19 @@ def test_the_gemini_transport_is_never_swapped_by_the_environment(monkeypatch, t
     monkeypatch.setenv("GOOGLE_GENAI_REPLAY_ID", "canned")
     api = resolve("gemini")._client._api_client
     assert "Replay" not in type(api).__name__, type(api).__name__
+
+
+@pytest.mark.parametrize("name, value, seconds", [
+    ("replica_lag_millisecond", 500, 0.5), ("replica_lag_msecs", 500, 0.5), ("replica_lag_millisec", 500, 0.5),
+    ("replica_lag_microsecond", 2_000_000, 2), ("replica_lag_usecs", 2_000_000, 2),
+    ("replica_lag_" + "nano" + "seconds", 5e8, 0.5), ("replica_lag_ns", 5e8, 0.5),
+    ("replica_lag_hours", 2, 7200), ("replica_lag_hrs", 2, 7200),
+    ("ReplicaLag", 40, 40), ("AuroraReplicaLag", 40000, 40), ("ReplicationLag", 12, 12),
+    ("replica_lag_kilobytes", 900, None), ("replica_lag_mebibytes", 9, None), ("replica_lag_lsn", 77, None),
+    ("replica_lag_pages", 30, None), ("replica_lag_txns", 31, None), ("replica_lag_samples", 32, None),
+])
+def test_more_lag_units_are_converted_and_more_non_lag_names_refused(name, value, seconds):
+    """Fifth review (2026-10-01): any spelling outside the whitelist was read as seconds, hours were ignored,
+    and CloudWatch's own names were not read at all."""
+    got = replica_lag_s({name: value})
+    assert got == (None if seconds is None else pytest.approx(seconds)), (name, got)

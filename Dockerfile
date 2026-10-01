@@ -7,12 +7,14 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     WARDEN_MOCK=1 \
     UV_PROJECT_ENVIRONMENT=/opt/warden \
-    UV_PYTHON_DOWNLOADS=never
+    UV_PYTHON_DOWNLOADS=never \
+    UV_COMPILE_BYTECODE=1 \
+    UV_NO_CACHE=1
 
 WORKDIR /app
 
 COPY --from=uv /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 
 # The container is a DEPLOYMENT artifact, so it carries the cluster client. The pip package stays
@@ -20,9 +22,11 @@ COPY src ./src
 # and must be able to read the cluster it is deployed into.
 # The anthropic SDK too, so `WARDEN_MOCK=0 ANTHROPIC_API_KEY=... docker compose up` (docker-compose.yml)
 # works as documented - it failed on a missing import until 2026-09-25.
-# Only what uv.lock lists, every hash verified (audit A-I-9); uv itself does not stay in the image.
+# Only what uv.lock lists, every hash verified (audit A-I-9), compiled to bytecode (the container runs with a
+# read-only root filesystem, so nothing could compile later). Neither uv nor the source copy stays: the
+# package is installed into /opt/warden.
 RUN uv sync --locked --no-editable --extra k8s --extra anthropic \
-    && rm /usr/local/bin/uv
+    && rm -rf /usr/local/bin/uv /app/src
 ENV PATH=/opt/warden/bin:$PATH
 
 # Runs as a non-root user. An incident-response tool that runs as root is its own incident.

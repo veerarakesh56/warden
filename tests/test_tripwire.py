@@ -370,7 +370,35 @@ def test_the_scan_reads_the_labels_the_model_reads(monkeypatch):
     state.update(graph.node_redact(state))
     graph.node_tripwire(state)
     prompt_labels = next(t for t, outside in graph._prompt_parts(state) if outside and t.startswith("{"))
-    assert seen["LABELS"].startswith(prompt_labels), (seen["LABELS"], prompt_labels)
+    from warden.redaction import _PLACEHOLDER
+
+    # What the model reads, less WARDEN's own placeholders (fifth review: they are not outside text).
+    assert seen["LABELS"].startswith(_PLACEHOLDER.sub("", prompt_labels)), (seen["LABELS"], prompt_labels)
+
+
+@pytest.mark.parametrize("key", ["token", "password", "secret"])
+def test_wardens_own_placeholder_is_not_an_injection(monkeypatch, key):
+    """Fifth review (2026-10-01): with a credential-named label, the scan read `{'token': '<SECRET_1>'}` - and
+    the real model scored WARDEN's own placeholder 0.996, escalating every such incident."""
+    from warden import graph
+    from warden.verifier import verify
+
+    def placeholder_is_scary(texts, batch_size=16):
+        return [[{"label": "MALICIOUS", "score": 0.996 if "<SECRET_" in t else 0.01}] for t in texts]
+
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "on")
+    monkeypatch.setattr(tripwire, "_classifier", lambda: placeholder_is_scary)
+    alert = Alert(**{**DEMO_ALERTS["inc-002"], "labels": {key: "s3cr3t-" + "v4lue-x9", "team": "payments"}})
+    state = {"alert": alert, "context": ContextBundle(logs=["checkout ERROR boom"], metrics={"error_rate": 0.1})}
+    state.update(graph.node_redact(state))
+    state.update(graph.node_tripwire(state))
+    assert state["context"].suspected == {}, state["context"].suspected
+    from warden.models import ActionKind, Citation, RemediationProposal, RootCause
+
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="M1", quote="error_rate=0.1")])
+    prop = RemediationProposal(action=ActionKind.escalate_to_human, target="checkout", reasoning="r",
+                               expected_effect="e", blast_radius="single_service", reversible=True)
+    assert "P16-SUSPECTED-INJECTION" not in verify(alert, state["context"], rc, prop).policy_ids
 
 
 

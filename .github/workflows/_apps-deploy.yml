@@ -53,6 +53,9 @@ jobs:
           checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.12"
           activate-environment: true
+          # No cache in a job that holds credentials: uv does not re-verify unpacked cache entries, so a
+          # poisoned cache would install unchecked (fifth review E, 2026-10-01).
+          enable-cache: false
       - run: uv sync --locked --only-group apps-deploy
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:

@@ -55,3 +55,22 @@ def test_a_short_hex_value_or_a_non_key_name_is_left():
     for line in (f"request_key={_HEX64[:16]}", f"commit={_HEX40}", f"sha256={_HEX64}"):
         out = redact(line).text
         assert out == line, out
+
+
+@pytest.mark.parametrize("name", ["cache_key", "object_key", "idempotency_key", "dedup_key", "partition_key",
+                                  "routing_key", "primary_key", "sort-key", "cacheKey", "key", "monkey", "turnkey"])
+def test_a_hash_under_a_name_that_is_not_a_credential_is_evidence(name):
+    """Fifth review (2026-10-01): "any name ending in key" masked a cache key's commit sha as a SECRET, and a
+    SECRET is swept from every line - WARDEN's own deploy record lost its version."""
+    line = f"restored build cache {name}={_HEX40}"
+    assert redact(line).text == line
+
+
+def test_one_credential_gets_one_placeholder_and_restores():
+    from warden.redaction import RedactionResult, redact_many
+
+    b64 = "dXNlcj" + "pwYXNzd29yZA=="
+    lines = [f"Authorization: Basic {b64}", f"auth_hdr={b64}"]
+    out, mapping = redact_many(lines)
+    assert not any(v.startswith("<") for v in mapping.values()), mapping
+    assert [RedactionResult(o, mapping).restore(o) for o in out] == lines
