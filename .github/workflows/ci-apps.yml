@@ -13,6 +13,11 @@ on:
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-apps.yml"
       - ".github/workflows/_apps-check.yml"
+      # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
+      # older than pyproject.toml stayed hidden until an apps or infra path changed).
+      - "uv.lock"
+      - "pyproject.toml"
+      - "tests/test_supply_chain.py"
   pull_request:
     paths:
       - "scenarios/fullstack/**"
@@ -22,6 +27,11 @@ on:
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-apps.yml"
       - ".github/workflows/_apps-check.yml"
+      # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
+      # older than pyproject.toml stayed hidden until an apps or infra path changed).
+      - "uv.lock"
+      - "pyproject.toml"
+      - "tests/test_supply_chain.py"
 
 permissions:
   contents: read

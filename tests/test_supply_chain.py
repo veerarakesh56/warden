@@ -131,3 +131,22 @@ def test_the_lock_was_made_from_this_pyproject():
     assert want == have, (sorted(want - have), sorted(have - want))
     groups = {g: {_requirement(r) for r in reqs} for g, reqs in project["dependency-groups"].items()}
     assert groups == {g: locked(reqs) for g, reqs in meta["requires-dev"].items()}
+
+
+def test_a_workflow_that_installs_from_the_lock_runs_when_the_lock_changes():
+    """CI · apps and CI · infra install from uv.lock but ran only on their own paths, so a stale lock stayed
+    hidden from them until an apps or infra file changed (2026-10-01)."""
+    def installs(wf: pathlib.Path) -> bool:
+        text = wf.read_text(encoding="utf-8")
+        called = re.findall(r"uses: \$/\.github/workflows/(\S+\.yml)|uses: \./\.github/workflows/(\S+\.yml)", text)
+        return "uv sync" in text or any(installs(wf.parent / (a or b)) for a, b in called)
+
+    for wf in WORKFLOWS:
+        doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
+        on = doc.get("on", doc.get(True)) or {}
+        if not isinstance(on, dict) or not installs(wf):
+            continue
+        for event in ("push", "pull_request"):
+            paths = (on.get(event) or {}).get("paths")
+            if paths is not None:
+                assert {"uv.lock", "pyproject.toml"} <= set(paths), (wf.name, event)

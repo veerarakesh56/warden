@@ -252,6 +252,67 @@ step 1 and step 2 every sign-in fails: replace the bundle right after Claude run
 
 ---
 
+## NEXT: GitHub settings (web UI, about 15 minutes, any time - independent of W0-now)
+
+Read on 2026-10-01 with read-only `gh api` calls: the repository has no environments, no ruleset or
+branch protection, actions are not required to be pinned to a commit, Dependabot alerts and security
+updates are off, and CodeQL is not set up. Secret scanning and push protection are already on, and
+workflows already get a read-only token by default. Each step says what it protects. The labels are
+from GitHub's documentation of 2026-10-01; if a label differs on screen, stop and tell Claude.
+Cost: all free on a public repository.
+
+**G1. Environments - one per stage, deployable from `main` only.** Without them a deploy job can run
+from any branch, and nobody approves a production deploy.
+For each of `dev`, `staging`, `qa-staging`, `pre-prod`, `qa-prod`, `prod` (the names in
+`src/warden/data/environments.yaml`):
+1. Repository → **Settings** → **Environments** → **New environment**.
+2. Name it exactly as above → **Configure environment**.
+3. **Deployment branches** dropdown → **Selected branches and tags** → **Add deployment branch or tag
+   rule** → **Ref type**: **Branch** → name pattern `main` → **Add rule**.
+4. Only for `pre-prod`, `qa-prod` and `prod`: tick **Required reviewers**, add yourself, then **Save
+   protection rules**. Leave **Prevent self-review** unticked: you are the only approver, and with it
+   ticked no deploy you start could ever be approved.
+5. Add no variables now. `AWS_ROLE_ARN`, `AWS_REGION` and `TF_STATE_BUCKET` are added per environment in
+   its first cloud window.
+
+**G2. A ruleset for `main` - never deleted, never rewritten.** Without it `main` can be force-pushed
+(rewriting the history the audit points at) or deleted.
+1. **Settings** → **Rules** → **Rulesets** → **New ruleset** → **New branch ruleset**.
+2. **Ruleset name**: `main`. **Enforcement status**: **Active**.
+3. **Bypass list**: leave empty.
+4. **Target branches** → **Add a target** → **Include default branch**.
+5. Under **Branch protections** tick **Restrict deletions** and **Block force pushes**. Leave the others.
+6. **Create**.
+
+Not yet: **Require status checks before merging**. With it, a direct push to `main` is refused (the
+commit has no checks yet), and CI · tool does not run for infra-only or apps-only changes, so such a
+change could never merge. It comes with a change to pull-request merges and one CI job that runs on
+every change - Claude prepares both first.
+
+**G3. Actions must be pinned to a commit.** A tag can be moved to other code; every workflow here is
+already pinned (`tests/test_supply_chain.py` and zizmor check it), and this makes GitHub refuse an
+unpinned one too.
+1. **Settings** → **Actions** → **General** → **Actions permissions**.
+2. Tick **Require actions to be pinned to a full-length commit SHA** → **Save**.
+
+**G4. Dependabot alerts and security updates.** Weekly version updates already run; alerts report a
+published vulnerability in a locked package, and security updates open the fix as a pull request.
+1. **Settings** → **Advanced Security** (under "Security and quality").
+2. **Dependabot alerts** → **Enable**.
+3. **Dependabot security updates** → **Enable**.
+
+**G5. CodeQL code scanning (default setup).** Static analysis of the Python and the workflows on every
+push and weekly, findings under **Security** → **Code scanning**.
+1. **Settings** → **Advanced Security** → **Code Security** → to the right of **CodeQL analysis**,
+   **Set up** → **Default**.
+2. In **CodeQL default configuration**, leave the languages as detected → **Enable CodeQL**.
+
+**After G1-G5,** tell Claude. Claude reads every setting back with read-only `gh api` calls and records
+the result here, with the date in UTC and IST.
+
+**Undo:** each setting is turned off where it was turned on (G2: the ruleset's **Delete ruleset**; G1:
+an environment's **Delete environment** - only before any deploy has used it).
+
 ## LATER (cloud test window): bring up one environment - `dev` shown
 
 What this gives: GitHub Actions can deploy the `dev` stack with short-lived credentials through

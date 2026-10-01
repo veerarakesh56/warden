@@ -10,12 +10,20 @@ on:
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/_infra-validate.yml"
+      # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
+      # older than pyproject.toml stayed hidden until an apps or infra path changed).
+      - "uv.lock"
+      - "pyproject.toml"
   pull_request:
     paths:
       - "terraform/fullstack/**"
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/_infra-validate.yml"
+      # Its jobs install from these: a stale lock must run them (2026-10-01: it did not, so a lock
+      # older than pyproject.toml stayed hidden until an apps or infra path changed).
+      - "uv.lock"
+      - "pyproject.toml"
 
 permissions:
   contents: read

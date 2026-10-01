@@ -359,6 +359,17 @@ bump may carry a breaking change.
   hashes. The vulnerability audit now covers every locked package (163), not only one job's install.
   Dependabot follows `uv.lock`. Still by tag: the proving ground's python:3.12-alpine (its faults
   change the tag on purpose).
+  - Correction: the first push (00c08ab) turned every pipeline red - the lock predated the last
+    dependency group, and `uv sync --locked` refused it. Fixed in 362356c; a test now compares the lock
+    with `pyproject.toml` locally. CI · apps and CI · infra install from the lock but did not run when
+    it changed; they do now, and a test keeps every path-filtered workflow that installs from it so.
+  - The k8s job installs first (pip took 98 s; uv takes seconds), starts the OOM workload as soon as
+    the cluster is up so its crash loop builds during the checks, and drops its teardown.
+- **The GitHub settings the owner applies are written out** (`docs/OWNER-CONSOLE-STEPS.md`, G1-G5):
+  environments deployable from `main` only, with approval for pre-prod, qa-prod and prod; a ruleset
+  so `main` is never deleted or force-pushed; actions required to be pinned to a commit; Dependabot
+  alerts and security updates; CodeQL default setup. Required status checks wait for a pull-request
+  flow: with them, a direct push to `main` is refused.
 - **The mutation check finishes again** (5236b21). It ran the whole suite serially for each of 35
   mutations - 17 minutes a run - so it no longer finished. Each mutation now runs the tests that name
   the mutated file, on parallel workers, and the whole suite only before reporting a survivor; a run
