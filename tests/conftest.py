@@ -9,7 +9,6 @@ bitten in practice. Tests must never depend on ambient credentials.
 exercise the live path is still honoured; this only supplies the default the Makefile otherwise would.
 """
 
-import ast
 import functools
 import logging
 import os
@@ -82,50 +81,96 @@ def _cited() -> frozenset[tuple[str, str]]:
     return frozenset(cited_tests())
 
 
-@functools.cache
-def _def_lines(path: str) -> dict[str, frozenset[int]]:
-    """Each function the file defines, by name: the line its code object starts at (the first decorator's)."""
-    found: dict[str, set[int]] = {}
-    for node in ast.walk(ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            found.setdefault(node.name, set()).add(node.decorator_list[0].lineno if node.decorator_list else node.lineno)
-    return {name: frozenset(lines) for name, lines in found.items()}
+# Captured when the suite starts: an autouse fixture deleting `sys.monitoring` turned the check off (eighth review).
+_MONITORING = getattr(sys, "monitoring", None)
+_TOOLS = (4, 3)  # free sys.monitoring tool ids: 0-2 and 5 are the debugger, coverage, profiler and optimizer
+_DEFINED: dict[str, dict[str, list]] = {}
 
 
-_TOOL = 4  # a free sys.monitoring tool id: 0-2 and 5 are the debugger, coverage, profiler and optimizer
+def _defined(module, config) -> dict[str, list]:
+    """The code objects the test file itself defines - module-level functions and class methods, never a def nested
+    in a function - compiled exactly as pytest loaded the file (its assertion rewriting included). A code object
+    with the def's file, line and name but another body (`code.replace(...)`, `compile()` padded to the line, a
+    nested def bound under the name) is not equal to these (eighth review, 2026-10-01)."""
+    import types
+
+    origin = str(module.__spec__.origin)
+    if origin not in _DEFINED:
+        if config.getoption("assertmode", default="rewrite") == "rewrite":
+            from _pytest.assertion.rewrite import _rewrite_test
+
+            _, code = _rewrite_test(pathlib.Path(origin), config)
+        else:
+            code = compile(pathlib.Path(origin).read_bytes(), origin, "exec", dont_inherit=True)
+        found: dict[str, list] = {}
+
+        def walk(body) -> None:
+            for const in body.co_consts:
+                if isinstance(const, types.CodeType):
+                    if const.co_flags & 0x1:  # CO_OPTIMIZED: a function defined at this level
+                        found.setdefault(const.co_name, []).append(const)
+                    else:  # a class body: its methods
+                        walk(const)
+
+        walk(code)
+        _DEFINED[origin] = found
+    return _DEFINED[origin]
 
 
 @pytest.hookimpl(wrapper=True)
 def pytest_pyfunc_call(pyfuncitem):
-    """Did the body the file defines run? A swapped `__code__`, another function bound under the name, a wrapper,
-    a hook that answers for the call, a fixture swapping `request.node.obj`: each passed the full run with an
-    `assert False` body (seventh review, 2026-10-01). Only cited tests are watched, during their call: the start of
-    the code object whose file, first line and name are the `def`'s."""
+    """Did the body the file defines run, return and never raise? Judged at collection, a rebound name passed
+    (sixth review); judged by a start of code with the def's file, line and name, a fake code object, or a body
+    that raised with the failure swallowed by a wrapper, a hook or a thread passed (seventh and eighth reviews).
+    Only cited tests are watched, during their call: the start, return and unwind of the code objects equal to
+    those the file defines."""
     if (pyfuncitem.nodeid.split("::", 1)[0], pyfuncitem.originalname) not in _cited():
         return (yield)
-    if not hasattr(sys, "monitoring"):  # Python 3.11: cannot be checked, and says so
-        pyfuncitem.user_properties.append(("warden_body_ran", None))
+    if _MONITORING is None:  # Python 3.11 has none: cannot be checked, and the run says so at its end
+        pyfuncitem.user_properties.append(("warden_body_ran", None if sys.version_info < (3, 12) else False))
         return (yield)
-    path = pathlib.Path(pyfuncitem.path).resolve()
-    name, lines, ran = pyfuncitem.originalname, _def_lines(str(path)).get(pyfuncitem.originalname, frozenset()), []
-    mon = sys.monitoring
+    mon, name = _MONITORING, pyfuncitem.originalname
+    expected = _defined(pyfuncitem.module, pyfuncitem.config).get(name, [])
+    seen = {"started": 0, "returned": 0, "unwound": 0}
+    watched: list = []
 
     def started(code, _offset):
-        if code.co_name == name and code.co_firstlineno in lines and pathlib.Path(code.co_filename).resolve() == path:
-            ran.append(True)
+        if code.co_name == name and any(code == e for e in expected):
+            seen["started"] += 1
+            watched.append(code)
+            return None
         return mon.DISABLE
 
-    mon.use_tool_id(_TOOL, "warden-register-guard")
+    def returned(code, _offset, _value):
+        if any(code is w for w in watched):
+            seen["returned"] += 1
+            return None
+        return mon.DISABLE
+
+    def unwound(code, _offset, _exc):
+        if any(code is w for w in watched):
+            seen["unwound"] += 1
+
+    tool = next((t for t in _TOOLS if mon.get_tool(t) is None), None)
+    if tool is None:  # every id we may use is taken: no evidence rather than a crash that hides the result
+        pyfuncitem.user_properties.append(("warden_body_ran", False))
+        return (yield)
+    events = mon.events
+    mon.use_tool_id(tool, "warden-register-guard")
     try:
         mon.restart_events()
-        mon.register_callback(_TOOL, mon.events.PY_START, started)
-        mon.set_events(_TOOL, mon.events.PY_START)
+        mon.register_callback(tool, events.PY_START, started)
+        mon.register_callback(tool, events.PY_RETURN, returned)
+        mon.register_callback(tool, events.PY_UNWIND, unwound)
+        mon.set_events(tool, events.PY_START | events.PY_RETURN | events.PY_UNWIND)
         return (yield)
     finally:
-        mon.set_events(_TOOL, 0)
-        mon.register_callback(_TOOL, mon.events.PY_START, None)
-        mon.free_tool_id(_TOOL)
-        pyfuncitem.user_properties.append(("warden_body_ran", bool(ran)))
+        mon.set_events(tool, 0)
+        for event in (events.PY_START, events.PY_RETURN, events.PY_UNWIND):
+            mon.register_callback(tool, event, None)
+        mon.free_tool_id(tool)
+        ran = seen["started"] > 0 and seen["returned"] > 0 and seen["unwound"] == 0
+        pyfuncitem.user_properties.append(("warden_body_ran", ran))
 
 
 def pytest_runtest_logreport(report):
@@ -173,6 +218,11 @@ def pytest_sessionfinish(session, exitstatus):
     if hasattr(config, "workerinput") or not _full_run(config):
         return
     missing = missing_evidence(_REPORTS, set(_cited()))
+    if any("body-unverifiable" in st for st in _REPORTS.values()):
+        reporter = config.pluginmanager.get_plugin("terminalreporter")
+        if reporter:  # Python 3.11: said, not passed over in silence (eighth review)
+            reporter.write_line("register evidence: this Python has no sys.monitoring, so whether each cited "
+                                "test's own body ran was not checked (Python 3.12+ checks it)", yellow=True)
     if missing:
         reporter = config.pluginmanager.get_plugin("terminalreporter")
         if reporter:

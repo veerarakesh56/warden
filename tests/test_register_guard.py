@@ -2,8 +2,12 @@
 its directory check turned it off and no test failed)."""
 from __future__ import annotations
 
+import contextlib
 import pathlib
+import sys
 import types
+
+import pytest
 
 import conftest
 
@@ -65,19 +69,26 @@ def test_a_rebound_test_is_not_genuine(pytester=None):
 
 
 def sample_evidence():
-    """The `def` a cited test's file defines: the guard watches for THIS code object starting."""
+    """The `def` a cited test's file defines: the guard watches for THIS code object starting and returning."""
     return 1
 
 
-def _call_watched(monkeypatch, called):
-    """Run conftest's pytest_pyfunc_call wrapper around `called()`, as pytest would, for a cited test named
-    sample_evidence in this file; return what it recorded."""
-    item = types.SimpleNamespace(nodeid="tests/test_register_guard.py::sample_evidence", originalname="sample_evidence",
-                                 path=pathlib.Path(__file__), user_properties=[])
-    monkeypatch.setattr(conftest, "_cited", lambda: frozenset({("tests/test_register_guard.py", "sample_evidence")}))
+def sample_failing():
+    """A cited body that fails: its failure must not become evidence because something swallowed it."""
+    raise AssertionError("the body failed")
+
+
+def _call_watched(monkeypatch, request, called, name="sample_evidence"):
+    """Run conftest's pytest_pyfunc_call wrapper around `called()`, as pytest would, for a cited test of this file;
+    return what it recorded."""
+    item = types.SimpleNamespace(nodeid=f"tests/test_register_guard.py::{name}", originalname=name,
+                                 path=pathlib.Path(__file__), user_properties=[], config=request.config,
+                                 module=sys.modules[__name__])
+    monkeypatch.setattr(conftest, "_cited", lambda: frozenset({("tests/test_register_guard.py", name)}))
     gen = conftest.pytest_pyfunc_call(item)
     next(gen)
-    called()
+    with contextlib.suppress(AssertionError):
+        called()
     try:
         gen.send(True)
     except StopIteration:
@@ -85,14 +96,29 @@ def _call_watched(monkeypatch, called):
     return dict(item.user_properties)["warden_body_ran"]
 
 
-def test_only_the_body_the_file_defines_counts(monkeypatch):
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="sys.monitoring is Python 3.12+; 3.11 says so at the run's end")
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the thread case, on purpose
+def test_only_the_body_the_file_defines_counts(monkeypatch, request):
     """Seventh review (2026-10-01): judged at collection, five bypasses passed the full run with an `assert False`
-    body. At call time only the start of the file's own `def` counts."""
+    body; eighth review: judged by a start of code with the def's file, line and name, eight more did. Only the
+    file's own code object, started, returned and never unwound, counts."""
     import functools
+    import threading
 
-    assert _call_watched(monkeypatch, sample_evidence) is True
+    assert _call_watched(monkeypatch, request, sample_evidence) is True
 
     swapped = types.FunctionType((lambda: None).__code__, {}, "sample_evidence")  # a `__code__` swap
+    first = sample_evidence.__code__.co_firstlineno
+    same_place = types.FunctionType((lambda: None).__code__.replace(co_name="sample_evidence", co_firstlineno=first),
+                                    {})  # the def's name and line, another body
+    padded = compile("\n" * (first - 1) + "def sample_evidence():\n    return 1\n", __file__, "exec")
+    namespace: dict = {}
+    exec(padded, namespace)  # noqa: S102 - the reviewer's compile() at the def's line
+
+    def _make():
+        def sample_evidence():  # a nested def under the name
+            return 1
+        return sample_evidence
 
     def _noop():
         pass
@@ -103,8 +129,30 @@ def test_only_the_body_the_file_defines_counts(monkeypatch):
     def wrapper():  # a wraps-wrapper that never calls the body
         return None
 
-    for fake in (swapped, _noop, wrapper, lambda: None):  # the last: a hook or fixture that answers for the call
-        assert _call_watched(monkeypatch, fake) is False, fake
+    for fake in (swapped, same_place, namespace["sample_evidence"], _make(), _noop, wrapper, lambda: None):
+        assert _call_watched(monkeypatch, request, fake) is False, fake
+
+    # A body that started and failed, its failure swallowed - by a wrapper, by a hook, in a thread.
+    def swallowing():
+        with contextlib.suppress(AssertionError):
+            sample_failing()
+
+    def in_a_thread():
+        t = threading.Thread(target=sample_failing)
+        t.start()
+        t.join()
+
+    for fake in (sample_failing, swallowing, in_a_thread):
+        assert _call_watched(monkeypatch, request, fake, name="sample_failing") is False, fake
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="sys.monitoring is Python 3.12+")
+def test_deleting_sys_monitoring_does_not_turn_the_check_off(monkeypatch, request):
+    """Eighth review: an autouse fixture `monkeypatch.delattr(sys, "monitoring")` made every body "unverifiable"."""
+    monkeypatch.delattr(sys, "monitoring")
+    assert _call_watched(monkeypatch, request, sample_evidence) is True  # the module captured it at import
+    monkeypatch.setattr(conftest, "_MONITORING", None)
+    assert _call_watched(monkeypatch, request, sample_evidence) is False  # gone on 3.12+: no evidence
 
 
 def test_the_guard_judges_the_controllers_whole_run(monkeypatch):

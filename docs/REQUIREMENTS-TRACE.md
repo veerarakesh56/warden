@@ -13,10 +13,12 @@ must start with the window and a past date; a DEFERRED row must start with `owne
 past date; an open row cannot belong to a group that has already been finished. Because pytest has more
 ways to skip than a source check can list (the fifth review found a dozen more), the full run itself is
 the final check: `tests/conftest.py` fails a full `pytest tests` run if any test a DONE-local row cites did
-not run its own body and pass - skipped, xfailed or missing, and also when the code its file's `def`
-compiles to never started during the call: a swapped `__code__`, another function or a wrapper bound under
-the name, a hook that answers for the call, a fixture that swaps the test object (`sys.monitoring` watches
-the call; `tests/test_register_guard.py`). A run filtered with `-k`, `-m`, `--deselect` or `--lf`, a run of single
+not run its own body and pass - skipped, xfailed or missing, and also when the code object its file defines
+(compiled as pytest loads it) did not start, return and finish without raising during the call: a swapped or
+rebuilt `__code__`, another function, a nested def or a wrapper bound under the name, a hook or a report
+rewrite that answers for the call, a body whose failure a wrapper or a thread swallowed (`sys.monitoring`
+watches the call, captured when the suite starts; Python 3.11 has none, and the run says it did not check;
+`tests/test_register_guard.py`). A run filtered with `-k`, `-m`, `--deselect` or `--lf`, a run of single
 files and a collect-only run are not judged: only the full run is evidence.
 
 ## Requirements

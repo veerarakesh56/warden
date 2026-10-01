@@ -441,6 +441,11 @@ bump may carry a breaking change.
   d40fc9a; MED), and a key split by one invisible or control character passed G5 and went out whole -
   from Slack, the terminal, MCP results, and the CLI's argument errors (MED). The stub of a withheld
   report redacts its id with the blocked data too, and leaves it out when it is part of a withheld value.
+  The register guard compares the code that ran with what pytest compiled from the test file, and counts it
+  only when it started, returned and never raised: eight more bypasses passed a full run with an `assert False`
+  body - a rebuilt `__code__`, a nested def, `compile()` padded to the line, a failure swallowed by a wrapper, a
+  hook, a report rewrite or a thread, `sys.monitoring` deleted by a fixture (MED). Planted into a real full run,
+  all eight are named and fail it. On Python 3.11, which has no `sys.monitoring`, the run says it did not check.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
