@@ -8,16 +8,11 @@ The verifier decides whether an action is *admissible*. This layer decides wheth
 
 `decide_remediation` checks them in this order: verdict, environment permits the action, principal,
 environment auto-remediates, approval. Only when all of them hold does anything touch infrastructure, and even then only through a pluggable
-`RemediationBackend`. The DEFAULT is `DryRunBackend`, which changes nothing and records what it
-*would* do, so an unconfigured WARDEN mutates nothing. Two real backends also ship and are opt-in
-behind `WARDEN_REMEDIATION=live`: `remediation_k8s.KubernetesRemediationBackend` (restart or scale
-one Deployment, clamped to >=1 and <=WARDEN_REMEDIATION_MAX_REPLICAS) and
-`database_remediation.DatabaseRemediationBackend` (terminate stuck idle-in-transaction connections,
-count-clamped, never its own connection). Both act for real when armed, and CI proves it against
-live infrastructure -- see
-tests/integration/test_live_remediation.py::test_scale_up_actually_raises_replicas_on_the_real_deployment.
-An operator wanting different behaviour supplies their own backend; the gate above it is the same
-either way.
+`RemediationBackend`. The CLI uses `DryRunBackend`, which changes nothing and says what it *would* do.
+A live change has one path only (decision D16): the Temporal RemediationWorkflow - a signed approval of
+the exact plan, a fresh precheck, apply once, its own success check, rollback - carried out by the
+platforms in `warden.platforms` (`warden worker --platform`). The in-process live backends that used to
+sit behind `WARDEN_REMEDIATION=live` were removed (audit A-B-H1..H3).
 
 The environment gradient (from environments.yaml) does the heavy lifting:
   - dev / staging / qa-staging : auto_remediate = true  -> with an authorised approval, WARDEN applies.
@@ -107,13 +102,14 @@ class RemediationBackend(Protocol):
 
 
 class DryRunBackend:
-    """The default. Touches nothing; reports what a real backend would have done. An unarmed WARDEN
-    changes nothing - the live backends exist only behind WARDEN_REMEDIATION=live."""
+    """Touches nothing; reports what would be done. A live change goes through the RemediationWorkflow
+    (`warden worker --platform ...`, then `warden status` and `warden approve`), never this path."""
 
     live = False
 
     def apply(self, action: ActionKind, target: str, environment: str) -> str:
-        return f"DRY RUN: would {action.value} '{target}' in {environment} (no change made)"
+        return (f"DRY RUN: would {action.value} '{target}' in {environment} (no change made; a live change "
+                f"goes through the RemediationWorkflow: `warden worker --platform`, then `warden approve`)")
 
 
 # States a verdict can be in that mean "this proposal is a candidate to apply". Anything else

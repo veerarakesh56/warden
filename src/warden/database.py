@@ -6,8 +6,9 @@ MySQL/MariaDB, Redis, MongoDB or SQL Server — chosen from the DSN scheme — a
 
 Read-only BY CONSTRUCTION: every statement here is a SELECT / SHOW / INFO / serverStatus / currentOp.
 There is no INSERT/UPDATE/DELETE/DROP/KILL/pg_terminate/FLUSH/killOp anywhere in this file — a test
-greps for exactly that. The terminate (write) path lives in a SEPARATE module, `database_remediation.py`,
-behind its own least-privilege credential, exactly as the k8s write path is separate from the read one.
+greps for exactly that. The terminate (write) path lives in a SEPARATE module, `platforms/db.py`, behind
+the RemediationWorkflow and its own least-privilege credential, as the k8s write path is separate from
+the read one.
 
 Mapping an alert to a connection:
     dsn = $WARDEN_DB_DSN  (never an alert label)

@@ -10,8 +10,8 @@ Rules:
 - A real environment variable wins over SSM, which wins over the code default. Setting a value
   explicitly always takes precedence over the store.
 - Only names on `LOADABLE` are loaded. Never loaded, by design: the switches that arm live actions
-  (`WARDEN_REMEDIATION`, `WARDEN_CHATOPS_LIVE`, `WARDEN_MOCK`, `WARDEN_DB_DRY_RUN`) - arming stays a
-  person's act on the command line - and anything that redirects where WARDEN reads or sends
+  (`WARDEN_CHATOPS_LIVE`, `WARDEN_MOCK`; and the retired `WARDEN_REMEDIATION`, `WARDEN_DB_DRY_RUN`, still
+  refused so an old parameter can never mean anything) - arming stays a person's act on the command line - and anything that redirects where WARDEN reads or sends
   (`*_PATH`, `WARDEN_BASE_URL`, `WARDEN_PROVIDER`), so a parameter cannot re-point model traffic.
 - No `WARDEN_ENV`: nothing happens and no AWS client is built. Every existing flow is unchanged.
 

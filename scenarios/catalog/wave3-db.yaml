@@ -18,7 +18,8 @@
 #     action space of this wave is genuinely different from Waves 1 and 2.
 #
 # ⭐ WHY THIS WAVE EXISTS AT ALL, beyond a third backend: `terminate_connections` is a remediation
-# WARDEN can really execute (src/warden/database_remediation.py). Waves 1 and 2 could only ever be
+# WARDEN can really execute (then database_remediation.py; since D16 src/warden/platforms/db.py,
+# behind the RemediationWorkflow). Waves 1 and 2 could only ever be
 # graded on what the model PROPOSED. Here the same action is correct in one scenario and harmful in
 # another, decided by whether the session is idle in a transaction or actively doing work - which is
 # the sharpest discrimination anywhere in this benchmark.

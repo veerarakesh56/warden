@@ -193,7 +193,8 @@ rollback can never be evidence-supported and `P5` can never fire. The action spa
 genuinely different from Waves 1 and 2, and that is a finding rather than a gap.
 
 ⭐ **This is the first wave graded on an action WARDEN can really perform.**
-`terminate_connections` is a live remediation (`src/warden/database_remediation.py`), and its grade
+`terminate_connections` is a live remediation (then `database_remediation.py`; since D16 the database
+platform behind the RemediationWorkflow, `src/warden/platforms/db.py`), and its grade
 flips on evidence the tool actually reads: whether a session is idle inside a transaction, or
 active and doing work.
 

@@ -1,7 +1,7 @@
 """WARDEN — AI incident-response orchestrator.
 
-The model proposes. A deterministic verifier decides. Nothing executes infrastructure actions unless
-live remediation is explicitly armed (WARDEN_REMEDIATION=live) AND the remediation gate passes.
+The model proposes. A deterministic verifier decides. Nothing changes infrastructure except the Temporal
+RemediationWorkflow, after a signed approval of the exact plan (decision D16).
 """
 
 __version__ = "0.10.0"

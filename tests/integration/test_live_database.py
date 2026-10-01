@@ -36,13 +36,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 from warden.database import _MSSQL, _Mongo, _MySQL, _Postgres, _Redis
-from warden.database_remediation import (
-    _MongoKiller,
-    _MSSQLKiller,
-    _MySQLKiller,
-    _PostgresKiller,
-    _RedisKiller,
-)
+from warden.platforms import db as platform_db
 from warden.tools import PARTIAL_PREFIX
 
 PG_DSN = os.environ.get("WARDEN_TEST_PG_DSN")
@@ -50,6 +44,16 @@ MYSQL_DSN = os.environ.get("WARDEN_TEST_MYSQL_DSN")
 REDIS_DSN = os.environ.get("WARDEN_TEST_REDIS_DSN")
 MONGO_DSN = os.environ.get("WARDEN_TEST_MONGO_DSN")
 MSSQL_DSN = os.environ.get("WARDEN_TEST_MSSQL_DSN")
+
+def _user(dsn):
+    from urllib.parse import urlparse
+
+    return urlparse(dsn).username if dsn else ""
+
+
+# The platform closes only the application's own logins in its own database (audit A-B-H1); here the
+# application is the login the test connects as, and "someone_else" is a login it must never touch.
+PG_USER, MYSQL_USER, MSSQL_USER = _user(PG_DSN), _user(MYSQL_DSN), _user(MSSQL_DSN)
 
 needs_pg = pytest.mark.skipif(not PG_DSN, reason="WARDEN_TEST_PG_DSN not set")
 needs_mysql = pytest.mark.skipif(not MYSQL_DSN, reason="WARDEN_TEST_MYSQL_DSN not set")
@@ -156,7 +160,7 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
             # Desktop's VM does under load (measured: 2 rounds in 10, age reported as -115s). The
             # documented behaviour is to decline to terminate what cannot be aged, and to SAY SO.
             # Assert exactly that rather than failing: it is the correct outcome, not a flake.
-            assert victim_pid not in _PostgresKiller.candidates(admin, 0, 20), (
+            assert victim_pid not in platform_db._Postgres.candidates(admin, 0, 20, [PG_USER]), (
                 "a connection whose age is unknowable must never be terminated"
             )
             partials = [
@@ -166,14 +170,16 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
             pytest.skip(f"host clock skew (age {float(age):.0f}s); asserted the fail-safe path instead")
 
         # idle_secs=0 so the freshly-made victim qualifies; the ceiling still applies.
-        candidates = _PostgresKiller.candidates(admin, 0, 20)
+        candidates = platform_db._Postgres.candidates(admin, 0, 20, [PG_USER])
         assert victim_pid in candidates, f"the stuck pid {victim_pid} was not selected: {candidates}"
+        assert victim_pid not in platform_db._Postgres.candidates(admin, 0, 20, ["someone_else"]), \
+            "a session of a login outside the allowlist was selected"
         with admin.cursor() as cur:
             cur.execute("SELECT pg_backend_pid()")
             own_pid = cur.fetchone()[0]
         assert own_pid not in candidates, "it selected its OWN connection for termination"
 
-        assert _PostgresKiller.terminate(admin, [victim_pid]) == 1
+        assert platform_db._Postgres.terminate(admin, [victim_pid]) == 1
 
         with admin.cursor() as cur:
             cur.execute("SELECT count(*) FROM pg_stat_activity WHERE pid = %s", (victim_pid,))
@@ -221,14 +227,16 @@ def test_mysql_terminate_actually_kills_the_sleeping_transaction():
             victim_id = cur.fetchone()[0]
         time.sleep(1.0)  # now Sleeping with an open transaction
 
-        candidates = _MySQLKiller.candidates(admin, 0, 20)
+        candidates = platform_db._MySQL.candidates(admin, 0, 20, [MYSQL_USER])
         assert victim_id in candidates, f"the sleeping trx {victim_id} was not selected: {candidates}"
+        assert victim_id not in platform_db._MySQL.candidates(admin, 0, 20, ["someone_else"]), \
+            "a session of a login outside the allowlist was selected"
         with admin.cursor() as cur:
             cur.execute("SELECT CONNECTION_ID()")
             own_id = cur.fetchone()[0]
         assert own_id not in candidates, "it selected its OWN session to KILL"
 
-        assert _MySQLKiller.terminate(admin, [victim_id]) == 1
+        assert platform_db._MySQL.terminate(admin, [victim_id]) == 1
         time.sleep(0.5)
         with admin.cursor() as cur:
             cur.execute("SELECT count(*) FROM information_schema.processlist WHERE id = %s", (victim_id,))
@@ -253,28 +261,6 @@ def test_redis_metrics_come_back_from_a_real_server():
     assert m["connected_clients"] >= 1.0
 
 
-@needs_redis
-def test_redis_terminate_actually_disconnects_the_idle_client():
-    import redis as redis_lib
-
-    admin = _connect_or_fail(_Redis, REDIS_DSN, "redis")
-    victim = redis_lib.from_url(REDIS_DSN, decode_responses=True)
-    victim.ping()  # force the connection to exist
-    victim_id = victim.client_id()
-    try:
-        # idle_secs=0 so a freshly-opened client qualifies.
-        candidates = _RedisKiller.candidates(admin, 0, 20)
-        assert victim_id in candidates, f"idle client {victim_id} was not selected: {candidates}"
-        assert admin.client_id() not in candidates, "it selected its OWN client to kill"
-
-        assert _RedisKiller.terminate(admin, [victim_id]) == 1
-        remaining = {int(c["id"]) for c in admin.client_list()}
-        assert victim_id not in remaining, "the client was reported killed but is still connected"
-    finally:
-        with contextlib.suppress(Exception):
-            victim.close()
-
-
 # ------------------------------------------------------------------ MongoDB
 
 @needs_mongo
@@ -285,82 +271,6 @@ def test_mongo_metrics_come_back_from_a_real_server():
         assert key in m, f"{key} missing from a real Mongo read: {m}"
     assert m["current_connections"] >= 1.0
     conn.close()
-
-
-def _slow_mongo_query(dsn, seconds, outcome):
-    """A genuinely long-running query on a USER namespace.
-
-    `$where` with a busy loop needs only server-side JavaScript (on by default), not the `sleep` test
-    command — so this works against a stock container, in CI, with no special server flags.
-    """
-    import pymongo
-
-    client = pymongo.MongoClient(dsn)
-    try:
-        ms = int(seconds) * 1000
-        js = f"function(){{var t=new Date(); while((new Date())-t < {ms}){{}} return true;}}"
-        list(client.warden.warden_probe.find({"$where": js}))
-        outcome["result"] = "completed normally"
-    except Exception as exc:  # noqa: BLE001 - being killed IS the expected outcome
-        outcome["result"] = f"{type(exc).__name__}"
-
-
-@needs_mongo
-def test_mongo_terminate_kills_a_real_long_running_query_and_spares_the_heartbeats():
-    """The bug this test exists for, found against a real server: `currentOp` reports MongoDB's own
-    awaitable `hello` heartbeats, which sit active for seconds by design. A naive
-    `secs_running >= threshold` filter selected them — so the terminator would have killed the
-    drivers' monitoring connections (its own included) while never touching the stuck query.
-    """
-    import threading
-
-
-    admin = _connect_or_fail(_Mongo, MONGO_DSN, "mongo")
-    admin.warden.warden_probe.drop()
-    admin.warden.warden_probe.insert_many([{"x": i} for i in range(50)])
-    outcome: dict[str, str] = {}
-    threading.Thread(target=_slow_mongo_query, args=(MONGO_DSN, 20, outcome), daemon=True).start()
-
-    try:
-        # Poll rather than sleep a fixed amount: CI machines vary.
-        target = None
-        for _ in range(40):
-            for op in admin.admin.command("currentOp", {"active": True}).get("inprog", []):
-                if "warden_probe" in str(op.get("ns") or "") and float(op.get("secs_running") or 0) >= 1:
-                    target = int(op["opid"])
-            if target is not None:
-                break
-            time.sleep(0.5)
-        assert target is not None, "the long-running user query never appeared in currentOp"
-
-        inprog = admin.admin.command("currentOp", {"active": True}).get("inprog", [])
-        heartbeats = [
-            int(op["opid"]) for op in inprog
-            if next(iter(op.get("command") or {}), "") in ("hello", "isMaster", "ismaster")
-        ]
-        selected = _MongoKiller.candidates(admin, 1, 20)
-
-        assert target in selected, f"the real stuck query {target} was not selected: {selected}"
-        for hb in heartbeats:
-            assert hb not in selected, (
-                f"heartbeat op {hb} was selected for termination - killing a driver's monitoring "
-                "connection is an outage, not a remediation"
-            )
-        own = [int(op["opid"]) for op in inprog if "currentOp" in (op.get("command") or {})]
-        for opid in own:
-            assert opid not in selected, "it selected its OWN operation to kill"
-
-        assert _MongoKiller.terminate(admin, [target]) == 1
-        time.sleep(1.5)
-        still = [
-            op for op in admin.admin.command("currentOp", {"active": True}).get("inprog", [])
-            if int(op.get("opid", -1)) == target
-        ]
-        assert not still, "the op was reported killed but is still running on the server"
-    finally:
-        with contextlib.suppress(Exception):
-            admin.warden.warden_probe.drop()
-        admin.close()
 
 
 @needs_mongo
@@ -428,14 +338,16 @@ def test_mssql_terminate_actually_kills_the_sleeping_transaction():
         vc.execute("SELECT 1")
         time.sleep(2.0)
 
-        candidates = _MSSQLKiller.candidates(admin, 0, 20)
+        candidates = platform_db._MSSQL.candidates(admin, 0, 20, [MSSQL_USER])
         assert victim_spid in candidates, f"the sleeping trx {victim_spid} was not selected: {candidates}"
+        assert victim_spid not in platform_db._MSSQL.candidates(admin, 0, 20, ["someone_else"]), \
+            "a session of a login outside the allowlist was selected"
         ac = admin.cursor()
         ac.execute("SELECT @@SPID")
         own_spid = int(ac.fetchone()[0])
         assert own_spid not in candidates, "it selected its OWN session to KILL"
 
-        assert _MSSQLKiller.terminate(admin, [victim_spid]) == 1
+        assert platform_db._MSSQL.terminate(admin, [victim_spid]) == 1
         time.sleep(1.0)
         ac = admin.cursor()
         ac.execute("SELECT count(*) FROM sys.dm_exec_sessions WHERE session_id = %d", (victim_spid,))

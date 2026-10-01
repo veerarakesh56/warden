@@ -24,8 +24,7 @@ from .graph import run
 from .knowledge import default_knowledge_base
 from .llm import LLMClient
 from .models import Alert, Severity
-from .remediation import RemediationError, RemediationRequest, decide_remediation
-from .remediation_k8s import resolve_remediation_backend
+from .remediation import DryRunBackend, RemediationRequest, decide_remediation
 from .reporting import _scrub, build_report
 from .tools import resolve_backend
 
@@ -128,20 +127,14 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
 
     remediation = None
     if principal is not None and report.proposal and report.verdict:
-        # DRY-RUN unless WARDEN_REMEDIATION=live arms the real k8s backend. Either way the four-way
-        # gate decides whether it is even reached. A live-backend init fault (no cluster) is surfaced,
-        # not crashed.
-        try:
-            backend = resolve_remediation_backend()
-        except RemediationError as exc:
-            _out(f"\n[remediation] live backend unavailable, not applying: {exc}")
-            backend = None
+        # A dry run only (decision D16): this says whether the gate would let the fix through. A live
+        # change goes through the RemediationWorkflow and a signed approval, never this command.
         remediation = decide_remediation(
             alert,
             report.proposal,
             report.verdict,
             RemediationRequest(principal=principal, approval=approve),
-            backend=backend,
+            backend=DryRunBackend(),
         )
 
     built = build_report(
@@ -285,6 +278,25 @@ def _install_log_gate() -> None:
     install_log_gate(logging.INFO)
 
 
+def _platform(choice: str):
+    """The platforms a worker connects (decision D16). Building one reads its credentials now, so a worker
+    that cannot reach what it was told to change fails at start, not in the middle of an approved fix."""
+    from .platforms import RoutedPlatform
+
+    if choice == "none":
+        return None
+    platforms = {}
+    if choice in ("k8s", "all"):
+        from .platforms.k8s import KubernetesPlatform
+
+        platforms["k8s"] = KubernetesPlatform()
+    if choice in ("db", "all"):
+        from .platforms.db import DatabasePlatform
+
+        platforms["db"] = DatabasePlatform()
+    return RoutedPlatform(**platforms)
+
+
 async def _workflow_command(args: argparse.Namespace) -> int:
     from . import approvals, runtime
     from .workflows import IncidentWorkflow
@@ -293,8 +305,11 @@ async def _workflow_command(args: argparse.Namespace) -> int:
     if args.cmd == "worker":
         _install_log_gate()
         policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
-        async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend()):
-            _out(f"worker running on task queue {runtime.TASK_QUEUE!r}; Ctrl+C to stop")
+        platform = _platform(args.platform)
+        async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend(),
+                                  platform=platform):
+            _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {args.platform}); "
+                 "Ctrl+C to stop")
             await asyncio.Event().wait()
     if args.cmd == "incident":
         alert = _alert_from(args.incident)
@@ -425,7 +440,11 @@ def _main(argv: list[str] | None = None) -> int:
     p_verify.add_argument("--db", required=True, type=pathlib.Path)
     p_verify.add_argument("--public-key", required=True, type=pathlib.Path)
 
-    sub.add_parser("worker", help="run the workflow worker against the Temporal server")
+    p_worker = sub.add_parser("worker", help="run the workflow worker against the Temporal server")
+    p_worker.add_argument("--platform", choices=("none", "k8s", "db", "all"), default="none",
+                          help="what this worker may change, behind a signed approval: none (default - every "
+                               "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_ADMIN_DSN, "
+                               "WARDEN_DB_APP_USERS), or all")
     p_incident = sub.add_parser("incident", help="diagnose a bundled incident as a workflow and print the verdict")
     p_incident.add_argument("--incident", default="inc-001")
     p_status = sub.add_parser("status", help="show a remediation workflow's stage and plan (with its hash)")

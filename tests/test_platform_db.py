@@ -1,0 +1,168 @@
+"""The database platform behind the RemediationWorkflow (decision D16) - fake connections, no server.
+
+The real servers' grammar and the session ACTUALLY closing are proven in CI's db job
+(tests/integration/test_live_database.py). Here: the scoping the removed backend lacked (its own
+database, the application's logins only - audit A-B-H1), the ceiling twice, and the refusals."""
+
+from __future__ import annotations
+
+import pytest
+
+from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401 - fixtures
+from warden.platforms import RoutedPlatform
+from warden.platforms.db import DatabasePlatform, DatabasePlatformError
+
+APP = ["orders_app"]
+
+
+class _Cursor:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params=None):
+        self.conn.sql.append((sql, params))
+        if self.conn.fail:
+            raise RuntimeError("boom: server unreachable")
+        if sql.startswith(("SELECT current_database()", "SELECT DATABASE()", "SELECT DB_NAME()")):
+            self.rows = [(self.conn.db,)]
+        elif "pg_terminate_backend" in sql:
+            self.conn.killed.append(params[0])
+            self.rows = [(True,)]
+        elif sql.startswith("KILL"):
+            self.conn.killed.append(int(sql.split()[1]))
+        else:
+            self.rows = [(i,) for i in self.conn.stuck]
+
+    def fetchone(self):
+        return self.rows[0]
+
+    def fetchall(self):
+        return self.rows
+
+
+class _Conn:
+    def __init__(self, db="orders", stuck=(101, 102), fail=False):
+        self.db, self.stuck, self.fail = db, list(stuck), fail
+        self.sql: list = []
+        self.killed: list = []
+
+    def cursor(self):
+        return _Cursor(self)
+
+
+def _platform(engine="postgres", conn=None, users=APP, **kw):
+    return DatabasePlatform(engine=engine, conn=conn or _Conn(), app_users=users, **kw)
+
+
+PARAMS = {"database": "orders", "min_idle_seconds": 300, "max_sessions": 5}
+
+
+def test_live_names_the_connected_database_only_when_app_logins_are_named():
+    assert _platform().live("db_terminate_idle_in_tx", {})["database"] == {"orders"}
+    assert _platform(users=[]).live("db_terminate_idle_in_tx", {}) == {}, "no allowlist: nothing may be closed"
+    assert _platform(conn=_Conn(fail=True)).live("db_terminate_idle_in_tx", {}) == {}
+    assert _platform().live("db_terminate_blocker", {}) == {}
+
+
+def test_postgres_closes_only_idle_app_sessions_in_its_own_database_and_never_its_own():
+    conn = _Conn()
+    out = _platform(conn=conn).apply("db_terminate_idle_in_tx", PARAMS)
+    assert conn.killed == [101, 102] and "closed 2 session(s)" in out
+    select = next(sql for sql, _ in conn.sql if "pg_stat_activity" in sql)
+    for clause in ("state = 'idle in transaction'", "datname = current_database()", "usename = ANY(%s)",
+                   "pid <> pg_backend_pid()", "LIMIT %s"):
+        assert clause in select, clause
+    params = next(p for sql, p in conn.sql if "pg_stat_activity" in sql)
+    assert params == (APP, 300, 5)
+
+
+def test_mysql_and_mssql_are_scoped_the_same_way():
+    my = _Conn()
+    _platform("mysql", my).apply("db_terminate_idle_in_tx", PARAMS)
+    sql, params = next((s, p) for s, p in my.sql if "innodb_trx" in s)
+    assert "p.db = DATABASE()" in sql and "p.user IN %s" in sql and "CONNECTION_ID()" in sql
+    assert params == (tuple(APP), 300, 5) and my.killed == [101, 102]
+    ms = _Conn()
+    _platform("mssql", ms, users=["orders_app", "orders_ro"]).apply("db_terminate_idle_in_tx", PARAMS)
+    sql, params = next((s, p) for s, p in ms.sql if "dm_exec_sessions" in s)
+    assert "database_id = DB_ID()" in sql and "login_name IN (%s, %s)" in sql and "@@SPID" in sql
+    assert params == ("orders_app", "orders_ro")
+
+
+def test_the_ceiling_holds_in_python_even_if_the_server_returns_more():
+    conn = _Conn(stuck=range(200, 260))
+    _platform(conn=conn).apply("db_terminate_idle_in_tx", {**PARAMS, "max_sessions": 3})
+    assert conn.killed == [200, 201, 202]
+
+
+@pytest.mark.parametrize(("change", "match"), [
+    ({"database": "billing"}, "not the one this platform is connected to"),
+    ({"min_idle_seconds": 10}, "outside the bounds"),
+    ({"max_sessions": 0}, "outside the bounds"),
+    ({"max_sessions": 50}, "outside the bounds"),
+    ({"max_sessions": True}, "outside the bounds"),
+])
+def test_a_plan_outside_the_bounds_or_for_another_database_is_refused_before_any_close(change, match):
+    conn = _Conn()
+    with pytest.raises(DatabasePlatformError, match=match):
+        _platform(conn=conn).apply("db_terminate_idle_in_tx", {**PARAMS, **change})
+    assert conn.killed == []
+
+
+def test_no_app_logins_named_closes_nothing():
+    conn = _Conn()
+    with pytest.raises(DatabasePlatformError, match="no application logins"):
+        _platform(conn=conn, users=[" ", ""]).apply("db_terminate_idle_in_tx", PARAMS)
+    assert conn.killed == []
+
+
+@pytest.mark.parametrize("engine", ["redis", "mongo", "sqlite"])
+def test_engines_without_an_idle_in_transaction_state_are_refused(engine):
+    with pytest.raises(DatabasePlatformError, match="no terminate support"):
+        DatabasePlatform(engine=engine, conn=_Conn(), app_users=APP)
+
+
+def test_other_entries_and_faults_are_errors():
+    with pytest.raises(DatabasePlatformError, match="not something the database platform does"):
+        _platform().apply("db_terminate_blocker", {"database": "orders", "pid": "7"})
+    with pytest.raises(DatabasePlatformError):
+        _platform(conn=_Conn(fail=True)).apply("db_terminate_idle_in_tx", PARAMS)
+
+
+def test_ids_are_ints_before_they_reach_kill():
+    conn = _Conn(stuck=["7; DROP TABLE orders"])
+    with pytest.raises(DatabasePlatformError, match="invalid literal for int"):
+        _platform("mysql", conn).apply("db_terminate_idle_in_tx", PARAMS)
+    assert not any(sql.startswith("KILL") for sql, _ in conn.sql)
+
+
+def test_nothing_to_roll_back_and_health_is_a_positive_read():
+    p = _platform(conn=_Conn(stuck=()))
+    assert "nothing to roll back" in p.rollback("db_terminate_idle_in_tx", PARAMS, {})
+    assert p.knows("orders") and p.healthy("orders") and not p.healthy("billing")
+    assert not _platform(conn=_Conn(stuck=(9,))).healthy("orders")
+    assert not _platform(conn=_Conn(stuck=()), users=[]).healthy("orders")
+
+
+def test_an_approved_close_runs_through_the_workflow_end_to_end(world, owner, monkeypatch):  # noqa: F811
+    conn = _Conn(stuck=(101,))
+    platform = _platform(conn=conn)
+    world["platform"] = RoutedPlatform(db=platform)
+    # After the close the database is healthy: no session is stuck any more.
+    original = platform.apply
+
+    def apply_then_clear(entry, params):
+        out = original(entry, params)
+        conn.stuck = []
+        return out
+
+    monkeypatch.setattr(platform, "apply", apply_then_clear)
+    out = _run(world, _approve_with(owner), entry="db_terminate_idle_in_tx", service="orders", params=PARAMS)
+    assert out.status == "recovered", (out.status, out.reasons)
+    assert conn.killed == [101]

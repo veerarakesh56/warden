@@ -348,6 +348,22 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **One write path: the RemediationWorkflow and its platforms** (decision D16; audit A-B-H1..H3). The
+  in-process live backends (`remediation_k8s.py`, `database_remediation.py`, `WARDEN_REMEDIATION=live`)
+  are removed; `warden run --principal --approve` is a dry run. A live change goes through the
+  workflow's signed approval of the exact plan, carried out by platforms a worker connects with
+  `warden worker --platform k8s|db|all`:
+  - Kubernetes (`platforms/k8s.py`): a rollout restart, or a scale up by at most two replicas, written
+    only if the count is still the one just read - a count that moved since the approval is refused,
+    where the old backend re-read and stepped. It reads one Deployment with `get`: the write
+    ServiceAccount cannot list, and a first version that listed would have failed closed on every
+    real cluster; CI now runs the platform impersonating that ServiceAccount. Rollout undo stays
+    refused until an admission policy narrows the write (A-I-11).
+  - Databases (`platforms/db.py`): sessions idle in a transaction, only in the connected database and
+    only for the application's logins (`WARDEN_DB_APP_USERS`) - the old selection crossed every
+    database on the server (A-B-H1). PostgreSQL, MySQL, SQL Server; Redis terminate is dropped (A-B-H3)
+    and MongoDB's (which killed running operations, not idle sessions) with it.
+  - The mutation check's seven mutations of the removed modules become nine of the platforms.
 - **Every install is hash-locked and every image pinned by digest** (audit A-I-9, A-I-24; fourth review
   E). Deploy jobs ran unpinned `pip install` while holding cloud credentials. Now one `uv.lock` holds every
   version and hash - the package, CI's tools and the pipelines' helpers - and every workflow installs

@@ -1,9 +1,9 @@
 # The WRITE path — deliberately separate from the read-only `warden` ServiceAccount in rbac.yaml.
 #
-# WARDEN is read-only by default. When an operator ARMS live remediation (WARDEN_REMEDIATION=live),
-# the one thing it may do to a cluster is restart or scale a Deployment — and even then only after
-# the four-way policy gate passes. This ServiceAccount is the boundary for that: it can `get` and
-# `patch` deployments and no other verb or resource.
+# WARDEN is read-only by default. Its one write path is the RemediationWorkflow (decision D16): after a
+# signed approval of the exact plan, a worker started with `warden worker --platform k8s` may restart a
+# Deployment or scale it up by at most two. This ServiceAccount is the boundary for that: it can `get`
+# and `patch` deployments and no other verb or resource.
 #
 # ⚠ AUDIT 2026-09-28 (A-I-11): `patch deployments` is NOT "restart or scale only". It can rewrite the
 # whole pod template (image, command, serviceAccountName, secret env/volume mounts), which is
@@ -38,8 +38,9 @@ metadata:
   labels:
     app.kubernetes.io/name: warden
     app.kubernetes.io/component: remediation
-# The ruler is src/warden/remediation_k8s.py: it calls read_namespaced_deployment (get) and
-# patch_namespaced_deployment (patch). Two grants, two callers. Nothing else — not even list.
+# The ruler is src/warden/platforms/k8s.py: it calls read_namespaced_deployment (get) and
+# patch_namespaced_deployment (patch). Two grants, two callers. Nothing else - not even list; CI runs the
+# platform impersonating this ServiceAccount to prove the two are enough.
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]

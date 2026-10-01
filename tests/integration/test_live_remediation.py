@@ -1,12 +1,13 @@
-"""The LIVE remediation backend against a REAL cluster. Skipped unless opted in; fails (not skips)
-if opted in and no cluster is reachable.
+"""The Kubernetes platform behind the RemediationWorkflow (decision D16) against a REAL cluster. Skipped
+unless opted in; fails (not skips) if opted in and no cluster is reachable.
 
     WARDEN_K8S_INTEGRATION=1 pytest tests/integration/test_live_remediation.py -q
 
 It is self-contained: it creates its own throwaway Deployment, so it cannot disturb the read-path
-integration tests (which operate on `checkout`). It proves the one thing the unit tests cannot — that
-`patch_namespaced_deployment` against a real API server actually changes the running Deployment:
-a scale_up raises the replica count, and a restart stamps the rollout annotation. Cleans up after.
+integration tests (which operate on `checkout`). It proves what the unit tests cannot - that against a
+real API server the conditional JSON Patch is accepted and changes the running Deployment, that a count
+that moved is refused with nothing changed, that a restart stamps the rollout annotation, and that a
+rollback returns the count. Cleans up after.
 """
 
 from __future__ import annotations
@@ -22,9 +23,7 @@ pytestmark = pytest.mark.skipif(
 
 kubernetes = pytest.importorskip("kubernetes", reason="pip install -e '.[k8s]'")
 
-from warden.models import ActionKind
-from warden.remediation import RemediationError
-from warden.remediation_k8s import KubernetesRemediationBackend
+from warden.platforms.k8s import RESTARTED_AT, KubernetesPlatform, KubernetesPlatformError
 
 NS = "default"
 NAME = "warden-rem-target"
@@ -78,23 +77,62 @@ def target(apps):
         pass
 
 
-def test_scale_up_actually_raises_replicas_on_the_real_deployment(apps, target):
+def _params(**kw):
+    return {"namespace": NS, "deployment": NAME, **kw}
+
+
+def test_live_reads_the_real_deployment(apps, target):
+    live = KubernetesPlatform(apps=apps, namespace=NS).live("k8s_scale", _params())
+    assert NAME in live["deployment"] and live["namespace"] == {NS}
+    assert live["state"]["replicas"] == live["current_replicas"] >= 1
+
+
+def test_an_approved_scale_changes_the_real_deployment_and_rollback_returns_it(apps, target):
+    p = KubernetesPlatform(apps=apps, namespace=NS)
     before = apps.read_namespaced_deployment(NAME, NS).spec.replicas or 1
-    backend = KubernetesRemediationBackend(apps=apps, namespace=NS)
-    msg = backend.apply(ActionKind.scale_up, NAME, "staging")
-    after = apps.read_namespaced_deployment(NAME, NS).spec.replicas
-    assert after == before + 1, f"scale_up did not change the cluster: {msg}"
+    msg = p.apply("k8s_scale", _params(replicas=before + 1))
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before + 1, msg
+    p.rollback("k8s_scale", _params(replicas=before + 1), {"replicas": before})
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before
 
 
-def test_restart_actually_stamps_the_rollout_annotation(apps, target):
-    backend = KubernetesRemediationBackend(apps=apps, namespace=NS)
-    backend.apply(ActionKind.restart_pods, NAME, "staging")
-    dep = apps.read_namespaced_deployment(NAME, NS)
-    anns = dep.spec.template.metadata.annotations or {}
-    assert "kubectl.kubernetes.io/restartedAt" in anns, "restart did not stamp the template"
+def test_a_count_that_moved_is_refused_by_the_real_api_server(apps, target):
+    """The JSON Patch `test` op, as a real API server evaluates it: expecting a count the Deployment no
+    longer has changes nothing."""
+    p = KubernetesPlatform(apps=apps, namespace=NS)
+    now = apps.read_namespaced_deployment(NAME, NS).spec.replicas or 1
+    with pytest.raises(KubernetesPlatformError, match="nothing was changed"):
+        p._write_replicas(NAME, expect=now + 5, to=now + 1)
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == now
 
 
-def test_it_refuses_a_rollback_against_a_real_cluster_too(apps, target):
-    backend = KubernetesRemediationBackend(apps=apps, namespace=NS)
-    with pytest.raises(RemediationError):
-        backend.apply(ActionKind.rollback_deploy, NAME, "staging")
+def test_a_restart_stamps_the_rollout_annotation(apps, target):
+    KubernetesPlatform(apps=apps, namespace=NS).apply("k8s_restart", _params())
+    anns = apps.read_namespaced_deployment(NAME, NS).spec.template.metadata.annotations or {}
+    assert RESTARTED_AT in anns, "restart did not stamp the template"
+
+
+def test_a_rollout_undo_is_refused_against_a_real_cluster_too(apps, target):
+    p = KubernetesPlatform(apps=apps, namespace=NS)
+    assert p.live("k8s_rollout_undo", _params()) == {}
+    with pytest.raises(KubernetesPlatformError):
+        p.apply("k8s_rollout_undo", _params(to_revision="1"))
+
+
+def test_the_platform_works_as_the_least_privilege_service_account(apps, target):
+    """Everything above runs with the runner's admin kubeconfig, which can do anything - so a platform
+    that needed more than the write ServiceAccount grants would pass there and fail in a real cluster.
+    This impersonates `warden-remediator` (k8s/remediation-rbac.yaml: get and patch deployments, not
+    even list; CI applies it before this step): reading, scaling and rolling back must all work as it."""
+    from kubernetes import client
+
+    api = client.ApiClient()
+    api.set_default_header("Impersonate-User", "system:serviceaccount:warden:warden-remediator")
+    p = KubernetesPlatform(apps=client.AppsV1Api(api), namespace=NS)
+    live = p.live("k8s_scale", _params())
+    assert live, "the remediator could not read the Deployment it is meant to change (is remediation-rbac.yaml applied?)"
+    before = live["current_replicas"]
+    p.apply("k8s_scale", _params(replicas=before + 1))
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before + 1
+    p.rollback("k8s_scale", _params(replicas=before + 1), {"replicas": before})
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before

@@ -10,9 +10,9 @@
 > ⚠ **Status correction (2026-09-28).** A full audit found security defects in v0.9.0/v0.10.0
 > (listed in [`CHANGELOG.md`](CHANGELOG.md) under 0.10.0 → Correction, and in
 > [`docs/AUDIT-2026-09-28.md`](docs/AUDIT-2026-09-28.md)). They are being fixed in order of risk;
-> v0.10.0 is **not** "Phase 2 done". Until the fixes land: the remediation workflow has no live
-> platform and refuses every live change; the older opt-in live backends (`WARDEN_REMEDIATION=live`)
-> are being removed; do not point WARDEN at a production system.
+> v0.10.0 is **not** "Phase 2 done". Until the fixes land, do not point WARDEN at a production system.
+> The one write path is the remediation workflow (decision D16): a worker started without
+> `--platform` refuses every live change, and the older in-process live backends are removed.
 
 **Status:** v0.10.0 — working, tested, and **measured against a real AWS account** (before v2),
 scored in [`docs/bench/`](docs/bench/README.md). **ECS:** 14 scenarios (13 faults + 1 healthy control) × 3 runs, where the
@@ -40,7 +40,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 | **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
 | **Safety** | 16 policies (P1–P16), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
-| **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. No live platform is connected yet (Phase 4). The older in-process live backends are still in the code, armed only by `WARDEN_REMEDIATION=live`, until they are removed (D16; audit A-B-H1..H3, open) |
+| **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. Platforms for Kubernetes (restart, a bounded scale) and databases (close idle-in-transaction sessions of the app's logins) connect with `warden worker --platform`; the in-process live backends are removed (D16) |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
 | **Reporting** | an incident report for every team - impact, what was read and when, diagnosis, detected patterns, risks before steps, a runbook with real names, per-team follow-ups - redacted, → Slack, Teams or any webhook |
 | **Integrations** | MCP server · OpenTelemetry GenAI conventions · Terraform ECS module |
@@ -105,16 +105,16 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   (staging, qa-staging, pre-prod, qa-prod, prod, dev), an allow/deny action list, the authorised
   principals, and whether WARDEN may auto-remediate at all. An unrecognised environment resolves to a
   restrictive default that can only escalate — widening the environment set can never loosen safety.
-- **A four-way remediation gate.** A fix is applied only when *verdict × environment (permits the action
-  and auto-remediates) × authorised principal × explicit approval* all hold — and even then only through a pluggable backend.
-  The default is dry-run (changes nothing, records what it would do). A **real Kubernetes backend**
-  (`WARDEN_REMEDIATION=live`) restarts or scales a Deployment for real — restart/scale only, clamped
-  (never to zero, never past a ceiling), behind a **separate write-RBAC** ServiceAccount that can
-  `get` and `patch` deployments and nothing else. Arming it is necessary, never sufficient: the gate still
-  decides. **Correction (2026-09-28 audit):** `patch deployments` can rewrite the whole pod template
-  (image, service account, secret mounts), so this RBAC is much broader than "restart or scale"; and
-  this in-process live path trusts a typed environment and principal. It is being removed in favour
-  of the signed-approval workflow; `deployments/scale` plus an admission policy replace the patch.
+- **One write path, behind a signed approval** (decision D16). A live change happens only through the
+  Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, bounds and the
+  kill switch, a fresh read right before acting, apply once, its own success check, rollback. The
+  platforms that carry it out (`warden worker --platform k8s|db|all`) re-check their own bounds:
+  Kubernetes restarts a Deployment or scales it up by at most two, written only if the count is still
+  the one it read; databases close sessions idle in a transaction - in the connected database, for the
+  application's own logins only. The Kubernetes write RBAC (`k8s/remediation-rbac.yaml`) can `get` and
+  `patch` deployments, and `patch` covers the whole pod template: an admission policy narrowing it is
+  still open (audit A-I-11). `warden run --principal ... --approve <digest>` is now a dry run of the
+  older four-way gate: it says whether a fix would pass and changes nothing.
 - **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
   promotion plan — the exact higher environments where the same fix is permitted — and push it to
   Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
@@ -368,50 +368,38 @@ authorised principals, and whether WARDEN may auto-remediate:
 | `prod` | never | restart, scale-up, rollback, failover | scale-down |
 | *anything else* | no | *nothing but escalate* | — (**fails closed**) |
 
-**Remediation is gated five ways** — the action must clear the verifier, the environment must permit
-auto-remediation, the principal must be authorised there, the target must be the resource that
-alerted, and the approval must name **this exact proposal**. Only then does it run, and only through
-a pluggable backend; the shipped `DryRunBackend` changes nothing.
-
-⛔ Since 2026-09-27 `--approve` takes the proposal's **digest** (alert, environment, action, target),
-not a yes/no. A run without it prints the proposal and its digest; a person reads it and approves that
-digest. An approval given on the same command line as the diagnosis approved whatever the model was
-about to propose, before anyone saw it.
+**The CLI gate is a dry run.** `warden run --principal <who> --approve <digest>` checks the verifier's
+verdict, the environment, the principal and an approval of **this exact proposal** (its digest:
+alert, environment, action, target) - and changes nothing. A run without `--approve` prints the digest.
 
 ```bash
-# Step 1: diagnose in staging; the report shows the proposal and its digest:
 warden run --incident inc-002 --environment staging --principal role:oncall --report
 #   -> Remediation: awaiting_approval  "... To approve exactly this proposal: --approve 3f2a9c1b7d4e"
-
-# Step 2: approve exactly that proposal (dry-run by default), and print the promotion report:
 warden run --incident inc-002 --environment staging --principal role:oncall --approve 3f2a9c1b7d4e --report
-#   -> Remediation: dry_run  "would scale_up 'checkout' in staging"
-#   -> Promotion:  pre-prod / qa-prod / prod  (a human applies)
-# If the model proposes anything else on the second run, the digest does not match and nothing runs.
-
-# The same request in prod is refused by policy, not by chance:
-warden run --incident inc-002 --principal role:oncall --approve 3f2a9c1b7d4e
-#   -> Remediation: not_auto_remediable  (prod never auto-applies)
-
-# Arm the REAL Kubernetes backend (restart/scale for real) — still gated, still staging-only here:
-kubectl apply -f k8s/remediation-rbac.yaml            # the separate write-RBAC, once
-WARDEN_REMEDIATION=live WARDEN_BACKEND=k8s \
-  warden run --incident inc-002 --environment staging --principal svc:warden-staging --approve <digest>
-#   -> Remediation: applied  "scaled deployment/checkout in default from 1 to 2 replica(s)"
-# It acts as whatever identity your kubeconfig (or the pod's in-cluster config) holds - bind that to
-# the warden-remediator ServiceAccount for the least-privilege boundary. On a workload whose every
-# pod is OOM-killed (the one k8s/test/ ships), P11 now escalates this scale_up instead.
+#   -> Remediation: dry_run  "would scale_up 'checkout' in staging (no change made; a live change goes
+#      through the RemediationWorkflow ...)"
 ```
 
-**Live remediation** (`WARDEN_REMEDIATION=live`) arms a router that sends each approved action to the
-backend that can perform it — Kubernetes actions to `KubernetesRemediationBackend`, database actions to
-`DatabaseRemediationBackend` — and refuses anything neither can do. On the cluster side it does a real
-rollout **restart** or **scale** (up/down, clamped ≥1 and ≤ a ceiling) via `patch deployments`. Its
-permission is a separate `warden-remediator` ServiceAccount (`k8s/remediation-rbac.yaml`, not in the
-default deploy) that can get and patch deployments and nothing else (but see the 2026-09-28 correction above: `patch` covers the whole pod template) — that verb boundary is proven both ways
-by `kubectl auth can-i`; the live restart/scale test itself ran with the CI runner's k3d admin
-kubeconfig, not as that ServiceAccount. The restart/scale is proven against a live k3d cluster (not yet executed on EKS - the
-benchmark measures what WARDEN proposes, and never lets it act). The four-way gate is unchanged.
+**A live change goes through the RemediationWorkflow** (decision D16). A worker connects the platforms it
+may change, and nothing else:
+
+```bash
+kubectl apply -f k8s/remediation-rbac.yaml        # the separate write-RBAC, once
+WARDEN_K8S_NAMESPACE=shop warden worker --platform k8s
+# a remediation is requested (MCP tool `request_remediation`), the workflow plans it from live state:
+warden status rem-...                             # the plan and its hash
+warden approve rem-... --plan-hash <hash> --approver owner --key owner.pem
+#   -> applied once, then its own health check: recovered, or rolled back
+```
+
+The Kubernetes platform does two things: a rollout **restart** (the `restartedAt` annotation, as
+`kubectl rollout restart` does) and a **scale up** by at most two replicas, never past
+`WARDEN_REMEDIATION_MAX_REPLICAS`, written with a JSON Patch `test` of the count it just read - a count
+that moved since the approval is refused, not stepped from. A rollout undo reads no revisions yet, so
+it is refused until an admission policy narrows the write (audit A-I-11). Its credential is the
+`warden-remediator` ServiceAccount (get and patch deployments; `kubectl auth can-i` proves the verbs
+both ways in CI). CI runs the platform against a live k3d cluster with the runner's admin kubeconfig;
+it has not been executed on EKS.
 
 
 ### Injection detector (optional, `WARDEN_TRIPWIRE`)
@@ -470,41 +458,40 @@ construction** — every statement is a SELECT/SHOW/INFO/CONFIG GET/CLIENT LIST/
 module's AST and fails if a write verb reaches anything it could execute. Query text is redacted
 before it becomes evidence, because a query can carry PII.
 
-**Write — one action: `terminate_connections`.** Connections stuck *idle in transaction* hold pool
-slots and row locks; killing them is the standard on-call fix and destroys no data (the transaction
-rolls back, the application reconnects). Per engine: `pg_terminate_backend` · `KILL` · `CLIENT KILL` ·
-`killOp` · `KILL` (SQL Server). Three clamps in each engine's selection; the count ceiling is enforced **again in Python**, so a
-broken `LIMIT` cannot widen it:
+**Write - one action: close sessions idle in a transaction.** They hold pool slots and row locks;
+closing them is the standard on-call fix and destroys no data (the transaction rolls back, the
+application reconnects). The database platform (`platforms/db.py`, behind the RemediationWorkflow) does
+it for PostgreSQL (`pg_terminate_backend`), MySQL (`KILL`) and SQL Server (`KILL`) - only:
 
 | clamp | value |
 |---|---|
-| only connections stuck beyond | `WARDEN_DB_TERMINATE_IDLE_SECS` (default 300s) |
-| at most | `WARDEN_DB_TERMINATE_MAX` (default 20) |
-| never | its own connection (`pg_backend_pid()` / `CONNECTION_ID()` / `client_id()` / `@@SPID`) |
+| in the database | it is connected to (`current_database()` / `DATABASE()` / `DB_ID()`) |
+| for the logins | the application's own, `WARDEN_DB_APP_USERS` - none named means none closed |
+| idle in a transaction for | at least the plan's `min_idle_seconds`, never under `WARDEN_DB_TERMINATE_IDLE_SECS` (300 s) |
+| at most | the plan's `max_sessions`, never over `WARDEN_DB_TERMINATE_MAX` (20) - again in Python |
+| never | its own session (`pg_backend_pid()` / `CONNECTION_ID()` / `@@SPID`) |
 
-`WARDEN_DB_DRY_RUN=1` selects the candidates and reports the count **without killing anything** — and
-in that mode the backend reports itself as not-live, so the audit records a dry run rather than a
-change. Everything else a database incident might want — failover, promotion, schema change, FLUSH,
-DROP — is deliberately absent: `failover_replica` is rejected by policy in prod (P2) and by the staging / qa-staging / pre-prod / qa-prod allow-lists; in dev, P6 escalates it, and the rest are not
-in the action enum at all.
+Redis and MongoDB are read, not written: Redis terminate was dropped (D16), and MongoDB's "terminate"
+killed running operations rather than idle sessions. Everything else a database incident might want -
+failover, promotion, schema change, FLUSH, DROP - stays with a person: `failover_replica` is rejected by
+policy in prod (P2) and by the staging / qa-staging / pre-prod / qa-prod allow-lists; in dev, P6
+escalates it.
 
 Its credential is a **separate least-privilege role** (`WARDEN_DB_ADMIN_DSN`), the database twin of the
-write-RBAC ServiceAccount. The role that reads health needs none of these, and this role needs nothing
-else:
+write-RBAC ServiceAccount:
 
-| engine | to kill | to SEE other users' sessions (without it the selection finds nothing) |
+| engine | to close | to SEE other users' sessions (without it the selection finds nothing) |
 |---|---|---|
 | PostgreSQL | `pg_signal_backend` | `pg_read_all_stats` |
 | MySQL | `CONNECTION_ADMIN` | `PROCESS` |
 | SQL Server | `ALTER ANY CONNECTION` | `VIEW SERVER STATE` |
-| Redis | ACL `CLIENT\|KILL` | ACL `CLIENT\|ID`, `CLIENT\|LIST` |
-| MongoDB | `killop` | `inprog` |
 
-⚠ The read column was missing until 2026-09-25, and CI does not exercise these least-privilege roles:
-its `db` job connects as each server's superuser. The grants above follow each engine's documentation.
+⚠ CI does not exercise these least-privilege roles: its `db` job connects as each server's superuser.
+The grants follow each engine's documentation.
 
-Every engine is exercised against a real server in CI, not a stub: the `db` job runs all five as
-service containers and asserts a stuck connection is selected, terminated and gone.
+The three engines are exercised against real servers in CI, not stubs: the `db` job asserts a stuck
+session is selected, closed and gone, that the platform never selects its own session, and that a
+login outside the allowlist is never selected.
 
 **PostgreSQL is measured on Amazon RDS.** Six scenarios (5 injected faults + 1 healthy control) x 3 runs on RDS for PostgreSQL 16.13
 (`docs/bench/wave3-2026-09-25T044307Z`): stuck transactions, a saturated pool, a 15-minute query, lock
@@ -589,14 +576,13 @@ flowchart TB
     DONE -.->|"flag: --json"| JSON([RunReport JSON<br/>redaction map never serialised])
 
     subgraph ACT[Writes - separate credentials, off by default]
-        DRY[DryRunBackend<br/>default: records, changes nothing]
-        RT[LiveRemediationRouter<br/>WARDEN_REMEDIATION=live<br/><i>remediation_k8s.py</i>]
-        KW[restart / scale one Deployment<br/>ServiceAccount warden-remediator:<br/>get + patch deployments only]
-        DW[terminate stuck sessions<br/><i>database_remediation.py</i><br/>WARDEN_DB_ADMIN_DSN, one grant]
+        DRY[DryRunBackend<br/>the CLI gate: records, changes nothing]
+        WF[RemediationWorkflow<br/>signed approval of the exact plan<br/><i>workflows.py</i>]
+        KW[restart / bounded scale<br/><i>platforms/k8s.py</i><br/>ServiceAccount warden-remediator]
+        DW[close idle-in-transaction sessions<br/><i>platforms/db.py</i><br/>own database, app logins only]
     end
     REM --> DRY
-    REM -.-> RT
-    RT --> KW & DW
+    WF --> KW & DW
 
     MCP -->|verify_remediation| N6
     MCP -->|redact_text| N3
@@ -614,8 +600,8 @@ flowchart TB
   environment policy, and every `verify_remediation` reply carries `may_execute: false`. Its `gather_incident_context`
   reads the bundled fixtures only - it is not wired to a live backend.
 - **Writing is a different program path with different credentials.** The read backends cannot
-  write by construction (and a test parses each module for write verbs); the write backends are
-  reached only through `decide_remediation`, and only with `WARDEN_REMEDIATION=live`.
+  write by construction (and a test parses each module for write verbs); the write platforms are
+  reached only through the RemediationWorkflow, after a signed approval of the exact plan.
 
 ### 1. One incident, end to end
 
@@ -751,8 +737,7 @@ flowchart LR
     Q4 -->|yes| Q5{explicitly approved?}
     Q5 -->|no| N5[awaiting_approval]
     Q5 -->|yes| B{backend}
-    B -->|default| DR[dry-run: records what it would do]
-    B -->|WARDEN_REMEDIATION=live| LV[Kubernetes: restart / scale<br/>Database, 5 engines: terminate stuck sessions<br/>own least-privilege credentials]
+    B -->|always| DR[dry-run: records what it would do<br/>a live change goes through the RemediationWorkflow]
 ```
 
 Production is never auto-remediated by default (`environments.yaml`); the report's promotion plan
@@ -991,13 +976,14 @@ The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
   CloudWatch for EKS or RDS (no Container Insights, no EKS control-plane logs, no RDS log exports), RDS
   Performance Insights, and any CPU/memory/IOPS figure for either - each report says what was and
   was not read. Loki and Datadog are one backend class each, not done here.
-- Remediation is **dry-run by default**. Live backends ship for Kubernetes (restart/scale) and for
-  databases (terminate stuck connections), and CI exercises both against real infrastructure - a real
-  Kubernetes cluster (k3d) and all five engines as service containers. Neither has been executed
-  against EKS or RDS: the benchmark there measures what WARDEN proposes and never lets it act. They stay off unless armed *and* the four-way
-  gate passes, and they deliberately do only those things. No live backend performs a rollback or
-  clear_cache (the router refuses them); failover is rejected by policy in prod (P2) and by the staging / qa-staging / pre-prod / qa-prod allow-lists; in dev, P6 escalates it; delete, schema change and
-  FLUSH are not in the action enum at all.
+- **One write path:** the RemediationWorkflow and its platforms - Kubernetes (restart, a scale up by
+  at most two) and databases (close idle-in-transaction sessions in PostgreSQL, MySQL and SQL Server).
+  CI exercises both against real infrastructure: a k3d cluster and the three engines as service
+  containers. Neither has been executed against EKS or RDS: the benchmark there measures what WARDEN
+  proposes and never lets it act. No platform performs a rollout undo yet (it waits for an admission
+  policy, A-I-11) or clear_cache; failover is rejected by policy in prod (P2) and by the staging /
+  qa-staging / pre-prod / qa-prod allow-lists; in dev, P6 escalates it; delete, schema change and FLUSH
+  are not in the action enum at all.
 - **Oracle is not supported** (a licensed, heavy client), and no database *failover* or schema change
   is offered at any tier — by design, not omission.
 - **Managed databases: PostgreSQL on RDS is measured** (reading, 18 runs). MySQL, Redis, MongoDB and

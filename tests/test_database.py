@@ -449,7 +449,7 @@ def _statements_this_module_can_execute(path: pathlib.Path) -> list[str]:
 
 
 def test_the_read_backend_contains_no_executable_write_verb():
-    """Read-only BY CONSTRUCTION. The write path lives in database_remediation.py, behind its own
+    """Read-only BY CONSTRUCTION. The write path lives in platforms/db.py, behind its own
     credential — exactly as the k8s read backend is separate from the k8s write backend."""
     path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "database.py"
     offenders = [
@@ -460,9 +460,9 @@ def test_the_read_backend_contains_no_executable_write_verb():
 
 
 def test_the_tripwire_can_actually_fire():
-    """A guard nobody has watched fail is not a guard. The remediation module DOES write, so the same
+    """A guard nobody has watched fail is not a guard. The database platform DOES write, so the same
     check must flag it — otherwise the test above passes for the wrong reason."""
-    path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "database_remediation.py"
+    path = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "db.py"
     found = [
         verb for s in _statements_this_module_can_execute(path)
         for verb in WRITE_VERBS if verb in s.lower()
