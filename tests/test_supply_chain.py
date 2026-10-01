@@ -101,3 +101,33 @@ def test_the_image_build_context_is_an_allowlist():
                             re.MULTILINE))
     allowed = {ln[1:].rstrip("/") for ln in lines if ln.startswith("!")}
     assert {f for c in copied for f in c.split()} <= allowed, (copied, allowed)
+
+
+def _requirement(req: str) -> tuple[str, tuple[str, ...], str]:
+    m = re.fullmatch(r"\s*([A-Za-z0-9_.-]+)(?:\[([^\]]+)\])?\s*(.*?)\s*", req)
+    name = re.sub(r"[-_.]+", "-", m.group(1)).lower()
+    extras = tuple(sorted(e.strip() for e in (m.group(2) or "").split(",") if e.strip()))
+    return name, extras, m.group(3).replace(" ", "")
+
+
+def test_the_lock_was_made_from_this_pyproject():
+    """uv.lock records the requirements it was resolved from. A group added after the last `uv lock` turned
+    every pipeline red on 2026-10-01 (`uv sync --locked` refuses a stale lock); this fails it locally."""
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    meta = next(p for p in lock["package"] if p["name"] == "warden")["metadata"]
+
+    def locked(entries):
+        return {(re.sub(r"[-_.]+", "-", e["name"]).lower(), tuple(sorted(e.get("extras", []))),
+                 e.get("specifier", "")) for e in entries}
+
+    want = {(*_requirement(r), "") for r in project["project"]["dependencies"]}
+    want |= {(*_requirement(r), x) for x, reqs in project["project"]["optional-dependencies"].items() for r in reqs}
+    have = {(re.sub(r"[-_.]+", "-", d["name"]).lower(), tuple(sorted(d.get("extras", []))), d.get("specifier", ""),
+             re.search(r"extra == '([^']+)'", d["marker"]).group(1) if d.get("marker") else "")
+            for d in meta["requires-dist"]}
+    assert want == have, (sorted(want - have), sorted(have - want))
+    groups = {g: {_requirement(r) for r in reqs} for g, reqs in project["dependency-groups"].items()}
+    assert groups == {g: locked(reqs) for g, reqs in meta["requires-dev"].items()}
