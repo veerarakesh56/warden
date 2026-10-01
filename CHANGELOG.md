@@ -485,6 +485,10 @@ bump may carry a breaking change.
   register parser reads neither - planted on the real audit, a quoted row marked DONE-local with Evidence "trust
   me" passed every check. README's test counts are 3,709 unit tests (3,631 counted the evals twice) and 38 live
   tests (27 Kubernetes, 11 databases), and a test now holds the live counts to what pytest collects.
+  The audit's A-R8 section holds every eighth-review defect of medium-low and above with its commit, and the
+  open items as R8-O1..O4: a model call abandoned mid-flight can be paid again by the next run; an ECS service
+  may be given another environment's subnets and the boundary pins no account; the admission policy does not hold
+  managedFields; and lesser gaps. The seventh review's rows carry the eighth's PARTIAL verdicts.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
