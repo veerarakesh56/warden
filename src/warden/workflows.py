@@ -13,6 +13,7 @@ the workflow's own success check can, and the agent has no way to write to it.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 from temporalio import workflow
@@ -75,6 +76,16 @@ class RemediationWorkflow:
             done["audited"] = True
             return outcome.model_copy(update={"checklist": dict(done)})
 
+        try:
+            return await self._steps(req, acts, wid, done, end)
+        except asyncio.CancelledError:
+            # A cancelled run still ends on the record, signed - and if the fix was applied, nobody knows what state
+            # it left: the kill switch goes on (eighth review, 2026-10-01: a run cancelled while verifying left no
+            # end row, the switch off, and the next fix on the same service was let through).
+            await end("cancelled_after_apply" if done["applied"] else "cancelled", ["the run was cancelled"])
+            raise
+
+    async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
         plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, args=[req, wid], **QUICK)
         if plan.problems:
             return await end("refused", plan.problems)

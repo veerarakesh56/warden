@@ -97,7 +97,8 @@ def test_killswitch_cli_on_status_and_a_signed_reset(tmp_path, monkeypatch, caps
     reset = ["killswitch", "reset", "--approver", "owner", "--key", str(tmp_path / "owner.pem")]
 
     assert cli.main(["killswitch", "on", "--reason", "drill"]) == 0
-    assert "kill switch: ON (drill)" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "kill switch: ON (1 trip since the last reset)" in out and "  - drill" in out
     policy(10)
     assert cli.main(reset) == 1  # the cooling-off applies to a reset too
     assert "T3 needs the plan to exist for 0:10:00" in capsys.readouterr().out

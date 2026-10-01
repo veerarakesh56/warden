@@ -369,8 +369,14 @@ def _killswitch_command(args: argparse.Namespace) -> int:
             _out(f"not reset: {problem}")
         if problems:
             return 1
-    row = bounds.killswitch(log)
-    _out(f"kill switch: ON ({row['body']['reason']})" if row else "kill switch: off")
+    on = bounds.trips(log)
+    if not on:
+        _out("kill switch: off")
+        return 0
+    # Every trip since the last reset: a reset is signed for the latest, and the approver must have seen them all.
+    _out(f"kill switch: ON ({len(on)} trip{'s' if len(on) != 1 else ''} since the last reset)")
+    for row in on:
+        _out(f"  - {_one(row['body']['reason'])}")
     return 0
 
 

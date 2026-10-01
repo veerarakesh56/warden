@@ -324,3 +324,53 @@ def test_an_ordinary_end_leaves_the_kill_switch_alone(world):
     for status in ("recovered", "rolled_back", "not_recovered", "refused", "refused_at_apply", "expired", "drifted"):
         acts.finish("inc-42", "rem-x", FixOutcome(status=status, checklist={}))
     assert bounds.killswitch(world["log"]) is None
+
+
+def test_a_run_cancelled_after_apply_ends_on_the_record_and_trips_the_kill_switch(world, owner):
+    """Eighth review (2026-10-01): cancelled while verifying an applied fix, a run left no end row and the kill
+    switch off - the next fix on the same service was let through."""
+    from warden import bounds
+
+    approve = _approve_with(owner)
+
+    async def drive(handle):
+        await approve(handle)
+        for _ in range(400):
+            if await handle.query(RemediationWorkflow.stage) == "verifying":
+                break
+            await asyncio.sleep(0.05)
+        await handle.cancel()
+
+    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+        _run(world, drive)
+    ends = [e["body"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
+    assert [e["status"] for e in ends] == ["cancelled_after_apply"], ends
+    assert bounds.killswitch(world["log"]) is not None
+
+
+def test_every_unknown_end_is_its_own_trip_and_a_reset_names_the_latest(world):
+    """Eighth review: a switch already on swallowed a second unknown end, and one reset signed for the first trip
+    cleared both."""
+    from warden import bounds
+    from warden.activities import FixOutcome
+
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+    acts.finish("inc-42", "rem-a", FixOutcome(status="rollback_failed", reasons=["A"], checklist={}))
+    first = bounds.killswitch(world["log"])
+    acts.finish("inc-43", "rem-b", FixOutcome(status="apply_failed", reasons=["B"], checklist={}))
+    assert [r["body"]["reason"] for r in bounds.trips(world["log"])] == ["rem-a ended rollback_failed: A",
+                                                                        "rem-b ended apply_failed: B"]
+    latest = bounds.killswitch(world["log"])
+    assert bounds.trip_hash(latest) != bounds.trip_hash(first)  # an approval of the first trip resets nothing
+
+
+def test_a_retried_finish_writes_one_end_row(world, monkeypatch):
+    """Eighth review: Temporal retries `finish` when a step after its end row fails - a second end row was written."""
+    from warden import activities as acts_module
+    from warden.activities import FixOutcome
+
+    monkeypatch.setattr(acts_module, "_run_id", lambda: "run-1")
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+    for _ in range(2):
+        acts.finish("inc-42", "rem-a", FixOutcome(status="recovered", checklist={}))
+    assert len(world["log"].entries("inc-42", kinds=("workflow.end",))) == 1

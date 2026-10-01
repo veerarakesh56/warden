@@ -458,6 +458,10 @@ bump may carry a breaking change.
   ("test" in `latest-api` read it as moved). CI now refuses removing a template annotation, pausing and a big
   step down on the real API server. The policy does not hold `metadata.managedFields` (the API server rewrites
   it itself); README and the manifest say so.
+  A remediation run cancelled after its fix was applied ends on the record, `cancelled_after_apply`, and trips
+  the kill switch - it left no end row and the switch off. Every unknown end is its own trip, and a reset
+  must name the latest: a second one while the switch was on left no row, and one reset signed for the first
+  cleared both. `warden killswitch` lists every trip since the last reset. A retried `finish` writes one end row.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

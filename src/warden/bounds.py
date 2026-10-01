@@ -49,10 +49,19 @@ def killswitch(log: AuditLog) -> dict | None:
     return last[-1] if last and last[-1]["kind"] == TRIPPED else None
 
 
-def trip(log: AuditLog, correlation_id: str, reason: str) -> None:
-    if killswitch(log) is None:
-        log.append(correlation_id, TRIPPED, {"reason": reason})
-        log.checkpoint()
+def trip(log: AuditLog, correlation_id: str, reason: str, **run: str) -> None:
+    """Every trip is a row, the switch on or not: a second run ending in an unknown state while it was on left no
+    row, and one reset - signed for the first trip, its reason the only one the approver saw - cleared both (eighth
+    review, 2026-10-01). A reset names the latest trip."""
+    log.append(correlation_id, TRIPPED, {"reason": reason, **run})
+    log.checkpoint()
+
+
+def trips(log: AuditLog) -> list[dict]:
+    """Every trip since the last reset, oldest first: what an approver must see before resetting."""
+    rows = log.entries(kinds=(TRIPPED, RESET))
+    since = max((i for i, r in enumerate(rows) if r["kind"] == RESET), default=-1)
+    return [r for r in rows[since + 1:] if r["kind"] == TRIPPED]
 
 
 def trip_hash(row: dict) -> str:

@@ -76,7 +76,7 @@ class Recorded(BaseModel):
 
 
 # Ends that leave the target in a state nobody knows: the kill switch goes on (bounds.trip).
-PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed"})
+PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed", "cancelled_after_apply"})
 
 
 class FixOutcome(BaseModel):
@@ -285,7 +285,7 @@ class RemediationActivities:
             reason = f"rollback failed: {_safe_error(exc)}"
             self.audit.append(plan.incident_id, "remediation.rollback_failed", {**row, "why": reason})
             # A change WARDEN made may still be in place: no further fix runs until a person resets the switch.
-            bounds.trip(self.audit, plan.incident_id, reason)
+            bounds.trip(self.audit, plan.incident_id, reason, workflow_id=plan.workflow_id, run_id=_run_id())
             raise ApplicationError(reason, type=ROLLBACK_FAILED, non_retryable=True) from None
         self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
         return detail
@@ -295,6 +295,11 @@ class RemediationActivities:
         # The signed end row states what THIS run's audit rows show, not what the workflow claims (fourth
         # review: a refused apply was recorded with approved and prechecked True).
         run = _run_id()
+        # Once per run: Temporal retries this activity when a step after the end row fails, and a second end row
+        # was written (eighth review, 2026-10-01).
+        if run and any(e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id") == run
+                       for e in self.audit.entries(incident_id, kinds=("workflow.end",))):
+            return
 
         def ours(kind: str) -> list[dict[str, Any]]:
             return [e["body"] for e in self.audit.entries(incident_id, kinds=(kind,))
@@ -315,12 +320,16 @@ class RemediationActivities:
         body = {"workflow_id": workflow_id, "run_id": run, **outcome.model_dump(), "checklist": recorded}
         if recorded != outcome.checklist:
             body["claimed_checklist"] = outcome.checklist
-        self.audit.append(incident_id, "workflow.end", body)
         # A run that leaves a target in an unknown state stops every automatic fix until a person resets the
         # switch - whatever ended it. Only the rollback activity's own failure tripped it: a rollback past its
         # timeout, or on a worker that died, ended rollback_failed with the switch off (seventh review, 2026-10-01).
-        if outcome.status in PERSON_TAKES_OVER:
-            bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}")
+        # Before the end row, and once per run: the rollback may have tripped it already.
+        if outcome.status in PERSON_TAKES_OVER and not any(
+                t["body"].get("workflow_id") == workflow_id and t["body"].get("run_id") == run
+                for t in bounds.trips(self.audit)):
+            bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}",
+                        workflow_id=workflow_id, run_id=run)
+        self.audit.append(incident_id, "workflow.end", body)
         self.audit.checkpoint()
 
 
