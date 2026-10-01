@@ -5,8 +5,8 @@
 #   started_at  <- now (passed as --started-at now)
 # and the labels below are the SAME for every fault (contract A): the service map a team keeps in
 # tags, naming every component of the application - so they never point at the broken one.
-# A DLQ is found from its queue's RedrivePolicy, never labelled. `warden-dev-ops` (harness-only)
-# and `warden-dev-traffic` (the load generator) are not part of the application and are absent.
+# A DLQ is found from its queue's RedrivePolicy, never labelled. `warden-__ENV__-ops` (harness-only)
+# and `warden-__ENV__-traffic` (the load generator) are not part of the application and are absent.
 #
 # The summary below is the fallback when an alarm has no description.
 
@@ -19,18 +19,18 @@ summary: CloudWatch alarm fired for the shop application on AWS
 started_at: "2026-01-01T00:00:00Z"
 labels:
   app: shop
-  lambda: warden-dev-checkout,warden-dev-order-processor,warden-dev-notifier,warden-dev-reconciler
-  sqs: warden-dev-orders,warden-dev-notifications
-  dynamodb_table: warden-dev-carts
-  elasticache: warden-dev-redis
-  aurora_cluster: warden-dev-aurora
-  alb_target_group: warden-dev-orders
-  apigw: warden-dev-api
-  ecs_cluster: warden-dev-ecs
-  ecs_service: warden-dev-orders-api
-  eks_cluster: warden-dev-eks
+  lambda: warden-__ENV__-checkout,warden-__ENV__-order-processor,warden-__ENV__-notifier,warden-__ENV__-reconciler
+  sqs: warden-__ENV__-orders,warden-__ENV__-notifications
+  dynamodb_table: warden-__ENV__-carts
+  elasticache: warden-__ENV__-redis
+  aurora_cluster: warden-__ENV__-aurora
+  alb_target_group: warden-__ENV__-orders
+  apigw: warden-__ENV__-api
+  ecs_cluster: warden-__ENV__-ecs
+  ecs_service: warden-__ENV__-orders-api
+  eks_cluster: warden-__ENV__-eks
   namespace: shop
   deployment: catalog-api,cart-worker
-  secret: warden-dev-db-app
-  sns_topic: warden-dev-order-events
-  eventbridge_rule: warden-dev-reconcile-5m
+  secret: warden-__ENV__-db-app
+  sns_topic: warden-__ENV__-order-events
+  eventbridge_rule: warden-__ENV__-reconcile-5m

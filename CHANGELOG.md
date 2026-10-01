@@ -444,6 +444,9 @@ bump may carry a breaking change.
   app secret - it wrote `app`, which no IAM grant names, so orders-api would have signed its token for
   the wrong user (MED) - and refuses a stack.json naming another. It acts only on `warden-<env>-aurora`
   itself: a name prefix let `WARDEN_ENV=qa` delete `warden-qa-prod-aurora` (MED).
+  The proving ground's alert names the run's own environment's stack: the template named dev's and
+  nothing rewrote it, while the reader is scoped to its own stack, so outside dev every scoped read was
+  AccessDenied (MED).
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

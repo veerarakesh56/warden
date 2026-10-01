@@ -671,6 +671,10 @@ def _alert_file(env: Env, run: pathlib.Path, scenario: dict, alarm: dict) -> pat
     alert["name"] = scenario.get("alarm") or alert["name"]
     alert["summary"] = alarm.get("description") or alert["summary"]
     alert["severity"] = scenario.get("severity") or alert["severity"]
+    # The run's own stack: the template named dev's, and the reader is scoped to its environment's stack, so every
+    # read was AccessDenied outside dev (seventh review, 2026-10-01).
+    alert["labels"] = {k: v.replace("warden-__ENV__-", fs.PREFIX) if isinstance(v, str) else v
+                       for k, v in alert["labels"].items()}
     path = run / "alerts" / f"{scenario['id']}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(alert, sort_keys=False), encoding="utf-8")
