@@ -447,6 +447,11 @@ bump may carry a breaking change.
   The proving ground's alert names the run's own environment's stack: the template named dev's and
   nothing rewrote it, while the reader is scoped to its own stack, so outside dev every scoped read was
   AccessDenied (MED).
+  The register guard checks, during each cited test's call, that the code its file's `def` compiles to
+  actually started: five one-line bypasses passed the full run with an `assert False` body - a `__code__`
+  swap, a renamed no-op or a wrapper bound under the name, a `pytest_pyfunc_call` answering for the call, a
+  fixture swapping the test object (MED). Three of them, planted into a real full run, are now each named
+  and fail it. The guard's own wiring (exit status, the rebound state, the worker check) is unit-tested.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

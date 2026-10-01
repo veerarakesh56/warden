@@ -8,7 +8,7 @@ import types
 import conftest
 
 CITED = {("tests/test_a.py", "test_one"), ("tests/test_b.py", "test_two")}
-PASSED = {"setup:passed", "call:passed", "teardown:passed"}
+PASSED = {"setup:passed", "call:passed", "teardown:passed", "body-ran"}
 
 
 def test_evidence_that_ran_and_passed_is_accepted():
@@ -18,7 +18,7 @@ def test_evidence_that_ran_and_passed_is_accepted():
 
 def test_skipped_failed_absent_or_rebound_evidence_is_refused():
     base = {"tests/test_a.py::test_one": set(PASSED)}
-    for states in ({"skipped"}, {"setup:passed", "call:failed"}, {*PASSED, "not-genuine"}):
+    for states in ({"skipped"}, {"setup:passed", "call:failed"}, {*PASSED, "not-genuine"}, PASSED - {"body-ran"}):
         reports = {**base, "tests/test_b.py::test_two": states}
         assert conftest.missing_evidence(reports, CITED) == ["tests/test_b.py::test_two"], states
     assert conftest.missing_evidence(base, CITED) == ["tests/test_b.py::test_two"]  # never ran
@@ -62,3 +62,72 @@ def test_a_rebound_test_is_not_genuine(pytester=None):
                                   path=pathlib.Path(inspect.getsourcefile(test_x)), user_properties=[], function=test_x)
     conftest.pytest_collection_modifyitems(None, None, [item2])
     assert item2.user_properties == [("warden_genuine", True)]
+
+
+def sample_evidence():
+    """The `def` a cited test's file defines: the guard watches for THIS code object starting."""
+    return 1
+
+
+def _call_watched(monkeypatch, called):
+    """Run conftest's pytest_pyfunc_call wrapper around `called()`, as pytest would, for a cited test named
+    sample_evidence in this file; return what it recorded."""
+    item = types.SimpleNamespace(nodeid="tests/test_register_guard.py::sample_evidence", originalname="sample_evidence",
+                                 path=pathlib.Path(__file__), user_properties=[])
+    monkeypatch.setattr(conftest, "_cited", lambda: frozenset({("tests/test_register_guard.py", "sample_evidence")}))
+    gen = conftest.pytest_pyfunc_call(item)
+    next(gen)
+    called()
+    try:
+        gen.send(True)
+    except StopIteration:
+        pass
+    return dict(item.user_properties)["warden_body_ran"]
+
+
+def test_only_the_body_the_file_defines_counts(monkeypatch):
+    """Seventh review (2026-10-01): judged at collection, five bypasses passed the full run with an `assert False`
+    body. At call time only the start of the file's own `def` counts."""
+    import functools
+
+    assert _call_watched(monkeypatch, sample_evidence) is True
+
+    swapped = types.FunctionType((lambda: None).__code__, {}, "sample_evidence")  # a `__code__` swap
+
+    def _noop():
+        pass
+
+    _noop.__name__ = _noop.__qualname__ = "sample_evidence"  # a renamed no-op bound under the name
+
+    @functools.wraps(sample_evidence)
+    def wrapper():  # a wraps-wrapper that never calls the body
+        return None
+
+    for fake in (swapped, _noop, wrapper, lambda: None):  # the last: a hook or fixture that answers for the call
+        assert _call_watched(monkeypatch, fake) is False, fake
+
+
+def test_the_guard_judges_the_controllers_whole_run(monkeypatch):
+    """Seventh review: its wiring could be cut with its own tests green - exitstatus never set, the not-genuine
+    state never recorded, the worker check inverted."""
+    tests = pathlib.Path(conftest.__file__).resolve().parent
+    monkeypatch.setattr(conftest, "_REPORTS", {})
+    monkeypatch.setattr(conftest, "_cited", lambda: frozenset({("tests/test_a.py", "test_one")}))
+
+    report = types.SimpleNamespace(nodeid="tests/test_a.py::test_one", skipped=False, when="call", outcome="passed",
+                                   user_properties=[("warden_genuine", False), ("warden_body_ran", True)])
+    conftest.pytest_runtest_logreport(report)
+    assert {"call:passed", "not-genuine", "body-ran"} <= conftest._REPORTS["tests/test_a.py::test_one"]
+
+    plugins = types.SimpleNamespace(get_plugin=lambda name: None)
+    controller = _config(["tests"], base=tests.parent)
+    controller.pluginmanager = plugins
+    session = types.SimpleNamespace(config=controller, exitstatus=0)
+    conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 1  # the not-genuine evidence fails the run
+
+    worker = _config(["tests"], base=tests.parent)
+    worker.pluginmanager, worker.workerinput = plugins, {}
+    session = types.SimpleNamespace(config=worker, exitstatus=0)
+    conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == 0  # a worker sees only its share: the controller judges

@@ -9,9 +9,12 @@ bitten in practice. Tests must never depend on ambient credentials.
 exercise the live path is still honoured; this only supplies the default the Makefile otherwise would.
 """
 
+import ast
+import functools
 import logging
 import os
 import pathlib
+import sys
 
 import pytest
 
@@ -72,11 +75,68 @@ def pytest_collection_modifyitems(session, config, items):
         item.user_properties.append(("warden_genuine", genuine))
 
 
+@functools.cache
+def _cited() -> frozenset[tuple[str, str]]:
+    from test_register import cited_tests
+
+    return frozenset(cited_tests())
+
+
+@functools.cache
+def _def_lines(path: str) -> dict[str, frozenset[int]]:
+    """Each function the file defines, by name: the line its code object starts at (the first decorator's)."""
+    found: dict[str, set[int]] = {}
+    for node in ast.walk(ast.parse(pathlib.Path(path).read_text(encoding="utf-8"))):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            found.setdefault(node.name, set()).add(node.decorator_list[0].lineno if node.decorator_list else node.lineno)
+    return {name: frozenset(lines) for name, lines in found.items()}
+
+
+_TOOL = 4  # a free sys.monitoring tool id: 0-2 and 5 are the debugger, coverage, profiler and optimizer
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_pyfunc_call(pyfuncitem):
+    """Did the body the file defines run? A swapped `__code__`, another function bound under the name, a wrapper,
+    a hook that answers for the call, a fixture swapping `request.node.obj`: each passed the full run with an
+    `assert False` body (seventh review, 2026-10-01). Only cited tests are watched, during their call: the start of
+    the code object whose file, first line and name are the `def`'s."""
+    if (pyfuncitem.nodeid.split("::", 1)[0], pyfuncitem.originalname) not in _cited():
+        return (yield)
+    if not hasattr(sys, "monitoring"):  # Python 3.11: cannot be checked, and says so
+        pyfuncitem.user_properties.append(("warden_body_ran", None))
+        return (yield)
+    path = pathlib.Path(pyfuncitem.path).resolve()
+    name, lines, ran = pyfuncitem.originalname, _def_lines(str(path)).get(pyfuncitem.originalname, frozenset()), []
+    mon = sys.monitoring
+
+    def started(code, _offset):
+        if code.co_name == name and code.co_firstlineno in lines and pathlib.Path(code.co_filename).resolve() == path:
+            ran.append(True)
+        return mon.DISABLE
+
+    mon.use_tool_id(_TOOL, "warden-register-guard")
+    try:
+        mon.restart_events()
+        mon.register_callback(_TOOL, mon.events.PY_START, started)
+        mon.set_events(_TOOL, mon.events.PY_START)
+        return (yield)
+    finally:
+        mon.set_events(_TOOL, 0)
+        mon.register_callback(_TOOL, mon.events.PY_START, None)
+        mon.free_tool_id(_TOOL)
+        pyfuncitem.user_properties.append(("warden_body_ran", bool(ran)))
+
+
 def pytest_runtest_logreport(report):
     states = _REPORTS.setdefault(report.nodeid, set())
     states.add("skipped" if report.skipped else f"{report.when}:{report.outcome}")
     if ("warden_genuine", False) in report.user_properties:
         states.add("not-genuine")
+    if report.when == "call" and ("warden_body_ran", True) in report.user_properties:
+        states.add("body-ran")
+    if report.when == "call" and ("warden_body_ran", None) in report.user_properties:
+        states.add("body-unverifiable")
 
 
 def _full_run(config) -> bool:
@@ -96,12 +156,14 @@ def _full_run(config) -> bool:
 
 
 def missing_evidence(reports: dict[str, set[str]], cited: set[tuple[str, str]]) -> list[str]:
-    """Each cited test that did not run its own body and pass: skipped, xfailed, failed, absent, or rebound."""
+    """Each cited test that did not run its own body and pass: skipped, xfailed, failed, absent, rebound, or its
+    `def`'s code never started during the call."""
     missing = []
     for file, func in sorted(cited):
         ran = [states for nodeid, states in reports.items()
                if nodeid == f"{file}::{func}" or nodeid.startswith(f"{file}::{func}[")]
-        if not ran or any("skipped" in st or "call:passed" not in st or "not-genuine" in st for st in ran):
+        if not ran or any("skipped" in st or "call:passed" not in st or "not-genuine" in st
+                          or not ({"body-ran", "body-unverifiable"} & st) for st in ran):
             missing.append(f"{file}::{func}")
     return missing
 
@@ -110,9 +172,7 @@ def pytest_sessionfinish(session, exitstatus):
     config = session.config
     if hasattr(config, "workerinput") or not _full_run(config):
         return
-    from test_register import cited_tests
-
-    missing = missing_evidence(_REPORTS, set(cited_tests()))
+    missing = missing_evidence(_REPORTS, set(_cited()))
     if missing:
         reporter = config.pluginmanager.get_plugin("terminalreporter")
         if reporter:
