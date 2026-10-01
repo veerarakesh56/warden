@@ -85,7 +85,17 @@ class KubernetesPlatform:
         except Exception:  # noqa: BLE001 - unknown is not healthy
             return False
         want, status = _replicas(dep), dep.status
-        return bool(status) and want >= 1 and (status.available_replicas or 0) >= want \
+        if not status:
+            return False
+        # The controller must have seen the current spec, and the rollout must not have stalled: counts from
+        # before the change, or from a rollout past its deadline, are not recovery (sixth review, 2026-10-01).
+        seen, generation = getattr(status, "observed_generation", None), getattr(dep.metadata, "generation", None)
+        if generation is not None and (seen is None or seen < generation):
+            return False
+        if any(getattr(c, "type", "") == "Progressing" and getattr(c, "status", "") == "False"
+               for c in getattr(status, "conditions", None) or []):
+            return False
+        return want >= 1 and (status.available_replicas or 0) >= want \
             and (status.updated_replicas or 0) >= want and not (status.unavailable_replicas or 0)
 
     # ------------------------------------------------------------------ writes

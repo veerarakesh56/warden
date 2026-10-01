@@ -368,6 +368,8 @@ bump may carry a breaking change.
   states that a count moving between the final precheck and the write is stepped from (sixth review).
   Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok"; a platform's own
   refusal is reported "apply_failed" rather than "refused"; the plan does not name the cluster or server.
+  A Deployment is healthy only once its controller has seen the current spec and its rollout has not
+  stalled (observedGeneration, Progressing).
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a

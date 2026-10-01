@@ -30,7 +30,8 @@ class _Apps:
 
     def _dep(self, name):
         n = self.replicas[name]
-        status = types.SimpleNamespace(available_replicas=n, updated_replicas=n, unavailable_replicas=0)
+        status = types.SimpleNamespace(available_replicas=n, updated_replicas=n, unavailable_replicas=0,
+                                       observed_generation=7, conditions=[])
         return types.SimpleNamespace(metadata=types.SimpleNamespace(name=name, generation=7),
                                      spec=types.SimpleNamespace(replicas=n), status=status)
 
@@ -178,3 +179,19 @@ def test_an_approved_scale_runs_through_the_workflow_end_to_end(world, owner):  
                params={"namespace": NS, "deployment": "orders", "replicas": 3})
     assert out.status == "recovered", (out.status, out.reasons)
     assert apps.replicas["orders"] == 3 and len(apps.patches) == 1
+
+
+def test_healthy_needs_the_current_spec_seen_and_a_rollout_not_stalled():
+    """Sixth review (2026-10-01): counts from before the change (observedGeneration behind) or from a rollout past
+    its deadline (Progressing=False) read healthy."""
+    apps = _Apps(replicas=2)
+    p = _platform(apps)
+    behind = apps._dep("orders")
+    behind.status.observed_generation = 6
+    apps.read_namespaced_deployment = lambda *a, **k: behind
+    assert not p.healthy("orders")
+    stalled = _Apps(replicas=2)._dep("orders")
+    stalled.status.conditions = [types.SimpleNamespace(type="Progressing", status="False",
+                                                       reason="ProgressDeadlineExceeded")]
+    apps.read_namespaced_deployment = lambda *a, **k: stalled
+    assert not p.healthy("orders")
