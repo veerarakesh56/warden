@@ -420,6 +420,13 @@ bump may carry a breaking change.
 - **Sixth independent review, the tripwire** (7f0178e): only the placeholders WARDEN issued are removed
   from what is scanned (any `<WORD_N>` was, hiding an injection written in that shape), and labels are
   scanned as sentences - a credential-named label no longer escalates a clean incident on the real model.
+- **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
+  re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
+  redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
+  stops at `<` any more: the part of a credential after a placeholder an earlier pattern placed
+  (`password=<UUID>.x`, `Bearer <JWT>.x`, a quoted `"<JWT> x"`) went out in clear (HIGH, pre-existing).
+  Cookies written as JSON, a dict, a list or an assignment are masked too; only `Cookie:` was (HIGH,
+  pre-existing). The redaction replay over 337 contexts is byte-identical.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

@@ -133,3 +133,46 @@ def test_a_quoted_secret_holding_a_token_restores_in_one_step(line):
 def test_a_cookie_that_is_only_a_token_keeps_its_own_label():
     result = redact(f"Cookie: {_jwt()}")
     assert result.text == "Cookie: <JWT_1>", result.text
+
+
+_W = "hunter" + "2x"
+_HEX = "6f1e0c0b9a8d7c6e" + "5f4a3b2c1d0e9f8a"
+_UUID = "1f2e3d4c-5b6a-" + "4789-a0b1-" + "c2d3e4f5a6b7"
+
+
+@pytest.mark.parametrize("line, secret", [
+    (f"password={_UUID}.{_W}", _W), (f"token={_UUID}.{_HEX}", _HEX), (f"api_key={_UUID}:{_HEX}", _HEX),
+    (f"password=4155550132{_W}", _W), ('password="{jwt} ' + _W + '"', _W), ("--password '{jwt} " + _W + "'", _W),
+    ('"--password","' + _W + ' {jwt}"', _W), ("Authorization: Bearer {jwt}." + _W, _W),
+])
+def test_a_credential_whose_start_was_masked_is_masked_whole(line, secret):
+    """Eighth review (2026-10-01, HIGH, pre-existing): the value classes stopped at `<`, so the part of a credential
+    after a placeholder an earlier pattern placed - a UUID, a phone-shaped run, a JWT - went out in clear. The value
+    is masked whole and stored restored."""
+    original = line.format(jwt=_jwt())
+    result = redact(original)
+    assert secret not in result.text, result.text
+    assert result.restore(result.text) == original, (result.text, result.mapping)
+
+
+@pytest.mark.parametrize("line", [
+    '{{"cookie":"sid={s}; theme=dark"}}', '{{"Cookie": "_app_sess={s}"}}', "headers={{'cookie': 'sid={s}'}}",
+    "cookie=sid={s}", 'set-cookie="id={s}; Path=/"', '"set-cookie":["id={s}; Path=/"]',
+    "http.request.header.cookie=sid={s}", 'cookie: "sid={s}"',
+])
+def test_a_cookie_written_as_json_a_dict_or_an_assignment_is_masked(line):
+    """Eighth review (HIGH, pre-existing): only `Cookie:` was masked - a structured log's cookie went out whole."""
+    s = "Zq8wPx2mLk" + "Vb7"
+    out = redact(line.format(s=s)).text
+    assert s not in out, out
+
+
+@pytest.mark.parametrize("masked", ["Cookie: <SECRET_1>", "Set-Cookie: <SECRET_3>", '{"auth": "<SECRET_2>"}',
+                                    "password=<SECRET_1>", "Authorization: Bearer <JWT_1>"])
+def test_the_gate_lets_a_masked_credential_through(masked):
+    """Eighth review (MED, a regression from a95f171): the skip for a value that is nothing but placeholders needed
+    the redactor's map, which the gate's re-scan does not have - every report quoting a masked cookie was withheld."""
+    from warden import gate
+
+    assert gate.leaked_kinds(masked) == [], masked
+    assert gate.enforce(f"ERROR 500 GET /cart {masked}").verdict == "PASS"

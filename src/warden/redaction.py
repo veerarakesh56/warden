@@ -24,8 +24,10 @@ from typing import Any
 #
 # ⛔ Every pattern with a capturing group masks group(1) — the SENSITIVE part only — keeping the
 # surrounding structure (`password=<SECRET_1>`, `postgres://user:<URLCRED_1>@host`) so the model can
-# still reason about the shape. Value char classes EXCLUDE `<` so a value that is already a
-# placeholder (`api_key=<APIKEY_1>`) is never re-matched and corrupted.
+# still reason about the shape. A value that is nothing but placeholders (`api_key=<APIKEY_1>`) is masked
+# already and left alone; one that holds a placeholder AND more (`password=<UUID_1>.hunter2x`) is masked whole and
+# stored restored, so restore() gives it back in one step. Value classes used to stop at `<` instead, and left
+# whatever followed a placeholder in clear (eighth review, 2026-10-01).
 # A credential command-line flag: any name with `--`; with a single `-` only password/passwd, since
 # `-token` or `-secret` is as often a word in a message as a flag.
 _CRED_FLAG = (r"(?i)(?<![\w-])(?:--(?:[a-z0-9]+-){0,2}"
@@ -57,7 +59,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # otherwise fragment a digit-run inside it and leave the rest exposed. Cloud-neutral: GCP.
     ("GCPTOKEN", re.compile(r"\bya29\.[A-Za-z0-9._\-]{20,}")),
     # Azure Shared Access Signature: the `sig=` query parameter is the credential. Cloud-neutral: Azure.
-    ("AZURESAS", re.compile(r"(?i)(?<=[?&])sig=([^\s&\"'<]{16,})")),
+    ("AZURESAS", re.compile(r"(?i)(?<=[?&])sig=([^\s&\"']{16,})")),
     # Incoming-webhook URLs carry the credential in the PATH (no key=value, no vendor prefix) — the
     # whole URL IS the secret (anyone holding it can post). Slack, Discord, MS Teams. Cloud-neutral.
     ("WEBHOOK", re.compile(
@@ -72,7 +74,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
     # The password runs to the LAST "@" before the host: `admin:p@ss@db` used to mask only "p" and
     # leave "ss@db" to be read as an e-mail address (revealable in Slack).
-    ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s<]{2,256}?)@(?=[A-Za-z0-9.\-]+(?::\d+)?(?:[/?#\s]|$))")),
+    ("URLCRED", re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]*:([^\s]{2,256}?)@(?=[A-Za-z0-9.\-]+(?::\d+)?(?:[/?#\s]|$))")),
     # `@` OR its URL-encoding `%40` — a URL-encoded email (normal in HTTP access logs, the exact
     # evidence source) reads as the email to both the model and an operator, so it must be masked too.
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._+\-]+(?:@|%40)[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")),
@@ -135,47 +137,48 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # at a boundary and is still masked; so is a contiguous card number, which relies on this rule.
     ("PHONE", re.compile(r"(?<![\w.\-])(?!\d{4}-\d\d-\d\d)\+?\d[\d \-]{8,14}\d(?![\d.])")),
     # password=..., secret: ..., aws_secret_access_key="...": the value after a credential-ish key.
-    # Runs LAST so anything already masked (a placeholder starting with `<`, excluded from the value
-    # class) is left alone. The bounded [\w.\-] prefix/suffix lets the sensitive word sit INSIDE a
+    # Runs LAST: a value already masked whole is left alone. The bounded [\w.\-] prefix/suffix lets the sensitive word sit INSIDE a
     # compound key (`aws_secret_access_key`, `db_password`), which a `\b`-anchored form missed — the
     # AWS secret access key (the credential paired with the AKIA id) is the case that exposed it.
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
     # Header values and client flags that carry a credential whole (2026-09-27 audit).
-    # No `<` in the value: `Authorization: Basic <BASIC_1>` is already masked, and taking the placeholder as a
-    # value gave one credential two labels that restore() could not undo (fifth review, 2026-10-01).
-    ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"'<]{8,})")),
+    ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
     # The whole header: a value may hold placeholders already placed (they are stored restored, see find()).
     # Stopping at `<` left every cookie after a masked one in clear (seventh review, 2026-10-01).
-    ("SECRET", re.compile(r"(?i)\b(?:set-)?cookie\s*:\s*([^\r\n]{4,})")),
-    ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"'<]{3,})")),
+    # Quoted, as JSON, a dict or a list writes it (`{"cookie": "sid=..."}`, `'set-cookie': ['id=...']`), then as
+    # a header or an assignment (`Cookie: ...`, `cookie=sid=...`, `http.request.header.cookie=...`) - eighth
+    # review: only `Cookie:` was masked.
+    ("SECRET", re.compile(r"(?i)(?<![\w-])[\"']?(?:set-)?cookie[\"']?\s*[:=]\s*\[?\s*[\"']([^\"'\r\n]{4,})[\"']")),
+    ("SECRET", re.compile(r"(?i)(?<![\w-])(?:set-)?cookie\s*[:=]\s*(?![\"'\[])([^\r\n]{4,})")),
+    ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
     # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
     # `--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
     # resource names from the evidence). Same line only; a value never starts with `-` or a quote.
     # `=` or whitespace before the opening quote: in JSON argv `"--password","x"` the quote right
     # after the flag is the flag's own closing quote, not the value's opening one.
-    ("SECRET", re.compile(_CRED_FLAG + rf"(?:{_SP}*={_SP}*|{_SP}+)\"([^\"\n<][^\"\n]{{0,255}})\"")),
-    ("SECRET", re.compile(_CRED_FLAG + rf"(?:{_SP}*={_SP}*|{_SP}+)'([^'\n<][^'\n]{{0,255}})'")),
+    ("SECRET", re.compile(_CRED_FLAG + rf"(?:{_SP}*={_SP}*|{_SP}+)\"([^\"\n][^\"\n]{{0,255}})\"")),
+    ("SECRET", re.compile(_CRED_FLAG + rf"(?:{_SP}*={_SP}*|{_SP}+)'([^'\n][^'\n]{{0,255}})'")),
     # `docker build --secret id=npmrc,src=.npmrc` names a secret; it is not one.
-    ("SECRET", re.compile(_CRED_FLAG + rf"(?:=|{_SP}+(?![A-Za-z_][\w.-]*=))(?![-\"'])([^\s\"'<]{{3,}})")),
+    ("SECRET", re.compile(_CRED_FLAG + rf"(?:=|{_SP}+(?![A-Za-z_][\w.-]*=))(?![-\"'])([^\s\"']{{3,}})")),
     ("SECRET", re.compile(r"(?i)\"--?(?:[a-z0-9]+-){0,2}(?:password|passwd|pass|pwd|api-?key|apikey|token|secret)"
-                          r"\"\s*,\s*\"([^\"<]{1,256})\"")),
+                          r"\"\s*,\s*\"([^\"]{1,256})\"")),
     # Client tools whose short flag carries the password (same line only).
-    ("SECRET", re.compile(r"\bredis-cli\b[^\r\n]*?[ \t]-a[ \t]+([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\bsshpass[ \t]+-p[ \t]*([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\b(?:docker[ \t]+login|mongo(?:sh)?|az[ \t]+login)\b[^\r\n]*?[ \t]-p[ \t]+([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\bsqlcmd\b[^\r\n]*?[ \t]-P[ \t]*([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\bldap\w*\b[^\r\n]*?[ \t]-w[ \t]+([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\bhtpasswd\b[^\r\n]*?[ \t]-\w*b\w*[ \t]+\S+[ \t]+\S+[ \t]+([^\s\"'<]{3,})")),
-    ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u[ \t]*|--user(?:=|[ \t]+))[^:\s]+:([^\s\"'<]{3,})")),
+    ("SECRET", re.compile(r"\bredis-cli\b[^\r\n]*?[ \t]-a[ \t]+([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"\bsshpass[ \t]+-p[ \t]*([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"\b(?:docker[ \t]+login|mongo(?:sh)?|az[ \t]+login)\b[^\r\n]*?[ \t]-p[ \t]+([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"\bsqlcmd\b[^\r\n]*?[ \t]-P[ \t]*([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"\bldap\w*\b[^\r\n]*?[ \t]-w[ \t]+([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"\bhtpasswd\b[^\r\n]*?[ \t]-\w*b\w*[ \t]+\S+[ \t]+\S+[ \t]+([^\s\"']{3,})")),
+    ("SECRET", re.compile(r"\bcurl\b[^\r\n]*?[ \t](?:-u[ \t]*|--user(?:=|[ \t]+))[^:\s]+:([^\s\"']{3,})")),
     ("SECRET", re.compile(r"(?i)\"auth\"\s*:\s*\"([^\"]{8,})\"")),
     # A quoted secret value is masked WHOLE: `password='hunter 2 x'` used to leak "2 x".
     ("SECRET", re.compile(
         r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
-        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*\"([^\"<][^\"]{0,255})\"")),
+        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*\"([^\"][^\"]{0,255})\"")),
     ("SECRET", re.compile(
         r"(?i)(?:password|passwd|pwd|pass|secret|token|api[_\-]?key|apikey|credential|session)"
-        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*'([^'<][^']{0,255})'")),
+        r"[\w.\-]{0,20}[\"']?\s*[:=]\s*'([^'][^']{0,255})'")),
     ("SECRET", re.compile(
         # Leading delimiter includes ? & : so URL QUERY-PARAM credentials (?password=, &token=) and
         # the .npmrc form (//registry/:_authToken=) are caught — ubiquitous in access/CI logs.
@@ -193,7 +196,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         # The value: any non-separator char, OR a comma that does NOT begin a new key=value pair
         # (so a comma-bearing secret is masked WHOLE, but `k=v,k2=v2` is not gobbled). `&` stops a
         # URL query-param value at the next parameter. Char-by-char, so no catastrophic backtracking.
-        r"((?:[^\s\"'<;,&]|,(?!\s*[\w.\-]+\s*[:=]))+)"
+        r"((?:[^\s\"';,&]|,(?!\s*[\w.\-]+\s*[:=]))+)"
     )),
     # A hex key under a credential's name no pattern above lists - `ENCRYPTION_KEY=`, `hmac_key=`,
     # `signing_key:`, `DD_APP_KEY=`, `Ocp-Apim-Subscription-Key:` - 32 or more hex characters (fourth
@@ -294,7 +297,9 @@ class _Redactor:
                 # so restore() gives the original back in one step; one that is nothing but placeholders is
                 # masked already (seventh review: excluding `<` instead left the cookies after it in clear).
                 full = _PLACEHOLDER.sub(lambda p: self.mapping.get(p.group(1), p.group(1)), original)
-                if full != original and not re.search(r"[A-Za-z0-9]", _PLACEHOLDER.sub("", original)):
+                # By its shape, not the map: the gate re-scans with a fresh one, and took `Cookie: <SECRET_1>` for a
+                # new secret - every report quoting a masked cookie was withheld (eighth review, 2026-10-01).
+                if _PLACEHOLDER.search(original) and not re.search(r"[A-Za-z0-9]", _PLACEHOLDER.sub("", original)):
                     return m.group(0)
                 if full in self.reverse:
                     placeholder = self.reverse[full]
