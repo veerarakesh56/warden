@@ -348,6 +348,12 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **The mutation check finishes again** (5236b21). It ran the whole suite serially for each of 35
+  mutations - 17 minutes a run - so it no longer finished. Each mutation now runs the tests that name
+  the mutated file, on parallel workers, and the whole suite only before reporting a survivor; a run
+  past its limit is stopped with its workers and counts as caught, labelled. Run 2026-10-01 05:51 to
+  06:13 UTC (11:21 to 11:43 IST): all 35 caught. (The commit message of 5236b21 says 06:40 UTC / 12:10
+  IST; that was written before checking and is wrong.)
 - **The register guard closes the fourth review's bypasses** (review D #3). A module-level
   `importorskip`, a multi-line `pytestmark` list, `from pytest import mark` aliases, an alias imported
   from a helper module, `xfail`, a citation the cell calls "NOT covered", and a DEFERRED cell saying
