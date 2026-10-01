@@ -386,8 +386,6 @@ bump may carry a breaking change.
   states that a count moving between the final precheck and the write is stepped from (sixth review).
   A plan names the Kubernetes API server or database server it writes to (`warden status` shows it, the
   plan hash covers it), so staging's plan and prod's no longer look the same.
-  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok"; a second resource written as an image reference or behind a scope word
-  (`orders (payments:latest)`, `orders (namespace payments)`) still passes P14.
   A Deployment is healthy only once its controller has seen the current spec and its rollout has not
   stalled (observedGeneration, Progressing).
   P14 refuses a command before a period (`orders (rm.)`, `kubectl.exe`) and kill, pkill, terraform,
@@ -405,6 +403,10 @@ bump may carry a breaking change.
   the Slack fence tests use nested list markers (a weaker fence check passed them).
   CI · apps also runs weekly, so the deployed requirements are audited without a change; an interrupted
   mutation check stops its workers before restoring the mutated file.
+  Still open: "not a single one of the pods restarted", "cpu (idle): 0%" and "probe: 0 ok" in P15; a second
+  resource written as an image reference or behind a scope word (`orders (payments:latest)`,
+  `orders (namespace payments)`) still passes P14; a count that moves between the final precheck and the
+  write is stepped from.
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a
