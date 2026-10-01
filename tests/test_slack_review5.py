@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from warden import chatops, gate
+from warden.redaction import redact
 
 SECRET = "AKIA" + "IOSFODNN7EXAMPLE"
 
@@ -52,8 +53,25 @@ def test_the_stub_of_a_withheld_report_redacts_a_key_shaped_alert_id():
     assert result.verdict == "BLOCK" and SECRET not in result.text, result.text
 
 
-@pytest.mark.parametrize("mark", [chr(0x200B), chr(0x2060), chr(0xFEFF), chr(0x00AD)])
+@pytest.mark.parametrize("mark", [chr(0x200B), chr(0x2060), chr(0xFEFF), chr(0x00AD), chr(0x034F), chr(0x180B),
+                                  chr(0xFE0F), chr(0x2064), chr(0x1BCA0), chr(0xE0100)])
 def test_an_invisible_character_at_a_dot_does_not_keep_a_domain_whole(mark):
     """Sixth review (2026-10-01): `evil.<ZWSP>com` passed whole."""
     out = gate.enforce(f"see evil.{mark}com/x and www{mark}.evil.com and evil.c{mark}om/y").text
     assert "evil[.]com/x" in out and "www[.]evil[.]com" in out and "evil[.]com/y" in out, out
+
+
+def test_zwnj_and_zwj_are_left_in_prose():
+    """Seventh review: a WHATWG URL parser keeps U+200C and U+200D, so removing them bought nothing and rewrote
+    Persian text (`mi<ZWNJ>khaham`) - the gate answered REWRITE with its spelling changed."""
+    text = "user wrote: " + "".join(map(chr, (0x645, 0x6CC, 0x200C, 0x62E, 0x648, 0x627, 0x647, 0x645)))
+    result = gate.enforce(text)
+    assert result.verdict == "PASS" and result.text == text, result
+
+
+@pytest.mark.parametrize("before", ["password=Tr0ub4dor-x9q", "curl --token Tr0ub4dor-x9q", "Authorization: Tr0ub4dor-x9q"])
+def test_the_stub_masks_an_alert_id_that_is_a_secret_in_the_blocked_text(before):
+    """Seventh review (2026-10-01): the id was redacted on its own - `Tr0ub4dor-x9q` alone is no secret - so the
+    gate blocked a value and then sent it in the stub."""
+    result = gate.enforce(redact(before).text, before_redaction=before, alert_id="Tr0ub4dor-x9q")
+    assert result.verdict == "BLOCK" and "Tr0ub4dor" not in result.text, result.text

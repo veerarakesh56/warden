@@ -148,7 +148,10 @@ def _break_runs(line: str) -> str:
 _WIDE_DOTS = re.compile("[\u3002\uff0e\uff61]")
 # An invisible character next to a dot keeps a domain whole to the matcher, not to a reader or a browser (sixth
 # review, 2026-10-01: `evil.<ZWSP>com`, `evil.c<SHY>om`). Removed inside a name before a domain is matched.
-_HIDDEN_AT_DOT = re.compile(r"(?<=[\w.])[\u200b\u200c\u200d\u2060\ufeff\u00ad]+(?=[\w.])")
+# The code points a WHATWG URL parser drops from a host (Node 22's, over all 1.1M code points; seventh review,
+# 2026-10-01): a browser joins `evil.<U+FE0F>com` into one domain. Not ZWNJ/ZWJ: the parser keeps those, and
+# removing them rewrote Persian text.
+_HIDDEN_AT_DOT = re.compile(r"(?<=[\w.])[\u00ad\u034f\u180b-\u180d\u180f\u200b\u2060\u2064\ufe00-\ufe0f\ufeff\U0001bca0-\U0001bca3\U000e0100-\U000e01ef]+(?=[\w.])")
 
 
 def _defang_outside_code(line: str) -> str:
@@ -326,7 +329,11 @@ def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = Non
     if leaks:
         # The id through the same cleaning as any text: `click.evil.example` is a valid alert id and was a
         # link in the stub (fifth review, 2026-10-01).
-        alert_id = sanitise_text(redact(alert_id).text) if alert_id else ""  # a key-shaped id too (sixth review)
+        # Redacted WITH the blocked text, so a value found there is masked in the id too: an id that is a secret
+        # only in context went out in the stub (seventh review, 2026-10-01); a key-shaped one too (sixth).
+        if alert_id:
+            blocked = f"{before_redaction or text}{chr(10)}"
+            alert_id = sanitise_text(redact(blocked + " ".join(alert_id.split())).text.rsplit(chr(10), 1)[-1])
         stub = (f"WARDEN report{f' for alert {alert_id}' if alert_id else ''} was withheld by the outbound "
                 f"gate: it still contained {', '.join(leaks)} after redaction. A person must read the full "
                 "report where WARDEN ran - nothing was sent.")

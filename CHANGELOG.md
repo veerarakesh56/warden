@@ -471,6 +471,10 @@ bump may carry a breaking change.
   regression from ac1e2ab). A failover never targets the alert's namespace or ECS/EKS cluster - by name,
   `namespaces/x` or the word - while a database named `orders-ns-db` passes. The verify replay over 337
   reports is unchanged.
+  The stub of a withheld report redacts its alert id together with the blocked text, so an id that is a
+  secret only in context is masked too. Inside a name, the gate looks past every code point a WHATWG URL
+  parser drops from a host (270, not 4; measured on Node 22) and no longer past ZWNJ/ZWJ, which it keeps:
+  removing them rewrote Persian text.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
