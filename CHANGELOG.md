@@ -504,6 +504,17 @@ bump may carry a breaking change.
   IAM Access Analyzer reports the other ways out - role trusts, Lambda, SQS, SNS, ECR repositories, DynamoDB -
   but does not analyze those two. A role trusting another account can still be created (no IAM condition
   key covers a trust document); the analyzer reports it.
+  Corrections to the sixth review's entries above: the register read "every row GitHub shows" only once
+  e8d4f4c ended lines and tables where GitHub does; the guard judged a run "however its path is spelled" except
+  a shell-expanded list of every file (still); it was "tested itself" but not its wiring until d3a9019;
+  README's live-test counts went stale with efcf115 and are 33 (22 Kubernetes, 11 databases); the pinned
+  "placeholder" was the full stack's ECS image. The audit's A-R7 section holds every seventh-review defect of
+  medium-low and above with its commit, and A-R6 the rows it left out (R6-E1..E3, R6-B4).
+  Still open (rows R7-O1..O4): a database session listed then killed without a re-check; P14's, P15's and
+  the lag and hex-key name lists are open-ended by design, and the tripwire's unit tests use a spy; the
+  admission policy bounds each request, not a series, and is unconfirmed on EKS; a mutation check killed by
+  TerminateProcess leaves its mutation; transitive extras are not followed; the packaging excludes are
+  case-sensitive; a role trusting another account can be created (the owner's Access Analyzer reports it).
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
@@ -555,7 +566,7 @@ bump may carry a breaking change.
     id; a long record joined by any whitespace is cut, not withheld.
   - CI (area E, low): the path guard reads joined spellings (`ROOT / "k8s" / "fullstack"`); the Lambda
     build checks the requirements of the extras each Lambda asks for (`psycopg[binary]`); the k3s node
-    image, k3d's tools image and the proving ground's placeholder are pinned by digest (read
+    image, k3d's tools image and the full stack's placeholder ECS image (terraform/fullstack/ecs.tf) are pinned by digest (read
     2026-10-01 09:45 UTC / 15:15 IST); a test keeps every push to main checked (no cancelled runs).
   - Register: the review-4 rows the fifth review confirmed are DONE-local (B-N1, B-N2, C-1, C-3, A-1,
     A-2, E-5, E-6); the others carry its verdict and stay open.

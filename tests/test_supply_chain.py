@@ -97,7 +97,7 @@ def test_every_image_is_pinned_by_digest():
     for manifest in (ROOT / "k8s" / "test").glob("*.yaml"):
         images += [(manifest.name, m) for m in re.findall(r"^\s*image:\s*(\S+)", manifest.read_text(encoding="utf-8"),
                                                            re.MULTILINE) if m != "warden:local"]
-    # k3d's node and tools images, and the proving ground's placeholder (fifth review E: by tag).
+    # k3d's node and tools images, and the full stack's placeholder ECS image (fifth review E: by tag).
     tool = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
     images += [("ci-tool.yml", m) for m in re.findall(r"^\s*(?:K3S_IMAGE|K3D_IMAGE_TOOLS):\s*(\S+)", tool, re.MULTILINE)]
     assert '--image "$K3S_IMAGE"' in tool
