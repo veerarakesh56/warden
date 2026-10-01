@@ -322,3 +322,17 @@ def test_the_deploy_role_turns_on_api_access_logs_without_writing_a_logs_resourc
     denied = [a for st in _load(env, "boundary")["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
               for a in _list(st["Action"])]
     assert "logs:PutResourcePolicy" in denied
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_no_role_shares_an_event_bus_or_the_image_registry_outside(env):
+    """Seventh review (2026-10-01): roles inside the boundary could share outside the account through resource
+    policies. IAM Access Analyzer's external-access analyzer (the owner's, since 2026-09-27) reports role trusts,
+    Lambda, SQS, SNS, ECR repositories and DynamoDB; it does not analyze an EventBridge bus's permissions or the ECR
+    registry's policy and replication (AWS docs, read 2026-10-01) - so those are denied outright."""
+    denied = [a for st in _load(env, "boundary")["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
+              and st.get("Resource") == "*" for a in _list(st["Action"])]
+    for action in ("events:PutPermission", "ecr:PutRegistryPolicy", "ecr:PutReplicationConfiguration",
+                   "logs:PutResourcePolicy"):
+        assert any(fnmatch.fnmatchcase(action, p) for p in denied), action
+    assert not any(fnmatch.fnmatchcase(a, p) for a in ("ecr:PutImage", "ecr:PutLifecyclePolicy") for p in denied)

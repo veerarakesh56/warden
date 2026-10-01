@@ -499,6 +499,11 @@ bump may carry a breaking change.
   present at the seventh). A usage error now exits 2 with one gated line.
   CI's k3d job waits for the API server to serve before its first kubectl call: k3d reported the cluster
   ready and the next call got ServiceUnavailable (CI on 71790df, a flake unrelated to the change).
+  No role inside the boundary can share an EventBridge bus or the image registry outside the account
+  (`events:PutPermission`, `ecr:PutRegistryPolicy`, `ecr:PutReplicationConfiguration` denied): the owner's
+  IAM Access Analyzer reports the other ways out - role trusts, Lambda, SQS, SNS, ECR repositories, DynamoDB -
+  but does not analyze those two. A role trusting another account can still be created (no IAM condition
+  key covers a trust document); the analyzer reports it.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
