@@ -38,6 +38,10 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
+# The claude CLI's own words for an API error status and for a connection that never opened.
+_CLI_API_ERROR = re.compile(r"API Error:\s*(\d{3})\b")
+_CLI_UNSENT = re.compile(r"(?i)ECONNREFUSED|ENOTFOUND|EAI_AGAIN|getaddrinfo|Connection error|Unable to connect")
+
 
 class ProviderError(RuntimeError):
     """The provider could not be reached or refused the request."""
@@ -457,7 +461,13 @@ class ClaudeCliProvider:
             )[:400]
             if _USAGE_LIMIT.search(detail):
                 raise ProviderExhausted(f"claude CLI usage limit: {detail}")
-            raise ProviderError(f"claude CLI exited {proc.returncode}: {detail or '(no output)'}")
+            error = ProviderError(f"claude CLI exited {proc.returncode}: {detail or '(no output)'}")
+            # What the CLI says of the API, so a Claude outage reads as one: an error status is not billed, and a
+            # connection that never opened sent nothing (ninth review - neither is carried to the next run).
+            api = _CLI_API_ERROR.search(detail)
+            error.status_code = int(api.group(1)) if api else None
+            error.sent = not _CLI_UNSENT.search(detail)
+            raise error
         text = proc.stdout or ""
         return Completion(text, _estimate_tokens(system + user), _estimate_tokens(text))
 

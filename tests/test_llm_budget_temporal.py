@@ -101,7 +101,7 @@ def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
 
         def complete(self, *, system, user, schema=None):
             if down["now"]:
-                raise ConnectionError("the provider is down")
+                raise ConnectionRefusedError("the provider is down")
             return Completion("not json at all", 10, 10)
 
     # The ceiling is the incident's, across runs (seventh review) - but the outage run's failed requests reached no
@@ -197,7 +197,7 @@ def test_a_provider_outage_does_not_use_up_the_incidents_ceiling():
         def complete(self, *, system, user, schema=None):
             with lock:
                 if down["now"]:
-                    raise ConnectionError("the provider is down")
+                    raise ConnectionRefusedError("the provider is down")
             return Completion("not json at all", 10, 10)
 
     def factory():
@@ -282,3 +282,64 @@ def test_the_next_run_starts_from_both_the_usd_and_the_calls_spent():
 
     asyncio.run(main())
     assert seen and seen[0] == (3, 0.25), seen  # the first call of the new run sees both, carried
+
+
+def test_only_a_request_never_sent_or_refused_by_status_is_unanswered():
+    """Ninth review (a regression from af2a361): every provider error was "unanswered", so a provider's own read
+    timeout - the request processed, the client gone - and a 200 the SDK could not read were never carried, and
+    restarts of one incident were unbounded again (18 requests where the ceiling allowed 4)."""
+    import subprocess as _subprocess
+
+    from warden.llm import _reached_the_model
+    from warden.providers import ProviderError
+
+    class Status(Exception):
+        def __init__(self, code):
+            super().__init__(f"HTTP {code}")
+            self.status_code = code
+
+    def chained(outer, inner):
+        try:
+            raise inner
+        except BaseException as e:  # noqa: BLE001 - building a chain
+            try:
+                raise outer from e
+            except BaseException as out:  # noqa: BLE001
+                return out
+
+    for unsent in (ConnectionRefusedError("refused"), Status(529), Status(429), Status(400),
+                   chained(RuntimeError("APIConnectionError"), type("ConnectError", (Exception,), {})("x"))):
+        assert not _reached_the_model(unsent), unsent
+    cli_down = ProviderError("claude CLI exited 1: Connection error")
+    cli_down.sent = False
+    assert not _reached_the_model(cli_down)
+    for reached in (TimeoutError("read timed out"), IndexError("list index out of range"),
+                    chained(ProviderError("claude CLI exceeded 180s"), _subprocess.TimeoutExpired("claude", 180)),
+                    chained(RuntimeError("APITimeoutError"), type("ReadTimeout", (Exception,), {})("x"))):
+        assert _reached_the_model(reached), reached
+
+
+def test_a_provider_timeout_and_an_unreadable_answer_count_and_carry():
+    from warden.models import RootCause
+
+    class Times:
+        name, model = "fake", "fake"
+
+        def complete(self, *, system, user, schema=None):
+            raise TimeoutError("the SDK's own read timeout")
+
+    client = LLMClient(provider=Times(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=5)
+    with contextlib.suppress(Exception):
+        client.structured(system="s", user="u", schema=RootCause)
+    assert client.cost.calls == 3 and client.unanswered == 0  # three attempts, all carried
+
+    class Html:
+        name, model = "fake", "fake"
+
+        def complete(self, *, system, user, schema=None):
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")  # the SDK parsing an HTML 200
+
+    client = LLMClient(provider=Html(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=5)
+    with contextlib.suppress(Exception):
+        client.structured(system="s", user="u", schema=RootCause)
+    assert client.cost.calls == 3 and client.unanswered == 0  # it counted as no call at all

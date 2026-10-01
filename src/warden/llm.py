@@ -187,6 +187,7 @@ class LLMClient:
             # Honest limit: a response's OUTPUT cost is known only after it arrives, so one call can
             # still end above the ceiling; the next is then refused.
             self._before_a_call(est_usd)
+            completion = None
             try:
                 # Two nested bounds. The PROVIDER's own socket timeout (providers._sdk_timeout_s,
                 # same env var) is the one that actually ends the worker thread and lets the process
@@ -214,6 +215,10 @@ class LLMClient:
                 raise
             except (ValidationError, ValueError) as exc:
                 last = exc  # the model answered, it just was not valid JSON — retry
+                if completion is None:
+                    # Raised inside the provider - it could not read what came back (an HTML 200): the request was
+                    # answered and may be billed, and it counted as no call at all (ninth review).
+                    self.cost.add(0, 0, 0.0)
             except Exception as exc:  # noqa: BLE001
                 # A provider/network error. The SDKs' internal retries are DISABLED (providers.py) so
                 # this loop re-handles them — but only the TRANSIENT ones (429/5xx/connection reset).
@@ -223,11 +228,37 @@ class LLMClient:
                 # The request was made: it counts toward the call ceiling like any other (fourth review:
                 # 15 failed requests were made under a ceiling of 2, none counted). Its cost is unknown.
                 self.cost.add(0, 0, 0.0)
-                self.unanswered += 1
+                if not _reached_the_model(exc):
+                    self.unanswered += 1
                 if not _is_transient(exc):
                     break
         plural = "attempt" if attempts == 1 else "attempts"
         raise ModelRefused(f"{schema.__name__} not produced after {attempts} {plural}: {last}")
+
+
+# Failures before the request was written: refused, unresolved, never connected.
+_UNSENT = frozenset({"ConnectError", "ConnectTimeout", "ConnectionRefusedError", "gaierror", "NameResolutionError",
+                     "NewConnectionError"})
+
+
+def _reached_the_model(exc: BaseException) -> bool:
+    """May this failed request have been processed - and billed? Only one provably never sent, or answered with an
+    error status (an API error is not billed), is not: those are what an outage makes, and carrying them locked an
+    incident for good (eighth review). Everything else is - a provider's own read timeout (the request processed,
+    the client gone), a 200 it could not parse (ninth review: classed "reached no model", 18 requests went where the
+    ceiling allowed 4)."""
+    seen: list[BaseException] = []
+    e: BaseException | None = exc
+    while e is not None and e not in seen and len(seen) < 8:
+        seen.append(e)
+        e = e.__cause__ or e.__context__
+    for x in seen:
+        status = getattr(x, "status_code", None)
+        status = getattr(x, "code", None) if status is None else status
+        if getattr(x, "sent", True) is False or type(x).__name__ in _UNSENT \
+                or (isinstance(status, int) and 400 <= status < 600):
+            return False
+    return True
 
 
 def _is_transient(exc: Exception) -> bool:

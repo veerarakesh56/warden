@@ -327,3 +327,19 @@ def test_the_prompt_is_not_saved_to_the_operators_profile(provider, monkeypatch)
     rec = _Recorder()
     _run(provider, rec, monkeypatch)
     assert "--no-session-persistence" in rec.cmd
+
+
+@pytest.mark.parametrize("out, status, sent", [
+    ("API Error: 529 Overloaded", 529, True),
+    ("API Error: 500 Internal server error", 500, True),
+    ("Connection error: ECONNREFUSED 127.0.0.1:443", None, False),
+    ("something else went wrong", None, True),
+])
+def test_a_cli_failure_says_what_the_api_did(provider, monkeypatch, out, status, sent):
+    """Ninth review (2026-10-01): an outage through the CLI must read as one - an API error status is not billed, and
+    a connection that never opened sent nothing - so it is not carried to the incident's next run."""
+    from warden.providers import ProviderError
+
+    with pytest.raises(ProviderError) as caught:
+        _run(provider, _Recorder(stdout=out, returncode=1), monkeypatch)
+    assert caught.value.status_code == status and caught.value.sent is sent

@@ -443,6 +443,10 @@ bump may carry a breaking change.
   cache clear or connection kill names no namespace or compute cluster anywhere in its target - a kind word hid the
   second one, and a failover of the namespace named like its service passed. A cluster qualifying a pod target
   (`cluster/service`, `service (cluster)`) is not a second target; after an arrow, a comma or "and" it is.
+  The carried model budget: only a request provably never sent (refused, unresolved) or answered with an error
+  status is "unanswered" - a provider's own read timeout and a 200 it could not read may have been billed and are
+  carried (a regression from af2a361: 18 requests went where the ceiling allowed 4). The claude CLI's API error
+  status and connection failures are read from its output, so an outage still never locks an incident.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
