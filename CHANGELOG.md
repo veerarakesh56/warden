@@ -600,7 +600,9 @@ confirms the fixes.
   change. A tenth followed at 83f65e6 (07:29 UTC / 12:59 IST): CI · apps builds the Lambda zips with
   pip, which a uv environment lacks, and no local run builds them; fixed in ce1051c (pip locked in
   both apps groups, a test tying the script to them, and a hash-checked `--no-deps` install that also
-  builds on Windows).
+  builds on Windows). An eleventh at 418113b (09:15 UTC / 14:45 IST): CI · tool, a race in the
+  forged-success test - its forger polled the queue before `check_success` was scheduled and could
+  take `apply` itself - which also held the job for ten minutes; fixed in 1ee7ca3.
 
 ## [0.10.0] - 2026-09-28
 
