@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import threading
 import time
 
 import pytest
@@ -249,6 +250,29 @@ def test_mysql_terminate_actually_kills_the_sleeping_transaction():
             cur.execute("SELECT CONNECTION_ID()")
             own_id = cur.fetchone()[0]
         assert own_id not in candidates, "it selected its OWN session to KILL"
+        # Idle time, not the transaction's age, and only while the session sleeps (sixth review; seventh: removing
+        # the Sleep filter passed every test). A session running a statement in a transaction is never selected.
+        assert victim_id not in platform_db._MySQL.candidates(admin, 3600, 20, [MYSQL_USER]), \
+            "a session idle for a second was selected at an hour's threshold"
+        busy = pymysql.connect(
+            host=u.hostname, port=u.port or 3306, user=u.username, password=u.password or "",
+            database=u.path.lstrip("/") or None, autocommit=False,
+        )
+        try:
+            with busy.cursor() as cur:
+                cur.execute("START TRANSACTION")
+                cur.execute("INSERT INTO warden_probe (id) VALUES (2) ON DUPLICATE KEY UPDATE id = id")
+                cur.execute("SELECT CONNECTION_ID()")
+                busy_id = cur.fetchone()[0]
+            running = threading.Thread(target=lambda: busy.cursor().execute("SELECT SLEEP(4)"))
+            running.start()
+            time.sleep(1.0)  # now running a statement, inside its transaction
+            assert busy_id not in platform_db._MySQL.candidates(admin, 0, 20, [MYSQL_USER]), \
+                "a session running a statement was selected to KILL"
+            running.join()
+        finally:
+            with contextlib.suppress(Exception):
+                busy.close()
 
         assert platform_db._MySQL.terminate(admin, [victim_id]) == 1
         def still_there():

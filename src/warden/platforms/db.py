@@ -255,9 +255,10 @@ class DatabasePlatform:
             own = cur.fetchone()[0]
         except Exception as exc:
             raise DatabasePlatformRefused(f"could not read this platform's own login: {_one_line(exc)}") from exc
-        if own in self._users:
+        if own.casefold() in {u.casefold() for u in self._users}:
             # The terminate role closing sessions of its own login - other WARDEN workers - is not an application
-            # fix (sixth review, 2026-10-01).
+            # fix (sixth review, 2026-10-01). In any letter case: MySQL and SQL Server match logins without it
+            # (seventh review); on PostgreSQL this can only refuse more.
             raise DatabasePlatformRefused(f"WARDEN_DB_APP_USERS names this platform's own login {own!r}; "
                                         "nothing is closed")
         try:

@@ -248,3 +248,14 @@ def test_the_plan_names_where_libpq_really_connects(dsn, where):
     p = DatabasePlatform(dsn=dsn.format(pw=pw), engine="postgres", conn=_Conn(), app_users=APP)
     state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
     assert state["server"] == where and pw not in str(state)
+
+
+@pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
+@pytest.mark.parametrize("named", ["ORDERS_APP", "Orders_App"])
+def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
+    """Seventh review (2026-10-01): MySQL's processlist.user and SQL Server's login_name match without case, so an
+    allowlist naming the platform's own login in capitals had it close its own sessions."""
+    conn = _Conn(me="orders_app")
+    with pytest.raises(DatabasePlatformError, match="own login"):
+        _platform(engine, conn, users=[named]).apply("db_terminate_idle_in_tx", PARAMS)
+    assert conn.killed == []

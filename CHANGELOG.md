@@ -475,6 +475,9 @@ bump may carry a breaking change.
   secret only in context is masked too. Inside a name, the gate looks past every code point a WHATWG URL
   parser drops from a host (270, not 4; measured on Node 22) and no longer past ZWNJ/ZWJ, which it keeps:
   removing them rewrote Persian text.
+  The database platform's own login is refused in any letter case (MySQL and SQL Server match logins
+  without it), and CI's live MySQL test now proves a session running a statement inside a transaction is
+  never selected and idle time is what counts: removing the "sleeping only" filter passed every test.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
