@@ -242,6 +242,11 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     # The ceiling is the platform's default ceiling.
     k8s_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "k8s.py").read_text()
     assert '"WARDEN_REMEDIATION_MAX_REPLICAS", "10"' in k8s_src and "object.spec.replicas <= 10 " in rules
+    # The ceiling only when the count changes: a restart of a Deployment above ten was refused (eighth review).
+    assert "object.spec.replicas == oldObject.spec.replicas ||" in rules
+    # Matched for updates of Deployments themselves - a CREATE or a misspelt resource would match nothing.
+    [rule] = vap["spec"]["matchConstraints"]["resourceRules"]
+    assert rule == {"apiGroups": ["apps"], "apiVersions": ["v1"], "operations": ["UPDATE"], "resources": ["deployments"]}
 
 
 def test_the_plan_names_the_api_server_it_writes_to():
@@ -304,3 +309,32 @@ def test_in_a_cluster_the_plan_names_the_cluster_it_was_told(monkeypatch):
     monkeypatch.setenv("WARDEN_CLUSTER_NAME", "prod-eks")
     state = _platform(apps).live("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})["state"]
     assert state["server"] == "prod-eks (https://10.100.0.1:443)"
+
+
+def test_a_policy_refusal_is_not_read_as_a_moved_count_whatever_the_deployment_is_called():
+    """Eighth review: `"test" in str(exc)` took the admission policy's 422 for a JSON Patch test failure when the
+    Deployment's name held "test" - the signed reason said "something else scaled it"."""
+    class _Denied(Exception):
+        def __init__(self, status, text):
+            super().__init__(text)
+            self.status, self.reason = status, text
+
+    class _Refusing(_Apps):
+        def __init__(self, exc):
+            super().__init__(replicas=2)
+            self.exc = exc
+
+        def patch_namespaced_deployment(self, name, ns, body, **kw):
+            raise self.exc
+
+    # The API server's text names the Deployment: "test" in the name was "test" in the text.
+    for name in ("orders", "latest-api", "contest-scoring"):
+        policy = (f'deployments.apps "{name}" is forbidden: ValidatingAdmissionPolicy '
+                  "'warden-remediator-narrow-writes' denied request: the remediator may change the replica count ...")
+        p = _platform(_Refusing(_Denied(422, policy)))
+        with pytest.raises(KubernetesPlatformRefused, match="admission policy"):
+            p.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})
+    moved = 'deployments.apps "latest-api": the server rejected our request: testing value /spec/replicas failed'
+    p = _platform(_Refusing(_Denied(422, moved)))
+    with pytest.raises(KubernetesPlatformRefused, match="something else scaled it"):
+        p.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})

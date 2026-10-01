@@ -8,8 +8,11 @@
 # AUDIT 2026-09-28 (A-I-11): `patch deployments` alone is NOT "restart or scale only" - it could rewrite
 # the whole pod template (image, command, serviceAccountName, secret mounts). The ValidatingAdmissionPolicy
 # at the end of this file narrows it: for this ServiceAccount, an update may change the replica count by at
-# most two (up for a scale, down for its rollback) and the template's restartedAt annotation - nothing
-# else. Proven in CI against the real API server (tests/integration/test_live_remediation.py).
+# most two, between one and ten (up for a scale, down for its rollback), and the template's restartedAt
+# annotation; every other field of the Deployment is held - except metadata.managedFields, which the API
+# server itself rewrites when a field changes owner, so it cannot be compared (eighth review, 2026-10-01: a
+# patch of managedFields alone could hand a field to a server-side-apply manager). Proven in CI against the
+# real API server (tests/integration/test_live_remediation.py).
 #
 # Proven from the API server's own view, both sides, in CI:
 #   kubectl auth can-i patch  deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> yes
@@ -19,8 +22,8 @@
 #   kubectl auth can-i delete deployments -n default     --as=system:serviceaccount:warden:warden-remediator -> no
 #
 # `get` is needed because a scale reads the current replica count before patching it. Restart and
-# scale are both done with a single `patch deployments` (a strategic-merge patch of the template
-# annotation, or of spec.replicas) — so one verb covers both and the grant stays minimal.
+# scale are both done with a single `patch deployments` (a merge patch of the template annotation; a JSON
+# Patch that tests and replaces spec.replicas) — so one verb covers both and the grant stays minimal.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -126,8 +129,9 @@ spec:
     # 10 = WARDEN_REMEDIATION_MAX_REPLICAS' default: keep the two in step. Per request only - a policy cannot see
     # the approved plan, so a series of patches can still step down to one replica.
     - expression: >-
-        object.spec.replicas >= 1 && object.spec.replicas <= 10 && object.spec.replicas <= oldObject.spec.replicas + 2 &&
-        object.spec.replicas >= oldObject.spec.replicas - 2
+        object.spec.replicas == oldObject.spec.replicas ||
+        (object.spec.replicas >= 1 && object.spec.replicas <= 10 && object.spec.replicas <= oldObject.spec.replicas + 2 &&
+         object.spec.replicas >= oldObject.spec.replicas - 2)
       message: the remediator may change the replica count by at most two, never below one or above ten
 ---
 apiVersion: admissionregistration.k8s.io/v1

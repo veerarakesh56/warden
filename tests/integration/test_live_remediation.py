@@ -102,7 +102,7 @@ def test_a_count_that_moved_is_refused_by_the_real_api_server(apps, target):
     longer has changes nothing."""
     p = KubernetesPlatform(apps=apps, namespace=NS)
     now = apps.read_namespaced_deployment(NAME, NS).spec.replicas or 1
-    with pytest.raises(KubernetesPlatformError, match="nothing was changed"):
+    with pytest.raises(KubernetesPlatformError, match="something else scaled it; nothing was changed"):
         p._write_replicas(NAME, expect=now + 5, to=now + 1)
     assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == now
 
@@ -205,5 +205,56 @@ def test_the_admission_policy_caps_the_replica_count(apps, target):
         with pytest.raises(ApiException):
             remediator.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 11}})
         assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == 9
+    finally:
+        apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
+
+
+def test_a_write_the_policy_refuses_is_reported_as_the_policy_s(apps, target):
+    """Eighth review: the real API server's wording for a policy refusal is what the platform reads - not a moved
+    count."""
+    p = KubernetesPlatform(apps=_as_remediator(), namespace=NS)
+    now = apps.read_namespaced_deployment(NAME, NS).spec.replicas or 1
+    with pytest.raises(KubernetesPlatformError, match="admission policy"):
+        p._write_replicas(NAME, expect=now, to=now + 5)
+    assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == now
+
+
+@pytest.mark.parametrize("patch", [
+    {"spec": {"template": {"metadata": {"annotations": {"example.com/kept": None}}}}},  # remove a template annotation
+    {"spec": {"paused": True}},
+], ids=["remove-annotation", "pause"])
+def test_the_policy_refuses_removing_a_template_annotation_or_pausing(apps, target, patch):
+    """Eighth review: no live case for these; a policy that let them through passed CI."""
+    from kubernetes.client.exceptions import ApiException
+
+    apps.patch_namespaced_deployment(NAME, NS, {"spec": {"template": {"metadata": {"annotations": {
+        "example.com/kept": "yes"}}}}})
+    before = apps.read_namespaced_deployment(NAME, NS).to_dict()["spec"]
+    with pytest.raises(ApiException) as refused:
+        _as_remediator().patch_namespaced_deployment(NAME, NS, patch)
+    assert refused.value.status in (403, 422), refused.value
+    assert apps.read_namespaced_deployment(NAME, NS).to_dict()["spec"] == before
+
+
+def test_the_policy_refuses_a_big_step_down(apps, target):
+    """Eighth review: one patch from ten to one passed the unit test and the live tests."""
+    from kubernetes.client.exceptions import ApiException
+
+    try:
+        apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 5}})
+        with pytest.raises(ApiException):
+            _as_remediator().patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
+        assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == 5
+    finally:
+        apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
+
+
+def test_a_restart_of_a_deployment_above_the_ceiling_is_allowed(apps, target):
+    """Eighth review: the 1..10 ceiling applied to every update, so a restart of a Deployment at 12 was refused."""
+    try:
+        apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 12}})
+        KubernetesPlatform(apps=_as_remediator(), namespace=NS).apply("k8s_restart", _params())
+        ann = apps.read_namespaced_deployment(NAME, NS).spec.template.metadata.annotations or {}
+        assert RESTARTED_AT in ann
     finally:
         apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})

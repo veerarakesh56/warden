@@ -182,12 +182,19 @@ class KubernetesPlatform:
                                                    _content_type="application/json-patch+json",
                                                    _request_timeout=REQUEST_TIMEOUT)
         except Exception as exc:
-            if getattr(exc, "status", None) == 409 or (getattr(exc, "status", None) == 422 and "test" in str(exc)):
+            # A 422 is the JSON Patch `test` failing (the count moved) unless the admission policy is what refused it -
+            # "test" in a Deployment's name (`latest-api`) read a policy refusal as a moved count (eighth review).
+            if getattr(exc, "status", None) == 409 or (getattr(exc, "status", None) == 422 and not _a_policy(exc)):
                 raise KubernetesPlatformRefused(f"deployment/{deployment} no longer has {expect} replica(s): "
                                               f"something else scaled it; nothing was changed") from exc
             _refused_by_the_server(exc, deployment)
             raise KubernetesPlatformError(f"scaling deployment/{deployment} failed: {_one_line(exc)}") from exc
         return f"scaled deployment/{deployment} in {self._ns} from {expect} to {to} replica(s)"
+
+
+def _a_policy(exc: Exception) -> bool:
+    """An admission policy's refusal, as the API server words it ("ValidatingAdmissionPolicy ... denied request")."""
+    return "denied request" in str(exc) or "AdmissionPolicy" in str(exc)
 
 
 def _refused_by_the_server(exc: Exception, deployment: str) -> None:

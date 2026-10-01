@@ -404,7 +404,9 @@ patches to the replica count (by at most two a request, between one and ten) and
 annotation: the pod spec, selector, strategy and pause, the rollout fields (history, readiness, deadline), and
 the Deployment's own owners, finalizers, labels and annotations are held - a dangling owner reference would
 have the garbage collector delete the Deployment. The bound is per request: a series of patches can still step
-the count down to one. CI runs the platform against a live k3d cluster, once with the runner's admin
+the count down to one. A restart is not bounded by the count. Not held: `metadata.managedFields` - the API server
+itself rewrites it when a field changes owner, so it cannot be compared - and a patch of it alone could hand a
+field to a server-side-apply manager such as Flux, whose next apply resets it. CI runs the platform against a live k3d cluster, once with the runner's admin
 kubeconfig and once impersonating `warden-remediator` (scale, rollback, restart, and the changes the policy
 refuses); it has not been executed on EKS, where the policy's enforcement is still to be confirmed.
 Nothing yet makes a worker use that ServiceAccount: on a laptop it uses the current kubeconfig context.

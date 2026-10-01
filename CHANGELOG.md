@@ -453,6 +453,11 @@ bump may carry a breaking change.
   another account by id, which IAM Access Analyzer misses on an alias. An ECS service may still be given another
   environment's subnets (no IAM key ties a subnet to an environment) - Redis authentication and TLS are the
   planned fix. The owner's CloudShell step stops on any error and on an unread account number.
+  The admission policy bounds the count only when it changes - a restart of a Deployment above ten was
+  refused - and a refusal is read as the policy's, not as a moved count, whatever the Deployment is called
+  ("test" in `latest-api` read it as moved). CI now refuses removing a template annotation, pausing and a big
+  step down on the real API server. The policy does not hold `metadata.managedFields` (the API server rewrites
+  it itself); README and the manifest say so.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
