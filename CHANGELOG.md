@@ -440,6 +440,10 @@ bump may carry a breaking change.
   definition (HIGH). The boundary, which binds every role the deploy role creates, denies ECS writes on
   `ecs:cluster` unless the cluster is `warden-<env>-*`; its IAM ceiling folds the list and
   instance-profile actions into two wildcards on the same resources to make room.
+  `aurora_express.py create` writes the application user Terraform names (`warden_<env>_app`) into the
+  app secret - it wrote `app`, which no IAM grant names, so orders-api would have signed its token for
+  the wrong user (MED) - and refuses a stack.json naming another. It acts only on `warden-<env>-aurora`
+  itself: a name prefix let `WARDEN_ENV=qa` delete `warden-qa-prod-aurora` (MED).
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

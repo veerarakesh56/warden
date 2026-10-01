@@ -651,7 +651,7 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
     assert not any("Password" in k for _, kw in rds.calls for k in kw), "express has no password"
     assert found["aurora_writer_instance"] == "warden-dev-aurora-instance-1"  # whatever express named it
     assert sm.puts == [("warden-dev-db-app", {
-        "username": "app", "dbname": "shop", "port": 5432,
+        "username": "warden_dev_app", "dbname": "shop", "port": 5432,  # data.tf's db_users["app"], not "app"
         "host": "warden-dev-aurora.cluster-x.rds.example", "reader": "warden-dev-aurora.cluster-ro-x.rds.example"})]
     raw = json.loads(stack.read_text(encoding="utf-8"))
     assert raw["region"]["value"] == "ap-south-2"   # kept, in the file's own (wrapped) format
@@ -744,12 +744,13 @@ def test_aurora_create_waits_until_the_capacity_change_has_landed(tmp_path, monk
     assert polls["n"] >= 3 and names.index("modify_db_cluster") < names.index("create_db_instance")
 
 
-def test_aurora_reader_is_named_after_the_cluster_it_joins(tmp_path):
+def test_aurora_touches_no_other_cluster_even_in_its_own_environment(tmp_path):
+    """Only warden-<env>-aurora: the reader is named after it (the create test), and another name - even one with
+    the environment's prefix - is refused before any call (seventh review: a prefix let qa reach qa-prod)."""
     ax, rds, sm = _aurora(), FakeRds(), FakeSm()
-    ax.create(rds, sm, _wrapped_stack(tmp_path), cluster="warden-dev-other", log=lambda *_: None)
-    created = [kw for n, kw in rds.calls if n == "create_db_instance"]
-    assert created and created[0]["DBInstanceIdentifier"] == "warden-dev-other-2"
-    assert created[0]["DBClusterIdentifier"] == "warden-dev-other"
+    with pytest.raises(SystemExit, match="not this environment's cluster"):
+        ax.create(rds, sm, _wrapped_stack(tmp_path), cluster="warden-dev-other", log=lambda *_: None)
+    assert rds.calls == []
 
 
 def test_aurora_destroy_waits_for_an_instance_still_being_created():
@@ -897,3 +898,32 @@ def test_a_pod_cannot_reach_the_nodes_credentials():
     block = re.search(r"metadata_options\s*\{([^}]*)\}", eks).group(1)
     assert re.search(r'http_tokens\s*=\s*"required"', block)
     assert re.search(r"http_put_response_hop_limit\s*=\s*1\b", block)
+
+
+@pytest.mark.parametrize("env, cluster", [("qa", "warden-qa-prod-aurora"), ("qa", "warden-qa-staging-aurora"),
+                                          ("pre", "warden-pre-prod-aurora"), ("dev", "warden-dev-aurora-old")])
+def test_aurora_acts_only_on_its_own_environments_cluster(tmp_path, monkeypatch, env, cluster):
+    """Seventh review (2026-10-01): the guard was a name prefix, so WARDEN_ENV=qa accepted
+    warden-qa-prod-aurora and `destroy` deleted it."""
+    ax = _aurora()
+    monkeypatch.setenv("WARDEN_ENV", env)
+    with pytest.raises(SystemExit, match="refusing"):
+        ax.main(["destroy", "--cluster", cluster, "--stack", str(tmp_path / "s.json")],
+                clients={"rds": FakeRds(), "secretsmanager": FakeSm()})
+
+
+def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
+    """Seventh review: the secret's username was "app" - the ECS task signs its IAM token for that user, which no
+    grant names. It is data.tf's db_users["app"], and a stack.json naming another is refused."""
+    import re
+
+    ax = _aurora()
+    ax.use("qa-staging")
+    assert ax.APP_USER == "warden_qa_staging_app"
+    tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "fullstack" / "data.tf").read_text(encoding="utf-8")
+    assert re.search(r'db_users = \{ for k in \["app"', tf) and '"warden_${replace(local.env, "-", "_")}_${k}"' in tf
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps({"environment": "dev", "db_users": {"app": "warden_prod_app"}}), encoding="utf-8")
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    with pytest.raises(SystemExit, match="names the app user"):
+        ax.main(["status", "--stack", str(path)], clients={"rds": FakeRds(), "secretsmanager": FakeSm()})

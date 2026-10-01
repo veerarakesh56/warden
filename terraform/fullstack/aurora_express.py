@@ -40,11 +40,10 @@ import sys
 import time
 
 # One environment per process, set by use() from WARDEN_ENV in main(): never a default.
-ENV = PREFIX = CLUSTER = SECRET = ""
+ENV = PREFIX = CLUSTER = SECRET = APP_USER = ""
 TAGS: list[dict] = []
 DB_NAME = "shop"
 MASTER_USER = "postgres"   # express configuration's master user; it cannot be chosen
-APP_USER = "app"
 PORT = 5432
 ACU = {"MinCapacity": 0.5, "MaxCapacity": 2.0}
 DEFAULT_STACK = pathlib.Path.home() / "warden-fullstack-build" / "stack.json"
@@ -53,19 +52,23 @@ WAIT = {"Delay": 30, "MaxAttempts": 80}   # 40 minutes; express is fast, a reade
 
 def use(env: str) -> None:
     """The names of one environment's stack: warden-<env>-aurora, warden-<env>-db-app, its tags."""
-    global ENV, PREFIX, CLUSTER, SECRET, TAGS
+    global ENV, PREFIX, CLUSTER, SECRET, APP_USER, TAGS
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,30}", env):
         raise SystemExit(f"refusing: {env!r} is not an environment name")
     ENV, PREFIX = env, f"warden-{env}-"
     CLUSTER, SECRET = PREFIX + "aurora", PREFIX + "db-app"
+    # The application's login, as data.tf names it (db_users): the secret said "app", which no IAM grant names
+    # and bootstrap.sql no longer creates (seventh review, 2026-10-01).
+    APP_USER = f"warden_{env.replace('-', '_')}_app"
     TAGS = [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": ENV},
             {"Key": "ManagedBy", "Value": "aurora_express.py"}, {"Key": "Lifecycle", "Value": "ephemeral"}]
 
 
 def guard(cluster: str) -> None:
-    """⛔ This script creates and DELETES a database cluster. Never one outside the stack."""
-    if not PREFIX or not cluster.startswith(PREFIX):
-        raise SystemExit(f"refusing: cluster {cluster!r} is not named {PREFIX}*")
+    """⛔ This script creates and DELETES a database cluster. Only this environment's own: a name prefix let
+    WARDEN_ENV=qa delete warden-qa-prod-aurora (seventh review, 2026-10-01)."""
+    if not CLUSTER or cluster != CLUSTER:
+        raise SystemExit(f"refusing: {cluster!r} is not this environment's cluster ({CLUSTER or 'none set'})")
 
 
 def describe(rds, cluster: str) -> dict | None:
@@ -244,6 +247,8 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     if stack.get("environment") not in (None, env):
         raise SystemExit(f"refusing: {args.stack} is environment {stack['environment']!r}, WARDEN_ENV is {env!r}")
     use(env)
+    if (stack.get("db_users") or {}).get("app", APP_USER) != APP_USER:
+        raise SystemExit(f"refusing: {args.stack} names the app user {stack['db_users']['app']!r}, not {APP_USER!r}")
     args.cluster = args.cluster or CLUSTER
     guard(args.cluster)
     args.region = args.region or os.environ.get("AWS_REGION") or stack.get("region")
