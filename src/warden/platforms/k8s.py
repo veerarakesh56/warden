@@ -81,7 +81,11 @@ class KubernetesPlatform:
         """The API server this platform writes to, in the plan the approver signs: staging's plan and prod's no
         longer look the same (sixth review, 2026-10-01). No credential is in it."""
         config = getattr(getattr(self._apps, "api_client", None), "configuration", None)
-        return str(getattr(config, "host", "") or "")
+        host = str(getattr(config, "host", "") or "")
+        # In a cluster the address is the `kubernetes` Service's IP - the same in every cluster (seventh review,
+        # 2026-10-01): the operator names the cluster.
+        name = os.environ.get("WARDEN_CLUSTER_NAME", "").strip()
+        return f"{name} ({host})" if name else host
 
     def knows(self, service: str) -> bool:
         try:

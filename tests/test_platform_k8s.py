@@ -293,3 +293,14 @@ def test_a_write_the_api_server_refused_changed_nothing():
     with pytest.raises(KubernetesPlatformError) as failed:
         p.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
     assert not isinstance(failed.value, KubernetesPlatformRefused)
+
+
+def test_in_a_cluster_the_plan_names_the_cluster_it_was_told(monkeypatch):
+    """Seventh review: in a cluster the API server is the `kubernetes` Service's IP, the same in staging and prod."""
+    import types
+
+    apps = _Apps(replicas=2)
+    apps.api_client = types.SimpleNamespace(configuration=types.SimpleNamespace(host="https://10.100.0.1:443"))
+    monkeypatch.setenv("WARDEN_CLUSTER_NAME", "prod-eks")
+    state = _platform(apps).live("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})["state"]
+    assert state["server"] == "prod-eks (https://10.100.0.1:443)"

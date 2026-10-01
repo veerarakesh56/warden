@@ -408,6 +408,8 @@ the count down to one. CI runs the platform against a live k3d cluster, once wit
 kubeconfig and once impersonating `warden-remediator` (scale, rollback, restart, and the changes the policy
 refuses); it has not been executed on EKS, where the policy's enforcement is still to be confirmed.
 Nothing yet makes a worker use that ServiceAccount: on a laptop it uses the current kubeconfig context.
+Every plan names the API server it writes to; in a cluster that address is the same everywhere, so set
+`WARDEN_CLUSTER_NAME` there and the plan shows the name.
 
 
 ### Injection detector (optional, `WARDEN_TRIPWIRE`)

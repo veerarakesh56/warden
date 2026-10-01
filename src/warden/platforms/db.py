@@ -189,13 +189,24 @@ class DatabasePlatform:
                                               "app_users": sorted(self._users), "server": self._server()}}
 
     def _server(self) -> str:
-        """host:port of the server, in the plan the approver signs (sixth review) - never the user or password."""
-        from urllib.parse import urlparse
+        """Where the connection goes, in the plan the approver signs (sixth review) - never the user or password.
+        Every host libpq may use, and the `host`/`hostaddr`/`port` parameters that override them; it never raises:
+        a multi-host DSN made `.port` raise, and the plan was never written (seventh review, 2026-10-01)."""
+        import re
+        from urllib.parse import parse_qs, urlsplit
 
         if not self._dsn:
             return ""
-        u = urlparse(self._dsn)
-        return f"{u.hostname or ''}:{u.port}" if u.port else (u.hostname or "")
+        if "://" not in self._dsn:  # libpq's `host=... port=...` form
+            return " ".join(f"{k}={v}" for k, v in re.findall(r"\b(host|hostaddr|port)\s*=\s*(\S+)", self._dsn))
+        try:
+            u = urlsplit(self._dsn)
+            query = parse_qs(u.query)
+        except ValueError:
+            return "a DSN that could not be read"
+        hosts = u.netloc.rpartition("@")[2]
+        over = [f"{k}={query[k][-1]}" for k in ("host", "hostaddr", "port") if k in query]
+        return " ".join(([hosts] if hosts else []) + over) or "the local socket"
 
     def knows(self, service: str) -> bool:
         return self._database() == service

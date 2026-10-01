@@ -231,3 +231,20 @@ def test_the_plan_names_the_database_server_but_no_credential():
                          app_users=APP)
     state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
     assert state["server"] == "prod-db.example:5432" and pw not in str(state) and "warden_terminator" not in str(state)
+
+
+@pytest.mark.parametrize("dsn, where", [
+    ("postgresql://u:{pw}@db-a:5432,db-b:5433/orders?target_session_attrs=read-write", "db-a:5432,db-b:5433"),
+    ("postgresql://u:{pw}@db.prod:5432/orders?host=db.staging", "db.prod:5432 host=db.staging"),
+    ("postgresql://u:{pw}@db.prod/orders?hostaddr=10.0.0.9", "db.prod hostaddr=10.0.0.9"),
+    ("postgresql:///orders?host=/var/run/postgresql", "host=/var/run/postgresql"),
+    ("postgresql://u:{pw}@[2001:db8::5]:5432/orders", "[2001:db8::5]:5432"),
+    ("host=db.prod port=6432 dbname=orders user=u password={pw}", "host=db.prod port=6432"),
+])
+def test_the_plan_names_where_libpq_really_connects(dsn, where):
+    """Seventh review (2026-10-01): a multi-host DSN made the server lookup raise on every attempt, so no plan was
+    ever written; `?host=` and `hostaddr=` - where libpq connects - were not shown, nor a socket. Never a password."""
+    pw = "s3cr3t" + "-pw"
+    p = DatabasePlatform(dsn=dsn.format(pw=pw), engine="postgres", conn=_Conn(), app_users=APP)
+    state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
+    assert state["server"] == where and pw not in str(state)
