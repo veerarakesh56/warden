@@ -292,9 +292,12 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
 
     named = resources(outside)
     if not named and proposal.action is ActionKind.failover_replica:
-        # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it
-        # (fifth review, 2026-10-01).
-        named = resources(plain)
+        # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it - even
+        # when the alert labels that cluster (fifth and sixth reviews). A namespace is never one.
+        if re.search(r"\b(?:namespace|ns)\b", plain, re.IGNORECASE):
+            return f"target {proposal.target!r} names a namespace; a failover's target is a database cluster"
+        named = {t for t in tokens(plain) & inventory
+                 if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS}
     if not named and (rest != plain or tokens(plain) & set(scopes)):
         return f"target {proposal.target!r} names a whole namespace or cluster"
     # Parentheses and what follows an arrow describe the one resource; another resource named there is a

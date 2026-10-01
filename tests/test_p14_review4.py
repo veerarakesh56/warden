@@ -145,3 +145,35 @@ def test_a_word_after_a_colon_is_not_an_image_tag():
 def test_more_commands_and_a_command_before_a_period_are_refused(target):
     """Sixth review (2026-10-01): a trailing period read as part of a name, and unlisted commands passed."""
     assert _problem(target) is not None
+
+
+@pytest.mark.parametrize("key", ["aurora_cluster", "elasticache", "NAMESPACE", "k8s_namespace", "db_cluster",
+                                 "Cluster", "kubernetes_namespace"])
+def test_every_spelling_of_a_scope_label_scopes_the_target(key):
+    """Sixth review (2026-10-01): only five exact keys were scopes."""
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert, Citation, ContextBundle, RootCause
+    from warden.verifier import verify
+
+    alert = Alert(**{**DEMO_ALERTS["inc-002"], "labels": {key: "warden-dev-group"}})
+    ctx = ContextBundle(logs=["CONFIG deploy revision 7", "x ERROR a", "x ERROR b"], metrics={"error_rate": 0.1},
+                        recent_deploys=[{"kind": "ecs", "service": "warden-dev-group"}])
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote="deploy revision 7")])
+    prop = RemediationProposal(action=A.rollback_deploy, target="warden-dev-group", reasoning="r",
+                               expected_effect="e", blast_radius="single_service", reversible=True)
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in verify(alert, ctx, rc, prop).policy_ids
+
+
+@pytest.mark.parametrize("target", ["warden-dev-aurora", "cluster=warden-dev-aurora"])
+def test_a_failover_may_name_the_cluster_its_alert_labels(target):
+    """Sixth review: with `cluster=warden-dev-aurora` on the alert, the failover of that cluster was refused."""
+    p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert target_problem(p, INV | {"warden-dev-aurora"}, {"warden-dev-aurora"}) is None
+
+
+@pytest.mark.parametrize("target", ["namespace=payments", "ns payments"])
+def test_a_failover_never_targets_a_namespace(target):
+    p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert target_problem(p, INV, SCOPES) is not None

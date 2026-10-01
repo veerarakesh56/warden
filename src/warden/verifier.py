@@ -511,8 +511,11 @@ def verify(
     if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
         # Every label that names a whole namespace or cluster, each value of a list (fifth review, 2026-10-01:
         # `ecs_cluster=warden-dev-cluster` let the cluster itself through as a target).
+        # Any spelling of a namespace or cluster label - `NAMESPACE`, `k8s_namespace`, `aurora_cluster`, an
+        # ElastiCache group (sixth review, 2026-10-01).
         scopes = {v.strip() for k, value in alert.labels.items()
-                  if k in ("namespace", "cluster", "ecs_cluster", "eks_cluster", "cluster_name") and value
+                  if value and (k.lower().endswith(("namespace", "cluster", "cluster_name"))
+                                or k.lower() in ("ns", "elasticache"))
                   for v in str(value).split(",") if v.strip()} - {alert.service}
         problem = target_problem(proposal, evidence.inventory(alert, context), scopes)
         if problem:
