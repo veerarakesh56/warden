@@ -274,7 +274,7 @@ class _Redactor:
                 self.counters[kind] += 1
         self._built_for = -1
         self._rules: dict[str, tuple[int, str, Any]] = {}
-        self._finder: re.Pattern[str] | None = None
+        self._finders: list[tuple[re.Pattern[str], dict[str, list[str]]]] = []
         self._slow: list[str] = []  # values checked one by one: nested too deep for the finder
         self._ordered: list[tuple[str, str]] = []
 
@@ -306,22 +306,28 @@ class _Redactor:
             rule = _sweep(placeholder, original)
             if rule is not None and original not in self._rules:
                 self._rules[original] = (n, placeholder, rule)
-        # Values nested deeper than _MAX_NESTING (a planted chain like `aaaaZ`, `aaaaaZ`, ...) would nest the
-        # finder's groups past the recursion limit; they are checked one by one, the finder covers the rest.
+        # Values nested deeper than _MAX_NESTING (a planted chain like `aaaaZ`, `aaaaaZ`, ...) would nest one
+        # finder's groups past the recursion limit. They are split into groups, round-robin in sorted order,
+        # until every group is shallow enough for a finder of its own: checking them one by one against every
+        # segment was quadratic - a comb of 8,008 values within the log caps took 126-144 s a pass (fifth
+        # review, 2026-10-01). Only if no split works are they checked one by one.
         trie = _trie(self._rules)
-        self._slow = [w for w in self._rules if _nesting(trie, w) > _MAX_NESTING]
-        slow = set(self._slow)
-        fast = [w for w in self._rules if w not in slow]
-        # The finder reports one value per position, the longest. A shorter value starting at the same position
-        # is always a prefix of it, and it must be checked too: when the longer one is an identifier that is
-        # not standalone there, it is not replaced, and a shorter SECRET inside it stayed in clear (fifth
-        # review, 2026-10-01). Read off the trie: the values ending along each value's path.
-        fast_trie = _trie(fast)
-        self._prefixes = {w: _prefixes(fast_trie, w) for w in fast}
+        deep = {w for w in self._rules if _nesting(trie, w) > _MAX_NESTING}
+        fast = [w for w in self._rules if w not in deep]
+        split = _split(sorted(deep)) if deep else []
+        self._slow = [] if split is not None else sorted(deep)
+        # Each finder reports one value per position, the longest of its group. A shorter value starting at the
+        # same position is always a prefix of it, and it must be checked too: when the longer one is an
+        # identifier that is not standalone there, it is not replaced, and a shorter SECRET inside it stayed in
+        # clear (fifth review, 2026-10-01). Read off each group's trie: the values ending along each path.
+        self._finders = []
         try:
-            self._finder = re.compile("(?=(" + _trie_regex(fast_trie) + "))") if fast else None
+            for group in [g for g in [fast, *(split or [])] if g]:
+                group_trie = _trie(group)
+                self._finders.append((re.compile("(?=(" + _trie_regex(group_trie) + "))"),
+                                      {w: _prefixes(group_trie, w) for w in group}))
         except (RecursionError, re.error, OverflowError):
-            self._finder, self._slow = None, list(self._rules)  # the exact per-value loop
+            self._finders, self._slow = [], list(self._rules)  # the exact per-value loop
         self._built_for = len(self.mapping)
 
     def sweep(self, out: str) -> str:
@@ -347,9 +353,10 @@ class _Redactor:
             segment = parts[i]
             if not segment:
                 continue
-            found = {m.group(1) for m in self._finder.finditer(segment)} if self._finder is not None else set()
-            present = found.union(*(self._prefixes.get(w, ()) for w in found))
-            present |= {w for w in self._slow if w in segment}
+            present = {w for w in self._slow if w in segment}
+            for finder, prefixes in self._finders:
+                found = {m.group(1) for m in finder.finditer(segment)}
+                present |= found.union(*(prefixes.get(w, ()) for w in found))
             todo = sorted((self._rules[o] for o in present if o in self._rules), key=lambda r: r[0])
             todo = [(self._ordered[n][1], ph, rule) for n, ph, rule in todo]
             for original, placeholder, rule in todo:
@@ -383,6 +390,18 @@ def _nesting(root: dict[str, dict], word: str) -> int:
         node = node[ch]
         depth += len(node) > 1 or "" in node
     return depth
+
+
+def _split(words: list[str]) -> list[list[str]] | None:
+    """`words` in 2, 4, ... 64 round-robin groups, each nested no deeper than _MAX_NESTING; None if none works.
+    Sorted first, so values that are prefixes of each other land in different groups."""
+    groups = 2
+    while groups <= 64:
+        buckets = [words[i::groups] for i in range(groups)]
+        if all(_nesting(t, w) <= _MAX_NESTING for b in buckets if b for t in [_trie(b)] for w in b):
+            return buckets
+        groups *= 2
+    return None
 
 
 def _prefixes(root: dict[str, dict], word: str) -> list[str]:

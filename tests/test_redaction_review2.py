@@ -234,7 +234,7 @@ def test_the_finder_and_the_exact_per_value_loop_agree():
     r = redaction._Redactor(None)
     found = [r.find(line) for line in lines]
     r._build()
-    r._finder, r._slow = None, list(r._rules)  # force the exact per-value loop
+    r._finders, r._slow = [], list(r._rules)  # force the exact per-value loop
     slow = [r.sweep(text) for text in found]
     assert fast == slow and fast_map == r.mapping
 
@@ -255,7 +255,7 @@ def test_deeply_nested_values_fall_back_safely():
     for line in lines:
         r.find(line)
     r._build()
-    assert r._slow, "the nested chain must be checked one by one"
+    assert len(r._finders) > 1 and not r._slow, "the nested chain must be split into shallow finders"
 
 
 def _best_time(lines, runs=2):
@@ -285,7 +285,7 @@ def test_many_distinct_values_per_line_scale_linearly():
     for line in large:
         r.find(line)
     r._build()
-    assert r._finder is not None and not r._slow
+    assert r._finders and not r._slow
 
 
 def test_a_planted_nested_chain_does_not_make_every_value_slow():
@@ -297,7 +297,8 @@ def test_a_planted_nested_chain_does_not_make_every_value_slow():
     for line in chain + _lines(300, 10):
         r.find(line)
     r._build()
-    assert r._finder is not None and 0 < len(r._slow) <= len(chain), len(r._slow)
+    # Grouped into finders shallow enough to compile - none checked one by one (fifth review, R5-B2).
+    assert len(r._finders) > 1 and not r._slow, (len(r._finders), len(r._slow))
     assert all(w.startswith("aaaa") for w in r._slow)
 
 
@@ -322,5 +323,25 @@ def test_the_finder_agrees_with_the_exact_loop_when_values_share_a_start():
     r = redaction._Redactor(None)
     found = [r.find(line) for line in lines]
     r._build()
-    r._finder, r._slow = None, list(r._rules)  # the exact per-value loop
+    r._finders, r._slow = [], list(r._rules)  # the exact per-value loop
     assert fast == [r.sweep(f) for f in found]
+
+
+def test_a_comb_of_nested_values_is_found_by_grouped_finders_not_one_by_one():
+    """Fifth review (2026-10-01, R5-B2): a comb - every prefix of a long run branches once - puts thousands of
+    values past the finder's depth. Checked one by one against every segment, 8,008 of them cost 126-144 s a
+    pass. They are split into shallow groups with a finder each; the output equals the exact loop's."""
+    from warden import redaction
+
+    depth = redaction._MAX_NESTING + 10
+    base = "q" * depth
+    values = [base[:k] + "Z" for k in range(3, depth)] + [base + f"{i:06d}" for i in range(40)]
+    lines = ["pass" + "word=" + v + " end" for v in values] + ["1:: " * 50] * 20
+    r = redaction._Redactor(None)
+    found = [r.find(line) for line in lines]
+    r._build()
+    assert len(r._finders) > 1 and not r._slow, (len(r._finders), len(r._slow))
+    fast = [r.sweep(f) for f in found]
+    r._finders, r._slow = [], list(r._rules)
+    assert fast == [r.sweep(f) for f in found]
+    assert not any(base + "000001" in line for line in fast)

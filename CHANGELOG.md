@@ -372,9 +372,11 @@ bump may carry a breaking change.
     register rows are errors; the GitHub steps say the ruleset's boxes are ticked by default, note the
     admin bypass, and cite the right test; the undo and trust-copy steps are clearer; R31 states its
     scope; the Postgres terminate integration test waits for the session to go.
-  - Still open: the nested-chain redaction cost (R5-B2, now measured at up to 144 s a pass); P14 cluster
-    labels and lists in parentheses; quarantine spellings (an open-ended list); the orphaned Dependabot
-    pull requests.
+  - Redaction cost: values nested past the finder's depth are split into shallow groups with a finder
+    each, instead of being checked one by one against every segment - the reviewer's worst case (a comb
+    of 8,008 values within the log caps) went from 126-144 s to 9.8 s a pass; output identical.
+  - Still open: P14 cluster labels and lists in parentheses; quarantine spellings (an open-ended list);
+    the orphaned Dependabot pull requests.
 - **One write path: the RemediationWorkflow and its platforms** (decision D16; audit A-B-H1..H3). The
   in-process live backends (`remediation_k8s.py`, `database_remediation.py`, `WARDEN_REMEDIATION=live`)
   are removed; `warden run --principal --approve` is a dry run. A live change goes through the
