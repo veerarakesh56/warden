@@ -208,21 +208,32 @@ _LAG = re.compile(r"(?:^|_)(?:replica|replication)_lag((?:_[a-z0-9]+)*)$")
 # hours were ignored). The word for a billionth of a second is built from parts: written whole it contains
 # the letters bandit reads as a suppression comment.
 _NANO = "nano" + "second"
-_LAG_UNITS = {**dict.fromkeys(("ms", "msec", "msecs", "millis", "millisec", "millisecs", "millisecond",
-                               "milliseconds"), 0.001),
+_NANO_S = "nano" + "sec"
+# Sixth review (2026-10-01): days were ignored while hours were converted, and more spellings were misread.
+_LAG_UNITS = {**dict.fromkeys(("ms", "msec", "msecs", "millis", "milli", "millisec", "millisecs", "millisecond",
+                               "milliseconds", "msecond", "mseconds"), 0.001),
               **dict.fromkeys(("s", "sec", "secs", "second", "seconds"), 1.0),
-              **dict.fromkeys(("us", "usec", "usecs", "micros", "microsec", "microsecond", "microseconds"), 0.000001),
-              **dict.fromkeys(("ns", "nsec", "nsecs", _NANO, _NANO + "s"), 0.000000001),
+              **dict.fromkeys(("us", "usec", "usecs", "micros", "microsec", "microsecs", "microsecond",
+                               "microseconds"), 0.000001),
+              **dict.fromkeys(("ns", "nsec", "nsecs", "nanos", _NANO_S, _NANO_S + "s", _NANO, _NANO + "s"),
+                              0.000000001),
               **dict.fromkeys(("mins", "minute", "minutes"), 60.0),
-              **dict.fromkeys(("h", "hr", "hrs", "hour", "hours"), 3600.0)}
-_NOT_LAG = frozenset({"b", "byte", "bytes", "kb", "kib", "mb", "mib", "gb", "gib", "kilobytes", "kibibytes",
-                      "megabytes", "mebibytes", "gigabytes", "gibibytes", "lsn", "pages", "txns", "transactions",
+              **dict.fromkeys(("h", "hr", "hrs", "hour", "hours"), 3600.0),
+              **dict.fromkeys(("d", "day", "days"), 86400.0),
+              **dict.fromkeys(("week", "weeks"), 604800.0)}
+_NOT_LAG = frozenset({"b", "byte", "bytes", "kb", "kib", "mb", "mib", "gb", "gib", "tb", "tib", "kilobyte",
+                      "kilobytes", "kibibytes", "megabyte", "megabytes", "mebibytes", "gigabyte", "gigabytes",
+                      "gibibytes", "kbytes", "mbytes", "bits", "blocks", "wal", "segments", "lsn", "pages", "txns",
+                      "transactions", "events", "ops", "rows", "offset", "messages", "records", "entries", "score",
                       "samples", "count", "total", "alarm", "alarms", "state", "status", "threshold", "limit",
-                      "target", "ratio", "pct", "percent", "min", "d", "day", "days"})
+                      "target", "ratio", "pct", "percent", "min"})
 # CloudWatch's own names, with the units CloudWatch reports them in (RDS ReplicaLag and ElastiCache
 # ReplicationLag in seconds, Aurora's in milliseconds) - an MCP caller may pass them as they are.
 _CLOUDWATCH_LAG = {"ReplicaLag": 1.0, "ReplicationLag": 1.0, "AuroraBinlogReplicaLag": 1.0,
-                   "AuroraReplicaLag": 0.001, "AuroraReplicaLagMaximum": 0.001, "AuroraReplicaLagMinimum": 0.001}
+                   "AuroraReplicaLag": 0.001, "AuroraReplicaLagMaximum": 0.001, "AuroraReplicaLagMinimum": 0.001,
+                   # DocumentDB and Aurora Global Database report milliseconds too (sixth review).
+                   "DBInstanceReplicaLag": 0.001, "DBClusterReplicaLagMaximum": 0.001,
+                   "DBClusterReplicaLagMinimum": 0.001, "AuroraGlobalDBReplicationLag": 0.001}
 
 
 def _lag_seconds(name: str, value: float) -> float | None:

@@ -370,6 +370,10 @@ bump may carry a breaking change.
   refusal is reported "apply_failed" rather than "refused"; the plan does not name the cluster or server.
   A Deployment is healthy only once its controller has seen the current spec and its rollout has not
   stalled (observedGeneration, Progressing).
+  P14 refuses a command before a period (`orders (rm.)`, `kubectl.exe`) and kill, pkill, terraform,
+  shutdown, reboot, eksctl, systemctl. Replica lag in days and weeks is converted, more unit spellings
+  are read right, more non-lag words refused, and DocumentDB's and Aurora Global Database's CloudWatch
+  lag names read (milliseconds). The lag list stays open-ended by design: an unknown word is a resource.
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a
