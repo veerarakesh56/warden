@@ -146,6 +146,7 @@ class KubernetesPlatform:
         try:
             self._apps.patch_namespaced_deployment(deployment, self._ns, body, _request_timeout=REQUEST_TIMEOUT)
         except Exception as exc:
+            _refused_by_the_server(exc, deployment)
             raise KubernetesPlatformError(f"rollout restart of {deployment} failed: {_one_line(exc)}") from exc
         return f"rollout restart of deployment/{deployment} in {self._ns} (restartedAt={stamp})"
 
@@ -177,11 +178,21 @@ class KubernetesPlatform:
                                                    _content_type="application/json-patch+json",
                                                    _request_timeout=REQUEST_TIMEOUT)
         except Exception as exc:
-            if getattr(exc, "status", None) in (409, 422):
+            if getattr(exc, "status", None) == 409 or (getattr(exc, "status", None) == 422 and "test" in str(exc)):
                 raise KubernetesPlatformRefused(f"deployment/{deployment} no longer has {expect} replica(s): "
                                               f"something else scaled it; nothing was changed") from exc
+            _refused_by_the_server(exc, deployment)
             raise KubernetesPlatformError(f"scaling deployment/{deployment} failed: {_one_line(exc)}") from exc
         return f"scaled deployment/{deployment} in {self._ns} from {expect} to {to} replica(s)"
+
+
+def _refused_by_the_server(exc: Exception, deployment: str) -> None:
+    """A write the API server refused - RBAC (403) or an admission policy (403/422) - was never persisted: nothing
+    changed, and the run ends refused, not "may be half-made" (seventh review, 2026-10-01)."""
+    if getattr(exc, "status", None) in (403, 422):
+        raise KubernetesPlatformRefused(f"the API server refused the write to deployment/{deployment} "
+                                      f"(RBAC or an admission policy: {_one_line(getattr(exc, 'reason', '') or exc)}); "
+                                      f"nothing was changed") from exc
 
 
 def _replicas(dep: Any) -> int:

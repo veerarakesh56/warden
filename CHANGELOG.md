@@ -428,6 +428,12 @@ bump may carry a breaking change.
   answering invalid JSON was paid for 10 times over 5 restarts, $3.00 against a $0.50 cap (a regression
   from e94365a; MED). Every run records its spend in the audit, failed or not, and the next starts from
   the total - failed requests included, so an outage uses part of the incident's call ceiling.
+  The Kubernetes admission policy holds the Deployment's own owners, finalizers, labels and annotations,
+  its rollout fields (history, readiness, deadline) and the pods' finalizers, and caps the count at ten: one
+  allowed patch adding a dangling owner reference had the garbage collector delete the Deployment (A-I-11;
+  HIGH). The unit test places every field of the API's DeploymentSpec and ObjectMeta, and CI refuses each
+  change on the real API server. A write the API server refuses (RBAC, a policy) ends refused - it never
+  persisted - not "may be half-made".
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

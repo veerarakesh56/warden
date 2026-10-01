@@ -109,10 +109,26 @@ spec:
         (!has(object.spec.strategy) || object.spec.strategy == oldObject.spec.strategy) &&
         (has(object.spec.paused) ? object.spec.paused : false) == (has(oldObject.spec.paused) ? oldObject.spec.paused : false)
       message: the remediator may not change the rollout strategy or pause a rollout
+    # The Deployment's own metadata: a dangling ownerReference has the garbage collector delete the Deployment and
+    # its pods, a finalizer blocks its deletion (seventh review, 2026-10-01).
     - expression: >-
-        object.spec.replicas >= 1 && object.spec.replicas <= oldObject.spec.replicas + 2 &&
+        has(object.metadata.ownerReferences) == has(oldObject.metadata.ownerReferences) && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences == oldObject.metadata.ownerReferences) &&
+        has(object.metadata.finalizers) == has(oldObject.metadata.finalizers) && (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers) &&
+        has(object.metadata.labels) == has(oldObject.metadata.labels) && (!has(object.metadata.labels) || object.metadata.labels == oldObject.metadata.labels) &&
+        has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations)
+      message: the remediator may not change the Deployment's owners, finalizers, labels or annotations
+    - expression: >-
+        has(object.spec.minReadySeconds) == has(oldObject.spec.minReadySeconds) && (!has(object.spec.minReadySeconds) || object.spec.minReadySeconds == oldObject.spec.minReadySeconds) &&
+        has(object.spec.revisionHistoryLimit) == has(oldObject.spec.revisionHistoryLimit) && (!has(object.spec.revisionHistoryLimit) || object.spec.revisionHistoryLimit == oldObject.spec.revisionHistoryLimit) &&
+        has(object.spec.progressDeadlineSeconds) == has(oldObject.spec.progressDeadlineSeconds) && (!has(object.spec.progressDeadlineSeconds) || object.spec.progressDeadlineSeconds == oldObject.spec.progressDeadlineSeconds) &&
+        has(object.spec.template.metadata.finalizers) == has(oldObject.spec.template.metadata.finalizers) && (!has(object.spec.template.metadata.finalizers) || object.spec.template.metadata.finalizers == oldObject.spec.template.metadata.finalizers)
+      message: the remediator may not change how rollouts are kept or judged, or the pods' finalizers
+    # 10 = WARDEN_REMEDIATION_MAX_REPLICAS' default: keep the two in step. Per request only - a policy cannot see
+    # the approved plan, so a series of patches can still step down to one replica.
+    - expression: >-
+        object.spec.replicas >= 1 && object.spec.replicas <= 10 && object.spec.replicas <= oldObject.spec.replicas + 2 &&
         object.spec.replicas >= oldObject.spec.replicas - 2
-      message: the remediator may change the replica count by at most two, never below one
+      message: the remediator may change the replica count by at most two, never below one or above ten
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

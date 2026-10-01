@@ -112,8 +112,8 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   Kubernetes restarts a Deployment or scales it up by at most two, written only if the count is still
   the one it read; databases close sessions idle in a transaction - in the connected database, for the
   application's own logins only. The Kubernetes write RBAC (`k8s/remediation-rbac.yaml`) can `get` and
-  `patch` deployments, and `patch` covers the whole pod template: an admission policy narrowing it is
-  still open (audit A-I-11). `warden run --principal ... --approve <digest>` is now a dry run of the
+  `patch` deployments; an admission policy in the same file holds those patches to the replica count and
+  the restart annotation (audit A-I-11, below). `warden run --principal ... --approve <digest>` is now a dry run of the
   older four-way gate: it says whether a fix would pass and changes nothing.
 - **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
   promotion plan — the exact higher environments where the same fix is permitted — and push it to
@@ -400,9 +400,13 @@ that moved since the plan was approved is refused with nothing changed: the writ
 the approver saw (sixth review, 2026-10-01: a move just before the write used to be stepped from). A rollout undo reads no revisions yet, so it is refused.
 Its credential is the `warden-remediator` ServiceAccount (get and patch deployments; `kubectl auth can-i`
 proves the verbs both ways in CI), and a ValidatingAdmissionPolicy in the same file (audit A-I-11) holds its
-patches to the replica count (by at most two) and the restart annotation. CI runs the platform against a
-live k3d cluster, once with the runner's admin kubeconfig and once impersonating `warden-remediator` (scale,
-rollback, restart, and a pod spec change the policy refuses); it has not been executed on EKS.
+patches to the replica count (by at most two a request, between one and ten) and the template's restart
+annotation: the pod spec, selector, strategy and pause, the rollout fields (history, readiness, deadline), and
+the Deployment's own owners, finalizers, labels and annotations are held - a dangling owner reference would
+have the garbage collector delete the Deployment. The bound is per request: a series of patches can still step
+the count down to one. CI runs the platform against a live k3d cluster, once with the runner's admin
+kubeconfig and once impersonating `warden-remediator` (scale, rollback, restart, and the changes the policy
+refuses); it has not been executed on EKS, where the policy's enforcement is still to be confirmed.
 Nothing yet makes a worker use that ServiceAccount: on a laptop it uses the current kubeconfig context.
 
 

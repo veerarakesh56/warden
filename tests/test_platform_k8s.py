@@ -12,7 +12,12 @@ import pytest
 
 from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401 - fixtures
 from warden.platforms import RoutedPlatform
-from warden.platforms.k8s import RESTARTED_AT, KubernetesPlatform, KubernetesPlatformError
+from warden.platforms.k8s import (
+    RESTARTED_AT,
+    KubernetesPlatform,
+    KubernetesPlatformError,
+    KubernetesPlatformRefused,
+)
 
 NS = "shop"
 
@@ -216,6 +221,27 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     for held in ("object.spec.template.spec == oldObject.spec.template.spec", "object.spec.selector ==",
                  "object.spec.replicas <= oldObject.spec.replicas + 2", "object.spec.replicas >= 1"):
         assert held in rules, held
+    # Every field the API defines is held, or named here as the remediator's (replicas, the restart annotation) or
+    # the server's. A string check let a rule be deleted unseen, and missed metadata entirely (seventh review:
+    # a dangling ownerReference has the garbage collector delete the Deployment). A field Kubernetes adds later
+    # fails this until it is placed.
+    from kubernetes.client import V1DeploymentSpec, V1ObjectMeta
+
+    def held(path):
+        return f"object.{path} == oldObject.{path}" in rules or f"has(object.{path}) ? object.{path} :" in rules
+
+    server_owned = {"creationTimestamp", "deletionGracePeriodSeconds", "deletionTimestamp", "generation",
+                    "managedFields", "resourceVersion", "selfLink", "uid", "name", "namespace", "generateName"}
+    for f in V1ObjectMeta.attribute_map.values():
+        assert f in server_owned or held(f"metadata.{f}"), f"metadata.{f} is not held"
+    for f in set(V1DeploymentSpec.attribute_map.values()) - {"replicas", "template", "paused"}:
+        assert held(f"spec.{f}"), f"spec.{f} is not held"
+    for f in ("spec", "metadata.labels", "metadata.finalizers"):
+        assert held(f"spec.template.{f}"), f"spec.template.{f} is not held"
+    assert "restartedAt" in rules and "paused" in rules
+    # The ceiling is the platform's default ceiling.
+    k8s_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "k8s.py").read_text()
+    assert '"WARDEN_REMEDIATION_MAX_REPLICAS", "10"' in k8s_src and "object.spec.replicas <= 10 " in rules
 
 
 def test_the_plan_names_the_api_server_it_writes_to():
@@ -238,3 +264,32 @@ def test_a_count_that_moved_after_the_approval_is_refused_not_stepped_from():
     assert apps.patches == []
     p.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3}, snapshot={"replicas": 2})
     assert apps.patches
+
+
+def test_a_write_the_api_server_refused_changed_nothing():
+    """Seventh review (2026-10-01): an RBAC or admission-policy refusal (403, or a policy's 422) is never persisted,
+    but a refused restart ended "apply_failed - may be half-made" and a refused scale said "something else scaled
+    it". Both end refused, saying what refused them."""
+    class _Denied(Exception):
+        def __init__(self, status, reason):
+            super().__init__(reason)
+            self.status, self.reason = status, reason
+
+    class _Refusing(_Apps):
+        def __init__(self, status, reason):
+            super().__init__(replicas=2)
+            self.denial = (status, reason)
+
+        def patch_namespaced_deployment(self, name, ns, body, **kw):
+            raise _Denied(*self.denial)
+
+    for status in (403, 422):
+        p = _platform(_Refusing(status, "ValidatingAdmissionPolicy denied request"))
+        with pytest.raises(KubernetesPlatformRefused, match="an admission policy.*nothing was changed"):
+            p.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+        with pytest.raises(KubernetesPlatformRefused, match="an admission policy.*nothing was changed"):
+            p.apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 3})
+    p = _platform(_Refusing(500, "etcd unavailable"))
+    with pytest.raises(KubernetesPlatformError) as failed:
+        p.apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
+    assert not isinstance(failed.value, KubernetesPlatformRefused)
