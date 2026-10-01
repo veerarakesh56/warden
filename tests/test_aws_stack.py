@@ -792,6 +792,8 @@ def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
     for service, resource in arns:
         # A name the grant covers, `/` included (an ECS service's ARN holds its cluster); it must fit the format, the
         # format's own text exact and any name in its {slots}.
+        # Nothing widens it before the stack's name: `service/*/warden-dev-*` was R7-D3's own shape (eighth review).
+        assert "*" not in resource.split("${local.name}")[0], (service, resource)
         covered = resource.replace("${local.name}-*", "warden-dev-x/y")
         shapes = ["".join(".+" if i % 2 else re.escape(part) for i, part in enumerate(re.split(r"\{([A-Za-z]+)\}", f)))
                   for f in _ARN_FORMATS[service]]

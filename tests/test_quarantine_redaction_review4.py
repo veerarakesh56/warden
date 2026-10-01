@@ -176,3 +176,11 @@ def test_the_gate_lets_a_masked_credential_through(masked):
 
     assert gate.leaked_kinds(masked) == [], masked
     assert gate.enforce(f"ERROR 500 GET /cart {masked}").verdict == "PASS"
+
+
+def test_a_five_part_jwe_is_masked_whole():
+    """Eighth review: the JWT pattern took three segments, so a JWE's last two - its ciphertext and tag - stayed."""
+    parts = ["eyJhbGciOiJSU0EtT0FFUCJ9", "", "aXZpdnZpdml2aXY", "Y2lwaGVydGV4dGNpcGhlcg", "dGFndGFndGFn"]
+    jwe = ".".join(parts)
+    out = redact(f"token {jwe} done").text
+    assert all(p not in out for p in parts if p), out

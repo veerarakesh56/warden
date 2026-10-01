@@ -43,7 +43,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
                            r"(?:-----END[A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|\Z)")),
     ("PRIVKEY", re.compile(r"Private-Lines:[ \t]*\d+[ \t]*\r?\n([\s\S]+?)(?=\r?\nPrivate-MAC|\Z)")),  # PuTTY
     ("ARN", re.compile(r"arn:aws:[a-z0-9\-]*:[a-z0-9\-]*:\d{12}:[^\s\"']+")),
-    ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")),
+    # Three segments (a JWS) to five (a JWE, whose second may be empty): a JWE's last two parts were left in clear
+    # (eighth review, 2026-10-01).
+    ("JWT", re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*\.[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]*){0,2}")),
     # Vendor key prefixes: OpenAI/Anthropic (sk-), GitHub classic (ghp_/gho_/ghu_/ghs_/ghr_) and
     # fine-grained (github_pat_), AWS permanent (AKIA) and STS temporary (ASIA) access-key ids,
     # Slack (xoxb-/...), GitLab (glpat-), Google (AIza), Stripe (sk_live_/pk_live_), npm (npm_).

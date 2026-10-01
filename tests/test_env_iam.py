@@ -363,3 +363,11 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
     for principal in ("*", "111122223333"):
         assert not fnmatch.fnmatchcase(principal, "*.amazonaws.com")  # denied
     assert fnmatch.fnmatchcase("apigateway.amazonaws.com", "*.amazonaws.com")  # what the stack grants: allowed
+
+
+def test_no_environment_name_is_another_ones_prefix():
+    """Eighth review (2026-10-01): every IAM pattern is `warden-<env>-*`, so an environment `qa` beside `qa-prod` would
+    match the other's resources - the hazard R7-D5 fixed in the Aurora script, latent in IAM."""
+    for a in ENVS:
+        for b in ENVS:
+            assert a == b or not b.startswith(f"{a}-"), (a, b)
