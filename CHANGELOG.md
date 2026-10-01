@@ -354,6 +354,15 @@ bump may carry a breaking change.
   ends `not_recovered`, not `rolled_back`; a plan is refused unless the request's service is the target
   the fix changes, and health is asked only of the platform that made the change; MySQL closes sessions
   by idle time, not transaction age; the database platform refuses an allowlist naming its own login.
+- **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
+  function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
+  always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a
+  table whose Group or Status column was renamed; R4-E-5 cites the test that proves it. Corrections: the A-R5
+  note said "one commit, each with a test"; the commit 9d01dfd said each new test fails on the previous code,
+  which the concurrency test does not (its control predates it); README's live-test counts (24: 13
+  Kubernetes, 11 databases) and mutation count (37). Commits pushed together get CI on the last one only: five
+  commits since 9551288 had no run of their own (4a7afe0, 7c0dd34, 0981974, 6530fc0, 1ee7ca3); from 3bd757c
+  on, commits are pushed one at a time.
 - **Sixth independent review, the tripwire** (7f0178e): only the placeholders WARDEN issued are removed
   from what is scanned (any `<WORD_N>` was, hiding an injection written in that shape), and labels are
   scanned as sentences - a credential-named label no longer escalates a clean incident on the real model.
@@ -377,7 +386,7 @@ bump may carry a breaking change.
     no longer reach the wheel or the image; the wheel carries the LICENSE again (the "every file" claim
     of 00c08ab was false); the image is compiled to bytecode and keeps neither uv's cache nor the source
     copy; the deployed app and Lambda requirements are audited and the deployed code bandit-scanned where
-    it changes; CI's image builds use the host network (the k8s job's build crawled; to be measured); the
+    it changes; CI's image builds use the host network (the k8s job's build crawled; measured after: 97 s, from 264-320 s); the
     mutation check kills its workers on POSIX too.
   - Redaction: a shorter secret starting where a longer found value starts is masked again (a
     regression in e809f4b); the hex-key rule takes credential names only (it erased `cache_key=<sha>`

@@ -43,27 +43,42 @@ def _cells(line: str) -> list[str]:
     return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
 
 
+_DELIMITER = re.compile(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-*:?\s*)*\|?\s*")
+
+
 def rows(text: str, malformed: list[str] | None = None) -> list[dict[str, str]]:
-    """Every row of every markdown table that has Group and Status columns. A row whose cell count does
-    not match its header is reported in `malformed` (fifth review, 2026-10-01: an unescaped `||` split
-    A-C-10's evidence, the row was dropped without a word, and GitHub cut the cell there)."""
+    """Every row of every markdown table, read as GitHub reads tables: a header line, a delimiter line, then
+    every following non-blank line - with or without a leading pipe, indented or not - until a blank line or a
+    heading or quote (sixth review, 2026-10-01: only lines starting with `|` were read, so a row GitHub showed
+    could be invisible here). In the registers every table is a register table: one without Group and Status
+    columns, and a row whose cells do not match its header, are reported in `malformed` (fifth review: an
+    unescaped `||` split a cell and the row was dropped without a word)."""
     out: list[dict[str, str]] = []
+    lines = text.splitlines()
     header: list[str] | None = None
-    for line in text.splitlines():
-        if not line.startswith("|"):
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if header is None:
+            if "|" in line and i + 1 < len(lines) and _DELIMITER.fullmatch(lines[i + 1]):
+                header = _cells(line)
+                if not ("Group" in header and "Status" in header) and malformed is not None:
+                    malformed.append(f"a table without Group and Status columns: {line.strip()[:60]}")
+                i += 2
+                continue
+            i += 1
+            continue
+        if not line.strip() or line.lstrip().startswith(("#", ">")):
             header = None
+            i += 1
             continue
         cells = _cells(line)
-        if header is None:
-            header = cells
-            continue
-        if set(line.replace("|", "").strip()) <= set("-: "):
-            continue
         if "Group" in header and "Status" in header:
             if len(cells) == len(header):
                 out.append(dict(zip(header, cells, strict=True)))
             elif malformed is not None:
-                malformed.append(line[:80])
+                malformed.append(line.strip()[:80])
+        i += 1
     return out
 
 
@@ -302,3 +317,16 @@ def test_a_skip_allowed_in_ci_is_still_installed_there():
     """SKIP_OK's reason for test_providers.py holds only while CI's unit job installs the extras."""
     ci = (ROOT / ".github/workflows/ci-tool.yml").read_text(encoding="utf-8")
     assert re.search(r"uv sync --locked --extra dev --extra all-providers", ci), "CI no longer installs the provider extras"
+
+
+def test_rows_github_shows_are_read_whatever_their_pipes():
+    """Sixth review (2026-10-01): an indented row, a row with no leading pipe and a renamed header all
+    rendered on GitHub and were invisible to the guard."""
+    table = ("| ID | Finding | Group | Status | Evidence |\n|---|---|---|---|---|\n"
+             "| X-1 | a | G1 | OPEN | e |\n  | X-2 | b | G1 | OPEN | e |\nX-3 | c | G0 | OPEN | e |\n"
+             "X-4 | d | G1 | done | e\n\nafter the table\n")
+    bad: list[str] = []
+    assert [r["ID"] for r in rows(table, bad)] == ["X-1", "X-2", "X-3", "X-4"] and bad == []
+    renamed = "| ID | Finding | Group | State | Evidence |\n|---|---|---|---|---|\n| X-5 | e | G0 | OPEN | e |\n"
+    rows(renamed, bad)
+    assert bad and "without Group and Status" in bad[0]

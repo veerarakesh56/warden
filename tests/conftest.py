@@ -11,6 +11,7 @@ exercise the live path is still honoured; this only supplies the default the Mak
 
 import logging
 import os
+import pathlib
 
 import pytest
 
@@ -54,16 +55,48 @@ def pytest_configure(config):
 _REPORTS: dict[str, set[str]] = {}
 
 
+def pytest_collection_modifyitems(session, config, items):
+    """Each test says whether it is the function its file defines under its name. A cited test rebound to
+    another function - `globals()["test_x"] = lambda: None`, which no linter sees - passed vacuously and the
+    guard counted it (sixth review, 2026-10-01). user_properties reach the controller under xdist too."""
+    import inspect
+
+    for item in items:
+        fn = getattr(item, "function", None)
+        try:
+            genuine = (fn is not None and fn.__name__ == item.originalname
+                       and fn.__module__ == item.module.__name__
+                       and pathlib.Path(inspect.getsourcefile(fn) or "").resolve() == pathlib.Path(item.path).resolve())
+        except (TypeError, OSError):
+            genuine = False
+        item.user_properties.append(("warden_genuine", genuine))
+
+
 def pytest_runtest_logreport(report):
-    _REPORTS.setdefault(report.nodeid, set()).add(
-        "skipped" if report.skipped else f"{report.when}:{report.outcome}")
+    states = _REPORTS.setdefault(report.nodeid, set())
+    states.add("skipped" if report.skipped else f"{report.when}:{report.outcome}")
+    if ("warden_genuine", False) in report.user_properties:
+        states.add("not-genuine")
 
 
 def _full_run(config) -> bool:
+    """Judged: a run of the whole `tests` directory, nothing filtered, and something actually run."""
     args = [a.replace("\\", "/").rstrip("/") for a in config.args]
-    return (not config.getoption("keyword", default="") and not config.getoption("markexpr", default="")
+    return (not config.getoption("collectonly", default=False)
+            and not config.getoption("keyword", default="") and not config.getoption("markexpr", default="")
             and not config.getoption("lf", default=False) and not config.getoption("deselect", default=None)
             and "tests" in [a.rsplit("/", 1)[-1] for a in args])
+
+
+def missing_evidence(reports: dict[str, set[str]], cited: set[tuple[str, str]]) -> list[str]:
+    """Each cited test that did not run its own body and pass: skipped, xfailed, failed, absent, or rebound."""
+    missing = []
+    for file, func in sorted(cited):
+        ran = [states for nodeid, states in reports.items()
+               if nodeid == f"{file}::{func}" or nodeid.startswith(f"{file}::{func}[")]
+        if not ran or any("skipped" in st or "call:passed" not in st or "not-genuine" in st for st in ran):
+            missing.append(f"{file}::{func}")
+    return missing
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -72,12 +105,7 @@ def pytest_sessionfinish(session, exitstatus):
         return
     from test_register import cited_tests
 
-    missing = []
-    for file, func in sorted(cited_tests()):
-        ran = [states for nodeid, states in _REPORTS.items()
-               if nodeid == f"{file}::{func}" or nodeid.startswith(f"{file}::{func}[")]
-        if not ran or any("skipped" in st or "call:passed" not in st for st in ran):
-            missing.append(f"{file}::{func}")
+    missing = missing_evidence(_REPORTS, set(cited_tests()))
     if missing:
         reporter = config.pluginmanager.get_plugin("terminalreporter")
         if reporter:
