@@ -408,7 +408,8 @@ jobs:
           # container runtime, retry, and fail HERE, at the cause, if the image never arrives.
           present() { docker exec k3d-warden-ci-server-0 crictl images | grep -qE 'warden[[:space:]]+local'; }
           for attempt in 1 2 3; do
-            k3d image import warden:local -c warden-ci || true
+            # Bounded: an import hung for the job's whole 25 minutes (CI on 41ba1f0, 2026-10-01); a hang is a retry.
+            timeout 180 k3d image import warden:local -c warden-ci || true
             if present; then echo "warden:local is in the node (attempt $attempt)"; break; fi
             echo "::warning::k3d reported the import but the image is not in the node (attempt $attempt)"
             sleep 3
