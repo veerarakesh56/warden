@@ -18,6 +18,7 @@ on:
       - "uv.lock"
       - "pyproject.toml"
       - "tests/test_supply_chain.py"
+      - "tests/test_k8s_tokens.py"
   pull_request:
     paths:
       - "scenarios/fullstack/**"
@@ -32,6 +33,7 @@ on:
       - "uv.lock"
       - "pyproject.toml"
       - "tests/test_supply_chain.py"
+      - "tests/test_k8s_tokens.py"
   # Weekly too: the deployed requirements are audited (pip-audit) even when nothing here changes - a new CVE
   # in a pinned redis or psycopg was noticed only at the next change or deploy (sixth review, 2026-10-01).
   schedule:

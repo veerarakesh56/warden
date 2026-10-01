@@ -141,3 +141,22 @@ def test_a_run_on_main_is_never_cancelled_by_the_next_push():
         assert group["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}", name
         checked += 1
     assert checked == 4
+
+
+def test_a_lane_runs_when_a_test_file_its_check_runs_changes():
+    """Ninth review CI run (2026-10-01): CI · infra runs six test files but triggered on one, so a check that
+    could not work in its environment (the live-count test, without the k8s extra) stayed hidden until that one
+    file changed. Every test file a lane's check job runs is one of the lane's trigger paths, push and PR."""
+    import re
+
+    import yaml
+
+    flows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    for check, lane in (("_infra-validate.yml", "ci-infra.yml"), ("_apps-check.yml", "ci-apps.yml")):
+        text = (flows / check).read_text(encoding="utf-8")
+        runs = {f for line in text.splitlines() if line.strip().startswith("- run: pytest ")
+                for f in re.findall(r"tests/[\w/]+\.py", line)}
+        on = yaml.safe_load((flows / lane).read_text(encoding="utf-8"))[True]  # YAML 1.1 reads `on` as True
+        for trigger in ("push", "pull_request"):
+            missing = runs - set(on[trigger]["paths"])
+            assert runs and not missing, (lane, trigger, sorted(missing))

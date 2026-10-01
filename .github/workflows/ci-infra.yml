@@ -14,6 +14,14 @@ on:
       # older than pyproject.toml stayed hidden until an apps or infra path changed).
       - "uv.lock"
       - "pyproject.toml"
+      - "tests/test_aws_stack.py"
+      - "tests/test_docs_honesty.py"
+      - "tests/test_supply_chain.py"
+      - "tests/test_terraform_versions.py"
+      - "tests/test_env_iam.py"
+      - "iam/**"
+      - "scripts/render_env_iam.py"
+      - "src/warden/data/environments.yaml"
   pull_request:
     paths:
       - "terraform/fullstack/**"
@@ -24,6 +32,14 @@ on:
       # older than pyproject.toml stayed hidden until an apps or infra path changed).
       - "uv.lock"
       - "pyproject.toml"
+      - "tests/test_aws_stack.py"
+      - "tests/test_docs_honesty.py"
+      - "tests/test_supply_chain.py"
+      - "tests/test_terraform_versions.py"
+      - "tests/test_env_iam.py"
+      - "iam/**"
+      - "scripts/render_env_iam.py"
+      - "src/warden/data/environments.yaml"
 
 permissions:
   contents: read
