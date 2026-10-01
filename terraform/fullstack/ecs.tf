@@ -70,7 +70,7 @@ resource "aws_iam_role_policy" "ecs_execution_secret" {
 }
 
 # orders-api's OWN identity (the task role, not the execution role): it signs IAM database tokens
-# as user app. Its only grant is its own inline policy, so fs-21 can remove exactly it and the
+# as the application user. Its only grant is its own inline policy, so fs-21 can remove exactly it and the
 # harness can put it back.
 resource "aws_iam_role" "ecs_task" {
   name                 = "${local.name}-orders-api-task"

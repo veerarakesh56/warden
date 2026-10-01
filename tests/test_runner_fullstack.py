@@ -529,7 +529,7 @@ def test_warden_ro_tokens_are_signed_with_the_assumed_reader_role_never_the_oper
     assert made == [("rds", {"region_name": "ap-south-2", "aws_access_key_id": "ASIAREADER",
                              "aws_secret_access_key": "s", "aws_session_token": "tok"})]
     assert d["WARDEN_STACK_DB_READER_DSN"].startswith(
-        "postgresql://warden_ro:warden-dev-aurora.cluster-ro-x%3A5432%2F%3FAction%3Dconnect%26DBUser%3Dwarden_ro")
+        "postgresql://warden_dev_ro:warden-dev-aurora.cluster-ro-x%3A5432%2F%3FAction%3Dconnect%26DBUser%3Dwarden_dev_ro")
     assert d["WARDEN_STACK_DB_READER_DSN"].endswith("@warden-dev-aurora.cluster-ro-x:5432/shop?sslmode=require")
     assert "@warden-dev-aurora.cluster-x:5432/shop" in d["WARDEN_STACK_DB_WRITER_DSN"]
 

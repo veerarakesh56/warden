@@ -49,7 +49,7 @@ def _token(host, user):
 
 def _connect():
     host = os.environ.get("DB_HOST") or _meta()["host"]
-    user = os.environ.get("DB_USER", "app")
+    user = os.environ["DB_USER"]  # named for the environment (warden_<env>_app); no default
     return psycopg.connect(host=host, dbname=os.environ.get("DB_NAME", "shop"), user=user,
                            password=_token(host, user), port=5432, connect_timeout=5, sslmode="require")
 

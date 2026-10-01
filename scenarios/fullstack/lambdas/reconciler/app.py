@@ -51,7 +51,7 @@ def _token(host, user):
 def handler(event, context):
     lookup = os.environ.get("RECONCILE_LOOKUP", "by_id")
     host = os.environ.get("DB_HOST") or _meta()["reader"]
-    user = os.environ.get("DB_USER", "catalog")
+    user = os.environ["DB_USER"]  # named for the environment (warden_<env>_catalog); no default
     with psycopg.connect(host=host, dbname=os.environ.get("DB_NAME", "shop"), user=user,
                          password=_token(host, user), port=5432, connect_timeout=5, sslmode="require",
                          application_name="reconciler") as conn:

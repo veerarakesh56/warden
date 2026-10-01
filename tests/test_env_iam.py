@@ -136,12 +136,13 @@ def test_only_the_same_named_github_environment_may_assume(env):
     assert "*" not in json.dumps(doc), "no wildcard anywhere in a trust policy"
 
 
-def test_templates_use_only_the_two_placeholders():
+def test_templates_use_only_the_known_placeholders():
+    """env, env_sql (the environment as a database user name has it: `_` for `-`) and account."""
     import re
 
     for kind in r.KINDS:
         text = (r.TEMPLATES / f"{kind}.json").read_text(encoding="utf-8")
-        assert set(re.findall(r"\$\{(\w+)\}", text)) <= {"env", "account"}, kind
+        assert set(re.findall(r"\$\{(\w+)\}", text)) <= {"env", "env_sql", "account"}, kind
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -198,9 +199,28 @@ def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
     ceiling = _allows(boundary)
     denied = [(a, st.get("Condition")) for st in boundary["Statement"] if st["Effect"] == "Deny"
               and st.get("Resource") == "*" for a in _list(st["Action"])]
+    # IAM wildcards in the boundary's denies (`s3:Put*PublicAccessBlock`) cover the guardrail's exact actions.
     missing = [a for st in guard["Statement"] for a in _list(st["Action"])
                if any(fnmatch.fnmatchcase(a.lower(), p.lower()) for p in ceiling)
-               and (a, st.get("Condition")) not in denied]
+               and not any(fnmatch.fnmatchcase(a.lower(), d.lower()) and c == st.get("Condition") for d, c in denied)]
     assert not missing, missing
     for action in ("s3:PutBucketPublicAccessBlock", "s3:DeleteBucketPublicAccessBlock", "s3:PutBucketPolicy"):
-        assert (action, None) in denied, action
+        assert any(fnmatch.fnmatchcase(action.lower(), d.lower()) and c is None for d, c in denied), action
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_a_role_connects_only_as_its_own_environments_database_users(env):
+    """Audit A-I-1/A-I-2: rds-db:connect was in the region-wide ceiling - any database user, the master
+    `postgres` included, in any environment's cluster. Now only warden_<env>_* users, and never postgres."""
+    boundary = _load(env, "boundary")
+    grants = [st for st in boundary["Statement"] if st["Effect"] == "Allow"
+              and any(fnmatch.fnmatchcase("rds-db:connect", a) for a in _list(st["Action"]))]
+    assert [_list(st["Resource"]) for st in grants] == [
+        [f"arn:aws:rds-db:{_region()}:*:dbuser:*/warden_{env.replace('-', '_')}_*"]], grants
+    master = [st for st in boundary["Statement"] if st["Effect"] == "Deny" and "rds-db:connect" in _list(st["Action"])]
+    assert master and "arn:aws:rds-db:*:*:dbuser:*/postgres" in _list(master[0]["Resource"])
+
+
+def _region():
+    ceiling = next(st for st in _load(ENVS[0], "boundary")["Statement"] if st.get("Sid") == "CeilingRegional")
+    return ceiling["Condition"]["StringEquals"]["aws:RequestedRegion"]

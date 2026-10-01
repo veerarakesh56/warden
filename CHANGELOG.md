@@ -348,6 +348,12 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **Database logins per environment (G1-I, A-I-1/A-I-2)**: the database users are named for their environment
+  (`warden_<env>_app`, `_catalog`, `_ro`), so a grant in one environment names no user in another's cluster;
+  the boundary allows `rds-db:connect` only as the environment's own users and denies the master `postgres`.
+  Terraform publishes the names (`db_users` in stack.json); bootstrap.sql and the k8s config are filled from
+  them, each checked to be a plain user name; the apps no longer default to `app`/`catalog`. A live window
+  proves it before any row closes. The boundary is now at 6,140 of IAM's 6,144 characters.
 - **Sixth independent review, the write path** (2026-10-01; rows A-R6): a failed rollback ends
   `rollback_failed`, signed, and trips the kill switch (it crashed the workflow); a rollback undoes only
   what its own run applied, and its row names the run and plan; a fix with nothing to undo (a restart)

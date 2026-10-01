@@ -11,7 +11,6 @@
         "eks:*",
         "eks-auth:AssumeRoleForPodIdentity",
         "rds:*",
-        "rds-db:connect",
         "logs:*",
         "cloudwatch:*",
         "elasticloadbalancing:*",
@@ -33,6 +32,12 @@
           "aws:RequestedRegion": "ap-south-2"
         }
       }
+    },
+    {
+      "Sid": "CeilingOwnDbUsers",
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_dev_*"
     },
     {
       "Sid": "CeilingOwnNames",
@@ -279,30 +284,27 @@
       "Resource": "*"
     },
     {
-      "Sid": "DenyPublicOrSharedData",
+      "Sid": "DenyPublicData",
       "Effect": "Deny",
       "Action": [
-        "s3:PutAccountPublicAccessBlock",
-        "s3:PutBucketPublicAccessBlock",
+        "s3:Put*PublicAccessBlock",
         "s3:DeleteBucketPublicAccessBlock",
         "s3:PutBucketAcl",
         "s3:PutObjectAcl",
         "s3:PutBucketPolicy",
-        "rds:ModifyDBSnapshotAttribute",
-        "rds:ModifyDBClusterSnapshotAttribute",
+        "rds:Modify*SnapshotAttribute",
         "ec2:ModifySnapshotAttribute",
         "ec2:ModifyImageAttribute",
         "secretsmanager:PutResourcePolicy",
         "ecr:SetRepositoryPolicy",
         "logs:PutResourcePolicy",
-        "logs:PutDestination",
-        "logs:PutDestinationPolicy",
-        "logs:PutSubscriptionFilter"
+        "logs:PutSubscriptionFilter",
+        "logs:PutDestination*"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "DenyPublicFunctionUrls",
+      "Sid": "DenyPublicFnUrls",
       "Effect": "Deny",
       "Action": [
         "lambda:CreateFunctionUrlConfig",
@@ -316,7 +318,7 @@
       }
     },
     {
-      "Sid": "DenyInvokeByAnyone",
+      "Sid": "DenyInvokeByAll",
       "Effect": "Deny",
       "Action": "lambda:AddPermission",
       "Resource": "*",
@@ -325,6 +327,12 @@
           "lambda:Principal": "*"
         }
       }
+    },
+    {
+      "Sid": "DenyMasterDbLogin",
+      "Effect": "Deny",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:*:*:dbuser:*/postgres"
     }
   ]
 }

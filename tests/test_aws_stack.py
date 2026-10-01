@@ -714,11 +714,10 @@ def test_the_cache_network_path_is_evidence(dsns):
     assert f"APPSG eks/{P}eks sgs=[sg-0eks]" in lines
 
 
-def test_the_only_database_login_the_reader_role_holds_is_warden_ro():
+def test_the_only_database_login_the_reader_role_holds_is_wardens_own_reader():
     text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     block = re.search(r'statement \{\s*sid\s*=\s*"ConnectAsWardenRo"(.*?)\n  \}', text, re.DOTALL).group(1)
-    assert re.findall(r'"(arn:[^"]+)"', block) == [
-        "arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/warden_ro"]
+    assert re.findall(r"resources\s*=\s*\[(.+)\]", block) == ['local.dbuser_arn["ro"]']
 
 
 def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numerically_previous(dsns):

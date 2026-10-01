@@ -101,7 +101,7 @@ locals {
       memory  = 256
       in_vpc  = true
       env = merge(local.db_env, {
-        DB_USER = "app"
+        DB_USER = local.db_users["app"]
       })
     }
     notifier = {
@@ -115,7 +115,7 @@ locals {
       memory  = 256
       in_vpc  = true
       env = merge(local.db_env, {
-        DB_USER          = "catalog" # read-only; the reconciler reads the reader
+        DB_USER          = local.db_users["catalog"] # read-only; the reconciler reads the reader
         REDIS_HOST       = aws_elasticache_replication_group.redis.primary_endpoint_address
         RECONCILE_LOOKUP = "by_id" # fs-16 sets by_customer
       })

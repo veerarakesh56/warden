@@ -123,7 +123,9 @@ def test_catalog_api_gets_its_role_through_pod_identity():
 
 def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
     text = _tf_text()
-    assert "dbuser:*/${u}" in text and 'for u in ["app", "catalog"]' in text
+    # Named for the environment (audit A-I-2): `app` existed in every environment's cluster.
+    assert 'db_users = { for k in ["app", "catalog", "ro"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }' in text
+    assert "dbuser:*/${u}" in text and "for k, u in local.db_users" in text
     assert text.count('"rds-db:connect"') == 5, "one grant per identity: processor, reconciler, task, pod, reader"
     assert not re.search(r"dbuser:[^\s\"]*/\*", text), "a grant for every database user"
     lam = (TF / "lambda.tf").read_text(encoding="utf-8")
@@ -133,7 +135,8 @@ def test_rds_db_connect_is_scoped_to_one_database_user_per_identity():
     assert 'local.dbuser_arn["app"]' in grants["ecs_task_db"]
     assert 'local.dbuser_arn["catalog"]' in grants["catalog_pod_db"]
     reader = (TF / "reader.tf").read_text(encoding="utf-8")
-    assert 'dbuser:*/warden_ro"]' in reader and reader.count('"rds-db:connect"') == 1
+    assert 'resources = [local.dbuser_arn["ro"]]' in reader and reader.count('"rds-db:connect"') == 1
+    assert not re.search(r"dbuser:\*/(?:app|catalog|warden_ro)\b", text + reader), "a user not named for its environment"
 
 
 def test_one_nat_gateway_gives_the_private_subnets_their_way_out():
@@ -459,12 +462,12 @@ def test_the_slow_index_is_the_one_the_harness_drops():
 def test_the_bootstrap_gives_warden_ro_pg_monitor_and_nothing_more():
     text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
-    mentions = [" ".join(s.split()) for s in re.split(r";", code) if "warden_ro" in s]
-    allowed = [r"^GRANT pg_monitor TO warden_ro$", r"^GRANT rds_iam TO app, catalog, warden_ro$"]
+    mentions = [" ".join(s.split()) for s in re.split(r";", code) if "__RO__" in s]
+    allowed = [r"^GRANT pg_monitor TO __RO__$", r"^GRANT rds_iam TO __APP__, __CATALOG__, __RO__$"]
     grants = [m for m in mentions if m.upper().startswith(("GRANT", "ALTER"))]
-    assert "GRANT pg_monitor TO warden_ro" in grants
+    assert "GRANT pg_monitor TO __RO__" in grants
     assert all(any(re.match(a, g) for a in allowed) for g in grants), grants
-    assert "CREATE ROLE warden_ro LOGIN" in code
+    assert "CREATE ROLE __RO__ LOGIN" in code
 
 
 # --------------------------------------------------------------------------- pipelines
@@ -507,14 +510,15 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
 
 
 def test_bootstrap_sql_has_no_password_and_no_placeholder():
-    """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause and no
-    placeholder of any kind remains (the file is sent as it is)."""
+    """2026-09-26: IAM authentication only. Every role gets rds_iam; no PASSWORD clause. The only placeholders
+    are the three users, named for the environment when the file is sent (audit A-I-2)."""
     text = (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
     code = re.sub(r"--[^\n]*", "", text)
-    assert "{" not in text and "}" not in text and "__" not in code
+    assert "{" not in text and "}" not in text
+    assert set(re.findall(r"__[A-Z_]+__", code)) == {"__APP__", "__CATALOG__", "__RO__"}
     assert not re.search(r"(?i)\bpassword\b", code)
-    assert "GRANT rds_iam TO app, catalog, warden_ro" in code
-    for role in ("app", "catalog", "warden_ro"):
+    assert "GRANT rds_iam TO __APP__, __CATALOG__, __RO__" in code
+    for role in ("__APP__", "__CATALOG__", "__RO__"):
         assert f"CREATE ROLE {role} LOGIN" in code
 
 

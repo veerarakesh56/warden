@@ -62,15 +62,15 @@ data "aws_iam_policy_document" "fs_reader" {
     resources = ["*"]
   }
 
-  # ⭐ NOT a call WARDEN makes. The harness signs WARDEN's warden_ro database token with THIS role's
+  # ⭐ NOT a call WARDEN makes. The harness signs WARDEN's warden_<env>_ro database token with THIS role's
   # credentials (scenarios/fullstack_cli.py), so the database login WARDEN uses is authorised by the
   # role WARDEN runs as - and by nothing else. tests/test_aws_stack.py names it as the one exception
-  # to "grant exactly what the code calls". User warden_ro holds pg_monitor only (bootstrap.sql).
+  # to "grant exactly what the code calls". That user holds pg_monitor only (bootstrap.sql).
   statement {
     sid       = "ConnectAsWardenRo"
     effect    = "Allow"
     actions   = ["rds-db:connect"]
-    resources = ["arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/warden_ro"]
+    resources = [local.dbuser_arn["ro"]]
   }
 
   # API Gateway v2 has no per-API read action: `GetApis` is apigateway:GET on the /apis resource.

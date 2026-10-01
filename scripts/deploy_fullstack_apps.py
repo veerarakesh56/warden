@@ -299,12 +299,38 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
         "DB_NAME": stack["db_name"],
         "REGION": stack["region"],
         "ENVIRONMENT": stack["environment"],
+        "DB_USER_CATALOG": db_users(stack)["catalog"],
         "CATALOG_SIGNING_KEY": secrets.token_hex(32),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
     for deployment in ("catalog-api", "cart-worker"):
         run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "rollout", "status",
              f"deployment/{deployment}", "--timeout=300s"])
+
+
+_DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro)")
+
+
+def db_users(stack: dict) -> dict[str, str]:
+    """The environment's database users from stack.json (Terraform's `db_users`; audit A-I-2), each checked to
+    be a plain identifier before it goes into SQL or a manifest."""
+    users = stack.get("db_users")
+    if not isinstance(users, dict) or set(users) != {"app", "catalog", "ro"}:
+        raise SystemExit("stack.json has no db_users: write it from `terraform output -json` (README)")
+    bad = [u for u in users.values() if not (isinstance(u, str) and _DB_USER.fullmatch(u))]
+    if bad:
+        raise SystemExit(f"stack.json db_users holds a name that is not a database user: {bad}")
+    return users
+
+
+def bootstrap_sql(users: dict[str, str]) -> str:
+    """bootstrap.sql with the environment's users in place of __APP__ / __CATALOG__ / __RO__."""
+    text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
+    for key, name in (("APP", users["app"]), ("CATALOG", users["catalog"]), ("RO", users["ro"])):
+        text = text.replace(f"__{key}__", name)
+    if PLACEHOLDER.search(text):
+        raise SystemExit(f"unfilled placeholders in bootstrap.sql: {sorted(set(PLACEHOLDER.findall(text)))}")
+    return text
 
 
 def bootstrap_db(stack: dict, aws, connect=None) -> None:
@@ -317,7 +343,7 @@ def bootstrap_db(stack: dict, aws, connect=None) -> None:
         import psycopg
 
         connect = psycopg.connect
-    text = (APPS / "sql" / "bootstrap.sql").read_text(encoding="utf-8")
+    text = bootstrap_sql(db_users(stack))
     # Aurora express cannot create an initial database, so it is created here - from the always-present
     # `postgres` database, idempotently (CREATE DATABASE has no IF NOT EXISTS).
     with connect(host=host, dbname="postgres", user=user, password=token, port=5432,

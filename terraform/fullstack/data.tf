@@ -7,15 +7,18 @@
 # before `terraform destroy`. Express clusters take IAM database authentication only: there are no
 # database passwords anywhere in this stack.
 #
-# ⛔ The schema and the roles app / catalog / warden_ro are NOT created here: they are SQL, applied
+# ⛔ The schema and the roles warden_<env>_app / _catalog / _ro are NOT created here: they are SQL, applied
 # by `scripts/deploy_fullstack_apps.py bootstrap-db` from scenarios/fullstack/sql/bootstrap.sql.
 
 locals {
   aurora_cluster = "${local.name}-aurora" # created by aurora_express.py, not by terraform
   # rds-db:connect is scoped by DATABASE USER. The cluster's resource id (the middle of the ARN) is
-  # only known after aurora_express.py runs, so it is `*`: the user name is the scope.
-  dbuser_arn = { for u in ["app", "catalog"] :
-    u => "arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/${u}"
+  # only known after aurora_express.py runs, so it is `*`: the user name is the scope - and so the user
+  # name carries the environment. `app` existed in every environment's cluster, so a role granted
+  # the user `app` in one could log in to another's (audit A-I-2). A Postgres role takes `_`, not `-`.
+  db_users = { for k in ["app", "catalog", "ro"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }
+  dbuser_arn = { for k, u in local.db_users :
+    k => "arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/${u}"
   }
 }
 
@@ -32,14 +35,14 @@ locals {
 
 resource "aws_secretsmanager_secret" "db_app" {
   name                    = "${local.name}-db-app"
-  description             = "Aurora connection metadata for user app (no password: IAM authentication)."
+  description             = "Aurora connection metadata for the application user (no password: IAM authentication)."
   recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "db_app" {
   secret_id = aws_secretsmanager_secret.db_app.id
   secret_string = jsonencode({
-    username = "app"
+    username = local.db_users["app"]
     dbname   = "shop"
     port     = 5432
     host     = "" # filled by aurora_express.py create (the cluster endpoint)

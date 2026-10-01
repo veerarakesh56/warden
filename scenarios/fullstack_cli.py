@@ -178,7 +178,7 @@ def target_from_stack(stack: dict) -> fs.Target:
     return t
 
 
-RO_USER = "warden_ro"
+RO_USER = f"warden_{fs.ENV.replace('-', '_')}_ro"  # named for the environment (audit A-I-2)
 
 
 def pg_dsn(user: str, password: str, host: str, database: str, port: int | str = 5432) -> str:

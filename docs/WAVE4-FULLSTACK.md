@@ -1,5 +1,7 @@
 # Wave 4 - the full stack (design, registered before any run)
 
+> **Since 2026-10-01** the database users are named for their environment - `warden_<env>_app`, `_catalog`, `_ro` (audit A-I-2); `app`, `catalog` and `warden_ro` below are the names this run used.
+
 > **Names changed 2026-09-27 (v2 Phase 1.5).** This record describes the Wave 4 run as it happened, with the names of the time: `warden-pg-fs-*` and tag `Project=warden-fullstack`. The stack is now per environment: `warden-<env>-*`, tagged `Project=warden` + `Environment=<env>` (`terraform/fullstack/README.md`).
 
 Status: **design, not yet run.** Written 2026-09-25, before any Wave 4 resource exists, so the fault

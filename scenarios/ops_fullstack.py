@@ -1716,8 +1716,9 @@ def _names_stack(value: str, stack_ids: frozenset[str]) -> bool:
 _ARN = re.compile(r"arn:aws[\w-]*:[^\s,\"'}\]]+")
 _ROOT = re.compile(r"arn:aws:iam::\d+:root")
 # rds-db:connect is scoped by DATABASE USER: the ARN's middle is the cluster's resource id, which a
-# report masks (`*`). Only the application users - never postgres (the master) or warden_ro.
-DB_APP_USERS = ("app", "catalog")
+# report masks (`*`). Only the application users - never postgres (the master) or WARDEN's own reader -
+# named for the environment (audit A-I-2).
+DB_APP_USERS = tuple(f"warden_{ENV.replace('-', '_')}_{k}" for k in ("app", "catalog"))
 _DBUSER = re.compile(rf"arn:aws:rds-db:{re.escape(REGION)}:(?:\*|\d{{12}}):dbuser:(?:\*|cluster-[A-Za-z0-9]+)/"
                      rf"(?:{'|'.join(DB_APP_USERS)})")
 

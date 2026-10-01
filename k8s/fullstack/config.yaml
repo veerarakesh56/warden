@@ -10,7 +10,7 @@ data:
   REDIS_HOST: "__REDIS_HOST__"
   DB_HOST: "__DB_READER_HOST__"
   DB_NAME: "__DB_NAME__"
-  DB_USER: "catalog" # IAM database login (Pod Identity), read-only
+  DB_USER: "__DB_USER_CATALOG__" # IAM database login (Pod Identity), read-only; named for the environment
   AWS_REGION: "__REGION__"
   CATALOG_PAGE_SIZE: "20"
   CATALOG_CACHE_TTL_S: "60"

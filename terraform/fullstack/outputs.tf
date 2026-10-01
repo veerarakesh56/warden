@@ -147,7 +147,7 @@ output "ecs_execution_role_name" {
 }
 
 output "ecs_task_role_arn" {
-  description = "orders-api's own identity: rds-db:connect as user app (fs-21 removes it)."
+  description = "orders-api's own identity: rds-db:connect as the application user (fs-21 removes it)."
   value       = aws_iam_role.ecs_task.arn
 }
 
@@ -192,4 +192,9 @@ output "environment" {
 output "name_prefix" {
   description = "Every resource name starts with this."
   value       = "${local.name}-"
+}
+
+output "db_users" {
+  description = "The database users, named for the environment (bootstrap.sql creates them; audit A-I-2)."
+  value       = local.db_users
 }

@@ -27,6 +27,7 @@ STACK = {
     "db_app_secret_arn": "arn:aws:secretsmanager:ap-south-2:111122223333:secret:warden-dev-db-app-AbC",
     "db_app_secret_name": "warden-dev-db-app",
     "db_name": "shop", "environment": "dev",
+    "db_users": {"app": "warden_dev_app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro"},
     "db_master_username": "postgres",
     "ecs_task_role_arn": "arn:aws:iam::111122223333:role/warden-dev-orders-api-task",
     "redis_primary_endpoint": "redis.internal",
@@ -164,7 +165,7 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     key = next(d for d in docs if d["kind"] == "Secret")["stringData"]["CATALOG_SIGNING_KEY"]
     config = next(d for d in docs if d["kind"] == "ConfigMap")["data"]
     assert len(key) == 64 and (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
-        "catalog", "reader.internal", "ap-south-2")
+        "warden_dev_catalog", "reader.internal", "ap-south-2")
     assert all(key not in " ".join(c) for c in run.cmds)
     assert sum("rollout" in c for c in run.cmds) == 2
 
@@ -207,15 +208,16 @@ def _bootstrap(db_exists: bool):
 
 def test_bootstrap_db_logs_in_as_postgres_with_an_iam_token_and_sends_the_file_as_is():
     """No password exists (Aurora express configuration): the token is signed with the operator's
-    credentials, and bootstrap.sql is sent unchanged to the application database."""
+    credentials, and bootstrap.sql is sent to the application database with the environment's users in it."""
     opened, statements = _bootstrap(db_exists=True)
     assert [kw["dbname"] for kw in opened] == ["postgres", STACK["db_name"]]
     for kw in opened:
         assert kw["user"] == "postgres" and kw["password"] == "token-SENTINEL"
         assert kw["host"] == "writer.internal" and kw["sslmode"] == "require"
     assert not any("CREATE DATABASE" in q for q in statements["postgres"])
-    assert statements[STACK["db_name"]] == [
-        (ROOT / "scenarios" / "fullstack" / "sql" / "bootstrap.sql").read_text(encoding="utf-8")]
+    sent = statements[STACK["db_name"]]
+    assert sent == [tool.bootstrap_sql(STACK["db_users"])]
+    assert "CREATE ROLE warden_dev_app LOGIN" in sent[0] and "__" not in sent[0].replace("____", "")
 
 
 def test_bootstrap_db_creates_the_database_express_could_not():
@@ -270,3 +272,13 @@ def test_the_build_reads_the_extras_each_lambda_asks_for():
     asked = {fn: tool.requested_extras(tool.LAMBDA_SRC / fn / "requirements.in") for fn in tool.lambda_names()
              if (tool.LAMBDA_SRC / fn / "requirements.in").is_file()}
     assert any(extras.get("psycopg") == {"binary"} for extras in asked.values()), asked
+
+
+@pytest.mark.parametrize("users", [None, {"app": "app", "catalog": "warden_dev_catalog", "ro": "warden_dev_ro"},
+                                   {"app": "warden_dev_app; DROP TABLE orders", "catalog": "x", "ro": "y"},
+                                   {"app": "warden_dev_app", "catalog": "warden_dev_catalog"}])
+def test_the_database_users_must_be_the_environments_own(users):
+    """Audit A-I-2: users carry the environment, and nothing that is not a plain user name reaches the SQL."""
+    stack = {**STACK, "db_users": users} if users is not None else {k: v for k, v in STACK.items() if k != "db_users"}
+    with pytest.raises(SystemExit):
+        tool.db_users(stack)

@@ -29,32 +29,32 @@ WHERE NOT EXISTS (SELECT 1 FROM orders WHERE order_id = 'seed-1');
 
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app') THEN
-        CREATE ROLE app LOGIN;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '__APP__') THEN
+        CREATE ROLE __APP__ LOGIN;
     END IF;
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'catalog') THEN
-        CREATE ROLE catalog LOGIN;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '__CATALOG__') THEN
+        CREATE ROLE __CATALOG__ LOGIN;
     END IF;
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'warden_ro') THEN
-        CREATE ROLE warden_ro LOGIN;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '__RO__') THEN
+        CREATE ROLE __RO__ LOGIN;
     END IF;
 END
 $$;
 
 -- IAM authentication for all three (express configuration refuses password logins anyway).
-GRANT rds_iam TO app, catalog, warden_ro;
+GRANT rds_iam TO __APP__, __CATALOG__, __RO__;
 
 -- The application: exactly the tables it reads and writes. Signed in by the order-processor
--- Lambda's role and orders-api's ECS task role (rds-db:connect on dbuser:*/app).
-GRANT USAGE ON SCHEMA public TO app;
-GRANT SELECT, INSERT ON orders TO app;
+-- Lambda's role and orders-api's ECS task role (rds-db:connect on dbuser:*/warden_<env>_app).
+GRANT USAGE ON SCHEMA public TO __APP__;
+GRANT SELECT, INSERT ON orders TO __APP__;
 
 -- catalog-api (EKS Pod Identity) and the reconciler: their own user, read-only. fs-21 revokes
--- orders-api's login as `app`; nothing that logs in as catalog may be a second victim.
-GRANT USAGE ON SCHEMA public TO catalog;
-GRANT SELECT ON orders TO catalog;
+-- orders-api's login as the application user; nothing that logs in as catalog may be a second victim.
+GRANT USAGE ON SCHEMA public TO __CATALOG__;
+GRANT SELECT ON orders TO __CATALOG__;
 
 -- WARDEN: pg_monitor and nothing more (Wave 3 read as the master user; this closes that gap).
 -- CONNECT comes from PUBLIC's default; it gets no grant on any table. Its token is signed with the
 -- warden-dev-reader role's credentials - the role WARDEN runs as.
-GRANT pg_monitor TO warden_ro;
+GRANT pg_monitor TO __RO__;
