@@ -348,6 +348,17 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **Every install is hash-locked and every image pinned by digest** (audit A-I-9, A-I-24; fourth review
+  E). Deploy jobs ran unpinned `pip install` while holding cloud credentials. Now one `uv.lock` holds every
+  version and hash - the package, CI's tools and the pipelines' helpers - and every workflow installs
+  with `uv sync --locked` (a planted wrong hash is refused), with uv 0.12.21 pinned and its checksum
+  checked, before any credentials. The package builds with uv's bundled backend, so no unpinned build
+  tool is downloaded (the wheel holds the same files, plus one setuptools left out). The image installs
+  from the lock; base images, CI service images and test workloads are pinned by digest; a
+  `.dockerignore` allowlist keeps local files out of the build; the demo apps' requirements carry
+  hashes. The vulnerability audit now covers every locked package (163), not only one job's install.
+  Dependabot follows `uv.lock`. Still by tag: the proving ground's python:3.12-alpine (its faults
+  change the tag on purpose).
 - **The mutation check finishes again** (5236b21). It ran the whole suite serially for each of 35
   mutations - 17 minutes a run - so it no longer finished. Each mutation now runs the tests that name
   the mutated file, on parallel workers, and the whole suite only before reporting a survivor; a run

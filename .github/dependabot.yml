@@ -9,9 +9,17 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7  # never propose a release younger than a week: most hijacked releases are caught by then
+  # The package, CI tools and pipeline helpers: one uv.lock, every hash in it (audit A-I-9).
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+  # The demo apps' hashed requirements, compiled from requirements.in.
   - package-ecosystem: pip
     directories:
-      - /
       - /scenarios/fullstack/app
       - /scenarios/fullstack/lambdas/*
     schedule:

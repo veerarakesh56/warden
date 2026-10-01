@@ -1,0 +1,4 @@
+# The image needs requirements.txt and app.py only.
+*
+!requirements.txt
+!app.py

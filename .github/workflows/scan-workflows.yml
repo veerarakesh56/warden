@@ -23,16 +23,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
+          version: "0.12.21"
+          checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.13"
+          activate-environment: true
+      - name: Install (locked)
+        run: uv sync --locked --extra dev --group scan
       - name: zizmor over every workflow
-        run: |
-          pip install "zizmor==1.30.1"
-          zizmor --offline .github/workflows
+        run: zizmor --offline .github/workflows
       # The workflows' own structure (one deploy per environment, main only, no region, SHA pins,
       # every integration file run): a change to a deploy or shared workflow triggers only this scan.
       - name: Workflow structure tests
         run: |
-          pip install -e . pytest pyyaml
-          pytest tests/test_ci_lanes.py tests/test_fullstack_infra.py -q -rs
+          pytest tests/test_ci_lanes.py tests/test_fullstack_infra.py tests/test_supply_chain.py -q -rs

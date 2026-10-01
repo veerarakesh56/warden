@@ -1,12 +1,18 @@
-FROM python:3.13-slim
+# Base images by digest (audit A-I-24): a tag can be moved to other content; a digest cannot.
+# Read 2026-10-01 from the registries; Dependabot (docker) proposes new digests.
+FROM ghcr.io/astral-sh/uv:0.12.21@sha256:a7aed3216253ee804de3e2d8afa5073baa1a177335345d43845cd4165e43b711 AS uv
+FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    WARDEN_MOCK=1
+    WARDEN_MOCK=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/warden \
+    UV_PYTHON_DOWNLOADS=never
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY --from=uv /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 
 # The container is a DEPLOYMENT artifact, so it carries the cluster client. The pip package stays
@@ -14,7 +20,10 @@ COPY src ./src
 # and must be able to read the cluster it is deployed into.
 # The anthropic SDK too, so `WARDEN_MOCK=0 ANTHROPIC_API_KEY=... docker compose up` (docker-compose.yml)
 # works as documented - it failed on a missing import until 2026-09-25.
-RUN pip install --no-cache-dir ".[k8s,anthropic]"
+# Only what uv.lock lists, every hash verified (audit A-I-9); uv itself does not stay in the image.
+RUN uv sync --locked --no-editable --extra k8s --extra anthropic \
+    && rm /usr/local/bin/uv
+ENV PATH=/opt/warden/bin:$PATH
 
 # Runs as a non-root user. An incident-response tool that runs as root is its own incident.
 RUN useradd --create-home --uid 10001 warden

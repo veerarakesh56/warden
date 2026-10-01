@@ -58,18 +58,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
+          version: "0.12.21"
+          checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Install the scanners and the package
-        run: |
-          python -m pip install --upgrade pip
-          pip install "pip-audit==2.10.1" "bandit==1.9.4" "zizmor==1.30.1"
-          pip install -e ".[all-providers,mcp,k8s,aws]"
+          activate-environment: true
+      - name: Install the scanners (locked)
+        run: uv sync --locked --group scan
+      # Every locked package - every extra and group, not only what this job installs - audited from the
+      # lock itself, hashes required.
       - name: Dependencies with known vulnerabilities
-        run: pip-audit --skip-editable
+        run: |
+          uv export --locked --all-extras --all-groups --no-emit-project --format requirements-txt -o "$RUNNER_TEMP/locked.txt"
+          pip-audit -r "$RUNNER_TEMP/locked.txt" --require-hashes --disable-pip
       - name: Python security lint
         run: bandit -q -r src scenarios scripts -ll
       - name: Workflow audit
@@ -83,24 +87,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
+      # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials).
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
+          version: "0.12.21"
+          checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          activate-environment: true
 
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,all-providers,mcp,k8s,aws]"
+      - name: Install (locked)
+        run: uv sync --locked --extra dev --extra all-providers --extra mcp --extra k8s --extra aws
 
       # The core package must import with NO vendor SDK present. providers.py imports them lazily,
       # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
       # provider the user never asked for.
       - name: Core imports without any provider SDK
         run: |
-          python -m venv /tmp/bare
-          /tmp/bare/bin/pip install -q -e .
+          UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked
           /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
@@ -178,11 +182,12 @@ jobs:
         run: |
           (docker build -t warden:local . > "$RUNNER_TEMP/build.log" 2>&1; echo $? > "$RUNNER_TEMP/build.rc") &
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
+          version: "0.12.21"
+          checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          activate-environment: true
 
       # A pinned release, checked against a pinned SHA-256 (audit A-I-24): the old step piped the
       # install script from k3d's main branch into bash on every push.
@@ -327,10 +332,8 @@ jobs:
           # a non-interactive shell does not reliably print 'Killed'.
           kubectl logs -l app=checkout --tail=5 --previous 2>/dev/null || kubectl logs -l app=checkout --tail=5 || true
 
-      - name: Install with the k8s extra
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,k8s]"
+      - name: Install with the k8s extra (locked)
+        run: uv sync --locked --extra dev --extra k8s
 
       - name: Integration tests against the live cluster - and they must have RUN, not skipped
         env:
@@ -423,12 +426,14 @@ jobs:
   # Real databases, not stubs. Service containers give every push a PostgreSQL, MySQL, Redis,
   # MongoDB and SQL Server to run against, so "it terminates a stuck connection" is proven against the servers'
   # actual grammar and catalog views rather than against a recorded string.
+  # Service images by digest (audit A-I-24), read 2026-10-01 from the registries. A tag can be moved to
+  # other content; a digest cannot.
   db:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: warden
           POSTGRES_PASSWORD: warden
@@ -438,7 +443,7 @@ jobs:
           --health-cmd "pg_isready -U warden" --health-interval 5s
           --health-timeout 5s --health-retries 20
       mysql:
-        image: mysql:8
+        image: mysql:8@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
         env:
           MYSQL_ROOT_PASSWORD: warden
           MYSQL_DATABASE: warden
@@ -447,19 +452,19 @@ jobs:
           --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pwarden" --health-interval 5s
           --health-timeout 5s --health-retries 30
       redis:
-        image: redis:7
+        image: redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s
           --health-timeout 5s --health-retries 20
       mongo:
-        image: mongo:7
+        image: mongo:7@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
           --health-interval 5s --health-timeout 5s --health-retries 20
       mssql:
-        image: mcr.microsoft.com/mssql/server:2022-latest
+        image: mcr.microsoft.com/mssql/server:2022-latest@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
         env:
           ACCEPT_EULA: "Y"
           MSSQL_SA_PASSWORD: "Warden!Passw0rd1"
@@ -476,23 +481,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
         with:
+          version: "0.12.21"
+          checksum: "23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0"
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: pyproject.toml
+          activate-environment: true
 
-      - name: Install with the database extras
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,postgres,mysql,redis,mongo,mssql]"
+      - name: Install with the database extras (locked)
+        run: uv sync --locked --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
 
       # The core package must still import with NO database driver present - the drivers are lazily
       # imported inside each engine adapter, exactly like the provider SDKs.
       - name: Core imports without any database driver
         run: |
-          python -m venv /tmp/bare-db
-          /tmp/bare-db/bin/pip install -q -e .
+          UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked
           /tmp/bare-db/bin/python -c "from warden.database import DatabaseBackend; print('core imports clean without drivers')"
 
       - name: Integration tests against REAL databases - and they must have RUN, not skipped

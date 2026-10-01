@@ -207,7 +207,8 @@ def test_no_account_id_or_email_in_any_file():
     files = TF_FILES + [OPERATOR_FS, BOUNDARY, TF / "README.md", TF / "terraform.tfvars.example"]
     files += [p for p in list(K8S.rglob("*")) + list(APPS.rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
     for f in files:
-        text = f.read_text(encoding="utf-8")
+        # A package hash is not an account id: a run of 12 digits inside one matched (2026-10-01).
+        text = re.sub(r"sha256:[0-9a-f]{64}", "", f.read_text(encoding="utf-8"))
         assert not re.search(r"(?<![\d.])\d{12}(?![\d.])", text), f"12-digit number in {f}"
         assert not re.search(r"[\w.+-]+@(?!example\.com)[\w-]+\.[\w.]+", text), f"email in {f}"
 

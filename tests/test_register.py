@@ -70,7 +70,7 @@ def all_rows() -> list[tuple[str, dict[str, str]]]:
 SKIP_OK = {
     "tests/test_fullstack_infra.py": "skips only when terraform/fullstack is absent; it is in this repository",
     "tests/test_providers.py": ("skips (module and in-test importorskip) only without a provider extra; CI's unit job "
-                                "installs .[dev,all-providers,...]"),
+                                "installs them: uv sync --locked --extra dev --extra all-providers ..."),
 }
 
 
@@ -261,4 +261,4 @@ def test_a_deferral_needs_a_real_past_agreement_first(evidence):
 def test_a_skip_allowed_in_ci_is_still_installed_there():
     """SKIP_OK's reason for test_providers.py holds only while CI's unit job installs the extras."""
     ci = (ROOT / ".github/workflows/ci-tool.yml").read_text(encoding="utf-8")
-    assert re.search(r'pip install -e "\.\[dev,all-providers', ci), "CI no longer installs the provider extras"
+    assert re.search(r"uv sync --locked --extra dev --extra all-providers", ci), "CI no longer installs the provider extras"

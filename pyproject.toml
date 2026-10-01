@@ -51,21 +51,33 @@ all-providers = ["anthropic>=1.0", "google-genai>=1.0", "openai>=1.0"]
 # small: pip install torch --index-url https://download.pytorch.org/whl/cpu
 guard = ["transformers>=4.50", "torch>=2.4", "huggingface_hub>=0.30"]
 
+# CI-only tools and the apps pipeline's helpers. Locked with everything else in uv.lock - every
+# version AND its hash (audit A-I-9: unpinned installs ran while a job held cloud credentials) - and
+# never installed with the package.
+[dependency-groups]
+scan = ["pip-audit==2.10.1", "bandit==1.9.4", "zizmor==1.30.1"]
+apps-check = ["ruff>=0.6", "pytest>=8.0", "pyyaml>=6.0", "psycopg[binary]>=3.1", "redis>=5.0", "boto3>=1.34",
+              "packaging>=24"]
+apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.1", "boto3>=1.34", "packaging>=24"]
+infra-deploy = ["boto3>=1.34"]   # scripts/aurora_express.py: stdlib + boto3 only
+
+[tool.uv]
+# Every machine and job resolves and installs with the same uv (checked 2026-10-01: 0.12.21, released
+# 2026-09-29). CI installs only what `uv sync --locked` reads from uv.lock, hashes verified.
+required-version = "==0.12.21"
+default-groups = []
+
 [project.scripts]
 warden = "warden.cli:main"
 warden-mcp = "warden.mcp_server:main"
 
+# uv's own build backend: uv builds with the copy bundled in its executable, so a locked install
+# downloads no unpinned build tool (with setuptools, `uv sync` fetched it outside uv.lock's hashes).
+# It packs everything under src/warden - the recorded incidents (fixtures/*.json) and data/*.yaml
+# included; without them every context tool fails at runtime while the process still exits 0.
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-# The recorded incidents must travel with the package. Without this they are absent from an
-# installed wheel and every context tool fails at runtime while the process still exits 0.
-[tool.setuptools.package-data]
-warden = ["fixtures/*.json", "data/*.yaml"]
+requires = ["uv_build>=0.12.21,<0.13"]
+build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "evals"]
