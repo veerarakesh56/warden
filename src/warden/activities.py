@@ -389,7 +389,9 @@ class IncidentActivities:
         # One budget per incident, across its runs. A FAILED run may run again (ALLOW_DUPLICATE_FAILED_ONLY) - also
         # one that failed because it spent its budget - and each run built a fresh client: five restarts spent
         # $3.00 against a $0.50 cap (seventh review, 2026-10-01). Every run records what it spent, failed or not,
-        # and the next one's client starts from the incident's total, so the USD and call ceilings hold.
+        # and the next one's client starts from the incident's total, so the USD and call ceilings hold. What
+        # carries is what may have been billed: answered and timed-out calls, not requests that reached no model -
+        # carrying those let a provider outage use up the ceiling and lock the incident (eighth review).
         before = self._spent(pack.alert.alert_id)
         llm.cost = before.model_copy()
         try:
@@ -397,10 +399,10 @@ class IncidentActivities:
                      "redacted_deploys": pack.redacted_deploys, "prompt": pack.prompt, "llm": llm}
             steps = graph.apply_node(state, graph.node_diagnose(state))
         finally:
-            now = llm.cost
+            now, unanswered = llm.cost, int(getattr(llm, "unanswered", 0) or 0)
             self.audit.append(pack.alert.alert_id, "incident.llm_spend", {
-                "run_id": _run_id(), "usd": now.usd - before.usd, "calls": now.calls - before.calls,
-                "input_tokens": now.input_tokens - before.input_tokens,
+                "run_id": _run_id(), "usd": now.usd - before.usd, "calls": now.calls - before.calls - unanswered,
+                "unanswered": unanswered, "input_tokens": now.input_tokens - before.input_tokens,
                 "output_tokens": now.output_tokens - before.output_tokens})
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps)

@@ -427,6 +427,10 @@ bump may carry a breaking change.
   (`password=<UUID>.x`, `Bearer <JWT>.x`, a quoted `"<JWT> x"`) went out in clear (HIGH, pre-existing).
   Cookies written as JSON, a dict, a list or an assignment are masked too; only `Cookie:` was (HIGH,
   pre-existing). The redaction replay over 337 contexts is byte-identical.
+  An incident's carried model budget counts what may have been billed - answered and timed-out calls -
+  not requests that reached no model: carrying those let three runs during a provider outage use up the
+  call ceiling, and the incident could never be diagnosed after the provider recovered (a regression from
+  8f575b8). A timed-out call now counts as a call; it counted nowhere.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

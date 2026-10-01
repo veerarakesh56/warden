@@ -107,6 +107,9 @@ class LLMClient:
             raise ValueError(f"max_calls must be a positive whole number, not {max_calls!r}")
         self.max_calls = max_calls
         self.cost = CostRecord()
+        # Requests that failed without an answer (a refused connection, a 5xx): counted against this run's call
+        # ceiling, but not carried to the incident's next run - they reached no model (eighth review, 2026-10-01).
+        self.unanswered = 0
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
         self._provider = provider if provider is not None else (None if self.mock else resolve())
         if call_timeout_s is None:
@@ -198,11 +201,16 @@ class LLMClient:
                 # that only counts successful calls can be exhausted by a model that keeps failing.
                 self._charge(completion.input_tokens, completion.output_tokens)
                 return schema.model_validate_json(extract_json(completion.text))
-            except (ModelCallTimeout, BudgetExceeded, ProviderExhausted):
-                # Fatal by design: a hung call or a blown budget must stop the run immediately, not
-                # be retried into three consecutive hangs or an overspend. An exhausted provider
-                # likewise: it has no error code, so _is_transient() would call it transient and
-                # retry it twice more against a pool that has nothing left.
+            except ModelCallTimeout:
+                # Fatal by design: a hung call must stop the run, not be retried into three hangs. It was sent
+                # and may still be billed: it counts as a call, its cost unknown (eighth review: it counted
+                # nowhere, so restarts of a hanging model were never bounded).
+                self.cost.add(0, 0, 0.0)
+                raise
+            except (BudgetExceeded, ProviderExhausted):
+                # Fatal by design: a blown budget must stop the run immediately, not be retried into an
+                # overspend. An exhausted provider likewise: it has no error code, so _is_transient() would
+                # call it transient and retry it twice more against a pool that has nothing left.
                 raise
             except (ValidationError, ValueError) as exc:
                 last = exc  # the model answered, it just was not valid JSON — retry
@@ -215,6 +223,7 @@ class LLMClient:
                 # The request was made: it counts toward the call ceiling like any other (fourth review:
                 # 15 failed requests were made under a ceiling of 2, none counted). Its cost is unknown.
                 self.cost.add(0, 0, 0.0)
+                self.unanswered += 1
                 if not _is_transient(exc):
                     break
         plural = "attempt" if attempts == 1 else "attempts"

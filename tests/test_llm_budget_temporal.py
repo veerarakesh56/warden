@@ -104,10 +104,10 @@ def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
                 raise ConnectionError("the provider is down")
             return Completion("not json at all", 10, 10)
 
-    # The ceiling is the incident's, across runs (seventh review): the outage run's 3 failed requests count, so
-    # the run after it has the 4th.
+    # The ceiling is the incident's, across runs (seventh review) - but the outage run's failed requests reached no
+    # model and do not carry (eighth review), so a ceiling of one call still lets the run after it make its call.
     def factory():
-        return LLMClient(provider=Flaky(), max_calls=4, max_usd=0.50, mock=not down["now"], call_timeout_s=5)
+        return LLMClient(provider=Flaky(), max_calls=1, max_usd=0.50, mock=not down["now"], call_timeout_s=5)
 
     async def main():
         log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
@@ -179,3 +179,71 @@ def test_an_incident_restarted_after_failing_keeps_one_budget():
     assert provider.calls <= 2, f"the model was called {provider.calls} times for one incident"  # ... none paid again
     assert len(rows) == 5 and sum(r["body"]["calls"] for r in rows) == provider.calls, rows
     assert sum(r["body"]["usd"] for r in rows) < 0.50 + 0.31
+
+
+def test_a_provider_outage_does_not_use_up_the_incidents_ceiling():
+    """Eighth review (2026-10-01, a regression from 8f575b8): three runs during an outage (3 + 3 + 2 failed requests,
+    $0) used the whole default ceiling, and every run after the provider recovered failed without a call."""
+    import threading as _threading
+
+    from temporalio.common import WorkflowIDReusePolicy
+
+    down = {"now": True}
+    lock = _threading.Lock()
+
+    class Flaky:
+        name, model = "fake", "fake"
+
+        def complete(self, *, system, user, schema=None):
+            with lock:
+                if down["now"]:
+                    raise ConnectionError("the provider is down")
+            return Completion("not json at all", 10, 10)
+
+    def factory():
+        return LLMClient(provider=Flaky(), max_calls=8, max_usd=0.50, mock=not down["now"], call_timeout_s=5)
+
+    async def main():
+        log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
+        acts = IncidentActivities(audit=log, llm_factory=factory)
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        alert = _alert_from(next(iter(DEMO_ALERTS)))
+        ended = []
+        async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
+                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activity_executor=ThreadPoolExecutor(2)):
+            for i in range(4):
+                down["now"] = i < 3
+                h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-outage", task_queue="q",
+                                                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
+                with contextlib.suppress(Exception):
+                    await h.result()
+                ended.append((await h.describe()).status.name)
+        return ended, log.entries(alert.alert_id, kinds=("incident.llm_spend",))
+
+    ended, rows = asyncio.run(main())
+    assert ended == ["FAILED", "FAILED", "FAILED", "COMPLETED"], ended
+    assert sum(r["body"]["unanswered"] for r in rows[:3]) >= 3 and all(r["body"]["calls"] == 0 for r in rows[:3]), rows
+
+
+def test_a_timed_out_call_counts_as_a_call():
+    """Eighth review: a timed-out call - sent, and possibly billed - counted nowhere, so restarts of a hanging model
+    were never bounded by the call ceiling."""
+    import time as _time
+
+    import pytest as _pytest
+
+    from warden.llm import ModelCallTimeout
+    from warden.models import RootCause
+
+    class Hangs:
+        name, model = "fake", "fake"
+
+        def complete(self, *, system, user, schema=None):
+            _time.sleep(3)
+            return Completion("{}", 10, 10)
+
+    client = LLMClient(provider=Hangs(), max_calls=4, max_usd=0.50, mock=False, call_timeout_s=0.1)
+    with _pytest.raises(ModelCallTimeout):
+        client.structured(system="s", user="u", schema=RootCause)
+    assert client.cost.calls == 1 and client.unanswered == 0
