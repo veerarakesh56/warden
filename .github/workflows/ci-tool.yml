@@ -276,6 +276,7 @@ jobs:
       - name: RBAC must deny writes, unused read verbs, secrets, other namespaces and cluster scope
         run: |
           SA=system:serviceaccount:warden:warden
+          ask() { for _ in 1 2 3; do r=$(kubectl auth can-i "$@" --as=$SA 2>can-i.err || true); [ -n "$r" ] && break; cat can-i.err >&2; sleep 2; done; echo "$r"; }
           deny() { r=$(ask "$@"); echo "$* -> $r"; [ "$r" = "no" ] || { echo "::error::$* must be denied"; exit 1; }; }
           # writes
           deny delete pods -n default
