@@ -481,6 +481,11 @@ bump may carry a breaking change.
   The proving ground's app deploy accepts only the database users Terraform derives for the stack's own
   environment - a shape check took another environment's names, or one name for all three. The
   service-account token test reads ReplicaSets and CronJobs too, and CI's throwaway Deployment mounts no token.
+  The sixth review's "every secret-bearing pattern .gitignore names" was false: `plan.out` and
+  `trust.local.json`, which .gitignore names, and tfvars.json, .netrc, kubeconfig, SQLite -wal files, SSH
+  keys and key stores still shipped from a local build. Every one is excluded now, measured by building a
+  wheel and an sdist from a copy with 29 names planted (21 shipped before, none now), and the image is
+  built in two stages so no layer of it holds the source. Patterns are case-sensitive (`Server.PEM`).
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

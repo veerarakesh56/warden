@@ -207,14 +207,29 @@ def test_the_groups_that_build_the_lambdas_carry_pip():
 def test_secret_bearing_files_are_kept_out_of_the_package_and_the_image():
     """Sixth review (2026-10-01): five patterns - a git-ignored tfstate (the database master password in plaintext)
     or tfvars under src/ would still ship from a local build."""
+    import fnmatch
     import tomllib
 
-    must = ['**/.env', '**/.env.*', '**/*.log', '**/*.log.*', '**/*.pem', '**/*.key', '**/*.p12', '**/*.pfx', '**/*.jks', '**/*.tfstate', '**/*.tfstate.*', '**/*.tfvars', '**/tfplan*', '**/*.tfplan*', '**/*.db', '**/*.sqlite*', '**/*credentials*', '**/id_rsa*', '**/id_ed25519*']
     backend = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["uv"]["build-backend"]
-    docker = {ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()}
-    for name, have in (("source-exclude", set(backend["source-exclude"])), ("wheel-exclude", set(backend["wheel-exclude"])),
-                       (".dockerignore", docker)):
-        assert set(must) <= have, (name, sorted(set(must) - have))
+    docker = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+              if ln.strip().startswith("**/")]
+    # One list in three places, kept equal.
+    assert backend["source-exclude"] == backend["wheel-exclude"] and set(backend["wheel-exclude"]) <= set(docker)
+    # Seventh review: a fixed list of strings could not see a missing pattern - plan.out and trust.local.json, which
+    # .gitignore names, and these all shipped from a local build. Each name must be excluded where it lies.
+    planted = [".env", ".env.prod", ".envrc", ".env~", "x.log", "crash.log", "server.pem", "x.pem.bak", "tls.key",
+               "a.p12", "a.pfx", "a.jks", "x.tfstate", "x.tfstate.backup", "prod.tfvars", "terraform.tfvars.json",
+               "prod.auto.tfvars.json", "tfplan", "x.tfplan", "plan.out", "trust.local.json", "audit.db",
+               "audit.db-wal", "audit.db-journal", "audit.db-shm", "x.sqlite3", "aws_credentials", ".netrc",
+               ".pypirc", ".npmrc", "kubeconfig", "prod.kubeconfig", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+               "putty.ppk", "service-account.json", "x.keystore", "vault.kdbx"]
+    for patterns, where in ((backend["wheel-exclude"], "the wheel and sdist"), (docker, ".dockerignore")):
+        shipped = [n for n in planted if not any(fnmatch.fnmatchcase(n, p.removeprefix("**/")) for p in patterns)]
+        assert not shipped, (where, shipped)
+    # And the image keeps no copy of the source in any layer: it is built in two stages.
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    final = dockerfile.split("\nFROM ")[-1]
+    assert " AS build" in dockerfile and "COPY src" not in final and "COPY --from=build /opt/warden" in final
 
 
 def test_the_deployed_requirements_are_audited_every_week():
