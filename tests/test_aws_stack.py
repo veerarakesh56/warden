@@ -748,3 +748,22 @@ def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numer
     d = next(x for x in _backend(_clients(**{"lambda": lam, "cloudwatch": Fake(get_metric_data=silent)}))
              .deploys(_full_alert()) if x["kind"] == "lambda")
     assert d["previous"] == "6" and d["previous_basis"].startswith("numerically previous")
+
+
+def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
+    """Audit A-I-19: every read was Resource "*". Where the action takes a resource and the code passes its identity,
+    the grant names only the stack's own resources (AWS's Service Reference, read 2026-10-01)."""
+    text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
+    anywhere = re.search(r'sid\s*=\s*"ReadAnywhere"(.*?)\n  \}', text, re.DOTALL).group(1)
+    resources = re.findall(r'"(arn:[^"]+)"', own)
+    assert resources and all(r.endswith("${local.name}-*") for r in resources), resources
+    assert '"*"' not in own
+    scoped = set(re.findall(r'"([a-z0-9-]+:[A-Za-z]+)"', own))
+    assert {"lambda:GetFunction", "logs:FilterLogEvents", "rds:DescribeDBClusters", "sqs:GetQueueAttributes"} <= scoped
+    # Only what AWS cannot scope, or what the code calls with no identity, keeps "*".
+    assert set(re.findall(r'"([a-z0-9-]+:[A-Za-z]+)"', anywhere)) == {
+        "cloudwatch:GetMetricData", "ec2:DescribeSecurityGroups", "ecs:DescribeTaskDefinition",
+        "elasticache:DescribeCacheClusters", "elasticache:DescribeEvents", "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth", "lambda:ListEventSourceMappings", "rds:DescribeDBInstances",
+        "rds:DescribeEvents", "sts:GetCallerIdentity"}

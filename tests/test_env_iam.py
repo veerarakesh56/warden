@@ -224,3 +224,22 @@ def test_a_role_connects_only_as_its_own_environments_database_users(env):
 def _region():
     ceiling = next(st for st in _load(ENVS[0], "boundary")["Statement"] if st.get("Sid") == "CeilingRegional")
     return ceiling["Condition"]["StringEquals"]["aws:RequestedRegion"]
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_deploy_role_can_do_what_the_first_real_deploy_needed(env):
+    """Audit A-I-5/A-I-6: Aurora express authorises CreateDBCluster against the `default` subnet group and needs
+    EnableInternetAccessGateway; default_tags tag every event source mapping. The operator got these after the
+    first real deploy; the per-environment deploy role did not, so CI's apply would fail the same way."""
+    grants = [(a, r) for st in _deploy(env)["Statement"] if st["Effect"] == "Allow"
+              for a in _list(st["Action"]) for r in _list(st["Resource"])]
+
+    def allowed(action, resource):
+        return any(fnmatch.fnmatchcase(action, a) and fnmatch.fnmatchcase(resource, r) for a, r in grants)
+
+    subgrp = "arn:aws:rds:region:111122223333:subgrp:default"
+    for action in ("rds:CreateDBCluster", "rds:CreateDBInstance", "rds:EnableInternetAccessGateway"):
+        assert allowed(action, subgrp), action
+    esm = "arn:aws:lambda:region:111122223333:event-source-mapping:0a1b2c3d-aaaa-bbbb-cccc-ddddeeeeffff"
+    for action in ("lambda:TagResource", "lambda:UntagResource", "lambda:ListTags"):
+        assert allowed(action, esm), action

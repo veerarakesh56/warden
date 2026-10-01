@@ -246,6 +246,26 @@
         "budgets:ListTagsForResource"
       ],
       "Resource": "arn:aws:budgets::*:budget/warden-${env}-*"
+    },
+    {
+      "Sid": "ExpressSubnetGroup",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBCluster",
+        "rds:CreateDBInstance",
+        "rds:EnableInternetAccessGateway"
+      ],
+      "Resource": "arn:aws:rds:*:*:subgrp:default"
+    },
+    {
+      "Sid": "TagEventSourceMappings",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListTags"
+      ],
+      "Resource": "arn:aws:lambda:*:*:event-source-mapping:*"
     }
   ]
 }

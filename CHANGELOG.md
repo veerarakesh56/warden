@@ -354,6 +354,11 @@ bump may carry a breaking change.
   Terraform publishes the names (`db_users` in stack.json); bootstrap.sql and the k8s config are filled from
   them, each checked to be a plain user name; the apps no longer default to `app`/`catalog`. A live window
   proves it before any row closes. The boundary is now at 6,140 of IAM's 6,144 characters.
+  The deploy role also gets what the first real deploy needed and only the operator was given: Aurora
+  express's `default` subnet group, and tagging event source mappings (A-I-5, A-I-6).
+  WARDEN's reader role names only the stack's own resources wherever AWS allows it and the code passes
+  the resource (16 reads); 11 that AWS cannot scope keep "*" (A-I-19; AWS's Service Reference, read
+  2026-10-01).
 - **Sixth independent review, the write path** (2026-10-01; rows A-R6): a failed rollback ends
   `rollback_failed`, signed, and trips the kill switch (it crashed the workflow); a rollback undoes only
   what its own run applied, and its row names the run and plan; a fix with nothing to undo (a restart)

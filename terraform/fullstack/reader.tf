@@ -26,37 +26,67 @@ data "aws_iam_policy_document" "fs_reader_assume" {
   }
 }
 
+locals {
+  reader_arn = "${var.region}:${data.aws_caller_identity.current.account_id}"
+}
+
 data "aws_iam_policy_document" "fs_reader" {
+  # Scoped to the stack's own names wherever the action takes a resource AND the code passes its identity -
+  # AWS's Service Reference, read 2026-10-01 (audit A-I-19: every read was Resource "*"). The arn local is
+  # the region and account this stack lives in.
   statement {
-    sid    = "ReadStack"
+    sid    = "ReadOwnStack"
     effect = "Allow"
     actions = [
-      "cloudwatch:GetMetricData",
       "dynamodb:DescribeTable",
-      "ec2:DescribeSecurityGroups",
       "ecs:DescribeServices",
-      "ecs:DescribeTaskDefinition",
-      "elasticache:DescribeCacheClusters",
-      "elasticache:DescribeEvents",
       "elasticache:DescribeReplicationGroups",
-      "elasticloadbalancing:DescribeTargetGroups",
-      "elasticloadbalancing:DescribeTargetHealth",
       "eks:DescribeCluster",
       "events:DescribeRule",
       "lambda:GetAlias",
       "lambda:GetFunction",
       "lambda:GetFunctionConcurrency",
       "lambda:GetFunctionConfiguration",
-      "lambda:ListEventSourceMappings",
       "lambda:ListVersionsByFunction",
       "logs:FilterLogEvents",
       "rds:DescribeDBClusters",
-      "rds:DescribeDBInstances",
-      "rds:DescribeEvents",
       "secretsmanager:DescribeSecret",
       "sns:ListSubscriptionsByTopic",
       "sqs:GetQueueAttributes",
       "sqs:GetQueueUrl",
+    ]
+    resources = [
+      "arn:aws:dynamodb:${local.reader_arn}:table/${local.name}-*",
+      "arn:aws:ecs:${local.reader_arn}:service/${local.name}-*",
+      "arn:aws:elasticache:${local.reader_arn}:replicationgroup:${local.name}-*",
+      "arn:aws:eks:${local.reader_arn}:cluster/${local.name}-*",
+      "arn:aws:events:${local.reader_arn}:rule/${local.name}-*",
+      "arn:aws:lambda:${local.reader_arn}:function:${local.name}-*",
+      "arn:aws:logs:${local.reader_arn}:log-group:/aws/lambda/${local.name}-*",
+      "arn:aws:logs:${local.reader_arn}:log-group:/ecs/${local.name}-*",
+      "arn:aws:rds:${local.reader_arn}:cluster:${local.name}-*",
+      "arn:aws:secretsmanager:${local.reader_arn}:secret:${local.name}-*",
+      "arn:aws:sns:${local.reader_arn}:${local.name}-*",
+      "arn:aws:sqs:${local.reader_arn}:${local.name}-*",
+    ]
+  }
+
+  # Actions that take no resource ("*" only), or that the code calls without an identity: a list of cache
+  # clusters, the instances of a cluster by filter.
+  statement {
+    sid    = "ReadAnywhere"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:GetMetricData",
+      "ec2:DescribeSecurityGroups",
+      "ecs:DescribeTaskDefinition",
+      "elasticache:DescribeCacheClusters",
+      "elasticache:DescribeEvents",
+      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeTargetHealth",
+      "lambda:ListEventSourceMappings",
+      "rds:DescribeDBInstances",
+      "rds:DescribeEvents",
       "sts:GetCallerIdentity",
     ]
     resources = ["*"]
