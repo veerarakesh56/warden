@@ -78,3 +78,62 @@ def test_ordinary_prose_in_a_target_passes(target):
 
 def test_a_prose_dash_before_a_word_is_still_a_flag():
     assert _problem("orders \u2014all") is not None
+
+
+@pytest.mark.parametrize("target", ["orders (kubectl/delete/ns/warden-pg)", "orders(kubectl,delete)", "orders (rm)",
+                                    "orders (drop table)"])
+def test_a_command_after_punctuation_is_refused(target):
+    """Fifth review (2026-10-01): a command word not preceded by a space passed."""
+    assert _problem(target) is not None
+
+
+def test_an_image_name_holding_a_command_word_still_passes():
+    assert _problem("checkout (image public.ecr.aws/docker/library/python)") is None
+
+
+def test_every_cluster_label_scopes_the_target():
+    """Fifth review (2026-10-01): only `namespace` and `cluster` labels were scopes; `ecs_cluster` let the
+    cluster itself through as a target."""
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert, Citation, ContextBundle, RootCause
+    from warden.verifier import verify
+
+    alert = Alert(**{**DEMO_ALERTS["inc-002"], "labels": {"ecs_cluster": "warden-dev-cluster,other-cluster"}})
+    ctx = ContextBundle(logs=["CONFIG deploy revision 7", "x ERROR a", "x ERROR b"], metrics={"error_rate": 0.1},
+                        recent_deploys=[{"kind": "ecs", "service": "warden-dev-cluster"}])
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote="deploy revision 7")])
+    prop = RemediationProposal(action=A.rollback_deploy, target="warden-dev-cluster", reasoning="r",
+                               expected_effect="e", blast_radius="single_service", reversible=True)
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in verify(alert, ctx, rc, prop).policy_ids
+
+
+@pytest.mark.parametrize("target", ["app in (orders,payments)", "orders (and payments)", "orders (payments)",
+                                    "orders (+ payments)", "orders -> payments", "orders (then payments)",
+                                    "orders " + chr(0x2192) + " payments", "orders everything", "entire orders",
+                                    "each pod of orders"])
+def test_a_second_resource_in_parentheses_or_after_an_arrow_is_refused(target):
+    """Fifth review (2026-10-01): parentheses and arrows were read as describing the one target, so a second
+    resource written there passed."""
+    assert _problem(target) is not None
+
+
+@pytest.mark.parametrize("target", ["cluster=warden-dev-aurora", "aurora cluster warden-dev-aurora",
+                                    "warden-dev-aurora (cluster)"])
+def test_a_failover_names_its_cluster(target):
+    """Fifth review (2026-10-01): a failover's target is a cluster; `cluster=<name>` was refused as a scope."""
+    p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert target_problem(p, INV | {"warden-dev-aurora"}, SCOPES) is None
+
+
+@pytest.mark.parametrize("target", ["checkout (revision 10 -> previous image python:3.12-alpine)",
+                                    "deployment/checkout (revision 8 -> 7, image public.ecr.aws/library/python:3.12)"])
+def test_an_image_to_return_to_is_not_a_second_resource(target):
+    """Recorded model targets (wave 1/2): the image a rollback returns to names inventory words."""
+    p = RemediationProposal(action=A.rollback_deploy, target=target, reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert target_problem(p, INV | {"python", "3.12-alpine", "3.12"}, SCOPES) is None
+
+
+def test_a_word_after_a_colon_is_not_an_image_tag():
+    assert _problem("orders (x:payments)") is not None

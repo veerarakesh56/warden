@@ -375,8 +375,12 @@ bump may carry a breaking change.
   - Redaction cost: values nested past the finder's depth are split into shallow groups with a finder
     each, instead of being checked one by one against every segment - the reviewer's worst case (a comb
     of 8,008 values within the log caps) went from 126-144 s to 9.8 s a pass; output identical.
-  - Still open: P14 cluster labels and lists in parentheses; quarantine spellings (an open-ended list);
-    the orphaned Dependabot pull requests.
+  - P14: a second resource in parentheses or after an arrow is refused (an image to return to is not
+    one); every cluster label scopes the target; a command after punctuation is refused; a failover may
+    name its cluster.
+  - The orphaned Dependabot `pip` pull requests (#5-#15) were closed with the owner's agreement.
+  - Still open: quarantine spellings (an open-ended list); P14 still needs a label to know a bare name
+    is a namespace or cluster.
 - **One write path: the RemediationWorkflow and its platforms** (decision D16; audit A-B-H1..H3). The
   in-process live backends (`remediation_k8s.py`, `database_remediation.py`, `WARDEN_REMEDIATION=live`)
   are removed; `warden run --principal --approve` is a dry run. A live change goes through the

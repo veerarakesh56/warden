@@ -498,7 +498,11 @@ def verify(
     # P14 - the target must be a resource WARDEN knows exists. Rejects: acting on a name the
     # evidence does not contain is acting on a guess.
     if check_grounding and proposal.action not in AUTO_SAFE_ACTIONS:
-        scopes = {v for k, v in alert.labels.items() if k in ("namespace", "cluster") and v} - {alert.service}
+        # Every label that names a whole namespace or cluster, each value of a list (fifth review, 2026-10-01:
+        # `ecs_cluster=warden-dev-cluster` let the cluster itself through as a target).
+        scopes = {v.strip() for k, value in alert.labels.items()
+                  if k in ("namespace", "cluster", "ecs_cluster", "eks_cluster", "cluster_name") and value
+                  for v in str(value).split(",") if v.strip()} - {alert.service}
         problem = target_problem(proposal, evidence.inventory(alert, context), scopes)
         if problem:
             rejected = True

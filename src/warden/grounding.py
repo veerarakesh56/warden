@@ -201,7 +201,7 @@ _SHELL = re.compile(r"[;|&$\\`<>]")
 # Arrows and redaction placeholders are how targets are written; any other `<` or `>` is a redirect.
 _NOT_SHELL = re.compile(r"<[A-Z][A-Z0-9]*_\d+>|->|=>")
 # A namespace or cluster that qualifies a resource: `(namespace=shop)`, `namespace warden-pg`, `ns/x`.
-_SCOPE = re.compile(r"[\s,(]*\b(?:namespace|ns|cluster)\b\s*[=:/ ]\s*[\"']?[\w.-]+[\"']?\s*\)?\s*,?", re.IGNORECASE)
+_SCOPE = re.compile(r"[\s,(]*\b(?:namespace|ns|cluster)\b\s*[=:/ ]\s*[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*\)?\s*,?", re.IGNORECASE)
 # Words that describe a resource rather than name one: a second of these is not a second resource.
 _DESCRIPTORS = frozenset({
     "ecs", "ecs-service", "eks", "k8s", "service", "svc", "deploy", "sts", "rds", "aurora", "sqs", "sns",
@@ -210,8 +210,13 @@ _DESCRIPTORS = frozenset({
 # A command inside a target is a second instruction, whatever resource it also names:
 # "orders kubectl delete ns warden-pg".
 # Whole words only: `public.ecr.aws` in an image name is not the aws CLI.
-_COMMAND_WORDS = re.compile(r"(?:^|\s)(?:kubectl|aws|gcloud|az|helm|psql|redis-cli|mysql|rm|delete|drop|truncate|"
-                            r"curl|wget|sh|bash|sudo|exec|eval)(?=\s|$)", re.IGNORECASE)
+# After anything but a name character (fifth review, 2026-10-01: `orders (kubectl/delete/ns/x)`, `orders(rm)`
+# passed): still not inside a name - `public.ecr.aws` is no aws CLI.
+_COMMAND_WORDS = re.compile(r"(?<![\w.-])(?:kubectl|aws|gcloud|az|helm|psql|redis-cli|mysql|rm|delete|drop|truncate|"
+                            r"curl|wget|sh|bash|sudo|exec|eval)(?![\w.-])", re.IGNORECASE)
+# An image reference with a real tag or digest (`python:3.12-alpine`, `repo/app@sha256:...`): the state a
+# rollback returns to, not a second resource. A word after a colon (`x:payments`) is not a tag.
+_IMAGE = re.compile(r"[\w.-]+(?:/[\w.-]+)*(?::(?:v?\d[\w.-]*|latest)\b|@sha256:[0-9a-f]{12,})", re.IGNORECASE)
 _RESOURCE_KINDS = frozenset({"deployment", "namespace", "service", "statefulset", "daemonset", "pod", "function",
                              "lambda", "cluster", "table", "queue", "topic", "rule", "instance", "database", "db"})
 
@@ -259,13 +264,25 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     # What stands after an arrow is the state to return to (`checkout -> revert to <image>`), not a
     # second resource; what is in parentheses describes the one named.
     outside = re.split(r"->|=>|\u2192", re.sub(r"\([^)]*\)", " ", rest))[0]
-    if re.search(r"\ball\b|\bevery\b", plain, re.IGNORECASE):
+    if re.search(r"\ball\b|\bevery(?:thing|one)?\b|\beach\b|\bentire\b", plain, re.IGNORECASE):
         return f"target {proposal.target!r} names a whole namespace or cluster"
-    named = {t for t in tokens(outside) & inventory
-             if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
+
+    def resources(text: str) -> set[str]:
+        return {t for t in tokens(text) & inventory
+                if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
+
+    named = resources(outside)
+    if not named and proposal.action is ActionKind.failover_replica:
+        # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it
+        # (fifth review, 2026-10-01).
+        named = resources(plain)
     if not named and (rest != plain or tokens(plain) & set(scopes)):
         return f"target {proposal.target!r} names a whole namespace or cluster"
-    if re.search(r",|\band\b|=\s*[(\[]", outside, re.IGNORECASE) or re.search(r"=\s*[(\[]", rest) or len(named) > 1:
+    # Parentheses and what follows an arrow describe the one resource; another resource named there is a
+    # second target (fifth review, 2026-10-01: `orders (payments)`, `orders -> payments`,
+    # `app in (orders,payments)` passed).
+    if (re.search(r",|\band\b|=\s*[(\[]", outside, re.IGNORECASE) or re.search(r"=\s*[(\[]", rest)
+            or len(named | resources(_IMAGE.sub(" ", rest))) > 1):
         return f"target {proposal.target!r} is a pattern or a list, not one resource"
     found = tokens(proposal.target)
     if not found & inventory:
