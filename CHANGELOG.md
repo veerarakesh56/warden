@@ -431,6 +431,10 @@ bump may carry a breaking change.
   not requests that reached no model: carrying those let three runs during a provider outage use up the
   call ceiling, and the incident could never be diagnosed after the provider recovered (a regression from
   8f575b8). A timed-out call now counts as a call; it counted nowhere.
+  P14 refuses a data target with a whole namespace or cluster beside it (`aurora -> ecs`; a regression from
+  8ce403d), reads scope labels in any spelling (`ClusterName`, `k8s.namespace.name`, `gke_cluster`) as words, not
+  substrings (`sandbox_namespace` held "db"), and never lets a failover target the alert's namespace even when it
+  is named like the service. The verify replay over 337 reports and the 2,696-row target replay are unchanged.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored

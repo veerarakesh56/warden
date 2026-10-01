@@ -222,3 +222,44 @@ def test_a_database_cluster_may_have_ns_inside_its_name(target):
     p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
                             blast_radius="single_service", reversible=True)
     assert target_problem(p, INV | {target}, SCOPES) is None
+
+
+@pytest.mark.parametrize("action, target", [
+    (A.failover_replica, "warden-pg-fs-aurora -> warden-pg-fs-ecs"), (A.failover_replica, "warden-pg-fs-aurora (and payments)"),
+    (A.clear_cache, "warden-pg-fs-redis -> warden-pg-fs-ecs"), (A.clear_cache, "warden-pg-fs-redis (then warden-pg-fs-ecs)"),
+    (A.terminate_connections, "warden-pg-fs-aurora (and payments)"),
+])
+def test_a_data_target_with_a_whole_scope_beside_it_is_refused(action, target):
+    """Eighth review (2026-10-01, a regression from 8ce403d): once a labelled database was no longer a scope, a
+    namespace or compute cluster written beside it was not counted as a second target."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(action, target, FS01)
+
+
+@pytest.mark.parametrize("key", ["k8s.namespace.name", "gke_cluster", "aks_cluster", "ecsClusterName"])
+def test_a_failover_never_targets_a_compute_scope_in_any_spelling(key):
+    """Eighth review: only keys holding ecs/eks/k8s/kube as a substring were compute clusters, and `ClusterName` or
+    `k8s.namespace.name` were not read as scopes at all."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "warden-pg-fs-group",
+                                                              {**FS01, key: "warden-pg-fs-group"})
+
+
+def test_a_failover_never_targets_a_namespace_named_like_the_service():
+    """Eighth review: the recorded fs-01 alert's namespace is `shop`, its service `shop` - subtracted, so a failover of
+    `shop` passed."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, "shop", {**FS01, "namespace": "shop"})
+
+
+@pytest.mark.parametrize("key", ["sandbox_namespace", "feedback_namespace", "records_namespace", "cache_namespace",
+                                 "db_namespace"])
+def test_a_namespace_is_never_a_data_resource(key):
+    """Eighth review: `is_data` was a substring test - "sandbox" holds "db", "records" holds "rds" - so clearing a cache
+    or scaling across that whole namespace passed."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.clear_cache, "team-x", {key: "team-x"})
+
+
+@pytest.mark.parametrize("key", ["ClusterName", "k8s.namespace.name", "namespaceName", "cluster-name"])
+def test_a_scope_label_in_any_spelling_scopes_a_pod_action(key):
+    """Eighth review: camel case and dotted keys were not read as scopes. (A generic `ClusterName`, like `cluster`,
+    may name a database cluster, so a failover may still target it - sixth review.)"""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.rollback_deploy, "warden-pg-fs-group",
+                                                              {key: "warden-pg-fs-group"})

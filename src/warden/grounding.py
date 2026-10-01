@@ -297,6 +297,11 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
                 if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
 
     named = resources(outside)
+    # One resource, and beside it a whole namespace or cluster - after an arrow, in parentheses, after "and" - is a
+    # second target (eighth review: `warden-pg-fs-aurora -> warden-pg-fs-ecs` passed once the database was no longer
+    # a scope). A scope that only qualifies the resource (`deployment=x (namespace=shop)`) was cut from `rest` above.
+    if named and tokens(rest) & (set(scopes) | set(containers)) - named:
+        return f"target {proposal.target!r} names a resource and a whole namespace or cluster"
     if not named and proposal.action is ActionKind.failover_replica:
         # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it - even
         # when the alert labels that cluster (fifth and sixth reviews). A namespace is never one.

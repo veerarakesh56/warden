@@ -31,6 +31,10 @@ from .models import (
 # action and belongs behind approval like the others. The project's whole claim is "nothing risky
 # runs without a human"; this list is where that claim is enforced, so it stays as short as possible.
 AUTO_SAFE_ACTIONS = {ActionKind.no_action, ActionKind.escalate_to_human}
+# Label words that name a data store or a compute cluster (P14 scopes, eighth review): whole words, not substrings.
+_DATA_WORDS = frozenset({"aurora", "rds", "db", "database", "elasticache", "redis", "valkey", "cache", "docdb",
+                         "documentdb", "memcache", "memcached", "mongo", "mongodb", "dynamodb", "neptune"})
+_COMPUTE_WORDS = frozenset({"ecs", "eks", "gke", "aks", "k8s", "kube", "kubernetes", "openshift", "nomad"})
 # Actions whose target is a database or a cache (P14 scopes, seventh review).
 _DATA_ACTIONS = {ActionKind.clear_cache, ActionKind.terminate_connections, ActionKind.failover_replica,
                  ActionKind.scale_up, ActionKind.scale_down}
@@ -520,21 +524,31 @@ def verify(
         # failover, scaling it - and scopes only an action on pods: rejecting it as a scope refused the natural
         # targets of clear_cache and terminate_connections (seventh review, 2026-10-01). A namespace or a compute
         # cluster is never a failover's target.
-        def values(keep) -> set[str]:
-            return {v.strip() for k, value in alert.labels.items() if value and keep(k.lower())
-                    for v in str(value).split(",") if v.strip()} - {alert.service}
+        # Keys in any spelling - `ClusterName`, `k8s.namespace.name`, `cache-cluster` - read as words (eighth
+        # review: those were not scopes at all, and `sandbox_namespace` held "db").
+        def words(k: str) -> list[str]:
+            return [w for w in re.split(r"[^a-z0-9]+", re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", k).lower()) if w]
 
-        def is_scope(k: str) -> bool:
-            return k.endswith(("namespace", "cluster", "cluster_name")) or k in ("ns", "elasticache")
+        def values(keep, *, but_the_service: bool = True) -> set[str]:
+            found = {v.strip() for k, value in alert.labels.items() if value and keep(words(k))
+                     for v in str(value).split(",") if v.strip()}
+            return found - {alert.service} if but_the_service else found
 
-        def is_data(k: str) -> bool:
-            return any(w in k for w in ("aurora", "rds", "db", "elasticache", "redis", "cache", "docdb", "memcache",
-                                        "mongo"))
+        def is_namespace(w: list[str]) -> bool:
+            return w[-1:] == ["ns"] or "namespace" in w[-2:]
+
+        def is_scope(w: list[str]) -> bool:
+            return is_namespace(w) or "cluster" in w[-2:] or w == ["elasticache"]
+
+        def is_data(w: list[str]) -> bool:
+            return not is_namespace(w) and bool(set(w) & _DATA_WORDS)
 
         data_action = proposal.action in _DATA_ACTIONS
-        scopes = values(lambda k: is_scope(k) and not (data_action and is_data(k)))
-        containers = values(lambda k: k.endswith("namespace") or k == "ns"
-                            or (is_scope(k) and any(w in k for w in ("ecs", "eks", "k8s", "kube"))))
+        scopes = values(lambda w: is_scope(w) and not (data_action and is_data(w)))
+        # A failover never targets a namespace or a compute cluster - not even one named like the service (the
+        # recorded fs-01 alert's namespace is `shop`, its service `shop`).
+        containers = values(lambda w: is_namespace(w) or (is_scope(w) and bool(set(w) & _COMPUTE_WORDS)),
+                            but_the_service=False)
         problem = target_problem(proposal, evidence.inventory(alert, context), scopes, containers)
         if problem:
             rejected = True
