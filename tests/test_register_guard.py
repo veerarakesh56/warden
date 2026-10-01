@@ -2,6 +2,7 @@
 its directory check turned it off and no test failed)."""
 from __future__ import annotations
 
+import pathlib
 import types
 
 import conftest
@@ -23,20 +24,24 @@ def test_skipped_failed_absent_or_rebound_evidence_is_refused():
     assert conftest.missing_evidence(base, CITED) == ["tests/test_b.py::test_two"]  # never ran
 
 
-def _config(args, **options):
+def _config(args, base=None, **options):
     defaults = {"collectonly": False, "keyword": "", "markexpr": "", "lf": False, "deselect": None}
     values = {**defaults, **options}
-    return types.SimpleNamespace(args=args, getoption=lambda name, default=None: values.get(name, default))
+    return types.SimpleNamespace(args=args, getoption=lambda name, default=None: values.get(name, default),
+                                 invocation_params=types.SimpleNamespace(dir=base or pathlib.Path.cwd()))
 
 
 def test_only_a_whole_run_of_the_suite_is_judged():
-    assert conftest._full_run(_config(["tests"]))
-    assert conftest._full_run(_config(["C:\\work\\warden\\tests\\"]))
+    tests = pathlib.Path(conftest.__file__).resolve().parent
+    assert conftest._full_run(_config(["tests"], base=tests.parent))
+    assert conftest._full_run(_config([str(tests)]))
+    assert conftest._full_run(_config(["tests/."], base=tests.parent))  # sixth review: these ran unjudged
+    assert conftest._full_run(_config(["."], base=tests.parent))
     assert conftest._full_run(_config(["evals", "tests"]))
     assert not conftest._full_run(_config(["tests"], collectonly=True))  # nothing runs: nothing to judge
     assert not conftest._full_run(_config(["tests"], keyword="redaction"))
     assert not conftest._full_run(_config(["tests"], deselect=["tests/test_a.py::test_one"]))
-    assert not conftest._full_run(_config(["tests/test_a.py"]))
+    assert not conftest._full_run(_config(["tests/test_a.py"], base=tests.parent))
 
 
 def test_a_rebound_test_is_not_genuine(pytester=None):

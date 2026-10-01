@@ -80,12 +80,19 @@ def pytest_runtest_logreport(report):
 
 
 def _full_run(config) -> bool:
-    """Judged: a run of the whole `tests` directory, nothing filtered, and something actually run."""
-    args = [a.replace("\\", "/").rstrip("/") for a in config.args]
+    """Judged: a run of the whole `tests` directory - however the path is spelled (`tests`, `tests/.`, `.`, an
+    absolute path; sixth review, 2026-10-01) - nothing filtered, and something actually run."""
+    here = pathlib.Path(__file__).resolve().parent
+    base = pathlib.Path(getattr(getattr(config, "invocation_params", None), "dir", None) or pathlib.Path.cwd())
+
+    def covers(arg: str) -> bool:
+        path = (base / arg.split("::", 1)[0]).resolve()
+        return path in (here, here.parent)
+
     return (not config.getoption("collectonly", default=False)
             and not config.getoption("keyword", default="") and not config.getoption("markexpr", default="")
             and not config.getoption("lf", default=False) and not config.getoption("deselect", default=None)
-            and "tests" in [a.rsplit("/", 1)[-1] for a in args])
+            and any(covers(a) for a in config.args))
 
 
 def missing_evidence(reports: dict[str, set[str]], cited: set[tuple[str, str]]) -> list[str]:
