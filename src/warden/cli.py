@@ -90,7 +90,10 @@ def _out(text: object, *, err: bool = False) -> None:
 
 def _one(text: object) -> str:
     """A field someone else wrote, on one line: a newline in an alert name forged `VERDICT` lines."""
-    return " ".join(str(text).split())
+    try:
+        return " ".join(str(text).split())
+    except Exception:  # noqa: BLE001 - an exception whose text raises (fifth review, 2026-10-01)
+        return "(text withheld)"
 
 
 def _print_report(report, *, verbose: bool) -> None:
@@ -381,11 +384,16 @@ def _no_controls(value):
 def main(argv: list[str] | None = None) -> int:
     """The CLI. An uncaught error is printed as one gated line, never as a raw traceback: the error
     text can quote evidence, a key or an escape sequence (independent review 2026-09-28)."""
+    from .observability import exit_message
+
     try:
         return _main(argv)
     except SystemExit as exc:
-        if isinstance(exc.code, str):  # a message Python would print raw - an --alert file's content
-            _out(f"error: {_one(exc.code)}", err=True)
+        # A message Python would print raw - an --alert file's content, or a tuple or exception (fifth
+        # review, 2026-10-01).
+        message = exit_message(exc.code)
+        if message is not None:
+            _out(f"error: {_one(message)}", err=True)
             return 2
         raise
     except KeyboardInterrupt:

@@ -167,6 +167,7 @@ _BOLD = re.compile(r"\*\*(.+?)\*\*")
 _HEADING = re.compile(r"^#{1,6}[ \t]+(.*)$")
 # Line and paragraph separators: not line breaks in Markdown, but splitlines() - and some viewers -
 # broke on them, so "ok<U+2028># Fix - approved" became a heading (fourth review, 2026-09-30, A-3).
+_TILDE_FENCE = re.compile(r"^[ \t>*+\-\d.)]*~{3,}")
 _SEPARATORS = re.compile("[\u2028\u2029]")
 
 
@@ -180,15 +181,18 @@ def to_slack_mrkdwn(md: str) -> str:
     """
     text = md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     text = _SEPARATORS.sub(" ", text)
-    out, in_code = [], False
+    out, fence = [], ""
     # A fence anywhere in the line: the gate keeps fences inside list items and quotes, and leaves ```
     # nowhere but on fence lines (fourth review, 2026-09-30, A-2: column 0 only desynchronised here).
+    # A `~~~` block is code too, closed only by `~~~` as CommonMark reads it: its heading was made bold
+    # (fifth review, 2026-10-01).
     for line in text.split("\n"):
-        if "```" in line:
-            in_code = not in_code
+        tilde = _TILDE_FENCE.match(line)
+        if (fence in ("", "```") and "```" in line) or (fence in ("", "~~~") and tilde):
+            fence = "" if fence else ("```" if "```" in line else "~~~")
             out.append(line)
             continue
-        if not in_code:
+        if not fence:
             heading = _HEADING.match(line)
             line = f"*{heading.group(1)}*" if heading else line
             line = _BOLD.sub(r"*\1*", line)

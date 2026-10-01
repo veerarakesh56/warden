@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -106,7 +107,9 @@ def _redact_then_cut(text: str, limit: int) -> str:
         cut = text[: 8 * limit]
         # The last whitespace, found by scanning back once: a regex (`\S*\Z`) was quadratic on one long
         # token - 31 s for a 63,000-character record, holding the handler lock (fourth review).
-        end = max(cut.rfind(" "), cut.rfind("\n"), cut.rfind("\t"))
+        # Any whitespace, not only space, newline and tab: a record joined by NBSP or U+2028 was withheld
+        # whole (fifth review, 2026-10-01).
+        end = next((i for i in range(len(cut) - 1, -1, -1) if cut[i].isspace()), -1)
         text = cut[: end + 1] if end >= 0 else "(one token longer than the log limit, withheld)"
     return redact(text).text[:limit]
 
@@ -163,6 +166,38 @@ def install_log_gate(level: int | None = None) -> None:
         root.addHandler(handler)
     if level is not None:
         root.setLevel(level)
+    # The other ways Python prints raw text go through the same gate (fifth review, 2026-10-01): warnings
+    # (the CLI and `warden worker` printed them raw), and the hooks for an uncaught error - including
+    # those that are not an Exception (`BaseExceptionGroup`, `GeneratorExit`) - an error in a thread,
+    # and one raised where nothing can catch it (`__del__`).
+    logging.captureWarnings(True)
+    gated = logging.getLogger("warden.uncaught")
+    if not getattr(sys.excepthook, "warden_log_gate", False):
+        def excepthook(kind, value, tb):
+            gated.critical("uncaught %s", kind.__name__, exc_info=(kind, value, tb))
+
+        def thread_hook(args):
+            if args.exc_type is not SystemExit:
+                gated.critical("uncaught %s in a thread", args.exc_type.__name__,
+                               exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+        def unraisable_hook(u):
+            gated.error("unraisable %s", u.exc_type.__name__, exc_info=(u.exc_type, u.exc_value, u.exc_traceback))
+
+        for hook in (excepthook, thread_hook, unraisable_hook):
+            hook.warden_log_gate = True
+        sys.excepthook, threading.excepthook, sys.unraisablehook = excepthook, thread_hook, unraisable_hook
+
+
+def exit_message(code: object) -> str | None:
+    """A `SystemExit` code Python would print as text - a message, a tuple, an exception - for the caller to
+    log through the gate; None for a number or nothing, which Python only turns into an exit status."""
+    if code is None or isinstance(code, int):
+        return None
+    try:
+        return str(code)
+    except Exception:  # noqa: BLE001 - its text is not ours to trust or to print
+        return "(exit text withheld)"
 
 
 def record_cost(sp: trace.Span, *, input_tokens: int, output_tokens: int, usd: float) -> None:

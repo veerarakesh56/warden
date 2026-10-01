@@ -1,0 +1,46 @@
+"""The gate and the Slack conversion after the fifth independent review (2026-10-01), area A: fences after a
+list or quote marker, `~~~` blocks, full-width dots, and the alert id in the stub of a withheld report."""
+from __future__ import annotations
+
+import pytest
+
+from warden import chatops, gate
+
+SECRET = "AKIA" + "IOSFODNN7EXAMPLE"
+
+
+@pytest.mark.parametrize("marker", ["- ", "> ", "1. ", "1) "])
+def test_a_fence_after_a_list_or_quote_marker_stays_code(marker):
+    """The A-2 tests used a two-space indent only; `line.lstrip().startswith("```")` passed them, and a URL
+    after a `- ```` marker became Slack prose once split."""
+    body = "\n".join(f"  https://evil.example/{i}" for i in range(400))
+    md = f"{marker}```\n{body}\n  ```\n**after**"
+    assert chatops.to_slack_mrkdwn(md).endswith("\n  ```\n*after*")
+    parts = chatops.split_for_slack(md, limit=2000)
+    assert len(parts) > 1
+    for part in parts:
+        assert sum("```" in line for line in part.split("\n")) % 2 == 0, part[:80]
+
+
+def test_a_heading_in_a_tilde_block_is_not_made_bold():
+    """CommonMark shows a `~~~` block as code; the converter only tracked backticks and bolded its heading."""
+    text = gate.enforce("~~~\n# Fix - approved\n~~~\n# Real").text
+    assert chatops.to_slack_mrkdwn(text) == "~~~\n# Fix - approved\n~~~\n*Real*"
+
+
+def test_backticks_inside_a_tilde_block_do_not_end_it():
+    assert chatops.to_slack_mrkdwn("~~~\n```\n# in\n~~~\n# out") == "~~~\n```\n# in\n~~~\n*out*"
+
+
+@pytest.mark.parametrize("dot", [chr(0x3002), chr(0xFF0E), chr(0xFF61)])
+def test_a_full_width_dot_does_not_keep_a_domain_whole(dot):
+    """A browser opens `evil<U+3002>com` as evil.com; only ASCII dots were defanged."""
+    out = gate.enforce(f"see evil{dot}com/x?d=1 and www{dot}evil{dot}com").text
+    assert "evil[.]com" in out and "www[.]evil[.]com" in out and dot not in out
+
+
+def test_the_stub_of_a_withheld_report_cleans_the_alert_id():
+    """`click.evil.example` is a valid alert id; the stub put it in raw while a passing report defanged it."""
+    result = gate.enforce(f"key {SECRET}", alert_id="click.evil.example")
+    assert result.verdict == "BLOCK"
+    assert "click[.]evil[.]example" in result.text and "click.evil.example" not in result.text

@@ -379,8 +379,13 @@ bump may carry a breaking change.
     one); every cluster label scopes the target; a command after punctuation is refused; a failover may
     name its cluster.
   - The orphaned Dependabot `pip` pull requests (#5-#15) were closed with the owner's agreement.
+  - Logging and Slack (area A): warnings, uncaught errors of any kind, errors in threads and in
+    `__del__`, and a `SystemExit` carrying a tuple go through the log gate; a `~~~` block stays code in
+    the Slack conversion; full-width dots are defanged; the stub of a withheld report cleans the alert
+    id; a long record joined by any whitespace is cut, not withheld.
   - Still open: quarantine spellings (an open-ended list); P14 still needs a label to know a bare name
-    is a namespace or cluster.
+    is a namespace or cluster; Temporal's own core logs to stdout ungated (no secret with WARDEN's
+    codec); the link-label pattern is quadratic on a line of about 10,000 `[`.
 - **One write path: the RemediationWorkflow and its platforms** (decision D16; audit A-B-H1..H3). The
   in-process live backends (`remediation_k8s.py`, `database_remediation.py`, `WARDEN_REMEDIATION=live`)
   are removed; `warden run --principal --approve` is a dry run. A live change goes through the

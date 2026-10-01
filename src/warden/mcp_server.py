@@ -528,16 +528,16 @@ def main() -> int:
     review, 2026-09-30, A-8). Warnings go through the same gate."""
     import logging
 
-    from .observability import install_log_gate
+    from .observability import exit_message, install_log_gate
 
-    install_log_gate()  # stderr only: stdout is the protocol
-    logging.captureWarnings(True)
+    install_log_gate()  # stderr only: stdout is the protocol; warnings and uncaught errors gated too
     log = logging.getLogger("warden.mcp")
     try:
         return _serve()
     except SystemExit as exc:
-        if isinstance(exc.code, str):
-            log.error("error: %s", exc.code)
+        message = exit_message(exc.code)
+        if message is not None:
+            log.error("error: %s", message)
             return 2
         raise
     except KeyboardInterrupt:
