@@ -194,6 +194,11 @@ def _full_run(config) -> bool:
         path = (base / arg.split("::", 1)[0]).resolve()
         return path in (here, here.parent)
 
+    # Modes that run no test bodies are not judged: they printed the red evidence line (`--fixtures`) or failed the
+    # run (`--setup-plan`) - eighth review.
+    if any(config.getoption(o, default=False) for o in ("showfixtures", "show_fixtures_per_test", "setuponly",
+                                                        "setupplan")):
+        return False
     return (not config.getoption("collectonly", default=False)
             and not config.getoption("keyword", default="") and not config.getoption("markexpr", default="")
             and not config.getoption("lf", default=False) and not config.getoption("deselect", default=None)

@@ -43,6 +43,8 @@ def test_only_a_whole_run_of_the_suite_is_judged():
     assert conftest._full_run(_config(["."], base=tests.parent))
     assert conftest._full_run(_config(["evals", "tests"]))
     assert not conftest._full_run(_config(["tests"], collectonly=True))  # nothing runs: nothing to judge
+    for mode in ("showfixtures", "show_fixtures_per_test", "setuponly", "setupplan"):  # eighth review
+        assert not conftest._full_run(_config(["tests"], **{mode: True})), mode
     assert not conftest._full_run(_config(["tests"], keyword="redaction"))
     assert not conftest._full_run(_config(["tests"], deselect=["tests/test_a.py::test_one"]))
     assert not conftest._full_run(_config(["tests/test_a.py"], base=tests.parent))
