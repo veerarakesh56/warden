@@ -346,10 +346,18 @@ def data_leaks(data: Any) -> list[str]:
     return sorted({k for s in _strings(data) for k in leaked_kinds(s)})
 
 
-def _sent(text: str) -> str:
-    """What G3 makes of `text` - checked by G5 too: removing `<b></b>`, `<!here>` or a comment from inside a key
-    assembled a key G5 had never seen (ninth review)."""
-    return sanitise_text(text)
+def assembled_kinds(original: str, sent: str) -> list[str]:
+    """G5 over what is actually sent, for what the cleaning ASSEMBLED: removing `<b></b>`, `<!here>` or a comment
+    from inside a key joined a key G5 had never seen (ninth review). Only a value not written as such in the
+    original counts - one that is (`password=<nil> user_id=42`, the `<nil>` removed) was already judged there."""
+    if sent == original:
+        return []
+    views = _views(original)
+    found = {}
+    for view in _views(sent):
+        found.update(redact(view).mapping)
+    kinds = {p.strip("<>").rsplit("_", 1)[0] for p, value in found.items() if not any(value in v for v in views)}
+    return sorted(kinds - _SHOWABLE)
 
 
 def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = None,
@@ -358,7 +366,7 @@ def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = Non
     out, is the text as it was built: G5 checks THAT, or it could never fire (audit A-C-8 - the
     re-redaction masked every leak first, and the gate then found none)."""
     leaks = sorted(set(leaked_kinds(text)) | set(leaked_kinds(before_redaction or ""))
-                   | set(data_leaks(data_before_redaction)) | set(leaked_kinds(_sent(text))))
+                   | set(data_leaks(data_before_redaction)) | set(assembled_kinds(text, sanitise_text(text))))
     if leaks:
         # The id through the same cleaning as any text: `click.evil.example` is a valid alert id and was a
         # link in the stub (fifth review, 2026-10-01).
@@ -388,7 +396,7 @@ def for_terminal(text: str) -> str:
     """What WARDEN prints: no secret (G5) and no control character. Links are left alone - a terminal
     does not fetch them, and the ESC sequence that would make one clickable is stripped."""
     out = strip_controls(strip_ansi(text))
-    leaks = sorted(set(leaked_kinds(text)) | set(leaked_kinds(out)))
+    leaks = sorted(set(leaked_kinds(text)) | set(assembled_kinds(text, out)))
     if leaks:
         return f"[withheld by the outbound gate: {', '.join(leaks)} in this text]"
     return out
@@ -398,7 +406,8 @@ def outbound_data(data: Any) -> tuple[str, Any]:
     """The gate over structured data leaving the process (an MCP result, a generic webhook):
     BLOCK on any secret, else G3 on every string. Returns (verdict, data)."""
     clean = sanitise_data(data)
-    leaks = sorted(set(data_leaks(data)) | set(data_leaks(clean)))  # and in what G3 made of it (ninth review)
+    # And in what G3 made of it (ninth review): the strings joined, so a value is judged against all of them.
+    leaks = sorted(set(data_leaks(data)) | set(assembled_kinds("\n".join(_strings(data)), "\n".join(_strings(clean)))))
     if leaks:
         return "BLOCK", {"withheld": True, "reasons": [f"G5: {k} in the outgoing data" for k in leaks]}
     return ("PASS" if clean == data else "REWRITE"), clean

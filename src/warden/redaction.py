@@ -36,6 +36,8 @@ _CRED_FLAG = (r"(?i)(?<![\w-])(?:--(?:[a-z0-9]+-){0,2}"
 # Space between a flag and its value: a no-break space (and the other Unicode spaces) as well.
 _SP = "[ \t\u00a0\u2000-\u200a\u202f\u205f\u3000]"
 
+# A key that names a cookie: `Cookie`, `Set-Cookie`, `X-Auth-Cookie`, `HTTP_COOKIE`, `"http_cookie"`, `cookies`.
+_COOKIE_KEY = r"(?i)(?<![A-Za-z])(?:set-)?cookies?[\"'\]]*\s*"
 PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # A whole PEM private key block — the highest-value secret that turns up in a misconfig dump.
     # PEM and PGP. A key cut off by a line-length limit has no END line: mask to the end.
@@ -119,9 +121,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # tenant_id=..., org_id: ..., "customer_id": "..."  — the identifiers that make logs re-identifiable
     ("TENANT", re.compile(r"(?i)\b(?:tenant|org|organisation|organization|customer|account|user)[_\-]?id\b\s*[:=]\s*[\"']?([A-Za-z0-9_\-]{3,})[\"']?")),
     # A token following `Bearer ` in an Authorization header (when it is not already a JWT/API key).
-    ("BEARER", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/\-]{12,}=*)")),
+    # `<>` too: a value whose start an earlier pattern masked (`Bearer <UUID_1>.rest`) is masked whole (ninth review).
+    ("BEARER", re.compile(r"(?i)\bbearer\s+([A-Za-z0-9._~+/\-<>]{12,}=*)")),
     # HTTP Basic auth: `Authorization: Basic <base64 of user:pass>` - the base64 IS the credential.
-    ("BASIC", re.compile(r"(?i)\bbasic\s+([A-Za-z0-9+/]{8,}={0,2})")),
+    ("BASIC", re.compile(r"(?i)\bbasic\s+([A-Za-z0-9+/<>_]{8,}={0,2})")),
     # A grouped payment-card number (4-4-4-4 with space or dash separators). Masked WHOLE and BEFORE
     # PHONE, which otherwise catches only the first 12-14 digits and leaks the final group. A
     # contiguous 16-digit card is already caught by PHONE; this closes the spaced/dashed form.
@@ -145,14 +148,22 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     # Keywords are cloud-neutral: AWS (aws_secret_access_key), Azure (AccountKey, SharedAccessKey),
     # GCP and generic (private_key, client_secret, api_key, password, token, credential).
     # Header values and client flags that carry a credential whole (2026-09-27 audit).
-    ("SECRET", re.compile(r"(?i)\bauthorization\s*[:=]\s*(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
-    # The whole header: a value may hold placeholders already placed (they are stored restored, see find()).
-    # Stopping at `<` left every cookie after a masked one in clear (seventh review, 2026-10-01).
-    # Quoted, as JSON, a dict or a list writes it (`{"cookie": "sid=..."}`, `'set-cookie': ['id=...']`), then as
-    # a header or an assignment (`Cookie: ...`, `cookie=sid=...`, `http.request.header.cookie=...`) - eighth
-    # review: only `Cookie:` was masked.
-    ("SECRET", re.compile(r"(?i)(?<![\w-])[\"']?(?:set-)?cookie[\"']?\s*[:=]\s*\[?\s*[\"']([^\"'\r\n]{4,})[\"']")),
-    ("SECRET", re.compile(r"(?i)(?<![\w-])(?:set-)?cookie\s*[:=]\s*(?![\"'\[])([^\r\n]{4,})")),
+    ("SECRET", re.compile(r"(?i)\bauthorization[\"']?\s*[:=]\s*[\"']?(?:[A-Za-z]+\s+)?([^\s\"']{8,})")),
+    # The whole cookie value: it may hold placeholders already placed (they are stored restored, see find()).
+    # Stopping at `<` left every cookie after a masked one in clear (seventh review, 2026-10-01). Any key ending
+    # in cookie (`X-Auth-Cookie`, `HTTP_COOKIE`, `"http_cookie"`), then `:`, `=` or `=>`, then the value as it is
+    # written: quoted (escapes kept), a list (Go's `Cookie:[...]`, every item of a Set-Cookie list), a dict, a
+    # header to the end of the line, or an assignment (`cookie=sid=...; b=...`, a logfmt `cookie=x` value only)
+    # - eighth and ninth reviews: a lookahead and a `\w-` boundary let Go's form and prefixed keys through.
+    # A header value that is a placeholder followed by prose is a report quoting a masked cookie, not a cookie.
+    ("SECRET", re.compile(_COOKIE_KEY + r"(?:=>|[:=])\s*+(?:\"((?:\\.|[^\"\\\r\n]){4,})\"|'((?:\\.|[^'\\\r\n]){4,})'"
+                          r"|\[([^\]\r\n]{4,})\]|\{([^}\r\n]{4,})\})")),
+    ("SECRET", re.compile(_COOKIE_KEY + r":\s*+(?!<[A-Z][A-Z0-9]*_\d+>(?:\s|$))[\"']?([^\r\n\"'`\]]{4,})")),
+    ("SECRET", re.compile(_COOKIE_KEY + r"(?:=>|=(?!>))\s*+([^\s;,\"'\[{]+(?:;\s*[^\s;=]+=[^\s;]*)*)")),
+    # A HAR entry (`{"name": "Cookie", "value": "..."}`), curl's `--cookie`/`-b`, and a cookie jar's repr.
+    ("SECRET", re.compile(r"(?i)\"name\"\s*:\s*\"(?:set-)?cookie\"\s*,\s*\"value\"\s*:\s*\"((?:\\.|[^\"\\\r\n]){4,})\"")),
+    ("SECRET", re.compile(r"(?<![\w-])(?:--cookie|-b)(?:\s+|=)(?:\"([^\"\r\n]{4,})\"|'([^'\r\n]{4,})'|([^\s\"'-][^\s\"']{3,}))")),
+    ("SECRET", re.compile(r"<Cookie\s+([^\s=<>]+=[^\s<>]{4,})")),
     ("SECRET", re.compile(r"\b(?:mysql|mariadb)(?:-?dump|-?admin)?\b[^\r\n]*?\s-p([^\s\"']{3,})")),
     # A credential passed as a command-line flag. EXACT flag names (independent review 2026-09-28:
     # `--secret-name`, `--token-file`, `--token-ttl` are not credentials, and masking them removed
@@ -232,8 +243,21 @@ _NOT_A_VALUE = frozenset({
     "denied", "incorrect", "wrong", "deprecated", "changed", "rotated", "reset", "found", "specified",
     "configured", "needed", "ok", "yes", "no", "on", "off", "enabled", "disabled", "password",
     "passwd", "pass", "pwd", "secret", "secrets", "token", "tokens", "key", "apikey", "api_key",
-    "credential", "credentials", "redacted", "hidden", "masked", "file", "env", "stdin",
+    "credential", "credentials", "redacted", "hidden", "masked", "file", "env", "stdin", "absent",
 })
+# A value written as a word in angle brackets is a tool saying there is none: Go's `<nil>`, kubectl's `<none>` and
+# `<set to the key ...>` (ninth review: since values may hold `<`, each was a secret swept from every line).
+_SAYS_NONE = re.compile(r"<[a-z][a-z -]*>?")
+# The pieces of a compound value (`_gh_sess=...; theme=dark`, `<uuid>.<secret>`): one with a letter and a digit is
+# swept on its own too - masked only as the whole, the same secret echoed alone elsewhere stayed in clear (ninth).
+def _secret_shaped(piece: str) -> bool:
+    """Upper, lower and a digit, or 20+ characters of letters and digits: a session id or a key, not a region
+    (`ap-south-2`) or a name an earlier pattern took in (an ARN after `secret:` swept the region everywhere)."""
+    has = [any(c.isupper() for c in piece), any(c.islower() for c in piece), any(c.isdigit() for c in piece)]
+    return all(has) or (len(piece) >= 20 and has[2] and (has[0] or has[1]))
+
+
+_PIECE = re.compile(r"[^\s;,&=.:\"'\[\]{}<>]{8,}")
 
 # A placeholder token, captured so `re.split` keeps it as its own segment: `<LABEL_123>`.
 _LABELS = tuple(dict.fromkeys(label for label, _ in PATTERNS))
@@ -305,8 +329,10 @@ class _Redactor:
 
             def _sub(m: re.Match[str], label: str = label) -> str:
                 # group(1) exists for TENANT, where only the value is sensitive, not the key name.
-                original = m.group(1) if m.groups() else m.group(0)
-                if label == "SECRET" and original.lower().strip(".,;:)(") in _NOT_A_VALUE:
+                # The first group that took part: a pattern may offer the value in several written forms.
+                original = next((g for g in m.groups() if g is not None), m.group(0))
+                if label == "SECRET" and (original.lower().strip(".,;:)(<>") in _NOT_A_VALUE
+                                          or _SAYS_NONE.fullmatch(original)):
                     return m.group(0)
                 # A value holding placeholders already placed (`Cookie: a=<JWT_1>; sid=...`) is stored restored,
                 # so restore() gives the original back in one step; one that is nothing but placeholders is
@@ -323,6 +349,11 @@ class _Redactor:
                     placeholder = f"<{label}_{self.counters[label]}>"
                     self.mapping[placeholder] = full
                     self.reverse[full] = placeholder
+                    for piece in _PIECE.findall(_PLACEHOLDER.sub(" ", original)) if label in SECRET_KINDS else ():
+                        if piece != full and piece not in self.reverse and _secret_shaped(piece):
+                            self.counters[label] += 1
+                            self.mapping[f"<{label}_{self.counters[label]}>"] = piece
+                            self.reverse[piece] = f"<{label}_{self.counters[label]}>"
                 return m.group(0).replace(original, placeholder)
 
             out = pattern.sub(_sub, out)

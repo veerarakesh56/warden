@@ -428,6 +428,12 @@ bump may carry a breaking change.
   assembled one G5 never saw (pre-existing). The log formatter redacts before it normalises. Invisible
   characters are removed only between ASCII name characters, so emoji and CJK selectors pass unchanged. A
   one-letter or bare scheme (`p://evil.com`) is a link.
+  Cookies are masked in every written form - Go's `Cookie:[...]` and prefixed keys (`X-Auth-Cookie`,
+  `HTTP_COOKIE`) slipped past ace3572's patterns (HIGH, a regression), and CGI, PHP, HAR, curl, a cookie jar and
+  escaped quotes were never reached. A Bearer or Basic token whose start was masked is masked whole; a JSON
+  `"authorization":` is matched. A tool saying there is none (`<nil>`, `<none>`, `cookie=missing`) is not a
+  secret, and a value the cleaning did not assemble is not a new leak. A secret inside a compound value is swept
+  alone too.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
