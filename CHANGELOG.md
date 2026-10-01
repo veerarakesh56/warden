@@ -348,6 +348,15 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **Sixth independent review, the write path** (2026-10-01; rows A-R6): a failed rollback ends
+  `rollback_failed`, signed, and trips the kill switch (it crashed the workflow); a rollback undoes only
+  what its own run applied, and its row names the run and plan; a fix with nothing to undo (a restart)
+  ends `not_recovered`, not `rolled_back`; a plan is refused unless the request's service is the target
+  the fix changes, and health is asked only of the platform that made the change; MySQL closes sessions
+  by idle time, not transaction age; the database platform refuses an allowlist naming its own login.
+- **Sixth independent review, the tripwire** (7f0178e): only the placeholders WARDEN issued are removed
+  from what is scanned (any `<WORD_N>` was, hiding an injection written in that shape), and labels are
+  scanned as sentences - a credential-named label no longer escalates a clean incident on the real model.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

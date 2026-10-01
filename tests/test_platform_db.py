@@ -31,6 +31,8 @@ class _Cursor:
             raise RuntimeError("boom: server unreachable")
         if sql.startswith(("SELECT current_database()", "SELECT DATABASE()", "SELECT DB_NAME()")):
             self.rows = [(self.conn.db,)]
+        elif sql in ("SELECT current_user", "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1)", "SELECT SUSER_SNAME()"):
+            self.rows = [(self.conn.me,)]
         elif "pg_terminate_backend" in sql:
             self.conn.killed.append(params[0])
             self.rows = [(True,)]
@@ -47,8 +49,8 @@ class _Cursor:
 
 
 class _Conn:
-    def __init__(self, db="orders", stuck=(101, 102), fail=False):
-        self.db, self.stuck, self.fail = db, list(stuck), fail
+    def __init__(self, db="orders", stuck=(101, 102), fail=False, me="warden_terminator"):
+        self.db, self.stuck, self.fail, self.me = db, list(stuck), fail, me
         self.sql: list = []
         self.killed: list = []
 
@@ -87,6 +89,8 @@ def test_mysql_and_mssql_are_scoped_the_same_way():
     _platform("mysql", my).apply("db_terminate_idle_in_tx", PARAMS)
     sql, params = next((s, p) for s, p in my.sql if "innodb_trx" in s)
     assert "p.db = DATABASE()" in sql and "p.user IN %s" in sql and "CONNECTION_ID()" in sql
+    # Idle time, not the transaction's age (sixth review).
+    assert "p.time >= %s" in sql and "trx_started" not in sql
     assert params == (tuple(APP), 300, 5) and my.killed == [101, 102]
     ms = _Conn()
     _platform("mssql", ms, users=["orders_app", "orders_ro"]).apply("db_terminate_idle_in_tx", PARAMS)
@@ -166,3 +170,14 @@ def test_an_approved_close_runs_through_the_workflow_end_to_end(world, owner, mo
     out = _run(world, _approve_with(owner), entry="db_terminate_idle_in_tx", service="orders", params=PARAMS)
     assert out.status == "recovered", (out.status, out.reasons)
     assert conn.killed == [101]
+
+
+@pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
+def test_its_own_login_is_never_an_application_login(engine):
+    """Sixth review (2026-10-01): WARDEN_DB_APP_USERS could name the terminate role's own login, so it closed other
+    WARDEN sessions. Refused before anything is listed or closed."""
+    conn = _Conn(me="orders_app")
+    with pytest.raises(DatabasePlatformError, match="own login"):
+        _platform(engine, conn, users=["orders_app"]).apply("db_terminate_idle_in_tx", PARAMS)
+    assert conn.killed == [] and not any("innodb_trx" in s or "pg_stat_activity" in s or "dm_exec_sessions" in s
+                                         for s, _ in conn.sql)

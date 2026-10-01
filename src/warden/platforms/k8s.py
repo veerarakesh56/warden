@@ -102,7 +102,9 @@ class KubernetesPlatform:
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
         self._same_namespace(params)
         if entry == "k8s_restart":
-            return "nothing to roll back: a restart changes no spec, and the new pods are the same pods"
+            # A restart changes only the template's restartedAt annotation: the old pods are gone, and a second
+            # restart would not bring them back (sixth review: "changes no spec" was wrong).
+            return "nothing to roll back: a restart replaced the pods, and the old ones cannot come back"
         if entry == "k8s_scale":
             before = snapshot.get("replicas")
             if not isinstance(before, int) or before < 1:

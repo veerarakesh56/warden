@@ -144,8 +144,18 @@ class RemediationWorkflow:
             return await end("recovered")
 
         self._stage = "rolling_back"
-        await workflow.execute_activity_method(acts.rollback, args=[plan], **ONCE)
-        return await end("rolled_back", [f"{req.service} did not recover within {req.recover_within_minutes} min"])
+        try:
+            undone = await workflow.execute_activity_method(acts.rollback, args=[plan], **ONCE)
+        except ActivityError as exc:
+            # The run still ends on the record, signed: a failed rollback crashed the workflow with no end row
+            # (sixth review, 2026-10-01). The activity tripped the kill switch; a person takes it from here.
+            return await end("rollback_failed", [f"{req.service} did not recover, and {exc.cause or exc}"])
+        why = f"{req.service} did not recover within {req.recover_within_minutes} min"
+        # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
+        # fix left it, unhealthy - a person (sixth review, 2026-10-01).
+        if str(undone).startswith("nothing to roll back"):
+            return await end("not_recovered", [why, str(undone)])
+        return await end("rolled_back", [why])
 
 
 @workflow.defn

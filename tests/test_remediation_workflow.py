@@ -53,6 +53,10 @@ class FakePlatform:
         return self.healthy_after is not None and self.checks >= self.healthy_after
 
     def rollback(self, entry, params, snapshot):
+        if getattr(self, "rollback_error", None):
+            raise RuntimeError(self.rollback_error)
+        if getattr(self, "nothing_to_undo", False):
+            return "nothing to roll back: a restart replaced the pods, and the old ones cannot come back"
         self.rolled_back.append(snapshot)
         return f"restored revision {snapshot['revision']}"
 
@@ -214,3 +218,70 @@ def test_a_recorded_history_replays_deterministically(world, owner):
     # the history was recorded in.
     asyncio.run(Replayer(workflows=[RemediationWorkflow], data_converter=CONVERTER, namespace=world["namespace"])
                 .replay_workflow(world["history"]))
+
+
+def test_a_failed_rollback_still_ends_signed_and_trips_the_kill_switch(world, owner):
+    """Sixth review (2026-10-01): a rollback that failed - an HPA moved the count, the API was down - crashed the
+    workflow with no end row and no checkpoint. It ends `rollback_failed`, on the record, and no further fix runs
+    until a person resets the kill switch: WARDEN's change may still be in place."""
+    world["platform"].healthy_after = None
+    world["platform"].rollback_error = "422 the count moved"
+    out = _run(world, _approve_with(owner))
+    assert out.status == "rollback_failed" and out.checklist["applied"] and not out.checklist["verified"]
+    kinds = [e["kind"] for e in world["log"].entries("inc-42")]
+    assert "remediation.rollback_failed" in kinds and kinds[-1] == "workflow.end"
+    assert bounds.killswitch(world["log"]) is not None
+    assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0
+
+
+def test_a_rollback_row_names_its_run_and_plan(world, owner):
+    world["platform"].healthy_after = None
+    _run(world, _approve_with(owner))
+    row = world["log"].entries("inc-42", kinds=("remediation.rollback",))[0]["body"]
+    assert row["run_id"] and row["plan_hash"] and row["workflow_id"]
+
+
+def test_a_fix_with_nothing_to_undo_is_not_called_rolled_back(world, owner):
+    """Sixth review (2026-10-01): a restart that did not help was recorded `rolled_back`, though nothing was undone
+    and the new pods stayed. It ends `not_recovered`, saying why."""
+    world["platform"].healthy_after = None
+    world["platform"].nothing_to_undo = True
+    out = _run(world, _approve_with(owner))
+    assert out.status == "not_recovered" and out.checklist["applied"] and not out.checklist["verified"]
+    assert any("nothing to roll back" in r for r in out.reasons), out.reasons
+
+
+def test_a_fix_filed_under_another_service_is_refused(world):
+    """Sixth review (2026-10-01): a scale of `payments` filed under service `orders` was judged healthy by `orders`
+    and never rolled back. The service must name what the fix changes."""
+    class Both(FakePlatform):
+        def live(self, entry, params):
+            return {**super().live(entry, params), "deployment": {"orders", "payments"}}
+
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=Both())
+    plan = acts.resolve_plan(FixRequest(**{**REQ, "params": {**REQ["params"], "deployment": "payments"}}), "rem-x")
+    assert any("deployment 'payments', not the service 'orders'" in p for p in plan.problems), plan.problems
+    same = acts.resolve_plan(FixRequest(**REQ), "rem-y")
+    assert same.problems == []
+
+
+def test_health_is_asked_only_of_the_platform_that_made_the_change():
+    """Sixth review: a database named like a Deployment decided the Deployment's verdict."""
+    from warden.platforms import RoutedPlatform
+
+    class Says:
+        def __init__(self, ok):
+            self.ok, self.asked = ok, 0
+
+        def knows(self, service):
+            return True
+
+        def healthy(self, service):
+            self.asked += 1
+            return self.ok
+
+    k8s, db = Says(True), Says(False)
+    routed = RoutedPlatform(k8s=k8s, db=db)
+    assert routed.healthy_for("k8s_scale", "orders") is True and db.asked == 0
+    assert routed.healthy_for("db_terminate_idle_in_tx", "orders") is False
+    assert RoutedPlatform(db=db).healthy_for("k8s_scale", "orders") is False  # none connected: not healthy

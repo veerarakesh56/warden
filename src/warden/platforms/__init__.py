@@ -41,6 +41,12 @@ class RoutedPlatform:
         answers = [p.healthy(service) for p in self._by_kind.values() if p.knows(service)]
         return bool(answers) and all(answers)
 
+    def healthy_for(self, entry: str, service: str) -> bool:
+        """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a
+        database with a Deployment's name decided the Deployment's verdict). None connected is not healthy."""
+        p = self._for(entry)
+        return bool(p and p.healthy(service))
+
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
         p = self._for(entry)
         if p is None:

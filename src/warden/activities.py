@@ -23,6 +23,7 @@ from temporalio.exceptions import ApplicationError
 from . import approvals, bounds, catalog
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
+from .observability import _safe_error
 
 
 class FixRequest(BaseModel):
@@ -49,6 +50,7 @@ class Plan(BaseModel):
 
 
 APPLY_REFUSED = "ApplyRefused"
+ROLLBACK_FAILED = "RollbackFailed"
 
 
 def _run_id() -> str:
@@ -106,6 +108,12 @@ class RemediationActivities:
         entry = catalog.CATALOG.get(req.entry)
         live = self.platform.live(req.entry, req.params)
         problems = catalog.validate(req.entry, req.params, live)
+        target = req.params.get(entry.target_param) if entry else None
+        if entry and target != req.service:
+            # The health check, the bounds and the kill switch key on `service`: it must be what the fix changes
+            # (sixth review, 2026-10-01: a scale of `payments` filed under `orders` was judged by `orders`).
+            problems.append(f"the fix changes {entry.target_param} {target!r}, not the service {req.service!r} "
+                            "its health and bounds would be judged by")
         snapshot = live.get("state", {})
         plan = Plan(workflow_id=workflow_id, incident_id=req.incident_id, entry=req.entry,
                     tier=entry.tier if entry else "", params=req.params, snapshot=snapshot,
@@ -208,7 +216,10 @@ class RemediationActivities:
 
     @activity.defn
     def check_success(self, plan: Plan, service: str) -> bool:
-        healthy = bool(self.platform.healthy(service))
+        # Asked of the platform that made the change, when it can route by entry: a database of the same name
+        # must not judge a Deployment (sixth review).
+        routed = getattr(self.platform, "healthy_for", None)
+        healthy = bool(routed(plan.entry, service) if routed else self.platform.healthy(service))
         # Every real check is on the record with its run: the verdict is taken from these rows, never from
         # what an activity result or the workflow claims (fourth review, 2026-09-30: run 1's "healthy"
         # replayed into run 2 marked a fix verified with no health check made).
@@ -239,8 +250,25 @@ class RemediationActivities:
 
     @activity.defn
     def rollback(self, plan: Plan) -> str:
-        detail = self.platform.rollback(plan.entry, plan.params, plan.snapshot)
-        self.audit.append(plan.incident_id, "remediation.rollback", {"workflow_id": plan.workflow_id, "detail": detail})
+        run = _run_id()
+        row = {"workflow_id": plan.workflow_id, "run_id": run, "plan_hash": plan.plan_hash}
+        # Only what THIS run applied is undone: after a replayed apply result, a run that changed nothing
+        # rolled the target back anyway (sixth review, 2026-10-01).
+        if not any(e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                   and e["body"].get("plan_hash") == plan.plan_hash
+                   for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))):
+            detail = "nothing to roll back: this run applied nothing"
+            self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+            return detail
+        try:
+            detail = self.platform.rollback(plan.entry, plan.params, plan.snapshot)
+        except Exception as exc:  # noqa: BLE001 - every failure is the same fact: WARDEN's change may still be there
+            reason = f"rollback failed: {_safe_error(exc)}"
+            self.audit.append(plan.incident_id, "remediation.rollback_failed", {**row, "why": reason})
+            # A change WARDEN made may still be in place: no further fix runs until a person resets the switch.
+            bounds.trip(self.audit, plan.incident_id, reason)
+            raise ApplicationError(reason, type=ROLLBACK_FAILED, non_retryable=True) from None
+        self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
         return detail
 
     @activity.defn

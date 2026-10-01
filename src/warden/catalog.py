@@ -50,6 +50,17 @@ class Entry:
     def action_class(self) -> str:
         return self.name
 
+    @property
+    def target_param(self) -> str:
+        """The parameter naming what the fix changes - what its health check and bounds are about."""
+        return TARGET_PARAM[self.platform]
+
+
+# Per platform: the parameter that names the changed resource. The request's `service` must be it, or the
+# success check and the bounds would judge another object than the one changed (sixth review, 2026-10-01).
+TARGET_PARAM = {"lambda": "function", "events": "rule", "dynamodb": "table", "ecs": "service", "k8s": "deployment",
+                "db": "database", "rds": "cluster", "terraform": "stack"}
+
 
 def _ref(*names: str) -> dict[str, Param]:
     return {n: Param("ref") for n in names}

@@ -37,6 +37,8 @@ def _as_ids(rows: Any) -> list[int]:
 
 
 class _Postgres:
+    ME = "SELECT current_user"
+
     @staticmethod
     def database(conn: Any) -> str:
         with conn.cursor() as cur:
@@ -65,6 +67,8 @@ class _Postgres:
 
 
 class _MySQL:
+    ME = "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1)"
+
     @staticmethod
     def database(conn: Any) -> str:
         with conn.cursor() as cur:
@@ -74,11 +78,13 @@ class _MySQL:
     @staticmethod
     def candidates(conn: Any, idle_secs: int, limit: int, users: list[str]) -> list[int]:
         with conn.cursor() as cur:
+            # Idle time is processlist.time while the session sleeps: the transaction's start said nothing
+            # about it, so a busy batch paused for a second between statements was closed (sixth review).
             cur.execute("SELECT p.id FROM information_schema.innodb_trx t "
                         "JOIN information_schema.processlist p ON t.trx_mysql_thread_id = p.id "
                         "WHERE p.command = 'Sleep' AND p.db = DATABASE() AND p.user IN %s "
-                        "AND t.trx_started < (NOW() - INTERVAL %s SECOND) AND p.id <> CONNECTION_ID() "
-                        "ORDER BY t.trx_started LIMIT %s", (tuple(users), idle_secs, limit))
+                        "AND p.time >= %s AND p.id <> CONNECTION_ID() "
+                        "ORDER BY p.time DESC LIMIT %s", (tuple(users), idle_secs, limit))
             return _as_ids(cur.fetchall())
 
     @staticmethod
@@ -90,6 +96,8 @@ class _MySQL:
 
 
 class _MSSQL:
+    ME = "SELECT SUSER_SNAME()"
+
     @staticmethod
     def database(conn: Any) -> str:
         cur = conn.cursor()
@@ -187,6 +195,17 @@ class DatabasePlatform:
             raise DatabasePlatformError(f"min_idle_seconds={idle!r} / max_sessions={limit!r} are outside the "
                                         f"bounds (idle at least {IDLE_SECS}s, 1..{self._max} sessions)")
         conn = self._connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(self._sql.ME)
+            own = cur.fetchone()[0]
+        except Exception as exc:
+            raise DatabasePlatformError(f"could not read this platform's own login: {_one_line(exc)}") from exc
+        if own in self._users:
+            # The terminate role closing sessions of its own login - other WARDEN workers - is not an application
+            # fix (sixth review, 2026-10-01).
+            raise DatabasePlatformError(f"WARDEN_DB_APP_USERS names this platform's own login {own!r}; "
+                                        "nothing is closed")
         try:
             # The ceiling again in Python: a broken LIMIT must not widen what is closed.
             ids = self._sql.candidates(conn, idle, limit, self._users)[:limit]
