@@ -354,6 +354,12 @@ bump may carry a breaking change.
   rewrite a role's trust (A-I-21); Terraform and every provider are bounded and CI's pinned version
   satisfies every bound (A-I-22); `aurora_express.py` acts only on the environment it is told and
   writes no region (A-I-23); no service-account token is mounted except in WARDEN's own Job (A-I-26).
+  Then: the deploy role attaches only the eight AWS-managed policies Terraform uses (A-I-3); the
+  guardrails that roles inside the boundary could break - public buckets, shared snapshots, images,
+  secrets and logs, public function URLs, invoke by anyone - are denied in the boundary (A-I-3,
+  A-I-20); `ec2:CreateTags` only on create, on the environment's own resources or its EKS cluster
+  security group (A-I-7). The EC2 statements are a second deploy policy, `deploy-ec2.json`
+  (`WardenEnvDeployEc2-<env>`): one would pass IAM's 6,144-character limit.
   The IAM template changes reach the live account in the next owner window.
 - **Fifth independent review, fixed** (2026-10-01; rows A-R5 in the audit). Each with a test that fails
   without the fix:

@@ -277,6 +277,54 @@
         "ec2:AllocateHosts"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "DenyPublicOrSharedData",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutAccountPublicAccessBlock",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:DeleteBucketPublicAccessBlock",
+        "s3:PutBucketAcl",
+        "s3:PutObjectAcl",
+        "s3:PutBucketPolicy",
+        "rds:ModifyDBSnapshotAttribute",
+        "rds:ModifyDBClusterSnapshotAttribute",
+        "ec2:ModifySnapshotAttribute",
+        "ec2:ModifyImageAttribute",
+        "secretsmanager:PutResourcePolicy",
+        "ecr:SetRepositoryPolicy",
+        "logs:PutResourcePolicy",
+        "logs:PutDestination",
+        "logs:PutDestinationPolicy",
+        "logs:PutSubscriptionFilter"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyPublicFunctionUrls",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:UpdateFunctionUrlConfig"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "lambda:FunctionUrlAuthType": "NONE"
+        }
+      }
+    },
+    {
+      "Sid": "DenyInvokeByAnyone",
+      "Effect": "Deny",
+      "Action": "lambda:AddPermission",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "lambda:Principal": "*"
+        }
+      }
     }
   ]
 }

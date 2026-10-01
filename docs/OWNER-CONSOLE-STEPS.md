@@ -338,8 +338,9 @@ bucket holds kilobytes, so it is effectively free.
 2. Otherwise: **Add provider**. Choose **OpenID Connect**. Provider URL
    `https://token.actions.githubusercontent.com`. Audience `sts.amazonaws.com`. **Add provider**.
 
-**2. The environment's boundary and deploy policy.** Create each from its complete file, the same way
-you created the guardrails:
+**2. The environment's boundary and its two deploy policies.** Create each from its complete file, the
+same way you created the guardrails (the deploy role's permissions are two policies because one would
+pass IAM's 6,144-character limit):
 IAM → **Policies** → **Create policy** → **JSON** → **Ctrl+A**, **Delete**, paste → **Next** →
 name → **Create policy**.
 
@@ -347,6 +348,7 @@ name → **Create policy**.
 |---|---|
 | `WardenEnvBoundary-dev` | [`iam/dev/boundary.json`](https://github.com/veerarakesh56/warden/blob/main/iam/dev/boundary.json) |
 | `WardenEnvDeploy-dev` | [`iam/dev/deploy.json`](https://github.com/veerarakesh56/warden/blob/main/iam/dev/deploy.json) |
+| `WardenEnvDeployEc2-dev` | [`iam/dev/deploy-ec2.json`](https://github.com/veerarakesh56/warden/blob/main/iam/dev/deploy-ec2.json) |
 
 **3. The deploy role.**
 1. IAM → **Roles** → **Create role** → **Custom trust policy**.
@@ -355,7 +357,7 @@ name → **Create policy**.
    number; that file is never committed. (Claude re-creates it with
    `python scripts/render_env_iam.py --account`.) It trusts exactly one thing: this repository's
    GitHub environment `dev`. **Next**.
-3. Tick `WardenEnvDeploy-dev` and `WardenOperatorGuardrails`.
+3. Tick `WardenEnvDeploy-dev`, `WardenEnvDeployEc2-dev` and `WardenOperatorGuardrails`.
 4. Expand **Set permissions boundary**. Choose **Use a permissions boundary to control the maximum
    role permissions**, then select `WardenEnvBoundary-dev`. **Next**.
 5. Role name `warden-dev-deploy`. Add tags `Project` = `warden` and `Environment` = `dev`.

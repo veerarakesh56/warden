@@ -33,6 +33,14 @@ def _list(x):
     return [x] if isinstance(x, str) else list(x or [])
 
 
+# The deploy role's two managed policies: what it may do is their union.
+DEPLOY = ("deploy", "deploy-ec2")
+
+
+def _deploy(env):
+    return {"Statement": [st for kind in DEPLOY for st in _load(env, kind)["Statement"]]}
+
+
 def _allows(doc):
     return [a for st in doc["Statement"] if st["Effect"] == "Allow" for a in _list(st["Action"])]
 
@@ -69,7 +77,7 @@ def test_no_file_names_another_environment(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_parameters_and_buckets_are_only_its_own(env):
-    for kind in ("boundary", "deploy"):
+    for kind in ("boundary", *DEPLOY):
         for st in _load(env, kind)["Statement"]:
             for res in _list(st.get("Resource")):
                 if ":ssm:" in res:
@@ -85,7 +93,7 @@ def test_parameters_and_buckets_are_only_its_own(env):
 
 @pytest.mark.parametrize("env", ENVS)
 def test_the_deploy_policy_fits_inside_its_boundary(env):
-    boundary, deploy = _load(env, "boundary"), _load(env, "deploy")
+    boundary, deploy = _load(env, "boundary"), _deploy(env)
     ceiling = _allows(boundary)
     flat_denies = [a for st in boundary["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
                    and st.get("Resource") == "*" for a in _list(st["Action"])]
@@ -140,5 +148,59 @@ def test_templates_use_only_the_two_placeholders():
 def test_no_role_trust_can_be_rewritten(env):
     """Audit A-I-21: UpdateAssumeRolePolicy let the deploy role make one of its roles trust any principal after
     creation, past the checks on CreateRole. A trust change is a replacement of the role."""
-    for kind in ("boundary", "deploy"):
+    for kind in ("boundary", *DEPLOY):
         assert "iam:UpdateAssumeRolePolicy" not in _allows(_load(env, kind)), kind
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_a_tag_cannot_make_another_resource_its_own(env):
+    """Audit A-I-7: ec2:CreateTags on any resource let the role tag an untagged resource Environment=<env> and
+    then delete it. It may tag only while creating, its own environment's resources, and its own EKS cluster's
+    security group (created and tagged by EKS)."""
+    grants = [st for st in _deploy(env)["Statement"] if st["Effect"] == "Allow"
+              and any(fnmatch.fnmatchcase("ec2:CreateTags", a) for a in _list(st["Action"]))]
+    assert len(grants) == 3, [st.get("Sid") for st in grants]
+    for st in grants:
+        cond = st.get("Condition", {})
+        on_create = cond.get("StringLike", {}).get("ec2:CreateAction")
+        own = cond.get("StringEquals", {}).get("aws:ResourceTag/Environment") == env
+        eks = cond.get("StringLike", {}).get("aws:ResourceTag/aws:eks:cluster-name") == f"warden-{env}-*"
+        assert on_create or own or eks, st.get("Sid")
+        if on_create:
+            assert all(a.startswith(("Create", "AllocateAddress", "AuthorizeSecurityGroup")) for a in on_create)
+        if eks:
+            assert st["Resource"] == "arn:aws:ec2:*:*:security-group/*"
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_only_the_managed_policies_terraform_uses_can_be_attached(env):
+    """Audit A-I-3: AttachRolePolicy with no condition let the deploy role give one of its roles any managed
+    policy. It may attach exactly the AWS-managed policies Terraform attaches."""
+    import re
+
+    grants = [st for st in _deploy(env)["Statement"] if st["Effect"] == "Allow"
+              and any(fnmatch.fnmatchcase("iam:AttachRolePolicy", a) for a in _list(st["Action"]))]
+    assert len(grants) == 1, [st.get("Sid") for st in grants]
+    allowed = set(grants[0]["Condition"]["ArnEquals"]["iam:PolicyARN"])
+    tf = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "fullstack").glob("*.tf"))
+    used = set(re.findall(r'"(arn:aws:iam::aws:policy/[\w/-]+[\w-])"', tf))
+    used |= {f"arn:aws:iam::aws:policy/service-role/{n}" for n in re.findall(r'"(AWSLambda\w+ExecutionRole)"', tf)}
+    assert allowed == used, (sorted(allowed - used), sorted(used - allowed))
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
+    """Audit A-I-3/A-I-20: the guardrails were attached to the deploy role only, so a role it created - bound
+    only by the boundary - could make a bucket, snapshot or function public. Every guardrail action the
+    boundary's ceiling grants is denied in the boundary too, under the same condition."""
+    guard = json.loads((ROOT / "terraform" / "proving-ground" / "operator-guardrails.json").read_text(encoding="utf-8"))
+    boundary = _load(env, "boundary")
+    ceiling = _allows(boundary)
+    denied = [(a, st.get("Condition")) for st in boundary["Statement"] if st["Effect"] == "Deny"
+              and st.get("Resource") == "*" for a in _list(st["Action"])]
+    missing = [a for st in guard["Statement"] for a in _list(st["Action"])
+               if any(fnmatch.fnmatchcase(a.lower(), p.lower()) for p in ceiling)
+               and (a, st.get("Condition")) not in denied]
+    assert not missing, missing
+    for action in ("s3:PutBucketPublicAccessBlock", "s3:DeleteBucketPublicAccessBlock", "s3:PutBucketPolicy"):
+        assert (action, None) in denied, action

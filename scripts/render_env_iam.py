@@ -1,7 +1,7 @@
 """Render the per-environment IAM files from iam/templates/ - one boundary, deploy policy and trust
 policy per environment in src/warden/data/environments.yaml (v2 Phase 1.5).
 
-    python scripts/render_env_iam.py            # write iam/<env>/{boundary,deploy,trust}.json
+    python scripts/render_env_iam.py            # write iam/<env>/{boundary,deploy,deploy-ec2,trust}.json
     python scripts/render_env_iam.py --account   # also trust.local.json with the real account id
                                                  # (gitignored; for pasting into the console)
 
@@ -23,7 +23,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from warden.environments import EnvironmentPolicies
 
 TEMPLATES = ROOT / "iam" / "templates"
-KINDS = ("boundary", "deploy", "trust")
+# The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit.
+KINDS = ("boundary", "deploy", "deploy-ec2", "trust")
 
 
 def render(env: str, account: str = "<ACCOUNT_ID>") -> dict[str, str]:
