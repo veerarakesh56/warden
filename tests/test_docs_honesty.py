@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import pathlib
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # (file, phrase that must not appear, why it is false)
@@ -143,6 +145,9 @@ def test_the_readme_live_test_counts_are_what_ci_runs():
     import subprocess
     import sys
 
+    # The Kubernetes suites skip at import without the k8s extra (CI · infra installs aws and dev only); CI · tool
+    # and the full local run have it, and count them there.
+    pytest.importorskip("kubernetes", reason="the live Kubernetes suites collect only with the k8s extra")
     root = pathlib.Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text(encoding="utf-8")
     m = _re.search(r"plus (\d+) opt-in live-infrastructure tests \((\d+) against a live\s+Kubernetes cluster, "
