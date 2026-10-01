@@ -78,6 +78,9 @@ def test_the_mcp_server_routes_warnings_through_the_gate(monkeypatch):
     import warnings
 
     monkeypatch.setattr(mcp_server, "_serve", lambda: warnings.warn("careful", UserWarning, stacklevel=1) or 0)
+    # Any earlier `cli.main` in this worker left capture on, and `captureWarnings(True)` is then a no-op while
+    # pytest's catch_warnings has put the original `showwarning` back - start from off (ninth-review CI run).
+    logging.captureWarnings(False)
     seen = []
     monkeypatch.setattr(logging.getLogger("py.warnings"), "handle", seen.append)
     try:
