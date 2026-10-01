@@ -34,12 +34,6 @@
       }
     },
     {
-      "Sid": "CeilingOwnDbUsers",
-      "Effect": "Allow",
-      "Action": "rds-db:connect",
-      "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_prod_*"
-    },
-    {
       "Sid": "CeilingOwnNames",
       "Effect": "Allow",
       "Action": [
@@ -56,7 +50,8 @@
         "budgets:ModifyBudget",
         "budgets:TagResource",
         "budgets:UntagResource",
-        "budgets:ListTagsForResource"
+        "budgets:ListTagsForResource",
+        "rds-db:connect"
       ],
       "Resource": [
         "arn:aws:s3:::warden-prod-*",
@@ -69,11 +64,12 @@
         "arn:aws:apigateway:ap-south-2::/apis*",
         "arn:aws:apigateway:ap-south-2::/tags/*",
         "arn:aws:ssm:ap-south-2:*:parameter/warden/prod/tf/*",
-        "arn:aws:budgets::*:budget/warden-prod-*"
+        "arn:aws:budgets::*:budget/warden-prod-*",
+        "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_prod_*"
       ]
     },
     {
-      "Sid": "CeilingKmsViaServices",
+      "Sid": "CeilingKms",
       "Effect": "Allow",
       "Action": [
         "kms:Decrypt",
@@ -93,7 +89,7 @@
       }
     },
     {
-      "Sid": "CeilingIamOwnEnv",
+      "Sid": "CeilingIam",
       "Effect": "Allow",
       "Action": [
         "iam:CreateRole",
@@ -176,7 +172,36 @@
         "ec2:CreateFleet",
         "ec2:AllocateHosts",
         "ecs:RunTask",
-        "ecs:StartTask"
+        "ecs:StartTask",
+        "s3:Put*PublicAccessBlock",
+        "s3:Put*Acl",
+        "s3:PutBucketPolicy",
+        "rds:Modify*SnapshotAttribute",
+        "ec2:ModifySnapshotAttribute",
+        "ec2:ModifyImageAttribute",
+        "secretsmanager:PutResourcePolicy",
+        "ecr:SetRepositoryPolicy",
+        "logs:*ResourcePolicy",
+        "logs:PutSubscriptionFilter",
+        "logs:PutDestination*",
+        "events:Put*P*",
+        "ecr:PutRe*",
+        "logs:*AccountPolicy",
+        "ec2:*BlockPublicAccess*",
+        "ec2:*Ebs*Default*",
+        "ec2:*MetadataDefaults",
+        "ecs:PutAccountSetting*",
+        "ecr:*CreationTemplate",
+        "ec2:Accept*",
+        "ec2:CreateVpcPeering*",
+        "ec2:*ServicePermissions",
+        "lambda:AddLayer*",
+        "sqs:AddPermission",
+        "sns:AddPermission",
+        "rds:Purchase*",
+        "elasticache:Purchase*",
+        "ec2:*CapacityReservation*",
+        "eks:*Subscription*"
       ],
       "Resource": "*"
     },
@@ -226,7 +251,7 @@
       }
     },
     {
-      "Sid": "DenyUntaggedNetwork",
+      "Sid": "DenyUntaggedNet",
       "Effect": "Deny",
       "Action": [
         "ec2:*NetworkAclEntry",
@@ -281,31 +306,7 @@
       }
     },
     {
-      "Sid": "DenyPublicData",
-      "Effect": "Deny",
-      "Action": [
-        "s3:Put*PublicAccessBlock",
-        "s3:DeleteBucketPublicAccessBlock",
-        "s3:PutBucketAcl",
-        "s3:PutObjectAcl",
-        "s3:PutBucketPolicy",
-        "rds:Modify*SnapshotAttribute",
-        "ec2:ModifySnapshotAttribute",
-        "ec2:ModifyImageAttribute",
-        "secretsmanager:PutResourcePolicy",
-        "ecr:SetRepositoryPolicy",
-        "logs:PutResourcePolicy",
-        "logs:PutSubscriptionFilter",
-        "logs:PutDestination*",
-        "events:PutPermission",
-        "ecr:PutRe*",
-        "events:PutResourcePolicy",
-        "logs:PutAccountPolicy"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DenyPublicFnUrls",
+      "Sid": "DenyFnUrls",
       "Effect": "Deny",
       "Action": [
         "lambda:CreateFunctionUrlConfig",
@@ -324,13 +325,16 @@
       "Action": "lambda:AddPermission",
       "Resource": "*",
       "Condition": {
-        "StringNotLike": {
-          "lambda:Principal": "*.amazonaws.com"
+        "StringNotEquals": {
+          "lambda:Principal": [
+            "events.amazonaws.com",
+            "apigateway.amazonaws.com"
+          ]
         }
       }
     },
     {
-      "Sid": "DenyMasterDbLogin",
+      "Sid": "DenyMasterDb",
       "Effect": "Deny",
       "Action": "rds-db:connect",
       "Resource": "arn:aws:rds-db:*:*:dbuser:*/postgres"

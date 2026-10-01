@@ -447,6 +447,10 @@ bump may carry a breaking change.
   status is "unanswered" - a provider's own read timeout and a 200 it could not read may have been billed and are
   carried (a regression from af2a361: 18 requests went where the ceiling allowed 4). The claude CLI's API error
   status and connection failures are read from its output, so an outage still never locks an incident.
+  The boundary also denies changing account- and region-wide settings (EBS encryption and instance metadata
+  defaults, block public access for images, snapshots and the VPC, ECS account defaults, account log policies),
+  ways out (another account's access to a queue, topic or layer, peering, accepting an attachment) and committing
+  money (reservations, purchases); a Lambda permission names exactly the two service principals the stack grants.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

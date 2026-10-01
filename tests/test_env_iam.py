@@ -13,6 +13,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import pathlib
+import re
 import sys
 
 import pytest
@@ -207,10 +208,11 @@ def test_the_boundary_carries_every_guardrail_its_roles_could_break(env):
                and not any(fnmatch.fnmatchcase(a.lower(), d.lower()) and c == st.get("Condition") for d, c in denied)]
     # Stricter than the guardrail is allowed: AddPermission is denied for any principal that is not an AWS service -
     # "*" included, and another account by id, which Access Analyzer does not see on an alias (eighth review).
-    stricter = {"StringNotLike": {"lambda:Principal": "*.amazonaws.com"}}
+    stricter = {"StringNotEquals": {"lambda:Principal": ["events.amazonaws.com", "apigateway.amazonaws.com"]}}
     missing = [a for a in missing if not (a == "lambda:AddPermission" and ("lambda:AddPermission", stricter) in denied)]
     assert not missing, missing
-    for action in ("s3:PutBucketPublicAccessBlock", "s3:DeleteBucketPublicAccessBlock", "s3:PutBucketPolicy"):
+    # `s3:DeleteBucketPublicAccessBlock` is no IAM action: deleting the block is authorised as the Put (ninth review).
+    for action in ("s3:PutBucketPublicAccessBlock", "s3:PutBucketPolicy"):
         assert any(fnmatch.fnmatchcase(action.lower(), d.lower()) and c is None for d, c in denied), action
 
 
@@ -221,8 +223,9 @@ def test_a_role_connects_only_as_its_own_environments_database_users(env):
     boundary = _load(env, "boundary")
     grants = [st for st in boundary["Statement"] if st["Effect"] == "Allow"
               and any(fnmatch.fnmatchcase("rds-db:connect", a) for a in _list(st["Action"]))]
-    assert [_list(st["Resource"]) for st in grants] == [
-        [f"arn:aws:rds-db:{_region()}:*:dbuser:*/warden_{env.replace('-', '_')}_*"]], grants
+    # Its statement may hold other services' own-name ARNs; an action applies only to its own service's ARNs.
+    users = [r for st in grants for r in _list(st["Resource"]) if r.startswith("arn:aws:rds-db") or r == "*"]
+    assert users == [f"arn:aws:rds-db:{_region()}:*:dbuser:*/warden_{env.replace('-', '_')}_*"], grants
     master = [st for st in boundary["Statement"] if st["Effect"] == "Deny" and "rds-db:connect" in _list(st["Action"])]
     assert master and "arn:aws:rds-db:*:*:dbuser:*/postgres" in _list(master[0]["Resource"])
 
@@ -325,7 +328,7 @@ def test_the_deploy_role_turns_on_api_access_logs_without_writing_a_logs_resourc
     assert not allowed("logs:PutResourcePolicy", "*")
     denied = [a for st in _load(env, "boundary")["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
               for a in _list(st["Action"])]
-    assert "logs:PutResourcePolicy" in denied
+    assert any(fnmatch.fnmatchcase("logs:PutResourcePolicy", d) for d in denied)
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -358,11 +361,14 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
         assert not any(fnmatch.fnmatchcase(kept, p) for p in flat), kept
     clusters = next(st for st in statements if st["Sid"] == "DenyOtherClusters")
     assert any(fnmatch.fnmatchcase("ecs:CreateDaemon", p) for p in _list(clusters["Action"]))
+    # Only the two service principals the stack grants, exactly: "ends in .amazonaws.com" let through a role ARN
+    # ending so and any service without a source ARN (ninth review).
     invoke = next(st for st in statements if st["Sid"] == "DenyInvokeByAll")
-    assert invoke["Condition"] == {"StringNotLike": {"lambda:Principal": "*.amazonaws.com"}}
-    for principal in ("*", "111122223333"):
-        assert not fnmatch.fnmatchcase(principal, "*.amazonaws.com")  # denied
-    assert fnmatch.fnmatchcase("apigateway.amazonaws.com", "*.amazonaws.com")  # what the stack grants: allowed
+    granted = invoke["Condition"]["StringNotEquals"]["lambda:Principal"]
+    assert set(invoke["Condition"]) == {"StringNotEquals"} and sorted(granted) == ["apigateway.amazonaws.com",
+                                                                                     "events.amazonaws.com"]
+    tf = (ROOT / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    assert set(re.findall(r'principal\s*=\s*"([^"]+)"', tf)) == set(granted)
 
 
 def test_no_environment_name_is_another_ones_prefix():
@@ -405,3 +411,29 @@ def test_no_role_changes_a_vpcs_untagged_defaults(env):
     for read, resource in [("ec2:DescribeNetworkAcls", "*"), ("ec2:DescribeSecurityGroups", "*"),
                            ("ec2:DescribeSecurityGroupRules", "*"), ("ec2:DescribeRouteTables", "*")]:
         assert not _denied_untagged(boundary, read, acl, {}) and not _denied_untagged(boundary, read, resource, {})
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_no_role_changes_account_settings_opens_a_way_out_or_buys_capacity(env):
+    """Ninth review (2026-10-01): an environment's role could change account- and region-wide settings every
+    environment lives under (EBS encryption by default, instance metadata defaults, block public access for images,
+    snapshots and the VPC, ECS account defaults, account log policies), open a way out (another account's access to
+    a queue, topic or layer; peering; accepting an attachment) or commit money (reservations, purchases). Nothing in
+    the stack does any of these. IAM matches actions case-insensitively, so the check does too."""
+    flat = [a.lower() for st in _load(env, "boundary")["Statement"] if st["Effect"] == "Deny"
+            and "Condition" not in st and st.get("Resource") == "*" for a in _list(st["Action"])]
+    for action in ("ec2:DisableEbsEncryptionByDefault", "ec2:ModifyEbsDefaultKmsKeyId", "ec2:ModifyInstanceMetadataDefaults",
+                   "ec2:DisableImageBlockPublicAccess", "ec2:DisableSnapshotBlockPublicAccess",
+                   "ec2:ModifyVpcBlockPublicAccessOptions", "ecs:PutAccountSettingDefault", "logs:DeleteAccountPolicy",
+                   "logs:DeleteResourcePolicy", "ecr:CreateRepositoryCreationTemplate", "sqs:AddPermission",
+                   "sns:AddPermission", "lambda:AddLayerVersionPermission", "ec2:CreateVpcPeeringConnection",
+                   "ec2:AcceptVpcPeeringConnection", "ec2:AcceptTransitGatewayVpcAttachment",
+                   "ec2:ModifyVpcEndpointServicePermissions", "rds:PurchaseReservedDBInstancesOffering",
+                   "elasticache:PurchaseReservedCacheNodesOffering", "ec2:CreateCapacityReservation",
+                   "eks:CreateEksAnywhereSubscription", "events:PutPermission", "s3:PutObjectAcl"):
+        assert any(fnmatch.fnmatchcase(action.lower(), p) for p in flat), action
+    for kept in ("events:PutRule", "events:PutTargets", "events:PutEvents", "logs:PutRetentionPolicy",
+                 "logs:DeleteRetentionPolicy", "logs:CreateLogDelivery", "sqs:SetQueueAttributes", "ec2:CreateVpc",
+                 "ec2:ModifyVpcAttribute", "ec2:ModifySubnetAttribute", "ecs:CreateCluster", "ecr:PutLifecyclePolicy",
+                 "s3:PutBucketTagging", "lambda:AddPermission"):
+        assert not any(fnmatch.fnmatchcase(kept.lower(), p) for p in flat), kept
