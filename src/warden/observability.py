@@ -186,7 +186,15 @@ def install_log_gate(level: int | None = None) -> None:
 
         for hook in (excepthook, thread_hook, unraisable_hook):
             hook.warden_log_gate = True
-        sys.excepthook, threading.excepthook, sys.unraisablehook = excepthook, thread_hook, unraisable_hook
+        # Only where Python's own default is in place: a hook another program installed - pytest's, or a host
+        # embedding cli.main - is that program's to keep (sixth review, 2026-10-01: pytest stopped seeing thread
+        # and unraisable errors after any in-process CLI test). WARDEN's own processes start with the defaults.
+        if sys.excepthook is sys.__excepthook__:
+            sys.excepthook = excepthook
+        if threading.excepthook is threading.__excepthook__:
+            threading.excepthook = thread_hook
+        if sys.unraisablehook is sys.__unraisablehook__:
+            sys.unraisablehook = unraisable_hook
 
 
 def exit_message(code: object) -> str | None:

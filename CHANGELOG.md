@@ -354,6 +354,13 @@ bump may carry a breaking change.
   ends `not_recovered`, not `rolled_back`; a plan is refused unless the request's service is the target
   the fix changes, and health is asked only of the platform that made the change; MySQL closes sessions
   by idle time, not transaction age; the database platform refuses an allowlist naming its own login.
+- **Sixth independent review, lower findings**: P15 no longer reads another field's number after "then",
+  takes a missing value or headroom ("cpu: null", "0 MiB free") as scale_down's idle use, or hides "0 free"
+  and "0 available" shortages (all three regressions from 7c0dd34); "not a single pod restarted" and
+  "0 days ago" read right. A failed incident may be diagnosed again (Temporal's ALLOW_DUPLICATE_FAILED_ONLY);
+  a completed one still may not, and a test now starts it twice on the time-skipping server. The log gate
+  installs its hooks only where Python's defaults are, leaving another program's (pytest's) in place.
+  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok".
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a

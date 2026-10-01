@@ -152,3 +152,27 @@ def test_the_next_field_or_a_not_a_single_supports_nothing(action, quote):
 @pytest.mark.parametrize(("action", "quote"), FIFTH_REAL)
 def test_a_time_ago_a_then_and_zero_use_for_scale_down_support(action, quote):
     assert _supports(action, quote)
+
+
+# Sixth review (2026-10-01): 7c0dd34's P15 changes read another field after "then", took a missing value or
+# headroom as scale_down's idle use, and hid "0 free" shortages.
+SIXTH = [
+    (A.scale_down, "cpu: null", False), (A.scale_down, "cpu: none", False),
+    (A.scale_down, "cpu utilization: no data", False), (A.scale_down, "memory: 0 MiB free", False),
+    (A.scale_down, "memory: 0 bytes available", False), (A.scale_down, "cpu: 0% idle", False),
+    (A.scale_down, "cpu: 0%", True), (A.scale_down, "memory used: 0 MiB", True),
+    (A.restart_pods, "restarts: 0, then 2 replicas added", False),
+    (A.restart_pods, "OOMKilled: 0 then 3 pods ready", False), (A.restart_pods, "restarts: 0, then 6", True),
+    (A.restart_pods, "restarts: 0, then 6 restarts", True),
+    (A.restart_pods, "not a single pod restarted", False), (A.restart_pods, "not even one restart", False),
+    (A.restart_pods, "not a lone restart", False), (A.restart_pods, "not responding pod restarted", True),
+    (A.restart_pods, "restarted 0 d ago", True), (A.restart_pods, "OOMKilled 0ms ago", True),
+    (A.restart_pods, "last restart 0 days ago", True),
+    (A.scale_up, "connections: 0 free", True), (A.scale_up, "connection pool: 0 available", True),
+    (A.scale_up, "pool: 0 left", True), (A.restart_pods, "restarts=0 ok", False),
+]
+
+
+@pytest.mark.parametrize(("action", "quote", "supports"), SIXTH)
+def test_the_sixth_reviews_p15_quotes(action, quote, supports):
+    assert _supports(action, quote) is supports

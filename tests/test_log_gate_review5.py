@@ -69,3 +69,20 @@ def test_a_long_record_joined_by_other_whitespace_is_cut_not_withheld(sep):
     record = logging.LogRecord("x", logging.INFO, __file__, 1, sep.join(["word"] * 20000), None, None)
     text = GatedFormatter("%(message)s").format(record)
     assert "withheld" not in text and text.startswith("word")
+
+
+def test_a_hook_another_program_installed_is_left_alone(monkeypatch):
+    """Sixth review (2026-10-01): the gate replaced pytest's own thread and unraisable hooks for the rest of the
+    worker. It takes only Python's defaults; a program's own hooks stay."""
+    import threading
+
+    from warden.observability import install_log_gate
+
+    def mine(*args):
+        return None
+
+    monkeypatch.setattr(sys, "excepthook", mine)
+    monkeypatch.setattr(threading, "excepthook", mine)
+    monkeypatch.setattr(sys, "unraisablehook", mine)
+    install_log_gate()
+    assert sys.excepthook is mine and threading.excepthook is mine and sys.unraisablehook is mine

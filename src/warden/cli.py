@@ -321,11 +321,13 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         alert = _alert_from(args.incident)
         wid = f"inc-{alert.alert_id}"
         try:
-            # One alert is one incident, with one model budget: its id is never reused (fifth review).
-            report = await client.execute_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
-                                                   id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE)
+            # One alert is one incident, with one model budget: a run that completed is not started again (fifth
+            # review). A run that FAILED may be (sixth review: a model outage made the incident undiagnosable).
+            report = await client.execute_workflow(
+                IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
         except WorkflowAlreadyStartedError:
-            _out(f"{wid} was already diagnosed; its report:")
+            _out(f"{wid} is diagnosed or being diagnosed; its report:")
             report = await client.get_workflow_handle(wid).result()
         _print_report(report, verbose=False)
         return 0

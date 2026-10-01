@@ -250,10 +250,10 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
             alert = Alert.model_validate(args.get("alert") or {})
             wid = f"inc-{alert.alert_id}"
             try:
-                # One alert is one incident, with one model budget: the id is never reused, even after the
-                # run ended (fifth review, 2026-10-01: each new run got a fresh budget).
+                # One alert is one incident, with one model budget: a completed run is not started again (fifth
+                # review, 2026-10-01: each new run got a fresh budget); a FAILED run may be (sixth review).
                 await client.start_workflow(IncidentWorkflow.run, alert, id=wid, task_queue=runtime.TASK_QUEUE,
-                                            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE)
+                                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
             except WorkflowAlreadyStartedError:
                 return _ok({"workflow_id": wid, "note": "this alert is already diagnosed or being diagnosed"})
             return _ok({"workflow_id": wid})

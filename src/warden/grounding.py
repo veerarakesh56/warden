@@ -79,7 +79,7 @@ _NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->
                    r"\s*[\"'\[(]*\s*" + _VALUE)
 _WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)(?![a-z_]*\s*[=:])")
 # A zero that says WHEN, not how many: "restarted 0s ago" is a restart (fifth review, 2026-10-01).
-_AGO = re.compile(r"\s*(?:s|sec|secs|seconds?|m|min|mins|minutes?|h|hrs?|hours?)?\s*ago\b")
+_AGO = re.compile(r"\s*(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?|h|hrs?|hours?|d|days?|w|weeks?)?\s*ago\b")
 # For scale_down a zero of USE is its evidence: "cpu: 0%" is an idle service (fifth review).
 _USE = frozenset({"cpu", "memory", "utili"})
 # A zero of something good is a shortage, not an absence: "0/3 passing", "cache hit: 0%", "no free
@@ -88,6 +88,9 @@ _USE = frozenset({"cpu", "memory", "utili"})
 _GOOD = frozenset({"pass", "passing", "passed", "ready", "healthy", "available", "free", "idle", "spare",
                    "up", "hit", "hits", "success", "successful", "succeeded", "ok", "alive", "remaining",
                    "left", "headroom", "live"})
+# After a plain zero, these say how much of the measure is left - a shortage ("connections: 0 free"); a
+# status word after it ("restarts: 0 ok") is another field (sixth review, 2026-10-01).
+_QUANTITY = frozenset({"free", "available", "left", "remaining", "spare", "headroom", "idle", "passing", "passed"})
 _NEGATORS = frozenset({"no", "not", "zero", "without", "none", "never", "0"})
 # A negation does not reach past a clause or a preposition: "could not connect then restarted", "no
 # response from primary". "or" and "and" do not break it: "no restarts or OOM kills".
@@ -100,11 +103,16 @@ def _negated(before: str, key: str, shortage: bool) -> bool:
     restart), the others across up to two words ("no pod restarts", "0 pods OOMKilled"). A number or a
     time is one word ("2.0 cpu", "at 12:00 replica lag" hold no "0")."""
     between: list[str] = []
-    for w in reversed(re.findall(r"\d[\d.:/]*|\w[\w.-]*|[^\w\s]", before)[-3:]):
-        if w in _NEGATORS or re.fullmatch(r"0+(?:\.0+)?", w):
-            # "not" reaches only the next word, or past an article: "not a single restart" is none (fifth
-            # review), "not responding pod restarted" is a restart.
-            if w == "not" and any(b not in ("a", "an", "the", "single", "one", "any") for b in between):
+    words = re.findall(r"\d[\d.:/]*%?|\w[\w.-]*|[^\w\s]", before)
+    for i, w in enumerate(reversed(words[-5:])):
+        if w in _NEGATORS or re.fullmatch(r"0+(?:\.0+)?%?", w):  # "0% idle" is no idle
+            # "not" reaches past a determiner and the words after it - "not a single pod restarted", "not even
+            # one restart" are none (fifth and sixth reviews) - but no further than the next word otherwise:
+            # "not responding pod restarted" is a restart. The others reach across two words.
+            if w == "not":
+                if between and between[-1] not in ("a", "an", "the", "single", "one", "any", "even", "lone"):
+                    return False
+            elif i > 2:
                 return False
             return not (shortage and (key in _GOOD or any(b in _GOOD for b in between)))
         if not re.fullmatch(r"[\w-]+", w) or w in _BREAK:
@@ -122,14 +130,23 @@ def _reports_none(after: str, key: str, shortage: bool) -> bool:
     if _AGO.match(after, pos):
         return False
     if not shortage and key in _USE and not _GOOD & set(re.findall(r"[a-z]+", phrase)):
-        return False  # "cpu: 0%" is idle; "cpu idle: 0" is not
+        # A numeric zero of USE is scale_down's evidence ("cpu: 0%"); a missing value ("cpu: null", "no data")
+        # or headroom ("0 MiB free") is not (sixth review, 2026-10-01).
+        following = set(re.findall(r"[a-z]+", after[pos:pos + 24])[:3])  # "0 MiB free" reads "0 mi b free"
+        return not (value[:1].isdigit() and float(value.split("/")[0]) == 0 and not _GOOD & following)
     while nxt := _NEXT.match(after, pos):
+        # After "then", a number followed by another word is another field ("0, then 2 replicas added"), unless
+        # the word is the key itself ("0, then 6 restarts") - sixth review, 2026-10-01.
+        later = re.match(r"[\s\"'\])]*([a-z]+)", after[nxt.end():])
+        if re.search(r"\bthen\b", nxt.group(0)) and later and not later.group(1).startswith(key[:4]):
+            break
         value, pos = nxt.group(1), nxt.end()
     word = _WORD_AFTER.match(after, pos)
-    # A good word after the value counts only after a fraction ("0/3 passing"): after a plain zero it is
-    # another field ("restarts: 0 ok") - fifth review, 2026-10-01.
+    # A good word after the value: after a fraction it is a shortage ("0/3 passing"); after a plain zero only a
+    # quantity word is ("0 free"), a status word is another field ("restarts: 0 ok") - fifth and sixth reviews.
+    after_word = word.group(1) if word else ""
     if shortage and (key in _GOOD or _GOOD & set(re.findall(r"[a-z]+", phrase))
-                     or (word and word.group(1) in _GOOD and "/" in value)):
+                     or (after_word in _GOOD and "/" in value) or after_word in _QUANTITY):
         return False
     number = value.split("/")[0]
     return float(number) == 0 if number[-1].isdigit() else True

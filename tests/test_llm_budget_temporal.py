@@ -66,8 +66,8 @@ def test_a_failing_model_is_paid_for_once_per_incident():
 
 def test_one_alert_is_one_incident_with_one_budget():
     """Fifth review (2026-10-01): an incident id was reusable once its run ended, and each new run got a fresh
-    model budget (three runs: $1.80 against max_usd 0.50). Every place that starts an IncidentWorkflow refuses
-    to reuse its id."""
+    model budget. Every workflow start names its workflow as `<Workflow>.run` (an alias could hide one - sixth
+    review), and every IncidentWorkflow start allows a new run only after a FAILED one, never terminating one."""
     import ast
     import pathlib
 
@@ -75,9 +75,67 @@ def test_one_alert_is_one_incident_with_one_budget():
     starts = []
     for path in root.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") in ("start_workflow", "execute_workflow") \
-                    and node.args and "IncidentWorkflow" in ast.unparse(node.args[0]):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") in ("start_workflow", "execute_workflow"):
                 kw = {k.arg: ast.unparse(k.value) for k in node.keywords}
-                starts.append((path.name, kw.get("id_reuse_policy", "")))
-    assert starts, "no IncidentWorkflow start found"
-    assert all(policy.endswith("REJECT_DUPLICATE") for _, policy in starts), starts
+                target = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "workflow"),
+                                                             None)
+                assert isinstance(target, ast.Attribute) and target.attr == "run", (path.name, ast.unparse(node))
+                starts.append((path.name, ast.unparse(target), kw))
+    incident = [(f, kw) for f, target, kw in starts if target == "IncidentWorkflow.run"]
+    assert len(incident) >= 2, starts
+    for f, kw in incident:
+        assert kw.get("id_reuse_policy", "").endswith("ALLOW_DUPLICATE_FAILED_ONLY"), (f, kw)
+        assert "TERMINATE" not in kw.get("id_conflict_policy", ""), (f, kw)
+
+
+def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
+    """Sixth review (2026-10-01): with REJECT_DUPLICATE, a run that failed (the model down) made the incident
+    undiagnosable while its history was retained. Run on Temporal's time-skipping server."""
+    from temporalio.common import WorkflowIDReusePolicy
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
+    down = {"now": True}
+
+    class Flaky:
+        name, model = "fake", "fake"
+
+        def complete(self, *, system, user, schema=None):
+            if down["now"]:
+                raise ConnectionError("the provider is down")
+            return Completion("not json at all", 10, 10)
+
+    def factory():
+        return LLMClient(provider=Flaky(), max_calls=1, max_usd=0.50, mock=not down["now"], call_timeout_s=5)
+
+    async def main():
+        log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
+        acts = IncidentActivities(audit=log, llm_factory=factory)
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        alert = _alert_from(next(iter(DEMO_ALERTS)))
+        policy = WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
+                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activity_executor=ThreadPoolExecutor(2)):
+            first = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-again", task_queue="q",
+                                                    id_reuse_policy=policy)
+            with contextlib.suppress(Exception):
+                await first.result()
+            failed = (await first.describe()).status.name
+            down["now"] = False  # the provider is back
+            second = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-again", task_queue="q",
+                                                     id_reuse_policy=policy)
+            with contextlib.suppress(Exception):
+                await second.result()
+            ended = (await second.describe()).status.name
+            refused = False
+            try:
+                await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-again", task_queue="q",
+                                                id_reuse_policy=policy)
+            except WorkflowAlreadyStartedError:
+                refused = True
+            return failed, ended, refused
+
+    failed, ended, refused = asyncio.run(main())
+    assert failed == "FAILED", failed
+    assert ended == "COMPLETED", ended  # a second run after a failure: allowed
+    assert refused, "a completed incident was started again - a fresh budget for the same alert"
