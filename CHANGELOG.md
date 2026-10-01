@@ -515,6 +515,8 @@ bump may carry a breaking change.
   admission policy bounds each request, not a series, and is unconfirmed on EKS; a mutation check killed by
   TerminateProcess leaves its mutation; transitive extras are not followed; the packaging excludes are
   case-sensitive; a role trusting another account can be created (the owner's Access Analyzer reports it).
+  Each of the reader's scoped ARNs is checked against the format AWS's Service Reference gives its resource:
+  the scoping test checked where each action sits, not its ARN, and seven format mutants passed (all fail now).
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

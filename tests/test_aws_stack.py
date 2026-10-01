@@ -767,3 +767,34 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         "elasticache:DescribeCacheClusters", "elasticache:DescribeEvents", "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth", "lambda:ListEventSourceMappings", "rds:DescribeDBInstances",
         "rds:DescribeEvents", "sts:GetCallerIdentity"}
+
+
+# The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).
+_ARN_FORMATS = {
+    "dynamodb": ["table/{TableName}"], "ecs": ["service/{ClusterName}/{ServiceName}"],
+    "elasticache": ["replicationgroup:{ReplicationGroupId}"], "eks": ["cluster/{ClusterName}"],
+    "events": ["rule/{RuleName}", "rule/{EventBusName}/{RuleName}"], "lambda": ["function:{FunctionName}"],
+    "logs": ["log-group:{LogGroupName}"], "rds": ["cluster:{DbClusterInstanceName}"],
+    "secretsmanager": ["secret:{SecretId}"], "sns": ["{TopicName}"], "sqs": ["{QueueName}"],
+}
+
+
+def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
+    """Seventh review (2026-10-01): the scoping test checked where each action sits, not its ARN - seven format
+    mutants passed (`table/` -> `tables/`, `cluster:` -> `db:`, a typo in `/aws/lambda/`, an sqs prefix...). Each ARN
+    must be its service's published format with the stack's name where the resource's name goes."""
+    text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
+    arns = re.findall(r'"arn:aws:([a-z0-9-]+):\$\{local\.reader_arn\}:([^"]+)"', own)
+    assert len(arns) == 12, arns
+    # Each service once (two log groups), so a grant moved to another service's prefix is caught.
+    assert sorted(s for s, _ in arns) == sorted([*_ARN_FORMATS, "logs"]), arns
+    for service, resource in arns:
+        # A name the grant covers, `/` included (an ECS service's ARN holds its cluster); it must fit the format, the
+        # format's own text exact and any name in its {slots}.
+        covered = resource.replace("${local.name}-*", "warden-dev-x/y")
+        shapes = ["".join(".+" if i % 2 else re.escape(part) for i, part in enumerate(re.split(r"\{([A-Za-z]+)\}", f)))
+                  for f in _ARN_FORMATS[service]]
+        assert any(re.fullmatch(shape, covered) for shape in shapes), (service, resource, shapes)
+    logs = [r for s, r in arns if s == "logs"]
+    assert sorted(logs) == ["log-group:/aws/lambda/${local.name}-*", "log-group:/ecs/${local.name}-*"], logs
