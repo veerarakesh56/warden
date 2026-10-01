@@ -31,6 +31,9 @@ from .models import (
 # action and belongs behind approval like the others. The project's whole claim is "nothing risky
 # runs without a human"; this list is where that claim is enforced, so it stays as short as possible.
 AUTO_SAFE_ACTIONS = {ActionKind.no_action, ActionKind.escalate_to_human}
+# Actions whose target is a database or a cache (P14 scopes, seventh review).
+_DATA_ACTIONS = {ActionKind.clear_cache, ActionKind.terminate_connections, ActionKind.failover_replica,
+                 ActionKind.scale_up, ActionKind.scale_down}
 
 # Actions exempt from the EVIDENCE floor (P4, P8, P9). Only escalating to a person: handing an
 # incident to a human is the right answer to weak evidence, so measuring the evidence before
@@ -513,11 +516,26 @@ def verify(
         # `ecs_cluster=warden-dev-cluster` let the cluster itself through as a target).
         # Any spelling of a namespace or cluster label - `NAMESPACE`, `k8s_namespace`, `aurora_cluster`, an
         # ElastiCache group (sixth review, 2026-10-01).
-        scopes = {v.strip() for k, value in alert.labels.items()
-                  if value and (k.lower().endswith(("namespace", "cluster", "cluster_name"))
-                                or k.lower() in ("ns", "elasticache"))
-                  for v in str(value).split(",") if v.strip()} - {alert.service}
-        problem = target_problem(proposal, evidence.inventory(alert, context), scopes)
+        # A database or cache cluster is the resource of a data action - clearing a cache, closing sessions, a
+        # failover, scaling it - and scopes only an action on pods: rejecting it as a scope refused the natural
+        # targets of clear_cache and terminate_connections (seventh review, 2026-10-01). A namespace or a compute
+        # cluster is never a failover's target.
+        def values(keep) -> set[str]:
+            return {v.strip() for k, value in alert.labels.items() if value and keep(k.lower())
+                    for v in str(value).split(",") if v.strip()} - {alert.service}
+
+        def is_scope(k: str) -> bool:
+            return k.endswith(("namespace", "cluster", "cluster_name")) or k in ("ns", "elasticache")
+
+        def is_data(k: str) -> bool:
+            return any(w in k for w in ("aurora", "rds", "db", "elasticache", "redis", "cache", "docdb", "memcache",
+                                        "mongo"))
+
+        data_action = proposal.action in _DATA_ACTIONS
+        scopes = values(lambda k: is_scope(k) and not (data_action and is_data(k)))
+        containers = values(lambda k: k.endswith("namespace") or k == "ns"
+                            or (is_scope(k) and any(w in k for w in ("ecs", "eks", "k8s", "kube"))))
+        problem = target_problem(proposal, evidence.inventory(alert, context), scopes, containers)
         if problem:
             rejected = True
             policies.append("P14-TARGET-NOT-IN-EVIDENCE")

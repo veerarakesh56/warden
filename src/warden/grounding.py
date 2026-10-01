@@ -245,9 +245,11 @@ _RESOURCE_KINDS = frozenset({"deployment", "namespace", "service", "statefulset"
 
 
 def target_problem(proposal: RemediationProposal, inventory: set[str],
-                   scopes: frozenset[str] | set[str] = frozenset()) -> str | None:
+                   scopes: frozenset[str] | set[str] = frozenset(),
+                   containers: frozenset[str] | set[str] = frozenset()) -> str | None:
     """`scopes`: the incident's namespace and cluster names. A target that names only one of them
-    names a whole namespace or cluster, not a resource."""
+    names a whole namespace or cluster, not a resource. `containers`: its namespaces and compute clusters,
+    never a failover's target."""
     # A known name does not excuse shell syntax around it: `checkout; kubectl delete ns prod` named
     # `checkout` and passed (2026-09-27 audit). Redirects too (fourth review: `orders > /tmp/x`).
     if _SHELL.search(_NOT_SHELL.sub(" ", proposal.target)):
@@ -298,8 +300,12 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     if not named and proposal.action is ActionKind.failover_replica:
         # A failover's target IS a cluster: `cluster=warden-dev-aurora` names it, it does not scope it - even
         # when the alert labels that cluster (fifth and sixth reviews). A namespace is never one.
-        if re.search(r"\b(?:namespace|ns)\b", plain, re.IGNORECASE):
+        # The word on its own, not inside a name (`orders-ns-db` is a cluster), and plural too; and never a name
+        # the alert gives a namespace or a compute cluster (seventh review: `payments`, `warden-dev-ecs` passed).
+        if re.search(r"(?<![\w-])(?:namespaces?|ns)(?![\w-])", plain, re.IGNORECASE):
             return f"target {proposal.target!r} names a namespace; a failover's target is a database cluster"
+        if tokens(plain) & set(containers):
+            return f"target {proposal.target!r} names a namespace or a compute cluster, not a database cluster"
         named = {t for t in tokens(plain) & inventory
                  if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS}
     if not named and (rest != plain or tokens(plain) & set(scopes)):

@@ -177,3 +177,48 @@ def test_a_failover_never_targets_a_namespace(target):
     p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
                             blast_radius="single_service", reversible=True)
     assert target_problem(p, INV, SCOPES) is not None
+
+
+def _verdict_policies(action, target, labels):
+    from warden.cli import DEMO_ALERTS
+    from warden.models import Alert, Citation, ContextBundle, RootCause
+    from warden.verifier import verify
+
+    alert = Alert(**{**DEMO_ALERTS["inc-002"], "labels": labels})
+    ctx = ContextBundle(logs=["CONFIG deploy revision 7", "x ERROR a", "x ERROR b"], metrics={"error_rate": 0.1},
+                        recent_deploys=[{"kind": "ecs", "service": "orders"}])
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote="deploy revision 7")])
+    prop = RemediationProposal(action=action, target=target, reasoning="r", expected_effect="e",
+                               blast_radius="single_service", reversible=True)
+    return verify(alert, ctx, rc, prop).policy_ids
+
+
+FS01 = {"elasticache": "warden-pg-fs-redis", "aurora_cluster": "warden-pg-fs-aurora", "namespace": "payments",
+        "ecs_cluster": "warden-pg-fs-ecs"}
+
+
+@pytest.mark.parametrize("action, target", [(A.clear_cache, "warden-pg-fs-redis"), (A.scale_up, "warden-pg-fs-redis"),
+                                            (A.terminate_connections, "warden-pg-fs-aurora")])
+def test_a_data_action_may_target_the_database_or_cache_its_alert_labels(action, target):
+    """Seventh review (2026-10-01): on the recorded fs-01 labels these natural targets were rejected as scopes
+    (a regression from ac1e2ab); 9d01dfd escalated them without P14."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" not in _verdict_policies(action, target, FS01)
+
+
+@pytest.mark.parametrize("target", ["warden-pg-fs-redis", "warden-pg-fs-aurora", "warden-pg-fs-ecs"])
+def test_a_pod_action_on_a_labelled_cluster_still_names_a_whole_cluster(target):
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.rollback_deploy, target, FS01)
+
+
+@pytest.mark.parametrize("target", ["payments", "namespaces/payments", "namespaces payments", "warden-pg-fs-ecs"])
+def test_a_failover_never_targets_a_labelled_namespace_or_compute_cluster(target):
+    """Seventh review: only the word "namespace" was refused - the namespace's own name and the ECS cluster
+    passed."""
+    assert "P14-TARGET-NOT-IN-EVIDENCE" in _verdict_policies(A.failover_replica, target, FS01)
+
+
+@pytest.mark.parametrize("target", ["orders-ns-db", "aurora-namespace-db"])
+def test_a_database_cluster_may_have_ns_inside_its_name(target):
+    p = RemediationProposal(action=A.failover_replica, target=target, reasoning="r", expected_effect="e",
+                            blast_radius="single_service", reversible=True)
+    assert target_problem(p, INV | {target}, SCOPES) is None
