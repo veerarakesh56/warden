@@ -424,6 +424,10 @@ bump may carry a breaking change.
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
   restored, so restore() gives it back in one step and no value class has to stop at `<`.
+  A failed incident that runs again keeps one model budget: each run started a fresh client, so a model
+  answering invalid JSON was paid for 10 times over 5 restarts, $3.00 against a $0.50 cap (a regression
+  from e94365a; MED). Every run records its spend in the audit, failed or not, and the next starts from
+  the total - failed requests included, so an outage uses part of the incident's call ceiling.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

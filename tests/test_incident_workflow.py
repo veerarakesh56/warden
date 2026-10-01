@@ -120,7 +120,10 @@ def test_every_step_is_in_the_signed_audit_log(results):
     by_workflow, log = results
     for alert_id, (report, _) in by_workflow.items():
         rows = log.entries(alert_id)
-        assert [r["kind"] for r in rows] == [f"incident.{s['node']}" for s in report.audit], alert_id
+        # Plus one row of what the run spent on the model, written failed or not (seventh review: the budget is
+        # carried across an incident's runs).
+        assert [r["kind"] for r in rows if r["kind"] != "incident.llm_spend"] ==             [f"incident.{s['node']}" for s in report.audit], alert_id
+        assert [r["kind"] for r in rows].count("incident.llm_spend") == 1, alert_id
 
 
 def test_a_prepare_that_keeps_failing_ends_the_incident_instead_of_retrying_forever(tmp_path):

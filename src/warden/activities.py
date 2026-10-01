@@ -377,11 +377,35 @@ class IncidentActivities:
         from .llm import LLMClient
 
         llm = (self.llm_factory or LLMClient)()
-        state = {"alert": pack.alert, "context": pack.context, "redacted_logs": pack.redacted_logs,
-                 "redacted_deploys": pack.redacted_deploys, "prompt": pack.prompt, "llm": llm}
-        steps = graph.apply_node(state, graph.node_diagnose(state))
+        # One budget per incident, across its runs. A FAILED run may run again (ALLOW_DUPLICATE_FAILED_ONLY) - also
+        # one that failed because it spent its budget - and each run built a fresh client: five restarts spent
+        # $3.00 against a $0.50 cap (seventh review, 2026-10-01). Every run records what it spent, failed or not,
+        # and the next one's client starts from the incident's total, so the USD and call ceilings hold.
+        before = self._spent(pack.alert.alert_id)
+        llm.cost = before.model_copy()
+        try:
+            state = {"alert": pack.alert, "context": pack.context, "redacted_logs": pack.redacted_logs,
+                     "redacted_deploys": pack.redacted_deploys, "prompt": pack.prompt, "llm": llm}
+            steps = graph.apply_node(state, graph.node_diagnose(state))
+        finally:
+            now = llm.cost
+            self.audit.append(pack.alert.alert_id, "incident.llm_spend", {
+                "run_id": _run_id(), "usd": now.usd - before.usd, "calls": now.calls - before.calls,
+                "input_tokens": now.input_tokens - before.input_tokens,
+                "output_tokens": now.output_tokens - before.output_tokens})
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps)
+
+    def _spent(self, alert_id: str) -> CostRecord:
+        """What every earlier run of this incident spent on the model, from the audit."""
+        total = CostRecord()
+        for e in self.audit.entries(alert_id, kinds=("incident.llm_spend",)):
+            b = e["body"]
+            total.input_tokens += int(b.get("input_tokens", 0))
+            total.output_tokens += int(b.get("output_tokens", 0))
+            total.usd += float(b.get("usd", 0.0))
+            total.calls += int(b.get("calls", 0))
+        return total
 
     @activity.defn
     def verify(self, pack: EvidencePack, diagnosed: Diagnosed) -> Verified:

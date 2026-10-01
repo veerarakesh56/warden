@@ -119,7 +119,8 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   promotion plan — the exact higher environments where the same fix is permitted — and push it to
   Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
 - **A budget that stops things.** A USD ceiling (tokens priced in) and a model-call ceiling raise and
-  halt the run.
+  halt the run. Under Temporal they are the incident's: a failed incident that runs again starts from what
+  its earlier runs spent (failed requests count as calls).
 - **Real timeouts.** Every context tool runs under a wall-clock deadline. A hung logging backend
   during an incident is the normal case, not the edge case — and a timed-out tool becomes *visible
   partial context* (policy `P8`) rather than a gap that looks like completeness.

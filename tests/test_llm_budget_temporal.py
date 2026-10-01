@@ -104,8 +104,10 @@ def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
                 raise ConnectionError("the provider is down")
             return Completion("not json at all", 10, 10)
 
+    # The ceiling is the incident's, across runs (seventh review): the outage run's 3 failed requests count, so
+    # the run after it has the 4th.
     def factory():
-        return LLMClient(provider=Flaky(), max_calls=1, max_usd=0.50, mock=not down["now"], call_timeout_s=5)
+        return LLMClient(provider=Flaky(), max_calls=4, max_usd=0.50, mock=not down["now"], call_timeout_s=5)
 
     async def main():
         log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
@@ -139,3 +141,41 @@ def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
     assert failed == "FAILED", failed
     assert ended == "COMPLETED", ended  # a second run after a failure: allowed
     assert refused, "a completed incident was started again - a fresh budget for the same alert"
+
+
+def test_an_incident_restarted_after_failing_keeps_one_budget():
+    """Seventh review (2026-10-01, MED): a failed incident may run again, and each run got a fresh budget - the
+    model answering invalid JSON was paid for 10 times over 5 restarts, $3.00 against a $0.50 cap. The spend is
+    carried across runs in the audit, so the restarts are admitted but the model is not paid again."""
+    from temporalio.common import WorkflowIDReusePolicy
+
+    provider, clients = _NotJson(), []
+
+    def factory():
+        client = LLMClient(provider=provider, max_calls=2, max_usd=0.50, mock=False, call_timeout_s=5)
+        clients.append(client)
+        return client
+
+    async def main():
+        log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
+        acts = IncidentActivities(audit=log, llm_factory=factory)
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        alert = _alert_from(next(iter(DEMO_ALERTS)))
+        ended = []
+        async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
+                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activity_executor=ThreadPoolExecutor(2)):
+            for _ in range(5):
+                h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-restarted", task_queue="q",
+                                                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
+                with contextlib.suppress(Exception):
+                    await h.result()
+                ended.append((await h.describe()).status.name)
+        rows = log.entries(alert.alert_id, kinds=("incident.llm_spend",))
+        return ended, rows
+
+    ended, rows = asyncio.run(main())
+    assert ended == ["FAILED"] * 5, ended  # every restart was admitted ...
+    assert provider.calls <= 2, f"the model was called {provider.calls} times for one incident"  # ... none paid again
+    assert len(rows) == 5 and sum(r["body"]["calls"] for r in rows) == provider.calls, rows
+    assert sum(r["body"]["usd"] for r in rows) < 0.50 + 0.31
