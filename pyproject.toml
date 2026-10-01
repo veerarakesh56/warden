@@ -56,9 +56,11 @@ guard = ["transformers>=4.50", "torch>=2.4", "huggingface_hub>=0.30"]
 # never installed with the package.
 [dependency-groups]
 scan = ["pip-audit==2.10.1", "bandit==1.9.4", "zizmor==1.30.1"]
+# pip too: scripts/deploy_fullstack_apps.py builds the Lambda zips with `pip install --platform`, and a uv
+# environment has none (CI · apps failed on 83f65e6 without it).
 apps-check = ["ruff>=0.6", "pytest>=8.0", "pyyaml>=6.0", "psycopg[binary]>=3.1", "redis>=5.0", "boto3>=1.34",
-              "packaging>=24"]
-apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.1", "boto3>=1.34", "packaging>=24"]
+              "packaging>=24", "pip>=24"]
+apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.1", "boto3>=1.34", "packaging>=24", "pip>=24"]
 infra-deploy = ["boto3>=1.34"]   # scripts/aurora_express.py: stdlib + boto3 only
 
 [tool.uv]

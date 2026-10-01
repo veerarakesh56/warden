@@ -150,3 +150,15 @@ def test_a_workflow_that_installs_from_the_lock_runs_when_the_lock_changes():
             paths = (on.get(event) or {}).get("paths")
             if paths is not None:
                 assert {"uv.lock", "pyproject.toml"} <= set(paths), (wf.name, event)
+
+
+def test_the_groups_that_build_the_lambdas_carry_pip():
+    """The deploy script builds the Lambda zips with `pip install --platform`; a uv environment has no pip,
+    so CI · apps failed on 83f65e6. Both apps groups must lock it."""
+    import tomllib
+
+    script = (ROOT / "scripts" / "deploy_fullstack_apps.py").read_text(encoding="utf-8")
+    assert '"-m", "pip"' in script
+    groups = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["dependency-groups"]
+    for name in ("apps-check", "apps-deploy"):
+        assert any(_requirement(r)[0] == "pip" for r in groups[name]), name

@@ -123,8 +123,12 @@ def build_lambdas(out: pathlib.Path, run=run) -> dict[str, pathlib.Path]:
             stage = pathlib.Path(tmp)
             req = src / "requirements.txt"
             if req.is_file():
-                run([sys.executable, "-m", "pip", "install", "--quiet", "-r", str(req), "--target", str(stage),
-                     "--platform", "manylinux2014_x86_64", "--only-binary=:all:",
+                # requirements.txt is compiled for the Lambda (3.12, x86_64 Linux) and holds every package with
+                # its hash, so pip installs exactly it: --no-deps, because pip evaluates dependency markers
+                # for THIS machine, and on Windows psycopg's `tzdata; sys_platform == "win32"` - absent from
+                # the file - stopped the hash-checked install (2026-10-01).
+                run([sys.executable, "-m", "pip", "install", "--quiet", "--no-deps", "--require-hashes", "-r", str(req),
+                     "--target", str(stage), "--platform", "manylinux2014_x86_64", "--only-binary=:all:",
                      "--implementation", "cp", "--python-version", LAMBDA_PYTHON])
                 missing = missing_dependencies(stage)
                 if missing:
