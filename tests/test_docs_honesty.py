@@ -134,3 +134,26 @@ def test_the_readme_test_count_is_a_lower_bound(request):
         found = re.search(r"(\d+) tests? collected", out)
         count = int(found.group(1)) if found else 0
     assert count >= claimed, f"the README claims over {claimed} tests; {count} are collected"
+
+
+def test_the_readme_live_test_counts_are_what_ci_runs():
+    """Eighth review (2026-10-01): the live-test counts went stale twice (efcf115, then the eighth review's cases)
+    with nothing to notice. They are what pytest collects from the live suites."""
+    import re as _re
+    import subprocess
+    import sys
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    m = _re.search(r"plus (\d+) opt-in live-infrastructure tests \((\d+) against a live\s+Kubernetes cluster, "
+                   r"(\d+) against", readme)
+    assert m, "the README's live-test sentence changed shape"
+
+    def collected(*files):
+        out = subprocess.run([sys.executable, "-m", "pytest", *files, "--collect-only", "-q", "-p", "no:cacheprovider"],
+                             cwd=root, capture_output=True, text=True, check=False).stdout
+        return int(_re.search(r"(\d+) tests? collected", out).group(1))
+
+    k8s = collected("tests/integration/test_live_cluster.py", "tests/integration/test_live_remediation.py")
+    db = collected("tests/integration/test_live_database.py")
+    assert (int(m.group(1)), int(m.group(2)), int(m.group(3))) == (k8s + db, k8s, db)

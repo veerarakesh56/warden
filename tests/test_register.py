@@ -363,3 +363,13 @@ def test_the_registers_hold_no_invisible_line_breaks():
         text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
         found = [(n, repr(m.group())) for n, line in enumerate(text.split("\n"), 1) for m in bad.finditer(line)]
         assert not found, (rel, found[:5])
+
+
+def test_the_registers_hold_no_table_the_parser_cannot_read():
+    """Eighth review (2026-10-01): GitHub shows a table inside a block quote and a raw HTML table; rows() reads
+    neither - planted on the real AUDIT, a quoted row set to DONE-local with Evidence "trust me" passed every check."""
+    for rel in REGISTERS:
+        text = (ROOT / rel).read_text(encoding="utf-8").replace("\r\n", "\n")
+        quoted = [n for n, line in enumerate(text.split("\n"), 1) if re.match(r" {0,3}>", line) and "|" in line]
+        html = [n for n, line in enumerate(text.split("\n"), 1) if re.search(r"<(?:table|tr|td|th)\b", line, re.IGNORECASE)]
+        assert not quoted and not html, (rel, quoted[:5], html[:5])

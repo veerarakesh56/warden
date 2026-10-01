@@ -481,6 +481,10 @@ bump may carry a breaking change.
   key stores...). Each is excluded now - a real build with 56 planted names ships none. Tests that weaker code
   passed now fail it: every one of the 270 invisible code points, a valid cron, the image's final stage copying
   only the installed environment, and no `.dockerignore` line re-including what the excludes keep out.
+  The registers may hold no table inside a block quote and no raw HTML table: GitHub shows both and the
+  register parser reads neither - planted on the real audit, a quoted row marked DONE-local with Evidence "trust
+  me" passed every check. README's test counts are 3,709 unit tests (3,631 counted the evals twice) and 38 live
+  tests (27 Kubernetes, 11 databases), and a test now holds the live counts to what pytest collects.
 - **Seventh independent review** (2026-10-01): a token masked inside a cookie header no longer ends the match: every cookie
   after it went out in clear, past the gate's re-scan (a regression from 3acea5b, which kept `<` out of
   the value to stop a placeholder being wrapped; HIGH). A value that holds a placeholder is now stored
