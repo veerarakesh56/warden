@@ -117,14 +117,15 @@ read from SSM Parameter Store, never from a file: `/warden/<env>/tf/my_ip_cidr` 
     WARDEN_ENV=dev terraform apply
     mkdir -p ~/warden-fullstack-build
     terraform output -json | python -c "import json,sys; print(json.dumps({k: v for k, v in json.load(sys.stdin).items() if not v['sensitive']}, indent=1))" > ~/warden-fullstack-build/stack.json
-    python aurora_express.py create     # Aurora (express): cluster, 0.5-2 ACU, reader; merges its keys into stack.json
+    WARDEN_ENV=dev python aurora_express.py create   # Aurora (express): cluster, 0.5-2 ACU, reader; merges its keys into stack.json
 
 `aurora_express.py create` takes several minutes (the reader instance), writes the endpoints into
-the metadata secret `warden-dev-db-app`, and adds `aurora_cluster`, `aurora_writer_endpoint`,
+the metadata secret `warden-<env>-db-app`, and adds `aurora_cluster`, `aurora_writer_endpoint`,
 `aurora_reader_endpoint`, `aurora_instance_endpoints`, `aurora_writer_instance` (express names the
 writer itself), `db_name` and `db_master_username` to stack.json. Run it again after any later
 `terraform output` rewrite of stack.json: on an existing cluster it only refreshes those records.
-`python aurora_express.py status` shows what exists.
+`WARDEN_ENV=dev python aurora_express.py status` shows what exists. The script acts only on the environment
+WARDEN_ENV names, refuses without one, and refuses a stack.json of another environment.
 
 `stack.json` carries no sensitive output and no password (none exists). It does carry ARNs with the
 account id: it lives outside the repo and is never published.
@@ -144,7 +145,7 @@ run `deploy ecs` again after re-generating stack.json.
 
 ## Destroy
 
-    python aurora_express.py destroy    # FIRST: terraform does not know the cluster exists
+    WARDEN_ENV=dev python aurora_express.py destroy  # FIRST: terraform does not know the cluster exists
     terraform destroy
     python scripts/account_sweep.py     # every region, every service, never trusts tags
 

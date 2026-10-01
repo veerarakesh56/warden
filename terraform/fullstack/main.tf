@@ -13,13 +13,13 @@
 # and tagged Project=warden (what every fault injector checks before it touches anything).
 
 terraform {
-  required_version = ">= 1.10"
+  required_version = ">= 1.15.0, < 1.17.0" # CI pins 1.16.4; a later minor is a deliberate change
   required_providers {
-    aws     = { source = "hashicorp/aws", version = ">= 5.80" }
-    archive = { source = "hashicorp/archive", version = ">= 2.4" }
+    aws     = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
+    archive = { source = "hashicorp/archive", version = ">= 2.4, < 3.0" }
   }
   # No backend block on purpose: a local apply keeps local state. CI writes a backend_override.tf
-  # (S3) before init - see .github/workflows/infra.yml.
+  # (S3) before init - see .github/workflows/_infra-deploy.yml.
 }
 
 provider "aws" {
@@ -58,7 +58,9 @@ locals {
   permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
 
   # Per-environment values from SSM Parameter Store (free, standard tier), never a local tfvars file.
-  my_ip_cidr = data.aws_ssm_parameter.my_ip_cidr.insecure_value
+  # Sensitive: a plan prints "(sensitive value)", not the owner's address - plan logs of a public repo's
+  # CI are public (audit A-I-14).
+  my_ip_cidr = sensitive(data.aws_ssm_parameter.my_ip_cidr.insecure_value)
 }
 
 data "aws_ssm_parameter" "my_ip_cidr" {

@@ -65,7 +65,7 @@
         "ssm:GetParameters",
         "ssm:GetParametersByPath"
       ],
-      "Resource": "arn:aws:ssm:ap-south-2:*:parameter/warden/staging/*"
+      "Resource": "arn:aws:ssm:ap-south-2:*:parameter/warden/staging/tf/*"
     },
     {
       "Sid": "CeilingKmsViaServices",
@@ -95,7 +95,6 @@
         "iam:DeleteRole",
         "iam:GetRole",
         "iam:UpdateRole",
-        "iam:UpdateAssumeRolePolicy",
         "iam:TagRole",
         "iam:UntagRole",
         "iam:ListRoleTags",

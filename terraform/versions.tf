@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.10"
+  required_version = ">= 1.15.0, < 1.17.0" # CI pins 1.16.4; a later minor is a deliberate change
 
   required_providers {
     aws = {

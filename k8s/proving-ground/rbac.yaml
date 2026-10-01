@@ -22,6 +22,8 @@ metadata:
   namespace: warden-pg
   labels:
     project: warden-proving-ground
+# The harness asks for a token (kubeconfig); no pod gets one mounted (audit A-I-26).
+automountServiceAccountToken: false
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

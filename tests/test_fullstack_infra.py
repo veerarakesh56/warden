@@ -543,6 +543,7 @@ def _aurora():
     spec = importlib.util.spec_from_file_location("aurora_express", TF / "aurora_express.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    mod.use("dev")
     return mod
 
 
@@ -688,7 +689,8 @@ def test_aurora_destroy_deletes_instances_then_the_cluster_without_a_snapshot():
 
 
 @pytest.mark.parametrize("cmd", ["create", "status", "destroy"])
-def test_aurora_script_refuses_a_cluster_outside_the_stack(cmd, tmp_path):
+def test_aurora_script_refuses_a_cluster_outside_the_stack(cmd, tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_ENV", "dev")
     ax, rds = _aurora(), FakeRds()
     with pytest.raises(SystemExit, match="refusing"):
         ax.main([cmd, "--cluster", "prod-db", "--stack", str(tmp_path / "s.json")],
@@ -842,3 +844,52 @@ def test_every_terraform_root_tags_project_and_environment(name):
     text = _all_tf(ROOTS[name])
     assert re.search(r'Project\s*=\s*"warden"', text), name
     assert re.search(r"Environment\s*=\s*(?:var\.environment|local\.env)", text), name
+
+
+@pytest.mark.parametrize("cmd", ["create", "status", "destroy"])
+def test_aurora_script_needs_its_environment_said(cmd, tmp_path, monkeypatch):
+    """Audit A-I-23: with no WARDEN_ENV the script acted on dev, whatever stack it was handed."""
+    monkeypatch.delenv("WARDEN_ENV", raising=False)
+    ax, rds = _aurora(), FakeRds()
+    with pytest.raises(SystemExit, match="WARDEN_ENV"):
+        ax.main([cmd, "--stack", str(tmp_path / "s.json")], clients={"rds": rds, "secretsmanager": FakeSm()})
+    assert rds.calls == []
+
+
+def test_aurora_script_refuses_a_stack_of_another_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_ENV", "staging")
+    stack = tmp_path / "stack.json"
+    stack.write_text(json.dumps({"environment": {"value": "prod", "sensitive": False, "type": "string"}}),
+                     encoding="utf-8")
+    ax, rds = _aurora(), FakeRds()
+    with pytest.raises(SystemExit, match="'prod'"):
+        ax.main(["create", "--stack", str(stack)], clients={"rds": rds, "secretsmanager": FakeSm()})
+    assert rds.calls == []
+
+
+def test_aurora_script_names_the_environment_it_was_given(tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_ENV", "staging")
+    ax, rds = _aurora(), FakeRds()
+    ax.main(["status", "--stack", str(tmp_path / "none.json")], clients={"rds": rds, "secretsmanager": FakeSm()})
+    assert ax.CLUSTER == "warden-staging-aurora"
+    assert {"Key": "Environment", "Value": "staging"} in ax.TAGS
+
+
+def test_aurora_script_writes_no_region():
+    text = (TF / "aurora_express.py").read_text(encoding="utf-8")
+    assert not re.search(r"\b(?:af|ap|ca|eu|il|me|mx|sa|us)-(?:north|south|east|west|central)\w*-\d\b", text)
+
+
+def test_the_owners_address_is_never_printed_in_a_plan():
+    """Audit A-I-14: `insecure_value` printed the owner's IP in plan logs, which a public repo's CI publishes."""
+    main = (TF / "main.tf").read_text(encoding="utf-8")
+    assert re.search(r"my_ip_cidr\s*=\s*sensitive\(data\.aws_ssm_parameter\.my_ip_cidr\.insecure_value\)", main)
+    assert all("insecure_value" not in line or "sensitive(" in line for line in main.splitlines())
+
+
+def test_a_pod_cannot_reach_the_nodes_credentials():
+    """Audit A-I-12: hop limit 2 let any pod read the node role's credentials from IMDS."""
+    eks = (TF / "eks.tf").read_text(encoding="utf-8")
+    block = re.search(r"metadata_options\s*\{([^}]*)\}", eks).group(1)
+    assert re.search(r'http_tokens\s*=\s*"required"', block)
+    assert re.search(r"http_put_response_hop_limit\s*=\s*1\b", block)

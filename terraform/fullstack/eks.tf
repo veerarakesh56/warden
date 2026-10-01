@@ -151,9 +151,13 @@ resource "aws_launch_template" "nodes" {
     }
   }
 
+  # Hop limit 1: a pod in its own network namespace cannot reach IMDS, so it cannot take the NODE role's
+  # credentials (audit A-I-12). What needs IMDS runs on the host network and still reaches it: vpc-cni,
+  # kube-proxy, the Pod Identity agent, and the CloudWatch agent (its chart sets agent.hostNetwork: true,
+  # read 2026-10-01). Pods that need AWS get their own role through Pod Identity (catalog-api, below).
   metadata_options {
     http_tokens                 = "required"
-    http_put_response_hop_limit = 2 # pods on the node still reach it (vpc-cni, the agent)
+    http_put_response_hop_limit = 1
   }
 
   dynamic "tag_specifications" {
@@ -206,9 +210,7 @@ resource "aws_cloudwatch_log_group" "container_insights" {
 #
 # catalog-api signs IAM database tokens as user catalog (read-only). EKS Pod Identity hands the
 # role to pods of ServiceAccount shop/catalog-api (k8s/fullstack/catalog-api.yaml) - no long-lived
-# key. ⚠ Audit 2026-09-28 (A-I-12): the node launch template's IMDS hop limit of 2 still lets any
-# pod read the NODE role's credentials, so this is not yet "no node-wide grant"; the fix is hop
-# limit 1 plus Pod Identity for the CloudWatch agent.
+# key. With the nodes' IMDS hop limit at 1 (A-I-12), no other pod can read the NODE role's credentials.
 
 resource "aws_iam_role" "catalog_pod" {
   name                 = "${local.name}-catalog-pod"

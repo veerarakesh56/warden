@@ -73,7 +73,9 @@ def test_parameters_and_buckets_are_only_its_own(env):
         for st in _load(env, kind)["Statement"]:
             for res in _list(st.get("Resource")):
                 if ":ssm:" in res:
-                    assert f":parameter/warden/{env}/" in res, (kind, res)
+                    # Only what Terraform reads: the Slack webhook and other runtime values live beside it
+                    # (audit A-I-17).
+                    assert res.endswith(f":parameter/warden/{env}/tf/*"), (kind, res)
                 if res.startswith("arn:aws:s3:::"):
                     assert res.startswith(f"arn:aws:s3:::warden-{env}-"), (kind, res)
     ceiling = _load(env, "boundary")["Statement"][0]
@@ -132,3 +134,11 @@ def test_templates_use_only_the_two_placeholders():
     for kind in r.KINDS:
         text = (r.TEMPLATES / f"{kind}.json").read_text(encoding="utf-8")
         assert set(re.findall(r"\$\{(\w+)\}", text)) <= {"env", "account"}, kind
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_no_role_trust_can_be_rewritten(env):
+    """Audit A-I-21: UpdateAssumeRolePolicy let the deploy role make one of its roles trust any principal after
+    creation, past the checks on CreateRole. A trust change is a replacement of the role."""
+    for kind in ("boundary", "deploy"):
+        assert "iam:UpdateAssumeRolePolicy" not in _allows(_load(env, kind)), kind

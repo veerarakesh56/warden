@@ -1,8 +1,12 @@
 """Aurora PostgreSQL in EXPRESS configuration for the Wave 4 stack. Part of the INFRA pipeline.
 
-    python terraform/fullstack/aurora_express.py create   [--stack PATH]   # after terraform apply
-    python terraform/fullstack/aurora_express.py status   [--stack PATH]
-    python terraform/fullstack/aurora_express.py destroy  [--stack PATH]   # before terraform destroy
+    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py create   [--stack PATH]   # after terraform apply
+    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py status   [--stack PATH]
+    WARDEN_ENV=<env> python terraform/fullstack/aurora_express.py destroy  [--stack PATH]   # before terraform destroy
+
+The environment is WARDEN_ENV, and nothing else: with none set the script refuses, and a stack.json from
+another environment is refused (audit A-I-23: it acted on dev unless told otherwise). The region is
+AWS_REGION (or stack.json's `region`).
 
 ⛔ WHY THIS IS NOT TERRAFORM (2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints"). The
 account is on the AWS Free plan, which creates an Aurora cluster only "WithExpressConfiguration",
@@ -14,9 +18,9 @@ and the AWS provider (6.66.0, and main) cannot set it. Express configuration mea
     rds_iam. Tokens come from generate_db_auth_token and need rds-db:connect;
   - the default engine version and parameter group, an AWS-owned encryption key, no RDS Proxy.
 
-create    creates cluster warden-dev-aurora (database shop, tag Project=warden), sets
-          Serverless v2 to 0.5-2 ACU, adds reader warden-dev-aurora-2 (promotion tier 1, another
-          AZ than the writer), writes the endpoints into the metadata secret warden-dev-db-app and
+create    creates cluster warden-<env>-aurora (database shop, tag Project=warden), sets
+          Serverless v2 to 0.5-2 ACU, adds reader warden-<env>-aurora-2 (promotion tier 1, another
+          AZ than the writer), writes the endpoints into the metadata secret warden-<env>-db-app and
           merges the Aurora keys into stack.json. A second run on an existing cluster changes
           nothing and refreshes both.
 status    prints what exists. Exit 0 when the cluster is available, 1 otherwise.
@@ -28,31 +32,39 @@ Standard library + boto3 only: the infra pipeline must not depend on WARDEN or t
 from __future__ import annotations
 
 import argparse
-import os
 import json
+import os
 import pathlib
+import re
 import sys
 import time
 
-# ponytail: the benchmark stack runs in one environment per process (dev unless WARDEN_ENV says).
-ENV = os.environ.get("WARDEN_ENV", "dev")
-PREFIX = f"warden-{ENV}-"
-CLUSTER = PREFIX + "aurora"
-SECRET = PREFIX + "db-app"
+# One environment per process, set by use() from WARDEN_ENV in main(): never a default.
+ENV = PREFIX = CLUSTER = SECRET = ""
+TAGS: list[dict] = []
 DB_NAME = "shop"
 MASTER_USER = "postgres"   # express configuration's master user; it cannot be chosen
 APP_USER = "app"
 PORT = 5432
-TAGS = [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": ENV}, {"Key": "ManagedBy", "Value": "aurora_express.py"},
-        {"Key": "Lifecycle", "Value": "ephemeral"}]
 ACU = {"MinCapacity": 0.5, "MaxCapacity": 2.0}
 DEFAULT_STACK = pathlib.Path.home() / "warden-fullstack-build" / "stack.json"
 WAIT = {"Delay": 30, "MaxAttempts": 80}   # 40 minutes; express is fast, a reader is not
 
 
+def use(env: str) -> None:
+    """The names of one environment's stack: warden-<env>-aurora, warden-<env>-db-app, its tags."""
+    global ENV, PREFIX, CLUSTER, SECRET, TAGS
+    if not re.fullmatch(r"[a-z][a-z0-9-]{0,30}", env):
+        raise SystemExit(f"refusing: {env!r} is not an environment name")
+    ENV, PREFIX = env, f"warden-{env}-"
+    CLUSTER, SECRET = PREFIX + "aurora", PREFIX + "db-app"
+    TAGS = [{"Key": "Project", "Value": "warden"}, {"Key": "Environment", "Value": ENV},
+            {"Key": "ManagedBy", "Value": "aurora_express.py"}, {"Key": "Lifecycle", "Value": "ephemeral"}]
+
+
 def guard(cluster: str) -> None:
     """⛔ This script creates and DELETES a database cluster. Never one outside the stack."""
-    if not cluster.startswith(PREFIX):
+    if not PREFIX or not cluster.startswith(PREFIX):
         raise SystemExit(f"refusing: cluster {cluster!r} is not named {PREFIX}*")
 
 
@@ -92,6 +104,14 @@ def facts(rds, cluster: str) -> dict:
     }
 
 
+def _read_stack(path: pathlib.Path) -> dict:
+    """stack.json's values, unwrapped; empty when there is none (status and destroy need none)."""
+    if not path.is_file():
+        return {}
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    return {k: v["value"] if isinstance(v, dict) and "value" in v else v for k, v in raw.items()}
+
+
 def merge_stack(path: pathlib.Path, values: dict) -> None:
     """Add keys to stack.json in the file's own format (`terraform output -json` wraps each value)."""
     if not path.exists():
@@ -104,7 +124,8 @@ def merge_stack(path: pathlib.Path, values: dict) -> None:
     path.write_text(json.dumps(raw, indent=1), encoding="utf-8")
 
 
-def create(rds, sm, stack: pathlib.Path, cluster: str = CLUSTER, log=print) -> dict:
+def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) -> dict:
+    cluster = cluster or CLUSTER
     guard(cluster)
     if describe(rds, cluster) is None:
         log(f"creating {cluster} (express configuration; bootstrap-db creates database {DB_NAME})")
@@ -156,7 +177,8 @@ def create(rds, sm, stack: pathlib.Path, cluster: str = CLUSTER, log=print) -> d
     return found
 
 
-def status(rds, cluster: str = CLUSTER, log=print) -> bool:
+def status(rds, cluster: str | None = None, log=print) -> bool:
+    cluster = cluster or CLUSTER
     guard(cluster)
     c = describe(rds, cluster)
     if c is None:
@@ -173,7 +195,8 @@ def status(rds, cluster: str = CLUSTER, log=print) -> bool:
     return c.get("Status") == "available"
 
 
-def destroy(rds, cluster: str = CLUSTER, log=print) -> None:
+def destroy(rds, cluster: str | None = None, log=print) -> None:
+    cluster = cluster or CLUSTER
     guard(cluster)
     c = describe(rds, cluster)
     if c is None:
@@ -211,10 +234,21 @@ def main(argv: list[str] | None = None, *, clients=None) -> int:
     ap.add_argument("cmd", choices=["create", "status", "destroy"])
     ap.add_argument("--stack", type=pathlib.Path, default=DEFAULT_STACK,
                     help="stack.json to merge the Aurora keys into (create)")
-    ap.add_argument("--cluster", default=CLUSTER)
-    ap.add_argument("--region", default="ap-south-2")
+    ap.add_argument("--cluster", help="default: warden-<WARDEN_ENV>-aurora")
+    ap.add_argument("--region", help="default: AWS_REGION, else stack.json's region")
     args = ap.parse_args(argv)
+    stack = _read_stack(args.stack.expanduser())
+    env = os.environ.get("WARDEN_ENV", "")
+    if not env:
+        raise SystemExit("refusing: set WARDEN_ENV to the environment whose Aurora this is")
+    if stack.get("environment") not in (None, env):
+        raise SystemExit(f"refusing: {args.stack} is environment {stack['environment']!r}, WARDEN_ENV is {env!r}")
+    use(env)
+    args.cluster = args.cluster or CLUSTER
     guard(args.cluster)
+    args.region = args.region or os.environ.get("AWS_REGION") or stack.get("region")
+    if clients is None and not args.region:
+        raise SystemExit("refusing: no region - set AWS_REGION or pass --region")
     if clients is None:
         import boto3
 

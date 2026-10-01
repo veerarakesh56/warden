@@ -170,7 +170,6 @@
         "iam:TagRole",
         "iam:UntagRole",
         "iam:ListRoleTags",
-        "iam:UpdateAssumeRolePolicy",
         "iam:PutRolePermissionsBoundary",
         "iam:ListRolePolicies",
         "iam:ListAttachedRolePolicies",
@@ -265,7 +264,7 @@
         "ssm:GetParameters",
         "ssm:GetParametersByPath"
       ],
-      "Resource": "arn:aws:ssm:*:*:parameter/warden/qa-staging/*"
+      "Resource": "arn:aws:ssm:*:*:parameter/warden/qa-staging/tf/*"
     },
     {
       "Sid": "OwnStateBucket",

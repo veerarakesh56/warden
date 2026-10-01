@@ -348,6 +348,13 @@ bump may carry a breaking change.
     `_threshold` were lag in seconds, and `replica_lag_p99_ms` read 40,000 ms as 40,000 s.
   - Over the 337 recorded reports no verdict changes; of their targets only a no_action "A and B"
     now reads as a list.
+- **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
+  so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
+  (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
+  rewrite a role's trust (A-I-21); Terraform and every provider are bounded and CI's pinned version
+  satisfies every bound (A-I-22); `aurora_express.py` acts only on the environment it is told and
+  writes no region (A-I-23); no service-account token is mounted except in WARDEN's own Job (A-I-26).
+  The IAM template changes reach the live account in the next owner window.
 - **Fifth independent review, fixed** (2026-10-01; rows A-R5 in the audit). Each with a test that fails
   without the fix:
   - Supply chain: Dependabot could not run uv (`required-version` is now a range CI's pin lies in); the
