@@ -299,3 +299,28 @@ def test_a_platform_that_refuses_before_writing_reports_nothing_changed(world, o
     out = _run(world, _approve_with(owner))
     assert out.status == "refused_at_apply" and not out.checklist["applied"], out
     assert world["log"].entries("inc-42", kinds=("remediation.refused",))
+
+
+@pytest.mark.parametrize("status", ["rollback_failed", "apply_failed"])
+def test_an_end_that_leaves_the_target_unknown_trips_the_kill_switch(world, status):
+    """Seventh review (2026-10-01): only the rollback activity's own failure tripped the switch - a rollback past
+    its timeout, or on a worker that died, ended rollback_failed with it off, and later fixes ran. The end row
+    trips it, whatever ended the run."""
+    from warden import bounds
+    from warden.activities import FixOutcome
+
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+    assert bounds.killswitch(world["log"]) is None
+    acts.finish("inc-42", "rem-x", FixOutcome(status=status, reasons=["Timeout"], checklist={}))
+    tripped = bounds.killswitch(world["log"])
+    assert tripped is not None and status in str(tripped), tripped
+
+
+def test_an_ordinary_end_leaves_the_kill_switch_alone(world):
+    from warden import bounds
+    from warden.activities import FixOutcome
+
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+    for status in ("recovered", "rolled_back", "not_recovered", "refused", "refused_at_apply", "expired", "drifted"):
+        acts.finish("inc-42", "rem-x", FixOutcome(status=status, checklist={}))
+    assert bounds.killswitch(world["log"]) is None

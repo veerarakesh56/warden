@@ -75,6 +75,10 @@ class Recorded(BaseModel):
     ok: bool
 
 
+# Ends that leave the target in a state nobody knows: the kill switch goes on (bounds.trip).
+PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed"})
+
+
 class FixOutcome(BaseModel):
     status: str
     reasons: list[str] = Field(default_factory=list)
@@ -312,6 +316,11 @@ class RemediationActivities:
         if recorded != outcome.checklist:
             body["claimed_checklist"] = outcome.checklist
         self.audit.append(incident_id, "workflow.end", body)
+        # A run that leaves a target in an unknown state stops every automatic fix until a person resets the
+        # switch - whatever ended it. Only the rollback activity's own failure tripped it: a rollback past its
+        # timeout, or on a worker that died, ended rollback_failed with the switch off (seventh review, 2026-10-01).
+        if outcome.status in PERSON_TAKES_OVER:
+            bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}")
         self.audit.checkpoint()
 
 

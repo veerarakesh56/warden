@@ -208,9 +208,10 @@ def test_a_replayed_approval_does_not_apply_another_workflow():
 
 
 def test_a_replay_from_an_earlier_run_of_the_same_workflow_id_does_not_apply():
-    """Third review (2026-09-30), the reviewer's attack: run 1 of `rem-orders` is approved and its apply
-    fails; run 2 of the same id is approved by nobody. Run 1's encrypted approve signal is replayed into
-    run 2 and run 2's check_approval is completed with run 1's recorded result."""
+    """Third review (2026-09-30), the reviewer's attack: run 1 of `rem-orders` is approved and applies nothing;
+    run 2 of the same id is approved by nobody. Run 1's encrypted approve signal is replayed into run 2 and run 2's
+    check_approval is completed with run 1's recorded result. (Run 1's apply is refused before writing: one that
+    FAILS now trips the kill switch - seventh review - which alone would stop run 2 and hide what this tests.)"""
     from temporalio.api.common.v1 import WorkflowExecution
     from temporalio.api.taskqueue.v1 import TaskQueue
     from temporalio.api.workflowservice.v1 import (
@@ -227,7 +228,13 @@ def test_a_replay_from_an_earlier_run_of_the_same_workflow_id_does_not_apply():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env:
             ns, svc = env.client.namespace, env.client.workflow_service
-            platform.apply_error = "throttled"
+            class _Refused(RuntimeError):
+                nothing_changed = True
+
+            def refuse(entry, params, **_):
+                raise _Refused("throttled; nothing was changed")
+
+            real_apply, platform.apply = platform.apply, refuse
             async with Worker(env.client, task_queue="r1", workflows=[RemediationWorkflow], activities=methods,
                               activity_executor=ThreadPoolExecutor(4)):
                 h1 = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**REQ), id=wid, task_queue="r1")
@@ -244,7 +251,7 @@ def test_a_replay_from_an_earlier_run_of_the_same_workflow_id_does_not_apply():
             result = next(e.activity_task_completed_event_attributes.result for e in events
                           if e.HasField("activity_task_completed_event_attributes")
                           and kinds[e.activity_task_completed_event_attributes.scheduled_event_id] == "check_approval")
-            platform.apply_error = None
+            platform.apply = real_apply
             without_check = [m for m in methods if m.__name__ != "check_approval"]
             async with Worker(env.client, task_queue="r2", workflows=[RemediationWorkflow], activities=without_check,
                               activity_executor=ThreadPoolExecutor(4)):
