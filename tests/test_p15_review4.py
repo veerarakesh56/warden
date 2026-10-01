@@ -172,6 +172,25 @@ SIXTH = [
     (A.scale_up, "pool: 0 left", True), (A.restart_pods, "restarts=0 ok", False),
 ]
 
+# Seventh review (2026-10-01): the quantity rule read a zero of ANY key as a shortage, so none of a bad thing
+# supported an action that 9d01dfd refused (a regression from e94365a).
+SEVENTH = [
+    (A.scale_up, "queue: 0 remaining", False), (A.scale_up, "backlog: 0 left", False),
+    (A.scale_up, "pending pods: 0 left", False), (A.scale_up, "messages visible: 0 remaining", False),
+    (A.scale_up, "throttled requests: 0 remaining", False), (A.restart_pods, "restarts: 0 remaining", False),
+    (A.restart_pods, "oom kills: 0 left", False), (A.restart_pods, "crash loops: 0 remaining", False),
+    (A.terminate_connections, "locks: 0 remaining", False),
+    (A.terminate_connections, "blocked sessions: 0 left", False),
+    (A.terminate_connections, "connections: 0 idle", False),
+    (A.scale_up, "connections: 0 free", True), (A.scale_up, "capacity: 0 remaining", True),
+    (A.restart_pods, "probes: 0 passing", True),
+]
+
+
+@pytest.mark.parametrize(("action", "quote", "supports"), SEVENTH)
+def test_the_seventh_reviews_p15_quotes(action, quote, supports):
+    assert _supports(action, quote) is supports
+
 
 @pytest.mark.parametrize(("action", "quote", "supports"), SIXTH)
 def test_the_sixth_reviews_p15_quotes(action, quote, supports):

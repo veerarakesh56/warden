@@ -89,8 +89,11 @@ _GOOD = frozenset({"pass", "passing", "passed", "ready", "healthy", "available",
                    "up", "hit", "hits", "success", "successful", "succeeded", "ok", "alive", "remaining",
                    "left", "headroom", "live"})
 # After a plain zero, these say how much of the measure is left - a shortage ("connections: 0 free"); a
-# status word after it ("restarts: 0 ok") is another field (sixth review, 2026-10-01).
-_QUANTITY = frozenset({"free", "available", "left", "remaining", "spare", "headroom", "idle", "passing", "passed"})
+# status word after it ("restarts: 0 ok") is another field (sixth review, 2026-10-01). Only of a measure that is
+# capacity: "queue: 0 remaining" and "restarts: 0 left" are none of a bad thing, and "connections: 0 idle" none
+# idle (seventh review, 2026-10-01: all three supported an action).
+_QUANTITY = frozenset({"free", "available", "left", "remaining", "spare", "headroom", "passing", "passed"})
+_CAPACITY = ("memory", "cpu", "concurrency", "pool", "connection", "capacity", "probe", "slot")
 _NEGATORS = frozenset({"no", "not", "zero", "without", "none", "never", "0"})
 # A negation does not reach past a clause or a preposition: "could not connect then restarted", "no
 # response from primary". "or" and "and" do not break it: "no restarts or OOM kills".
@@ -146,7 +149,8 @@ def _reports_none(after: str, key: str, shortage: bool) -> bool:
     # quantity word is ("0 free"), a status word is another field ("restarts: 0 ok") - fifth and sixth reviews.
     after_word = word.group(1) if word else ""
     if shortage and (key in _GOOD or _GOOD & set(re.findall(r"[a-z]+", phrase))
-                     or (after_word in _GOOD and "/" in value) or after_word in _QUANTITY):
+                     or (after_word in _GOOD and "/" in value)
+                     or (after_word in _QUANTITY and key.startswith(_CAPACITY))):
         return False
     number = value.split("/")[0]
     return float(number) == 0 if number[-1].isdigit() else True

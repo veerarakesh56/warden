@@ -462,6 +462,9 @@ bump may carry a breaking change.
   A run that ends `rollback_failed` or `apply_failed` trips the kill switch whatever ended it: only the
   rollback activity's own failure did, so a rollback past its timeout or on a worker that died left the
   switch off and later fixes ran (LOW-MED).
+  P15 reads "0 free / remaining / left / passing" as a shortage only for a measure of capacity (memory,
+  cpu, a pool, connections, probes): "queue: 0 remaining", "restarts: 0 left" and "connections: 0 idle"
+  supported an action again (a regression from e94365a). The verify replay over 337 reports is unchanged.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer
