@@ -314,6 +314,14 @@ resource "aws_apigatewayv2_route" "checkout" {
   target    = "integrations/${aws_apigatewayv2_integration.checkout.id}"
 }
 
+# Access logs (audit A-I-13). Under /aws/vendedlogs/: the owner creates ONE account-level resource policy that lets
+# CloudWatch Logs' delivery service write to /aws/vendedlogs/warden-* (docs/OWNER-CONSOLE-STEPS.md), so API Gateway
+# never needs logs:PutResourcePolicy - which the boundary denies, because such a policy can share logs outside.
+resource "aws_cloudwatch_log_group" "api_access" {
+  name              = "/aws/vendedlogs/${local.name}-api-access"
+  retention_in_days = 14
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.api.id
   name        = "$default"
@@ -321,6 +329,14 @@ resource "aws_apigatewayv2_stage" "default" {
   default_route_settings {
     throttling_burst_limit = 50
     throttling_rate_limit  = 20 # the public URL cannot run up a bill
+  }
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_access.arn
+    format = jsonencode({
+      requestId        = "$context.requestId", ip = "$context.identity.sourceIp", requestTime = "$context.requestTime",
+      routeKey         = "$context.routeKey", status = "$context.status", responseLength = "$context.responseLength",
+      integrationError = "$context.integrationErrorMessage"
+    })
   }
 }
 

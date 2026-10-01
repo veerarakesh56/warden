@@ -93,6 +93,23 @@
           "aws:ResourceTag/aws:eks:cluster-name": "warden-${env}-*"
         }
       }
+    },
+    {
+      "Sid": "VendedLogDelivery",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogDelivery",
+        "logs:GetLogDelivery",
+        "logs:UpdateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:ListLogDeliveries"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
     }
   ]
 }

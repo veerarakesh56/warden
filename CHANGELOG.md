@@ -486,6 +486,11 @@ bump may carry a breaking change.
   keys and key stores still shipped from a local build. Every one is excluded now, measured by building a
   wheel and an sdist from a copy with 29 names planted (21 shipped before, none now), and the image is
   built in two stages so no layer of it holds the source. Patterns are case-sensitive (`Server.PEM`).
+  The proving ground's public API writes JSON access logs to `/aws/vendedlogs/warden-<env>-api-access`
+  (A-I-13, logging half). The owner creates the account's one delivery policy for `/aws/vendedlogs/warden-*`
+  in CloudShell (OWNER-CONSOLE-STEPS 2b), so the deploy role gets the log-delivery actions but never
+  `logs:PutResourcePolicy`, which the boundary denies. Unproven live until the first window; the API's
+  authentication is still open.
 - **Infrastructure and IAM hardening, first part (G1-I)** (2026-10-01): EKS nodes' IMDS hop limit is 1,
   so pods cannot take the node role (A-I-12); the owner's address is a sensitive value in plans
   (A-I-14); the deploy role reads only `/warden/<env>/tf/*` parameters (A-I-17) and can no longer

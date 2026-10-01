@@ -350,6 +350,42 @@ name → **Create policy**.
 | `WardenEnvDeploy-dev` | [`iam/dev/deploy.json`](https://github.com/veerarakesh56/warden/blob/main/iam/dev/deploy.json) |
 | `WardenEnvDeployEc2-dev` | [`iam/dev/deploy-ec2.json`](https://github.com/veerarakesh56/warden/blob/main/iam/dev/deploy-ec2.json) |
 
+**2b. The API access-log delivery policy (once per account, about 3 minutes, free).** The proving
+ground's public API writes access logs through CloudWatch Logs' delivery service, which needs one
+resource policy letting it write to WARDEN's log groups. The deploy role may not create such policies
+(one can share logs with another account - audit A-I-13), so you create it once, for every environment.
+The console has no page for this policy; CloudShell is part of the console.
+1. Switch the console to **Asia Pacific (Hyderabad)**. Open **CloudShell** (the terminal icon at the top).
+2. Paste this whole block and press Enter. It reads your account number itself; nothing is typed in:
+
+```bash
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+REGION=ap-south-2
+cat > warden-log-delivery.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "AWSLogDeliveryWrite20150319",
+    "Effect": "Allow",
+    "Principal": {"Service": "delivery.logs.amazonaws.com"},
+    "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+    "Resource": "arn:aws:logs:${REGION}:${ACCOUNT}:log-group:/aws/vendedlogs/warden-*:log-stream:*",
+    "Condition": {
+      "StringEquals": {"aws:SourceAccount": "${ACCOUNT}"},
+      "ArnLike": {"aws:SourceArn": "arn:aws:logs:${REGION}:${ACCOUNT}:*"}
+    }
+  }]
+}
+EOF
+aws logs put-resource-policy --region "$REGION" --policy-name WardenApiAccessLogDelivery \
+  --policy-document file://warden-log-delivery.json
+```
+
+3. It prints the policy back with `"policyName": "WardenApiAccessLogDelivery"`. Tell Claude it is done.
+   Undo: `aws logs delete-resource-policy --region ap-south-2 --policy-name WardenApiAccessLogDelivery`.
+   AWS documents that, with this policy in place, enabling the logs needs no `logs:PutResourcePolicy`;
+   the first deploy confirms it (if API Gateway asks for it anyway, the deploy stops and Claude says so).
+
 **3. The deploy role.**
 1. IAM → **Roles** → **Create role** → **Custom trust policy**.
 2. Paste the complete trust file. Take it from **this computer, not GitHub**: open

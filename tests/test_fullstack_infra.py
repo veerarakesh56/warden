@@ -927,3 +927,14 @@ def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
     monkeypatch.setenv("WARDEN_ENV", "dev")
     with pytest.raises(SystemExit, match="names the app user"):
         ax.main(["status", "--stack", str(path)], clients={"rds": FakeRds(), "secretsmanager": FakeSm()})
+
+
+def test_the_public_api_writes_access_logs_to_a_vended_log_group():
+    """Audit A-I-13: the public HTTP API had no access logs. The group is under /aws/vendedlogs/, which the owner's
+    one account-level delivery policy covers (docs/OWNER-CONSOLE-STEPS.md), so nothing writes a resource policy."""
+    text = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
+    assert 'name              = "/aws/vendedlogs/${local.name}-api-access"' in text
+    stage = text[text.index('resource "aws_apigatewayv2_stage" "default"'):]
+    stage = stage[:stage.index("\n}\n")]
+    assert "destination_arn = aws_cloudwatch_log_group.api_access.arn" in stage and "$context.requestId" in stage
+    assert "aws_cloudwatch_log_resource_policy" not in text

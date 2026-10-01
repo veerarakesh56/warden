@@ -107,6 +107,7 @@
         "arn:aws:logs:*:*:log-group:/aws/lambda/warden-staging-*",
         "arn:aws:logs:*:*:log-group:/ecs/warden-staging-*",
         "arn:aws:logs:*:*:log-group:/aws/containerinsights/warden-staging-*",
+        "arn:aws:logs:*:*:log-group:/aws/vendedlogs/warden-staging-*",
         "arn:aws:cloudwatch:*:*:alarm:warden-staging-*",
         "arn:aws:ecr:*:*:repository/warden-staging-*",
         "arn:aws:ecs:*:*:*/warden-staging-*",

@@ -107,6 +107,7 @@
         "arn:aws:logs:*:*:log-group:/aws/lambda/warden-prod-*",
         "arn:aws:logs:*:*:log-group:/ecs/warden-prod-*",
         "arn:aws:logs:*:*:log-group:/aws/containerinsights/warden-prod-*",
+        "arn:aws:logs:*:*:log-group:/aws/vendedlogs/warden-prod-*",
         "arn:aws:cloudwatch:*:*:alarm:warden-prod-*",
         "arn:aws:ecr:*:*:repository/warden-prod-*",
         "arn:aws:ecs:*:*:*/warden-prod-*",

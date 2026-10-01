@@ -298,3 +298,27 @@ def test_ecs_writes_stay_in_the_environments_own_clusters(env):
     # The folded IAM ceiling grants no new kind of IAM write: never a role's trust.
     ceiling = _allows(_load(env, "boundary"))
     assert not any(fnmatch.fnmatchcase("iam:UpdateAssumeRolePolicy", p) for p in ceiling)
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_deploy_role_turns_on_api_access_logs_without_writing_a_logs_resource_policy(env):
+    """Audit A-I-13 (owner's choice, 2026-10-01): API Gateway's access logs use vended log delivery. The owner creates
+    the account's delivery policy for /aws/vendedlogs/warden-* once; the deploy role creates its own group and the
+    delivery, and may never write a CloudWatch Logs resource policy - one can share logs with another account."""
+    grants = [(a, r) for st in _deploy(env)["Statement"] if st["Effect"] == "Allow"
+              for a in _list(st["Action"]) for r in _list(st["Resource"])]
+
+    def allowed(action, resource):
+        return any(fnmatch.fnmatchcase(action, a) and fnmatch.fnmatchcase(resource, r) for a, r in grants)
+
+    group = f"arn:aws:logs:x:1:log-group:/aws/vendedlogs/warden-{env}-api-access"
+    assert allowed("logs:CreateLogGroup", group) and allowed("logs:PutRetentionPolicy", group)
+    for action in ("logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery",
+                   "logs:ListLogDeliveries", "logs:DescribeResourcePolicies", "logs:DescribeLogGroups"):
+        assert allowed(action, "*"), action
+    other = next(e for e in ENVS if e != env)
+    assert not allowed("logs:CreateLogGroup", f"arn:aws:logs:x:1:log-group:/aws/vendedlogs/warden-{other}-api-access")
+    assert not allowed("logs:PutResourcePolicy", "*")
+    denied = [a for st in _load(env, "boundary")["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
+              for a in _list(st["Action"])]
+    assert "logs:PutResourcePolicy" in denied
