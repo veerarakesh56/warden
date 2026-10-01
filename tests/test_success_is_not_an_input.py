@@ -74,7 +74,16 @@ def test_a_replayed_healthy_result_does_not_verify_a_fix():
                     owner, approver="owner", now=datetime.now(UTC), workflow_id=WID, plan_hash=plan2.plan_hash,
                     tier=plan2.tier))
                 result = asyncio.create_task(h2.result())
-                for _ in range(300):
+                # Poll only once check_success is scheduled - nothing else is then: polling earlier, the
+                # forger could take `apply` itself and leave it to time out (CI, 2026-10-01: apply_failed
+                # after a 10-minute poll loop).
+                for _ in range(600):
+                    if any(e.HasField("activity_task_scheduled_event_attributes")
+                           and e.activity_task_scheduled_event_attributes.activity_type.name == "check_success"
+                           for e in (await h2.fetch_history()).events):
+                        break
+                    await asyncio.sleep(0.05)
+                for _ in range(60):
                     try:
                         task = await svc.poll_activity_task_queue(PollActivityTaskQueueRequest(
                             namespace=ns, task_queue=TaskQueue(name="q2"), identity="forger"),
