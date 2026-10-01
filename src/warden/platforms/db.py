@@ -17,7 +17,9 @@ CONNECTION_ADMIN + PROCESS; SQL Server ALTER ANY CONNECTION + VIEW SERVER STATE)
 
 from __future__ import annotations
 
+import contextlib
 import os
+import threading
 from typing import Any
 
 from ..database import IDLE_SECS, adapter_for, engine_of
@@ -138,6 +140,12 @@ class DatabasePlatform:
         if conn is None and not self._dsn:
             raise DatabasePlatformError("no database: set WARDEN_DB_ADMIN_DSN (the least-privilege terminate role)")
         self._conn = conn
+        # One connection, one user at a time: the worker runs activities on several threads, and pymysql and
+        # pymssql connections are not thread-safe. One the platform opened itself is dropped after a failure
+        # and reopened on the next call - a NAT timeout or a failover left it broken until a restart (sixth
+        # review, 2026-10-01). A connection handed in is the caller's and is never dropped.
+        self._lock = threading.RLock()
+        self._owned = conn is None
         env_users = os.environ.get("WARDEN_DB_APP_USERS", "")
         self._users = [u for u in (app_users if app_users is not None else env_users.split(",")) if u.strip()]
         self._users = [u.strip() for u in self._users]
@@ -149,11 +157,19 @@ class DatabasePlatform:
             self._conn = adapter_for(self._engine).connect(self._dsn)
         return self._conn
 
+    def _drop(self) -> None:
+        if self._owned and self._conn is not None:
+            conn, self._conn = self._conn, None
+            with contextlib.suppress(Exception):
+                conn.close()
+
     def _database(self) -> str | None:
-        try:
-            return self._sql.database(self._connection())
-        except Exception:  # noqa: BLE001 - unreadable: nothing is allowed
-            return None
+        with self._lock:
+            try:
+                return self._sql.database(self._connection())
+            except Exception:  # noqa: BLE001 - unreadable: nothing is allowed
+                self._drop()
+                return None
 
     def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
         """The connected database, and only when the application's logins are named: with no allowlist
@@ -172,14 +188,25 @@ class DatabasePlatform:
     def healthy(self, service: str) -> bool:
         """The database answers and none of the application's sessions is still idle in a transaction past
         the threshold - a positive read, never the absence of an error."""
-        if not self._users or self._database() != service:
-            return False
-        try:
-            return self._sql.candidates(self._connection(), IDLE_SECS, 1, self._users) == []
-        except Exception:  # noqa: BLE001 - unknown is not healthy
-            return False
+        with self._lock:
+            if not self._users or self._database() != service:
+                return False
+            try:
+                return self._sql.candidates(self._connection(), IDLE_SECS, 1, self._users) == []
+            except Exception:  # noqa: BLE001 - unknown is not healthy
+                self._drop()
+                return False
 
     def apply(self, entry: str, params: dict[str, Any]) -> str:
+        with self._lock:
+            try:
+                return self._apply(entry, params)
+            except DatabasePlatformError as exc:
+                if exc.__cause__ is not None:  # the server failed, not the plan: reconnect next time
+                    self._drop()
+                raise
+
+    def _apply(self, entry: str, params: dict[str, Any]) -> str:
         if entry != _ENTRY:
             raise DatabasePlatformError(f"{entry} is not something the database platform does "
                                         f"(it does {_ENTRY} only)")

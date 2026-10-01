@@ -181,3 +181,45 @@ def test_its_own_login_is_never_an_application_login(engine):
         _platform(engine, conn, users=["orders_app"]).apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == [] and not any("innodb_trx" in s or "pg_stat_activity" in s or "dm_exec_sessions" in s
                                          for s, _ in conn.sql)
+
+
+def test_a_broken_connection_is_reopened_and_use_is_one_at_a_time(monkeypatch):
+    """Sixth review (2026-10-01): one connection forever - after a drop `healthy` was False until a restart - and
+    shared by the worker's threads without a lock."""
+    import threading
+    import time
+
+    from warden.platforms import db as dbmod
+
+    opened, live = [], {"now": 0, "most": 0}
+
+    class Overlaps(_Conn):
+        def cursor(self):
+            live["now"] += 1
+            live["most"] = max(live["most"], live["now"])
+            time.sleep(0.01)
+            live["now"] -= 1
+            if self.fail:
+                raise RuntimeError("server closed the connection")
+            return super().cursor()
+
+        def close(self):
+            pass
+
+    class Adapter:
+        @staticmethod
+        def connect(dsn):
+            conn = Overlaps(stuck=(), fail=not opened)  # the first connection is broken
+            opened.append(conn)
+            return conn
+
+    monkeypatch.setattr(dbmod, "adapter_for", lambda engine: Adapter)
+    p = DatabasePlatform(dsn="postgresql://warden_terminator@db.example/orders", app_users=APP)
+    assert p.healthy("orders") is False and len(opened) == 1  # broken: dropped
+    assert p.healthy("orders") is True and len(opened) == 2  # reopened
+    threads = [threading.Thread(target=p.healthy, args=("orders",)) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert live["most"] == 1, "two threads used the connection at once"

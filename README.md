@@ -384,8 +384,8 @@ warden run --incident inc-002 --environment staging --principal role:oncall --ap
 may change, and nothing else:
 
 ```bash
-kubectl apply -f k8s/remediation-rbac.yaml        # the separate write-RBAC, once
-WARDEN_K8S_NAMESPACE=shop warden worker --platform k8s
+kubectl apply -f k8s/remediation-rbac.yaml        # the separate write-RBAC, once (binds namespace default)
+WARDEN_K8S_NAMESPACE=default warden worker --platform k8s   # another namespace: edit the RoleBinding's first
 # a remediation is requested (MCP tool `request_remediation`), the workflow plans it from live state:
 warden status rem-...                             # the plan and its hash
 warden approve rem-... --plan-hash <hash> --approver owner --key owner.pem
@@ -394,12 +394,15 @@ warden approve rem-... --plan-hash <hash> --approver owner --key owner.pem
 
 The Kubernetes platform does two things: a rollout **restart** (the `restartedAt` annotation, as
 `kubectl rollout restart` does) and a **scale up** by at most two replicas, never past
-`WARDEN_REMEDIATION_MAX_REPLICAS`, written with a JSON Patch `test` of the count it just read - a count
-that moved since the approval is refused, not stepped from. A rollout undo reads no revisions yet, so
+`WARDEN_REMEDIATION_MAX_REPLICAS`, written with a JSON Patch `test` of the count it just read. A count
+that moved before the final precheck is refused; one that moves in the moment between that precheck and
+the write is stepped from if the step is still in bounds, and a rollback returns to the count the approver
+saw (stated by the sixth review, 2026-10-01). A rollout undo reads no revisions yet, so
 it is refused until an admission policy narrows the write (audit A-I-11). Its credential is the
 `warden-remediator` ServiceAccount (get and patch deployments; `kubectl auth can-i` proves the verbs
-both ways in CI). CI runs the platform against a live k3d cluster with the runner's admin kubeconfig;
-it has not been executed on EKS.
+both ways in CI). CI runs the platform against a live k3d cluster, once with the runner's admin
+kubeconfig and once impersonating `warden-remediator` (scale and rollback); it has not been executed on EKS.
+Nothing yet makes a worker use that ServiceAccount: on a laptop it uses the current kubeconfig context.
 
 
 ### Injection detector (optional, `WARDEN_TRIPWIRE`)

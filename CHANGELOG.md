@@ -363,7 +363,11 @@ bump may carry a breaking change.
   Redaction: a lowercase-hex credential under vault/consumer/root/data/deploy/host/KMS key names is masked
   again (the fifth review's narrowing left them out), and cookie, `mysql -p` and `"auth"` values never wrap
   a placeholder in a second one (restore left the inner one in an operator's report).
-  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok".
+  The database platform uses its connection one thread at a time and reopens one that failed (it kept a
+  broken connection until a restart). README: the Kubernetes example uses the namespace the RBAC binds, and
+  states that a count moving between the final precheck and the write is stepped from (sixth review).
+  Still open: "not a single one of the pods restarted", "cpu (idle): 0%", "probe: 0 ok"; a platform's own
+  refusal is reported "apply_failed" rather than "refused"; the plan does not name the cluster or server.
 - **Sixth independent review, the records**: the register guard refuses a cited test rebound to another
   function (`globals()` reached it unseen) and is tested itself; a collect-only run is no longer judged (it
   always failed); the register reads every row GitHub shows - indented, without a leading pipe - and refuses a
