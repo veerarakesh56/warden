@@ -27,6 +27,7 @@ from .models import Alert, Severity
 from .remediation import DryRunBackend, RemediationRequest, decide_remediation
 from .reporting import _scrub, build_report
 from .tools import resolve_backend
+from .verifier import symptoms
 
 # The bundled scenarios. Each one exists to exercise a different route through the graph.
 DEMO_ALERTS: dict[str, dict] = {
@@ -100,19 +101,22 @@ def _print_report(report, *, verbose: bool) -> None:
     v = report.verdict
     _out(f"\n=== {report.alert.alert_id}  {_one(report.alert.name)} [{report.alert.environment}] ===")
     _out(f"  identifiers masked : {report.redaction_map_size}")
-    if report.root_cause:
-        _out(f"  hypothesis         : {_one(report.root_cause.hypothesis)}")
-        _out(f"  confidence         : {report.root_cause.confidence:.2f}")
-    if report.proposal:
-        _out(f"  proposed action    : {report.proposal.action.value} -> {_one(report.proposal.target)}")
-        _out(f"  blast radius       : {report.proposal.effective_blast_radius} (enforced; "
-              f"proposal claimed {report.proposal.blast_radius})")
+    # What the rules found comes first, the model's prose last (register N4): an approver reads fluent text as
+    # evidence, so the verdict, its policies and what the evidence itself shows are read before it.
     if v:
         _out(f"  VERDICT            : {v.status.value.upper()}")
         if v.policy_ids:
             _out(f"  policies fired     : {', '.join(v.policy_ids)}")
         for reason in v.reasons:
             _out(f"    - {_one(reason)}")
+    _out(f"  evidence shows     : {'; '.join(symptoms(report.context)) or 'no counted broken component'}")
+    if report.proposal:
+        _out(f"  proposed action    : {report.proposal.action.value} -> {_one(report.proposal.target)}")
+        _out(f"  blast radius       : {report.proposal.effective_blast_radius} (enforced; "
+              f"proposal claimed {report.proposal.blast_radius})")
+    if report.root_cause:
+        _out(f"  hypothesis (model) : {_one(report.root_cause.hypothesis)}")
+        _out(f"  confidence (model) : {report.root_cause.confidence:.2f}")
     _out(f"  cost               : ${report.cost.usd:.4f} over {report.cost.calls} call(s)")
     if verbose:
         _out("  audit trail:")

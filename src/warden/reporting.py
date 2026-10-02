@@ -638,12 +638,13 @@ def _render_markdown(d: dict) -> str:
     else:
         lines.append("- **Impact seen in the evidence**: no errors and no failing component in what "
                      "WARDEN read.")
-    if d["root_cause"]:
-        lines.append(f"- **Diagnosis** (confidence {d['root_cause']['confidence']:.2f}): "
-                     f"{d['root_cause']['hypothesis']}")
+    # The gate before the model's prose (register N4).
     if p:
         lines.append(f"- **Proposed**: {_c(p['action'])} on {_c(p['target'])}"
                      + (f" - gate: {_c(v['status'])}" if v else ""))
+    if d["root_cause"]:
+        lines.append(f"- **Diagnosis** (model, confidence {d['root_cause']['confidence']:.2f}): "
+                     f"{d['root_cause']['hypothesis']}")
     lines.append("")
 
     # ---- what was read
@@ -654,6 +655,14 @@ def _render_markdown(d: dict) -> str:
         lines.append("**⚠ What WARDEN could NOT read** - the diagnosis was made without this:")
         lines.extend(f"- {_c(e)}" for e in ev["tool_errors"])
     lines.append("")
+
+    # ---- the gate, before the model's text (register N4): read what the rules found first
+    if v:
+        lines.append("## Gate verdict  (deterministic)")
+        lines.append(f"- **Status**: {_c(v['status'])}" + (f" - policies: {', '.join(v['policy_ids'])}"
+                                                           if v["policy_ids"] else ""))
+        lines.extend(f"  - {r}" for r in v["reasons"])
+        lines.append("")
 
     # ---- diagnosis
     if d["root_cause"]:
@@ -754,12 +763,6 @@ def _render_markdown(d: dict) -> str:
             f"{p['blast_radius']}) - reversible: {p['reversible_by_table']} per WARDEN's action "
             f"table (the model claimed {p['reversible']})"
         )
-        lines.append("")
-    if v:
-        lines.append("## Gate verdict  (deterministic)")
-        lines.append(f"- **Status**: {_c(v['status'])}" + (f" - policies: {', '.join(v['policy_ids'])}"
-                                                           if v["policy_ids"] else ""))
-        lines.extend(f"  - {r}" for r in v["reasons"])
         lines.append("")
 
     # ---- risk BEFORE steps, then the runbook
