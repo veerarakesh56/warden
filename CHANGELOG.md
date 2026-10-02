@@ -474,7 +474,8 @@ bump may carry a breaking change.
   unclosed code span.
 - `aurora_express.py create` refuses a cluster that does not report IAM database authentication on: express
   configuration is IAM-only, now checked rather than assumed (audit A-I-VT).
-- The Wave 4 harness has its own policy, `iam/dev/harness.json` (dev only): it writes only dev's named or
+- The Wave 4 harness is its own role, `warden-dev-harness`, which only the read-only operator role may assume
+  (register R18); its policy, `iam/dev/harness.json` (dev only), writes only dev's named or
   tagged resources, and logs in to Aurora only on dev's cluster, named by its resource id, which
   `aurora_express.py` now records (audit A-I-18).
 - The playbook's database-host fix needs the whole value to be an RDS hostname: one merely containing

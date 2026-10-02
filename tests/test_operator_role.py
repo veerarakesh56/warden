@@ -46,8 +46,10 @@ def test_every_allowed_action_only_reads_except_assuming_the_sweep_role():
         for action in _list(st["Action"]):
             name = action.split(":")[1]
             assert "*" not in action, action
-            if action in CHAIN:
-                assert _list(st["Resource"]) == ["arn:aws:iam::*:role/warden-pg-sweep"]
+            if action in CHAIN:  # the read-only sweep role, and the dev harness role (R18: its own identity)
+                assert _list(st["Resource"]) in (["arn:aws:iam::*:role/warden-pg-sweep"],
+                                                 ["arn:aws:iam::*:role/warden-dev-harness"]), st["Sid"]
+                assert st.get("Condition") == {"StringEquals": {"aws:ResourceAccount": "${aws:PrincipalAccount}"}}
             else:
                 assert name.startswith(READ_VERBS), action
 

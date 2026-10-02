@@ -491,3 +491,13 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
     assert r.main(["--cluster-resource-id", "cluster-ABCDEFGHIJ1234"]) == 0
     local = (tmp_path / "iam" / "dev" / "harness.local.json").read_text(encoding="utf-8")
     assert "dbuser:cluster-ABCDEFGHIJ1234/postgres" in local and "<CLUSTER_RESOURCE_ID>" not in local
+
+
+def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
+    """Register R18 (owner, 2026-10-02): the harness is its own identity, warden-dev-harness - not permissions added to
+    the read-only operator role. Only that role may assume it, in this account, keeping its source identity."""
+    trust = json.loads((ROOT / "iam" / "dev" / "harness-trust.json").read_text(encoding="utf-8"))
+    [st] = trust["Statement"]
+    assert st["Effect"] == "Allow" and st["Principal"] == {"AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-operator"}
+    assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity"]
+    assert not (ROOT / "iam" / "staging" / "harness-trust.json").exists()

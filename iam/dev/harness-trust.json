@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyTheOperatorRoleOfThisAccount",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-operator"
+      },
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetSourceIdentity"
+      ]
+    }
+  ]
+}

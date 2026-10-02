@@ -33,6 +33,20 @@
       }
     },
     {
+      "Sid": "RunTheBenchmarkHarnessInDevOnly",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetSourceIdentity"
+      ],
+      "Resource": "arn:aws:iam::*:role/warden-dev-harness",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceAccount": "${aws:PrincipalAccount}"
+        }
+      }
+    },
+    {
       "Sid": "ReadWhatTheOwnerPastedToCompareWithTheRepo",
       "Effect": "Allow",
       "Action": [
