@@ -263,3 +263,16 @@ def test_the_deployed_requirements_are_audited_every_week():
     assert 0 <= int(minute) <= 59 and 0 <= int(hour) <= 23, cron  # `99 25 * * 1` is rejected by GitHub: it never runs
     check = (ROOT / ".github" / "workflows" / "_apps-check.yml").read_text(encoding="utf-8")
     assert "pip-audit -r" in check
+
+
+def test_dependabot_never_updates_the_root_package_with_pip():
+    """Audit R5-E2: a `pip /` entry opened pull requests that changed pyproject.toml without uv.lock - merging one
+    turned every pipeline red. The root package is uv's; pip covers only the demo apps' hashed requirements."""
+    import yaml
+
+    config = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    for entry in config["updates"]:
+        dirs = [entry.get("directory")] + list(entry.get("directories") or [])
+        if entry["package-ecosystem"] == "pip":
+            assert all(d and d.startswith("/scenarios/") for d in dirs if d is not None), dirs
+    assert any(e["package-ecosystem"] == "uv" and e.get("directory") == "/" for e in config["updates"])
