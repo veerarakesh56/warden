@@ -23,6 +23,7 @@ Three layers, because each one alone is beatable:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import pathlib
@@ -58,6 +59,18 @@ def _hash(prev: str, seq: int, at: str, correlation_id: str, kind: str, body: st
 
 def _signed_message(seq: int, head: str) -> bytes:
     return f"warden-audit:{seq}:{head}".encode()
+
+
+@functools.cache
+def code_version() -> str:
+    """A hash of WARDEN's own source and policy data (every .py and .yaml in the package), read once per process.
+    Recorded with every model call (audit A-P-1) and bound into every plan (register O5)."""
+    root = pathlib.Path(__file__).parent
+    digest = hashlib.sha256()
+    for f in sorted([*root.rglob("*.py"), *root.rglob("*.yaml")]):
+        if "__pycache__" not in f.parts:
+            digest.update(f.relative_to(root).as_posix().encode() + b"\0" + f.read_bytes())
+    return digest.hexdigest()
 
 
 class AuditLog:

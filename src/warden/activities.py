@@ -10,11 +10,9 @@ Phase 4, so no activity here holds a credential yet.
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import inspect
 import json
-import pathlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -23,7 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, bounds, catalog, environments
+from . import approvals, audit, bounds, catalog, environments
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
 from .observability import _safe_error
@@ -124,16 +122,10 @@ def plan_hash(entry: str, params: dict[str, Any], snapshot: dict[str, Any], basi
     return hashlib.sha256(material.encode()).hexdigest()
 
 
-@functools.cache
 def code_version() -> str:
-    """A hash of WARDEN's own source and policy data, read once per worker: a plan is applied only by the code it
-    was made and approved under - a worker deployed mid-approval refuses it (register O5)."""
-    root = pathlib.Path(__file__).parent
-    digest = hashlib.sha256()
-    for f in sorted([*root.rglob("*.py"), *root.rglob("*.yaml")]):
-        if "__pycache__" not in f.parts:
-            digest.update(f.relative_to(root).as_posix().encode() + b"\0" + f.read_bytes())
-    return digest.hexdigest()
+    """WARDEN's own code and policy data, as one hash: a plan is applied only by the code it was made and approved
+    under - a worker deployed mid-approval refuses it (register O5)."""
+    return audit.code_version()
 
 
 def _environment_problems(env: str, entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any]) -> list[str]:

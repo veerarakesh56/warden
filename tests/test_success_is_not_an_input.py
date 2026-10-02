@@ -11,23 +11,19 @@ import asyncio
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from temporalio.api.taskqueue.v1 import TaskQueue
-from temporalio.api.workflowservice.v1 import (
-    PollActivityTaskQueueRequest,
-    RespondActivityTaskCompletedRequest,
-)
-from temporalio.service import RPCError
+from temporalio import activity
+from temporalio.api.workflowservice.v1 import RespondActivityTaskCompletedRequest
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from test_remediation_workflow import REQ, FakePlatform, _until_awaiting_approval
 from warden import approvals, audit, codec
-from warden.activities import FixRequest, RemediationActivities
+from warden.activities import FixRequest, Plan, RemediationActivities
 from warden.workflows import RemediationWorkflow
 
 WID = "rem-orders"
@@ -66,35 +62,25 @@ def test_a_replayed_healthy_result_does_not_verify_a_fix():
             platform.healthy_after, platform.checks = None, 0
             platform.state = {"revision": "9", "image": "orders:worse"}
             no_check = [m for m in every if m.__name__ != "check_success"]
-            async with Worker(env.client, task_queue="q2", workflows=[RemediationWorkflow], activities=no_check,
-                              activity_executor=ThreadPoolExecutor(4)):
+
+            # The forger: run 2's check_success task is completed - through the server, with its task token - with
+            # run 1's recorded "healthy" bytes, and no health check is made. Done from inside the task so it is the
+            # only completion, whatever the timing: an outside poller raced the worker's own NotFound failures, and
+            # with retries now bounded (audit A-B-L10) those ran out first in CI (2026-10-02).
+            @activity.defn(name="check_success")
+            async def forged(plan: Plan, service: str) -> bool:
+                await svc.respond_activity_task_completed(RespondActivityTaskCompletedRequest(
+                    namespace=ns, task_token=activity.info().task_token, result=healthy, identity="forger"))
+                activity.raise_complete_async()
+
+            async with Worker(env.client, task_queue="q2", workflows=[RemediationWorkflow],
+                              activities=[*no_check, forged], activity_executor=ThreadPoolExecutor(4)):
                 h2 = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**REQ), id=WID, task_queue="q2")
                 plan2 = await _until_awaiting_approval(h2)
                 await h2.signal(RemediationWorkflow.approve, approvals.sign(
                     owner, approver="owner", now=datetime.now(UTC), workflow_id=WID, plan_hash=plan2.plan_hash,
                     tier=plan2.tier))
-                result = asyncio.create_task(h2.result())
-                # Poll only once check_success is scheduled - nothing else is then: polling earlier, the
-                # forger could take `apply` itself and leave it to time out (CI, 2026-10-01: apply_failed
-                # after a 10-minute poll loop).
-                for _ in range(600):
-                    if any(e.HasField("activity_task_scheduled_event_attributes")
-                           and e.activity_task_scheduled_event_attributes.activity_type.name == "check_success"
-                           for e in (await h2.fetch_history()).events):
-                        break
-                    await asyncio.sleep(0.05)
-                for _ in range(60):
-                    try:
-                        task = await svc.poll_activity_task_queue(PollActivityTaskQueueRequest(
-                            namespace=ns, task_queue=TaskQueue(name="q2"), identity="forger"),
-                            timeout=timedelta(seconds=2))
-                    except RPCError:
-                        continue
-                    if task.task_token and task.activity_type.name == "check_success":
-                        await svc.respond_activity_task_completed(RespondActivityTaskCompletedRequest(
-                            namespace=ns, task_token=task.task_token, result=healthy, identity="forger"))
-                        break
-                return await asyncio.wait_for(result, 120), platform, log
+                return await asyncio.wait_for(h2.result(), 120), platform, log
 
     out, platform, log = asyncio.run(main())
     assert out.status == "rolled_back" and not out.checklist.get("verified"), (out.status, out.checklist)

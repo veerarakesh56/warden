@@ -20,6 +20,7 @@ the one model call, and `verify` sits after everything a model produced. `redact
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import math
 import os
 import secrets
@@ -29,6 +30,7 @@ from typing import Any, TypedDict
 from pydantic import BaseModel
 
 from . import evidence, tripwire
+from .audit import code_version
 from .environments import default_environment_policies
 from .knowledge import default_knowledge_base
 from .llm import LLMClient
@@ -518,11 +520,12 @@ def node_diagnose(state: WardenState) -> WardenState:
         # Snapshot the running cost so this span records what THIS node spent, not the total so far.
         # (llm.cost is cumulative, and one node may cost several charges when the call is retried.)
         before = (llm.cost.input_tokens, llm.cost.output_tokens, llm.cost.usd)
+        # The IncidentWorkflow builds the prompt where the redaction map lives and passes only
+        # the finished, redacted prompt here; the map never enters workflow history.
+        user = state.get("prompt") or _evidence_blob(state)
         d = llm.structured(
             system=SYSTEM_DIAGNOSE,
-            # The IncidentWorkflow builds the prompt where the redaction map lives and passes only
-            # the finished, redacted prompt here; the map never enters workflow history.
-            user=state.get("prompt") or _evidence_blob(state),
+            user=user,
             schema=Diagnosis,
             mock_factory=lambda: Diagnosis(
                 root_cause=_mock_root_cause(signals, evidence.index(state["context"])),
@@ -541,12 +544,21 @@ def node_diagnose(state: WardenState) -> WardenState:
                           input_tokens=llm.cost.input_tokens - before[0],
                           output_tokens=llm.cost.output_tokens - before[1],
                           usd=llm.cost.usd - before[2])
+    # Provenance (audit A-P-1): which model said this, to exactly which prompt, under which of WARDEN's code and
+    # policies. Hashes only - the prompt is redacted, but its text stays out of the record all the same.
+    provenance = {"provider": llm.provider_name, "model": llm.model,
+                  "system_sha256": _sha256(SYSTEM_DIAGNOSE), "prompt_sha256": _sha256(user),
+                  "response_sha256": _sha256(d.model_dump_json()), "code": code_version()}
     return {
         "root_cause": rc,
         "proposal": proposal,
         "audit": [{"node": "diagnose", "confidence": rc.confidence, "hypothesis": rc.hypothesis,
-                   "action": proposal.action.value, "target": proposal.target}],
+                   "action": proposal.action.value, "target": proposal.target, "provenance": provenance}],
     }
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def node_verify(state: WardenState) -> WardenState:
