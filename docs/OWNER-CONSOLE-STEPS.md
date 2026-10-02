@@ -22,7 +22,7 @@ Avoid the root user.
 > account. This version fixes them. The go-ahead comes only
 > after these steps are re-verified and CI on `main` is green.
 >
-> ✅ **Go-ahead given 2026-10-02 12:57 UTC / 12:57 IST** after re-verification at f5d6bf1, CI green: the
+> ✅ **Go-ahead given 2026-10-02 12:57 UTC / 18:27 IST** after re-verification at f5d6bf1, CI green: the
 > laptop certificate (with its TPM key, valid to 2027-09-28), `ca.pem` and `aws_signing_helper` 1.8.5 (the
 > latest release) are in place; every file the steps paste or delete exists; `iam/operator/policy.json`
 > is final - it stays read-only and may assume only the sweep role and, later, the dev harness role
