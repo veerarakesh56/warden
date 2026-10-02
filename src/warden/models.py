@@ -147,6 +147,9 @@ class ContextBundle(BaseModel):
     metrics: dict[str, float] = Field(default_factory=dict)
     recent_deploys: list[dict[str, str]] = Field(default_factory=list)
     tool_errors: list[str] = Field(default_factory=list)
+    # The alert rule's summary, as whoever wrote the rule wrote it (register M10): untrusted evidence of kind A,
+    # shown to the model only as quarantined facts, never as prose that frames the diagnosis.
+    alert_text: str = ""
     # The injection tripwire (tripwire.py): whether it ran, and the untrusted evidence ids it flagged
     # with their scores. Read by policy P16; recorded in the report so a replay sees what was decided.
     tripwire: str = "off"

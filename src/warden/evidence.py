@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from .models import Alert, ContextBundle
 from .tools import OUTCOMES
 
-UNTRUSTED_KINDS = frozenset("LE")
+UNTRUSTED_KINDS = frozenset("LEA")  # A: the alert rule's own summary (register M10)
 
 # WARDEN's own structured reads (aws_stack.py, k8s_backend.py): configuration and state exactly as
 # the cloud or cluster API returned it, with no application-written text in them. Anything else is
@@ -152,6 +152,8 @@ def index(context: ContextBundle) -> dict[str, Item]:
     items += [("M", f"{k}={v:g}") for k, v in context.metrics.items()]
     items += [("D", ", ".join(f"{k}={v}" for k, v in d.items())) for d in context.recent_deploys]
     items += [("T", tool_error_text(e)) for e in context.tool_errors]
+    if context.alert_text:
+        items.append(("A", context.alert_text))
     counts: dict[str, int] = {}
     out: dict[str, Item] = {}
     for kind, text in items:
