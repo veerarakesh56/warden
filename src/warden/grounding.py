@@ -96,9 +96,14 @@ _QUANTITY = frozenset({"free", "available", "left", "remaining", "spare", "headr
 _CAPACITY = ("memory", "cpu", "concurrency", "pool", "connection", "capacity", "probe", "slot")
 # Words that make a measure a count of something bad, whatever capacity word it holds: "blocked connections: 0
 # remaining" is no blocked connection, "probe failures: 0 left" no failure (eighth review, 2026-10-01).
-_BAD = frozenset({"blocked", "failure", "failures", "failed", "error", "errors", "leak", "leaks", "killed", "oom",
-                  "deadlock", "deadlocks", "throttled", "rejected", "dropped", "timeout", "timeouts", "waiting",
-                  "stuck", "refused", "lost", "crash", "crashes", "evicted", "pending", "queued"})
+# By stem, so every inflection counts: `leaked`, `throttling`, `timed out`, `failing`, `evictions` named no bad
+# thing as whole words (register R9-O3).
+_BAD_STEMS = ("block", "fail", "error", "erroring", "leak", "kill", "oom", "deadlock", "throttl", "reject", "drop",
+              "timeout", "timed", "wait", "stuck", "refus", "lost", "crash", "evict", "pending", "queued")
+
+
+def _bad(words: set[str]) -> bool:
+    return any(w.startswith(_BAD_STEMS) for w in words)
 _NEGATORS = frozenset({"no", "not", "zero", "without", "none", "never", "0"})
 # A negation does not reach past a clause or a preposition: "could not connect then restarted", "no
 # response from primary". "or" and "and" do not break it: "no restarts or OOM kills".
@@ -161,7 +166,7 @@ def _reports_none(after: str, key: str, shortage: bool, before: str = "", idle_s
     quantity = after_word in _QUANTITY or (idle_short and after_word == "idle")
     if shortage and (key in _GOOD or _GOOD & set(re.findall(r"[a-z]+", phrase))
                      or (after_word in _GOOD and "/" in value)
-                     or (quantity and capacity and not measured & _BAD)):
+                     or (quantity and capacity and not _bad(measured))):
         return False
     number = value.split("/")[0]
     return float(number) == 0 if number[-1].isdigit() else True
@@ -176,8 +181,10 @@ def _supports(quote: str, key: str, shortage: bool = True, idle_short: bool = Fa
     for m in re.finditer(rf"(?<![a-z0-9]){re.escape(key)}{end}", quote):
         if _negated(quote[:m.start()], key, shortage):
             continue
-        # The words naming the measure: the two before the key and the word the key starts ("blocked").
-        before = " ".join([*re.findall(r"[a-z]+", quote[:m.start()])[-2:], re.match(r"[a-z]*", quote[m.start():])[0]])
+        # The words naming the measure: the two before the key and the word the key starts ("blocked") - in the
+        # key's own clause: "errors: 12, connections: 0 free" is a shortage of connections (register R9-O3).
+        clause = re.split(r"[,;()\[\]|]", quote[:m.start()])[-1]
+        before = " ".join([*re.findall(r"[a-z]+", clause)[-2:], re.match(r"[a-z]*", quote[m.start():])[0]])
         if key.startswith("not ") or not _reports_none(quote[m.end():], key, shortage, before, idle_short):
             return True
     return False

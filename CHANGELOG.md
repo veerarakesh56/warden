@@ -33,6 +33,9 @@ bump may carry a breaking change.
   trip, and cleared earlier ones its approver never saw. In the same row:
   - a database plan now shows `PGHOSTADDR` and `PGPORT` when libpq would take them from the environment;
   - a retried `finish` now signs the end row its first try left unsigned.
+- **P15 reads a bad thing in any inflection, in its own clause only** (register R9-O3). `leaked connections:
+  0 free` is no shortage, and `errors: 12, connections: 0 free` is one. A bare `cluster` label may be the
+  target of closing database sessions when WARDEN's own metrics show that name is a database.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

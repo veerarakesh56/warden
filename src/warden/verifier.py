@@ -556,8 +556,14 @@ def verify(
 
         data_action = proposal.action in _DATA_ACTIONS
         # A bare `cluster` key stays a scope for a database or cache action: on an ECS alert it is the ECS cluster
-        # (wave 1), so `cluster=orders-db` naming the database itself is refused - an escalation, the safe side.
+        # (wave 1). Unless WARDEN's OWN reads show the name is a data store - a metric of a database or a cache
+        # (`rds_connections__orders-db`) - it is not taken for one: `cluster=orders-db` was refused as a target
+        # of terminate_connections even then (register R9-O3). Label text alone never makes a name a database.
+        stores = {k.split("__", 1)[1] for k in context.metrics
+                  if "__" in k and set(re.split(r"[^a-z0-9]+", k.split("__", 1)[0].lower())) & _DATA_WORDS}
         scopes = values(lambda w: is_scope(w) and not (data_action and is_data(w)))
+        if data_action:
+            scopes -= stores
         # A failover never targets a namespace or a compute cluster - not even one named like the service (the
         # recorded fs-01 alert's namespace is `shop`, its service `shop`).
         containers = values(lambda w: is_namespace(w) or (is_scope(w) and any(_compute(x) for x in w)),
