@@ -560,3 +560,14 @@ def test_no_path_is_taken_from_application_logs():
         assert pat.fix == [], pat.fix
         assert any(t.startswith("No command:") and "infrastructure code" in t for t in pat.oncall), pat.oncall
         assert "admin" not in " ".join(pat.oncall + pat.fix)
+
+
+def test_a_value_merely_containing_the_rds_suffix_is_not_an_rds_host():
+    """CodeQL (2026-10-02): `".rds.amazonaws.com" in val` took `<reader>.rds.amazonaws.com.evil.example` for an RDS
+    endpoint, and the printed fix would have pointed the function's database at another domain."""
+    from warden.playbook import _RDS_HOST
+
+    good = "warden-dev-aurora.cluster-ro-abc123.ap-south-2.rds.amazonaws.com"
+    assert _RDS_HOST.fullmatch(good)
+    for bad in (good + ".evil.example", good + ":5432", "evil.example/" + good, "x " + good):
+        assert not _RDS_HOST.fullmatch(bad), bad

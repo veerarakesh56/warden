@@ -40,7 +40,7 @@ import sys
 import time
 
 # One environment per process, set by use() from WARDEN_ENV in main(): never a default.
-ENV = PREFIX = CLUSTER = SECRET = APP_USER = ""
+ENV = PREFIX = CLUSTER = SECRET_ID = APP_USER = ""
 TAGS: list[dict] = []
 DB_NAME = "shop"
 MASTER_USER = "postgres"   # express configuration's master user; it cannot be chosen
@@ -52,11 +52,12 @@ WAIT = {"Delay": 30, "MaxAttempts": 80}   # 40 minutes; express is fast, a reade
 
 def use(env: str) -> None:
     """The names of one environment's stack: warden-<env>-aurora, warden-<env>-db-app, its tags."""
-    global ENV, PREFIX, CLUSTER, SECRET, APP_USER, TAGS
+    global ENV, PREFIX, CLUSTER, SECRET_ID, APP_USER, TAGS
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,30}", env):
         raise SystemExit(f"refusing: {env!r} is not an environment name")
     ENV, PREFIX = env, f"warden-{env}-"
-    CLUSTER, SECRET = PREFIX + "aurora", PREFIX + "db-app"
+    CLUSTER = PREFIX + "aurora"
+    SECRET_ID = PREFIX + "db-app"  # the Secrets Manager secret's NAME - it holds endpoints, never a password
     # The application's login, as data.tf names it (db_users): the secret said "app", which no IAM grant names
     # and bootstrap.sql no longer creates (seventh review, 2026-10-01).
     APP_USER = f"warden_{env.replace('-', '_')}_app"
@@ -177,12 +178,12 @@ def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) 
         Filters=[{"Name": "db-cluster-id", "Values": [cluster]}], WaiterConfig=WAIT)
 
     found = facts(rds, cluster)
-    sm.put_secret_value(SecretId=SECRET, SecretString=json.dumps({
+    sm.put_secret_value(SecretId=SECRET_ID, SecretString=json.dumps({
         "username": APP_USER, "dbname": DB_NAME, "port": PORT,
         "host": found["aurora_writer_endpoint"], "reader": found["aurora_reader_endpoint"]}))
     merge_stack(stack, found)
     log(f"writer {found['aurora_writer_instance']}, reader endpoint {found['aurora_reader_endpoint']}; "
-        f"{SECRET} and {stack} updated")
+        f"{SECRET_ID} and {stack} updated")
     return found
 
 

@@ -604,6 +604,9 @@ def _next_node_type(node_type: str) -> str | None:
     return f"{mt.group(1)}.{ladder[ladder.index(mt.group(2)) + 1]}"
 
 
+_RDS_HOST = re.compile(r"[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.rds\.amazonaws\.com")
+
+
 def _writer_host(host: str, cluster: str, instances: list[str]) -> str | None:
     """The cluster (writer) endpoint for a reader or instance endpoint, by Aurora's naming scheme."""
     if ".cluster-ro-" in host:
@@ -621,7 +624,9 @@ def _db_host_fix(ctx: ContextBundle, fn: str, cluster: str, instances: list[str]
                     f"({', '.join(names) or 'none'}) but not their values, and update-function-configuration "
                     "replaces the WHOLE environment - printing it without every value would wipe the others.")
     for var, val in values.items():
-        new = _writer_host(val, cluster, instances) if ".rds.amazonaws.com" in val else None
+        # The whole value an RDS hostname, not one that merely contains the suffix: `....rds.amazonaws.com.evil.example`
+        # made the advice point the database at another domain (CodeQL, 2026-10-02).
+        new = _writer_host(val, cluster, instances) if _RDS_HOST.fullmatch(val) else None
         if new:
             env = json.dumps({"Variables": {**values, var: new}}, separators=(",", ":"))
             cmds, note = _lambda_config_fix(ctx, fn, f"--environment '{env}'")

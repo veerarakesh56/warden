@@ -477,6 +477,8 @@ bump may carry a breaking change.
 - The Wave 4 harness has its own policy, `iam/dev/harness.json` (dev only): it writes only dev's named or
   tagged resources, and logs in to Aurora only on dev's cluster, named by its resource id, which
   `aurora_express.py` now records (audit A-I-18).
+- The playbook's database-host fix needs the whole value to be an RDS hostname: one merely containing
+  `.rds.amazonaws.com` (`...rds.amazonaws.com.evil.example`) pointed the printed fix at another domain (CodeQL).
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
