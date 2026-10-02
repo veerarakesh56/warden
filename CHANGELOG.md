@@ -465,6 +465,7 @@ bump may carry a breaking change.
   and an environment name must be usable in AWS names (audit A-B-L12).
 - Every database connection bounds its statements and lock waits (`WARDEN_DB_STATEMENT_TIMEOUT`, default 10 s):
   a read of a database already in trouble no longer hangs behind a lock (audit A-B-M1, register O8).
+- A test holds that WARDEN issues no schema change - no index - to a database it watches (register R51).
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
