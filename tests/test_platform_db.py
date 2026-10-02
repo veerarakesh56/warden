@@ -276,6 +276,13 @@ def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
     ("mysql", "mysql://orders_app:{pw}" + "?x@db-staging/orders", {}, "db-staging"),
     ("postgres", "postgresql://db.prod/orders?application_name=a@b&password={pw}", {},
      "a host the DSN does not state plainly (not shown)"),
+    # Register R9-O4: libpq takes PGHOSTADDR and PGPORT from the environment for what the DSN leaves out.
+    ("postgres", "postgresql://db.prod/orders", {"PGHOSTADDR": "10.9.9.9"}, "db.prod PGHOSTADDR=10.9.9.9 (environment)"),
+    ("postgres", "postgresql://db.prod/orders", {"PGPORT": "6543"}, "db.prod PGPORT=6543 (environment)"),
+    ("postgres", "postgresql://db.prod:5432/orders", {"PGPORT": "6543"}, "db.prod:5432"),
+    ("postgres", "host=db.prod dbname=orders", {"PGHOSTADDR": "10.9.9.9"}, "host=db.prod PGHOSTADDR=10.9.9.9 (environment)"),
+    ("postgres", "host=db.prod hostaddr=10.1.1.1 dbname=orders", {"PGHOSTADDR": "10.9.9.9"}, "host=db.prod hostaddr=10.1.1.1"),
+    ("mysql", "mysql://u:{pw}@db-staging/orders", {"PGHOSTADDR": "10.9.9.9"}, "db-staging"),
 ])
 def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine, dsn, env, where):
     """Eighth review (2026-10-01): a service file and PGHOST showed "the local socket"; MySQL with no host is TCP to

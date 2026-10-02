@@ -359,6 +359,9 @@ class RemediationActivities:
         # was written (eighth review, 2026-10-01).
         if run and any(e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id") == run
                        for e in self.audit.entries(incident_id, kinds=("workflow.end",))):
+            # Signed even when this try only finds the row: the try that wrote it may have failed before its
+            # checkpoint (register R9-O4), and the end of a run must not stay unsigned.
+            self.audit.checkpoint()
             return
 
         def ours(kind: str) -> list[dict[str, Any]]:

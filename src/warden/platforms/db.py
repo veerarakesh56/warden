@@ -247,7 +247,8 @@ class DatabasePlatform:
             return ""
         if "://" not in self._dsn:  # libpq's `key=value` form, read pair by pair: a value is never searched
             params = _conninfo(self._dsn)
-            return " ".join(f"{k}={params[k]}" for k in _WHERE if k in params) or self._unstated()
+            where = [f"{k}={params[k]}" for k in _WHERE if k in params]
+            return " ".join(where + self._env_over(set(params))) if where else self._unstated()
         # After the LAST `@`, cut at the first `/`, `?` or `#`: urlsplit ends the authority at `?` or `#`, so a password
         # holding one showed the user and the password's start (ninth review); libpq reads to the `@`. The query is
         # read from there too - never from inside the password. What is left must look like hosts, or it is not shown.
@@ -262,7 +263,18 @@ class DatabasePlatform:
         if self._engine != "postgres":  # only libpq reads `?host=`; pymysql and pymssql ignore it (eighth review)
             return hosts or ("localhost:3306 (TCP)" if self._engine == "mysql" else "localhost (TCP)")
         over = [f"{k}={query[k][-1]}" for k in _WHERE if k in query]
-        return " ".join(([hosts] if hosts else []) + over) or self._unstated()
+        if not hosts and not over:
+            return self._unstated()
+        stated = set(query) | ({"port"} if re.search(r":\d+(?:,|$)", hosts) else set())
+        return " ".join(([hosts] if hosts else []) + over + self._env_over(stated))
+
+    def _env_over(self, stated: set[str]) -> list[str]:
+        """libpq takes PGHOSTADDR and PGPORT from the environment for any parameter the DSN leaves out - and
+        PGHOSTADDR then decides the address, whatever host the DSN names (register R9-O4). The plan shows them."""
+        if self._engine != "postgres":
+            return []
+        return [f"{k}={os.environ[k]} (environment)" for k, key in (("PGHOSTADDR", "hostaddr"), ("PGPORT", "port"))
+                if os.environ.get(k) and key not in stated]
 
     def _unstated(self) -> str:
         """No host in the DSN: libpq takes PGHOST or PGSERVICE from the environment, else the local socket."""

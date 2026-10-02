@@ -28,6 +28,11 @@ bump may carry a breaking change.
   is left of the incident's budget, and its spend row settles it. A run cancelled, terminated or killed
   mid-call leaves the reservation unsettled, and the next run counts it as spent. So that incident goes to a
   person instead of paying for the call a second time.
+- **A kill-switch reset signs every trip it clears** (register R9-O4). **Breaking:** `warden killswitch reset`
+  now lists every trip since the last reset and requires `--trips N` to match. Before, it signed only the latest
+  trip, and cleared earlier ones its approver never saw. In the same row:
+  - a database plan now shows `PGHOSTADDR` and `PGPORT` when libpq would take them from the environment;
+  - a retried `finish` now signs the end row its first try left unsigned.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

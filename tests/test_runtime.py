@@ -94,7 +94,7 @@ def test_killswitch_cli_on_status_and_a_signed_reset(tmp_path, monkeypatch, caps
     monkeypatch.setenv("WARDEN_APPROVERS", str(approvers))
     monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
     monkeypatch.delenv("WARDEN_APPROVER_KEY_PASSPHRASE", raising=False)
-    reset = ["killswitch", "reset", "--approver", "owner", "--key", str(tmp_path / "owner.pem")]
+    reset = ["killswitch", "reset", "--approver", "owner", "--key", str(tmp_path / "owner.pem"), "--trips", "1"]
 
     assert cli.main(["killswitch", "on", "--reason", "drill"]) == 0
     out = capsys.readouterr().out
@@ -103,5 +103,10 @@ def test_killswitch_cli_on_status_and_a_signed_reset(tmp_path, monkeypatch, caps
     assert cli.main(reset) == 1  # the cooling-off applies to a reset too
     assert "T3 needs the plan to exist for 0:10:00" in capsys.readouterr().out
     policy(0)
-    assert cli.main(reset) == 0 and "kill switch: off" in capsys.readouterr().out
+    assert cli.main(["killswitch", "on", "--reason", "second"]) == 0
+    capsys.readouterr()
+    assert cli.main(reset) == 1  # two trips, one reviewed (register R9-O4): every trip is listed, nothing signed
+    out = capsys.readouterr().out
+    assert "  - drill" in out and "  - second" in out and "you reviewed 1, there are 2" in out
+    assert cli.main([*reset[:-1], "2"]) == 0 and "kill switch: off" in capsys.readouterr().out
     assert audit.verify(tmp_path / "audit.db", audit.load_public_key(tmp_path / "audit.pub")).ok

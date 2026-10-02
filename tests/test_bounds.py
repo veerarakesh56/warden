@@ -92,12 +92,11 @@ def test_failures_far_apart_do_not_trip_it(log, clock):
 
 def test_only_a_signed_approval_of_this_trip_resets_it_and_only_once(log, clock, owner, policy):
     bounds.trip(log, "inc-1", "manual stop")
-    row = bounds.killswitch(log)
     wrong = approvals.sign(owner, approver="owner", workflow_id="killswitch", plan_hash="killswitch-trip-999",
                            tier="T3", now=clock.now)
     assert "approval is for a different plan (the plan changed after it was approved)" in \
         bounds.reset(log, wrong, policy=policy, now=clock.now)
-    right = approvals.sign(owner, approver="owner", workflow_id="killswitch", plan_hash=bounds.trip_hash(row),
+    right = approvals.sign(owner, approver="owner", workflow_id="killswitch", plan_hash=bounds.trips_hash(log),
                            tier="T3", now=clock.now)
     assert bounds.reset(log, right, policy=policy, now=clock.now) == []
     assert bounds.killswitch(log) is None
@@ -110,7 +109,7 @@ def test_only_a_signed_approval_of_this_trip_resets_it_and_only_once(log, clock,
 def test_a_forged_reset_is_refused(log, clock, policy):
     bounds.trip(log, "inc-1", "manual stop")
     forged = approvals.sign(Ed25519PrivateKey.generate(), approver="owner", workflow_id="killswitch",
-                            plan_hash=bounds.trip_hash(bounds.killswitch(log)), tier="T3", now=clock.now)
+                            plan_hash=bounds.trips_hash(log), tier="T3", now=clock.now)
     assert bounds.reset(log, forged, policy=policy, now=clock.now) == ["the signature is not owner's"]
     assert bounds.killswitch(log) is not None
 
@@ -121,3 +120,24 @@ def test_the_switch_state_is_in_the_signed_audit(log, clock, tmp_path):
     bounds.trip(log, "inc-1", "manual stop")
     result = audit.verify(tmp_path / "audit.db", log.key.public_key())
     assert result.ok and result.unsigned_tail == 0
+
+
+def test_a_reset_signs_every_trip_it_was_shown_and_no_later_one(log, clock, owner, policy):
+    """Register R9-O4: a reset signed for the latest trip cleared earlier ones its approver never saw."""
+    bounds.trip(log, "inc-1", "first")
+    shown = bounds.trips_hash(log)
+    signed = approvals.sign(owner, approver="owner", workflow_id="killswitch", plan_hash=shown, tier="T3",
+                            now=clock.now)
+    bounds.trip(log, "inc-2", "second, after the approval")
+    assert bounds.reset(log, signed, policy=policy, now=clock.now) != []
+    assert bounds.killswitch(log) is not None
+    import hashlib  # an approver shown only the latest trip: that signature clears nothing either
+    latest = str(bounds.trips(log)[-1]["seq"])
+    only_latest = approvals.sign(owner, approver="owner", workflow_id="killswitch", tier="T3", now=clock.now,
+                                 plan_hash="killswitch-trips-" + hashlib.sha256(latest.encode()).hexdigest())
+    assert bounds.reset(log, only_latest, policy=policy, now=clock.now) != []
+    both = approvals.sign(owner, approver="owner", workflow_id="killswitch", plan_hash=bounds.trips_hash(log),
+                          tier="T3", now=clock.now)
+    assert bounds.reset(log, both, policy=policy, now=clock.now) == []
+    assert log.entries(kinds=(bounds.RESET,))[-1]["body"]["trips"] == [r["seq"] for r in
+                                                                        log.entries(kinds=(bounds.TRIPPED,))]

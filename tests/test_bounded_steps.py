@@ -63,7 +63,7 @@ def test_the_breaker_counts_only_failures_after_the_last_reset(tmp_path):
     bounds.record_result(log, "inc-2", service="a", ok=False, now=clock.now)
     row = bounds.killswitch(log)
     assert row is not None
-    signed = approvals.sign(key, approver="owner", workflow_id="killswitch", plan_hash=bounds.trip_hash(row),
+    signed = approvals.sign(key, approver="owner", workflow_id="killswitch", plan_hash=bounds.trips_hash(log),
                             tier="T3", now=clock.now)
     assert bounds.reset(log, signed, policy=policy, now=clock.now) == []
     clock.advance(minutes=5)

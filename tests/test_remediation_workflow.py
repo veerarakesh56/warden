@@ -357,12 +357,11 @@ def test_every_unknown_end_is_its_own_trip_and_a_reset_names_the_latest(world):
 
     acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
     acts.finish("inc-42", "rem-a", FixOutcome(status="rollback_failed", reasons=["A"], checklist={}))
-    first = bounds.killswitch(world["log"])
+    first = bounds.trips_hash(world["log"])
     acts.finish("inc-43", "rem-b", FixOutcome(status="apply_failed", reasons=["B"], checklist={}))
     assert [r["body"]["reason"] for r in bounds.trips(world["log"])] == ["rem-a ended rollback_failed: A",
                                                                         "rem-b ended apply_failed: B"]
-    latest = bounds.killswitch(world["log"])
-    assert bounds.trip_hash(latest) != bounds.trip_hash(first)  # an approval of the first trip resets nothing
+    assert bounds.trips_hash(world["log"]) != first  # an approval of the first trip alone resets nothing
 
 
 def test_a_retried_finish_writes_one_end_row(world, monkeypatch):
@@ -432,3 +431,22 @@ def test_a_cancel_before_apply_ends_on_the_record_without_a_trip(world):
     statuses = [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
     assert statuses == ["cancelled"], statuses
     assert bounds.killswitch(world["log"]) is None
+
+
+def test_a_retried_finish_signs_an_end_row_its_first_try_left_unsigned(world, monkeypatch, tmp_path):
+    """Register R9-O4: the try that wrote the end row failed before its checkpoint; the retry found the row and
+    returned, and the end of the run stayed unsigned."""
+    from warden import activities as acts_module
+    from warden.activities import FixOutcome
+
+    monkeypatch.setattr(acts_module, "_run_id", lambda: "run-1")
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+    real = world["log"].checkpoint
+    monkeypatch.setattr(world["log"], "checkpoint", lambda: (_ for _ in ()).throw(RuntimeError("worker died")))
+    with pytest.raises(RuntimeError, match="worker died"):
+        acts.finish("inc-42", "rem-a", FixOutcome(status="recovered", checklist={}))
+    monkeypatch.setattr(world["log"], "checkpoint", real)
+    acts.finish("inc-42", "rem-a", FixOutcome(status="recovered", checklist={}))
+    assert len(world["log"].entries("inc-42", kinds=("workflow.end",))) == 1
+    pub = world["log"].key.public_key()
+    assert audit.verify(world["db"], pub).unsigned_tail == 0

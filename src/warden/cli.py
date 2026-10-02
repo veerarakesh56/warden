@@ -357,13 +357,22 @@ def _killswitch_command(args: argparse.Namespace) -> int:
     if args.kill_cmd == "on":
         bounds.trip(log, "operator", args.reason)
     elif args.kill_cmd == "reset":
-        row = bounds.killswitch(log)
-        if row is None:
+        if bounds.killswitch(log) is None:
             _out("the kill switch is not on")
             return 0
+        # Every trip is shown BEFORE anything is signed, and the approver states how many they reviewed: the
+        # signature covers exactly those (register R9-O4).
+        shown = bounds.trips(log)
+        _out(f"resetting {len(shown)} trip{'s' if len(shown) != 1 else ''}:")
+        for row in shown:
+            _out(f"  - {_one(row['body']['reason'])}")
+        if args.trips != len(shown):
+            _out(f"not reset: you reviewed {args.trips}, there are {len(shown)}; check them and pass --trips "
+                 f"{len(shown)}")
+            return 1
         policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
         signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id="killswitch",
-                                plan_hash=bounds.trip_hash(row), tier="T3")
+                                plan_hash=bounds.trips_hash(log), tier="T3")
         problems = bounds.reset(log, signed, policy=policy, now=datetime.now(UTC))
         for problem in problems:
             _out(f"not reset: {problem}")
@@ -498,6 +507,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_reset = kill_sub.add_parser("reset")
     p_reset.add_argument("--approver", required=True)
     p_reset.add_argument("--key", required=True, type=pathlib.Path)
+    p_reset.add_argument("--trips", required=True, type=int, help="how many trips you reviewed (`warden killswitch status`)")
 
     args = parser.parse_args(argv)
     if args.cmd == "audit":

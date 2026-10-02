@@ -23,6 +23,7 @@ log gets large.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -64,21 +65,25 @@ def trips(log: AuditLog) -> list[dict]:
     return [r for r in rows[since + 1:] if r["kind"] == TRIPPED]
 
 
-def trip_hash(row: dict) -> str:
-    return f"killswitch-trip-{row['seq']}"
+def trips_hash(log: AuditLog) -> str:
+    """What a reset signs: every trip since the last reset, by sequence number. Signing only the latest let a reset
+    clear trips its approver was never shown (register R9-O4); a trip added after the approval changes the hash."""
+    seqs = ",".join(str(r["seq"]) for r in trips(log))
+    return "killswitch-trips-" + hashlib.sha256(seqs.encode()).hexdigest()
 
 
 def reset(log: AuditLog, approval: approvals.SignedApproval, *, policy: approvals.ApproverPolicy,
           now: datetime) -> list[str]:
-    """Turn the kill switch off. Needs a T3 approval of exactly the current trip."""
-    row = killswitch(log)
-    if row is None:
+    """Turn the kill switch off. Needs a T3 approval of exactly the trips since the last reset."""
+    rows = trips(log)
+    if killswitch(log) is None or not rows:
         return ["the kill switch is not on"]
     used = {e["body"]["nonce"] for e in log.entries(kinds=(RESET,))}
-    problems = approvals.check(approval, policy=policy, workflow_id="killswitch", plan_hash=trip_hash(row),
-                               tier="T3", plan_created_at=row["at"], used_nonces=used, now=now)
+    problems = approvals.check(approval, policy=policy, workflow_id="killswitch", plan_hash=trips_hash(log),
+                               tier="T3", plan_created_at=rows[-1]["at"], used_nonces=used, now=now)
     if not problems:
-        log.append(row["correlation_id"], RESET, {"approver": approval.approver, "nonce": approval.nonce})
+        log.append(rows[-1]["correlation_id"], RESET, {"approver": approval.approver, "nonce": approval.nonce,
+                                                       "trips": [r["seq"] for r in rows]})
         log.checkpoint()
     return problems
 
