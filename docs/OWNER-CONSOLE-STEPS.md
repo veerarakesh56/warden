@@ -255,7 +255,16 @@ skip any step you never did:
 
 ---
 
-## NEXT: GitHub settings (web UI, about 15 minutes, any time - independent of W0-now)
+## DONE 2026-10-02: GitHub settings G1-G5
+
+Applied 2026-10-02 12:35-12:36 UTC (18:05-18:06 IST) by Claude through the owner's `gh` login, at the owner's
+request, and read back with `gh api`: six environments deployable from `main` only, the owner the required
+reviewer on `pre-prod`, `qa-prod` and `prod` (self-review allowed); ruleset `main` active (deletion and force
+push blocked, no bypass); actions must be pinned to a full commit SHA; Dependabot alerts and security updates on;
+CodeQL default setup configured. Claude changes none of these again without the owner asking. The steps below
+are kept as the record of what each setting is and how to undo it.
+
+### (record) GitHub settings (web UI, about 15 minutes, any time - independent of W0-now)
 
 Read on 2026-10-01 with read-only `gh api` calls: the repository has no environments, no ruleset or
 branch protection, actions are not required to be pinned to a commit, Dependabot alerts and security
