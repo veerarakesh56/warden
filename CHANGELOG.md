@@ -70,6 +70,8 @@ bump may carry a breaking change.
 - **Every listing is paged, and events are asked for by source** (audit A-B-M7, A-B-M8, A-B-L3, A-B-L4).
   Kubernetes events, Lambda versions and event-source mappings, ElastiCache and RDS events, HTTP APIs and SNS
   subscriptions were read one page deep. A cap now says when it is reached.
+- **A Lambda environment value is shown only under a configuration name** (audit A-B-M9). The name deny-list
+  let `DATABASE_URL=postgres://user:pw@...` out.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

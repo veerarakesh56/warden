@@ -236,11 +236,20 @@ _SECRETISH = re.compile(r"PASS|SECRET|TOKEN|KEY|CREDENTIAL|DSN|AUTH|PRIVATE|SESS
 _PLAIN_VALUE = re.compile(r"[A-Za-z0-9._:/@-]{0,200}")
 
 
+# The names whose values are configuration a diagnosis needs: which table, host, queue, region, timeout. An allowlist
+# (audit A-B-M9): the name deny-list showed `DATABASE_URL=postgres://user:pw@db/x` and any credential under a name it
+# did not list. A value is shown only under one of these names, and never with a login in it.
+_SHOWN_NAME = re.compile(r"(?:^|_)(?:NAME|HOST|HOSTNAME|ENDPOINT|TABLE|QUEUE|TOPIC|BUCKET|REGION|PORT|STAGE|ENV|"
+                         r"ENVIRONMENT|MODE|LEVEL|TIMEOUT|SECONDS|MS|SIZE|LIMIT|VERSION|SERVICE|DATABASE|DB|SCHEMA|"
+                         r"CLUSTER|ARN|USER)$")
+
+
 def _env_items(variables: dict) -> list[str]:
     out = []
     for name in sorted(variables):
         value = str(variables[name])
-        shown = not _SECRETISH.search(name) and _PLAIN_VALUE.fullmatch(value)
+        shown = (_SHOWN_NAME.search(name.upper()) and not _SECRETISH.search(name) and _PLAIN_VALUE.fullmatch(value)
+                 and "@" not in value and "://" not in value)
         out.append(f"{name}={value}" if shown else name)
     return out
 

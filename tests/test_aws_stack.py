@@ -851,3 +851,15 @@ def test_lambda_versions_past_the_cap_are_not_taken_for_the_newest(monkeypatch):
     lines = _backend(clients).logs(_alert(**{"lambda": f"{P}checkout"}))
     assert any("versions" in x and "truncated" in x for x in lines), lines
     assert not any("version=1 " in x for x in lines)
+
+
+@pytest.mark.parametrize("name, value, shown", [
+    ("TABLE_NAME", "warden-dev-carts", True), ("REDIS_HOST", "cache.internal", True), ("AWS_REGION", "x-1", True),
+    ("DATABASE_URL", "postgres://app:" + "hun" + "ter2" + "@db.internal/orders", False), ("CONN", "app:hunter2", False),
+    ("PWD", "hunter2", False), ("UPSTREAM", "hunter2", False), ("DB_HOST", "app@db.internal", False),
+    ("API_TOKEN_NAME", "x", False), ("SERVICE", "orders", True), ("DB_USER", "orders_app", True),
+])
+def test_an_environment_value_is_shown_only_under_a_configuration_name(name, value, shown):
+    """Audit A-B-M9: values were shown unless the name looked secret - `DATABASE_URL` carried a password out."""
+    [item] = aws_stack._env_items({name: value})
+    assert (item == f"{name}={value}") is shown, item
