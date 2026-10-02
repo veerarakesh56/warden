@@ -48,10 +48,32 @@ def tally(out: pathlib.Path) -> dict[str, int]:
     return counts
 
 
+def reverify(out: pathlib.Path) -> int:
+    """Re-run today's verifier over every stored report under `out`; return how many verdicts changed."""
+    from warden.models import Alert, ContextBundle, RemediationProposal, RootCause
+    from warden.verifier import verify
+
+    changed = 0
+    for f in sorted(out.glob("*/reports/*.json")):
+        d = json.loads(f.read_text(encoding="utf-8"))
+        if not d.get("proposal") or not d.get("root_cause"):
+            continue
+        v = verify(Alert(**d["alert"]), ContextBundle(**d["context"]), RootCause(**d["root_cause"]),
+                   RemediationProposal(**d["proposal"]))
+        if v.model_dump(mode="json") != d["verdict"]:
+            changed += 1
+            d["verdict"] = v.model_dump(mode="json")
+            f.write_text(json.dumps(d, indent=2), encoding="utf-8")
+    return changed
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--out", required=True, type=pathlib.Path, help="a NEW directory outside the repository")
     p.add_argument("--score-only", action="store_true", help="re-score a finished run; no model is called")
+    p.add_argument("--reverify", action="store_true",
+                   help="with --score-only: put each stored diagnosis through today's gate first (deterministic, no "
+                        "model call), so a gate fix made after the run counts")
     a = p.parse_args(argv)
     out = a.out.expanduser().resolve()
     if ROOT.resolve() in out.parents:
@@ -65,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if a.score_only:
         result = json.loads((out / "qualification.json").read_text(encoding="utf-8"))
+        if a.reverify:
+            result["reverified"] = reverify(out)
     else:
         from warden.llm import LLMClient
 

@@ -54,3 +54,27 @@ def test_the_cli_default_is_a_qualified_model(monkeypatch):
     monkeypatch.delenv("WARDEN_MODEL", raising=False)
     monkeypatch.delenv("WARDEN_QUALIFYING", raising=False)
     assert qualified(ClaudeCliProvider()).model == "claude-sonnet-5"
+
+
+def test_reverify_puts_stored_answers_through_todays_gate(tmp_path):
+    """--reverify: a gate fix made after a qualification run counts, and no model is called to apply it."""
+    import json
+    import sys
+
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "scripts"))
+    import qualify_provider
+
+    from warden.cli import DEMO_ALERTS
+    from warden.graph import run
+    from warden.llm import LLMClient
+    from warden.models import Alert
+
+    report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(mock=True))
+    stale = json.loads(report.model_dump_json())
+    stale["verdict"] = {**stale["verdict"], "status": "auto_safe", "policy_ids": [], "reasons": ["stale"]}
+    (tmp_path / "run" / "reports").mkdir(parents=True)
+    path = tmp_path / "run" / "reports" / "x.1.json"
+    path.write_text(json.dumps(stale), encoding="utf-8")
+    assert qualify_provider.reverify(tmp_path) == 1
+    assert json.loads(path.read_text(encoding="utf-8"))["verdict"] == report.verdict.model_dump(mode="json")
+    assert qualify_provider.reverify(tmp_path) == 0

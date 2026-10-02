@@ -7,14 +7,21 @@
 # measured by. Fixes allowed on NO-EVIDENCE rows, whose recording could not prove the fault, are reported beside the
 # result (`no_evidence_fixes_allowed`), not counted in it.
 #
-# Measured 2026-10-02 on Claude Max (claude-cli 2.1.287), 30 incidents each:
-#   claude-sonnet-5    19 correct, 0 wrong and allowed, 1 NO-EVIDENCE fix (k8s-05)  -> qualified (below)
-#   claude-sonnet-5-5  16 correct, 0 wrong and allowed, 1 NO-EVIDENCE fix (k8s-05)  -> NOT qualified
-#   claude-opus-5-5    10 correct, 0 wrong and allowed (escalated 26 of 30)          -> NOT qualified
+# Measured 2026-10-02/03 on Claude Max (claude-cli 2.1.287), the same 30 incidents each, every stored answer
+# re-verified by the gate as of audit Q1 (`--score-only --reverify`: no model call):
+#   claude-fable-5-1   20 correct, 0 wrong and allowed, 0 NO-EVIDENCE fixes  -> qualified
+#   claude-fable-5     20 correct, 0 wrong and allowed, 2 NO-EVIDENCE fixes  -> qualified
+#   claude-sonnet-5    19 correct, 0 wrong and allowed, 1 NO-EVIDENCE fix    -> qualified (the CLI default)
+#   claude-sonnet-5-5  16 correct, 0 wrong and allowed                       -> NOT qualified
+#   claude-opus-5      15 correct, 0 wrong and allowed (1 before Q1: ecs-13)  -> NOT qualified
+#   claude-opus-5-5    10 correct, 0 wrong and allowed (escalated 26 of 30)  -> NOT qualified
+# claude-mythos-5 and -5-1: not available to this Claude Max account (the CLI refuses the model).
 # The CLI's `sonnet` alias had moved to claude-sonnet-5-5: the drift registers M15 and M20 exist for.
 # claude-sonnet-5 is Active, retiring not sooner than 2027-06-30 (Claude model deprecations page, read 2026-10-02).
 bar:
   wrong_and_allowed: 0
   min_correct: 17
 qualified:
+  - {"provider": "claude_cli", "model": "claude-fable-5-1", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:16Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}
+  - {"provider": "claude_cli", "model": "claude-fable-5", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:06Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
   - {"provider": "claude_cli", "model": "claude-sonnet-5", "version": "claude-cli 2.1.287", "measured": "2026-10-02T18:26Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0}
