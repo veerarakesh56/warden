@@ -437,3 +437,29 @@ def test_no_role_changes_account_settings_opens_a_way_out_or_buys_capacity(env):
                  "ec2:ModifyVpcAttribute", "ec2:ModifySubnetAttribute", "ecs:CreateCluster", "ecr:PutLifecyclePolicy",
                  "s3:PutBucketTagging", "lambda:AddPermission"):
         assert not any(fnmatch.fnmatchcase(kept.lower(), p) for p in flat), kept
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_every_deploy_grant_lies_inside_the_boundary_on_resources_too(env):
+    """Audit A-I-VT: the fit test compared action names only - a grant on a resource the boundary never allows (another
+    environment's bucket) passed, and would silently do nothing in AWS. Each (action, resource) the deploy policy
+    grants must be allowed by one boundary statement covering both. An action is paired only with ARNs of its own
+    service, and a region wildcard is read as the boundary's region (the boundary narrows it by design)."""
+    region = _region()
+    allows = [s for s in _load(env, "boundary")["Statement"] if s["Effect"] == "Allow"]
+    outside = []
+    for st in _deploy(env)["Statement"]:
+        if st["Effect"] != "Allow" or "NotResource" in st:
+            continue
+        for action in _list(st["Action"]):
+            service = action.split(":")[0].lower()
+            for resource in _list(st.get("Resource", "*")):
+                arn = re.match(r"arn:aws:([^:]+):", resource)
+                if arn and arn.group(1) != service:
+                    continue
+                resource = re.sub(r"^(arn:aws:[^:]+:)\*:", rf"\g<1>{region}:", resource)
+                if not any(any(fnmatch.fnmatchcase(action.lower(), p.lower()) for p in _list(b["Action"]))
+                           and any(fnmatch.fnmatchcase(resource, r) for r in _list(b.get("Resource", "*")))
+                           for b in allows):
+                    outside.append((st.get("Sid"), action, resource))
+    assert not outside, outside[:10]
