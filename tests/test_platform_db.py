@@ -298,3 +298,12 @@ def test_its_own_login_reported_in_capitals_is_refused_too(engine):
     with pytest.raises(DatabasePlatformError, match="own login"):
         _platform(engine, conn, users=["orders_app"]).apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == []
+
+
+@pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
+def test_a_close_with_nothing_to_close_says_so_and_closes_nothing(engine):
+    """Audit A-B-M2: "applied" was reported even when nothing changed. With no session idle long enough, the platform
+    closes nothing and its report - what the audit and the approver see - says so."""
+    conn = _Conn(stuck=())
+    report = _platform(engine, conn).apply("db_terminate_idle_in_tx", PARAMS)
+    assert conn.killed == [] and "nothing closed" in report and "closed 0" not in report, report

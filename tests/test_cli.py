@@ -275,3 +275,19 @@ def test_a_bad_argument_is_printed_through_the_gate(capsys):
         err = capsys.readouterr().err
         assert chr(27) not in err and key not in err, err
         assert "error:" in err or "withheld by the outbound gate" in err, err  # a line holding a key is withheld
+
+
+def test_the_cli_never_applies_even_with_the_retired_live_switch_set(monkeypatch, capsys):
+    """Audit A-B-H2, decision D16: the in-process live path (WARDEN_REMEDIATION=live, remediation_k8s.py,
+    database_remediation.py) is gone. Set the old switch: an approved CLI run still only says what it would do, and
+    the modules that acted are absent - the one write path is the RemediationWorkflow."""
+    import importlib.util
+
+    monkeypatch.setenv("WARDEN_REMEDIATION", "live")
+    base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
+    assert main(base) == 0
+    assert main([*base, "--approve", _digest_from(capsys.readouterr().out)]) == 0
+    out = capsys.readouterr().out
+    assert "dry_run" in out and "would scale_up" in out, out
+    for gone in ("warden.remediation_k8s", "warden.database_remediation"):
+        assert importlib.util.find_spec(gone) is None, gone
