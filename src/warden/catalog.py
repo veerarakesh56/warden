@@ -181,4 +181,8 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
             problems.append(f"{pname}={value!r} is outside {spec.lo}..{spec.hi}")
     if not problems and entry.relative:
         problems += entry.relative(params, live)
+    if live.get("rollout") == "progressing":
+        # Register C5: a change made mid-rollout fights the rollout, and the next read cannot tell which did what.
+        problems.append("P21-ROLLOUT-IN-PROGRESS: a rollout of this target is under way; act after it completes "
+                        "or misses its deadline")
     return problems

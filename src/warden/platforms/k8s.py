@@ -78,7 +78,7 @@ class KubernetesPlatform:
             return {}
         labels = getattr(dep.metadata, "labels", None) or {}
         return {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
-                "environment": labels.get(ENV_LABEL),
+                "environment": labels.get(ENV_LABEL), "rollout": _rollout(dep),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
                           "generation": dep.metadata.generation, "server": self._server()}}
 
@@ -230,6 +230,21 @@ def _refused_by_the_server(exc: Exception, deployment: str) -> None:
         raise KubernetesPlatformRefused(f"the API server refused the write to deployment/{deployment} "
                                       f"(RBAC or an admission policy: {_one_line(getattr(exc, 'reason', '') or exc)}); "
                                       f"nothing was changed") from exc
+
+
+def _rollout(dep: Any) -> str:
+    """`progressing` while a rollout is under way inside its deadline, `stalled` once it missed it, else `complete` -
+    `kubectl rollout status`'s reading. A bad revision crash-looping reads `progressing` until its deadline (600 s by
+    default) and `stalled` after: the rollback that fixes it is refused for that long, not for ever (register C5)."""
+    st = dep.status
+    for c in getattr(st, "conditions", None) or []:
+        if getattr(c, "type", "") == "Progressing" and getattr(c, "reason", "") == "ProgressDeadlineExceeded":
+            return "stalled"
+    want, updated = _replicas(dep), st.updated_replicas or 0
+    if ((st.observed_generation or 0) < (dep.metadata.generation or 0) or updated < want
+            or (getattr(st, "replicas", None) or updated) > updated or (st.available_replicas or 0) < updated):
+        return "progressing"
+    return "complete"
 
 
 def _replicas(dep: Any) -> int:
