@@ -67,6 +67,9 @@ bump may carry a breaking change.
   stop among its oldest lines. It now loses older lines instead.
 - **An ECS rollback is read as one** (audit A-B-M6). A revision going live while a newer one is replaced has
   nothing to roll back to. Before, the broken revision was offered as the rollback target.
+- **Every listing is paged, and events are asked for by source** (audit A-B-M7, A-B-M8, A-B-L3, A-B-L4).
+  Kubernetes events, Lambda versions and event-source mappings, ElastiCache and RDS events, HTTP APIs and SNS
+  subscriptions were read one page deep. A cap now says when it is reached.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

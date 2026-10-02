@@ -85,6 +85,7 @@ ROLLOUT_HISTORY = 3
 # the whole tool budget. Newest pods first — they are the ones crashing now.
 LOG_MAX_PODS = int(os.environ.get("WARDEN_K8S_LOG_MAX_PODS", "5"))
 EVENT_LIMIT = int(os.environ.get("WARDEN_K8S_EVENT_LIMIT", "500"))
+EVENT_MAX_PAGES = int(os.environ.get("WARDEN_K8S_EVENT_MAX_PAGES", "10"))
 
 # Event reasons that are evidence in their own right. Anything else is noise at incident time.
 INTERESTING_EVENT_REASONS = {
@@ -189,12 +190,20 @@ class KubernetesBackend:
         lines: list[str] = []
 
         # Events: own try, so an events 403 or a busy namespace cannot take the pod logs with it.
+        # Every page (audit A-B-M7): a busy namespace's first page could hold none of this workload's events.
+        events: list = []
         try:
-            events = self._core.list_namespaced_event(
-                ns, limit=EVENT_LIMIT, _request_timeout=REQUEST_TIMEOUT
-            ).items
+            token = None
+            for _ in range(EVENT_MAX_PAGES):
+                resp = self._core.list_namespaced_event(
+                    ns, limit=EVENT_LIMIT, _request_timeout=REQUEST_TIMEOUT, **({"_continue": token} if token else {}))
+                events += resp.items or []
+                token = getattr(resp.metadata, "_continue", None) if getattr(resp, "metadata", None) else None
+                if not token:
+                    break
+            else:
+                lines.append(f"{PARTIAL_PREFIX}events: [output truncated] more than {EVENT_MAX_PAGES} pages read")
         except Exception as exc:  # noqa: BLE001 - partial failure, reported as such
-            events = []
             lines.append(f"{PARTIAL_PREFIX}events: {_api_error(exc)}")
 
         oldest = datetime.now(UTC) - LOG_LOOKBACK

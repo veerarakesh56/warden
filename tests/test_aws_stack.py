@@ -180,22 +180,28 @@ def _clients(**over):
         "elasticache": Fake(
             describe_replication_groups={"ReplicationGroups": [{"MemberClusters": [f"{P}redis-001", f"{P}redis-002"],
                                                                 "NodeGroups": [{"PrimaryEndpoint": {"Port": 6379}}]}]},
-            describe_cache_clusters={"CacheClusters": [
-                {"ReplicationGroupId": f"{P}redis", "CacheClusterStatus": "available",
-                 "CacheNodeType": "cache.t4g.micro", "SecurityGroups": [{"SecurityGroupId": "sg-0redis"}]},
-                {"ReplicationGroupId": f"{P}redis", "CacheClusterStatus": "modifying",
-                 "CacheNodeType": "cache.t4g.micro", "SecurityGroups": [{"SecurityGroupId": "sg-0redis"}]},
-                {"ReplicationGroupId": "someone-else", "CacheClusterStatus": "available"}]},
-            describe_events={"Events": [
+            # As AWS answers: by the cluster id asked, and events by the source asked.
+            describe_cache_clusters=lambda CacheClusterId: {"CacheClusters": [c for c in [
+                {"CacheClusterId": f"{P}redis-001", "ReplicationGroupId": f"{P}redis",
+                 "CacheClusterStatus": "available", "CacheNodeType": "cache.t4g.micro",
+                 "SecurityGroups": [{"SecurityGroupId": "sg-0redis"}]},
+                {"CacheClusterId": f"{P}redis-002", "ReplicationGroupId": f"{P}redis",
+                 "CacheClusterStatus": "modifying", "CacheNodeType": "cache.t4g.micro",
+                 "SecurityGroups": [{"SecurityGroupId": "sg-0redis"}]},
+                {"CacheClusterId": "other-001", "ReplicationGroupId": "someone-else", "CacheClusterStatus": "available"}]
+                if c["CacheClusterId"] == CacheClusterId]},
+            describe_events=lambda SourceIdentifier, **_: {"Events": [e for e in [
                 {"SourceIdentifier": f"{P}redis-001", "Date": NOW, "Message": "Failover complete"},
-                {"SourceIdentifier": "someone-else", "Date": NOW, "Message": "not ours"}]}),
+                {"SourceIdentifier": "someone-else", "Date": NOW, "Message": "not ours"}]
+                if e["SourceIdentifier"] == SourceIdentifier]}),
         "rds": Fake(
             describe_db_clusters={"DBClusters": [{"Status": "available", "DBClusterMembers": [
                 {"DBInstanceIdentifier": f"{P}aurora-1", "IsClusterWriter": True},
                 {"DBInstanceIdentifier": f"{P}aurora-2", "IsClusterWriter": False}]}]},
             describe_db_instances={"DBInstances": [{"DBInstanceStatus": "available"}] * 2},
-            describe_events={"Events": [{"SourceIdentifier": f"{P}aurora", "Date": NOW,
-                                         "Message": "Completed failover to DB instance"}]}),
+            describe_events=lambda SourceIdentifier, **_: {"Events": [e for e in [
+                {"SourceIdentifier": f"{P}aurora", "Date": NOW, "Message": "Completed failover to DB instance"}]
+                if e["SourceIdentifier"] == SourceIdentifier]}),
         "elbv2": Fake(
             describe_target_groups={"TargetGroups": [{
                 "TargetGroupArn": f"arn:aws:elasticloadbalancing:ap-south-2:1:targetgroup/{P}orders/abc",
@@ -599,6 +605,11 @@ def _api_calls() -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     for module in (aws_stack, aws_backend):
         for node in ast.walk(_tree(module)):
+            # A client method handed to the pager (`_pages(self._ec.describe_events, ...)`) is called by it.
+            if isinstance(node, ast.Call) and _dotted(node.func) == "_pages" and isinstance(node.args[0], ast.Attribute):
+                attr = _dotted(node.args[0].value).split(".", 1)[1]
+                assert attr in _CLIENT_PREFIX, f"unmapped client attribute self.{attr}"
+                found.add((attr, node.args[0].attr))
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 target = _dotted(node.func.value)
                 if target.startswith("self._") and target.count(".") == 1:
@@ -800,3 +811,43 @@ def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
         assert any(re.fullmatch(shape, covered) for shape in shapes), (service, resource, shapes)
     logs = [r for s, r in arns if s == "logs"]
     assert sorted(logs) == ["log-group:/aws/lambda/${local.name}-*", "log-group:/ecs/${local.name}-*"], logs
+
+
+def test_every_page_of_a_listing_is_read_and_a_cap_says_so(monkeypatch):
+    """Audit A-B-M8, A-B-L3, A-B-L4: listings were read one page deep."""
+    pages = {None: {"Items": [1], "Next": "a"}, "a": {"Items": [2], "Next": "b"}, "b": {"Items": [3]}}
+    got, cut = aws_stack._pages(lambda Marker=None: pages[Marker], "Items", next_token="Next")
+    assert (got, cut) == ([1, 2, 3], False)
+    monkeypatch.setattr(aws_stack, "LIST_MAX_PAGES", 2)
+    got, cut = aws_stack._pages(lambda Marker=None: pages[Marker], "Items", next_token="Next")
+    assert (got, cut) == ([1, 2], True)
+
+
+def test_events_are_asked_for_by_source_and_every_page_read():
+    """Audit A-B-L4: the whole account's events, one page of them, could hold none of the cluster's."""
+    calls = []
+
+    def describe_events(SourceIdentifier, SourceType, Marker=None, **_):
+        calls.append((SourceIdentifier, SourceType, Marker))
+        if SourceIdentifier == f"{P}aurora" and Marker is None:
+            return {"Events": [], "Marker": "m2"}
+        if SourceIdentifier == f"{P}aurora":
+            return {"Events": [{"SourceIdentifier": f"{P}aurora", "Date": NOW, "Message": "on page two"}]}
+        return {"Events": []}
+
+    clients = _clients()
+    clients["rds"]._methods["describe_events"] = describe_events
+    lines = _backend(clients).logs(_alert(aurora_cluster=f"{P}aurora"))
+    assert any("on page two" in x for x in lines), lines
+    assert (f"{P}aurora", "db-cluster", "m2") in calls and (f"{P}aurora-1", "db-instance", None) in calls
+
+
+def test_lambda_versions_past_the_cap_are_not_taken_for_the_newest(monkeypatch):
+    """Audit A-B-L3: versions come oldest first; a truncated list named an old version the newest."""
+    monkeypatch.setattr(aws_stack, "LIST_MAX_PAGES", 1)
+    lam = _lambda(list_versions_by_function={"Versions": [{"Version": "1"}], "NextMarker": "more"})
+    clients = _clients()
+    clients["lambda"] = lam
+    lines = _backend(clients).logs(_alert(**{"lambda": f"{P}checkout"}))
+    assert any("versions" in x and "truncated" in x for x in lines), lines
+    assert not any("version=1 " in x for x in lines)

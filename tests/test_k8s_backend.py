@@ -783,3 +783,18 @@ def test_an_earlier_incidents_events_and_logs_are_not_this_ones_evidence():
     assert "just now" in joined and "an hour ago" not in joined
     live = [kw for kw in core.log_kwargs if not kw.get("previous")]
     assert live and all(kw.get("since_seconds") == 15 * 60 for kw in live)
+
+
+def test_every_page_of_the_namespaces_events_is_read():
+    """Audit A-B-M7: one page of a busy namespace's events could hold none of this workload's."""
+    class Paged(FakeCore):
+        def list_namespaced_event(self, ns, **kw):
+            self.calls.append(f"events {kw.get('_continue')}")
+            if kw.get("_continue") == "p2":
+                return NS(items=[_event("BackOff", "the workload's own event")], metadata=NS(_continue=None))
+            return NS(items=[_event("Pulled", "noise", name="other-pod")], metadata=NS(_continue="p2"))
+
+    core = Paged(pods=[_pod()])
+    lines = _backend(core).logs(_alert())
+    assert any("the workload's own event" in x for x in lines), lines
+    assert core.calls.count("events p2") == 1

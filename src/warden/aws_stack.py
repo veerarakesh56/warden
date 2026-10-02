@@ -93,6 +93,23 @@ class _Out:
         self.deploys: list[dict] = []
 
 
+LIST_MAX_PAGES = int(os.environ.get("WARDEN_AWS_LIST_MAX_PAGES", "20"))
+
+
+def _pages(call, items: str, *, token: str = "Marker", next_token: str | None = None, **kwargs) -> tuple[list, bool]:
+    """Every page of an AWS listing, up to LIST_MAX_PAGES: (items, truncated). One page was read, and a long history
+    or a busy account lost what came after it (audit A-B-M8, A-B-L3, A-B-L4)."""
+    out: list = []
+    for _ in range(LIST_MAX_PAGES):
+        page = call(**kwargs)
+        out += page.get(items) or []
+        nxt = page.get(next_token or token)
+        if not nxt:
+            return out, False
+        kwargs[token] = nxt
+    return out, True
+
+
 def _names(alert: Alert, key: str) -> list[str]:
     return [n.strip() for n in (alert.labels.get(key) or "").split(",") if n.strip()]
 
@@ -464,15 +481,13 @@ class StackBackend:
                if live else self._lambda.get_function_configuration(FunctionName=fn))
         conc = self._lambda.get_function_concurrency(FunctionName=fn).get("ReservedConcurrentExecutions")
 
-        versions: list[dict] = []
-        kwargs: dict = {"FunctionName": fn}
-        for _ in range(10):  # ponytail: 10 pages x 50 versions; a longer history is truncated
-            page = self._lambda.list_versions_by_function(**kwargs)
-            versions += [v for v in page.get("Versions") or [] if str(v.get("Version")).isdigit()]
-            if not page.get("NextMarker"):
-                break
-            kwargs["Marker"] = page["NextMarker"]
-        versions.sort(key=lambda v: int(v["Version"]))
+        listed, cut = _pages(self._lambda.list_versions_by_function, "Versions", next_token="NextMarker",
+                             FunctionName=fn)
+        versions = sorted((v for v in listed if str(v.get("Version")).isdigit()), key=lambda v: int(v["Version"]))
+        if cut:  # versions come oldest first: the newest were the ones not read
+            out.lines.append(_partial(f"lambda/{fn} versions", f"[output truncated] more than {LIST_MAX_PAGES} pages; "
+                                      "the newest versions were not read"))
+            versions = []
 
         env = _env_items((cfg.get("Environment") or {}).get("Variables") or {})
         out.metrics[f"lambda_timeout_s{sfx}"] = float(cfg.get("Timeout") or 0)
@@ -488,7 +503,8 @@ class StackBackend:
             f"{sg_part}version={latest} alias_live={live or '-'}"
         )
 
-        esms = self._lambda.list_event_source_mappings(FunctionName=fn).get("EventSourceMappings") or []
+        esms, _ = _pages(self._lambda.list_event_source_mappings, "EventSourceMappings", next_token="NextMarker",
+                         FunctionName=fn)
         for m in esms:
             source = str(m.get("EventSourceArn", "?")).rsplit(":", 1)[-1]
             out.lines.append(f"ESM {fn} <- {source} State={m.get('State')} BatchSize={m.get('BatchSize')} "
@@ -615,15 +631,20 @@ class StackBackend:
     def _read_elasticache(self, out: _Out, alert: Alert, rg: str) -> None:
         group = self._ec.describe_replication_groups(ReplicationGroupId=rg)["ReplicationGroups"][0]
         members = list(group.get("MemberClusters") or [])
-        clusters = [c for c in self._ec.describe_cache_clusters().get("CacheClusters") or []
+        # Each member by its id: the account-wide listing was read one page deep (audit A-B-M8).
+        clusters = [c for m in members
+                    for c in self._ec.describe_cache_clusters(CacheClusterId=m).get("CacheClusters") or []
                     if c.get("ReplicationGroupId") == rg]
         out.metrics["redis_nodes_total"] = float(len(members))
         out.metrics["redis_nodes_available"] = float(
             sum(1 for c in clusters if c.get("CacheClusterStatus") == "available"))
         started = AwsBackend._started_at(alert)
-        events = self._ec.describe_events(StartTime=started - LOG_LOOKBACK,
-                                          EndTime=started + LOG_LOOKBACK).get("Events") or []
-        for e in events:
+        # By source, every page (audit A-B-L4): the whole account's events, one page of them, could hold none of ours.
+        sources = [(rg, "replication-group"), *((m, "cache-cluster") for m in members)]
+        events = [e for sid, kind in sources for e in _pages(
+            self._ec.describe_events, "Events", SourceIdentifier=sid, SourceType=kind,
+            StartTime=started - LOG_LOOKBACK, EndTime=started + LOG_LOOKBACK)[0]]
+        for e in sorted(events, key=lambda e: str(e.get("Date"))):
             if e.get("SourceIdentifier") in {rg, *members}:
                 out.lines.append(f"EVENT elasticache {rg} {_z(e.get('Date'))} {_one_line(e.get('Message', ''))}")
         queries = {}
@@ -672,9 +693,11 @@ class StackBackend:
         out.metrics["aurora_members_available"] = float(
             sum(1 for i in instances if i.get("DBInstanceStatus") == "available"))
         started = AwsBackend._started_at(alert)
-        events = self._rds.describe_events(StartTime=started - LOG_LOOKBACK,
-                                           EndTime=started + LOG_LOOKBACK).get("Events") or []
-        for e in events:
+        sources = [(cluster, "db-cluster"), *((i, "db-instance") for i in [*writer, *readers])]
+        events = [e for sid, kind in sources for e in _pages(
+            self._rds.describe_events, "Events", SourceIdentifier=sid, SourceType=kind,
+            StartTime=started - LOG_LOOKBACK, EndTime=started + LOG_LOOKBACK)[0]]
+        for e in sorted(events, key=lambda e: str(e.get("Date"))):
             if e.get("SourceIdentifier") in {cluster, *writer, *readers}:
                 out.lines.append(f"EVENT aurora {cluster} {_z(e.get('Date'))} {_one_line(e.get('Message', ''))}")
         d = {"DBClusterIdentifier": cluster}
@@ -740,7 +763,7 @@ class StackBackend:
             }))
 
     def _read_apigw(self, out: _Out, alert: Alert, api_name: str) -> None:
-        apis = self._apigw.get_apis().get("Items") or []
+        apis, _ = _pages(self._apigw.get_apis, "Items", token="NextToken")
         api = next((a for a in apis if a.get("Name") == api_name), None)
         if api is None:
             raise ToolError(f"no HTTP API named '{api_name}'")
@@ -823,7 +846,7 @@ class StackBackend:
     def _read_sns(self, out: _Out, alert: Alert, topic: str) -> None:
         account = self._sts.get_caller_identity()["Account"]
         arn = f"arn:aws:sns:{self._sns.meta.region_name}:{account}:{topic}"
-        subs = self._sns.list_subscriptions_by_topic(TopicArn=arn).get("Subscriptions") or []
+        subs, _ = _pages(self._sns.list_subscriptions_by_topic, "Subscriptions", token="NextToken", TopicArn=arn)
         for s in subs:
             if s.get("Protocol") != "sqs":
                 continue
