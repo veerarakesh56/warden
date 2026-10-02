@@ -110,6 +110,23 @@
           "aws:RequestedRegion": "ap-south-2"
         }
       }
+    },
+    {
+      "Sid": "AccessLogsOnlyToThisEnvironmentsGroup",
+      "Effect": "Deny",
+      "Action": [
+        "apigateway:POST",
+        "apigateway:PATCH"
+      ],
+      "Resource": [
+        "arn:aws:apigateway:*::/apis/*/stages",
+        "arn:aws:apigateway:*::/apis/*/stages/*"
+      ],
+      "Condition": {
+        "StringNotLike": {
+          "apigateway:Request/AccessLoggingDestination": "arn:aws:logs:*:*:log-group:/aws/vendedlogs/warden-prod-*"
+        }
+      }
     }
   ]
 }

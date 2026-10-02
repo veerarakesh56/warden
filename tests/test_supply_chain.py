@@ -276,3 +276,24 @@ def test_dependabot_never_updates_the_root_package_with_pip():
         if entry["package-ecosystem"] == "pip":
             assert all(d and d.startswith("/scenarios/") for d in dirs if d is not None), dirs
     assert any(e["package-ecosystem"] == "uv" and e.get("directory") == "/" for e in config["updates"])
+
+
+def test_the_image_ships_only_allowlisted_kinds_of_file_in_any_letter_case():
+    """Registers R8-O4, R9-O1: the build backend's excludes are a list matched with letter case - `SECRET.ENV` and
+    `Prod.TFVARS` under src/ shipped. The image build checks what it installed against an allowlist instead."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("check_package", ROOT / "scripts" / "check_package.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    planted = ["SECRET.ENV", "Prod.TFVARS", "warden/.env", "server.PEM", "notes.txt", "audit.DB", "x.tfstate",
+               "data/.hidden.yaml", "kubeconfig"]
+    assert mod.outside(planted) == planted
+    shipped = ["warden/__init__.py", "warden/__pycache__/cli.cpython-313.pyc", "warden/data/environments.yaml",
+               "warden/fixtures/inc-001.json", "warden/data/mcp_manifest.sha256", "warden/CLI.PY"]
+    assert mod.outside(shipped) == []
+    assert mod.main([str(ROOT / "src" / "warden")]) == 0  # the real package passes
+    stages = (ROOT / "Dockerfile").read_text(encoding="utf-8").split(chr(10) + "FROM ")
+    [build] = [st for st in stages if " AS build" in st]
+    sync = build.index("RUN uv sync")
+    assert "check_package.py" in build[sync:], "the image build does not check what it installed"

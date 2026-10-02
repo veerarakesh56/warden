@@ -502,3 +502,17 @@ def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
     assert st["Effect"] == "Allow" and st["Principal"] == {"AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-operator"}
     assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
     assert not (ROOT / "iam" / "staging" / "harness-trust.json").exists()
+
+
+def test_an_apis_access_logs_go_only_to_its_own_environments_group():
+    """Register R8-O4: logs:CreateLogDelivery has no resource to scope, so a dev API's access logs could be pointed at
+    prod's log group. The stage itself names the destination, and API Gateway checks it as a condition key on
+    /apis/<id>/stages: a stage written with any other destination is denied. A write that sets no logging is not."""
+    for env in ENVS:
+        doc = json.loads((ROOT / "iam" / env / "deploy-ec2.json").read_text(encoding="utf-8"))
+        [st] = [s for s in doc["Statement"] if s.get("Sid") == "AccessLogsOnlyToThisEnvironmentsGroup"]
+        assert st["Effect"] == "Deny" and sorted(_list(st["Action"])) == ["apigateway:PATCH", "apigateway:POST"]
+        assert set(_list(st["Resource"])) == {"arn:aws:apigateway:*::/apis/*/stages",
+                                              "arn:aws:apigateway:*::/apis/*/stages/*"}
+        assert st["Condition"] == {"StringNotLike": {"apigateway:Request/AccessLoggingDestination":
+                                                     f"arn:aws:logs:*:*:log-group:/aws/vendedlogs/warden-{env}-*"}}

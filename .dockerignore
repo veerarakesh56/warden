@@ -6,6 +6,7 @@
 !README.md
 !LICENSE
 !src/
+!scripts/check_package.py
 **/__pycache__
 **/*.pyc
 **/.env

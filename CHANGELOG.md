@@ -43,6 +43,12 @@ bump may carry a breaking change.
   refuses to end inside one, so digits running straight into letters, like a SHA-256 that starts
   `3851007894...`, are no longer masked. About one report in a hundred was refused because of this (CI,
   2026-10-02). Replaying the 337 recorded contexts changes none of them.
+- **An API's access logs go only to its own environment's log group** (register R8-O4). The deploy policy
+  denies writing an API Gateway stage whose access-log destination is any other group. `CreateLogDelivery`
+  itself has no resource to scope.
+- **The image ships only allowlisted kinds of file** (registers R8-O4, R9-O1). The image build checks the
+  installed package against `.py`, `.yaml`, `.json` and `.sha256`, in any letter case. The build backend's
+  case-sensitive exclude list let `SECRET.ENV` ship.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
