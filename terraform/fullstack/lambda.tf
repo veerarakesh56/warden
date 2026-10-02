@@ -93,7 +93,7 @@ locals {
         # Fault flags at their baseline values, so the variable NAMES never change during a fault
         # (scenarios/ops_fullstack.py FLAGS): fs-01 sets v2, fs-02 sets 2000.
         CHECKOUT_FF_1 = "v1"
-        CHECKOUT_FF_2    = "0"
+        CHECKOUT_FF_2 = "0"
       }
     }
     order-processor = {
@@ -115,8 +115,8 @@ locals {
       memory  = 256
       in_vpc  = true
       env = merge(local.db_env, {
-        DB_USER          = local.db_users["catalog"] # read-only; the reconciler reads the reader
-        REDIS_HOST       = aws_elasticache_replication_group.redis.primary_endpoint_address
+        DB_USER         = local.db_users["catalog"] # read-only; the reconciler reads the reader
+        REDIS_HOST      = aws_elasticache_replication_group.redis.primary_endpoint_address
         RECONCILER_FF_1 = "by_id" # fs-16 sets by_customer
       })
     }

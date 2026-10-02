@@ -966,11 +966,9 @@ def test_a_fault_flag_names_nothing_and_its_value_is_never_shown():
     value reached the evidence too. Flag names are opaque, and not names whose values WARDEN shows."""
     from scenarios.ops_fullstack import FLAGS
 
-    from warden import aws_stack
-
-    for fault, (name, baseline, value) in FLAGS.items():
+    # This lane has no WARDEN install: that the value stays hidden is checked in tests/test_aws_stack.py.
+    for fault, (name, _baseline, _value) in FLAGS.items():
         assert re.fullmatch(r"[A-Z]+_FF_\d+", name), (fault, name)
-        assert aws_stack._env_items({name: value}) == [name], (fault, name)
 
 
 def test_the_deployed_apps_carry_no_scenario_ids_or_fault_talk():

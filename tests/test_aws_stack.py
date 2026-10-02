@@ -898,3 +898,12 @@ def test_the_sg_line_names_cidr_ranges_and_prefix_lists_too():
     lines = _backend(clients).logs(_alert(elasticache=f"{P}redis"))
     [sg] = [x for x in lines if x.startswith("SG sg-0redis")]
     assert "10.0.0.0/16" in sg and "pl-0abc" in sg and "sg-0app" in sg and "0.0.0.0/0" not in sg, sg
+
+
+def test_a_fault_flags_value_never_reaches_the_evidence():
+    """Audit A-B-M12: `DDB_EXTRA_LATENCY_MS=2000` was shown. The opaque flag names are not names whose values
+    WARDEN shows."""
+    from scenarios.ops_fullstack import FLAGS
+
+    for fault, (name, _baseline, value) in FLAGS.items():
+        assert aws_stack._env_items({name: value}) == [name], (fault, name)
