@@ -88,6 +88,9 @@ async def check_clock(client: Client, task_queue: str = TASK_QUEUE, wait_s: floa
     return skew_problem(before, server, datetime.now(UTC))
 
 
+TYPED_TIERS = frozenset({"T2", "T3"})
+
+
 async def connect(address: str | None = None, key: bytes | None = None) -> Client:
     return await Client.connect(address or os.environ.get("WARDEN_TEMPORAL_ADDRESS", "127.0.0.1:7233"),
                                 data_converter=codec.data_converter(key))
@@ -112,7 +115,7 @@ async def status(client: Client, workflow_id: str) -> tuple[str, Plan | None]:
 
 
 async def approve(client: Client, workflow_id: str, *, plan_hash: str, key: Ed25519PrivateKey,
-                  approver: str) -> str:
+                  approver: str, typed_target: str | None = None) -> str:
     """Sign and send an approval of exactly the plan the approver reviewed.
 
     Refuses (sends nothing) when the workflow is not waiting for approval or its current plan is not
@@ -123,6 +126,10 @@ async def approve(client: Client, workflow_id: str, *, plan_hash: str, key: Ed25
         raise ValueError(f"{workflow_id} is not waiting for an approval (stage: {stage})")
     if plan.plan_hash != plan_hash:
         raise ValueError("the workflow's plan is not the one you reviewed; run `warden status` again")
+    if plan.tier in TYPED_TIERS and typed_target != plan.target:
+        # Register H1: a hash can be pasted without reading; a T2 or T3 approver types what the change touches.
+        raise ValueError(f"a {plan.tier} approval needs the plan's target typed exactly (--target, as `warden status` "
+                         "shows it)")
     signed = approvals.sign(key, approver=approver, workflow_id=workflow_id, plan_hash=plan.plan_hash,
                             tier=plan.tier)
     await client.get_workflow_handle(workflow_id).signal(RemediationWorkflow.approve, signed)

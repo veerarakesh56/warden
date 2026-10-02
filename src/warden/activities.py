@@ -187,6 +187,14 @@ class RemediationActivities:
         # The bounds key on the target the plan changes, not on `service` (audit A-B-M4); _not_approved re-checks
         # the target against the plan row before apply.
         reasons = self._blocked(plan)
+        # Register H1: approval fatigue. Past this many requests for approval in an hour, a person approving is
+        # stamping, not reading - the next plan waits.
+        asked = {e["body"].get("workflow_id") for e in self.audit.entries(kinds=("remediation.plan",),
+                                                                          since=datetime.now(UTC) - timedelta(hours=1))}
+        asked.discard(plan.workflow_id)
+        if len(asked) >= MAX_PLANS_PER_HOUR:
+            reasons.append(f"H1: {len(asked)} other plans asked for approval in the last hour; the cap is "
+                           f"{MAX_PLANS_PER_HOUR} (WARDEN_MAX_PLANS_PER_HOUR)")
         self.audit.append(plan.incident_id, "remediation.gate", {"workflow_id": plan.workflow_id, "run_id": _run_id(),
                                                                   "blocked": reasons})
         return reasons
@@ -201,7 +209,11 @@ class RemediationActivities:
         if any(a.approver == approval.approver for a in accepted):
             problems.append(f"{approval.approver} has already approved this plan")
         kind = "approval.refused" if problems else "approval.accepted"
+        # Register H1: how long the approver had the plan before signing. Under HASTY_S is recorded as hasty - read
+        # by the person who audits approvals, and by the catch trials (G7).
+        latency = (approval.issued_at - plan.created_at).total_seconds()
         self.audit.append(plan.incident_id, kind, {"workflow_id": plan.workflow_id, "run_id": _run_id(),
+                                                   "latency_s": round(latency, 1), "hasty": latency < HASTY_S,
                                                    "approver": approval.approver,
                                                    "nonce": approval.nonce, "plan_hash": plan.plan_hash,
                                                    "problems": problems})
@@ -428,6 +440,8 @@ class Diagnosed(BaseModel):
 
 # A cap across incidents (registers M18, A-P-4): a storm of incidents, each within its own budget, still spent without
 # end. Counted from the audit over the last 24 hours, reservations of unfinished calls included.
+MAX_PLANS_PER_HOUR = int(os.environ.get("WARDEN_MAX_PLANS_PER_HOUR", "6"))
+HASTY_S = 10.0  # an approval signed this soon after the plan was made was not read (register H1)
 DAILY_MAX_USD = float(os.environ.get("WARDEN_DAILY_MAX_USD", "10.00"))
 DAILY_MAX_TOKENS = int(os.environ.get("WARDEN_DAILY_MAX_TOKENS", "2000000"))
 

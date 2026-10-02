@@ -353,6 +353,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         _out(f"stage: {stage}")
         if plan:
             _out(f"plan : {_one(plan.entry)} {plan.params} tier {plan.tier}")
+            _out(f"target: {_one(plan.target)}")
             _out(f"where: {_one(plan.snapshot.get('server') or 'not stated by the platform')}")
             _out(f"hash : {plan.plan_hash}")
             for problem in plan.problems:
@@ -360,7 +361,8 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         return 0
     try:
         _out(await runtime.approve(client, args.workflow_id, plan_hash=args.plan_hash,
-                                    key=_approver_key(args.key), approver=args.approver))
+                                    key=_approver_key(args.key), approver=args.approver,
+                                    typed_target=args.target))
     except ValueError as exc:
         _out(f"not approved: {exc}")
         return 1
@@ -517,6 +519,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_approve.add_argument("--plan-hash", required=True, help="the hash `warden status` showed you")
     p_approve.add_argument("--approver", required=True)
     p_approve.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_approve.add_argument("--target", help="for T2 and T3: the plan's target, typed as `warden status` shows it")
     p_kill = sub.add_parser("killswitch", help="stop every remediation, or reset the stop with a signed approval")
     kill_sub = p_kill.add_subparsers(dest="kill_cmd", required=True)
     kill_sub.add_parser("status")

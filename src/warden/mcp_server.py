@@ -309,7 +309,7 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
                 stage, plan = await runtime.status(client, wid)
                 out["stage"] = stage
                 if plan:
-                    out["plan"] = plan.model_dump(mode="json", include={"entry", "params", "tier", "plan_hash",
+                    out["plan"] = plan.model_dump(mode="json", include={"entry", "params", "tier", "plan_hash", "target",
                                                                          "problems"})
             if desc.status == WorkflowExecutionStatus.COMPLETED:
                 result = await handle.result()  # an untyped handle decodes to plain JSON already

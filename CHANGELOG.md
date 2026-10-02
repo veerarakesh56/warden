@@ -121,6 +121,8 @@ bump may carry a breaking change.
   C10).
 - **A task that cannot start is a symptom: no_action beside one escalates** (audit Q1, found by the replay
   qualification).
+- **Approval fatigue: hasty approvals recorded, requests capped per hour, T2 and T3 approvers type the target**
+  (register H1).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

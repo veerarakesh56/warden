@@ -51,7 +51,7 @@ def test_approving_the_reviewed_plan_completes_the_fix(setup):
     async def drive(client, wid, owner):
         stage, plan = await runtime.status(client, wid)
         assert stage == "awaiting_approval" and plan.entry == "k8s_rollout_undo"
-        await runtime.approve(client, wid, plan_hash=plan.plan_hash, key=owner, approver="owner")
+        await runtime.approve(client, wid, plan_hash=plan.plan_hash, key=owner, approver="owner", typed_target=plan.target)
     assert _session(setup, FakePlatform(), drive).status == "recovered"
 
 

@@ -99,7 +99,7 @@ def test_start_request_and_read_through_the_tools(tmp_path, monkeypatch):
             assert status["plan"]["entry"] == "k8s_rollout_undo" and len(status["plan"]["plan_hash"]) == 64
             # the only way forward is a person's signature, outside the MCP server:
             await runtime.approve(env.client, wid, plan_hash=status["plan"]["plan_hash"], key=owner,
-                                  approver="owner")
+                                  approver="owner", typed_target=status["plan"]["target"])
             for _ in range(20):  # a handle fetched by id does not auto-skip time; advance it explicitly
                 status = (await call("workflow_status", {"workflow_id": wid}, env.client)).structured_content
                 if status["status"] == "COMPLETED":
