@@ -65,7 +65,7 @@ scenarios:
       - {kind: log_contains, value: "KeyError"}
       - {kind: deploys_nonempty}
     notes: >
-      The application flag CHECKOUT_PAYLOAD_SCHEMA (v1 at baseline) is set to v2 and published as a
+      The application flag CHECKOUT_FF_1 (v1 at baseline) is set to v2 and published as a
       new version, so the traceback frame is real deployed code and the alias move is a real deploy.
 
   - id: fs-02-lambda-timeout-too-low
@@ -321,7 +321,7 @@ scenarios:
       - {kind: metric_gte, left: reader_long_running_queries, right_value: 1}
     notes: >
       The index's definition is read from pg_indexes before the drop; the revert recreates it
-      CONCURRENTLY from that text. RECONCILE_LOOKUP (by_id at baseline) selects the scanning path,
+      CONCURRENTLY from that text. RECONCILER_FF_1 (by_id at baseline) selects the scanning path,
       which runs on the READER endpoint - so the evidence is the reader's session metrics.
 
   - id: fs-17-ecs-bad-image
@@ -386,7 +386,7 @@ scenarios:
     evidence_assertions:
       - {kind: log_contains, any_of: ["OutOfMemory", "exit code 137", "exitCode=137", "Exit Code: 137"]}
       - {kind: deploys_nonempty}
-    notes: ALLOC_MB (0 at baseline) makes the process really allocate 400 MiB.
+    notes: ORDERS_FF_1 (0 at baseline) makes the process really allocate 400 MiB.
 
   # Redesigned 2026-09-26, BEFORE any fault ran: Aurora in express configuration (the AWS Free
   # plan) authenticates with IAM only, so there is no password to rotate. The old class

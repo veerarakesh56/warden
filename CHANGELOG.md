@@ -88,6 +88,10 @@ bump may carry a breaking change.
   check and silently became "now", and a zoneless time could be local or UTC.
 - **Teardown removes only what is tagged as the proving ground's, and never calls a failed listing clean**
   (audit A-B-M14, A-B-M19, A-B-L15).
+- **The benchmark stops hinting** (audit A-B-M11, A-B-M12, A-B-L16).
+  - The fault flags have opaque names.
+  - The deployed apps carry no scenario ids or fault talk.
+  - The score headline also counts the NO-EVIDENCE runs the gate let through.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

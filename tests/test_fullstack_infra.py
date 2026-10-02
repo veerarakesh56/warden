@@ -439,8 +439,8 @@ def test_every_app_file_compiles(tmp_path):
 
 # The fault flags scenarios/ops_fullstack.py flips must exist at their baseline value from the start,
 # so a variable NAME never appears only during a fault.
-BASELINE_FLAGS = {"checkout": {"CHECKOUT_PAYLOAD_SCHEMA": "v1", "DDB_EXTRA_LATENCY_MS": "0"},
-                  "reconciler": {"RECONCILE_LOOKUP": "by_id"}}
+BASELINE_FLAGS = {"checkout": {"CHECKOUT_FF_1": "v1", "CHECKOUT_FF_2": "0"},
+                  "reconciler": {"RECONCILER_FF_1": "by_id"}}
 
 
 def test_fault_flags_are_set_to_their_baseline_and_read_by_the_code():
@@ -452,7 +452,7 @@ def test_fault_flags_are_set_to_their_baseline_and_read_by_the_code():
             assert f'"{name}"' in src, f"{fn} never reads {name}"
     checkout = (APPS / "lambdas" / "checkout" / "app.py").read_text(encoding="utf-8")
     assert 'item["sku_id"]' in checkout  # fs-01: v2 reads a field real payloads do not carry
-    assert "ALLOC_MB" in (APPS / "app" / "app.py").read_text(encoding="utf-8")
+    assert "ORDERS_FF_1" in (APPS / "app" / "app.py").read_text(encoding="utf-8")
 
 
 def test_the_slow_index_is_the_one_the_harness_drops():
@@ -959,3 +959,26 @@ def test_aurora_create_refuses_a_cluster_without_iam_authentication(tmp_path):
     with pytest.raises(SystemExit, match="IAM database authentication is not enabled"):
         ax.create(rds, sm, stack, log=lambda *_: None)
     assert not any(n == "create_db_instance" for n, _ in rds.calls), "no reader added to such a cluster"
+
+
+def test_a_fault_flag_names_nothing_and_its_value_is_never_shown():
+    """Audit A-B-M12: `DDB_EXTRA_LATENCY_MS=2000` named the injected cause, and with a configuration-shaped name its
+    value reached the evidence too. Flag names are opaque, and not names whose values WARDEN shows."""
+    from scenarios.ops_fullstack import FLAGS
+
+    from warden import aws_stack
+
+    for fault, (name, baseline, value) in FLAGS.items():
+        assert re.fullmatch(r"[A-Z]+_FF_\d+", name), (fault, name)
+        assert aws_stack._env_items({name: value}) == [name], (fault, name)
+
+
+def test_the_deployed_apps_carry_no_scenario_ids_or_fault_talk():
+    """Audit A-B-L16: a comment beside the code a traceback points at reaches the model as a SOURCE line -
+    `# fs-20: memory that is never released` named the scenario."""
+    for path in [*(APPS / "lambdas").glob("*/app.py"), APPS / "app" / "app.py"]:
+        if path.parent.name == "ops":  # the harness's own tool, never an incident's target
+            continue
+        text = path.read_text(encoding="utf-8")
+        hits = re.findall(r"(?i)\bfs-\d\d\b|\bfault|\binject|\bbenchmark|\bscenario|\bharness", text)
+        assert not hits, (path.name, hits)

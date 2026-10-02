@@ -3,15 +3,15 @@
   orders-api   ECS behind the ALB. GET /orders reads the Aurora WRITER as user app, cached in Redis
                for 30 s. GET /health answers without touching a dependency.
   catalog-api  EKS. GET /catalog reads Redis + the Aurora READER as user catalog. /health and /ready
-               on 8080. Validates its config at start and exits with a clear error on a bad value
-               (fs-22). Needs CATALOG_SIGNING_KEY (from Secret catalog-secret) to start (fs-23).
+               on 8080. Validates its config at start and exits with a clear error on a bad value.
+               Needs CATALOG_SIGNING_KEY (from Secret catalog-secret) to start.
 
 Database logins are IAM tokens (Aurora express configuration has no passwords): boto3 signs one
 with the workload's own role - the ECS task role, or catalog-api's EKS Pod Identity role - for
 DB_USER on DB_HOST, and it is reused for 9 of its 15 minutes.
   cart-worker  EKS. Touches Redis in a loop; /health on 8080 for its probes.
 
-Fault flags (env): ALLOC_MB - allocate and hold this much memory at start (fs-20).
+Feature flag ORDERS_FF_1 (set by the stack): a working set, in MiB, held from start.
 Framework-free on purpose: http.server from the stdlib, psycopg, redis, boto3. Nothing else.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ import redis
 ROLE = os.environ.get("APP_ROLE", "orders-api")
 log = logging.getLogger(ROLE)
 
-_held: list[bytearray] = []  # fs-20: memory that is never released
+_held: list[bytearray] = []  # the working set, held for the process's life
 TOKEN_REUSE_S = 540  # an IAM token is valid for 15 min; never hand out one older than 9
 _tokens: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
@@ -78,7 +78,7 @@ def db_token(host: str, user: str) -> str:
 
 def db_connect() -> psycopg.Connection:
     # A connection per request, deliberately: the login is checked on every connect, so a revoked
-    # rds-db:connect grant (fs-21) and a full pool (fs-12) show up on the next request.
+    # rds-db:connect grant and a full pool show up on the next request.
     host, user = os.environ["DB_HOST"], os.environ["DB_USER"]
     return psycopg.connect(host=host, dbname=os.environ.get("DB_NAME", "shop"), user=user,
                            password=db_token(host, user), port=5432, connect_timeout=5, sslmode="require")
@@ -156,7 +156,7 @@ def cart_worker_loop(interval: int) -> None:
 
 def main() -> None:
     setup_logging()
-    alloc = int_setting("ALLOC_MB", 0, 0, 65536)
+    alloc = int_setting("ORDERS_FF_1", 0, 0, 65536)
     if alloc:
         log.info("allocating %d MiB working set", alloc)
         block = bytearray(alloc * 1024 * 1024)

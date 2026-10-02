@@ -169,7 +169,7 @@ FAULTS = {
          "SG sg-0redis ingress tcp/6379 from=[]",
          "APPSG ecs/warden-dev-orders-api sgs=[sg-0ecs]",
          ("CONFIG lambda warden-dev-reconciler timeout=90s memory=256MB reserved_concurrency=none "
-          "env=[RECONCILE_LOOKUP=by_id] sgs=[sg-0lambda] version=3 alias_live=-")],
+          "env=[RECONCILER_FF_1=by_id] sgs=[sg-0lambda] version=3 alias_live=-")],
         {"lambda_errors__reconciler": 5.0}),
         "cache_unreachable", ("authorize-security-group-ingress --group-id sg-0redis --protocol tcp --port 6379 "
                               "--source-group sg-0ecs")),

@@ -1,13 +1,13 @@
 """warden-dev-order-processor - SQS warden-dev-orders -> INSERT into Aurora (writer).
 
 In the VPC, out through the NAT gateway to Aurora's internet access gateway. DB_HOST from the
-environment (fs-14/fs-15 repoint it); empty means the host in the metadata secret SECRET_ARN.
+environment; empty means the host in the metadata secret SECRET_ARN.
 No password: the function's role signs an IAM token as DB_USER (rds-db:connect), reused for 9 of
 its 15 minutes.
 
 An unparseable message is logged with its traceback and reported as a batch item failure, so it
-alone is retried and, after maxReceiveCount, lands in the DLQ (fs-06). A database error fails the
-whole batch: it is not the message's fault.
+alone is retried and, after maxReceiveCount, lands in the DLQ. A database error fails the whole
+batch: the message itself is fine.
 """
 import functools
 import json

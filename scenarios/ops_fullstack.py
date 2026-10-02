@@ -57,10 +57,10 @@ HOLD_APP_PREFIX = "warden-bench-hold-"
 # before and after the fault - a variable that only appears during a fault names the answer.
 FLAGS: dict[str, tuple[str, str, str]] = {
     # fault: (env var, baseline value, fault value)
-    "fs-01": ("CHECKOUT_PAYLOAD_SCHEMA", "v1", "v2"),        # v2 reads body["sku_id"] -> KeyError
-    "fs-02": ("DDB_EXTRA_LATENCY_MS", "0", "2000"),          # sleep before the DynamoDB call
-    "fs-16": ("RECONCILE_LOOKUP", "by_id", "by_customer"),   # query path needing the dropped index
-    "fs-20": ("ALLOC_MB", "0", "400"),                       # orders-api allocates this at start
+    "fs-01": ("CHECKOUT_FF_1", "v1", "v2"),        # v2 reads body["sku_id"] -> KeyError
+    "fs-02": ("CHECKOUT_FF_2", "0", "2000"),          # sleep before the DynamoDB call
+    "fs-16": ("RECONCILER_FF_1", "by_id", "by_customer"),   # query path needing the dropped index
+    "fs-20": ("ORDERS_FF_1", "0", "400"),                       # orders-api allocates this at start
 }
 
 

@@ -31,10 +31,10 @@ class World:
             fn: {"Timeout": 10, "Environment": {"Variables": dict(env)}, "LastUpdateStatus": "Successful",
                  "FunctionArn": f"arn:aws:lambda:ap-south-2:111122223333:function:{fn}"}
             for fn, env in {
-                "warden-dev-checkout": {"TABLE_NAME": "warden-dev-carts", "CHECKOUT_PAYLOAD_SCHEMA": "v1",
-                                          "DDB_EXTRA_LATENCY_MS": "0"},
+                "warden-dev-checkout": {"TABLE_NAME": "warden-dev-carts", "CHECKOUT_FF_1": "v1",
+                                          "CHECKOUT_FF_2": "0"},
                 "warden-dev-order-processor": {"DB_HOST": "warden-dev-aurora.cluster-x.rds.amazonaws.com"},
-                "warden-dev-reconciler": {"RECONCILE_LOOKUP": "by_id"},
+                "warden-dev-reconciler": {"RECONCILER_FF_1": "by_id"},
                 "warden-dev-notifier": {}, "warden-dev-ops": {},
             }.items()}
         self.tags = {fn: dict(TAGGED) for fn in self.lambdas}
@@ -74,7 +74,7 @@ class World:
         self.ecs_td = "arn:aws:ecs:ap-south-2:111122223333:task-definition/warden-dev-orders-api:3"
         self.tds = {self.ecs_td: {"family": "warden-dev-orders-api", "cpu": "512", "memory": "1024",
                                   "containerDefinitions": [{"name": "orders-api", "image": "ecr/app:v1",
-                                                            "environment": [{"name": "ALLOC_MB", "value": "0"}]}]}}
+                                                            "environment": [{"name": "ORDERS_FF_1", "value": "0"}]}]}}
         self.forced = 0
         self.tg_path = "/health"
         self.secret = json.dumps({"username": "app", "dbname": "shop", "port": 5432, "host": "h", "reader": "r"})
@@ -588,7 +588,7 @@ def test_checkout_config_faults_are_real_deploys_on_the_alias():
     live = w.versions[w.alias["warden-dev-checkout"]]
     assert w.alias["warden-dev-checkout"] != "7"
     assert live["Timeout"] == 1
-    assert live["Environment"]["Variables"]["DDB_EXTRA_LATENCY_MS"] == "2000"
+    assert live["Environment"]["Variables"]["CHECKOUT_FF_2"] == "2000"
 
 
 def test_failover_records_the_original_writer_and_fails_back():

@@ -245,7 +245,7 @@ def task_definition(stack: dict, image: str) -> dict:
                 {"name": "DB_NAME", "value": stack["db_name"]},
                 {"name": "AWS_REGION", "value": stack["region"]},
                 # Fault flag at its baseline value (scenarios/ops_fullstack.py FLAGS, fs-20).
-                {"name": "ALLOC_MB", "value": "0"},
+                {"name": "ORDERS_FF_1", "value": "0"},
             ],
             # DB_USER (= app) comes from the metadata secret on purpose: no password exists any
             # more, but the EXECUTION role must still resolve a secret at task start, or fs-18

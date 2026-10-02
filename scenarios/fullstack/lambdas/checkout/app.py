@@ -2,11 +2,7 @@
 
 Validates the order JSON, writes it to DynamoDB (TABLE_NAME), publishes an order event to SNS.
 
-Fault flags (names from scenarios/ops_fullstack.py FLAGS; terraform sets the baseline values):
-  CHECKOUT_PAYLOAD_SCHEMA  v1 | v2. v2 is the fs-01 regression: it reads each item's `sku_id`, a
-                           field real payloads do not have, so every real checkout raises
-                           KeyError: 'sku_id'. The harness publishes it as a new version + alias.
-  DDB_EXTRA_LATENCY_MS     latency injected before the DynamoDB call (fs-02).
+Feature flags CHECKOUT_FF_1 and CHECKOUT_FF_2 are set by the stack.
 The Lambda runtime's log format already carries level + ISO timestamp; an unhandled exception is
 logged with its traceback by the runtime.
 """
@@ -37,7 +33,7 @@ def _valid(body):
 
 
 def _items(body):
-    if os.environ.get("CHECKOUT_PAYLOAD_SCHEMA", "v1") == "v2":
+    if os.environ.get("CHECKOUT_FF_1", "v1") == "v2":
         return [{"sku": item["sku_id"], "qty": item["qty"]} for item in body["items"]]
     return [{"sku": item["sku"], "qty": item["qty"]} for item in body["items"]]
 
@@ -52,9 +48,9 @@ def handler(event, context):
     if not _valid(body):
         return _resp(400, {"error": "expected {cart_id: str, items: [{sku: str, qty: int > 0}]}"})
 
-    slow_ms = int(os.environ.get("DDB_EXTRA_LATENCY_MS", "0"))
-    if slow_ms:
-        time.sleep(slow_ms / 1000)
+    pause_ms = int(os.environ.get("CHECKOUT_FF_2", "0"))
+    if pause_ms:
+        time.sleep(pause_ms / 1000)
 
     order_id = str(uuid.uuid4())
     items = _items(body)

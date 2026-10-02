@@ -128,7 +128,7 @@ def test_ecs_task_definition_logs_in_with_the_task_role_and_still_resolves_a_sec
     # The execution role still resolves one value at task start, so fs-18 still stops the task.
     assert c["secrets"] == [{"name": "DB_USER", "valueFrom": STACK["db_app_secret_arn"] + ":username::"}]
     assert "PASSWORD" not in json.dumps(td)
-    assert {"name": "ALLOC_MB", "value": "0"} in c["environment"]
+    assert {"name": "ORDERS_FF_1", "value": "0"} in c["environment"]
     assert c["logConfiguration"]["options"]["awslogs-group"] == "/ecs/warden-dev-orders-api"
 
 

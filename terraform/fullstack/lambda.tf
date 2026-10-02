@@ -92,8 +92,8 @@ locals {
         TOPIC_ARN  = aws_sns_topic.order_events.arn
         # Fault flags at their baseline values, so the variable NAMES never change during a fault
         # (scenarios/ops_fullstack.py FLAGS): fs-01 sets v2, fs-02 sets 2000.
-        CHECKOUT_PAYLOAD_SCHEMA = "v1"
-        DDB_EXTRA_LATENCY_MS    = "0"
+        CHECKOUT_FF_1 = "v1"
+        CHECKOUT_FF_2    = "0"
       }
     }
     order-processor = {
@@ -117,7 +117,7 @@ locals {
       env = merge(local.db_env, {
         DB_USER          = local.db_users["catalog"] # read-only; the reconciler reads the reader
         REDIS_HOST       = aws_elasticache_replication_group.redis.primary_endpoint_address
-        RECONCILE_LOOKUP = "by_id" # fs-16 sets by_customer
+        RECONCILER_FF_1 = "by_id" # fs-16 sets by_customer
       })
     }
     traffic = {

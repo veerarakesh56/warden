@@ -3,10 +3,8 @@
 As user DB_USER (catalog, read-only) with an IAM token; DB_HOST empty means the `reader` endpoint
 in the metadata secret SECRET_ARN.
 
-Fault flag RECONCILE_LOOKUP (scenarios/ops_fullstack.py FLAGS; terraform sets the baseline):
-  by_id        baseline: orders of the last hour (index on created_at) + a primary-key lookup
-  by_customer  fs-16: per-customer totals for 30 customers in ONE statement - one index probe each
-               while orders_customer_id_idx exists, one full scan of `orders` each once it is gone
+Feature flag RECONCILER_FF_1 (set by the stack) picks the lookup: by_id (orders of the last hour plus a
+primary-key lookup) or by_customer (per-customer totals for 30 customers in one statement).
 """
 import functools
 import json
@@ -49,7 +47,7 @@ def _token(host, user):
 
 
 def handler(event, context):
-    lookup = os.environ.get("RECONCILE_LOOKUP", "by_id")
+    lookup = os.environ.get("RECONCILER_FF_1", "by_id")
     host = os.environ.get("DB_HOST") or _meta()["reader"]
     user = os.environ["DB_USER"]  # named for the environment (warden_<env>_catalog); no default
     with psycopg.connect(host=host, dbname=os.environ.get("DB_NAME", "shop"), user=user,

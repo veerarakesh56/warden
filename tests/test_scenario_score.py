@@ -568,3 +568,18 @@ def test_the_rubric_hash_does_not_depend_on_line_endings(tmp_path):
     assert score._content_sha256(lf) == score._content_sha256(crlf)
     assert runner._sha256(lf) == runner._sha256(crlf)
     assert score._content_sha256(lf) == runner._sha256(lf), "runner and scorer must agree"
+
+
+def test_the_headline_counts_the_ungradable_runs_the_gate_let_through():
+    """Audit A-B-M11: NO-EVIDENCE rows the gate allowed were left out of the headline entirely."""
+    from scenarios import score
+
+    rows = [{"scenario_id": "s1", "diagnosis": score.NO_EVIDENCE, "gate": "allowed", "evidence": False,
+             "confidence": 0.9, "action": "restart_pods", "reversible": True},
+            {"scenario_id": "s2", "diagnosis": score.NO_EVIDENCE, "gate": "refused", "evidence": False,
+             "confidence": 0.9, "action": "restart_pods", "reversible": True},
+            {"scenario_id": "s3", "diagnosis": score.WRONG, "gate": "allowed", "evidence": True,
+             "confidence": 0.9, "action": "restart_pods", "reversible": True}]
+    summary = score.summarise({"rows": rows})
+    assert summary["headline_wrong_and_allowed"] == 1 and summary["no_evidence_allowed"] == 1
+
