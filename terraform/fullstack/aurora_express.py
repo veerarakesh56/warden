@@ -40,7 +40,13 @@ import sys
 import time
 
 # One environment per process, set by use() from WARDEN_ENV in main(): never a default.
-ENV = PREFIX = CLUSTER = SECRET_ID = APP_USER = ""
+# Set by use(). One per line: a chained `= ""` made one literal flow into the secret's name AND the cluster's,
+# and CodeQL read every log of the cluster name as logging a secret (2026-10-02).
+ENV = ""
+PREFIX = ""
+CLUSTER = ""
+SECRET_ID = ""
+APP_USER = ""
 TAGS: list[dict] = []
 DB_NAME = "shop"
 MASTER_USER = "postgres"   # express configuration's master user; it cannot be chosen
