@@ -25,6 +25,10 @@ from .models import Alert
 from .tools import PARTIAL_PREFIX, ToolError, failure
 
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_DB_CONNECT_TIMEOUT", "4.0"))
+# Every statement and every lock wait is bounded: a read of a database that is already in trouble must not hang
+# behind a lock or add a long query to its load (audit A-B-M1, register O8). Seconds.
+STATEMENT_TIMEOUT = float(os.environ.get("WARDEN_DB_STATEMENT_TIMEOUT", "10.0"))
+LOCK_TIMEOUT = 2.0
 # A connection counts as "stuck" (terminate-eligible, and evidence in its own right) once it has been
 # idle-in-transaction / idle / a long-running op for this many seconds.
 IDLE_SECS = int(os.environ.get("WARDEN_DB_TERMINATE_IDLE_SECS", "300"))
@@ -71,7 +75,13 @@ class _Postgres:
     def connect(dsn: str):
         import psycopg
 
-        return psycopg.connect(dsn, connect_timeout=int(CONNECT_TIMEOUT), autocommit=True)
+        conn = psycopg.connect(dsn, connect_timeout=int(CONNECT_TIMEOUT), autocommit=True)
+        # Session settings, not connect options: options the DSN itself carries are kept.
+        with conn.cursor() as cur:
+            cur.execute(f"SET statement_timeout = {int(STATEMENT_TIMEOUT * 1000)}")
+            cur.execute(f"SET lock_timeout = {int(LOCK_TIMEOUT * 1000)}")
+            cur.execute("SET application_name = 'warden'")
+        return conn
 
     @staticmethod
     def _rows(conn, sql: str, params=()):
@@ -219,6 +229,8 @@ class _MySQL:
             host=u.hostname or "localhost", port=u.port or 3306,
             user=(u.username or "root"), password=(u.password or ""),
             database=(u.path.lstrip("/") or None), connect_timeout=int(CONNECT_TIMEOUT), autocommit=True,
+            # Socket bounds: MAX_EXECUTION_TIME would bound the statement itself, but MariaDB refuses it.
+            read_timeout=int(STATEMENT_TIMEOUT), write_timeout=int(STATEMENT_TIMEOUT),
         )
 
     @staticmethod
@@ -345,7 +357,8 @@ class _Mongo:
     def connect(dsn: str):
         import pymongo
 
-        return pymongo.MongoClient(dsn, serverSelectionTimeoutMS=int(CONNECT_TIMEOUT * 1000))
+        return pymongo.MongoClient(dsn, serverSelectionTimeoutMS=int(CONNECT_TIMEOUT * 1000),
+                                   socketTimeoutMS=int(STATEMENT_TIMEOUT * 1000))
 
     @classmethod
     def metrics(cls, conn) -> dict[str, float]:
@@ -390,11 +403,15 @@ class _MSSQL:
         import pymssql
 
         u = urlparse(dsn)
-        return pymssql.connect(
+        conn = pymssql.connect(
             server=u.hostname or "localhost", port=str(u.port or 1433),
             user=(u.username or "sa"), password=(u.password or ""),
             database=(u.path.lstrip("/") or "master"), login_timeout=int(CONNECT_TIMEOUT), autocommit=True,
+            timeout=int(STATEMENT_TIMEOUT),
         )
+        cur = conn.cursor()
+        cur.execute(f"SET LOCK_TIMEOUT {int(LOCK_TIMEOUT * 1000)}")
+        return conn
 
     @staticmethod
     def _rows(conn, sql, params=()):

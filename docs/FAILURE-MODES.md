@@ -107,7 +107,7 @@ its audit rows.
 | O4 | Backup and DR of WARDEN's state | Aurora backups + PITR; restore drill in W2 | G3 | OPEN | |
 | O6 | Clock skew | `workflow.now()`; skew check at worker start | G3 | OPEN | |
 | M23 | Non-English logs miss the English vocabulary | Code-shaped facts only; measure. To be DEFERRED only with the owner's agreement | G8 | OPEN | |
-| O8 | Reading an already-degraded database adds load | `statement_timeout`, `lock_timeout`, `application_name` on the reader | G1 | OPEN | |
+| O8 | Reading an already-degraded database adds load | `statement_timeout`, `lock_timeout`, `application_name` on the reader | G1 | DONE-local | every connection WARDEN opens - the reader and the remediation platform share the adapters - bounds its statements and lock waits: PostgreSQL `statement_timeout`, `lock_timeout` and `application_name` set per session, SQL Server's query timeout and `LOCK_TIMEOUT`, MySQL read and write timeouts, MongoDB's socket timeout (`WARDEN_DB_STATEMENT_TIMEOUT`, default 10 s; locks 2 s) (tests/test_database_timeouts.py::test_postgres_bounds_every_statement_and_lock_wait, ::test_sql_server_bounds_every_statement_and_lock_wait; planted: all 6 cases fail without the change) |
 | O9 | Applied fixes leave no change record | A GitHub issue per applied change, with the plan hash and audit head | G6 | OPEN | |
 
 ## New failure modes (research, 2026-09-28)

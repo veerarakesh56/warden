@@ -463,6 +463,8 @@ bump may carry a breaking change.
   activity arrived as an ActivityError and left no end row, and a cancel during apply read as "cancelled".
 - environments.yaml: a flag must be a YAML boolean - a quoted "false" read as true and armed `auto_remediate` -
   and an environment name must be usable in AWS names (audit A-B-L12).
+- Every database connection bounds its statements and lock waits (`WARDEN_DB_STATEMENT_TIMEOUT`, default 10 s):
+  a read of a database already in trouble no longer hangs behind a lock (audit A-B-M1, register O8).
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
