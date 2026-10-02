@@ -19,6 +19,7 @@ reaches the verdict the fixture version promised.
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 
 import pytest
 
@@ -47,7 +48,9 @@ def backend():
 
 @pytest.fixture(scope="module")
 def alert():
-    return Alert(**DEMO_ALERTS["inc-002"])
+    # Firing now, as a live alert does: a deploy counts only in the window before the alert started (A-B-M10), and the
+    # demo alert's recorded date is weeks before this workload was deployed.
+    return Alert(**{**DEMO_ALERTS["inc-002"], "started_at": datetime.now(UTC).isoformat()})
 
 
 def test_cluster_is_reachable_and_workload_exists(backend, alert):
