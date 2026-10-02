@@ -18,7 +18,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, is_cancelled_exception
 
 with workflow.unsafe.imports_passed_through():
     from .activities import (
@@ -49,6 +49,7 @@ class RemediationWorkflow:
         self._inbox: list[SignedApproval] = []
         self._plan: Plan | None = None
         self._stage = "planning"
+        self._applying = False  # set the moment apply is sent: from then on the target's state is not known
 
     @workflow.signal
     def approve(self, approval: SignedApproval) -> None:
@@ -78,11 +79,13 @@ class RemediationWorkflow:
 
         try:
             return await self._steps(req, acts, wid, done, end)
-        except asyncio.CancelledError:
-            # A cancelled run still ends on the record, signed - and if the fix was applied, nobody knows what state
-            # it left: the kill switch goes on (eighth review, 2026-10-01: a run cancelled while verifying left no
-            # end row, the switch off, and the next fix on the same service was let through).
-            await end("cancelled_after_apply" if done["applied"] else "cancelled", ["the run was cancelled"])
+        except (asyncio.CancelledError, ActivityError) as exc:
+            # A cancelled run still ends on the record, signed - and once apply was SENT, nobody knows what state it
+            # left: the kill switch goes on (eighth review, 2026-10-01: a run cancelled while verifying left no end
+            # row, the switch off). A cancel during an activity arrives as an ActivityError, not a CancelledError,
+            # and apply may have acted before it returned (ninth review).
+            if isinstance(exc, asyncio.CancelledError) or is_cancelled_exception(exc):
+                await end("cancelled_after_apply" if self._applying else "cancelled", ["the run was cancelled"])
             raise
 
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
@@ -127,9 +130,12 @@ class RemediationWorkflow:
         done["prechecked"] = True
 
         self._stage = "applying"
+        self._applying = True
         try:
             await workflow.execute_activity_method(acts.apply, args=[plan, req.service], **ONCE)
         except ActivityError as exc:
+            if is_cancelled_exception(exc):
+                raise  # a cancel, not a failed apply: run() ends it, after apply (ninth review)
             if isinstance(exc.cause, ApplicationError) and exc.cause.type == APPLY_REFUSED:
                 # Refused before anything was touched: nothing to roll back, nothing half-made.
                 return await end("refused_at_apply", [str(exc.cause)])
@@ -158,6 +164,8 @@ class RemediationWorkflow:
         try:
             undone = await workflow.execute_activity_method(acts.rollback, args=[plan], **ONCE)
         except ActivityError as exc:
+            if is_cancelled_exception(exc):
+                raise
             # The run still ends on the record, signed: a failed rollback crashed the workflow with no end row
             # (sixth review, 2026-10-01). The activity tripped the kill switch; a person takes it from here.
             return await end("rollback_failed", [f"{req.service} did not recover, and {exc.cause or exc}"])

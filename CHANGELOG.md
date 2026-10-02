@@ -459,6 +459,8 @@ bump may carry a breaking change.
   user_properties a fixture can forge or strip; a callback replayed by a wrapper is no return; a blank `-k` no
   longer turns judging off, and `--cache-show` is not judged. A table behind a quote or a list marker is refused
   in the registers. Every weakening a reviewer named is now caught by the guard's own tests.
+  A remediation run cancelled once apply was sent ends on the record and trips the kill switch: a cancel during an
+  activity arrived as an ActivityError and left no end row, and a cancel during apply read as "cancelled".
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

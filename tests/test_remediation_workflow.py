@@ -374,3 +374,55 @@ def test_a_retried_finish_writes_one_end_row(world, monkeypatch):
     for _ in range(2):
         acts.finish("inc-42", "rem-a", FixOutcome(status="recovered", checklist={}))
     assert len(world["log"].entries("inc-42", kinds=("workflow.end",))) == 1
+
+
+def _blocking(world, method):
+    """Make the fake platform's `method` block (in its activity thread) until released; return (started, release)."""
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+    real = getattr(world["platform"], method)
+
+    def blocked(*a, **k):
+        started.set()
+        release.wait(5)
+        return real(*a, **k)
+
+    setattr(world["platform"], method, blocked)
+    return started, release
+
+
+def _cancel_once(world, owner, started, release):
+    approve = _approve_with(owner)
+
+    async def drive(handle):
+        await approve(handle)
+        for _ in range(400):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.05)
+        await handle.cancel()
+        await asyncio.sleep(0.5)
+        release.set()
+
+    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+        _run(world, drive)
+    return [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
+
+
+@pytest.mark.parametrize("method", ["healthy", "apply"])
+def test_a_cancel_during_an_activity_after_apply_was_sent_ends_on_the_record_and_trips(world, owner, method):
+    """Ninth review (2026-10-01): a cancel landing while an activity ran - the health check, or apply itself - arrives
+    as an ActivityError, not a CancelledError, so the run left no end row and the switch off; and a cancel during
+    apply read as "cancelled", though apply may have acted."""
+    started, release = _blocking(world, method)
+    assert _cancel_once(world, owner, started, release) == ["cancelled_after_apply"]
+    assert bounds.killswitch(world["log"]) is not None
+
+
+def test_a_cancel_before_apply_ends_on_the_record_without_a_trip(world, owner):
+    started, release = _blocking(world, "live")  # precheck reads live state, before apply is sent
+    world["platform"].reads = 0
+    statuses = _cancel_once(world, owner, started, release)
+    assert statuses == ["cancelled"], statuses
+    assert bounds.killswitch(world["log"]) is None
