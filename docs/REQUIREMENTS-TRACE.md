@@ -48,8 +48,8 @@ files and a collect-only run are not judged: only the full run is evidence.
 | R21 | The full stack up at once, broken in every way; find, report, fix (28 faults) | G6 | OPEN | |
 | R22 | Performance Insights, CloudWatch logs and Logs Insights used as evidence | G3 | OPEN | |
 | R23 | Allow for logs arriving minutes late | G3 | OPEN | |
-| R24 | Kubernetes access for finding problems, never editing | G1 | OPEN | review 2026-09-28: regrouped from G0. The reader RBAC is read-only, but the remediator grants `patch deployments`, which rewrites the pod template (audit A-I-11, G1) |
-| R25 | Mask pids, ids and secrets before anything reaches the model | G1 | OPEN | |
+| R24 | Kubernetes access for finding problems, never editing | G1 | OPEN | review 2026-09-28: regrouped from G0. The reader RBAC is read-only, but the remediator grants `patch deployments`, which rewrites the pod template (audit A-I-11, G1); (1f6069b; tests/test_fullstack_infra.py::test_warden_is_bound_in_shop_only_to_the_real_read_only_clusterrole) not closed by the plant check (2026-10-02): its cited test passes with that commit's change reversed - it does not hold this row |
+| R25 | Mask pids, ids and secrets before anything reaches the model | G1 | OPEN | (66885e3; tests/test_graph_redaction.py::test_deploy_identifiers_do_not_reach_the_model) not closed by the plant check (2026-10-02): its test does not pass as written at the commit that added it, so it cannot be planted there |
 | R26 | Real RCA with real names; risks stated before the steps | G6 | OPEN | |
 | R27 | Slack proof of real alerts | G6 | OPEN | |
 | R28 | Approve and deny from Slack | G5 | OPEN | |
@@ -64,14 +64,14 @@ files and a collect-only run are not judged: only the full run is evidence.
 | R37 | Auth tooling like Teleport, decided on evidence (AWS-native default, Teleport adapter optional) | G6 | OPEN | |
 | R38 | A change timeline across all stages, like Cursor Rollouts ("which change broke it") | G6 | OPEN | |
 | R39 | Unknown, new issue types still handled (escalate) | G4 | OPEN | |
-| R40 | Agents never have direct access: AI decides what, orchestration controls how | G1 | OPEN | |
-| R41 | Agents cannot destroy things; prompt injection defended | G1 | OPEN | |
-| R42 | An output gate like ZeroDrift Anchor (PASS/REWRITE/BLOCK/ESCALATE on every egress) | G1 | OPEN | |
+| R40 | Agents never have direct access: AI decides what, orchestration controls how | G1 | DONE-local | (62af767; tests/test_remediation_workflow.py::test_an_approved_fix_is_applied_once_verified_and_fully_audited) plant-checked 2026-10-02: its test fails with 62af767's change reversed at 62af767 |
+| R41 | Agents cannot destroy things; prompt injection defended | G1 | OPEN | (fd64a02; tests/test_injection_corpus.py::test_no_injection_payload_reaches_the_model_or_changes_the_action) not closed by the plant check (2026-10-02): its test does not pass as written at the commit that added it, so it cannot be planted there |
+| R42 | An output gate like ZeroDrift Anchor (PASS/REWRITE/BLOCK/ESCALATE on every egress) | G1 | DONE-local | (45e8b10; tests/test_egress.py::test_an_mcp_result_is_gated) plant-checked 2026-10-02: its test fails with 45e8b10's change reversed at 45e8b10 |
 | R43 | Just-in-time, short-lived agent identity with full audit (Teleport Agent Trust ideas) | G6 | OPEN | |
 | R44 | A calibrated decision component instead of Jev | G7 | OPEN | |
 | R45 | Every AI failure mode researched, even minute ones, and each covered | G4 | OPEN | |
 | R46 | Anti-faking, anti-hallucination, anti-sycophancy, no blind trust in stale data | G7 | OPEN | |
-| R47 | Meta Prompt Guard as the injection detector, required in higher environments | G1 | OPEN | |
+| R47 | Meta Prompt Guard as the injection detector, required in higher environments | G1 | OPEN | (e6ef316; tests/test_tripwire.py::test_unavailable_detector_is_reported_and_blocks_only_when_required) not closed by the plant check (2026-10-02): its test does not pass as written at the commit that added it, so it cannot be planted there |
 | R48 | Temporal instead of LangGraph (production orchestration) | G0 | DONE-local | tests/test_incident_workflow.py::test_every_bundled_incident_gets_the_same_verdict_as_the_graph |
 | R49 | Temporal Cloud (owner's trial) | G0 | DONE-live | W-T 2026-09-28: namespace active in aws-ap-south-2; the Temporal SAMPLE Workflow completed and recovered from an injected failure. WARDEN itself on Temporal Cloud is not yet proven - that is window W2 (G6) |
 | R50 | A single approver, stated honestly | G5 | OPEN | |
