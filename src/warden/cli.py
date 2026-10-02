@@ -313,6 +313,10 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         platform = _platform(args.platform)
         async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend(),
                                   platform=platform):
+            problem = await runtime.check_clock(client)
+            if problem:
+                _out(f"error: {problem}", err=True)
+                return 1
             _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {args.platform}); "
                  "Ctrl+C to stop")
             await asyncio.Event().wait()

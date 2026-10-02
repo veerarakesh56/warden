@@ -14,9 +14,12 @@ catalogue entry needs values WARDEN read); Phase 4 adds the platforms with their
 
 from __future__ import annotations
 
+import asyncio
 import os
 import pathlib
+import secrets
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -25,7 +28,7 @@ from temporalio.worker import Worker
 
 from . import approvals, audit, codec
 from .activities import IncidentActivities, Plan, RemediationActivities
-from .workflows import IncidentWorkflow, RemediationWorkflow
+from .workflows import ClockWorkflow, IncidentWorkflow, RemediationWorkflow
 
 TASK_QUEUE = "warden"
 
@@ -60,6 +63,31 @@ def open_audit() -> audit.AuditLog:
     return audit.AuditLog(db, key=audit.load_private_key(_path("WARDEN_AUDIT_KEY"), passphrase))
 
 
+def skew_problem(before: datetime, server: datetime, after: datetime,
+                 limit: timedelta = approvals.CLOCK_SKEW) -> str:
+    """'' if the server's time falls inside [before, after] on this host's clock, give or take `limit`."""
+    if server < before - limit or server > after + limit:
+        off = (server - after) if server > after else (before - server)
+        return (f"this host's clock is {off.total_seconds():.0f}s {'behind' if server > after else 'ahead of'} the "
+                f"Temporal server's; approvals expire and bounds windows close by this clock, and the tolerance is "
+                f"{limit.total_seconds():.0f}s. Fix the host's time sync (register O6)")
+    return ""
+
+
+async def check_clock(client: Client, task_queue: str = TASK_QUEUE, wait_s: float = 90) -> str:
+    """Run once a worker is polling: an approval's expiry, the bounds windows and the daily cap are all judged by
+    the activity host's clock, so a worker whose clock is off refuses to start (register O6)."""
+    before = datetime.now(UTC)
+    try:
+        # Bounded here as well: a worker that cannot run its own clock check is not fit to run anything else.
+        server = await asyncio.wait_for(client.execute_workflow(
+            ClockWorkflow.run, id=f"clock-{secrets.token_hex(6)}", task_queue=task_queue,
+            execution_timeout=timedelta(minutes=1)), timeout=wait_s)
+    except TimeoutError:
+        return "the clock check never ran on this task queue: the worker could not measure its clock (register O6)"
+    return skew_problem(before, server, datetime.now(UTC))
+
+
 async def connect(address: str | None = None, key: bytes | None = None) -> Client:
     return await Client.connect(address or os.environ.get("WARDEN_TEMPORAL_ADDRESS", "127.0.0.1:7233"),
                                 data_converter=codec.data_converter(key))
@@ -69,7 +97,7 @@ def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPol
            backend: Any = None, llm_factory: Any = None, task_queue: str = TASK_QUEUE) -> Worker:
     inc = IncidentActivities(audit=log, backend=backend, llm_factory=llm_factory)
     rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform())
-    return Worker(client, task_queue=task_queue, workflows=[IncidentWorkflow, RemediationWorkflow],
+    return Worker(client, task_queue=task_queue, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow],
                   activities=[inc.prepare, inc.diagnose, inc.verify,
                               rem.resolve_plan, rem.gate, rem.check_approval, rem.precheck, rem.apply,
                               rem.check_success, rem.record_result, rem.rollback, rem.finish],

@@ -14,7 +14,7 @@ the workflow's own success check can, and the agent has no way to write to it.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -188,6 +188,15 @@ class RemediationWorkflow:
         if str(undone).startswith("nothing to roll back"):
             return await end("not_recovered", [why, str(undone)])
         return await end("rolled_back", [why])
+
+
+@workflow.defn
+class ClockWorkflow:
+    """The Temporal server's time as a workflow sees it, for the worker's start-up skew check (register O6)."""
+
+    @workflow.run
+    async def run(self) -> datetime:
+        return workflow.now()
 
 
 MODEL_UNAVAILABLE = "ModelUnavailable"
