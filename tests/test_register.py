@@ -108,6 +108,16 @@ SKIP_OK = {
 }
 
 
+# Tests only a CI job can run - a live k3d cluster, the database service containers. They skip here and in the
+# unit job; the named job runs the file and fails if anything in it skips (owner, 2026-10-02), so a citation of one
+# is evidence: test_every_ci_only_file_runs_where_a_skip_fails_the_job holds each to that.
+CI_ONLY = {
+    "tests/integration/test_live_cluster.py": "k8s",
+    "tests/integration/test_live_remediation.py": "k8s",
+    "tests/integration/test_live_database.py": "db",
+}
+
+
 def _skipped(file: str, src: str, m: re.Match) -> bool:
     """Skipped - or expected to fail - directly, through any decorator that is not known never to skip,
     by a module-level `pytestmark` (one line or many), or by `importorskip`, `skip(` or `xfail(` in its
@@ -115,6 +125,8 @@ def _skipped(file: str, src: str, m: re.Match) -> bool:
     the body all passed a check for the word "skip" above the function; fourth review: a module-level
     importorskip, a multi-line pytestmark list, `from pytest import mark`, a helper-module alias and
     xfail still did."""
+    if file in CI_ONLY:  # judged by its CI job, which fails on any skip
+        return False
     decorators = re.findall(r"^@([\w.]+)", m.group(1), re.MULTILINE)
     if any(d not in _SAFE_DECORATORS for d in decorators):
         return True
@@ -395,3 +407,17 @@ def test_a_table_behind_a_quote_or_a_list_marker_is_refused(line):
                                   "Prose with a | pipe."])
 def test_a_plain_table_row_or_prose_is_not_refused(line):
     assert not _unread_table_line(line)
+
+
+def test_every_ci_only_file_runs_where_a_skip_fails_the_job():
+    """Owner decision (2026-10-02): a CI-only test counts as evidence only because its job runs the file and fails
+    when anything in it skips. Each listed file must be in a run step of that job holding both checks."""
+    import yaml
+
+    flow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8"))
+    jobs = {key: job for key, job in flow["jobs"].items()}
+    for file, job in CI_ONLY.items():
+        steps = [s.get("run", "") for s in jobs[job]["steps"]]
+        holding = [r for r in steps if file in r and "grep -qE ' skipped'" in r and "exit 1" in r
+                   and re.search(r"grep -qE '\^\[0-9\]\+ passed'", r)]
+        assert holding, (file, job)

@@ -76,9 +76,10 @@ def pytest_collection_modifyitems(session, config, items):
 
 @functools.cache
 def _cited() -> frozenset[tuple[str, str]]:
-    from test_register import cited_tests
+    from test_register import CI_ONLY, cited_tests
 
-    return frozenset(cited_tests())
+    # A CI-only test skips here; its CI job runs it and fails on any skip (test_register.CI_ONLY).
+    return frozenset((file, test) for file, test in cited_tests() if file not in CI_ONLY)
 
 
 # Captured when the suite starts: an autouse fixture deleting `sys.monitoring` turned the check off (eighth review).
