@@ -59,6 +59,10 @@ default:
   credentials_ref: null
 
 environments:
+# `tripwire: off | on | required` (default off) sets the injection detector per environment; the stricter of it and
+# WARDEN_TRIPWIRE applies. None sets it yet: the image has no detector (Prompt Guard 2 is a gated model), and
+# `required` would escalate every incident. pre-prod, qa-prod and prod become `required` when an image with the
+# detector ships (register R47, deferred with the owner's agreement 2026-10-02).
 
   dev:
     tier: nonprod

@@ -217,7 +217,7 @@ def test_the_scan_reads_what_came_from_outside_not_wardens_own_markers(monkeypat
     none of WARDEN's words (measured: 0 of 36, see CHANGELOG)."""
     seen = []
 
-    def spy(items, classify=None, *, outside=None):
+    def spy(items, classify=None, *, outside=None, environment="off"):
         seen.append("\n".join((outside or {}).values()))
         return "ran", {}
 
@@ -318,7 +318,7 @@ def test_each_part_the_model_reads_is_scanned_on_its_own(monkeypatch):
     separate texts."""
     seen = {}
 
-    def spy(items, classify=None, *, outside=None):
+    def spy(items, classify=None, *, outside=None, environment="off"):
         seen.update(outside or {})
         return "ran", {}
 
@@ -360,7 +360,7 @@ def test_the_scan_reads_the_labels_the_model_reads(monkeypatch):
 
     seen = {}
 
-    def spy(items, classify=None, *, outside=None):
+    def spy(items, classify=None, *, outside=None, environment="off"):
         seen.update(outside or {})
         return "ran", {}
 
@@ -465,7 +465,7 @@ def test_an_injection_written_as_placeholder_words_is_scanned(monkeypatch):
 
     seen = {}
 
-    def spy(items, classify=None, *, outside=None):
+    def spy(items, classify=None, *, outside=None, environment="off"):
         seen.update(outside or {})
         return "ran", {}
 
@@ -477,3 +477,34 @@ def test_an_injection_written_as_placeholder_words_is_scanned(monkeypatch):
     graph.node_tripwire(state)
     assert words in seen["ALERT"], seen["ALERT"]
     assert "<SECRET_" not in seen["LABELS"] and "label token is set (value withheld)" in seen["LABELS"], seen["LABELS"]
+
+
+def test_an_environment_that_requires_the_detector_cannot_be_relaxed(monkeypatch, tmp_path):
+    """Register R47: the tripwire mode is per environment too, and the stricter of it and WARDEN_TRIPWIRE applies -
+    an environment set to `required` escalates when the detector cannot run, even with the variable off."""
+    import yaml
+
+    from warden import environments
+    from warden.environments import EnvironmentPolicies, EnvironmentPolicyError
+
+    def broken():
+        raise ImportError("no transformers")
+
+    monkeypatch.setattr(tripwire, "_classifier", broken)
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "off")
+    assert tripwire.mode("required") == "required" and tripwire.mode("on") == "on" and tripwire.mode() == "off"
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "required")
+    assert tripwire.mode("off") == "required"  # the variable can tighten, never loosen
+    monkeypatch.setenv("WARDEN_TRIPWIRE", "off")
+
+    path = tmp_path / "envs.yaml"
+    path.write_text(yaml.safe_dump({"environments": {"prod": {"tripwire": "required"}}}), encoding="utf-8")
+    monkeypatch.setattr(environments, "_DEFAULT", EnvironmentPolicies.load(path))
+    alert = Alert(**DEMO_ALERTS["inc-002"])
+    report = run(alert, llm=LLMClient(mock=True), backend=FixtureBackend())
+    assert "P16-SUSPECTED-INJECTION" in report.verdict.policy_ids
+    assert any("required here and could not run" in r for r in report.verdict.reasons), report.verdict.reasons
+
+    path.write_text(yaml.safe_dump({"environments": {"staging": {"tripwire": "maybe"}}}), encoding="utf-8")
+    with pytest.raises(EnvironmentPolicyError, match="tripwire must be"):
+        EnvironmentPolicies.load(path)

@@ -145,9 +145,15 @@ def _score_ids(classify: Any, windows: list[list[int]]) -> list[float]:
     return out
 
 
-def mode() -> str:
+MODES = ("off", "on", "required")  # in order of strictness
+
+
+def mode(environment: str = "off") -> str:
+    """The stricter of WARDEN_TRIPWIRE and the environment's own setting (environments.yaml `tripwire:`), so an
+    environment that requires the detector cannot be relaxed by the process's variable (register R47)."""
     m = os.environ.get("WARDEN_TRIPWIRE", "off").strip().lower()
-    return m if m in ("off", "on", "required") else "required"  # a typo fails closed
+    m = m if m in MODES else "required"  # a typo fails closed
+    return max(m, environment if environment in MODES else "required", key=MODES.index)
 
 
 @functools.cache
@@ -162,7 +168,7 @@ def _malicious(result: list[dict]) -> float:
 
 
 def scan(items: dict[str, Item], classify: Any = None, *,
-         outside: dict[str, str] | None = None) -> tuple[str, dict[str, float]]:
+         outside: dict[str, str] | None = None, environment: str = "off") -> tuple[str, dict[str, float]]:
     """(status, {id: score}) for every text at or above the threshold.
 
     `outside` is what the MODEL reads that came from outside WARDEN - the alert's text, its labels, each
@@ -176,7 +182,7 @@ def scan(items: dict[str, Item], classify: Any = None, *,
     status: "off", "ran", "ran-partial: <n> of <m> log lines", or "unavailable: <why>" (never the text of
     an error that could carry data).
     """
-    if mode() == "off" and classify is None:
+    if mode(environment) == "off" and classify is None:
         return "off", {}
     limit = threshold()
     if limit is None:

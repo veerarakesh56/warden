@@ -69,6 +69,9 @@ class EnvPolicy:
     # It lets the policy express "which account acts in this environment" and lets a promotion report
     # tell a human which credential to use in the target env. None = inherit the deployment default.
     credentials_ref: str | None = None
+    # The injection tripwire in this environment: off, on, or required (register R47). The stricter of this and
+    # WARDEN_TRIPWIRE applies.
+    tripwire: str = "off"
 
     def permits(self, action: ActionKind) -> bool:
         """Is `action` admissible in this environment? Deny wins over allow."""
@@ -104,6 +107,7 @@ class EnvironmentPolicies:
             deny_actions=self._default.deny_actions,
             authorized_principals=self._default.authorized_principals,
             credentials_ref=self._default.credentials_ref,
+            tripwire=self._default.tripwire,
         )
 
     @property
@@ -166,10 +170,18 @@ class EnvironmentPolicies:
             deny_actions=deny,
             authorized_principals=frozenset(str(p) for p in principals),
             credentials_ref=raw.get("credentials_ref"),
+            tripwire=_tripwire(name, raw),
         )
 
 
 _ENV_NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
+
+
+def _tripwire(name: str, raw: dict[str, Any]) -> str:
+    value = raw.get("tripwire", "off")
+    if value not in ("off", "on", "required"):
+        raise EnvironmentPolicyError(f"{name}: tripwire must be off, on or required, not {value!r}")
+    return value
 
 
 def _flag(name: str, raw: dict[str, Any], key: str, default: bool) -> bool:

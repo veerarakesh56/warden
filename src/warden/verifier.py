@@ -514,7 +514,7 @@ def verify(
     # "ran-partial" is a run: the alert, the labels and the trusted items the model reads were scanned; only
     # raw log lines went past the budget - the model never sees them, but it does see their typed facts,
     # which then only the quarantine's filters cover (fifth review, 2026-10-01).
-    elif tripwire.mode() == "required" and not tripwire.ran(context.tripwire):
+    elif tripwire.mode(env.tripwire) == "required" and not tripwire.ran(context.tripwire):
         escalate = True
         policies.append("P16-SUSPECTED-INJECTION")
         reasons.append(f"The injection detector is required here and could not run ({context.tripwire}).")

@@ -29,6 +29,7 @@ from typing import Any, TypedDict
 from pydantic import BaseModel
 
 from . import evidence, tripwire
+from .environments import default_environment_policies
 from .knowledge import default_knowledge_base
 from .llm import LLMClient
 from .models import (
@@ -503,7 +504,8 @@ def node_tripwire(state: WardenState) -> WardenState:
     outside = {"ALERT": theirs(red[0] + "\n" + red[1]),
                "LABELS": "; ".join([*said, f"service {alert.service}", f"environment {alert.environment}"])}
     outside.update({i.id: theirs(t) for i, t in zip(trusted, red[2 + 2 * len(keys):], strict=True)})
-    status, flagged = tripwire.scan(evidence.index(state["context"]), outside=outside)
+    status, flagged = tripwire.scan(evidence.index(state["context"]), outside=outside,
+                                    environment=default_environment_policies().for_env(alert.environment).tripwire)
     context = state["context"].model_copy(update={"tripwire": status, "suspected": flagged})
     return {"context": context,
             "audit": [{"node": "tripwire", "status": status, "flagged": sorted(flagged)}]}

@@ -468,6 +468,8 @@ bump may carry a breaking change.
 - A test holds that WARDEN issues no schema change - no index - to a database it watches (register R51).
 - Python 3.12 is the minimum (was 3.11): the register guard needs `sys.monitoring`, so it never skips;
   on 3.11 it could not check whether a cited test's body ran.
+- The injection tripwire's mode can be set per environment (`tripwire:` in environments.yaml); the stricter of
+  it and `WARDEN_TRIPWIRE` applies. No environment sets it yet (register R47, deferred).
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
