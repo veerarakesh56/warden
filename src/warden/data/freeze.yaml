@@ -1,0 +1,10 @@
+# Register C6: change freezes. Inside a window WARDEN applies no remediation in the listed environments; the
+# incident is still diagnosed and goes to a person (P19-FREEZE). `start` and `end` are wall-clock times in the
+# window's IANA `zone`, so a window crossing a daylight-saving change still means what was written.
+#
+#   - name: festive-release-freeze
+#     environments: [prod, qa-prod]
+#     zone: Asia/Kolkata
+#     start: "2026-11-07T00:00"
+#     end: "2026-11-09T23:59"
+windows: []

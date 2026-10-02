@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, bounds, catalog, environments
+from . import approvals, audit, bounds, catalog, environments, freeze
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
 from .observability import _safe_error
@@ -185,8 +185,7 @@ class RemediationActivities:
     def gate(self, plan: Plan, service: str) -> list[str]:
         # The bounds key on the target the plan changes, not on `service` (audit A-B-M4); _not_approved re-checks
         # the target against the plan row before apply.
-        reasons = bounds.blocked(self.audit, service=plan.target, action_class=plan.entry, now=datetime.now(UTC),
-                                 limits=self.limits)
+        reasons = self._blocked(plan)
         self.audit.append(plan.incident_id, "remediation.gate", {"workflow_id": plan.workflow_id, "run_id": _run_id(),
                                                                   "blocked": reasons})
         return reasons
@@ -255,8 +254,14 @@ class RemediationActivities:
         checks = [e for e in rows("remediation.precheck") if e["seq"] > last_approval]
         if not checks or checks[-1]["body"].get("problems"):
             return ["no clean precheck of this plan after its approval"]
-        return bounds.blocked(self.audit, service=plan.target, action_class=plan.entry, now=datetime.now(UTC),
-                              limits=self.limits)
+        return self._blocked(plan)
+
+    def _blocked(self, plan: Plan) -> list[str]:
+        """The kill switch, the bounds and the change freezes (register C6, P19), at the gate and again right
+        before apply: a freeze that starts while a plan waits for its approval still holds."""
+        now = datetime.now(UTC)
+        return (bounds.blocked(self.audit, service=plan.target, action_class=plan.entry, now=now, limits=self.limits)
+                + freeze.active(plan.environment, now))
 
     @activity.defn
     def apply(self, plan: Plan, service: str) -> str:

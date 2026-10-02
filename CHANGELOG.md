@@ -112,6 +112,7 @@ bump may carry a breaking change.
 - **Every incident and every plan pins the versions that decided it** (register E7).
 - **What the rules found is shown before the model's prose** (register N4, audit A-N-4).
 - **A model diagnoses only after passing WARDEN's replay set; the CLI default moves to the qualified claude-sonnet-5** (register M20).
+- **Change freezes: no remediation is applied inside a declared window** (register C6, P19-FREEZE).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
