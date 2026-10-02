@@ -115,6 +115,7 @@ bump may carry a breaking change.
 - **Change freezes: no remediation is applied inside a declared window** (register C6, P19-FREEZE).
 - **Alarms come in through intake: grouped, capped, flap-checked, and kept off WARDEN's own fixes** (registers C1,
   C2, C20, C21).
+- **The CLI's approval digest gates only a dry run; real approvals expire and work once** (audit A-B-L2).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
