@@ -7,6 +7,18 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
+### Changed (G2, workflow correctness - started 2026-10-02)
+- **A remediation is bound to its resource and its environment** (registers S6, C3, O5; audit A-B-M4).
+  **Breaking:** `request_remediation` now requires `environment`.
+  - The workflow id is `rem-<env>-<hash of the resource>`, and the rate limits key on that same resource. Before,
+    both keyed on the free-text service name, so `orders` in two namespaces, or in dev and prod, shared one open
+    fix and one limit.
+  - The resource's own environment must match the incident's (P18). On Kubernetes that is its `environment`
+    label; for the database it is `WARDEN_DB_ENVIRONMENT`. A missing value, or a `warden-<other env>-` name,
+    is refused at plan and at precheck.
+  - The plan hash also covers the environment, the catalogue, WARDEN's own code and the incident's audit
+    record. A worker deployed while a plan waits for approval refuses that plan.
+
 ### Security
 - **Tool errors reach the model as fixed words** (audit A-C-2). A failed read used to show the model
   its raw exception text as a trusted T item. That text can quote log content: a `KeyError` names

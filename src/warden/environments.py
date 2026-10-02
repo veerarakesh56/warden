@@ -222,6 +222,15 @@ def _all_names() -> tuple[str, ...]:
     return policies.known_environments + ((policies.runtime_environment,) if policies.runtime_environment else ())
 
 
+def env_of_name(name: str) -> str | None:
+    """The environment a `warden-<env>-...` name belongs to, longest environment first (as strip_prefix); None
+    for any other name."""
+    for env in sorted(_all_names(), key=len, reverse=True):
+        if name.startswith(f"warden-{env}-"):
+            return env
+    return None
+
+
 def strip_prefix(name: str) -> str:
     """`warden-<env>-checkout` -> `checkout` for any configured environment; other names unchanged.
     Longest environment first, so `warden-qa-staging-x` is not read as environment `qa`."""

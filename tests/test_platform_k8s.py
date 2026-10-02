@@ -37,7 +37,8 @@ class _Apps:
         n = self.replicas[name]
         status = types.SimpleNamespace(available_replicas=n, updated_replicas=n, unavailable_replicas=0,
                                        observed_generation=7, conditions=[])
-        return types.SimpleNamespace(metadata=types.SimpleNamespace(name=name, generation=7),
+        return types.SimpleNamespace(metadata=types.SimpleNamespace(name=name, generation=7,
+                                                                       labels={"environment": "dev"}),
                                      spec=types.SimpleNamespace(replicas=n), status=status)
 
     def list_namespaced_deployment(self, ns, **kw):

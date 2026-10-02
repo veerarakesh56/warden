@@ -52,7 +52,7 @@ def target(apps):
     """A 1-replica throwaway Deployment (the `pause` image needs no network). Deleted at teardown."""
     body = {
         "apiVersion": "apps/v1", "kind": "Deployment",
-        "metadata": {"name": NAME, "labels": {"app": NAME}},
+        "metadata": {"name": NAME, "labels": {"app": NAME, "environment": "dev"}},
         "spec": {
             "replicas": 1,
             "selector": {"matchLabels": {"app": NAME}},
@@ -86,6 +86,7 @@ def test_live_reads_the_real_deployment(apps, target):
     live = KubernetesPlatform(apps=apps, namespace=NS).live("k8s_scale", _params())
     assert NAME in live["deployment"] and live["namespace"] == {NS}
     assert live["state"]["replicas"] == live["current_replicas"] >= 1
+    assert live["environment"] == "dev"  # the Deployment's own label, read for P18 (register S6)
 
 
 def test_an_approved_scale_changes_the_real_deployment_and_rollback_returns_it(apps, target):

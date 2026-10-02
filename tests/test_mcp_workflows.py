@@ -82,22 +82,24 @@ def test_start_request_and_read_through_the_tools(tmp_path):
             assert status["result"]["verdict"]["status"]
             assert "redaction_map" not in status["result"]
 
-            req = {k: REQ[k] for k in ("service", "entry", "params")} | {"incident_id": "inc-inc-001"}
+            req = {k: REQ[k] for k in ("environment", "service", "entry", "params")} | {"incident_id": "inc-inc-001"}
             asked = (await call("request_remediation", req, env.client)).structured_content
-            assert asked["workflow_id"] == "rem-orders" and "cannot" in asked["next"]
+            # keyed on the resource and environment, not the service name (register C3)
+            wid = "rem-dev-" + hashlib.sha256(b"k8s:shop/orders").hexdigest()[:16]
+            assert asked["workflow_id"] == wid and "cannot" in asked["next"]
             again = await call("request_remediation", req, env.client)
             assert again.is_error and "already open" in again.content[0].text
             for _ in range(200):
-                status = (await call("workflow_status", {"workflow_id": "rem-orders"}, env.client)).structured_content
+                status = (await call("workflow_status", {"workflow_id": wid}, env.client)).structured_content
                 if status.get("stage") == "awaiting_approval":
                     break
                 await asyncio.sleep(0.05)
             assert status["plan"]["entry"] == "k8s_rollout_undo" and len(status["plan"]["plan_hash"]) == 64
             # the only way forward is a person's signature, outside the MCP server:
-            await runtime.approve(env.client, "rem-orders", plan_hash=status["plan"]["plan_hash"], key=owner,
+            await runtime.approve(env.client, wid, plan_hash=status["plan"]["plan_hash"], key=owner,
                                   approver="owner")
             for _ in range(20):  # a handle fetched by id does not auto-skip time; advance it explicitly
-                status = (await call("workflow_status", {"workflow_id": "rem-orders"}, env.client)).structured_content
+                status = (await call("workflow_status", {"workflow_id": wid}, env.client)).structured_content
                 if status["status"] == "COMPLETED":
                     return status["result"]
                 await env.sleep(timedelta(minutes=1))
@@ -119,5 +121,5 @@ def test_a_complete_request_for_an_excluded_action_is_refused_by_the_catalogue(e
     from warden import catalog
     from warden.activities import FixRequest
 
-    req = FixRequest(incident_id="inc-1", service="orders", entry=entry, params={"cmd": "rm -rf /"})
+    req = FixRequest(incident_id="inc-1", service="orders", entry=entry, params={"cmd": "rm -rf /"}, environment="dev")
     assert catalog.validate(req.entry, req.params, {}) == [f"{entry!r} is not in the catalogue"]

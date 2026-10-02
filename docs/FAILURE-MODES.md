@@ -55,7 +55,7 @@ its audit rows.
 | C18a | **False recovery.** A dead service stops emitting errors and the workflow's check says "recovered" | Success needs positive signals (request floor plus probe); missing data counts as failure; K=3 consecutive checks; durable re-checks at T+15 and T+60 | G3 | OPEN | |
 | C18b | **False recovery at the alarm.** Health alarms use `notBreaching`, so a dead service's alarm goes OK | Health alarms use `treat_missing_data = breaching` | G6 | OPEN | |
 | C1 | **Feedback loop.** WARDEN's own restart trips the alarm, which starts a new incident, which restarts again | An alarm on a target inside an open verify window becomes a signal to that workflow, not a new incident | G3 | OPEN | |
-| S6 | **Environment mislabelled.** An alert claims dev for a prod resource | The resource's own `Environment` tag and name prefix must match the incident's environment (P18); missing counts as a mismatch | G2 | OPEN | |
+| S6 | **Environment mislabelled.** An alert claims dev for a prod resource | The resource's own `Environment` tag and name prefix must match the incident's environment (P18); missing counts as a mismatch | G2 | DONE-local | the target's own environment, as its platform reads it (a Kubernetes label, the database connection's stated environment), must equal the incident's, at plan and at precheck; unknown and a `warden-<other env>-` name are refused (tests/test_remediation_target.py::test_a_target_whose_own_environment_is_another_is_refused, tests/test_remediation_target.py::test_a_name_carrying_another_environments_prefix_is_refused, tests/test_remediation_target.py::test_the_environment_moving_after_approval_stops_the_apply); plant-checked 2026-10-02 |
 | H6 | **Approver impersonation** | WebAuthn passkey signature over the plan hash; Slack `team_id`+`user_id` allowlist; the CLI Ed25519 key only as break-glass | G5 | OPEN | |
 
 ## Gaps: high
@@ -84,7 +84,7 @@ its audit rows.
 | E5 | Shadow thresholds too weak | Gate on the Wilson lower bound (30/30 only certifies ≈ 0.887) plus conformal abstention | G7 | OPEN | |
 | M19 | No degraded mode when the model provider is down | A rules-only escalation plus a page; tested | G3 | OPEN | |
 | M20 | Unqualified cross-provider fallback | A provider is enabled only after passing the replay set (`data/providers.yaml`) | G3 | OPEN | |
-| O5 | Code or catalogue changes under an in-flight approval | `plan_hash` covers the evidence-pack sha, catalogue fingerprint and code version; refuse on mismatch | G2 | OPEN | |
+| O5 | Code or catalogue changes under an in-flight approval | `plan_hash` covers the evidence-pack sha, catalogue fingerprint and code version; refuse on mismatch | G2 | DONE-local | the plan hash covers the environment, the catalogue fingerprint, a hash of WARDEN's own code and data, and the incident's audit head; precheck and apply refuse a plan whose code or catalogue changed (tests/test_remediation_target.py::test_a_plan_made_under_other_code_or_another_catalogue_is_not_applied, tests/test_remediation_target.py::test_the_plan_hash_covers_the_environment_the_catalogue_the_code_and_the_record); plant-checked 2026-10-02 |
 
 ## Gaps: medium and low
 
@@ -92,7 +92,7 @@ its audit rows.
 |---|---|---|---|---|---|
 | M2 | Numbers, units and times misread | Numeric grounding after unit normalisation; all times in UTC | G7 | OPEN | |
 | M18 | No daily token cap across incidents | A daily token and USD cap counted from the audit | G3 | OPEN | |
-| C3 | Remediation mutex keyed on a name, not the resource | Workflow id `rem-<env>-<sha(target_key)>`, keyed on the canonical ARN | G2 | OPEN | |
+| C3 | Remediation mutex keyed on a name, not the resource | Workflow id `rem-<env>-<sha(target_key)>`, keyed on the canonical ARN | G2 | DONE-local | the workflow id is `rem-<env>-<sha256(target key)>`, the target key naming every parameter that identifies the resource (tests/test_mcp_workflows.py::test_start_request_and_read_through_the_tools, tests/test_remediation_target.py::test_the_target_key_names_every_parameter_that_identifies_the_resource, tests/test_remediation_target.py::test_a_plan_carried_to_another_target_is_refused_at_apply); plant-checked 2026-10-02 |
 | C6 | No change freeze or maintenance window | `data/freeze.yaml` (IANA zones) plus P19 | G3 | OPEN | |
 | C10 | Restarting everything at once | Use the platform's native progressive settings; refuse aggressive ones | G3 | OPEN | |
 | C17 | No canary | One instance first for T2 where the platform allows it | G3 | OPEN | |

@@ -181,8 +181,12 @@ ENGINES = {"postgres": _Postgres, "mysql": _MySQL, "mssql": _MSSQL}
 
 class DatabasePlatform:
     def __init__(self, *, dsn: str | None = None, engine: str | None = None, conn: Any = None,
-                 app_users: list[str] | None = None, max_terminate: int = MAX_TERMINATE) -> None:
+                 app_users: list[str] | None = None, max_terminate: int = MAX_TERMINATE,
+                 environment: str | None = None) -> None:
         self._dsn = dsn or os.environ.get("WARDEN_DB_ADMIN_DSN")
+        # A database carries no tag WARDEN can read: whoever configures the connection states its environment
+        # (P18, register S6). Unset, it is in no environment WARDEN may change.
+        self._environment = environment or os.environ.get("WARDEN_DB_ENVIRONMENT") or None
         self._engine = engine or (engine_of(self._dsn) if self._dsn else None)
         if self._engine not in ENGINES:
             raise DatabasePlatformError(f"no terminate support for engine {self._engine!r} "
@@ -229,7 +233,8 @@ class DatabasePlatform:
         name = self._database()
         if not name:
             return {}
-        return {"database": {name}, "state": {"engine": self._engine, "database": name,
+        return {"database": {name}, "environment": self._environment,
+                "state": {"engine": self._engine, "database": name,
                                               "app_users": sorted(self._users), "server": self._server()}}
 
     def _server(self) -> str:

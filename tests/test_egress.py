@@ -107,8 +107,8 @@ def test_a_fix_request_entry_is_a_catalogue_name_never_free_text():
     from warden.activities import FixRequest
 
     with pytest.raises(ValidationError):
-        FixRequest(incident_id="inc-1", entry="k8s_restart\x1b]52;c;Y3VybA==\x07", params={}, service="s")
-    assert FixRequest(incident_id="inc-1", entry="k8s_restart", params={}, service="s").entry == "k8s_restart"
+        FixRequest(incident_id="inc-1", entry="k8s_restart\x1b]52;c;Y3VybA==\x07", params={}, service="s", environment="dev")
+    assert FixRequest(incident_id="inc-1", entry="k8s_restart", params={}, service="s", environment="dev").entry == "k8s_restart"
 
 
 def test_a_span_records_the_error_scrubbed_and_bounded(monkeypatch):

@@ -393,6 +393,16 @@ warden approve rem-... --plan-hash <hash> --approver owner --key owner.pem
 #   -> applied once, then its own health check: recovered, or rolled back
 ```
 
+A request names its environment, and the plan is bound to the resource it changes:
+- **One open fix per resource, per environment.** The workflow id is `rem-<env>-<hash>` of the resource
+  (`k8s:<namespace>/<deployment>`). The rate limits key on the same resource, never on a free-text service name.
+- **The resource's own environment must match** (P18): its `environment` label on Kubernetes
+  (`WARDEN_K8S_ENV_LABEL`), and `WARDEN_DB_ENVIRONMENT` for the database connection. A missing label is a
+  mismatch. So is a `warden-<other env>-` name.
+- **The plan hash covers what the plan was made under:** the environment, the catalogue, WARDEN's own code, and
+  the incident's audit record. A worker deployed while a plan waits for approval refuses it, and the fix is
+  planned again.
+
 The Kubernetes platform does two things: a rollout **restart** (the `restartedAt` annotation, as
 `kubectl rollout restart` does) and a **scale up** by at most two replicas, never past
 `WARDEN_REMEDIATION_MAX_REPLICAS`, written with a JSON Patch `test` of the count it just read. A count

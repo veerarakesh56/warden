@@ -24,6 +24,9 @@ REQUEST_TIMEOUT = (float(os.environ.get("WARDEN_K8S_CONNECT_TIMEOUT", "3.0")),
                    float(os.environ.get("WARDEN_K8S_READ_TIMEOUT", "4.0")))
 MAX_REPLICAS = int(os.environ.get("WARDEN_REMEDIATION_MAX_REPLICAS", "10"))
 RESTARTED_AT = "kubectl.kubernetes.io/restartedAt"
+# The Deployment's own label naming its environment (P18, register S6): one without it is in no environment WARDEN
+# may change.
+ENV_LABEL = os.environ.get("WARDEN_K8S_ENV_LABEL", "environment")
 _ENTRIES = {"k8s_restart", "k8s_scale"}
 
 
@@ -73,7 +76,9 @@ class KubernetesPlatform:
             dep = self._read(name)
         except Exception:  # noqa: BLE001 - absent or unreadable allows nothing; the catalogue refuses
             return {}
+        labels = getattr(dep.metadata, "labels", None) or {}
         return {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
+                "environment": labels.get(ENV_LABEL),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
                           "generation": dep.metadata.generation, "server": self._server()}}
 

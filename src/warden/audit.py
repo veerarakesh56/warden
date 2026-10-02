@@ -102,6 +102,12 @@ class AuditLog:
             self.db.execute("INSERT OR IGNORE INTO checkpoints VALUES (?, ?, ?)", (*last, signature))
         return last[0]
 
+    def head(self, correlation_id: str) -> str:
+        """The hash of the latest row of one correlation id ("" if it has none): the record a plan was made on."""
+        row = self.db.execute("SELECT hash FROM entries WHERE correlation_id = ? ORDER BY seq DESC LIMIT 1",
+                              (correlation_id,)).fetchone()
+        return row[0] if row else ""
+
     def entries(self, correlation_id: str | None = None, *, kinds: tuple[str, ...] = (),
                 since: datetime | None = None) -> list[dict[str, Any]]:
         where, params = [], []

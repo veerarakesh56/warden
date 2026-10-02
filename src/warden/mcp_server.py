@@ -19,6 +19,7 @@ Built on the official `mcp` Python SDK v2 (2026-07-28 spec, stateless request/re
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -26,7 +27,7 @@ from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from . import gate
+from . import catalog, gate
 from .environments import default_environment_policies
 from .models import (
     BLAST_RADIUS_ORDER,
@@ -216,14 +217,15 @@ def _workflow_tools() -> list[types.Tool]:
             description=(
                 "Start a RemediationWorkflow for one catalogue entry. It plans against live state and "
                 "then WAITS for a person's signed approval; this server cannot give one. One open "
-                "remediation per service."
+                "remediation per resource and environment; the resource's own environment must match."
             ),
             input_schema={
                 "type": "object",
-                "properties": {"incident_id": {"type": "string"}, "service": {"type": "string"},
+                "properties": {"incident_id": {"type": "string"}, "environment": {"type": "string"},
+                               "service": {"type": "string"},
                                "entry": {"type": "string", "enum": sorted(CATALOG)},
                                "params": {"type": "object"}},
-                "required": ["incident_id", "service", "entry", "params"],
+                "required": ["incident_id", "environment", "service", "entry", "params"],
             },
         ),
         types.Tool(
@@ -258,12 +260,18 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
                 return _ok({"workflow_id": wid, "note": "this alert is already diagnosed or being diagnosed"})
             return _ok({"workflow_id": wid})
         if name == "request_remediation":
-            req = FixRequest.model_validate({k: args.get(k) for k in ("incident_id", "service", "entry", "params")})
-            wid = f"rem-{req.service}"
+            req = FixRequest.model_validate({k: args.get(k) for k in ("incident_id", "environment", "service",
+                                                                     "entry", "params")})
+            if req.entry not in catalog.CATALOG:
+                return _err(f"{req.entry!r} is not in the catalogue")
+            # One open remediation per resource and environment (register C3): keyed on what the fix changes, never
+            # on the free-text service name - `orders` in two namespaces, or in dev and prod, are different targets.
+            key = catalog.target_key(req.entry, req.params)
+            wid = f"rem-{req.environment}-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
             try:
                 await client.start_workflow(RemediationWorkflow.run, req, id=wid, task_queue=runtime.TASK_QUEUE)
             except WorkflowAlreadyStartedError:
-                return _err(f"a remediation for {req.service} is already open ({wid})")
+                return _err(f"a remediation for {key} in {req.environment} is already open ({wid})")
             return _ok({"workflow_id": wid, "next": "a person reviews it with `warden status` and approves "
                                                     "with `warden approve`; this server cannot"})
         if name == "workflow_status":

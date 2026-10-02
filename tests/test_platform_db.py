@@ -59,7 +59,7 @@ class _Conn:
 
 
 def _platform(engine="postgres", conn=None, users=APP, **kw):
-    return DatabasePlatform(engine=engine, conn=conn or _Conn(), app_users=users, **kw)
+    return DatabasePlatform(engine=engine, conn=conn or _Conn(), app_users=users, **{"environment": "dev", **kw})
 
 
 PARAMS = {"database": "orders", "min_idle_seconds": 300, "max_sessions": 5}

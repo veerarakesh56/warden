@@ -20,6 +20,8 @@ policy, applying a Secret, deleting anything, raw SQL, a shell command.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -45,21 +47,28 @@ class Entry:
     params: dict[str, Param]
     # Limits relative to live values: (params, live) -> problems.
     relative: Callable[[dict[str, Any], dict[str, Any]], list[str]] | None = field(default=None, compare=False)
+    # The parameters naming the changed resource, outermost first, when not the platform's own (TARGET_PARAMS).
+    target: tuple[str, ...] = ()
 
     @property
     def action_class(self) -> str:
         return self.name
 
     @property
+    def target_params(self) -> tuple[str, ...]:
+        return self.target or TARGET_PARAMS[self.platform]
+
+    @property
     def target_param(self) -> str:
-        """The parameter naming what the fix changes - what its health check and bounds are about."""
-        return TARGET_PARAM[self.platform]
+        """The parameter naming what the fix changes - what its health check is about."""
+        return self.target_params[-1]
 
 
-# Per platform: the parameter that names the changed resource. The request's `service` must be it, or the
-# success check and the bounds would judge another object than the one changed (sixth review, 2026-10-01).
-TARGET_PARAM = {"lambda": "function", "events": "rule", "dynamodb": "table", "ecs": "service", "k8s": "deployment",
-                "db": "database", "rds": "cluster", "terraform": "stack"}
+# Per platform: the parameters that together name the changed resource, outermost first. The request's `service`
+# must be the last, or the success check would judge another object than the one changed (sixth review,
+# 2026-10-01); all of them key the bounds and the per-target mutex (target_key).
+TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "dynamodb": ("table",), "ecs": ("cluster", "service"),
+                 "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",)}
 
 
 def _ref(*names: str) -> dict[str, Param]:
@@ -98,7 +107,8 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("function", "from_version")),
     Entry("lambda_set_reserved_concurrency", "T1", "lambda", "n/a (bounded increase)",
           {**_ref("function"), "concurrency": Param("int", 1, 1000)}, _raise_concurrency),
-    Entry("lambda_enable_esm", "T1", "lambda", "the event source mapping's enabled state", _ref("mapping")),
+    Entry("lambda_enable_esm", "T1", "lambda", "the event source mapping's enabled state", _ref("mapping"),
+          target=("mapping",)),
     Entry("events_enable_rule", "T1", "events", "the rule's enabled state", _ref("rule")),
     Entry("dynamodb_raise_capacity", "T1", "dynamodb", "n/a (bounded increase)",
           {**_ref("table"), "capacity": Param("int", 1, 40000)}, _at_most_double),
@@ -127,6 +137,23 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.terminate_connections: {"db": "db_terminate_idle_in_tx"},
     ActionKind.failover_replica: {"rds": "aurora_failover"},
 }
+
+
+def target_key(name: str, params: dict[str, Any]) -> str:
+    """The resource a fix changes, as one key: its platform and the parameters naming it, outermost first
+    (`k8s:shop/orders`). The bounds, the mutex and the workflow id key on it - never on a free-text service
+    name, which let `orders` in two namespaces share one rate limit and one open fix (audit C3, A-B-M4)."""
+    entry = CATALOG[name]
+    return entry.platform + ":" + "/".join(str(params.get(p, "")) for p in entry.target_params)
+
+
+def fingerprint() -> str:
+    """What the catalogue allows, as one hash: a plan made under one catalogue is not applied under another
+    (register O5). The `relative` limits are code, covered by the code hash (activities.code_version)."""
+    material = [[e.name, e.tier, e.platform, list(e.target_params),
+                 sorted([k, p.kind, p.lo, p.hi] for k, p in e.params.items())]
+                for e in sorted(CATALOG.values(), key=lambda e: e.name)]
+    return hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
 
 
 def for_action(action: ActionKind, platform: str) -> Entry | None:

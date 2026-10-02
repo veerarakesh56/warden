@@ -10,18 +10,20 @@ Phase 4, so no activity here holds a credential yet.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import inspect
 import json
+import pathlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, bounds, catalog
+from . import approvals, bounds, catalog, environments
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
 from .observability import _safe_error
@@ -33,9 +35,21 @@ class FixRequest(BaseModel):
     # status` (independent review 2026-09-28). The catalogue itself decides whether it exists.
     entry: str = Field(pattern=r"^[a-z][a-z0-9_]{1,60}$")
     params: dict[str, Any]
+    # The environment the incident is in. A label anyone sending an alert can write: the target's own
+    # environment must match it (P18, register S6), and it is part of the plan hash and the workflow id.
+    environment: str
     service: str
     approval_ttl_minutes: int = 30
     recover_within_minutes: int = 5
+
+    @field_validator("environment")
+    @classmethod
+    def _known_environment(cls, v: str) -> str:
+        try:
+            environments.names(v)
+        except environments.EnvironmentPolicyError as exc:
+            raise ValueError(str(exc)) from None
+        return v
 
 
 class Plan(BaseModel):
@@ -48,6 +62,12 @@ class Plan(BaseModel):
     plan_hash: str = ""
     created_at: datetime
     problems: list[str] = Field(default_factory=list)
+    # `<environment>/<catalog.target_key>`: what the bounds and the mutex key on.
+    target: str = ""
+    environment: str = ""
+    # What the plan was made under, in its hash (register O5): the environment, the catalogue, WARDEN's code and
+    # the incident's record at that moment.
+    basis: dict[str, str] = Field(default_factory=dict)
 
 
 APPLY_REFUSED = "ApplyRefused"
@@ -56,7 +76,7 @@ ROLLBACK_FAILED = "RollbackFailed"
 
 def _run_id() -> str:
     """The Temporal run this activity belongs to. Every remediation row records it, and apply counts only
-    rows of its own run: `rem-<service>` is reused, and a replay of an earlier run's approval and
+    rows of its own run: a workflow id (`rem-<env>-<target hash>`) is reused, and a replay of an earlier run's approval and
     results applied a later run nobody approved (third review, 2026-09-30). Empty outside an activity."""
     try:
         return activity.info().workflow_run_id or ""
@@ -98,9 +118,41 @@ class Platform(Protocol):
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str: ...
 
 
-def plan_hash(entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
-    material = json.dumps([entry, params, snapshot], sort_keys=True, separators=(",", ":"), default=str)
+def plan_hash(entry: str, params: dict[str, Any], snapshot: dict[str, Any], basis: dict[str, str] | None = None) -> str:
+    material = json.dumps([entry, params, snapshot, *([basis] if basis else [])], sort_keys=True,
+                          separators=(",", ":"), default=str)
     return hashlib.sha256(material.encode()).hexdigest()
+
+
+@functools.cache
+def code_version() -> str:
+    """A hash of WARDEN's own source and policy data, read once per worker: a plan is applied only by the code it
+    was made and approved under - a worker deployed mid-approval refuses it (register O5)."""
+    root = pathlib.Path(__file__).parent
+    digest = hashlib.sha256()
+    for f in sorted([*root.rglob("*.py"), *root.rglob("*.yaml")]):
+        if "__pycache__" not in f.parts:
+            digest.update(f.relative_to(root).as_posix().encode() + b"\0" + f.read_bytes())
+    return digest.hexdigest()
+
+
+def _environment_problems(env: str, entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any]) -> list[str]:
+    """P18 ENV-MISMATCH (register S6): the incident's environment is a label an alert sender writes. The target's
+    OWN environment - its tag or label, as the platform read it - must be that environment, and a name carrying
+    another environment's prefix (`warden-prod-orders` for a dev incident) is refused too. Unknown is a mismatch."""
+    problems = []
+    own = live.get("environment")
+    if own != env:
+        problems.append(f"P18 ENV-MISMATCH: the target's own environment is {own!r}, not the incident's {env!r}")
+    for p in entry.target_params:
+        named = environments.env_of_name(str(params.get(p, "")))
+        if named and named != env:
+            problems.append(f"P18 ENV-MISMATCH: {p} {params.get(p)!r} is named for {named!r}, not {env!r}")
+    return problems
+
+
+def _basis_now(plan: Plan) -> dict[str, str]:
+    return {**plan.basis, "catalog": catalog.fingerprint(), "code": code_version()}
 
 
 class RemediationActivities:
@@ -115,23 +167,31 @@ class RemediationActivities:
         problems = catalog.validate(req.entry, req.params, live)
         target = req.params.get(entry.target_param) if entry else None
         if entry and target != req.service:
-            # The health check, the bounds and the kill switch key on `service`: it must be what the fix changes
-            # (sixth review, 2026-10-01: a scale of `payments` filed under `orders` was judged by `orders`).
+            # The health check keys on `service`: it must be what the fix changes (sixth review, 2026-10-01: a
+            # scale of `payments` filed under `orders` was judged by `orders`).
             problems.append(f"the fix changes {entry.target_param} {target!r}, not the service {req.service!r} "
-                            "its health and bounds would be judged by")
+                            "its health would be judged by")
+        if entry:
+            problems += _environment_problems(req.environment, entry, req.params, live)
         snapshot = live.get("state", {})
+        basis = {"environment": req.environment, "catalog": catalog.fingerprint(), "code": code_version(),
+                 "evidence": self.audit.head(req.incident_id)}
+        key = f"{req.environment}/{catalog.target_key(req.entry, req.params)}" if entry else ""
         plan = Plan(workflow_id=workflow_id, incident_id=req.incident_id, entry=req.entry,
                     tier=entry.tier if entry else "", params=req.params, snapshot=snapshot,
-                    plan_hash=plan_hash(req.entry, req.params, snapshot), created_at=datetime.now(UTC),
-                    problems=problems)
+                    plan_hash=plan_hash(req.entry, req.params, snapshot, basis), created_at=datetime.now(UTC),
+                    problems=problems, target=key, environment=req.environment, basis=basis)
         self.audit.append(req.incident_id, "remediation.plan",
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
-                           "params": req.params, "plan_hash": plan.plan_hash, "problems": problems})
+                           "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
+                           "problems": problems})
         return plan
 
     @activity.defn
     def gate(self, plan: Plan, service: str) -> list[str]:
-        reasons = bounds.blocked(self.audit, service=service, action_class=plan.entry, now=datetime.now(UTC),
+        # The bounds key on the target the plan changes, not on `service` (audit A-B-M4); _not_approved re-checks
+        # the target against the plan row before apply.
+        reasons = bounds.blocked(self.audit, service=plan.target, action_class=plan.entry, now=datetime.now(UTC),
                                  limits=self.limits)
         self.audit.append(plan.incident_id, "remediation.gate", {"workflow_id": plan.workflow_id, "run_id": _run_id(),
                                                                   "blocked": reasons})
@@ -160,8 +220,12 @@ class RemediationActivities:
         exists is not the plan that was approved."""
         live = self.platform.live(plan.entry, plan.params)
         problems = catalog.validate(plan.entry, plan.params, live)
-        if plan_hash(plan.entry, plan.params, live.get("state", {})) != plan.plan_hash:
+        if _basis_now(plan) != plan.basis:
+            problems.append("WARDEN's code or catalogue changed after the plan was made; it needs a new plan")
+        elif plan_hash(plan.entry, plan.params, live.get("state", {}), plan.basis) != plan.plan_hash:
             problems.append("the target changed after the plan was made; it needs a new plan")
+        if entry := catalog.CATALOG.get(plan.entry):
+            problems += _environment_problems(plan.environment, entry, plan.params, live)
         self.audit.append(plan.incident_id, "remediation.precheck",
                           {"workflow_id": plan.workflow_id, "run_id": _run_id(), "plan_hash": plan.plan_hash,
                            "problems": problems})
@@ -184,8 +248,11 @@ class RemediationActivities:
 
         made = [e["body"] for e in rows("remediation.plan")]
         if (not made or made[-1].get("problems") or made[-1].get("entry") != plan.entry
-                or made[-1].get("params") != plan.params):
+                or made[-1].get("params") != plan.params or made[-1].get("target") != plan.target
+                or made[-1].get("basis") != plan.basis):
             return ["no such plan was made for this workflow run"]
+        if _basis_now(plan) != plan.basis:  # a worker deployed after the precheck (register O5)
+            return ["WARDEN's code or catalogue changed after the plan was made"]
         approved = rows("approval.accepted")
         need = self.policy.required.get(made[-1].get("tier", ""), 1)
         if len({e["body"].get("approver") for e in approved}) < need:
@@ -194,7 +261,7 @@ class RemediationActivities:
         checks = [e for e in rows("remediation.precheck") if e["seq"] > last_approval]
         if not checks or checks[-1]["body"].get("problems"):
             return ["no clean precheck of this plan after its approval"]
-        return bounds.blocked(self.audit, service=service, action_class=plan.entry, now=datetime.now(UTC),
+        return bounds.blocked(self.audit, service=plan.target, action_class=plan.entry, now=datetime.now(UTC),
                               limits=self.limits)
 
     @activity.defn
@@ -229,7 +296,7 @@ class RemediationActivities:
                                                                        "run_id": run, "plan_hash": plan.plan_hash,
                                                                        "why": [why]})
             raise ApplicationError(f"apply refused: {why}", type=APPLY_REFUSED, non_retryable=True) from None
-        bounds.record_applied(self.audit, plan.incident_id, service=service, action_class=plan.entry,
+        bounds.record_applied(self.audit, plan.incident_id, service=plan.target, action_class=plan.entry,
                               plan_hash=plan.plan_hash, detail=detail, workflow_id=plan.workflow_id, run_id=run)
         return detail
 
@@ -262,7 +329,7 @@ class RemediationActivities:
         if verified != ok:
             self.audit.append(plan.incident_id, "remediation.result_mismatch",
                               {"workflow_id": plan.workflow_id, "run_id": run, "claimed": ok, "recorded": verified})
-        bounds.record_result(self.audit, plan.incident_id, service=service, ok=verified, now=datetime.now(UTC),
+        bounds.record_result(self.audit, plan.incident_id, service=plan.target, ok=verified, now=datetime.now(UTC),
                              limits=self.limits, workflow_id=plan.workflow_id, run_id=run,
                              plan_hash=plan.plan_hash)
         return Recorded(run_id=run, ok=verified)

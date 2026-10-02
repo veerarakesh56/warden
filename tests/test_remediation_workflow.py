@@ -40,7 +40,8 @@ class FakePlatform:
         self.reads += 1
         if self.drift_on_second_read and self.reads == 2:
             self.state = {**self.state, "revision": "8"}
-        return {"namespace": {"shop"}, "deployment": {"orders"}, "to_revision": {"6"}, "state": dict(self.state)}
+        return {"namespace": {"shop"}, "deployment": {"orders"}, "to_revision": {"6"}, "environment": "dev",
+                "state": dict(self.state)}
 
     def apply(self, entry, params):
         if self.apply_error:
@@ -75,7 +76,7 @@ def world(tmp_path, owner):
     return {"log": log, "policy": policy, "platform": FakePlatform(), "db": tmp_path / "audit.db"}
 
 
-REQ = {"incident_id": "inc-42", "entry": "k8s_rollout_undo", "service": "orders",
+REQ = {"incident_id": "inc-42", "entry": "k8s_rollout_undo", "service": "orders", "environment": "dev",
        "params": {"namespace": "shop", "deployment": "orders", "to_revision": "6"}}
 
 
@@ -198,7 +199,7 @@ def test_an_approver_limited_to_t1_cannot_approve_a_t2_fix(world, owner):
 
 
 def test_the_checklist_cannot_be_given_as_input():
-    assert set(FixRequest.model_fields) == {"incident_id", "entry", "params", "service",
+    assert set(FixRequest.model_fields) == {"incident_id", "entry", "params", "service", "environment",
                                             "approval_ttl_minutes", "recover_within_minutes"}
 
 

@@ -18,6 +18,7 @@ metadata:
   labels:
     app: catalog-api
     project: warden
+    environment: __ENVIRONMENT__  # read by WARDEN before any change (P18, register S6)
 spec:
   replicas: 2
   selector:
