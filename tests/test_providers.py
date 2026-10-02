@@ -29,6 +29,12 @@ from warden.providers import (
 # --------------------------------------------------------------------- token estimation
 
 
+@pytest.fixture(autouse=True)
+def _transport_only(monkeypatch):
+    """These test each provider's transport and keys, not the replay qualification (register M20)."""
+    monkeypatch.setenv("WARDEN_QUALIFYING", "1")
+
+
 def test_estimate_is_deliberately_pessimistic():
     """A budget fed an under-estimate fails to stop the thing it exists to stop.
 

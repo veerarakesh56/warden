@@ -117,7 +117,8 @@ def _estimate_tokens(text: str) -> int:
 # Register M15: an alias - `sonnet`, `opus`, `*-latest`, ollama's `:latest` - moves when the vendor ships a new model,
 # so the same WARDEN, unchanged, diagnosed with a different model from one day to the next. Only an exact id is
 # accepted. Verified 2026-10-02 on the Claude models page: every Claude API id is a pinned snapshot, the dateless
-# ones from the 4.6 generation on included; the CLI's `sonnet` resolved to claude-sonnet-5-5 that day.
+# ones from the 4.6 generation on included; the CLI's `sonnet` resolved to claude-sonnet-5-5 that day - a model that
+# then failed WARDEN's replay qualification (register M20), which is the drift this refuses.
 _FLOATING = re.compile(r"(?i)^(?:sonnet|opus|haiku|fable|default|best|opusplan)(?:\[1m\])?$|[-:]latest$")
 
 
@@ -376,7 +377,9 @@ class ClaudeCliProvider:
     def __init__(self, model: str | None = None) -> None:
         import shutil
 
-        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5-5"))
+        # The model that passed WARDEN's replay set (data/providers.yaml, register M20). Not claude-sonnet-5-5: the
+        # newer model scored 16 of 30 where this one scored 19 (2026-10-02).
+        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5"))
         self._version = ""
         self._exe = shutil.which("claude")
         if not self._exe:
@@ -557,6 +560,35 @@ DEFAULT_BASE_URLS = {
 }
 
 
+def load_qualified() -> dict:
+    """data/providers.yaml: the bar, and the provider/model pairs measured to pass it (register M20)."""
+    from importlib import resources
+
+    import yaml
+
+    doc = yaml.safe_load((resources.files("warden") / "data" / "providers.yaml").read_text(encoding="utf-8")) or {}
+    if not isinstance(doc.get("bar"), dict) or not isinstance(doc.get("qualified"), list):
+        raise ProviderError("data/providers.yaml needs a `bar` mapping and a `qualified` list")
+    return doc
+
+
+def qualified(provider: Provider) -> Provider:
+    """The provider, if its exact model passed WARDEN's replay set; otherwise refused (register M20). A fallback to
+    another vendor's model is a different model, so it is held to the same bar. scripts/qualify_provider.py alone
+    sets WARDEN_QUALIFYING, to measure a model that has not passed yet."""
+    if os.environ.get("WARDEN_QUALIFYING") == "1":
+        return provider
+    doc = load_qualified()
+    bar = doc["bar"]
+    for entry in doc["qualified"]:
+        if (isinstance(entry, dict) and entry.get("provider") == provider.name and entry.get("model") == provider.model
+                and int(entry.get("wrong_and_allowed", 1 << 30)) <= int(bar["wrong_and_allowed"])
+                and int(entry.get("correct", -1)) >= int(bar["min_correct"])):
+            return provider
+    raise ProviderError(f"{provider.name} {provider.model} has not passed WARDEN's replay set (register M20); "
+                        "measure it with scripts/qualify_provider.py")
+
+
 def resolve(name: str | None = None) -> Provider:
     """Build the configured provider. Raises a readable error rather than failing at call time."""
     name = (name or os.environ.get("WARDEN_PROVIDER") or "anthropic").lower()
@@ -568,5 +600,5 @@ def resolve(name: str | None = None) -> Provider:
     # breaking the local-only guarantee and mutating the library caller's global env. An explicit
     # WARDEN_BASE_URL still wins (custom self-hosted host).
     if name in DEFAULT_BASE_URLS:
-        return OpenAICompatProvider(base_url=os.environ.get("WARDEN_BASE_URL") or DEFAULT_BASE_URLS[name])
-    return _REGISTRY[name]()
+        return qualified(OpenAICompatProvider(base_url=os.environ.get("WARDEN_BASE_URL") or DEFAULT_BASE_URLS[name]))
+    return qualified(_REGISTRY[name]())

@@ -150,6 +150,7 @@ def test_a_missing_cli_is_refused_at_construction(monkeypatch):
 def test_it_is_registered_under_both_spellings(monkeypatch):
     from warden.providers import resolve
 
+    monkeypatch.setenv("WARDEN_QUALIFYING", "1")  # these test the transport, not the replay qualification (M20)
     monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/claude")
     for name in ("claude_cli", "claude-cli"):
         monkeypatch.setenv("WARDEN_PROVIDER", name)

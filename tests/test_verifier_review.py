@@ -160,6 +160,7 @@ def test_a_keyed_host_over_plain_http_is_refused(monkeypatch):
 
 
 def test_anthropic_base_url_in_the_environment_is_ignored(monkeypatch):
+    monkeypatch.setenv("WARDEN_QUALIFYING", "1")  # these test the transport, not the replay qualification (M20)
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://evil.example")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-" + "ant-construction-only")  # split: no key-shaped literal
     client = resolve("anthropic")._client

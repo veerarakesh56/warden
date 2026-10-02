@@ -152,6 +152,13 @@ WARDEN is **not tied to a vendor**. That is a design position, not a cost saving
 only works against one model is not a safety layer, and incident logs are the kind of data plenty of
 organisations cannot send to any third party at all.
 
+Not tied to a vendor is not the same as trusting any model. A provider and model diagnose only after
+passing WARDEN's replay set (register M20): `scripts/qualify_provider.py` re-diagnoses the 30 recorded
+incidents of the published runs with that exact model, and only a result with no wrong diagnosis allowed
+and at least 17 correct goes into `src/warden/data/providers.yaml`. Every other pair is refused at
+start-up, and an alias that moves to new models (`sonnet`, `*-latest`) is refused outright (register M15).
+The examples below need their model qualified first.
+
 ```bash
 # Google AI Studio - genuine free tier, no card
 pip install -e ".[gemini]"

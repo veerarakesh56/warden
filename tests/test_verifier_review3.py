@@ -132,6 +132,7 @@ def test_custom_openai_headers_never_go_to_another_host(monkeypatch):
 
 def test_the_gemini_transport_is_never_swapped_by_the_environment(monkeypatch, tmp_path):
     """GOOGLE_GENAI_CLIENT_MODE=replay answered from files on disk; record wrote prompts to disk."""
+    monkeypatch.setenv("WARDEN_QUALIFYING", "1")  # these test the transport, not the replay qualification (M20)
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-construction-only")
     monkeypatch.setenv("GOOGLE_GENAI_CLIENT_MODE", "replay")
     monkeypatch.setenv("GOOGLE_GENAI_REPLAYS_DIRECTORY", str(tmp_path))
