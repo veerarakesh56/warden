@@ -102,6 +102,8 @@ def facts(rds, cluster: str) -> dict:
         "aurora_instance_endpoints": {i["DBInstanceIdentifier"]: (i.get("Endpoint") or {}).get("Address", "")
                                       for i in instances(rds, cluster)},
         "aurora_writer_instance": writer_of(c),
+        # What an rds-db:connect grant names the cluster by (render_env_iam.py --cluster-resource-id; audit A-I-18).
+        "aurora_cluster_resource_id": c.get("DbClusterResourceId", ""),
         "db_name": DB_NAME,
         "db_master_username": MASTER_USER,
     }

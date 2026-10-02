@@ -463,3 +463,31 @@ def test_every_deploy_grant_lies_inside_the_boundary_on_resources_too(env):
                            for b in allows):
                     outside.append((st.get("Sid"), action, resource))
     assert not outside, outside[:10]
+
+
+def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, monkeypatch):
+    """Audit A-I-18 (owner, 2026-10-02): the operator runs the Wave 4 harness from the laptop, in dev only. Its policy
+    writes only dev's named or tagged resources, and logs in to Aurora - as the master user, which the faults need -
+    only on dev's cluster, named by its resource id: `dbuser:*` would reach every environment's database."""
+    assert [e for e in ENVS if (ROOT / "iam" / e / "harness.json").exists()] == list(r.HARNESS_ENVS) == ["dev"]
+    policy = json.loads((ROOT / "iam" / "dev" / "harness.json").read_text(encoding="utf-8"))
+    for st in policy["Statement"]:
+        resources = _list(st["Resource"])
+        if st["Sid"] in ("ReadTheStack", "TaskDefinitionsTakeNoName", "EventSourceMappingsOfThisEnvironmentsFunctions",
+                         "SecurityGroupRulesOfThisEnvironmentOnly"):
+            assert "Condition" in st, st["Sid"]  # region, function ARN or the environment's tags
+            continue
+        for res in resources:
+            assert "warden-dev-" in res or res.endswith(("/postgres", "/warden_dev_ro")), (st["Sid"], res)
+        if any(a.startswith("rds-db:") for a in _list(st["Action"])):
+            assert all(":dbuser:<CLUSTER_RESOURCE_ID>/" in res for res in resources), resources
+    sg = next(s for s in policy["Statement"] if s["Sid"] == "SecurityGroupRulesOfThisEnvironmentOnly")
+    assert sg["Condition"]["StringEquals"]["aws:ResourceTag/Environment"] == "dev"
+
+    monkeypatch.setattr(r, "ROOT", tmp_path)
+    monkeypatch.setattr(r, "environments", lambda: ("dev",))
+    with pytest.raises(SystemExit):
+        r.main(["--cluster-resource-id", "*"])
+    assert r.main(["--cluster-resource-id", "cluster-ABCDEFGHIJ1234"]) == 0
+    local = (tmp_path / "iam" / "dev" / "harness.local.json").read_text(encoding="utf-8")
+    assert "dbuser:cluster-ABCDEFGHIJ1234/postgres" in local and "<CLUSTER_RESOURCE_ID>" not in local

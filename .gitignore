@@ -47,4 +47,5 @@ NEXT-SESSION-PROMPT.txt
 # Rendered per-environment trust policies WITH the real account id (render_env_iam.py --account),
 # for pasting into the console. Never committed: the committed trust.json carries <ACCOUNT_ID>.
 iam/*/trust.local.json
+iam/*/harness.local.json
 terraform/proving-ground/*.local.json

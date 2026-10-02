@@ -589,7 +589,8 @@ class FakeRds:
                         "Endpoint": "warden-dev-aurora.cluster-x.rds.example",
                         "ReaderEndpoint": "warden-dev-aurora.cluster-ro-x.rds.example",
                         "AvailabilityZones": ["az-a", "az-b", "az-c"],
-                        "IAMDatabaseAuthenticationEnabled": self.iam_auth}  # express: IAM authentication only
+                        "IAMDatabaseAuthenticationEnabled": self.iam_auth,  # express: IAM authentication only
+                        "DbClusterResourceId": "cluster-FAKE0RESOURCE0ID0"}
         self.instances["warden-dev-aurora-instance-1"] = {"writer": True, "status": "creating", "az": "az-a"}
 
     def modify_db_cluster(self, **kw):
@@ -658,6 +659,8 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
     assert reader["DBInstanceClass"] == "db.serverless" and reader["AvailabilityZone"] == "az-b"  # not the writer's
     assert not any("Password" in k for _, kw in rds.calls for k in kw), "express has no password"
     assert found["aurora_writer_instance"] == "warden-dev-aurora-instance-1"  # whatever express named it
+    # What the dev harness policy's rds-db:connect grant names the cluster by (audit A-I-18).
+    assert found["aurora_cluster_resource_id"] == "cluster-FAKE0RESOURCE0ID0"
     assert sm.puts == [("warden-dev-db-app", {
         "username": "warden_dev_app", "dbname": "shop", "port": 5432,  # data.tf's db_users["app"], not "app"
         "host": "warden-dev-aurora.cluster-x.rds.example", "reader": "warden-dev-aurora.cluster-ro-x.rds.example"})]

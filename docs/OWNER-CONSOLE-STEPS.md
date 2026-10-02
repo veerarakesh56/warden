@@ -174,9 +174,10 @@ Claude compares the stored value with the file by hash, never printing either.
    1. Delete that access key.
    2. Delete the user `warden-operator`.
    3. Delete the policies `WardenProvingGroundOperator` and `WardenProvingGroundOperatorRdsEks` (if
-      it exists), each only if its **Entities attached** tab is empty. Keep `WardenFullstackOperator`:
-      who runs the proving-ground harness is still undecided (audit A-I-18), and deleting it would
-      also make the 2026-09-28 undo below impossible.
+      it exists), each only if its **Entities attached** tab is empty. Keep `WardenFullstackOperator`
+      for now: you run the Wave 4 harness from the laptop in dev (decided 2026-10-02, audit A-I-18),
+      and its replacement `WardenHarness-dev` is made in the cloud window below, once dev's Aurora
+      cluster exists; deleting it earlier would also make the 2026-09-28 undo below impossible.
    4. Keep `WardenOperatorGuardrails` and `WardenProvingGroundBoundary` until Claude says otherwise.
 4. Claude then deletes the plaintext files:
    - the moved credentials file;
@@ -438,6 +439,25 @@ A negative check (another environment's role must be refused) is planned for win
 not exist yet (audit 2026-09-28).
 
 ---
+
+### The harness policy (in the window, after `aurora_express.py create`)
+
+You run the Wave 4 harness in dev as the operator. Its policy, `iam/dev/harness.json`, lets it break and
+restore only dev's named or tagged resources, and log in to dev's Aurora cluster - as the master user, which
+three faults need - and to no other database. It names that cluster by its resource id, which exists only
+once the cluster does.
+
+1. Claude reads `aurora_cluster_resource_id` from dev's `stack.json` and runs
+   `python scripts/render_env_iam.py --cluster-resource-id <that id>`, which writes
+   `iam/dev/harness.local.json` (not committed).
+2. **IAM** -> **Policies** -> **Create policy** -> **JSON**. Paste the whole of `iam/dev/harness.local.json`.
+   **Next**. Name: `WardenHarness-dev`. **Create policy**.
+3. **IAM** -> **Roles** -> the operator's role -> **Add permissions** -> **Attach policies** ->
+   `WardenHarness-dev` -> **Add permissions**.
+4. Same role -> **Permissions** -> `WardenFullstackOperator` -> **Remove**. Claude then runs one harness
+   `status` to prove the new policy reads what it needs.
+
+Undo: attach `WardenFullstackOperator` again and remove `WardenHarness-dev`.
 
 ## Done 2026-09-27
 

@@ -1,0 +1,122 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTheStack",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBInstances",
+        "elasticache:DescribeReplicationGroups",
+        "elasticache:DescribeCacheClusters",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeTags",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks",
+        "lambda:GetAlias",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetFunctionConcurrency",
+        "lambda:ListEventSourceMappings",
+        "sqs:GetQueueUrl",
+        "sqs:GetQueueAttributes",
+        "sqs:ListQueueTags",
+        "dynamodb:DescribeTable",
+        "dynamodb:ListTagsOfResource",
+        "ec2:DescribeSecurityGroups",
+        "cloudwatch:GetMetricData",
+        "events:DescribeRule",
+        "events:ListTagsForResource",
+        "eks:DescribeCluster",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-south-2"}}
+    },
+    {
+      "Sid": "InjectAndRevertOnlyThisEnvironmentsNamedResources",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:PublishVersion",
+        "lambda:UpdateAlias",
+        "lambda:PutFunctionConcurrency",
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:InvokeFunction",
+        "sqs:SetQueueAttributes",
+        "sqs:SendMessage",
+        "sqs:PurgeQueue",
+        "dynamodb:UpdateTable",
+        "rds:FailoverDBCluster",
+        "ecs:UpdateService",
+        "elasticloadbalancing:ModifyTargetGroup",
+        "events:DisableRule",
+        "events:EnableRule",
+        "elasticache:ModifyReplicationGroup",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListRoleTags",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": [
+        "arn:aws:lambda:ap-south-2:*:function:warden-${env}-*",
+        "arn:aws:sqs:ap-south-2:*:warden-${env}-*",
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-${env}-*",
+        "arn:aws:rds:ap-south-2:*:cluster:warden-${env}-*",
+        "arn:aws:ecs:ap-south-2:*:service/warden-${env}-*/*",
+        "arn:aws:elasticloadbalancing:ap-south-2:*:targetgroup/warden-${env}-*",
+        "arn:aws:events:ap-south-2:*:rule/warden-${env}-*",
+        "arn:aws:elasticache:ap-south-2:*:replicationgroup:warden-${env}-*",
+        "arn:aws:iam::*:role/warden-${env}-*",
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-${env}-*"
+      ]
+    },
+    {
+      "Sid": "EventSourceMappingsOfThisEnvironmentsFunctions",
+      "Effect": "Allow",
+      "Action": "lambda:UpdateEventSourceMapping",
+      "Resource": "*",
+      "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:ap-south-2:*:function:warden-${env}-*"}}
+    },
+    {
+      "Sid": "SecurityGroupRulesOfThisEnvironmentOnly",
+      "Effect": "Allow",
+      "Action": ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
+      "Resource": "arn:aws:ec2:ap-south-2:*:security-group/*",
+      "Condition": {"StringEquals": {"aws:ResourceTag/Environment": "${env}", "aws:ResourceTag/Project": "warden"}}
+    },
+    {
+      "Sid": "TaskDefinitionsTakeNoName",
+      "Effect": "Allow",
+      "Action": "ecs:RegisterTaskDefinition",
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-south-2"}}
+    },
+    {
+      "Sid": "PassThisEnvironmentsTaskRolesToEcsOnly",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/warden-${env}-*",
+      "Condition": {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}}
+    },
+    {
+      "Sid": "AssumeThisEnvironmentsReader",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::*:role/warden-${env}-reader"
+    },
+    {
+      "Sid": "DatabaseAsTheMasterUserForFaultsAndAsTheReader",
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": [
+        "arn:aws:rds-db:ap-south-2:*:dbuser:${cluster_resource_id}/postgres",
+        "arn:aws:rds-db:ap-south-2:*:dbuser:${cluster_resource_id}/warden_${env_sql}_ro"
+      ]
+    }
+  ]
+}
