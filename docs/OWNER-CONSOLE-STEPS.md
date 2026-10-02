@@ -21,6 +21,12 @@ Avoid the root user.
 > region, the calendar left too little time before E3, and the sweep role could be assumed in any
 > account. This version fixes them. The go-ahead comes only
 > after these steps are re-verified and CI on `main` is green.
+>
+> ✅ **Go-ahead given 2026-10-02 12:57 UTC / 12:57 IST** after re-verification at f5d6bf1, CI green: the
+> laptop certificate (with its TPM key, valid to 2027-09-28), `ca.pem` and `aws_signing_helper` 1.8.5 (the
+> latest release) are in place; every file the steps paste or delete exists; `iam/operator/policy.json`
+> is final - it stays read-only and may assume only the sweep role and, later, the dev harness role
+> (re-verification moved the harness to its own role, R18); the model names are current.
 
 What this gives:
 - The laptop stops using an access key. It signs in to AWS with a certificate whose private key
@@ -133,7 +139,7 @@ Claude then:
    `assumed-role/warden-ops-operator/...`.
 3. Reads, with the new identity only (read-only, no model is called):
    - the Free-plan end date and credits left;
-   - whether Claude Opus 5.5, Fable 5.1 and Sonnet 5 are available to this account through the
+   - whether Claude Opus 5.5, Fable 5.1 and Sonnet 5.5 are available to this account through the
      global profile. This is the check for whether the Free plan allows these Marketplace-billed
      models. If it does not, decision D12 goes back to you.
    - whether Anthropic's one-time use-case form has been submitted. Submitting it is your decision
@@ -249,7 +255,7 @@ skip any step you never did:
 |---|---|---|
 | AWS Free plan ends | - | - |
 | AWS credits left | - | - |
-| Opus 5.5 / Fable 5.1 / Sonnet 5 available to this account | - | - |
+| Opus 5.5 / Fable 5.1 / Sonnet 5.5 available to this account | - | - |
 | Anthropic use-case form submitted | - | - |
 | Opus 5.5 global-profile quotas | - | - |
 | Temporal Cloud trial ends / credits left | - | - |
