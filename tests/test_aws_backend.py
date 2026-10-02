@@ -695,3 +695,15 @@ def test_a_window_larger_than_the_page_budget_still_reads_the_alert_time_lines()
     assert any(f"line at {first - ts + 1}ms" in x for x in lines)
     assert any("alert-time lines read first" in x for x in lines if x.startswith(PARTIAL_PREFIX))
     assert len(logs.calls) == ab.LOG_MAX_PAGES
+
+
+def test_a_rollback_is_reported_with_nothing_to_roll_back_to():
+    """Audit A-B-M6: checkout:6 going live while checkout:7 is replaced is a rollback (ECS's circuit breaker, or a
+    person). The deploy named 7 - the broken revision - as `previous`, and a rollback aimed at it redeployed it."""
+    defs = {"checkout:6": ["repo/checkout:healthy"], "checkout:7": ["repo/checkout:broken"],
+            "checkout:5": ["repo/checkout:older"]}
+    ecs = FakeEcs(services=[_service(deployments=_rollout(6, 7))], task_defs=defs)
+    [d] = _backend(ecs=ecs).deploys(_alert())
+    assert d["rolled_back_from"] == "checkout:7" and d["previous_task_definition"] == "", d
+    assert d["task_definition"] == "checkout:6" and d["previous_image"] == "repo/checkout:broken"
+    assert "checkout:5" not in str(d)  # nor one step further back

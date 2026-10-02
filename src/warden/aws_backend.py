@@ -401,9 +401,15 @@ class AwsBackend:
             "",
         )
         previous_ref = ""
+        rolled_back_from = ""
         if previous_arn:
             prev_family, prev_revision = _family_revision(previous_arn)
-            if prev_family:
+            if prev_family == family and prev_revision > revision:
+                # A ROLLBACK: the revision being replaced is newer than the one going live - ECS's circuit breaker or a
+                # person stepping back. Reported as a change, but with nothing to roll back to: the "previous" here is
+                # the broken revision, and a rollback aimed at it redeployed it (audit A-B-M6).
+                rolled_back_from = f"{prev_family}:{prev_revision}"
+            elif prev_family:
                 # ⛔ Used, even when it is the SAME revision as PRIMARY. That is exactly what a
                 # `--force-new-deployment` looks like — a new deployment record pointing at the
                 # unchanged task definition — and the images then compare equal, so it is correctly
@@ -411,7 +417,7 @@ class AwsBackend:
                 # restart as a deploy, which is the single defect this whole comparison exists to
                 # prevent. A test asserts it.
                 previous_ref = f"{prev_family}:{prev_revision}"
-        if not previous_ref and revision > 1:
+        if not previous_ref and not rolled_back_from and revision > 1:
             previous_ref = f"{family}:{revision - 1}"
 
         previous_images: list[str] = []
@@ -431,6 +437,11 @@ class AwsBackend:
             if previous_images == current_images:
                 return []  # deployment moved, task definition did not: a restart, not a deploy
 
+        if rolled_back_from:
+            try:
+                previous_images = _images_of(self._task_definition(rolled_back_from))
+            except Exception:  # noqa: BLE001 - the images are context only; the rollback is reported either way
+                previous_images = []
         out = {
             "service": self._service(alert),
             "revision": str(revision),
@@ -448,6 +459,8 @@ class AwsBackend:
         # ...but the registration time is worth carrying beside it, because the two being far
         # apart is itself a signal: a revision built long ago and rolled out now is a different
         # kind of event from one built and shipped in the same minute.
+        if rolled_back_from:
+            out["rolled_back_from"] = rolled_back_from
         registered = _aware((current or {}).get("registeredAt"))
         if registered is not None:
             out["registered_at"] = registered.isoformat()

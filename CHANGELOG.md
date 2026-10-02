@@ -65,6 +65,8 @@ bump may carry a breaking change.
   alert by a hash. The 337 recorded reports keep their verdicts.
 - **The alert-time log lines are read first** (audit A-B-M5). A log window larger than the page budget used to
   stop among its oldest lines. It now loses older lines instead.
+- **An ECS rollback is read as one** (audit A-B-M6). A revision going live while a newer one is replaced has
+  nothing to roll back to. Before, the broken revision was offered as the rollback target.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

@@ -782,7 +782,9 @@ class StackBackend:
                                     "version": d.get("task_definition", ""),
                                     "previous": d.get("previous_task_definition", ""),
                                     "image": d.get("image", ""), "previous_image": d.get("previous_image", ""),
-                                    "revision": d.get("revision", "")})
+                                    "revision": d.get("revision", ""),
+                                    # a rollback: nothing to roll back to, and the evidence says so (audit A-B-M6)
+                                    **({"rolled_back_from": d["rolled_back_from"]} if d.get("rolled_back_from") else {})})
 
     def _read_eks(self, out: _Out, cluster: str) -> None:
         vpc = self._eks.describe_cluster(name=cluster)["cluster"].get("resourcesVpcConfig") or {}
