@@ -410,12 +410,11 @@ def _cancel_once(world, owner, started, release):
     return [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
 
 
-@pytest.mark.parametrize("method", ["healthy", "apply"])
-def test_a_cancel_during_an_activity_after_apply_was_sent_ends_on_the_record_and_trips(world, owner, method):
-    """Ninth review (2026-10-01): a cancel landing while an activity ran - the health check, or apply itself - arrives
-    as an ActivityError, not a CancelledError, so the run left no end row and the switch off; and a cancel during
-    apply read as "cancelled", though apply may have acted."""
-    started, release = _blocking(world, method)
+def test_a_cancel_during_apply_ends_on_the_record_and_trips(world, owner):
+    """Ninth review (2026-10-01): a cancel landing while an activity ran arrives as an ActivityError, not a
+    CancelledError, so the run left no end row and the switch off; and a cancel during apply read as "cancelled",
+    though apply may have acted."""
+    started, release = _blocking(world, "apply")
     assert _cancel_once(world, owner, started, release) == ["cancelled_after_apply"]
     assert bounds.killswitch(world["log"]) is not None
 

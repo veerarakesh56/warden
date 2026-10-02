@@ -118,8 +118,10 @@ jobs:
 
       # In parallel across the runner's cores (pytest-xdist): 100 s on one core. Every test must stay
       # independent of the others - a test that needs another's state fails here first.
+      # A test still running after 5 min prints every thread's stack (pytest's faulthandler): on 4886152 the step
+      # hung for 15 min and was cancelled with nothing saying which test.
       - name: Unit tests
-        run: pytest tests -q -n auto -rs
+        run: pytest tests -q -n auto -rs -o faulthandler_timeout=300
 
       - name: Eval gate
         run: pytest evals -q
