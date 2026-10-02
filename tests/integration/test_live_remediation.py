@@ -132,9 +132,11 @@ def test_the_platform_works_as_the_least_privilege_service_account(apps, target)
 
     api = client.ApiClient()
     api.set_default_header("Impersonate-User", "system:serviceaccount:warden:warden-remediator")
-    p = KubernetesPlatform(apps=client.AppsV1Api(api), namespace=NS)
+    p = KubernetesPlatform(apps=client.AppsV1Api(api), namespace=NS, autoscaling=client.AutoscalingV2Api(api))
     live = p.live("k8s_scale", _params())
     assert live, "the remediator could not read the Deployment it is meant to change (is remediation-rbac.yaml applied?)"
+    # Register C4: the role lists HPAs, so "no autoscaler owns this count" is read, not assumed.
+    assert live["autoscaled"] is False and live["gitops"] == "", live
     before = live["current_replicas"]
     p.apply("k8s_scale", _params(replicas=before + 1))
     assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == before + 1

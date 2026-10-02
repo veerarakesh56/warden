@@ -137,6 +137,8 @@ bump may carry a breaking change.
 - **Every billed AWS call has its price in the cost table, and a new call must be classified** (requirement R10).
 - **The model reads the alert's rule id, never its prose; the summary is quarantined evidence** (registers M10, N3,
   audit A-N-3; accuracy unchanged on the replay set).
+- **No fight with other automation: a GitOps-owned target is changed in Git, an autoscaled count is not scaled**
+  (register C4).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

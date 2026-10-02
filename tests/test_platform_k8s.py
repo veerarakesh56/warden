@@ -64,7 +64,20 @@ class _Apps:
             self.replicas[name] = replace["value"]
 
 
+class _Hpas:
+    """The autoscaling API: HorizontalPodAutoscalers in the namespace, each targeting a Deployment by name."""
+
+    def __init__(self, *targets):
+        self.targets = targets
+
+    def list_namespaced_horizontal_pod_autoscaler(self, ns, **kw):
+        ref = [types.SimpleNamespace(spec=types.SimpleNamespace(
+            scale_target_ref=types.SimpleNamespace(kind="Deployment", name=t))) for t in self.targets]
+        return types.SimpleNamespace(items=ref)
+
+
 def _platform(apps, **kw):
+    kw.setdefault("autoscaling", _Hpas())  # none: an autoscaler owns no count here unless a test says so
     return KubernetesPlatform(apps=apps, namespace=NS, **kw)
 
 

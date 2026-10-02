@@ -49,6 +49,11 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "patch"]
+  # Register C4: a scale an autoscaler owns would be undone, so WARDEN must see the HPAs. List only: it reads
+  # which Deployment each one targets, and can change none of them.
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["list"]
 ---
 # Granted in the namespace WARDEN may remediate. One RoleBinding per such namespace; never a
 # ClusterRoleBinding — that would let it patch deployments cluster-wide.

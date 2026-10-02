@@ -161,7 +161,8 @@ def for_action(action: ActionKind, platform: str) -> Entry | None:
     return CATALOG[name] if name else None
 
 
-ROLLS_PODS = frozenset({"k8s_restart"})  # entries that replace a workload's pods through its own rollout (C10)
+ROLLS_PODS = frozenset({"k8s_restart"})
+SCALES = frozenset({"k8s_scale"})  # entries an autoscaler would undo (register C4)  # entries that replace a workload's pods through its own rollout (C10)
 
 
 def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[str]:
@@ -193,6 +194,13 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
         elif replicas > 1 and at_once * 2 > replicas:
             problems.append(f"C10: the target's strategy would take {at_once} of {replicas} pods down at once; a "
                             "restart is refused until it keeps most of them serving")
+    if not problems and live.get("gitops"):
+        # Register C4: Argo CD or Flux would revert the change at its next sync - the fix belongs in Git.
+        problems.append(f"C4: {live['gitops']} manages this target and reverts a direct change; make the change in Git")
+    if not problems and name in SCALES and "autoscaled" in live and live["autoscaled"] is not False:
+        problems.append("C4: a HorizontalPodAutoscaler owns this target's replica count; a scale would be undone"
+                        if live["autoscaled"] else
+                        "C4: whether an autoscaler owns this target's replica count could not be read; no scale is sent")
     if live.get("rollout") == "progressing":
         # Register C5: a change made mid-rollout fights the rollout, and the next read cannot tell which did what.
         problems.append("P21-ROLLOUT-IN-PROGRESS: a rollout of this target is under way; act after it completes "

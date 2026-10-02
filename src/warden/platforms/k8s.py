@@ -28,6 +28,11 @@ RESTARTED_AT = "kubectl.kubernetes.io/restartedAt"
 # may change.
 ENV_LABEL = os.environ.get("WARDEN_K8S_ENV_LABEL", "environment")
 _ENTRIES = {"k8s_restart", "k8s_scale"}
+# Register C4: controllers that undo a direct change. A Deployment carrying one of these is reconciled from Git by
+# Argo CD or Flux, whose self-heal reverts what WARDEN patched. (`app.kubernetes.io/instance` alone is not counted:
+# Helm sets it too, and Helm does not self-heal.)
+_GITOPS = {"argocd.argoproj.io/tracking-id": "Argo CD", "argocd.argoproj.io/instance": "Argo CD",
+           "kustomize.toolkit.fluxcd.io/name": "Flux", "helm.toolkit.fluxcd.io/name": "Flux"}
 
 
 class KubernetesPlatformError(RuntimeError):
@@ -42,7 +47,7 @@ class KubernetesPlatformRefused(KubernetesPlatformError):
 
 class KubernetesPlatform:
     def __init__(self, *, apps: Any = None, namespace: str | None = None, kubeconfig: str | None = None,
-                 max_replicas: int = MAX_REPLICAS) -> None:
+                 max_replicas: int = MAX_REPLICAS, autoscaling: Any = None) -> None:
         self._ns = namespace or os.environ.get("WARDEN_K8S_NAMESPACE", "default")
         self._max = max_replicas
         if apps is None:
@@ -57,7 +62,9 @@ class KubernetesPlatform:
                     raise KubernetesPlatformError(f"no cluster credentials (not in-cluster, no kubeconfig): "
                                                   f"{_one_line(exc)}") from exc
             apps = client.AppsV1Api()
+            autoscaling = autoscaling or client.AutoscalingV2Api()
         self._apps = apps
+        self._autoscaling = autoscaling  # None: whether an HPA owns the count is unknown, and a scale is refused
 
     # ------------------------------------------------------------------ reads
 
@@ -79,8 +86,22 @@ class KubernetesPlatform:
         labels = getattr(dep.metadata, "labels", None) or {}
         return {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
                 "environment": labels.get(ENV_LABEL), "rollout": _rollout(dep), "at_once": _at_once(dep),
+                "gitops": _gitops(dep), "autoscaled": self._autoscaled(dep.metadata.name),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
                           "generation": dep.metadata.generation, "server": self._server()}}
+
+    def _autoscaled(self, deployment: str) -> bool | None:
+        """Does a HorizontalPodAutoscaler own this Deployment's replica count (register C4)? None when it cannot be
+        read: the remediator's role lists HPAs and nothing else of theirs (k8s/remediation-rbac.yaml)."""
+        if self._autoscaling is None:
+            return None
+        try:
+            hpas = self._autoscaling.list_namespaced_horizontal_pod_autoscaler(
+                self._ns, _request_timeout=REQUEST_TIMEOUT).items or []
+        except Exception:  # noqa: BLE001 - unknown, and a scale is refused
+            return None
+        return any(getattr(getattr(h.spec, "scale_target_ref", None), "kind", "") == "Deployment"
+                   and getattr(h.spec.scale_target_ref, "name", "") == deployment for h in hpas)
 
     def _server(self) -> str:
         """The API server this platform writes to, in the plan the approver signs: staging's plan and prod's no
@@ -230,6 +251,13 @@ def _refused_by_the_server(exc: Exception, deployment: str) -> None:
         raise KubernetesPlatformRefused(f"the API server refused the write to deployment/{deployment} "
                                       f"(RBAC or an admission policy: {_one_line(getattr(exc, 'reason', '') or exc)}); "
                                       f"nothing was changed") from exc
+
+
+def _gitops(dep: Any) -> str:
+    """The GitOps controller reconciling this Deployment, by its own labels and annotations; "" for none (C4)."""
+    meta = dep.metadata
+    marks = {**(getattr(meta, "labels", None) or {}), **(getattr(meta, "annotations", None) or {})}
+    return next((who for key, who in _GITOPS.items() if key in marks), "")
 
 
 def _at_once(dep: Any) -> int | None:
