@@ -216,7 +216,15 @@ def _full_run(config) -> bool:
             and not str(config.getoption("keyword", default="") or "").strip()
             and not str(config.getoption("markexpr", default="") or "").strip()
             and not config.getoption("lf", default=False) and not config.getoption("deselect", default=None)
-            and any(covers(a) for a in config.args))
+            and (any(covers(a) for a in config.args) or _every_test_file(config.args, base, here)))
+
+
+def _every_test_file(args, base: pathlib.Path, here: pathlib.Path) -> bool:
+    """A shell-expanded list of every test file (`pytest $(find tests -name 'test_*.py')`) runs the whole suite as
+    much as `pytest tests` does, and is judged too (register R7-O4)."""
+    given = [(base / a).resolve() for a in args if "::" not in a]
+    files = [f for f in here.rglob("test_*.py") if "__pycache__" not in f.parts]
+    return bool(files) and all(any(g == f or g in f.parents for g in given) for f in files)
 
 
 def missing_evidence(reports: dict[str, set[str]], cited: set[tuple[str, str]]) -> list[str]:

@@ -303,3 +303,12 @@ def test_a_blank_keyword_and_cache_show_are_judged_rightly():
     assert conftest._full_run(_config(["tests"], base=tests.parent, keyword=" "))
     assert conftest._full_run(_config(["tests"], base=tests.parent, markexpr="  "))
     assert not conftest._full_run(_config(["tests"], base=tests.parent, cacheshow=True))
+
+
+def test_an_explicit_list_of_every_test_file_is_judged_and_a_partial_one_is_not():
+    """Register R7-O4: `pytest $(find tests -name 'test_*.py')` runs the whole suite, and ran unjudged."""
+    tests = pathlib.Path(conftest.__file__).resolve().parent
+    every = sorted(str(f) for f in tests.rglob("test_*.py") if "__pycache__" not in f.parts)
+    assert conftest._full_run(_config(every))
+    assert not conftest._full_run(_config(every[1:]))  # one file short: a partial run
+    assert not conftest._full_run(_config([*every[1:], every[0] + "::test_one"]))  # one test of a file, not the file

@@ -116,18 +116,30 @@ def missing_dependencies(target: pathlib.Path, python_version: str = LAMBDA_PYTH
            "sys_platform": "linux", "platform_system": "Linux", "os_name": "posix",
            "platform_machine": "x86_64", "implementation_name": "cpython",
            "platform_python_implementation": "CPython", "extra": ""}
-    dists = [PathDistribution(d) for d in target.glob("*.dist-info")]
-    present = {canonicalize_name(d.metadata["Name"]) for d in dists}
+    dists = {canonicalize_name(PathDistribution(d).metadata["Name"]): PathDistribution(d)
+             for d in target.glob("*.dist-info")}
     missing = set()
-    for d in dists:
-        # The extras the Lambda asks for count too: without `psycopg-binary` a `psycopg[binary]` Lambda dies
-        # on import, and an extra's requirements were never checked (fifth review, 2026-10-01).
-        asked = {"", *(extras or {}).get(canonicalize_name(d.metadata["Name"]), ())}
-        for raw in d.requires or []:
-            req = Requirement(raw)
-            applies = req.marker is None or any(req.marker.evaluate({**env, "extra": e}) for e in asked)
-            if applies and canonicalize_name(req.name) not in present:
-                missing.add(req.name)
+    # The extras the Lambda asks for count too: without `psycopg-binary` a `psycopg[binary]` Lambda dies on import,
+    # and an extra's requirements were never checked (fifth review, 2026-10-01). And the extras those requirements
+    # ask for in turn - `boto3[crt]` asks botocore for its `crt` extra (register R7-O4): followed to the end.
+    asked = {canonicalize_name(k): set(v) for k, v in (extras or {}).items()}
+    queue, done = list(dists), set()
+    while queue:
+        name = queue.pop()
+        for extra in ("", *sorted(asked.get(name, ()))):
+            if (name, extra) in done:
+                continue
+            done.add((name, extra))
+            for raw in dists[name].requires or []:
+                req = Requirement(raw)
+                if req.marker is not None and not req.marker.evaluate({**env, "extra": extra}):
+                    continue
+                dep = canonicalize_name(req.name)
+                if dep not in dists:
+                    missing.add(req.name)
+                elif set(req.extras) - asked.get(dep, set()):
+                    asked.setdefault(dep, set()).update(req.extras)
+                    queue.append(dep)
     return sorted(missing)
 
 

@@ -285,3 +285,14 @@ def test_the_database_users_must_be_the_environments_own(users):
     stack = {**STACK, "db_users": users} if users is not None else {k: v for k, v in STACK.items() if k != "db_users"}
     with pytest.raises(SystemExit):
         tool.db_users(stack)
+
+
+def test_an_extra_a_requirement_asks_for_is_followed(tmp_path):
+    """Register R7-O4: `boto3[crt]` asks botocore for its `crt` extra; only the Lambda's own extras were checked, so
+    botocore's `awscrt` was never required."""
+    _dist(tmp_path, "boto3", ['botocore[crt]>=1.40; extra == "crt"', "botocore>=1.40"])
+    _dist(tmp_path, "botocore", ['awscrt==0.27; extra == "crt"'])
+    assert tool.missing_dependencies(tmp_path) == []
+    assert tool.missing_dependencies(tmp_path, extras={"boto3": {"crt"}}) == ["awscrt"]
+    _dist(tmp_path, "awscrt")
+    assert tool.missing_dependencies(tmp_path, extras={"boto3": {"crt"}}) == []

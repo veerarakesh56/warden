@@ -9,8 +9,11 @@ Run:  python scripts/mutation_check.py
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import pathlib
+import signal
 import subprocess
 import sys
 
@@ -366,7 +369,32 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     proc.wait()
 
 
+# The file a run is mutating, with its original bytes: written before the change, removed after the restore. A run
+# killed outright (TerminateProcess, SIGKILL) never reaches its `finally`; the next run restores from this first
+# (register R7-O4). Workers of such a run are not stopped: their ids could by then belong to other processes.
+JOURNAL = ROOT / ".mutation-restore.json"
+
+
+def recover() -> str | None:
+    """Put back the file a killed run left mutated. Returns its name, or None if nothing was left."""
+    if not JOURNAL.exists():
+        return None
+    entry = json.loads(JOURNAL.read_text(encoding="utf-8"))
+    (ROOT / entry["path"]).write_bytes(base64.b64decode(entry["original"]))
+    JOURNAL.unlink()
+    return entry["path"]
+
+
+def _terminate_like_ctrl_c(*_):
+    raise KeyboardInterrupt("SIGTERM")
+
+
 def main() -> int:
+    if os.name != "nt":
+        # SIGTERM (a CI cancel, `kill`) ends the run like Ctrl-C: the workers stopped, the file restored.
+        signal.signal(signal.SIGTERM, _terminate_like_ctrl_c)
+    if left := recover():
+        print(f"restored {left}, left mutated by a run that was killed")
     print("Baseline: running the suite unmodified...")
     if run_suite() is not True:
         print("BASELINE IS RED (or ran past its limit). Fix the suite before mutation testing means anything.")
@@ -382,6 +410,8 @@ def main() -> int:
             print(f"[SKIP] {label}: anchor not found in {filename} (code moved - update this script)")
             survived.append(f"{label} (anchor missing)")
             continue
+        JOURNAL.write_text(json.dumps({"path": path.relative_to(ROOT).as_posix(),
+                                       "original": base64.b64encode(original).decode()}), encoding="utf-8")
         try:
             path.write_bytes(mutated)
             # The files that name it first (seconds to minutes); the whole suite only if they all pass.
@@ -396,6 +426,7 @@ def main() -> int:
                 survived.append(label)
         finally:
             path.write_bytes(original)  # always restore, byte for byte
+            JOURNAL.unlink(missing_ok=True)
 
     print("\n" + "=" * 70)
     if survived:

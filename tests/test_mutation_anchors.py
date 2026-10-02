@@ -58,3 +58,30 @@ def test_an_interrupted_run_stops_its_workers(monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         mutation_check.run_suite(["tests/test_x.py"], limit=5)
     assert len(stopped) == 1
+
+
+def test_a_file_a_killed_run_left_mutated_is_restored_by_the_next(tmp_path, monkeypatch):
+    """Register R7-O4: a run stopped by TerminateProcess or SIGKILL never reached its `finally`, and left the mutated
+    source behind. The journal written before each mutation lets the next run put it back, byte for byte."""
+    import base64
+    import json
+
+    original = b"guard = True\r\n"
+    target = tmp_path / "src" / "x.py"
+    target.parent.mkdir()
+    target.write_bytes(b"guard = False\r\n")
+    monkeypatch.setattr(mutation_check, "ROOT", tmp_path)
+    monkeypatch.setattr(mutation_check, "JOURNAL", tmp_path / ".mutation-restore.json")
+    mutation_check.JOURNAL.write_text(json.dumps({"path": "src/x.py", "original": base64.b64encode(original).decode()}),
+                                      encoding="utf-8")
+    assert mutation_check.recover() == "src/x.py"
+    assert target.read_bytes() == original and not mutation_check.JOURNAL.exists()
+    assert mutation_check.recover() is None
+
+
+def test_sigterm_ends_a_run_the_way_ctrl_c_does():
+    """Register R7-O4: Ctrl-C stopped the workers and restored the file; SIGTERM (a CI cancel) did neither."""
+    with pytest.raises(KeyboardInterrupt):
+        mutation_check._terminate_like_ctrl_c(15, None)
+    source = (ROOT / "scripts" / "mutation_check.py").read_text(encoding="utf-8")
+    assert "signal.signal(signal.SIGTERM, _terminate_like_ctrl_c)" in source

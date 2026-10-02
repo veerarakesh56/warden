@@ -48,3 +48,4 @@ NEXT-SESSION-PROMPT.txt
 # for pasting into the console. Never committed: the committed trust.json carries <ACCOUNT_ID>.
 iam/*/*.local.json
 terraform/proving-ground/*.local.json
+.mutation-restore.json

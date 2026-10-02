@@ -54,6 +54,11 @@ bump may carry a breaking change.
   caller's diagnosis id is `inc-mcp-<alert_id>`.
   - `workflow_status` answers only for workflows the server started, and without the context.
   - Labels that steer reads are followed only as `WARDEN_READ_SCOPES` lists them.
+- **Tooling (register R7-O4).**
+  - The mutation check journals each file it changes, and the next run restores what a killed run left;
+    SIGTERM ends a run as Ctrl-C does.
+  - The register guard judges an explicit list of every test file.
+  - The Lambda build follows the extras a requirement asks for (`boto3[crt]` needs `awscrt`).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
