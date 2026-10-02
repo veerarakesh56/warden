@@ -24,6 +24,10 @@ bump may carry a breaking change.
 - **Every diagnosis records its provenance** (audit A-P-1): the provider and model, SHA-256 of the system
   prompt, the redacted prompt and the answer, and a hash of WARDEN's code and policy data. The record holds hashes
   only.
+- **A model call is reserved before it is made** (register R8-O1). The run first writes a reservation of what
+  is left of the incident's budget, and its spend row settles it. A run cancelled, terminated or killed
+  mid-call leaves the reservation unsettled, and the next run counts it as spent. So that incident goes to a
+  person instead of paying for the call a second time.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

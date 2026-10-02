@@ -343,3 +343,60 @@ def test_a_provider_timeout_and_an_unreadable_answer_count_and_carry():
     with contextlib.suppress(Exception):
         client.structured(system="s", user="u", schema=RootCause)
     assert client.cost.calls == 3 and client.unanswered == 0  # it counted as no call at all
+
+
+def _first_call_sees(rows):
+    """Run one incident whose audit already holds `rows`; return what the first model call saw (calls, usd), or None
+    if no call was made."""
+    seen = []
+
+    class Records:
+        name, model = "fake", "fake"
+
+        def complete(self, *, system, user, schema=None):
+            seen.append((clients[-1].cost.calls, round(clients[-1].cost.usd, 6)))
+            return Completion("not json at all", 10, 10)
+
+    clients = []
+
+    def factory():
+        clients.append(LLMClient(provider=Records(), max_calls=8, max_usd=0.50, mock=False, call_timeout_s=5))
+        return clients[-1]
+
+    async def main():
+        log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
+        alert = _alert_from(next(iter(DEMO_ALERTS)))
+        for kind, body in rows:
+            log.append(alert.alert_id, kind, body)
+        acts = IncidentActivities(audit=log, llm_factory=factory)
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
+                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activity_executor=ThreadPoolExecutor(2)):
+            h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-reserved", task_queue="q")
+            with contextlib.suppress(Exception):
+                await h.result()
+        return log
+
+    log = asyncio.run(main())
+    return (seen[0] if seen else None), log
+
+
+def test_a_run_killed_mid_call_is_never_paid_for_twice():
+    """R8-O1: a run killed after reserving and before writing its spend leaves an unsettled reservation; the next run
+    counts it as spent, so it makes no call - the incident goes to a person."""
+    killed = ("incident.llm_reserve", {"run_id": "killed", "attempt": "a1", "usd": 0.50, "calls": 8})
+    first, _ = _first_call_sees([killed])
+    assert first is None, first
+
+
+def test_a_settled_reservation_counts_only_what_was_spent():
+    rows = [("incident.llm_reserve", {"run_id": "r1", "attempt": "a1", "usd": 0.50, "calls": 8}),
+            ("incident.llm_spend", {"run_id": "r1", "attempt": "a1", "usd": 0.25, "calls": 3, "unanswered": 0,
+                                    "input_tokens": 0, "output_tokens": 0})]
+    first, log = _first_call_sees(rows)
+    assert first == (3, 0.25), first
+    mine = [e["body"] for e in log.entries(kinds=("incident.llm_reserve", "incident.llm_spend"))][2:]
+    reserve, spend = mine  # this run's own pair: its spend settles its reservation
+    assert reserve["attempt"] == spend["attempt"]
+

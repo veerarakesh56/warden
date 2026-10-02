@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -462,6 +463,14 @@ class IncidentActivities:
         # carrying those let a provider outage use up the ceiling and lock the incident (eighth review).
         before = self._spent(pack.alert.alert_id)
         llm.cost = before.model_copy()
+        # Reserved BEFORE the call (register R8-O1): what is left of the incident's budget, under an id that this
+        # run's spend row settles. A run cancelled, terminated or killed mid-call wrote its spend late or never, and
+        # the next run started as if nothing had been spent. Now an unsettled reservation counts as spent: the next
+        # run of a killed one has no budget left, and the incident goes to a person - not to a second paid call.
+        attempt = secrets.token_hex(8)
+        self.audit.append(pack.alert.alert_id, "incident.llm_reserve", {
+            "run_id": _run_id(), "attempt": attempt, "usd": max(llm.max_usd - before.usd, 0.0),
+            "calls": max(llm.max_calls - before.calls, 0)})
         try:
             state = {"alert": pack.alert, "context": pack.context, "redacted_logs": pack.redacted_logs,
                      "redacted_deploys": pack.redacted_deploys, "prompt": pack.prompt, "llm": llm}
@@ -469,21 +478,28 @@ class IncidentActivities:
         finally:
             now, unanswered = llm.cost, int(getattr(llm, "unanswered", 0) or 0)
             self.audit.append(pack.alert.alert_id, "incident.llm_spend", {
-                "run_id": _run_id(), "usd": now.usd - before.usd, "calls": now.calls - before.calls - unanswered,
+                "run_id": _run_id(), "attempt": attempt, "usd": now.usd - before.usd, "calls": now.calls - before.calls - unanswered,
                 "unanswered": unanswered, "input_tokens": now.input_tokens - before.input_tokens,
                 "output_tokens": now.output_tokens - before.output_tokens})
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps)
 
     def _spent(self, alert_id: str) -> CostRecord:
-        """What every earlier run of this incident spent on the model, from the audit."""
+        """What every earlier run of this incident spent on the model, from the audit - and, for a run whose spend
+        was never written (killed mid-call), everything it had reserved."""
         total = CostRecord()
-        for e in self.audit.entries(alert_id, kinds=("incident.llm_spend",)):
+        spent = self.audit.entries(alert_id, kinds=("incident.llm_spend",))
+        for e in spent:
             b = e["body"]
             total.input_tokens += int(b.get("input_tokens", 0))
             total.output_tokens += int(b.get("output_tokens", 0))
             total.usd += float(b.get("usd", 0.0))
             total.calls += int(b.get("calls", 0))
+        settled = {e["body"].get("attempt") for e in spent}
+        for e in self.audit.entries(alert_id, kinds=("incident.llm_reserve",)):
+            if e["body"].get("attempt") not in settled:
+                total.usd += float(e["body"].get("usd", 0.0))
+                total.calls += int(e["body"].get("calls", 0))
         return total
 
     @activity.defn

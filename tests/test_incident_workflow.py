@@ -122,7 +122,7 @@ def test_every_step_is_in_the_signed_audit_log(results):
         rows = log.entries(alert_id)
         # Plus one row of what the run spent on the model, written failed or not (seventh review: the budget is
         # carried across an incident's runs).
-        assert [r["kind"] for r in rows if r["kind"] != "incident.llm_spend"] ==             [f"incident.{s['node']}" for s in report.audit], alert_id
+        assert [r["kind"] for r in rows if r["kind"] not in ("incident.llm_spend", "incident.llm_reserve")] ==             [f"incident.{s['node']}" for s in report.audit], alert_id
         assert [r["kind"] for r in rows].count("incident.llm_spend") == 1, alert_id
 
 
