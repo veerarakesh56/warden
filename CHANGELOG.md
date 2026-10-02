@@ -128,6 +128,7 @@ bump may carry a breaking change.
   Opus 5 and Opus 5.5 do not** (register M20).
 - **The AWS region is configuration, never a literal: Python, Terraform and the IAM templates read it from
   environments.yaml** (requirement R17).
+- **Every secret comes from Secrets Manager; SSM holds plain values only** (requirement R32, decision D5).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

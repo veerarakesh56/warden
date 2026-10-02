@@ -8,7 +8,7 @@ import pytest
 
 from warden import settings
 from warden.environments import EnvironmentPolicyError, names
-from warden.settings import LOADABLE, load_from_ssm
+from warden.settings import LOADABLE, SECRETS, load, load_from_ssm, secret_id
 
 
 class _FakeSSM:
@@ -28,6 +28,21 @@ class _FakeSSM:
         items = [{"Name": k, "Value": v} for k, v in self.params.items() if k.startswith(Path)]
         for i in range(0, len(items), 2):
             yield {"Parameters": items[i:i + 2]}
+
+
+class _FakeSecrets:
+    """get_secret_value over a dict of secret ids; a missing one raises as the real API does."""
+
+    def __init__(self, secrets: dict[str, str]):
+        self.secrets, self.asked = secrets, []
+
+    def get_secret_value(self, *, SecretId):
+        from botocore.exceptions import ClientError
+
+        self.asked.append(SecretId)
+        if SecretId not in self.secrets:
+            raise ClientError({"Error": {"Code": "ResourceNotFoundException"}}, "GetSecretValue")
+        return {"SecretString": self.secrets[SecretId]}
 
 
 @pytest.fixture(autouse=True)
@@ -60,28 +75,45 @@ def test_loads_only_allowlisted_names_of_this_environment():
     import os
 
     fake = _FakeSSM({
-        "/warden/staging/env/WARDEN_SLACK_WEBHOOK": "https://hooks.example/one",
-        "/warden/staging/env/WARDEN_DB_DSN": "postgresql://x",
+        "/warden/staging/env/WARDEN_MODEL": "claude-sonnet-5",
+        "/warden/staging/env/WARDEN_AWS_CLUSTER": "c1",
         "/warden/staging/env/WARDEN_REMEDIATION": "live",       # arming: never from a store
         "/warden/staging/env/WARDEN_CHATOPS_LIVE": "1",
         "/warden/staging/env/WARDEN_BASE_URL": "https://evil.example",
         "/warden/staging/env/AWS_PROFILE": "admin",
-        "/warden/prod/env/WARDEN_SLACK_WEBHOOK": "https://hooks.example/prod",
+        "/warden/prod/env/WARDEN_MODEL": "other",
     })
-    assert load_from_ssm("staging", client=fake) == ["WARDEN_DB_DSN", "WARDEN_SLACK_WEBHOOK"]
+    secrets = _FakeSecrets({"warden/staging/slack-webhook": "https://hooks.example/one",
+                            "warden/prod/slack-webhook": "https://hooks.example/prod"})
+    assert load("staging", ssm=fake, secrets=secrets) == ["WARDEN_AWS_CLUSTER", "WARDEN_MODEL", "WARDEN_SLACK_WEBHOOK"]
     assert fake.paths == ["/warden/staging/env/"]
     assert os.environ["WARDEN_SLACK_WEBHOOK"] == "https://hooks.example/one"
+    assert all(a.startswith("warden/staging/") for a in secrets.asked)
     for never in ("WARDEN_REMEDIATION", "WARDEN_CHATOPS_LIVE", "WARDEN_BASE_URL", "AWS_PROFILE"):
         assert never not in os.environ
+
+
+def test_a_secret_comes_only_from_secrets_manager_never_from_ssm():
+    """Decision D5 / requirement R32: a secret parked in SSM is not loaded; each secret has its own id."""
+    import os
+
+    fake = _FakeSSM({f"/warden/dev/env/{n}": "from-ssm" for n in SECRETS})
+    assert load("dev", ssm=fake, secrets=_FakeSecrets({})) == []
+    assert not any(n in os.environ for n in SECRETS)
+    assert secret_id("dev", "WARDEN_SLACK_WEBHOOK") == "warden/dev/slack-webhook"
+    assert secret_id("ops", "GEMINI_API_KEY") == "warden/ops/gemini-api-key"
+    assert len({secret_id("dev", n) for n in SECRETS}) == len(SECRETS)
 
 
 def test_a_real_environment_variable_wins_over_the_store(monkeypatch):
     import os
 
     monkeypatch.setenv("WARDEN_SLACK_WEBHOOK", "https://hooks.example/explicit")
-    fake = _FakeSSM({"/warden/dev/env/WARDEN_SLACK_WEBHOOK": "https://hooks.example/store"})
-    assert load_from_ssm("dev", client=fake) == []
+    monkeypatch.setenv("WARDEN_MODEL", "explicit")
+    secrets = _FakeSecrets({"warden/dev/slack-webhook": "https://hooks.example/store"})
+    assert load("dev", ssm=_FakeSSM({"/warden/dev/env/WARDEN_MODEL": "store"}), secrets=secrets) == []
     assert os.environ["WARDEN_SLACK_WEBHOOK"] == "https://hooks.example/explicit"
+    assert os.environ["WARDEN_MODEL"] == "explicit" and "warden/dev/slack-webhook" not in secrets.asked
 
 
 def test_without_warden_env_nothing_happens_and_no_client_is_built(monkeypatch):
@@ -110,10 +142,10 @@ def test_the_cli_loads_the_environment_before_running(monkeypatch, capsys):
     from warden.cli import main
 
     fake = _FakeSSM({"/warden/dev/env/WARDEN_MODEL": "m-1"})
-    monkeypatch.setattr(settings, "load_from_ssm", lambda **kw: load_from_ssm("dev", client=fake, **kw))
+    monkeypatch.setattr(settings, "load", lambda **kw: load("dev", ssm=fake, secrets=_FakeSecrets({}), **kw))
     monkeypatch.setenv("WARDEN_ENV", "dev")
     assert main(["run", "--incident", "inc-001"]) == 0
-    assert "loaded WARDEN_MODEL from SSM" in capsys.readouterr().err
+    assert "loaded WARDEN_MODEL (SSM, Secrets Manager)" in capsys.readouterr().err
 
 
 def test_any_environments_prefix_is_stripped_longest_first():
@@ -128,15 +160,16 @@ def test_any_environments_prefix_is_stripped_longest_first():
 def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):
     """Audit A-B-L17: every process loaded every allowed secret - the MCP server and a diagnosis run held the
     terminate role's DSN and the audit key's passphrase they never use."""
-    params = {f"/warden/dev/env/{n}": "x" for n in ("WARDEN_DB_ADMIN_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
-                                                    "WARDEN_TEMPORAL_KEY", "WARDEN_SLACK_WEBHOOK")}
+    params = {secret_id("dev", n): "x" for n in ("WARDEN_DB_ADMIN_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
+                                                 "WARDEN_TEMPORAL_KEY", "WARDEN_SLACK_WEBHOOK")}
+    by_id = {secret_id("dev", n): n for n in SECRETS}
     for command, expected in (("run", ["WARDEN_SLACK_WEBHOOK"]),
                               ("mcp", ["WARDEN_SLACK_WEBHOOK", "WARDEN_TEMPORAL_KEY"]),
                               ("approve", ["WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEMPORAL_KEY"]),
-                              ("worker", sorted(n.rsplit("/", 1)[-1] for n in params))):
-        for n in params:
-            monkeypatch.delenv(n.rsplit("/", 1)[-1], raising=False)
-        loaded = load_from_ssm("dev", client=_FakeSSM(params), only=settings.loadable_for(command))
+                              ("worker", sorted(by_id[i] for i in params))):
+        for i in params:
+            monkeypatch.delenv(by_id[i], raising=False)
+        loaded = load("dev", ssm=_FakeSSM({}), secrets=_FakeSecrets(params), only=settings.loadable_for(command))
         assert loaded == expected, (command, loaded)
 
 
@@ -144,9 +177,9 @@ def test_a_diagnosis_run_never_loads_the_terminate_roles_dsn(monkeypatch):
     """Audit A-B-L17, wired: the CLI loads per command, after parsing it."""
     from warden.cli import main
 
-    fake = _FakeSSM({"/warden/dev/env/WARDEN_DB_ADMIN_DSN": "postgresql://terminator@db/x",
-                     "/warden/dev/env/WARDEN_MODEL": "m-1"})
-    monkeypatch.setattr(settings, "load_from_ssm", lambda **kw: load_from_ssm("dev", client=fake, **kw))
+    fake = _FakeSSM({"/warden/dev/env/WARDEN_MODEL": "m-1"})
+    secrets = _FakeSecrets({"warden/dev/db-admin-dsn": "postgresql://terminator@db/x"})
+    monkeypatch.setattr(settings, "load", lambda **kw: load("dev", ssm=fake, secrets=secrets, **kw))
     monkeypatch.setenv("WARDEN_ENV", "dev")
     monkeypatch.delenv("WARDEN_DB_ADMIN_DSN", raising=False)
     monkeypatch.delenv("WARDEN_MODEL", raising=False)

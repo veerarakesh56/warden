@@ -449,7 +449,7 @@ aws logs put-resource-policy --region "$REGION" --policy-name WardenApiAccessLog
    **ARN** for step 6.
 
 **4. The environment's parameters.** Systems Manager → **Parameter Store** → **Create parameter**,
-three times.
+twice.
 - Every time: Tier **Standard**. ⚠ **Not Advanced, which is paid.**
 - For SecureString: KMS key source **My current account**, with key `alias/aws/ssm`.
 - Tags every time: `Project` = `warden`, `Environment` = `dev`.
@@ -458,7 +458,12 @@ three times.
 |---|---|---|
 | `/warden/dev/tf/my_ip_cidr` | String | your public IP followed by `/32` (open https://checkip.amazonaws.com) |
 | `/warden/dev/tf/budget_email` | SecureString | where budget alarms go |
-| `/warden/dev/env/WARDEN_SLACK_WEBHOOK` | SecureString | the Slack webhook URL |
+
+**4b. The environment's secret** (decision D5: secrets live in Secrets Manager, never in Parameter Store; WARDEN
+does not read a secret from SSM). Secrets Manager → **Store a new secret** → **Other type of secret** →
+**Plaintext**, the Slack webhook URL as the whole value. Encryption key `aws/secretsmanager`. Name
+`warden/dev/slack-webhook`. Tags `Project` = `warden`, `Environment` = `dev`. No rotation (a webhook cannot rotate
+itself). **Store**. ⚠ Paid: $0.40 per secret per month, plus $0.05 per 10,000 reads.
 
 **5. The state bucket.** S3 → **Create bucket**:
 - General purpose, name `warden-dev-tfstate-` followed by 6 random lowercase letters and digits,

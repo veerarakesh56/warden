@@ -232,20 +232,20 @@ def _apply_overrides(alert: Alert, args) -> Alert:
 
 
 def _load_environment(command: str) -> None:
-    """With WARDEN_ENV set, read that environment's secrets and values from SSM (settings.py). An
-    unknown environment or an unreachable store stops the run: running with half a config would be
+    """With WARDEN_ENV set, read that environment's plain values from SSM and its secrets from Secrets Manager
+    (settings.py). An unknown environment or an unreachable store stops the run: running with half a config would be
     worse than not running."""
+    from . import settings
     from .environments import EnvironmentPolicyError
-    from .settings import load_from_ssm, loadable_for
 
     try:
-        loaded = load_from_ssm(only=loadable_for(command))
+        loaded = settings.load(only=settings.loadable_for(command))
     except EnvironmentPolicyError as exc:
         raise SystemExit(f"WARDEN_ENV: {exc}") from exc
     except Exception as exc:
-        raise SystemExit(f"WARDEN_ENV: could not read parameters from SSM: {type(exc).__name__}") from exc
+        raise SystemExit(f"WARDEN_ENV: could not read the configuration: {type(exc).__name__}") from exc
     if loaded:
-        _out(f"[config] {os.environ.get('WARDEN_ENV')}: loaded {', '.join(loaded)} from SSM", err=True)
+        _out(f"[config] {os.environ.get('WARDEN_ENV')}: loaded {', '.join(loaded)} (SSM, Secrets Manager)", err=True)
 
 
 def _audit_command(args: argparse.Namespace) -> int:

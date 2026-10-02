@@ -1,4 +1,9 @@
-"""Per-environment secrets and account values, from SSM Parameter Store - never from a file on disk.
+"""Per-environment secrets from Secrets Manager and plain values from SSM Parameter Store - never a file on disk.
+
+Decision D5 / requirement R32 (2026-10-03): every secret is a Secrets Manager secret `warden/<env>/<name>` (for
+WARDEN_SLACK_WEBHOOK, `warden/<env>/slack-webhook`), so it can be rotated and its reads are in CloudTrail; SSM holds
+only the plain values (cluster, log group, region, model). A secret name in SSM is ignored, never loaded.
+
 
 v2 Phase 1.5 (2026-09-27). `WARDEN_ENV=<env>` makes WARDEN read `/warden/<env>/env/<NAME>` (one
 paginated call, decrypted) and set each NAME as an environment variable the rest of WARDEN already
@@ -43,15 +48,59 @@ RESTRICTED: dict[str, frozenset[str]] = {
 }
 
 
+# The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM.
+SECRETS = frozenset({
+    "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
+    "WARDEN_DB_DSN", "WARDEN_DB_ADMIN_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN",
+    "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+    "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY",
+})
+
+
+def secret_id(env: str, name: str) -> str:
+    """`warden/<env>/<name>`: WARDEN_SLACK_WEBHOOK -> warden/<env>/slack-webhook, GEMINI_API_KEY -> .../gemini-api-key."""
+    return f"warden/{names(env).env}/" + name.lower().removeprefix("warden_").replace("_", "-")
+
+
+def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any = None,
+         secrets: Any = None) -> list[str]:
+    """Plain values from SSM and secrets from Secrets Manager, for the names `only` allows; the NAMES loaded."""
+    env = env if env is not None else os.environ.get("WARDEN_ENV")
+    if not env:
+        return []
+    allowed = LOADABLE if only is None else LOADABLE & only
+    loaded = load_from_ssm(env, client=ssm, only=allowed)
+    wanted = sorted(n for n in SECRETS & allowed if n not in os.environ)
+    if wanted and secrets is None:
+        import boto3  # only when an environment is actually named
+
+        secrets = boto3.client("secretsmanager")
+    for name in wanted:
+        try:
+            value = secrets.get_secret_value(SecretId=secret_id(env, name))
+        except Exception as exc:  # a secret this environment does not have is simply not loaded; others raise
+            if _code(exc) == "ResourceNotFoundException":
+                continue
+            raise
+        if isinstance(value.get("SecretString"), str):
+            os.environ[name] = value["SecretString"]
+            loaded.append(name)
+    return sorted(loaded)
+
+
+def _code(exc: Exception) -> str:
+    return str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+
+
 def loadable_for(command: str) -> frozenset[str]:
     """The names a command may load: every LOADABLE one, less the restricted ones it does not use."""
     return frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
 
 
 def load_from_ssm(env: str | None = None, *, client: Any = None, only: frozenset[str] | None = None) -> list[str]:
-    """Load this environment's parameters into os.environ; return the NAMES loaded, never values. `only`: the
-    names this process may load (loadable_for); every LOADABLE one when not given."""
-    allowed = LOADABLE if only is None else LOADABLE & only
+    """Load this environment's plain values into os.environ; return the NAMES loaded, never values. `only`: the
+    names this process may load (loadable_for); every LOADABLE one when not given. Secrets are not read here."""
+    allowed = (LOADABLE if only is None else LOADABLE & only) - SECRETS
     env = env if env is not None else os.environ.get("WARDEN_ENV")
     if not env:
         return []
