@@ -593,7 +593,7 @@ def _serve() -> int:
 
     from .cli import _load_environment
 
-    _load_environment()
+    _load_environment("mcp")
 
     async def _run() -> None:
         server = build_server()

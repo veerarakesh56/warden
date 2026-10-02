@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from warden import settings
@@ -108,7 +110,7 @@ def test_the_cli_loads_the_environment_before_running(monkeypatch, capsys):
     from warden.cli import main
 
     fake = _FakeSSM({"/warden/dev/env/WARDEN_MODEL": "m-1"})
-    monkeypatch.setattr(settings, "load_from_ssm", lambda: load_from_ssm("dev", client=fake))
+    monkeypatch.setattr(settings, "load_from_ssm", lambda **kw: load_from_ssm("dev", client=fake, **kw))
     monkeypatch.setenv("WARDEN_ENV", "dev")
     assert main(["run", "--incident", "inc-001"]) == 0
     assert "loaded WARDEN_MODEL from SSM" in capsys.readouterr().err
@@ -121,3 +123,32 @@ def test_any_environments_prefix_is_stripped_longest_first():
     assert strip_prefix("warden-qa-staging-order-processor") == "order-processor"
     assert strip_prefix("warden-prod-orders") == "orders"
     assert strip_prefix("some-other-fn") == "some-other-fn"
+
+
+def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):
+    """Audit A-B-L17: every process loaded every allowed secret - the MCP server and a diagnosis run held the
+    terminate role's DSN and the audit key's passphrase they never use."""
+    params = {f"/warden/dev/env/{n}": "x" for n in ("WARDEN_DB_ADMIN_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
+                                                    "WARDEN_TEMPORAL_KEY", "WARDEN_SLACK_WEBHOOK")}
+    for command, expected in (("run", ["WARDEN_SLACK_WEBHOOK"]),
+                              ("mcp", ["WARDEN_SLACK_WEBHOOK", "WARDEN_TEMPORAL_KEY"]),
+                              ("approve", ["WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEMPORAL_KEY"]),
+                              ("worker", sorted(n.rsplit("/", 1)[-1] for n in params))):
+        for n in params:
+            monkeypatch.delenv(n.rsplit("/", 1)[-1], raising=False)
+        loaded = load_from_ssm("dev", client=_FakeSSM(params), only=settings.loadable_for(command))
+        assert loaded == expected, (command, loaded)
+
+
+def test_a_diagnosis_run_never_loads_the_terminate_roles_dsn(monkeypatch):
+    """Audit A-B-L17, wired: the CLI loads per command, after parsing it."""
+    from warden.cli import main
+
+    fake = _FakeSSM({"/warden/dev/env/WARDEN_DB_ADMIN_DSN": "postgresql://terminator@db/x",
+                     "/warden/dev/env/WARDEN_MODEL": "m-1"})
+    monkeypatch.setattr(settings, "load_from_ssm", lambda **kw: load_from_ssm("dev", client=fake, **kw))
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    monkeypatch.delenv("WARDEN_DB_ADMIN_DSN", raising=False)
+    monkeypatch.delenv("WARDEN_MODEL", raising=False)
+    assert main(["run", "--incident", "inc-001"]) == 0
+    assert os.environ.get("WARDEN_MODEL") == "m-1" and "WARDEN_DB_ADMIN_DSN" not in os.environ

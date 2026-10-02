@@ -34,8 +34,24 @@ LOADABLE = frozenset({
 })
 
 
-def load_from_ssm(env: str | None = None, *, client: Any = None) -> list[str]:
-    """Load this environment's parameters into os.environ; return the NAMES loaded, never values."""
+# Loaded only for the commands that use them (audit A-B-L17): a diagnosis run and the MCP server have no use for the
+# terminate role's DSN or the audit key's passphrase, and a process that never holds a secret cannot leak it.
+RESTRICTED: dict[str, frozenset[str]] = {
+    "WARDEN_DB_ADMIN_DSN": frozenset({"worker"}),
+    "WARDEN_AUDIT_KEY_PASSPHRASE": frozenset({"worker", "incident", "status", "approve", "killswitch", "audit"}),
+    "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "status", "approve", "mcp"}),
+}
+
+
+def loadable_for(command: str) -> frozenset[str]:
+    """The names a command may load: every LOADABLE one, less the restricted ones it does not use."""
+    return frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
+
+
+def load_from_ssm(env: str | None = None, *, client: Any = None, only: frozenset[str] | None = None) -> list[str]:
+    """Load this environment's parameters into os.environ; return the NAMES loaded, never values. `only`: the
+    names this process may load (loadable_for); every LOADABLE one when not given."""
+    allowed = LOADABLE if only is None else LOADABLE & only
     env = env if env is not None else os.environ.get("WARDEN_ENV")
     if not env:
         return []
@@ -49,7 +65,7 @@ def load_from_ssm(env: str | None = None, *, client: Any = None) -> list[str]:
             Path=root, Recursive=False, WithDecryption=True):
         for param in page.get("Parameters", []):
             name = param["Name"][len(root):]
-            if name in LOADABLE and name not in os.environ:
+            if name in allowed and name not in os.environ:
                 os.environ[name] = param["Value"]
                 loaded.append(name)
     return sorted(loaded)

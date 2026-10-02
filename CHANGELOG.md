@@ -96,6 +96,8 @@ bump may carry a breaking change.
   - A database wave gives WARDEN a `pg_monitor` login, never the master one.
   - A replay runs the tripwire and keeps the recorded run's ERROR rows.
   - The baseline needs the exact log group.
+- **Each command loads only the secrets it uses** (audit A-B-L17). The terminate DSN is loaded for the worker
+  alone.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

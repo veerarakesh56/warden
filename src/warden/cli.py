@@ -227,15 +227,15 @@ def _apply_overrides(alert: Alert, args) -> Alert:
     return Alert.model_validate({**alert.model_dump(), **update}) if update else alert
 
 
-def _load_environment() -> None:
+def _load_environment(command: str) -> None:
     """With WARDEN_ENV set, read that environment's secrets and values from SSM (settings.py). An
     unknown environment or an unreachable store stops the run: running with half a config would be
     worse than not running."""
     from .environments import EnvironmentPolicyError
-    from .settings import load_from_ssm
+    from .settings import load_from_ssm, loadable_for
 
     try:
-        loaded = load_from_ssm()
+        loaded = load_from_ssm(only=loadable_for(command))
     except EnvironmentPolicyError as exc:
         raise SystemExit(f"WARDEN_ENV: {exc}") from exc
     except Exception as exc:
@@ -448,7 +448,6 @@ def _main(argv: list[str] | None = None) -> int:
     from .observability import install_log_gate
 
     install_log_gate()  # before anything can log: no raw last-resort handler for any command
-    _load_environment()
     parser = _Parser(prog="warden", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
 
@@ -512,6 +511,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_reset.add_argument("--trips", required=True, type=int, help="how many trips you reviewed (`warden killswitch status`)")
 
     args = parser.parse_args(argv)
+    _load_environment(args.cmd)  # after parsing: what is loaded depends on the command (audit A-B-L17)
     if args.cmd == "audit":
         return _audit_command(args)
     if args.cmd in ("worker", "incident", "status", "approve"):
