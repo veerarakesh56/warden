@@ -27,6 +27,30 @@ Avoid the root user.
 > latest release) are in place; every file the steps paste or delete exists; `iam/operator/policy.json`
 > is final - it stays read-only and may assume only the sweep role and, later, the dev harness role
 > (re-verification moved the harness to its own role, R18); the model names are current.
+>
+> ✅ **A to E2 done 2026-10-02 by Claude, at the owner's request, through the API** (the owner chose this
+> over clicking; nothing else changed in the steps). The laptop identity was fenced off from exactly these
+> changes, so the owner created one temporary role, `warden-pg-w0setup` with policy `WardenW0Setup`, which
+> the old user (and, for E3, the new role) may assume. It allows only the W0-now actions on their named
+> resources, and stops allowing anything at 2026-10-06 00:00 UTC / 05:30 IST. Every call is logged in
+> `%USERPROFILE%\.warden\w0now.log`.
+> - A 13:45 UTC / 19:15 IST: `WardenProvingGroundOperator` detached (`...RdsEks` was not attached). Still
+>   attached: `WardenOperatorGuardrails`, `WardenFullstackOperator`.
+> - B1-B4 13:48 UTC / 19:18 IST: anchor, policy, role and profile created as written. Roles Anywhere first
+>   needed its service-linked role, so the setup policy gained `iam:CreateServiceLinkedRole` for that service
+>   only. The first certificate sign-in worked: the Free plan allows Roles Anywhere.
+> - C 13:56 UTC / 19:26 IST: the old trust saved to `sweep-role-trust.before.json`, the new one applied. A
+>   chained AssumeRole from the certificate session was refused until the target's trust also allowed
+>   `sts:TagSession` (the session carries the certificate's tags); the sweep and harness trusts now allow
+>   it. The all-region sweep through the new role: 18 regions + global, clean.
+> - D 14:07 UTC / 19:37 IST: `warden/ops/slack-webhook` stored; read back by the new role, its SHA-256
+>   equals the file's.
+> - E1 14:11 UTC / 19:41 IST: the access key deactivated. E2: STS refuses it (`InvalidClientTokenId`); the
+>   credentials file is moved to `%USERPROFILE%\.warden`; the certificate is the default profile; the
+>   policy validator and the plan read pass under it.
+> - Next: E5 on 2026-10-03; F (the Temporal trial date) from the owner; E3 and E4 by Claude from
+>   2026-10-04 14:11 UTC / 19:41 IST. E3 also deletes the old user's console password, and ends by
+>   deleting `warden-pg-w0setup` and `WardenW0Setup`. Any undo below still needs the owner's admin console.
 
 What this gives:
 - The laptop stops using an access key. It signs in to AWS with a certificate whose private key
@@ -154,8 +178,10 @@ Claude then:
    save it as `%USERPROFILE%\.warden\sweep-role-trust.before.json` (it must start with `{`). Back in the
    editor:
 2. Paste the local file `C:\work\warden\terraform\proving-ground\sweep-role-trust.local.json`.
-   It trusts the new role instead of the old user, and allows `sts:SetSourceIdentity`: a Roles
-   Anywhere session always carries one, and without that permission the chained AssumeRole fails.
+   It trusts the new role instead of the old user, and allows `sts:SetSourceIdentity` and
+   `sts:TagSession`: a Roles Anywhere session always carries a source identity and the certificate's
+   session tags, and without both permissions the chained AssumeRole fails (TagSession was found live
+   on 2026-10-02).
 3. **Update policy**. Claude then runs the all-region sweep through the new role.
 
 **D. The Slack webhook into Secrets Manager** (region Hyderabad).
@@ -249,17 +275,17 @@ skip any step you never did:
 5. A: user → **Add permissions** → attach `WardenProvingGroundOperator` again, and
    `WardenProvingGroundOperatorRdsEks` if step A4 removed it.
 
-**W0-now results** (Claude fills this in; nothing is recorded yet):
+**W0-now results** (read by Claude with the new identity):
 
 | Fact | Value | Read on (UTC / IST) |
 |---|---|---|
-| AWS Free plan ends | - | - |
-| AWS credits left | - | - |
-| Opus 5.5 / Fable 5.1 / Sonnet 5.5 available to this account | - | - |
-| Anthropic use-case form submitted | - | - |
-| Opus 5.5 global-profile quotas | - | - |
-| Temporal Cloud trial ends / credits left | - | - |
-| Next-day check (E5): charges, Access Analyzer findings, sweep | - | - |
+| AWS Free plan ends | 2027-03-09 09:50 UTC / 15:20 IST (plan FREE, ACTIVE) | 2026-10-02 13:49 / 19:19 |
+| AWS credits left | USD 171.78 | 2026-10-02 13:49 / 19:19 |
+| Opus 5.5 / Fable 5.1 / Sonnet 5.5 available to this account | All three are ACTIVE in ap-south-2 and have global inference profiles. Per model: region AVAILABLE, entitlement AVAILABLE, authorization NOT_AUTHORIZED, agreement NOT_AVAILABLE. The plan does not block them; this account is not yet authorized to call them (W-B) | 2026-10-02 13:50 / 19:20 |
+| Anthropic use-case form submitted | No ("You have not filled out the request form") | 2026-10-02 13:50 / 19:20 |
+| Opus 5.5 global-profile quotas | 0 tokens per minute, adjustable; the same for Fable 5.1 and Sonnet 5.5. W-B needs a quota increase before any call can run | 2026-10-02 13:51 / 19:21 |
+| Temporal Cloud trial ends / credits left | - (step F, from the owner) | - |
+| Next-day check (E5): charges, Access Analyzer findings, sweep | - (due 2026-10-03) | - |
 
 ---
 

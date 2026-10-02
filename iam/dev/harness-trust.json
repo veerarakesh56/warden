@@ -9,7 +9,8 @@
       },
       "Action": [
         "sts:AssumeRole",
-        "sts:SetSourceIdentity"
+        "sts:SetSourceIdentity",
+        "sts:TagSession"
       ]
     }
   ]

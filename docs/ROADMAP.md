@@ -61,7 +61,7 @@ in W0-now, and the owner is told before any window they affect.
 | Milestone | Target (UTC / IST) |
 |---|---|
 | G0 complete | 2026-10-01 / 2026-10-01 (records corrected after the 2026-09-28 independent review; SYSTEM-COMPONENTS cost table delivered in 40f5f0e) |
-| W0-now window | from Claude's go-ahead, planned 2026-10-01 to 2026-10-04: A-E1 on day 1, E5 the next day, E3 at least two days after E1 (earliest day 3), then E4 |
+| W0-now window | A-E2 done 2026-10-02 (E1 at 14:11 UTC / 19:41 IST); E5 2026-10-03; E3 and E4 from 2026-10-04 14:11 UTC / 19:41 IST |
 | v0.10.1 (G1) | 2026-10-16 / 2026-10-16 |
 | v0.11.0 (G2 + G3) | 2026-11-13 / 2026-11-13 |
 | v0.12.0 (G4) | 2026-12-04 / 2026-12-04 |
@@ -74,6 +74,11 @@ in W0-now, and the owner is told before any window they affect.
 2026-09-28) ends around **2026-12-27**, before the G6 windows (W1-W3, 2027-02). After that, Temporal
 Cloud is paid (about $50 per million Actions; SYSTEM-COMPONENTS section 11). The exact date is read in
 W0-now step F. The owner decides before W1 whether to pay, and the decision is recorded here.
+
+**Read in W0-now (2026-10-02):** the AWS Free plan ends **2027-03-09 09:50 UTC / 15:20 IST**, with USD 171.78
+of credits left. The AWS windows (W-B, W1-W3, the last ending 2027-02-26) fit before it, with 11 days to spare;
+G7 and G8 come after it. The cost estimates published before W2 and W3 are checked against the credits left
+then, and the owner decides before W1 what happens to the account at plan end.
 
 The dates are whole days, so UTC and IST fall on the same date. Window start and end times are
 always given in both.

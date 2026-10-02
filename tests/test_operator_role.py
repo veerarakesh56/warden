@@ -63,7 +63,8 @@ def test_the_sweep_role_is_assumed_only_in_the_callers_own_account():
 def test_chaining_into_the_sweep_role_keeps_the_source_identity():
     """A Roles Anywhere session always has a source identity (the certificate CN). IAM: when a role
     assumes another, sts:SetSourceIdentity must be allowed in the caller's policy AND the target's
-    trust policy, or the AssumeRole fails (independent review, 2026-09-28)."""
+    trust policy, or the AssumeRole fails (independent review, 2026-09-28). The session's certificate tags
+    are carried along too, so the trust must also allow sts:TagSession (refused without it, live 2026-10-02)."""
     import importlib.util
     import types
 
@@ -82,7 +83,7 @@ def test_chaining_into_the_sweep_role_keeps_the_source_identity():
     mod.TRUST_FILE = types.SimpleNamespace(write_text=lambda text, encoding: written.setdefault("t", text))
     assert mod.main(["--write-trust"], session=session) == 0
     (st,) = json.loads(written["t"])["Statement"]
-    assert sorted(_list(st["Action"])) == sorted(CHAIN)
+    assert sorted(_list(st["Action"])) == sorted((*CHAIN, "sts:TagSession"))
     assert st["Principal"] == {"AWS": "arn:aws:iam::111122223333:role/warden-ops-operator"}
 
 
