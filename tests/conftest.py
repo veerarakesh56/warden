@@ -124,8 +124,8 @@ def pytest_pyfunc_call(pyfuncitem):
     those the file defines."""
     if (pyfuncitem.nodeid.split("::", 1)[0], pyfuncitem.originalname) not in _cited():
         return (yield)
-    if _MONITORING is None:  # Python 3.11 has none: cannot be checked, and the run says so at its end
-        _RAN[pyfuncitem.nodeid] = None if sys.version_info < (3, 12) else False
+    if _MONITORING is None:  # deleted before the suite started: no evidence (Python 3.12+ always has it)
+        _RAN[pyfuncitem.nodeid] = False
         return (yield)
     mon, name = _MONITORING, pyfuncitem.originalname
     # A name the file defines twice is no evidence: `def test_x(): assert False`, `del test_x`, `def test_x(): pass`
@@ -193,8 +193,6 @@ def pytest_runtest_logreport(report):
         states.add("not-genuine")
     if report.when == "call" and getattr(report, "warden_body_ran", False) is True:
         states.add("body-ran")
-    if report.when == "call" and hasattr(report, "warden_body_ran") and report.warden_body_ran is None:
-        states.add("body-unverifiable")
 
 
 def _full_run(config) -> bool:
@@ -228,7 +226,7 @@ def missing_evidence(reports: dict[str, set[str]], cited: set[tuple[str, str]]) 
         ran = [states for nodeid, states in reports.items()
                if nodeid == f"{file}::{func}" or nodeid.startswith(f"{file}::{func}[")]
         if not ran or any("skipped" in st or "call:passed" not in st or "not-genuine" in st
-                          or not ({"body-ran", "body-unverifiable"} & st) for st in ran):
+                          or "body-ran" not in st for st in ran):
             missing.append(f"{file}::{func}")
     return missing
 
@@ -238,11 +236,6 @@ def pytest_sessionfinish(session, exitstatus):
     if hasattr(config, "workerinput") or not _full_run(config):
         return
     missing = missing_evidence(_REPORTS, set(_cited()))
-    if any("body-unverifiable" in st for st in _REPORTS.values()):
-        reporter = config.pluginmanager.get_plugin("terminalreporter")
-        if reporter:  # Python 3.11: said, not passed over in silence (eighth review)
-            reporter.write_line("register evidence: this Python has no sys.monitoring, so whether each cited "
-                                "test's own body ran was not checked (Python 3.12+ checks it)", yellow=True)
     if missing:
         reporter = config.pluginmanager.get_plugin("terminalreporter")
         if reporter:

@@ -100,7 +100,6 @@ def _call_watched(monkeypatch, request, called, name="sample_evidence"):
     return conftest._RAN.pop(item.nodeid)
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="sys.monitoring is Python 3.12+; 3.11 says so at the run's end")
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the thread case, on purpose
 def test_only_the_body_the_file_defines_counts(monkeypatch, request):
     """Seventh review (2026-10-01): judged at collection, five bypasses passed the full run with an `assert False`
@@ -150,7 +149,6 @@ def test_only_the_body_the_file_defines_counts(monkeypatch, request):
         assert _call_watched(monkeypatch, request, fake, name="sample_failing") is False, fake
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="sys.monitoring is Python 3.12+")
 def test_deleting_sys_monitoring_does_not_turn_the_check_off(monkeypatch, request):
     """Eighth review: an autouse fixture `monkeypatch.delattr(sys, "monitoring")` made every body "unverifiable"."""
     monkeypatch.delattr(sys, "monitoring")
@@ -215,7 +213,6 @@ def sample_flaky():
     assert _FLAKY["calls"] % 2 == 0
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="sys.monitoring is Python 3.12+")
 def test_a_second_def_under_the_name_is_no_evidence(monkeypatch, request):
     """Ninth review (2026-10-01): every function the file defined under the name counted - a same-named
     staticmethod in a class, or a second module-level def - so a body other than the cited one was evidence."""
@@ -246,7 +243,6 @@ def test_user_properties_cannot_forge_or_strip_the_guards_verdicts(monkeypatch):
     assert report.warden_genuine is False and report.warden_body_ran is False
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="sys.monitoring is Python 3.12+")
 def test_the_guards_callbacks_replayed_by_a_wrapper_are_no_evidence(monkeypatch, request):
     """Ninth review: register_callback hands back the guard's callbacks; a wrapper called them itself with the
     genuine code object, and the body never ran."""
@@ -267,7 +263,6 @@ def test_the_guards_callbacks_replayed_by_a_wrapper_are_no_evidence(monkeypatch,
     assert _call_watched(monkeypatch, request, replays) is False
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="sys.monitoring is Python 3.12+")
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_the_guard_needs_a_return_from_the_body_and_no_unwind_and_a_free_tool(monkeypatch, request):
     """Ninth review (mutation): dropping the "returned" check, ignoring the unwind, counting any code's return, using
@@ -308,21 +303,3 @@ def test_a_blank_keyword_and_cache_show_are_judged_rightly():
     assert conftest._full_run(_config(["tests"], base=tests.parent, keyword=" "))
     assert conftest._full_run(_config(["tests"], base=tests.parent, markexpr="  "))
     assert not conftest._full_run(_config(["tests"], base=tests.parent, cacheshow=True))
-
-
-def test_a_python_without_monitoring_says_so_at_the_end():
-    """Ninth review (mutation): dropping the Python 3.11 note passed every test."""
-    lines = []
-    reporter = types.SimpleNamespace(write_line=lambda text, **kw: lines.append(text))
-    tests = pathlib.Path(conftest.__file__).resolve().parent
-    config = _config(["tests"], base=tests.parent)
-    config.pluginmanager = types.SimpleNamespace(get_plugin=lambda name: reporter)
-    saved = dict(conftest._REPORTS)
-    try:
-        conftest._REPORTS.clear()
-        conftest._REPORTS["tests/x.py::test_y"] = {"call:passed", "body-unverifiable"}
-        conftest.pytest_sessionfinish(types.SimpleNamespace(config=config, exitstatus=0), 0)
-    finally:
-        conftest._REPORTS.clear()
-        conftest._REPORTS.update(saved)
-    assert any("no sys.monitoring" in line for line in lines), lines

@@ -17,7 +17,7 @@ not run its own body and pass - skipped, xfailed or missing, and also when the c
 (compiled as pytest loads it) did not start, return and finish without raising during the call: a swapped or
 rebuilt `__code__`, another function, a nested def or a wrapper bound under the name, a hook or a report
 rewrite that answers for the call, a body whose failure a wrapper or a thread swallowed (`sys.monitoring`
-watches the call, captured when the suite starts; Python 3.11 has none, and the run says it did not check;
+watches the call, captured when the suite starts - Python 3.12 or later, the project's minimum;
 `tests/test_register_guard.py`). A run filtered with `-k`, `-m`, `--deselect` or `--lf`, a run of single
 files and a collect-only run are not judged: only the full run is evidence.
 

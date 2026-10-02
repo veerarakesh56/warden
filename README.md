@@ -1,7 +1,7 @@
 # WARDEN
 
 [![CI](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml/badge.svg)](https://github.com/veerarakesh56/warden/actions/workflows/ci-tool.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 > AI incident-response orchestrator. **The model proposes. A deterministic verifier decides.

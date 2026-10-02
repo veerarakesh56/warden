@@ -466,6 +466,8 @@ bump may carry a breaking change.
 - Every database connection bounds its statements and lock waits (`WARDEN_DB_STATEMENT_TIMEOUT`, default 10 s):
   a read of a database already in trouble no longer hangs behind a lock (audit A-B-M1, register O8).
 - A test holds that WARDEN issues no schema change - no index - to a database it watches (register R51).
+- Python 3.12 is the minimum (was 3.11): the register guard needs `sys.monitoring`, so it never skips;
+  on 3.11 it could not check whether a cited test's body ran.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class
