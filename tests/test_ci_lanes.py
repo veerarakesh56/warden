@@ -171,3 +171,17 @@ def test_the_pod_security_check_accepts_only_pod_securitys_own_reason():
     greps = re.findall(r"grep [^\n|]*?err\.txt", step)
     assert greps == ['grep -q "violates PodSecurity" err.txt'], greps
     assert "serviceaccount default -n warden" in step
+
+
+def test_every_workflow_is_scanned_on_every_push_and_pull_request():
+    """Audit A-I-15: the security job skipped infra and apps changes. The workflow scan (zizmor) runs on every push to
+    main and every pull request, with no path filter, so a change to any workflow is scanned."""
+    import yaml
+
+    flows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    scan = yaml.safe_load((flows / "scan-workflows.yml").read_text(encoding="utf-8"))
+    on = scan[True]  # YAML 1.1 reads `on` as True
+    assert "push" in on and "pull_request" in on, on
+    assert all("paths" not in (on[t] or {}) and "paths-ignore" not in (on[t] or {}) for t in ("push", "pull_request"))
+    assert any("zizmor" in str(step.get("run", "")) + str(step.get("uses", ""))
+               for job in scan["jobs"].values() for step in job.get("steps", []))
