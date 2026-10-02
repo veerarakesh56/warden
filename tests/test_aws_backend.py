@@ -49,7 +49,11 @@ class FakeLogs:
         self.calls.append(kwargs)
         if self._raises:
             raise self._raises
-        return {"events": self._events}
+        # As CloudWatch does: only events inside [startTime, endTime] (an event with no time: the first window).
+        lo, hi = kwargs.get("startTime"), kwargs.get("endTime")
+        first = len(self.calls) == 1
+        return {"events": [e for e in self._events if (e.get("timestamp") is None and first)
+                           or (e.get("timestamp") is not None and (lo is None or lo <= e["timestamp"] <= hi))]}
 
 
 class FakeCloudWatch:
@@ -667,3 +671,27 @@ def test_every_page_of_the_window_is_read():
 
     lines = _backend(logs=Paged()).logs(_alert())
     assert "page 1" in " ".join(lines), "the newest page is the one that matters"
+
+
+def test_a_window_larger_than_the_page_budget_still_reads_the_alert_time_lines():
+    """Audit A-B-M5: pages run oldest-first; a window needing more than the page budget stopped among the oldest
+    lines, and the ones at alert time - the fault - were never read."""
+    import warden.aws_backend as ab
+
+    ts = int(NOW.timestamp() * 1000)
+
+    class Endless(FakeLogs):
+        def filter_log_events(self, **kwargs):  # every page full, always another: only the budget stops it
+            self.calls.append(kwargs)
+            n = sum(1 for c in self.calls if c["startTime"] == kwargs["startTime"])
+            at = kwargs["startTime"] + n
+            return {"events": [{"logStreamName": "s", "timestamp": at, "message": f"line at {at - ts}ms"}],
+                    "nextToken": f"t{n}"}
+
+    logs = Endless()
+    lines = _backend(logs=logs).logs(_alert())
+    first = logs.calls[0]["startTime"]
+    assert first == ts - int(ab.LOG_NEAR.total_seconds() * 1000), "the alert-time window is read first"
+    assert any(f"line at {first - ts + 1}ms" in x for x in lines)
+    assert any("alert-time lines read first" in x for x in lines if x.startswith(PARTIAL_PREFIX))
+    assert len(logs.calls) == ab.LOG_MAX_PAGES

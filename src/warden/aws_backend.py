@@ -92,6 +92,9 @@ METRIC_WINDOW = timedelta(minutes=float(os.environ.get("WARDEN_AWS_METRIC_WINDOW
 LOG_EVENT_LIMIT = int(os.environ.get("WARDEN_AWS_LOG_LIMIT", "200"))
 LOG_MAX_LINES = int(os.environ.get("WARDEN_AWS_LOG_MAX_LINES", "120"))
 LOG_MAX_PAGES = int(os.environ.get("WARDEN_AWS_LOG_MAX_PAGES", "10"))
+# Read first: the minutes before the alert up to the window's end. Pages run oldest-first, so a window larger than
+# the page budget lost exactly the alert-time lines (audit A-B-M5); the earlier part takes the pages left.
+LOG_NEAR = timedelta(minutes=float(os.environ.get("WARDEN_AWS_LOG_NEAR_M", "5")))
 # Older error-looking events kept on top of the newest LOG_MAX_LINES when a window is truncated.
 LOG_ERROR_EXTRA = 30
 _ERRORISH = re.compile(r"(?i)error|exception|traceback|denied|not authorized|fail|timed out|refused|throttl")
@@ -208,32 +211,35 @@ class AwsBackend:
         start_ms = int((started - LOG_LOOKBACK).timestamp() * 1000)
         end_ms = int((started + LOG_LOOKBACK).timestamp() * 1000)
 
-        kwargs: dict[str, object] = {
-            "logGroupName": group,
-            "startTime": start_ms,
-            "endTime": end_ms,
-            "limit": LOG_EVENT_LIMIT,
-        }
+        base: dict[str, object] = {"logGroupName": group, "limit": LOG_EVENT_LIMIT}
         prefix = alert.labels.get("log_stream_prefix")
         if prefix:
-            kwargs["logStreamNamePrefix"] = prefix
+            base["logStreamNamePrefix"] = prefix
+        near_ms = int((started - LOG_NEAR).timestamp() * 1000)
+        windows = [(near_ms, end_ms), (start_ms, near_ms - 1)] if start_ms < near_ms < end_ms else [(start_ms, end_ms)]
 
         # ⛔ The WHOLE window, then the NEWEST lines. filter_log_events pages oldest-first, and this
         # used to keep the first page's first 120 lines: in Wave 4 (fs-05, 2026-09-26) every kept line
         # predated the fault, and the AccessDenied lines that named the cause were the ones dropped.
         events: list[dict] = []
         partial: list[str] = []
+        pages = LOG_MAX_PAGES
         try:
-            for page in range(LOG_MAX_PAGES):
-                resp = self._logs.filter_log_events(**kwargs)
-                events += resp.get("events") or []
-                token = resp.get("nextToken")
-                if not token:
-                    break
-                kwargs["nextToken"] = token
-                if page == LOG_MAX_PAGES - 1:
-                    partial.append(f"{PARTIAL_PREFIX}logs: [output truncated] stopped after {LOG_MAX_PAGES} pages "
+            for lo, hi in windows:
+                kwargs: dict[str, object] = {**base, "startTime": lo, "endTime": hi}
+                while pages > 0:
+                    pages -= 1
+                    resp = self._logs.filter_log_events(**kwargs)
+                    events += resp.get("events") or []
+                    token = resp.get("nextToken")
+                    if not token:
+                        break
+                    kwargs["nextToken"] = token
+                else:
+                    partial.append(f"{PARTIAL_PREFIX}logs: [output truncated] stopped after {LOG_MAX_PAGES} pages, "
+                                   f"{'before reaching the alert time' if lo == start_ms and len(windows) == 1 else 'the alert-time lines read first'} "
                                    "(raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)")
+                    break
         except Exception as exc:  # noqa: BLE001 - a missing group is data, not a crash
             if not events:
                 return [f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}"]
