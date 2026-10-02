@@ -103,6 +103,8 @@ bump may carry a breaking change.
   - A password holding an `@` is masked whole.
   - `--into` cannot leave the repository.
   - Database files may never be tracked, and binary files are scanned.
+- **The IAM scripts write nothing without `--apply`, and the boundary probe recovers from a killed run** (audit
+  A-B-L21).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
