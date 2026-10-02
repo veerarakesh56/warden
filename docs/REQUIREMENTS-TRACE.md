@@ -29,9 +29,9 @@ files and a collect-only run are not judged: only the full run is evidence.
 | R2 | Don't pitch WARDEN as novel or as something a company should adopt as-is | G0 | DONE-local | tests/test_docs_honesty.py::test_the_readme_does_not_pitch_adoption |
 | R3 | No email or account ID anywhere in the repo | G0 | DONE-local | tests/test_check_publishable.py::test_the_repository_as_it_stands_is_publishable |
 | R4 | Every time given in UTC and IST (docs, reports, Slack, approval page) | G3 | OPEN | |
-| R5 | "Do it yourself; if you need a permission, add it to the policy" — owner steps only where unavoidable | G1 | OPEN | |
-| R6 | Complete, paste-ready files and console-only click steps | G1 | OPEN | |
-| R7 | Check IAM against official AWS docs and validators | G1 | OPEN | |
+| R5 | "Do it yourself; if you need a permission, add it to the policy" — owner steps only where unavoidable | G8 | OPEN | a standing rule, not a task (owner, 2026-10-02): owner steps are written only where AWS needs the owner's own console - judged at the end, like R1 |
+| R6 | Complete, paste-ready files and console-only click steps | G8 | OPEN | a standing rule, not a task (owner, 2026-10-02): every owner step is a complete file plus click steps (docs/OWNER-CONSOLE-STEPS.md) - judged at the end, like R1 |
+| R7 | Check IAM against official AWS docs and validators | G6 | OPEN | regrouped to G6 (owner, 2026-10-02): IAM is checked against the AWS Service Reference and Access Analyzer's validator (scripts/validate_policies.py); proven in the live windows, where Access Analyzer runs |
 | R8 | Research live, up to today, before choosing or claiming anything | G8 | OPEN | a standing working rule, not a window: 'W-research' was invented to mark it DONE-live (second independent review, 2026-09-30). Each decision's research is dated in docs/research/2026-09-28/ and in the commit that uses it; re-checked before v1.0 (G8) |
 | R9 | Prefer ready-made production tools over building from scratch | G4 | OPEN | |
 | R10 | Quality first; cost only to trim waste; flag every paid item with its cost | G3 | OPEN | |
@@ -42,7 +42,7 @@ files and a collect-only run are not judged: only the full run is evidence.
 | R15 | Gemini API test with an AI Studio key | G5 | OPEN | |
 | R16 | Bedrock provider and test | G5 | OPEN | |
 | R17 | AWS region Hyderabad (ap-south-2), never hardcoded | G3 | OPEN | |
-| R18 | Separate identities for the tool, the operator and the harness | G1 | OPEN | |
+| R18 | Separate identities for the tool, the operator and the harness | G6 | OPEN | regrouped to G6 (owner, 2026-10-02): separate identities for the tool, the operator and the harness are proven in the live windows, where each is in use |
 | R19 | Real AWS services for tests, not local Docker/k3d | G6 | OPEN | |
 | R20 | ECS on EC2 (capacity provider), not Fargate | G6 | OPEN | |
 | R21 | The full stack up at once, broken in every way; find, report, fix (28 faults) | G6 | OPEN | |
