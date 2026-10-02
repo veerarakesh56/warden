@@ -38,6 +38,7 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -131,6 +132,12 @@ def _parse_time(value) -> datetime | None:
         return _aware(datetime.fromisoformat(str(value)))
     except (TypeError, ValueError):
         return None
+
+
+# Logs Insights (requirement R22): error-looking lines per minute. A count, never the text.
+INSIGHTS_QUERY = ("filter @message like /(?i)(error|exception|fatal|panic|timed? ?out|refused|denied)/ "
+                  "| stats count(*) as n by bin(1m)")
+INSIGHTS_WAIT_S = float(os.environ.get("WARDEN_LOGS_INSIGHTS_WAIT_S", "10"))
 
 
 def _error_code(exc) -> str:
@@ -269,7 +276,7 @@ class StackBackend:
         # Injectable clients/factories so the unit tests need no AWS account, cluster or database.
         clients = dict(clients or {})
         needed = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds",
-                  "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks")
+                  "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi")
         missing = [n for n in needed if n not in clients]
         if missing:
             try:
@@ -310,6 +317,8 @@ class StackBackend:
         self._sts = clients["sts"]
         self._ec2 = clients["ec2"]
         self._eks = clients["eks"]
+        self._pi = clients["pi"]
+        self._sleep = time.sleep
         # AwsBackend over the SAME clients: its logs read also serves the Lambda log groups.
         self._aws = AwsBackend(logs=self._logs, cloudwatch=self._cw, ecs=self._ecs)
         self._k8s_factory = k8s_factory or _default_k8s
@@ -488,6 +497,7 @@ class StackBackend:
     def _read_lambda(self, out: _Out, alert: Alert, fn: str, sfx: str) -> None:
         # Logs first: they carry the traceback, and a failed config read must not cost them.
         self._lambda_logs(alert, fn, out)
+        self._insights(out, alert, f"/aws/lambda/{fn}", f"lambda/{fn}", sfx)
         alias = None
         try:
             alias = self._lambda.get_alias(FunctionName=fn, Name="live")
@@ -715,6 +725,7 @@ class StackBackend:
             Filters=[{"Name": "db-cluster-id", "Values": [cluster]}]).get("DBInstances") or []
         out.metrics["aurora_members_available"] = float(
             sum(1 for i in instances if i.get("DBInstanceStatus") == "available"))
+        self._db_load(out, alert, instances)
         started = AwsBackend._started_at(alert)
         sources = [(cluster, "db-cluster"), *((i, "db-instance") for i in [*writer, *readers])]
         events = [e for sid, kind in sources for e in _pages(
@@ -737,6 +748,73 @@ class StackBackend:
         out.metrics.update({k: v for k, v in got.items() if not k.startswith("lag#")})
         if lags:
             out.metrics["aurora_replica_lag_ms"] = max(lags)
+
+    def _db_load(self, out: _Out, alert: Alert, instances: list[dict]) -> None:
+        """Performance Insights (requirement R22): each member's database load over the alert window, and that load
+        by wait-event TYPE (CPU, Lock, IO, LWLock, Client, ...). Numbers under names from that closed list; no SQL
+        text and no wait-event names reach the evidence. Free within PI's 7-day window and 1M API calls a month."""
+        started = AwsBackend._started_at(alert)
+        queries = [{"Metric": "db.load.avg"},
+                   {"Metric": "db.load.avg", "GroupBy": {"Group": "db.wait_event_type", "Limit": 6}}]
+        for inst in instances:
+            name = inst.get("DBInstanceIdentifier", "?")
+            if not inst.get("PerformanceInsightsEnabled") or not inst.get("DbiResourceId"):
+                out.lines.append(_partial("aurora metrics", f"Performance Insights is off on {_one_line(name)}"))
+                continue
+            try:
+                got = self._pi.get_resource_metrics(
+                    ServiceType="RDS", Identifier=inst["DbiResourceId"], MetricQueries=queries, PeriodInSeconds=60,
+                    StartTime=started - LOG_LOOKBACK, EndTime=started + LOG_LOOKBACK)
+            except Exception as exc:  # noqa: BLE001 - one member unread is data, the others still read
+                out.lines.append(_partial("aurora metrics", exc))
+                continue
+            for m in got.get("MetricList") or []:
+                values = [p["Value"] for p in m.get("DataPoints") or []
+                          if isinstance(p.get("Value"), int | float) and not isinstance(p.get("Value"), bool)]
+                if not values:
+                    continue
+                kind = ((m.get("Key") or {}).get("Dimensions") or {}).get("db.wait_event_type.name")
+                key = "aurora_db_load" + (f"_{re.sub(r'[^a-z0-9]', '', str(kind).lower())[:20]}" if kind else "")
+                out.metrics[key] = max(out.metrics.get(key, 0.0), float(max(values)))
+
+    def _insights(self, out: _Out, alert: Alert, group: str, tag: str, sfx: str) -> None:
+        """CloudWatch Logs Insights (requirement R22): error lines per minute over the WHOLE alert window, counted by
+        CloudWatch - complete where filter_log_events stopped at its page limit. Counts only: no log text from it
+        reaches the evidence. Paid per GB scanned ($0.005/GB list price): one log group, alert time +/- 15 min."""
+        started = AwsBackend._started_at(alert)
+        try:
+            qid = self._logs.start_query(
+                logGroupName=group, queryString=INSIGHTS_QUERY, limit=100,
+                startTime=int((started - LOG_LOOKBACK).timestamp()), endTime=int((started + LOG_LOOKBACK).timestamp()),
+            )["queryId"]
+            deadline = time.monotonic() + INSIGHTS_WAIT_S
+            while True:
+                got = self._logs.get_query_results(queryId=qid)
+                status = got.get("status")
+                if status == "Complete":
+                    break
+                if status not in ("Scheduled", "Running"):
+                    out.lines.append(_partial(f"{tag} metrics", f"the Logs Insights query ended {_one_line(status)}"))
+                    return
+                if time.monotonic() > deadline:
+                    self._logs.stop_query(queryId=qid)
+                    out.lines.append(_partial(f"{tag} metrics",
+                                              f"the Logs Insights query did not finish in {INSIGHTS_WAIT_S:.0f}s"))
+                    return
+                self._sleep(0.5)
+        except Exception as exc:  # noqa: BLE001 - the error counts are extra evidence, the logs above still stand
+            out.lines.append(_partial(f"{tag} metrics", exc))
+            return
+        counts = []
+        for row in got.get("results") or []:
+            for f in row:
+                if f.get("field") == "n":
+                    try:
+                        counts.append(float(f.get("value")))
+                    except (TypeError, ValueError):
+                        continue
+        out.metrics[f"log_error_lines{sfx}"] = sum(counts)
+        out.metrics[f"log_errors_peak_per_min{sfx}"] = max(counts, default=0.0)
 
     def _read_db(self, out: _Out, env: str, prefix: str, alert: Alert) -> None:
         """The existing PostgreSQL backend on one Aurora endpoint, names unchanged (reader: `reader_`)."""
@@ -807,6 +885,7 @@ class StackBackend:
             out.lines.append(_partial("ecs logs", raw) if raw.startswith(PARTIAL_PREFIX)
                              else _retag_aws_line(f"ecs/{service}", raw))
         out.metrics.update(self._aws.metrics(a))
+        self._insights(out, alert, f"/ecs/{service}", f"ecs/{service}", "")
         svc = (self._ecs.describe_services(cluster=alert.labels["ecs_cluster"], services=[service])
                .get("services") or [{}])[0]
         ecs_sgs = sorted(((svc.get("networkConfiguration") or {}).get("awsvpcConfiguration") or {})

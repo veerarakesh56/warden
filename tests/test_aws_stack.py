@@ -80,7 +80,13 @@ def _events(group_messages: dict[str, list[tuple[str, str]]]):
     return Fake(filter_log_events=lambda logGroupName, **_: {"events": [
         {"logStreamName": s, "timestamp": ts, "message": m}
         for s, m in group_messages.get(logGroupName, [])
-    ]})
+    ]},
+        # Logs Insights (R22): two minutes with error lines, counted by CloudWatch.
+        start_query=lambda **_: {"queryId": "q-1"},
+        get_query_results=lambda queryId: {"status": "Complete", "results": [
+            [{"field": "bin(1m)", "value": "2026-01-01 00:00:00.000"}, {"field": "n", "value": "3"}],
+            [{"field": "bin(1m)", "value": "2026-01-01 00:01:00.000"}, {"field": "n", "value": "5"}]]},
+        stop_query=lambda queryId: {"success": True})
 
 
 def _lambda(**over):
@@ -198,7 +204,11 @@ def _clients(**over):
             describe_db_clusters={"DBClusters": [{"Status": "available", "DBClusterMembers": [
                 {"DBInstanceIdentifier": f"{P}aurora-1", "IsClusterWriter": True},
                 {"DBInstanceIdentifier": f"{P}aurora-2", "IsClusterWriter": False}]}]},
-            describe_db_instances={"DBInstances": [{"DBInstanceStatus": "available"}] * 2},
+            describe_db_instances={"DBInstances": [
+                {"DBInstanceIdentifier": f"{P}aurora-1", "DBInstanceStatus": "available",
+                 "PerformanceInsightsEnabled": True, "DbiResourceId": "db-WRITER"},
+                {"DBInstanceIdentifier": f"{P}aurora-2", "DBInstanceStatus": "available",
+                 "PerformanceInsightsEnabled": True, "DbiResourceId": "db-READER"}]},
             describe_events=lambda SourceIdentifier, **_: {"Events": [e for e in [
                 {"SourceIdentifier": f"{P}aurora", "Date": NOW, "Message": "Completed failover to DB instance"}]
                 if e["SourceIdentifier"] == SourceIdentifier]}),
@@ -225,6 +235,10 @@ def _clients(**over):
             {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "UserIdGroupPairs": [{"GroupId": "sg-0other"}]}]}]}),
         "eks": Fake(describe_cluster={"cluster": {"resourcesVpcConfig": {
             "clusterSecurityGroupId": "sg-0eks", "securityGroupIds": []}}}),
+        "pi": Fake(get_resource_metrics=lambda **kw: {"MetricList": [
+            {"Key": {"Metric": "db.load.avg"}, "DataPoints": [{"Value": 1.5}, {"Value": 4.0}]},
+            {"Key": {"Metric": "db.load.avg", "Dimensions": {"db.wait_event_type.name": "Lock"}},
+             "DataPoints": [{"Value": 3.2}]}]}),
     }
     c.update(over)
     return c
@@ -590,7 +604,7 @@ def _tree(module):
 _CLIENT_PREFIX = {
     "_lambda": "lambda", "_logs": "logs", "_cw": "cloudwatch", "_ecs": "ecs", "_sqs": "sqs",
     "_ddb": "dynamodb", "_ec": "elasticache", "_rds": "rds", "_elb": "elasticloadbalancing",
-    "_ec2": "ec2", "_eks": "eks",
+    "_ec2": "ec2", "_eks": "eks", "_pi": "pi",
     "_apigw": "apigateway", "_sm": "secretsmanager", "_sns": "sns", "_events": "events", "_sts": "sts",
 }
 _NOT_CLIENTS = {"_aws"}  # the reused AwsBackend; its own calls are collected from aws_backend.py
@@ -663,7 +677,9 @@ def test_iam_policy_grants_exactly_what_the_code_calls():
 def test_every_granted_action_is_a_read():
     for action in _granted() - NOT_A_CALL:
         verb = action.split(":", 1)[1]
-        assert action == "apigateway:GET" or verb.startswith(("Describe", "Get", "List", "Filter")), action
+        # StartQuery / StopQuery run and cancel a Logs Insights query: IAM's own access level for both is Read.
+        assert (action in ("apigateway:GET", "logs:StartQuery", "logs:StopQuery")
+                or verb.startswith(("Describe", "Get", "List", "Filter"))), action
     for forbidden in ("secretsmanager:GetSecretValue", "s3:GetObject", "ssm:GetParameter"):
         assert not any(a.startswith(forbidden) for a in _granted()), forbidden
 
@@ -677,12 +693,14 @@ def test_the_stack_backend_cannot_write_checked_on_the_ast():
     never = {"get_secret_value", "get_object", "get_parameter", "get_parameters",
              "get_parameters_by_path", "make_api_call", "extract", "extractall", "write_bytes",
              "write_text", "system", "popen", "Popen", "check_output"}
+    # A Logs Insights query is read only (IAM access level Read): starting and stopping one changes no resource.
+    reads = {"self._logs.start_query", "self._logs.stop_query"}
     offenders: list[str] = []
     for node in ast.walk(_tree(aws_stack)):
         if isinstance(node, ast.Call):
             name = _dotted(node.func)
             leaf = name.rsplit(".", 1)[-1]
-            if write_shaped.match(leaf) or leaf in never:
+            if (write_shaped.match(leaf) or leaf in never) and name not in reads:
                 offenders.append(name)
             if leaf == "open" or (leaf == "ZipFile" and any(
                     isinstance(a, ast.Constant) and a.value in ("w", "a", "x") for a in node.args)):
@@ -771,13 +789,16 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
     assert resources and all(r.endswith("${local.name}-*") for r in resources), resources
     assert '"*"' not in own
     scoped = set(re.findall(r'"([a-z0-9-]+:[A-Za-z]+)"', own))
-    assert {"lambda:GetFunction", "logs:FilterLogEvents", "rds:DescribeDBClusters", "sqs:GetQueueAttributes"} <= scoped
+    assert {"lambda:GetFunction", "logs:FilterLogEvents", "logs:StartQuery", "rds:DescribeDBClusters",
+            "sqs:GetQueueAttributes"} <= scoped
     # Only what AWS cannot scope, or what the code calls with no identity, keeps "*".
     assert set(re.findall(r'"([a-z0-9-]+:[A-Za-z]+)"', anywhere)) == {
         "cloudwatch:GetMetricData", "ec2:DescribeSecurityGroups", "ecs:DescribeTaskDefinition",
         "elasticache:DescribeCacheClusters", "elasticache:DescribeEvents", "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth", "lambda:ListEventSourceMappings", "rds:DescribeDBInstances",
-        "rds:DescribeEvents", "sts:GetCallerIdentity"}
+        "rds:DescribeEvents", "sts:GetCallerIdentity",
+        # Logs Insights results and cancel name a query id, not a resource: AWS gives them no resource type (R22).
+        "logs:GetQueryResults", "logs:StopQuery"}
 
 
 # The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).

@@ -155,6 +155,8 @@ window.
 | CloudTrail | first copy of management events to S3: free; data events $0.10 per 100k | the S3 storage is billed separately |
 | S3 Standard | $0.025/GB-month (first 50 TB) | Object Lock has no separate SKU; retained versions are billed as storage |
 | CloudWatch Logs | $0.67/GB ingested; $0.03/GB-month stored | 5 GB free |
+| CloudWatch Logs Insights | $0.005 per GB scanned (list price, read 2026-10-03) | WARDEN runs one query per log group per incident, over alert time +/- 15 min (requirement R22). UNCERTAIN: the ap-south-2 rate was not stated |
+| RDS Performance Insights (API) | free: 7 days of data and 1M API requests a month (read 2026-10-03) | WARDEN reads `db.load` by wait-event type per Aurora member (R22). Longer retention is CloudWatch Database Insights, paid, not used |
 | CloudWatch metrics and alarms | $0.30 per custom metric-month; $0.10 per standard alarm-month | 10 of each free |
 | X-Ray | $5 per 1M traces stored; $0.50 per 1M retrieved | 100k stored free |
 | CloudWatch generative-AI observability | no separate charge stated; the underlying logs, spans and metrics are billed | UNCERTAIN |

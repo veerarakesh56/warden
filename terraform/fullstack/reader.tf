@@ -49,6 +49,7 @@ data "aws_iam_policy_document" "fs_reader" {
       "lambda:GetFunctionConfiguration",
       "lambda:ListVersionsByFunction",
       "logs:FilterLogEvents",
+      "logs:StartQuery",
       "rds:DescribeDBClusters",
       "secretsmanager:DescribeSecret",
       "sns:ListSubscriptionsByTopic",
@@ -85,11 +86,22 @@ data "aws_iam_policy_document" "fs_reader" {
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",
       "lambda:ListEventSourceMappings",
+      "logs:GetQueryResults",
+      "logs:StopQuery",
       "rds:DescribeDBInstances",
       "rds:DescribeEvents",
       "sts:GetCallerIdentity",
     ]
     resources = ["*"]
+  }
+
+  # Performance Insights (requirement R22): a member's metrics are named by its DbiResourceId, a random id, not by the
+  # stack's name - so this account's and region's RDS metrics, read only.
+  statement {
+    sid       = "ReadDatabaseLoad"
+    effect    = "Allow"
+    actions   = ["pi:GetResourceMetrics"]
+    resources = ["arn:aws:pi:${local.reader_arn}:metrics/rds/*"]
   }
 
   # ⭐ NOT a call WARDEN makes. The harness signs WARDEN's warden_<env>_ro database token with THIS role's

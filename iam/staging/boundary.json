@@ -21,6 +21,7 @@
         "events:*",
         "tag:*",
         "kms:DescribeKey",
+        "pi:Get*",
         "kms:ListAliases",
         "elasticache:Describe*",
         "apigateway:GET",
