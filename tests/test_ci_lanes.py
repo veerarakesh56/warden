@@ -185,3 +185,12 @@ def test_every_workflow_is_scanned_on_every_push_and_pull_request():
     assert all("paths" not in (on[t] or {}) and "paths-ignore" not in (on[t] or {}) for t in ("push", "pull_request"))
     assert any("zizmor" in str(step.get("run", "")) + str(step.get("uses", ""))
                for job in scan["jobs"].values() for step in job.get("steps", []))
+
+
+def test_every_ci_image_build_uses_the_hosts_network():
+    """Audit R5-E3: inside Docker's bridge network the image build's package downloads crawled (48 packages in
+    3m49s-4m44s) and the k8s job took 264-320 s; on the host's network it took 97 s. Every docker build in CI keeps it."""
+    text = (pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-tool.yml").read_text(
+        encoding="utf-8")
+    builds = re.findall(r"docker build[^\n]*", text)
+    assert builds and all("--network=host" in b for b in builds), builds
