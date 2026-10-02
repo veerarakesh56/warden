@@ -190,6 +190,9 @@ class RemediationWorkflow:
         return await end("rolled_back", [why])
 
 
+MODEL_UNAVAILABLE = "ModelUnavailable"
+
+
 @workflow.defn
 class IncidentWorkflow:
     """One alert, diagnosed: prepare (read + redact, the redaction map never leaves it) -> diagnose
@@ -212,6 +215,11 @@ class IncidentWorkflow:
             acts.diagnose, args=[pack], start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=1))
         verified = await workflow.execute_activity_method(acts.verify, args=[pack, diagnosed], **QUICK)
+        if diagnosed.model_unavailable:
+            # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
+            # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).
+            raise ApplicationError(f"escalated without a model: {diagnosed.model_unavailable}",
+                                   type=MODEL_UNAVAILABLE, non_retryable=True)
         return RunReport(alert=pack.alert, redaction_map_size=pack.masked, context=pack.context,
                          root_cause=diagnosed.root_cause, proposal=diagnosed.proposal, verdict=verified.verdict,
                          cost=diagnosed.cost, audit=pack.steps + diagnosed.steps + verified.steps,

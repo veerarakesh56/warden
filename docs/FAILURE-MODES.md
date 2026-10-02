@@ -82,7 +82,7 @@ its audit rows.
 | H10 | Nobody approves before the TTL | Escalation ladder; "no action taken" recorded and notified | G3 | OPEN | |
 | E2 | Calibration trained on its own outcomes | Labels only from independent ground truth | G7 | OPEN | |
 | E5 | Shadow thresholds too weak | Gate on the Wilson lower bound (30/30 only certifies ≈ 0.887) plus conformal abstention | G7 | OPEN | |
-| M19 | No degraded mode when the model provider is down | A rules-only escalation plus a page; tested | G3 | OPEN | |
+| M19 | No degraded mode when the model provider is down | A rules-only escalation plus a page; tested | G3 | DONE-local | the model unavailable (no answer, over budget, out of time, provider error, or the day's cap) gives a rules-only escalate_to_human and an escalated P0-MODEL-UNAVAILABLE verdict; under Temporal the escalation is verified and audited and the run ends FAILED so it may run again (tests/test_degraded_m19.py::test_with_no_model_the_incident_is_escalated_by_rules_alone, tests/test_degraded_m19.py::test_a_run_without_the_model_is_escalated_audited_and_may_run_again); plant-checked 2026-10-02 |
 | M20 | Unqualified cross-provider fallback | A provider is enabled only after passing the replay set (`data/providers.yaml`) | G3 | OPEN | |
 | O5 | Code or catalogue changes under an in-flight approval | `plan_hash` covers the evidence-pack sha, catalogue fingerprint and code version; refuse on mismatch | G2 | DONE-local | the plan hash covers the environment, the catalogue fingerprint, a hash of WARDEN's own code and data, and the incident's audit head; precheck and apply refuse a plan whose code or catalogue changed (tests/test_remediation_target.py::test_a_plan_made_under_other_code_or_another_catalogue_is_not_applied, tests/test_remediation_target.py::test_the_plan_hash_covers_the_environment_the_catalogue_the_code_and_the_record); plant-checked 2026-10-02 |
 
@@ -91,7 +91,7 @@ its audit rows.
 | # | What goes wrong | Fix | Group | Status | Evidence |
 |---|---|---|---|---|---|
 | M2 | Numbers, units and times misread | Numeric grounding after unit normalisation; all times in UTC | G7 | OPEN | |
-| M18 | No daily token cap across incidents | A daily token and USD cap counted from the audit | G3 | OPEN | |
+| M18 | No daily token cap across incidents | A daily token and USD cap counted from the audit | G3 | DONE-local | WARDEN_DAILY_MAX_USD and WARDEN_DAILY_MAX_TOKENS are counted from the audit over 24 hours across incidents, unsettled reservations included; past them the model call is refused; the incident then escalates on the rules alone, which is tested in (tests/test_degraded_m19.py::test_the_daily_cap_stops_the_model_across_incidents); plant-checked 2026-10-02 |
 | C3 | Remediation mutex keyed on a name, not the resource | Workflow id `rem-<env>-<sha(target_key)>`, keyed on the canonical ARN | G2 | DONE-local | the workflow id is `rem-<env>-<sha256(target key)>`, the target key naming every parameter that identifies the resource (tests/test_mcp_workflows.py::test_start_request_and_read_through_the_tools, tests/test_remediation_target.py::test_the_target_key_names_every_parameter_that_identifies_the_resource, tests/test_remediation_target.py::test_a_plan_carried_to_another_target_is_refused_at_apply); plant-checked 2026-10-02 |
 | C6 | No change freeze or maintenance window | `data/freeze.yaml` (IANA zones) plus P19 | G3 | OPEN | |
 | C10 | Restarting everything at once | Use the platform's native progressive settings; refuse aggressive ones | G3 | OPEN | |

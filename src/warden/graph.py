@@ -33,7 +33,7 @@ from . import evidence, tripwire
 from .audit import code_version
 from .environments import default_environment_policies
 from .knowledge import default_knowledge_base
-from .llm import LLMClient
+from .llm import BudgetExceeded, LLMClient, ModelCallTimeout, ModelRefused
 from .models import (
     RESOURCE_LABELS,
     ActionKind,
@@ -47,6 +47,7 @@ from .models import (
     VerdictStatus,
 )
 from .observability import record_cost, record_model_call, span
+from .providers import ProviderError
 from .redaction import _PLACEHOLDER, redact_many
 from .tools import FixtureBackend, gather
 from .verifier import verify
@@ -78,6 +79,7 @@ class WardenState(TypedDict, total=False):
     verdict: Verdict
     audit: list[dict[str, Any]]
     halted_reason: str
+    model_unavailable: str  # why the model was not used for this incident (M19)
     llm: LLMClient
     backend: FixtureBackend
 
@@ -513,8 +515,35 @@ def node_tripwire(state: WardenState) -> WardenState:
             "audit": [{"node": "tripwire", "status": status, "flagged": sorted(flagged)}]}
 
 
+# The model could not be used for this incident: no answer, over budget, out of time, the provider down or refusing,
+# or the day's cap reached. WARDEN then answers by its rules alone (register M19): an escalation to a person, never a
+# guess, and never a crashed run that leaves no report at all.
+MODEL_UNAVAILABLE = (ModelRefused, BudgetExceeded, ModelCallTimeout, ProviderError)
+
+
+def _rules_only(state: WardenState, reason: str) -> tuple[RootCause, RemediationProposal]:
+    alert = state["alert"]
+    return (RootCause(hypothesis=f"No model diagnosis: {reason}. Escalated on the evidence alone.", confidence=0.0),
+            RemediationProposal(action=ActionKind.escalate_to_human, target=alert.service,
+                                reasoning="rules-only: the model was not available", blast_radius="single_service",
+                                expected_effect="a person reviews the evidence", reversible=True))
+
+
 def node_diagnose(state: WardenState) -> WardenState:
     llm: LLMClient = state["llm"]
+    reason = state.get("model_unavailable") or ""  # set before the call when the day's cap is reached (M18)
+    if not reason:
+        try:
+            return _diagnose(state, llm)
+        except MODEL_UNAVAILABLE as exc:
+            reason = f"{type(exc).__name__}: " + " ".join(str(exc).split())[:200]
+    rc, proposal = _rules_only(state, reason)
+    return {"root_cause": rc, "proposal": proposal, "model_unavailable": reason,
+            "audit": [{"node": "diagnose", "degraded": reason, "action": proposal.action.value,
+                       "target": proposal.target}]}
+
+
+def _diagnose(state: WardenState, llm: LLMClient) -> WardenState:
     signals = Signals.of(state)
     with span("diagnose", has_deploy=signals.has_deploy, log_count=signals.log_count) as sp:
         # Snapshot the running cost so this span records what THIS node spent, not the total so far.
@@ -565,6 +594,13 @@ def node_verify(state: WardenState) -> WardenState:
     """No model here. On purpose."""
     with span("verify", environment=state["alert"].environment) as sp:
         verdict = verify(state["alert"], state["context"], state["root_cause"], state["proposal"])
+        if state.get("model_unavailable"):
+            # Rules only: whatever the policies alone would allow, a person decides (register M19).
+            kept = verdict.status is not VerdictStatus.auto_safe  # "no approval required" no longer holds
+            verdict = Verdict(status=VerdictStatus.escalated, requires_approval=True,
+                              reasons=[f"the model was not available ({state['model_unavailable']})",
+                                       *(verdict.reasons if kept else [])],
+                              policy_ids=["P0-MODEL-UNAVAILABLE", *(verdict.policy_ids if kept else [])])
         sp.set_attribute("warden.verdict", verdict.status.value)
         sp.set_attribute("warden.policies", ",".join(verdict.policy_ids))
         sp.set_attribute("warden.requires_approval", verdict.requires_approval)

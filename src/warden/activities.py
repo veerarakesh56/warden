@@ -13,9 +13,10 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import os
 import secrets
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, field_validator
@@ -416,6 +417,13 @@ class Diagnosed(BaseModel):
     proposal: RemediationProposal
     cost: CostRecord
     steps: list[dict[str, Any]] = Field(default_factory=list)
+    model_unavailable: str = ""  # why the model was not used: verify then escalates (register M19)
+
+
+# A cap across incidents (registers M18, A-P-4): a storm of incidents, each within its own budget, still spent without
+# end. Counted from the audit over the last 24 hours, reservations of unfinished calls included.
+DAILY_MAX_USD = float(os.environ.get("WARDEN_DAILY_MAX_USD", "10.00"))
+DAILY_MAX_TOKENS = int(os.environ.get("WARDEN_DAILY_MAX_TOKENS", "2000000"))
 
 
 class Verified(BaseModel):
@@ -466,6 +474,17 @@ class IncidentActivities:
         # carrying those let a provider outage use up the ceiling and lock the incident (eighth review).
         before = self._spent(pack.alert.alert_id)
         llm.cost = before.model_copy()
+        today = self._spent_since(datetime.now(UTC) - timedelta(hours=24))
+        over = (today.usd + max(llm.max_usd - before.usd, 0.0) > DAILY_MAX_USD
+                or today.input_tokens + today.output_tokens >= DAILY_MAX_TOKENS)
+        if over:
+            reason = (f"the daily model cap is reached (${today.usd:.2f} of ${DAILY_MAX_USD:.2f}, "
+                      f"{today.input_tokens + today.output_tokens} of {DAILY_MAX_TOKENS} tokens in 24 h)")
+            state = {"alert": pack.alert, "context": pack.context, "llm": llm, "model_unavailable": reason}
+            steps = graph.apply_node(state, graph.node_diagnose(state))
+            self._record(pack.alert.alert_id, steps)
+            return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
+                             model_unavailable=reason)
         # Reserved BEFORE the call (register R8-O1): what is left of the incident's budget, under an id that this
         # run's spend row settles. A run cancelled, terminated or killed mid-call wrote its spend late or never, and
         # the next run started as if nothing had been spent. Now an unsettled reservation counts as spent: the next
@@ -485,7 +504,23 @@ class IncidentActivities:
                 "unanswered": unanswered, "input_tokens": now.input_tokens - before.input_tokens,
                 "output_tokens": now.output_tokens - before.output_tokens})
         self._record(pack.alert.alert_id, steps)
-        return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps)
+        return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
+                         model_unavailable=state.get("model_unavailable", ""))
+
+    def _spent_since(self, since: datetime) -> CostRecord:
+        """What every incident spent on the model since `since`, reservations of unfinished calls included."""
+        total = CostRecord()
+        spent = self.audit.entries(kinds=("incident.llm_spend",), since=since)
+        for e in spent:
+            b = e["body"]
+            total.input_tokens += int(b.get("input_tokens", 0))
+            total.output_tokens += int(b.get("output_tokens", 0))
+            total.usd += float(b.get("usd", 0.0))
+        settled = {e["body"].get("attempt") for e in self.audit.entries(kinds=("incident.llm_spend",))}
+        for e in self.audit.entries(kinds=("incident.llm_reserve",), since=since):
+            if e["body"].get("attempt") not in settled:
+                total.usd += float(e["body"].get("usd", 0.0))
+        return total
 
     def _spent(self, alert_id: str) -> CostRecord:
         """What every earlier run of this incident spent on the model, from the audit - and, for a run whose spend
@@ -510,7 +545,7 @@ class IncidentActivities:
         from . import graph
 
         state = {"alert": pack.alert, "context": pack.context, "root_cause": diagnosed.root_cause,
-                 "proposal": diagnosed.proposal}
+                 "proposal": diagnosed.proposal, "model_unavailable": diagnosed.model_unavailable}
         steps = graph.apply_node(state, graph.node_verify(state))
         route = {"halt": graph.node_halt, "escalate": graph.node_escalate,
                  "await_approval": graph.node_await_approval, "record_safe": graph.node_record_safe}

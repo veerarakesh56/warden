@@ -81,11 +81,12 @@ def test_unknown_incident_exits_with_a_useful_message(capsys):
 
 
 def test_budget_flag_is_wired_through(capsys):
-    """--max-usd must actually reach the client, not just be accepted by argparse. The error reaches
-    the user as one gated line, not a traceback (review 2026-09-28)."""
-    assert main(["run", "--incident", "inc-001", "--max-usd", "0.0001"]) == 1
-    err = capsys.readouterr().err
-    assert "error: BudgetExceeded" in err and "Traceback" not in err
+    """--max-usd must actually reach the client, not just be accepted by argparse. Over budget, no call is made and
+    the incident goes to a person, rules only (register M19) - not a traceback (review 2026-09-28)."""
+    assert main(["run", "--incident", "inc-001", "--max-usd", "0.0001"]) == 0
+    out, err = capsys.readouterr()
+    assert "BudgetExceeded" in out and "P0-MODEL-UNAVAILABLE" in out and "escalate_to_human" in out
+    assert "Traceback" not in out + err
 
 
 def test_no_subcommand_is_rejected(capsys):

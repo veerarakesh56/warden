@@ -105,6 +105,8 @@ bump may carry a breaking change.
   - Database files may never be tracked, and binary files are scanned.
 - **The IAM scripts write nothing without `--apply`, and the boundary probe recovers from a killed run** (audit
   A-B-L21).
+- **Without the model WARDEN escalates on its rules alone, and a daily cap spans incidents** (registers M19,
+  M18, A-P-3, A-P-4).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
