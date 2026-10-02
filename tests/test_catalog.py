@@ -23,7 +23,7 @@ def test_excluded_actions_are_refused_by_name(name):
 
 
 def test_a_target_must_be_one_warden_read_from_live_state():
-    live = {"namespace": {"shop"}, "deployment": {"checkout", "orders"}}
+    live = {"namespace": {"shop"}, "deployment": {"checkout", "orders"}, "current_replicas": 2, "at_once": 0}
     assert catalog.validate("k8s_restart", {"namespace": "shop", "deployment": "checkout"}, live) == []
     for bad in ("payments", "checkout; kubectl delete ns shop", "checkout\n", ""):
         problems = catalog.validate("k8s_restart", {"namespace": "shop", "deployment": bad}, live)

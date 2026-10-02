@@ -86,6 +86,8 @@ def test_live_reads_the_real_deployment(apps, target):
     live = KubernetesPlatform(apps=apps, namespace=NS).live("k8s_scale", _params())
     assert NAME in live["deployment"] and live["namespace"] == {NS}
     assert live["state"]["replicas"] == live["current_replicas"] >= 1
+    # The API's own default strategy, read as the C10 check reads it: RollingUpdate, maxUnavailable "25%", rounded down.
+    assert live["at_once"] == live["current_replicas"] * 25 // 100 and live["rollout"] in ("complete", "progressing")
     assert live["environment"] == "dev"  # the Deployment's own label, read for P18 (register S6)
 
 

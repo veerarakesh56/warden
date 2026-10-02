@@ -161,6 +161,9 @@ def for_action(action: ActionKind, platform: str) -> Entry | None:
     return CATALOG[name] if name else None
 
 
+ROLLS_PODS = frozenset({"k8s_restart"})  # entries that replace a workload's pods through its own rollout (C10)
+
+
 def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[str]:
     """Every reason these parameters must not be applied. `live` holds what WARDEN read: for a `ref`
     parameter a set of allowed values, plus the current values `relative` limits need."""
@@ -181,6 +184,15 @@ def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[st
             problems.append(f"{pname}={value!r} is outside {spec.lo}..{spec.hi}")
     if not problems and entry.relative:
         problems += entry.relative(params, live)
+    if not problems and name in ROLLS_PODS:
+        # Register C10: a restart goes through the target's own rolling settings, so those settings must keep most of
+        # it serving - never Recreate, never more than half the pods down together, and never unknown.
+        at_once, replicas = live.get("at_once"), live.get("current_replicas")
+        if not isinstance(at_once, int) or not isinstance(replicas, int):
+            problems.append("C10: the target's rollout strategy could not be read; a restart is not sent blind")
+        elif replicas > 1 and at_once * 2 > replicas:
+            problems.append(f"C10: the target's strategy would take {at_once} of {replicas} pods down at once; a "
+                            "restart is refused until it keeps most of them serving")
     if live.get("rollout") == "progressing":
         # Register C5: a change made mid-rollout fights the rollout, and the next read cannot tell which did what.
         problems.append("P21-ROLLOUT-IN-PROGRESS: a rollout of this target is under way; act after it completes "

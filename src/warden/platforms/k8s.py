@@ -78,7 +78,7 @@ class KubernetesPlatform:
             return {}
         labels = getattr(dep.metadata, "labels", None) or {}
         return {"namespace": {self._ns}, "deployment": {dep.metadata.name}, "current_replicas": _replicas(dep),
-                "environment": labels.get(ENV_LABEL), "rollout": _rollout(dep),
+                "environment": labels.get(ENV_LABEL), "rollout": _rollout(dep), "at_once": _at_once(dep),
                 "state": {"deployment": dep.metadata.name, "replicas": _replicas(dep),
                           "generation": dep.metadata.generation, "server": self._server()}}
 
@@ -230,6 +230,25 @@ def _refused_by_the_server(exc: Exception, deployment: str) -> None:
         raise KubernetesPlatformRefused(f"the API server refused the write to deployment/{deployment} "
                                       f"(RBAC or an admission policy: {_one_line(getattr(exc, 'reason', '') or exc)}); "
                                       f"nothing was changed") from exc
+
+
+def _at_once(dep: Any) -> int | None:
+    """How many pods a restart may take down together, by the Deployment's own strategy (register C10): every one
+    for Recreate; for RollingUpdate maxUnavailable, a percentage rounded down as Kubernetes rounds it. None when the
+    strategy cannot be read."""
+    import math
+
+    strategy = getattr(dep.spec, "strategy", None)
+    kind = getattr(strategy, "type", None)
+    if kind == "Recreate":
+        return _replicas(dep)
+    rolling = getattr(strategy, "rolling_update", None)
+    value = getattr(rolling, "max_unavailable", None)
+    if kind != "RollingUpdate" or value is None:
+        return None
+    if isinstance(value, str) and value.endswith("%") and value[:-1].isdigit():
+        return math.floor(_replicas(dep) * int(value[:-1]) / 100)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _rollout(dep: Any) -> str:

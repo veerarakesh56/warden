@@ -117,6 +117,8 @@ bump may carry a breaking change.
   C2, C20, C21).
 - **The CLI's approval digest gates only a dry run; real approvals expire and work once** (audit A-B-L2).
 - **No change while a rollout is under way (P21); a stalled one may still be rolled back** (register C5).
+- **A restart rolls through the target's own strategy, and is refused if that would take most pods down** (register
+  C10).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
