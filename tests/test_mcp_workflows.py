@@ -54,7 +54,8 @@ def manifest_hash() -> str:
     return hashlib.sha256(json.dumps(tools, sort_keys=True).encode()).hexdigest()
 
 
-def test_start_request_and_read_through_the_tools(tmp_path):
+def test_start_request_and_read_through_the_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("WARDEN_MCP_PROFILE", "remediate")
     owner = Ed25519PrivateKey.generate()
     from cryptography.hazmat.primitives import serialization
 
@@ -71,9 +72,9 @@ def test_start_request_and_read_through_the_tools(tmp_path):
             call = mcp_server.call_workflow_tool
             alert = _alert_from("inc-001").model_dump(mode="json")
             started = (await call("start_incident_diagnosis", {"alert": alert}, env.client)).structured_content
-            assert started == {"workflow_id": "inc-inc-001"}
+            assert started == {"workflow_id": "inc-mcp-inc-001"}
             for _ in range(200):
-                raw = await call("workflow_status", {"workflow_id": "inc-inc-001"}, env.client)
+                raw = await call("workflow_status", {"workflow_id": "inc-mcp-inc-001"}, env.client)
                 assert not raw.is_error, raw.content[0].text
                 status = raw.structured_content
                 if status["status"] == "COMPLETED":
@@ -81,6 +82,7 @@ def test_start_request_and_read_through_the_tools(tmp_path):
                 await asyncio.sleep(0.05)
             assert status["result"]["verdict"]["status"]
             assert "redaction_map" not in status["result"]
+            assert "context" not in status["result"]  # the verdict, never the evidence read (audit A-B-H4)
 
             req = {k: REQ[k] for k in ("environment", "service", "entry", "params")} | {"incident_id": "inc-inc-001"}
             asked = (await call("request_remediation", req, env.client)).structured_content
@@ -107,7 +109,8 @@ def test_start_request_and_read_through_the_tools(tmp_path):
     assert asyncio.run(main())["status"] == "recovered"
 
 
-def test_a_bad_request_is_an_error_not_a_crash():
+def test_a_bad_request_is_an_error_not_a_crash(monkeypatch):
+    monkeypatch.setenv("WARDEN_MCP_PROFILE", "remediate")
     async def main():
         return await mcp_server.call_workflow_tool("request_remediation", {"entry": "shell"}, client=None)
     result = asyncio.run(main())
@@ -123,3 +126,61 @@ def test_a_complete_request_for_an_excluded_action_is_refused_by_the_catalogue(e
 
     req = FixRequest(incident_id="inc-1", service="orders", entry=entry, params={"cmd": "rm -rf /"}, environment="dev")
     assert catalog.validate(req.entry, req.params, {}) == [f"{entry!r} is not in the catalogue"]
+
+
+def test_the_default_client_may_not_request_a_remediation(monkeypatch):
+    """Audit A-B-H4: a client's profile decides its tools; the default is read-only."""
+    monkeypatch.delenv("WARDEN_MCP_PROFILE", raising=False)
+
+    async def main():
+        return await mcp_server.call_workflow_tool("request_remediation", {"entry": "k8s_restart"}, client=None)
+    refused = asyncio.run(main())
+    assert refused.is_error and "not allowed for this client" in refused.content[0].text
+    assert "request_remediation" not in mcp_server.profile() and "workflow_status" in mcp_server.profile()
+
+
+def test_status_answers_only_for_workflows_this_server_started():
+    """Audit A-B-H4: workflow_status read any incident's report by its id."""
+    async def main():
+        return await mcp_server.call_workflow_tool("workflow_status", {"workflow_id": "inc-someone-elses"}, client=None)
+    result = asyncio.run(main())
+    assert result.is_error and "did not start" in result.content[0].text
+
+
+def test_a_caller_cannot_steer_reads_outside_the_allowlist(tmp_path, monkeypatch):
+    """Audit A-B-H4: the caller's labels named what WARDEN read. Only values the operator lists are followed."""
+    from warden import read_scope
+    from warden.models import Alert
+
+    scopes = tmp_path / "scopes.yaml"
+    scopes.write_text("orders:\n  namespace: [shop]\n", encoding="utf-8")
+    alert = Alert(alert_id="a1", name="n", service="orders", environment="dev", severity="high", summary="s",
+                  labels={"namespace": "kube-system", "log_group": "/aws/lambda/prod-payments", "team": "core"})
+    kept, dropped = read_scope.restrict(alert, read_scope.load(str(scopes)))
+    assert kept.labels == {"team": "core"} and dropped == ["log_group", "namespace"]
+    ok = alert.model_copy(update={"labels": {"namespace": "shop"}})
+    assert read_scope.restrict(ok, read_scope.load(str(scopes)))[0].labels == {"namespace": "shop"}
+    both = alert.model_copy(update={"labels": {"namespace": "shop,kube-system"}})
+    assert read_scope.restrict(both, read_scope.load(str(scopes)))[1] == ["namespace"]
+    monkeypatch.delenv("WARDEN_READ_SCOPES", raising=False)
+    assert read_scope.restrict(ok, read_scope.load())[1] == ["namespace"]  # no allowlist: nothing steers
+
+
+def test_the_workflow_starts_with_only_the_labels_the_allowlist_names(monkeypatch):
+    """Audit A-B-H4: the restriction is applied to the alert the workflow is started with, not only reported."""
+    import types
+
+    monkeypatch.delenv("WARDEN_READ_SCOPES", raising=False)
+    seen = {}
+
+    async def start_workflow(fn, alert, **kw):
+        seen["alert"], seen["id"] = alert, kw["id"]
+
+    alert = {"alert_id": "a9", "name": "n", "service": "orders", "environment": "dev", "severity": "high",
+             "summary": "s", "labels": {"namespace": "kube-system", "team": "core"}}
+    out = asyncio.run(mcp_server.call_workflow_tool("start_incident_diagnosis", {"alert": alert},
+                                                    client=types.SimpleNamespace(start_workflow=start_workflow)))
+    assert not out.is_error, out.content[0].text
+    assert seen["alert"].labels == {"team": "core"} and seen["id"] == "inc-mcp-a9"
+    assert out.structured_content["labels_not_followed"] == ["namespace"]
+

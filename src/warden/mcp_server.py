@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from typing import Any
 
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from . import catalog, gate
+from . import catalog, gate, read_scope
 from .environments import default_environment_policies
 from .models import (
     BLAST_RADIUS_ORDER,
@@ -189,6 +190,22 @@ def _tools() -> list[types.Tool]:
 # if one appears. An approval is a person's signature (`warden approve`), made outside this server.
 
 WORKFLOW_TOOLS = ("start_incident_diagnosis", "request_remediation", "workflow_status")
+# The client's profile (audit A-B-H4): `read` (the default) may start a diagnosis and read its own workflows;
+# `remediate` may also request a remediation. One stdio server serves one client, so the profile is the server's.
+PROFILES = {"read": frozenset({"start_incident_diagnosis", "workflow_status"}),
+            "remediate": frozenset(WORKFLOW_TOOLS)}
+
+
+def profile() -> frozenset[str]:
+    name = os.environ.get("WARDEN_MCP_PROFILE", "read")
+    if name not in PROFILES:
+        raise ValueError(f"WARDEN_MCP_PROFILE={name!r}; one of {', '.join(sorted(PROFILES))}")
+    return PROFILES[name]
+
+
+# The workflows THIS server started: `workflow_status` answers for those only (audit A-B-H4: it read any incident's
+# report by id). ponytail: in memory, so a restarted server forgets them - its client starts again.
+_STARTED: set[str] = set()
 
 
 def _workflow_tools() -> list[types.Tool]:
@@ -248,9 +265,15 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
     from .workflows import IncidentWorkflow, RemediationWorkflow
 
     try:
+        if name in WORKFLOW_TOOLS and name not in profile():
+            return _err(f"{name} is not allowed for this client (WARDEN_MCP_PROFILE)")
         if name == "start_incident_diagnosis":
             alert = Alert.model_validate(args.get("alert") or {})
-            wid = f"inc-{alert.alert_id}"
+            # Only the labels the operator's allowlist names steer a read (audit A-B-H4).
+            alert, not_followed = read_scope.restrict(alert, read_scope.load())
+            # Its own id space (audit A-B-L11): a caller cannot take the id alert intake will give a real alert.
+            wid = f"inc-mcp-{alert.alert_id}"
+            _STARTED.add(wid)
             try:
                 # One alert is one incident, with one model budget: a completed run is not started again (fifth
                 # review, 2026-10-01: each new run got a fresh budget); a FAILED run may be (sixth review).
@@ -258,7 +281,7 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
                                             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
             except WorkflowAlreadyStartedError:
                 return _ok({"workflow_id": wid, "note": "this alert is already diagnosed or being diagnosed"})
-            return _ok({"workflow_id": wid})
+            return _ok({"workflow_id": wid, **({"labels_not_followed": not_followed} if not_followed else {})})
         if name == "request_remediation":
             req = FixRequest.model_validate({k: args.get(k) for k in ("incident_id", "environment", "service",
                                                                      "entry", "params")})
@@ -272,10 +295,13 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
                 await client.start_workflow(RemediationWorkflow.run, req, id=wid, task_queue=runtime.TASK_QUEUE)
             except WorkflowAlreadyStartedError:
                 return _err(f"a remediation for {key} in {req.environment} is already open ({wid})")
+            _STARTED.add(wid)
             return _ok({"workflow_id": wid, "next": "a person reviews it with `warden status` and approves "
                                                     "with `warden approve`; this server cannot"})
         if name == "workflow_status":
             wid = str(args.get("workflow_id", ""))
+            if wid not in _STARTED:
+                return _err("this server did not start that workflow")
             handle = client.get_workflow_handle(wid)
             desc = await handle.describe()
             out: dict[str, Any] = {"workflow_id": wid, "type": desc.workflow_type, "status": desc.status.name}
@@ -288,6 +314,9 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
             if desc.status == WorkflowExecutionStatus.COMPLETED:
                 result = await handle.result()  # an untyped handle decodes to plain JSON already
                 out["result"] = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+                if isinstance(out["result"], dict):
+                    # The verdict and the proposal, never the evidence read (audit A-B-H4: raw context).
+                    out["result"].pop("context", None)
             return _ok(out)
         return _err(f"unknown tool: {name}")
     except Exception as exc:  # noqa: BLE001 - an MCP tool must return an error, not crash the server
@@ -506,7 +535,8 @@ def build_server() -> Server:
     client = None
 
     async def on_list_tools(ctx, params):
-        return types.ListToolsResult(tools=_tools() + _workflow_tools())
+        allowed = profile()
+        return types.ListToolsResult(tools=_tools() + [t for t in _workflow_tools() if t.name in allowed])
 
     async def on_call_tool(ctx, params):
         nonlocal client

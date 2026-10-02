@@ -49,6 +49,11 @@ bump may carry a breaking change.
 - **The image ships only allowlisted kinds of file** (registers R8-O4, R9-O1). The image build checks the
   installed package against `.py`, `.yaml`, `.json` and `.sha256`, in any letter case. The build backend's
   case-sensitive exclude list let `SECRET.ENV` ship.
+- **An MCP client is read-only by default, and its labels steer no read the operator has not listed**
+  (audit A-B-H4, A-B-L11). **Breaking:** `request_remediation` needs `WARDEN_MCP_PROFILE=remediate`, and a
+  caller's diagnosis id is `inc-mcp-<alert_id>`.
+  - `workflow_status` answers only for workflows the server started, and without the context.
+  - Labels that steer reads are followed only as `WARDEN_READ_SCOPES` lists them.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

@@ -393,6 +393,14 @@ warden approve rem-... --plan-hash <hash> --approver owner --key owner.pem
 #   -> applied once, then its own health check: recovered, or rolled back
 ```
 
+What an MCP client may do is set by `WARDEN_MCP_PROFILE`:
+- `read`, the default, may start a diagnosis and read the workflows it started. `remediate` may also request a fix.
+- A caller's diagnosis gets its own id space, `inc-mcp-<alert_id>`.
+- `workflow_status` returns the verdict and the proposal, never the evidence read.
+- A caller's alert labels that steer reads (namespace, log group, cluster, ...) are followed only when the
+  operator's allowlist (`WARDEN_READ_SCOPES`, a YAML file of service -> label -> values) names that value for
+  that service. With no allowlist, none are followed.
+
 A request names its environment, and the plan is bound to the resource it changes:
 - **One open fix per resource, per environment.** The workflow id is `rem-<env>-<hash>` of the resource
   (`k8s:<namespace>/<deployment>`). The rate limits key on the same resource, never on a free-text service name.
