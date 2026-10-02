@@ -139,6 +139,10 @@ def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) 
     else:
         log(f"{cluster} exists - refreshing the secret and stack.json only")
     c = _wait_cluster(rds, cluster)
+    # Express is IAM database authentication only (seen live 2026-09-26) - checked, not assumed: with it off, every
+    # identity's IAM-token login fails and a password would be the only way in (audit A-I-VT).
+    if c.get("IAMDatabaseAuthenticationEnabled") is not True:
+        raise SystemExit(f"{cluster}: IAM database authentication is not enabled - refusing to go on")
 
     scaling = c.get("ServerlessV2ScalingConfiguration") or {}
     if (scaling.get("MinCapacity"), scaling.get("MaxCapacity")) != (ACU["MinCapacity"], ACU["MaxCapacity"]):

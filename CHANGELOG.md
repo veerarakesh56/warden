@@ -472,6 +472,8 @@ bump may carry a breaking change.
   it and `WARDEN_TRIPWIRE` applies. No environment sets it yet (register R47, deferred).
 - A link removed from inside inline code keeps the closing backtick: the removal ran over it and left an
   unclosed code span.
+- `aurora_express.py create` refuses a cluster that does not report IAM database authentication on: express
+  configuration is IAM-only, now checked rather than assumed (audit A-I-VT).
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

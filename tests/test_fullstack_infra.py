@@ -563,6 +563,8 @@ class _NotFound(Exception):
 class FakeRds:
     """Just enough RDS: a cluster, its instances, waiters that settle the state at once."""
 
+    iam_auth = True
+
     def __init__(self, cluster=None):
         self.cluster, self.instances, self.calls = cluster, {}, []
         self.exceptions = type("E", (), {"DBClusterNotFoundFault": _NotFound})
@@ -586,7 +588,8 @@ class FakeRds:
         self.cluster = {"DBClusterIdentifier": kw["DBClusterIdentifier"], "Status": "creating",
                         "Endpoint": "warden-dev-aurora.cluster-x.rds.example",
                         "ReaderEndpoint": "warden-dev-aurora.cluster-ro-x.rds.example",
-                        "AvailabilityZones": ["az-a", "az-b", "az-c"]}
+                        "AvailabilityZones": ["az-a", "az-b", "az-c"],
+                        "IAMDatabaseAuthenticationEnabled": self.iam_auth}  # express: IAM authentication only
         self.instances["warden-dev-aurora-instance-1"] = {"writer": True, "status": "creating", "az": "az-a"}
 
     def modify_db_cluster(self, **kw):
@@ -943,3 +946,13 @@ def test_the_public_api_writes_access_logs_to_a_vended_log_group():
     stage = stage[:stage.index("\n}\n")]
     assert "destination_arn = aws_cloudwatch_log_group.api_access.arn" in stage and "$context.requestId" in stage
     assert "aws_cloudwatch_log_resource_policy" not in text
+
+
+def test_aurora_create_refuses_a_cluster_without_iam_authentication(tmp_path):
+    """Audit A-I-VT: the fake never said whether IAM database authentication was on, and nothing checked it. Express
+    configuration is IAM authentication only; a cluster that reports otherwise stops the create."""
+    ax, rds, sm, stack = _aurora(), FakeRds(), FakeSm(), _wrapped_stack(tmp_path)
+    rds.iam_auth = False
+    with pytest.raises(SystemExit, match="IAM database authentication is not enabled"):
+        ax.create(rds, sm, stack, log=lambda *_: None)
+    assert not any(n == "create_db_instance" for n, _ in rds.calls), "no reader added to such a cluster"
