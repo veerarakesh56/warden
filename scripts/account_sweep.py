@@ -38,6 +38,10 @@ import boto3
 import jmespath
 from botocore.exceptions import BotoCoreError, ClientError
 
+from warden import environments
+
+# Where AWS itself serves its global services (IAM, CloudFront, region discovery): AWS's choice, not a deployment's.
+AWS_GLOBAL_REGION = "us-east-1"
 from warden.environments import EnvironmentPolicies
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -182,7 +186,7 @@ def tag_problem(tags: dict) -> str | None:
 def _lookup(session: Any, region: str | None, arns: list[str]) -> dict[str, dict] | str:
     """ARN -> tags through the tagging API. An ARN it does not return has no tags."""
     try:
-        tagging = session.client("resourcegroupstaggingapi", region_name=region or "us-east-1")
+        tagging = session.client("resourcegroupstaggingapi", region_name=region or AWS_GLOBAL_REGION)
         out: dict[str, dict] = {}
         for i in range(0, len(arns), 100):
             page = tagging.get_resources(ResourceARNList=arns[i:i + 100])
@@ -245,7 +249,7 @@ def sweep(session: Any, regions: list[str], account: str = "") -> tuple[dict[str
 
 
 def _regions(session: Any) -> list[str]:
-    ec2 = session.client("ec2", region_name="us-east-1")
+    ec2 = session.client("ec2", region_name=AWS_GLOBAL_REGION)
     return sorted(r["RegionName"] for r in ec2.describe_regions()["Regions"])
 
 
@@ -277,7 +281,8 @@ def main(argv: list[str] | None = None, *, session: Any = None) -> int:
     try:
         regions, no_regions = _regions(session), []
     except (ClientError, BotoCoreError) as exc:
-        regions, no_regions = ["ap-south-2"], [f"regions: {_code(exc)} - only ap-south-2 was swept"]
+        home = environments.region()
+        regions, no_regions = [home], [f"regions: {_code(exc)} - only {home} was swept"]
     found, blind, tags_wrong, off = sweep(session, regions, account)
     blind = no_regions + blind
     print(f"swept {len(regions)} region(s) + global, {len(REGIONAL)} regional and {len(GLOBAL)} global checks")

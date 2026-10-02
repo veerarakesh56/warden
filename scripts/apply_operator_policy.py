@@ -42,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     import boto3
     from botocore.exceptions import ClientError
 
-    s = boto3.Session(region_name="ap-south-2")
+    from warden.environments import region
+
+    s = boto3.Session(region_name=region())
     iam = s.client("iam")
     arn = f"arn:aws:iam::{s.client('sts').get_caller_identity()['Account']}:policy/{args.policy}"
     doc = json.loads(args.doc.read_text(encoding="utf-8"))

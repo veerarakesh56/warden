@@ -26,7 +26,7 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
+          "aws:RequestedRegion": "${region}"
         }
       }
     },
@@ -42,7 +42,7 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
+          "aws:RequestedRegion": "${region}"
         },
         "ArnLike": {
           "lambda:FunctionArn": "arn:aws:lambda:*:*:function:warden-${env}-*"
@@ -65,7 +65,7 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
+          "aws:RequestedRegion": "${region}"
         }
       }
     },
@@ -219,9 +219,9 @@
       "Condition": {
         "StringEquals": {
           "kms:ViaService": [
-            "secretsmanager.ap-south-2.amazonaws.com",
-            "rds.ap-south-2.amazonaws.com",
-            "ssm.ap-south-2.amazonaws.com"
+            "secretsmanager.${region}.amazonaws.com",
+            "rds.${region}.amazonaws.com",
+            "ssm.${region}.amazonaws.com"
           ]
         }
       }

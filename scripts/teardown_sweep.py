@@ -38,8 +38,10 @@ import time
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from warden.environments import region
+
 STACK = ("Stack", "warden-proving-ground")  # the proving ground's own tag; see scenarios/ops.py STACK_TAG
-DEFAULT_REGION = "ap-south-2"
+DEFAULT_REGION = region()  # environments.yaml aws_region, or AWS_REGION
 # ECS throttles a burst of DeregisterTaskDefinition calls, and boto3's own retries give up at 4.
 THROTTLE_CODES = ("ThrottlingException", "Throttling", "RequestLimitExceeded",
                   "TooManyRequestsException", "ThrottledException")

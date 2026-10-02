@@ -58,7 +58,9 @@ def recover(iam, arn: str) -> list[str]:
 def main() -> int:
     import boto3
 
-    s = boto3.Session(region_name="ap-south-2")
+    from warden.environments import region
+
+    s = boto3.Session(region_name=region())
     iam, sqs = s.client("iam"), s.client("sqs")
     acct = s.client("sts").get_caller_identity()["Account"]
     op = f"arn:aws:iam::{acct}:policy/WardenProvingGroundOperator"

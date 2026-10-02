@@ -18,7 +18,7 @@ locals {
   # the user `app` in one could log in to another's (audit A-I-2). A Postgres role takes `_`, not `-`.
   db_users = { for k in ["app", "catalog", "ro"] : k => "warden_${replace(local.env, "-", "_")}_${k}" }
   dbuser_arn = { for k, u in local.db_users :
-    k => "arn:aws:rds-db:${var.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/${u}"
+    k => "arn:aws:rds-db:${local.region}:${data.aws_caller_identity.current.account_id}:dbuser:*/${u}"
   }
 }
 

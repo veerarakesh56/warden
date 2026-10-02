@@ -29,7 +29,7 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
+          "aws:RequestedRegion": "${region}"
         }
       }
     },
@@ -56,16 +56,16 @@
       "Resource": [
         "arn:aws:s3:::warden-${env}-*",
         "arn:aws:s3:::warden-${env}-*/*",
-        "arn:aws:dynamodb:ap-south-2:*:table/warden-${env}-*",
-        "arn:aws:sns:ap-south-2:*:warden-${env}-*",
-        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-${env}-*",
-        "arn:aws:elasticache:ap-south-2:*:*:warden-${env}-*",
-        "arn:aws:elasticache:ap-south-2:*:parametergroup:default.*",
-        "arn:aws:apigateway:ap-south-2::/apis*",
-        "arn:aws:apigateway:ap-south-2::/tags/*",
-        "arn:aws:ssm:ap-south-2:*:parameter/warden/${env}/tf/*",
+        "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
+        "arn:aws:sns:${region}:*:warden-${env}-*",
+        "arn:aws:secretsmanager:${region}:*:secret:warden-${env}-*",
+        "arn:aws:elasticache:${region}:*:*:warden-${env}-*",
+        "arn:aws:elasticache:${region}:*:parametergroup:default.*",
+        "arn:aws:apigateway:${region}::/apis*",
+        "arn:aws:apigateway:${region}::/tags/*",
+        "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf/*",
         "arn:aws:budgets::*:budget/warden-${env}-*",
-        "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_${env_sql}_*"
+        "arn:aws:rds-db:${region}:*:dbuser:*/warden_${env_sql}_*"
       ]
     },
     {
@@ -81,9 +81,9 @@
       "Condition": {
         "StringEquals": {
           "kms:ViaService": [
-            "secretsmanager.ap-south-2.amazonaws.com",
-            "rds.ap-south-2.amazonaws.com",
-            "ssm.ap-south-2.amazonaws.com"
+            "secretsmanager.${region}.amazonaws.com",
+            "rds.${region}.amazonaws.com",
+            "ssm.${region}.amazonaws.com"
           ]
         }
       }

@@ -41,7 +41,7 @@ files and a collect-only run are not judged: only the full run is evidence.
 | R14 | Claude Max CLI for development and benchmarks | G0 | DONE-local | tests/test_claude_cli_provider.py::test_it_is_registered_under_both_spellings (the claude_cli provider exists and resolves; which backend a run uses is configuration) |
 | R15 | Gemini API test with an AI Studio key | G5 | OPEN | |
 | R16 | Bedrock provider and test | G5 | OPEN | |
-| R17 | AWS region Hyderabad (ap-south-2), never hardcoded | G3 | OPEN | |
+| R17 | AWS region Hyderabad (ap-south-2), never hardcoded | G3 | DONE-local | the region is environments.yaml aws_region (Hyderabad); code asks environments.region(), AWS_REGION first, and the harness reads the same file without importing WARDEN; Terraform takes it through yamldecode with var.region as an override, and the IAM templates through ${region}; every Python string literal (docstrings aside), Terraform line and IAM template is scanned for a region name, AWS's global-services home named once (tests/test_no_hardcoding_r17.py::test_no_python_string_in_the_tool_the_scripts_or_the_harness_names_a_region, tests/test_no_hardcoding_r17.py::test_no_terraform_line_and_no_iam_template_names_a_region, tests/test_no_hardcoding_r17.py::test_the_region_comes_from_the_config_and_aws_region_overrides_it); plant-checked 2026-10-03 |
 | R18 | Separate identities for the tool, the operator and the harness | G6 | OPEN | regrouped to G6 (owner, 2026-10-02): separate identities for the tool, the operator and the harness are proven in the live windows, where each is in use |
 | R19 | Real AWS services for tests, not local Docker/k3d | G6 | OPEN | |
 | R20 | ECS on EC2 (capacity provider), not Fargate | G6 | OPEN | |

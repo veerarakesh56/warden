@@ -116,7 +116,7 @@ def issue(csr_pem: bytes, now: dt.datetime, days: int = DAYS) -> tuple[bytes, by
     return ca.public_bytes(enc), leaf.public_bytes(enc)
 
 
-ANCHOR_ARN = re.compile(r"arn:aws:rolesanywhere:ap-south-2:(\d{12}):trust-anchor/([0-9a-f-]{36})")
+ANCHOR_ARN = re.compile(r"arn:aws:rolesanywhere:[a-z]{2}(?:-[a-z]+)+-\d:(\d{12}):trust-anchor/([0-9a-f-]{36})")
 TRUST = pathlib.Path(__file__).resolve().parents[1] / "iam" / "operator" / "trust.json"
 
 
@@ -124,7 +124,7 @@ def render_trust(anchor_arn: str) -> str:
     """iam/operator/trust.json with the real anchor filled in - for the local, gitignored copy."""
     m = ANCHOR_ARN.fullmatch(anchor_arn.strip())
     if not m:
-        raise ValueError("expected arn:aws:rolesanywhere:ap-south-2:<12 digits>:trust-anchor/<uuid>")
+        raise ValueError("expected arn:aws:rolesanywhere:<region>:<12 digits>:trust-anchor/<uuid>")
     return (TRUST.read_text(encoding="utf-8")
             .replace("<ACCOUNT_ID>", m.group(1)).replace("<TRUST_ANCHOR_ID>", m.group(2)))
 

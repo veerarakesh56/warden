@@ -4,7 +4,7 @@
 # Read it deliberately with `terraform output -raw db_dsn`.
 
 output "region" {
-  value = var.region
+  value = local.region
 }
 
 # The tags the harness (scenarios/ops.py create_tags) and scripts/prove_boundary.py put on what they
@@ -95,7 +95,7 @@ output "eks_cluster" {
 
 output "teardown_check" {
   description = "Run this after `terraform destroy`. An empty list is the only acceptable answer."
-  value       = "aws resourcegroupstaggingapi get-resources --region ${var.region} --tag-filters Key=Stack,Values=warden-proving-ground --query 'ResourceTagMappingList[].ResourceARN'"
+  value       = "aws resourcegroupstaggingapi get-resources --region ${local.region} --tag-filters Key=Stack,Values=warden-proving-ground --query 'ResourceTagMappingList[].ResourceARN'"
 }
 
 output "estimated_hourly_usd" {

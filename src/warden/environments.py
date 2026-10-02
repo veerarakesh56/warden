@@ -87,8 +87,10 @@ class EnvPolicy:
 
 
 class EnvironmentPolicies:
-    def __init__(self, default: EnvPolicy, environments: dict[str, EnvPolicy], runtime: str | None = None) -> None:
+    def __init__(self, default: EnvPolicy, environments: dict[str, EnvPolicy], runtime: str | None = None,
+                 aws_region: str | None = None) -> None:
         self.runtime_environment = runtime
+        self.aws_region = aws_region
         self._default = default
         self._envs = environments
 
@@ -139,7 +141,10 @@ class EnvironmentPolicies:
         runtime = doc.get("runtime")
         if runtime is not None and (not isinstance(runtime, str) or runtime in envs):
             raise EnvironmentPolicyError("`runtime` must name WARDEN's own environment, not an application one")
-        return cls(default, envs, runtime)
+        region = doc.get("aws_region")
+        if region is not None and not (isinstance(region, str) and _REGION.fullmatch(region)):
+            raise EnvironmentPolicyError(f"`aws_region` is not a region name: {region!r}")
+        return cls(default, envs, runtime, region)
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:
@@ -214,6 +219,7 @@ class EnvNames:
     role: str          # deploy role: warden-<env>-deploy
     boundary: str      # permissions boundary: WardenEnvBoundary-<env>
     tags: dict[str, str]
+    region: str        # the AWS region (environments.yaml `aws_region`)
 
 
 def _all_names() -> tuple[str, ...]:
@@ -246,4 +252,17 @@ def names(env: str) -> EnvNames:
     if env not in _all_names():
         raise EnvironmentPolicyError(f"unknown environment {env!r}; configured: {', '.join(_all_names())}")
     return EnvNames(env=env, prefix=f"warden-{env}", ssm=f"/warden/{env}/", role=f"warden-{env}-deploy",
-                    boundary=f"WardenEnvBoundary-{env}", tags={"Project": "warden", "Environment": env})
+                    boundary=f"WardenEnvBoundary-{env}", tags={"Project": "warden", "Environment": env},
+                    region=region())
+
+
+_REGION = re.compile(r"[a-z]{2}(?:-[a-z]+)+-\d")
+
+
+def region() -> str:
+    """The AWS region: AWS_REGION when set (as every AWS tool reads it), else environments.yaml `aws_region`.
+    Never a literal in code (owner requirements R17, R32)."""
+    chosen = os.environ.get("AWS_REGION") or default_environment_policies().aws_region
+    if not chosen or not _REGION.fullmatch(chosen):
+        raise EnvironmentPolicyError(f"no usable AWS region (AWS_REGION or environments.yaml aws_region): {chosen!r}")
+    return chosen

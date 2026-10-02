@@ -5,7 +5,7 @@
 # below carry the account id where one is unavoidable, so stack.json itself is never published.
 
 output "region" {
-  value = var.region
+  value = local.region
 }
 
 output "project_tag" {
@@ -181,7 +181,7 @@ output "alarm_names" {
 
 output "teardown_check" {
   description = "Run after terraform destroy. An empty list is the only acceptable answer."
-  value       = "aws resourcegroupstaggingapi get-resources --region ${var.region} --tag-filters Key=Project,Values=${local.tags.Project} --query 'ResourceTagMappingList[].ResourceARN'"
+  value       = "aws resourcegroupstaggingapi get-resources --region ${local.region} --tag-filters Key=Project,Values=${local.tags.Project} --query 'ResourceTagMappingList[].ResourceARN'"
 }
 
 output "environment" {

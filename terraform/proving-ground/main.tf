@@ -13,7 +13,7 @@ terraform {
 }
 
 provider "aws" {
-  region = var.region
+  region = local.region
 
   default_tags {
     tags = local.tags
@@ -31,7 +31,9 @@ resource "random_id" "suffix" {
 }
 
 locals {
-  name = "${var.name}-${random_id.suffix.hex}"
+  # The region: an override, else environments.yaml aws_region (owner requirement R17: never a literal).
+  region = coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)
+  name   = "${var.name}-${random_id.suffix.hex}"
 
   tags = {
     # Every resource carries these. If a destroy half-fails, this is how the leftovers are

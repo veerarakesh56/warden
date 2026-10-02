@@ -1,7 +1,7 @@
 # WARDEN's AWS identity for Wave 4: role `warden-dev-reader`, assumed per run by the harness.
 #
 # Expects from the other files in this module (declared there, not here):
-#   local.permissions_boundary, var.region, local.tags, data.aws_caller_identity.current
+#   local.permissions_boundary, local.region, local.tags, data.aws_caller_identity.current
 #
 # ⭐ The policy below is EXACTLY the calls src/warden/aws_stack.py makes, plus the ones
 # src/warden/aws_backend.py makes (the stack backend reuses it for ECS and for log reads).
@@ -27,7 +27,7 @@ data "aws_iam_policy_document" "fs_reader_assume" {
 }
 
 locals {
-  reader_arn = "${var.region}:${data.aws_caller_identity.current.account_id}"
+  reader_arn = "${local.region}:${data.aws_caller_identity.current.account_id}"
 }
 
 data "aws_iam_policy_document" "fs_reader" {
@@ -108,7 +108,7 @@ data "aws_iam_policy_document" "fs_reader" {
     sid       = "ReadHttpApis"
     effect    = "Allow"
     actions   = ["apigateway:GET"]
-    resources = ["arn:aws:apigateway:${var.region}::/apis", "arn:aws:apigateway:${var.region}::/apis/*"]
+    resources = ["arn:aws:apigateway:${local.region}::/apis", "arn:aws:apigateway:${local.region}::/apis/*"]
   }
 }
 

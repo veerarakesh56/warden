@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None, *, client=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--glob", default=DEFAULT_GLOB)
-    parser.add_argument("--region", default="ap-south-2")
+    parser.add_argument("--region", default=None, help="default: AWS_REGION or environments.yaml aws_region")
     parser.add_argument("--strict", action="store_true", help="fail on WARNING as well")
     args = parser.parse_args(argv)
 

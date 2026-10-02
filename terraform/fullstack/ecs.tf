@@ -120,7 +120,7 @@ resource "aws_ecs_task_definition" "orders_api" {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.orders_api.name
-        "awslogs-region"        = var.region
+        "awslogs-region"        = local.region
         "awslogs-stream-prefix" = "orders-api"
       }
     }

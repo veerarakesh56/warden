@@ -27,7 +27,7 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
+          "aws:RequestedRegion": "${region}"
         }
       }
     },
@@ -72,7 +72,7 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
+          "aws:RequestedRegion": "${region}"
         },
         "StringLike": {
           "ec2:CreateAction": [
@@ -107,7 +107,7 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
+          "aws:RequestedRegion": "${region}"
         }
       }
     },

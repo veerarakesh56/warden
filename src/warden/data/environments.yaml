@@ -41,6 +41,11 @@
 
 version: 1
 
+# The AWS region every environment runs in (owner requirement R17: Hyderabad). Code never names a region: it asks
+# environments.region(), which honours AWS_REGION first, as every AWS tool does; Terraform and the IAM templates
+# read this value too.
+aws_region: ap-south-2
+
 # WARDEN's OWN environment: the runtime (runtime.yml in G6; names warden-ops-*, parameters under
 # /warden/ops/, secrets in Secrets Manager under warden/ops/ - the W0-now Slack webhook is
 # warden/ops/slack-webhook). NOT an application environment: no

@@ -1,7 +1,7 @@
 variable "region" {
-  description = "AWS region. The operator policies and the boundary are pinned to ap-south-2."
+  description = "AWS region override. Default: src/warden/data/environments.yaml aws_region (R17)."
   type        = string
-  default     = "ap-south-2"
+  default     = null
 }
 
 variable "kubernetes_version" {

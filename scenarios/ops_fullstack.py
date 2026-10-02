@@ -41,6 +41,8 @@ from typing import Any
 
 import yaml
 
+from scenarios.region import region
+
 from .ops import OpError
 from .ops_k8s import _to_dict
 
@@ -49,7 +51,7 @@ ENV = os.environ.get("WARDEN_ENV", "dev")
 PREFIX = f"warden-{ENV}-"
 REQUIRED_TAGS = {"Project": "warden", "Environment": ENV}
 K8S_LABELS = {"project": "warden", "environment": ENV}
-REGION = "ap-south-2"
+REGION = region()  # environments.yaml aws_region, or AWS_REGION (owner requirement R17)
 HOLD_APP_PREFIX = "warden-bench-hold-"
 
 # ⛔ APPLICATION FLAGS the fault injections flip. The stack's baseline MUST set every one of these to

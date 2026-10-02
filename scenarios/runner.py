@@ -63,6 +63,8 @@ from typing import Any, ClassVar, Self
 
 import yaml
 
+from scenarios.region import region
+
 from . import ops, ops_db, ops_k8s
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -1037,10 +1039,10 @@ _FAKE_RESPONSES: dict[str, Callable[[str], dict]] = {
     },
     "register_task_definition": lambda tag: {
         "taskDefinition": {
-            "taskDefinitionArn": "arn:aws:ecs:ap-south-2:111122223333:task-definition/checkout:99"
+            "taskDefinitionArn": f"arn:aws:ecs:{region()}:111122223333:task-definition/checkout:99"
         }
     },
-    "list_tasks": lambda tag: {"taskArns": ["arn:aws:ecs:ap-south-2:111122223333:task/fake"]},
+    "list_tasks": lambda tag: {"taskArns": [f"arn:aws:ecs:{region()}:111122223333:task/fake"]},
     "list_role_policies": lambda tag: {"PolicyNames": ["warden-reader-inline"]},
     "describe_security_groups": lambda tag: {
         "SecurityGroups": [{
@@ -1098,9 +1100,9 @@ _DRY_TAGS = {"Project": "dry-run", "Environment": "dry-run", ops.STACK_TAG[0]: o
 
 def _dry_harness() -> Harness:
     target = ops.Target(
-        region="ap-south-2", cluster="warden-proving-ground", service="checkout",
+        region=region(), cluster="warden-proving-ground", service="checkout",
         log_group="/ecs/checkout",
-        baseline_task_definition="arn:aws:ecs:ap-south-2:111122223333:task-definition/checkout:1",
+        baseline_task_definition=f"arn:aws:ecs:{region()}:111122223333:task-definition/checkout:1",
         security_group_id="sg-fake", route_table_id="rtb-fake", warden_role_name="warden-reader",
         tags=dict(_DRY_TAGS),
     )

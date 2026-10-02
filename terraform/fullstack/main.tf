@@ -23,7 +23,7 @@ terraform {
 }
 
 provider "aws" {
-  region = var.region
+  region = local.region
   default_tags {
     tags = local.tags
   }
@@ -36,6 +36,8 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
+  # The region: an override, else environments.yaml aws_region (owner requirement R17: never a literal).
+  region = coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)
   # ⛔ THE ENVIRONMENT IS THE WORKSPACE (v2 Phase 1.5). `terraform workspace select -or-create dev`
   # before plan/apply. Every name, tag, boundary and parameter below is derived from it, the same way
   # src/warden/environments.py derives them, and the precondition on the VPC refuses any workspace
@@ -170,7 +172,7 @@ resource "aws_route_table_association" "private" {
 resource "aws_vpc_endpoint" "gateway" {
   for_each          = toset(["s3", "dynamodb"])
   vpc_id            = aws_vpc.this.id
-  service_name      = "com.amazonaws.${var.region}.${each.key}"
+  service_name      = "com.amazonaws.${local.region}.${each.key}"
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.public.id, aws_route_table.private.id]
   tags              = { Name = "${local.name}-${each.key}" }
@@ -181,7 +183,7 @@ resource "aws_vpc_endpoint" "gateway" {
 resource "aws_vpc_endpoint" "interface" {
   for_each            = toset(["secretsmanager", "sqs"])
   vpc_id              = aws_vpc.this.id
-  service_name        = "com.amazonaws.${var.region}.${each.key}"
+  service_name        = "com.amazonaws.${local.region}.${each.key}"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = [aws_subnet.private[0].id]
   security_group_ids  = [aws_security_group.endpoints.id]

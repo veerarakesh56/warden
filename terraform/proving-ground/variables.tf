@@ -1,7 +1,7 @@
 variable "region" {
-  description = "AWS region. Anything works; pick the one closest to you - latency here is only your own patience."
+  description = "AWS region override. Default: src/warden/data/environments.yaml aws_region (R17)."
   type        = string
-  default     = "ap-south-2"
+  default     = null
 }
 
 variable "name" {

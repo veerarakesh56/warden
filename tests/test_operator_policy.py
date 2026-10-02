@@ -90,14 +90,13 @@ def test_no_global_service_action_sits_under_a_region_condition(path):
 
 @pytest.mark.parametrize("path", POLICIES, ids=lambda p: p.name)
 def test_the_region_matches_the_terraform_default(path):
-    """A policy pinned to one region and a Terraform default of another denies every call, and the
-    error does not say the word 'region'."""
-    tf_default = re.search(
-        r'variable "region".*?default\s*=\s*"([^"]+)"',
-        (TF_DIR / "variables.tf").read_text(encoding="utf-8"),
-        re.DOTALL,
-    )
-    assert tf_default, "could not find the region default in variables.tf"
+    """A policy pinned to one region and a Terraform region of another denies every call, and the
+    error does not say the word 'region'. Terraform's region is environments.yaml aws_region (R17)."""
+    main_tf = (TF_DIR / "main.tf").read_text(encoding="utf-8")
+    assert 'coalesce(var.region, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).aws_region)' in main_tf
+    tf_default = re.search(r"^aws_region:\s*(\S+)", (TF_DIR.parents[1] / "src" / "warden" / "data" / "environments.yaml")
+                           .read_text(encoding="utf-8"), re.MULTILINE)
+    assert tf_default, "could not find aws_region in environments.yaml"
     pinned = set(re.findall(r'"aws:RequestedRegion":\s*"([^"]+)"',
                             path.read_text(encoding="utf-8")))
     assert pinned <= {tf_default.group(1)}, (

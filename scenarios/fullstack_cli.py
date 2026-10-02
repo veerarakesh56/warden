@@ -51,6 +51,8 @@ from typing import Any
 
 import yaml
 
+from scenarios.region import region
+
 from . import ops_fullstack as fs
 from .runner import (
     CATALOG,
@@ -451,7 +453,7 @@ def dry_env() -> Env:
 
     def extract(report, built):
         data = {"fix_commands": [{"kind": "shell", "source": "runbook", "command":
-                "aws events enable-rule --name warden-dev-reconcile-5m --region ap-south-2"}]}
+                f"aws events enable-rule --name warden-dev-reconcile-5m --region {region()}"}]}
         _write_json(built, data)
         return data
 

@@ -33,7 +33,7 @@
         "sts:GetCallerIdentity"
       ],
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-south-2"}}
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "${region}"}}
     },
     {
       "Sid": "InjectAndRevertOnlyThisEnvironmentsNamedResources",
@@ -63,16 +63,16 @@
         "secretsmanager:DescribeSecret"
       ],
       "Resource": [
-        "arn:aws:lambda:ap-south-2:*:function:warden-${env}-*",
-        "arn:aws:sqs:ap-south-2:*:warden-${env}-*",
-        "arn:aws:dynamodb:ap-south-2:*:table/warden-${env}-*",
-        "arn:aws:rds:ap-south-2:*:cluster:warden-${env}-*",
-        "arn:aws:ecs:ap-south-2:*:service/warden-${env}-*/*",
-        "arn:aws:elasticloadbalancing:ap-south-2:*:targetgroup/warden-${env}-*",
-        "arn:aws:events:ap-south-2:*:rule/warden-${env}-*",
-        "arn:aws:elasticache:ap-south-2:*:replicationgroup:warden-${env}-*",
+        "arn:aws:lambda:${region}:*:function:warden-${env}-*",
+        "arn:aws:sqs:${region}:*:warden-${env}-*",
+        "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
+        "arn:aws:rds:${region}:*:cluster:warden-${env}-*",
+        "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
+        "arn:aws:elasticloadbalancing:${region}:*:targetgroup/warden-${env}-*",
+        "arn:aws:events:${region}:*:rule/warden-${env}-*",
+        "arn:aws:elasticache:${region}:*:replicationgroup:warden-${env}-*",
         "arn:aws:iam::*:role/warden-${env}-*",
-        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-${env}-*"
+        "arn:aws:secretsmanager:${region}:*:secret:warden-${env}-*"
       ]
     },
     {
@@ -80,13 +80,13 @@
       "Effect": "Allow",
       "Action": "lambda:UpdateEventSourceMapping",
       "Resource": "*",
-      "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:ap-south-2:*:function:warden-${env}-*"}}
+      "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:${region}:*:function:warden-${env}-*"}}
     },
     {
       "Sid": "SecurityGroupRulesOfThisEnvironmentOnly",
       "Effect": "Allow",
       "Action": ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
-      "Resource": "arn:aws:ec2:ap-south-2:*:security-group/*",
+      "Resource": "arn:aws:ec2:${region}:*:security-group/*",
       "Condition": {"StringEquals": {"aws:ResourceTag/Environment": "${env}", "aws:ResourceTag/Project": "warden"}}
     },
     {
@@ -94,7 +94,7 @@
       "Effect": "Allow",
       "Action": "ecs:RegisterTaskDefinition",
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "ap-south-2"}}
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "${region}"}}
     },
     {
       "Sid": "PassThisEnvironmentsTaskRolesToEcsOnly",
@@ -114,8 +114,8 @@
       "Effect": "Allow",
       "Action": "rds-db:connect",
       "Resource": [
-        "arn:aws:rds-db:ap-south-2:*:dbuser:${cluster_resource_id}/postgres",
-        "arn:aws:rds-db:ap-south-2:*:dbuser:${cluster_resource_id}/warden_${env_sql}_ro"
+        "arn:aws:rds-db:${region}:*:dbuser:${cluster_resource_id}/postgres",
+        "arn:aws:rds-db:${region}:*:dbuser:${cluster_resource_id}/warden_${env_sql}_ro"
       ]
     }
   ]

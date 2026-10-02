@@ -123,7 +123,7 @@ resource "aws_ecs_task_definition" "healthy" {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.service.name
-        "awslogs-region"        = var.region
+        "awslogs-region"        = local.region
         "awslogs-stream-prefix" = "ecs"
       }
     }
@@ -151,7 +151,7 @@ resource "aws_ecs_task_definition" "healthy_reregistered" {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.service.name
-        "awslogs-region"        = var.region
+        "awslogs-region"        = local.region
         "awslogs-stream-prefix" = "ecs"
       }
     }
@@ -184,7 +184,7 @@ resource "aws_ecs_task_definition" "bad" {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.service.name
-        "awslogs-region"        = var.region
+        "awslogs-region"        = local.region
         "awslogs-stream-prefix" = "ecs"
       }
     }

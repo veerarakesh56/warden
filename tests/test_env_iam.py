@@ -140,12 +140,12 @@ def test_only_the_same_named_github_environment_may_assume(env):
 
 
 def test_templates_use_only_the_known_placeholders():
-    """env, env_sql (the environment as a database user name has it: `_` for `-`) and account."""
+    """env, env_sql (the environment as a database user name has it: `_` for `-`), account and region."""
     import re
 
     for kind in r.KINDS:
         text = (r.TEMPLATES / f"{kind}.json").read_text(encoding="utf-8")
-        assert set(re.findall(r"\$\{(\w+)\}", text)) <= {"env", "env_sql", "account"}, kind
+        assert set(re.findall(r"\$\{(\w+)\}", text)) <= {"env", "env_sql", "account", "region"}, kind
 
 
 @pytest.mark.parametrize("env", ENVS)
