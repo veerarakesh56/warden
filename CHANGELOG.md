@@ -131,6 +131,7 @@ bump may carry a breaking change.
 - **Every secret comes from Secrets Manager; SSM holds plain values only** (requirement R32, decision D5).
 - **Reports and Slack show every time in UTC and in the install's zone (IST here)** (requirement R4, in part).
 - **Performance Insights and Logs Insights are evidence, as numbers only** (requirement R22).
+- **Evidence is read once the alert's last minutes have reached the log store** (requirement R23).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

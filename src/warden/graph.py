@@ -45,6 +45,7 @@ from .models import (
     RunReport,
     Verdict,
     VerdictStatus,
+    ingestion_wait,
 )
 from .observability import record_cost, record_model_call, span
 from .providers import ProviderError
@@ -319,6 +320,14 @@ def node_ingest(state: WardenState) -> WardenState:
 
 def node_gather(state: WardenState) -> WardenState:
     backend = state.get("backend") or FixtureBackend()
+    if getattr(backend, "reads_live_store", False):
+        # Register R23: a live store gets the alert's last minutes late; a recorded incident has them already.
+        import time
+        from datetime import UTC, datetime
+
+        wait = ingestion_wait(state["alert"].started_at, datetime.now(UTC))
+        if wait.total_seconds() > 0:
+            time.sleep(wait.total_seconds())
     context = gather(state["alert"], backend)
     return {
         "context": context,

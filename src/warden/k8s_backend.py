@@ -101,6 +101,8 @@ DEAD_PHASES = {"Failed", "Succeeded"}
 
 class KubernetesBackend:
     """Reads pods, events, logs and rollout history for the workload an alert points at."""
+    reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
+
 
     name = "kubernetes"
 

@@ -31,7 +31,7 @@ with workflow.unsafe.imports_passed_through():
         RemediationActivities,
     )
     from .approvals import SignedApproval
-    from .models import Alert, RunReport
+    from .models import Alert, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
 # Bounded (audit A-B-L10): Temporal's default retries an activity forever, so a step that kept failing - an audit
@@ -242,6 +242,13 @@ class IncidentWorkflow:
         """`escalate_only`: intake's reason to hand this alarm to a person on the rules alone (flapping, a storm),
         without asking the model to propose a change (registers C21, C2)."""
         acts = IncidentActivities
+        # Register R23: read only once the alert's last minutes have reached the log store. A durable timer, so a
+        # worker restart does not restart the wait; patched, so histories recorded before it replay unchanged.
+        if workflow.patched("r23-ingest-lag"):
+            # The argument arrives as the converter decoded it (a dict here); read its time through the model.
+            wait = ingestion_wait(Alert.model_validate(alert).started_at, workflow.now())
+            if wait > timedelta(0):
+                await workflow.sleep(wait)
         pack = await workflow.execute_activity_method(acts.prepare, args=[alert], **PREPARE)
         # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
         # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap

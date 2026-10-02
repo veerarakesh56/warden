@@ -476,6 +476,8 @@ def adapter_for(engine: str):
 
 class DatabaseBackend:
     """Reads connection/transaction health for the database an alert points at. Read-only."""
+    reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
+
 
     name = "database"
 

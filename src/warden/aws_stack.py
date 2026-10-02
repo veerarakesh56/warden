@@ -268,6 +268,8 @@ def _env_items(variables: dict) -> list[str]:
 
 class StackBackend:
     """Reads every resource the alert's labels name, one isolated reader each."""
+    reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
+
 
     name = "stack"
 

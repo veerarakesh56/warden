@@ -99,13 +99,16 @@ def test_gather_reports_no_tool_errors_against_a_healthy_api(backend, alert):
     assert not ctx.is_empty()
 
 
-def test_end_to_end_scale_up_on_an_oom_crash_loop_is_escalated_by_p11(backend, alert):
+def test_end_to_end_scale_up_on_an_oom_crash_loop_is_escalated_by_p11(backend, alert, monkeypatch):
     """The whole claim of the project, against a real cluster, in one assertion block.
 
     The workload is one pod OOM-killed at startup, so every pod is failing and scaling out cannot
     help: since 2026-09-25 P11 escalates the scale_up the mock model proposes. This asserted
     approved_for_human until then - the exact shape of all three EKS runs the gate wrongly allowed.
     """
+    # The ingestion wait (requirement R23, tests/test_ingest_lag_r23.py) would sleep up to 2 minutes for this alert,
+    # which fires as the module starts; this test is about the gate, so it reads at once.
+    monkeypatch.setattr("time.sleep", lambda s: None)
     report = run(alert, llm=LLMClient(mock=True), backend=backend)
     gather_step = next(s for s in report.audit if s["node"] == "gather")
 

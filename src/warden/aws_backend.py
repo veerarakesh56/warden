@@ -104,6 +104,8 @@ METRIC_PERIOD_S = int(os.environ.get("WARDEN_AWS_METRIC_PERIOD_S", "60"))
 
 class AwsBackend:
     """Reads logs, metrics and rollout history for the ECS service an alert points at."""
+    reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
+
 
     name = "aws"
 

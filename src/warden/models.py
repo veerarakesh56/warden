@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Annotated, Any, Literal, get_args
 
@@ -69,6 +70,22 @@ RESOURCE_LABELS = frozenset({
     "instance_id", "lambda", "log_group", "log_stream_prefix", "namespace", "region", "secret", "selector",
     "sns_topic", "sqs",
 })
+
+
+# Owner requirement R23: logs arrive late. CloudWatch and cluster log pipelines deliver lines up to minutes after
+# they were written, so evidence read the moment an alert fires misses its last minutes - and "no error near the
+# alert" from an unfilled window is a false negative. The read waits until the alert is this old.
+LOG_INGEST_LAG = timedelta(seconds=120)
+
+
+def ingestion_wait(started_at: str, now: datetime) -> timedelta:
+    """How long to wait before reading evidence for an alert that started at `started_at` (R23): until it is
+    LOG_INGEST_LAG old, never longer than LOG_INGEST_LAG (a clock ahead of ours is not waited out), and zero for an
+    alert with no start time."""
+    if not started_at:
+        return timedelta(0)
+    started = datetime.fromisoformat(started_at)
+    return min(max(started + LOG_INGEST_LAG - now, timedelta(0)), LOG_INGEST_LAG)
 
 
 def _zoned_timestamp(value: str) -> str:
