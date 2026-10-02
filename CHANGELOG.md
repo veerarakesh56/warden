@@ -82,6 +82,8 @@ bump may carry a breaking change.
   idle in a transaction only past the threshold.
 - **Queue policies and security groups are read in full** (audit A-B-L5). `ArnNotEquals` was read as
   `ArnEquals`, and a rule open to a CIDR or a prefix list was read as no rule.
+- **A Deployment's events are its own** (audit A-B-L6). Matched by name prefix, `checkout` took
+  `checkout-api`'s rollout events.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

@@ -801,3 +801,14 @@ def test_every_page_of_the_namespaces_events_is_read():
     lines = _backend(core).logs(_alert())
     assert any("the workload's own event" in x for x in lines), lines
     assert core.calls.count("events p2") == 1
+
+
+def test_another_deployment_sharing_the_name_prefix_lends_no_events():
+    """Audit A-B-L6: events were matched by name prefix, so `checkout` took `checkout-api`'s rollout events."""
+    events = [_event("ScalingReplicaSet", "ours", kind="Deployment", name="checkout"),
+              _event("ScalingReplicaSet", "theirs", kind="Deployment", name="checkout-api"),
+              _event("FailedCreate", "our rs", kind="ReplicaSet", name="checkout-7d9f8b6c4"),
+              _event("FailedCreate", "their rs", kind="ReplicaSet", name="checkout-api-5c6d7")]
+    lines = " ".join(_backend(FakeCore(pods=[_pod()], events=events)).logs(_alert()))
+    assert "ours" in lines and "our rs" in lines
+    assert "theirs" not in lines and "their rs" not in lines

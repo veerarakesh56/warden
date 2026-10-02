@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import UTC, datetime, timedelta
 
 from .models import Alert
@@ -217,8 +218,12 @@ class KubernetesBackend:
             kind, name = obj.kind, obj.name
             if kind == "Pod" and name not in pod_names:
                 continue  # another workload's pod
-            if kind in ("ReplicaSet", "Deployment") and not name.startswith(deployment):
+            # Its own name, not a prefix of it (audit A-B-L6): `checkout` took `checkout-api`'s rollout. A ReplicaSet is
+            # `<deployment>-<pod-template-hash>`, and the hash holds no dash.
+            if kind == "Deployment" and name != deployment:
                 continue  # another workload's rollout
+            if kind == "ReplicaSet" and not re.fullmatch(re.escape(deployment) + r"-[a-z0-9]{4,12}", name or ""):
+                continue
             if kind not in ("Pod", "ReplicaSet", "Deployment", "Node"):
                 continue
             tag = "NODE-EVENT" if kind == "Node" else "EVENT"
