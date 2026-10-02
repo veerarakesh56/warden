@@ -36,6 +36,9 @@ bump may carry a breaking change.
 - **P15 reads a bad thing in any inflection, in its own clause only** (register R9-O3). `leaked connections:
   0 free` is no shortage, and `errors: 12, connections: 0 free` is one. A bare `cluster` label may be the
   target of closing database sessions when WARDEN's own metrics show that name is a database.
+- **A database session is closed only if it is still idle at that moment** (register R7-O1). On PostgreSQL the
+  close statement itself carries the selection. MySQL's and SQL Server's `KILL` take no condition, so each
+  session is re-checked in the statement right before its `KILL`, leaving a window of one statement.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

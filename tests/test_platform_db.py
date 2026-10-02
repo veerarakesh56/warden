@@ -34,15 +34,24 @@ class _Cursor:
         elif sql in ("SELECT session_user", "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1)", "SELECT SUSER_SNAME()"):
             self.rows = [(self.conn.me,)]
         elif "pg_terminate_backend" in sql:
-            self.conn.killed.append(params[0])
-            self.rows = [(True,)]
+            # The close carries the selection (R7-O1): only a session still idle in a transaction is closed.
+            checked = "pid = %s" in sql and "state = 'idle in transaction'" in sql and "usename = ANY" in sql
+            still = params[0] in self.conn.still or not checked
+            if still:
+                self.conn.killed.append(params[0])
+            self.rows = [(True,)] if still else []
         elif sql.startswith("KILL"):
             self.conn.killed.append(int(sql.split()[1]))
+        elif "p.id = %s" in sql:
+            self.rows = [(params[0],)] if params[0] in self.conn.still else []
+        elif "WHERE session_id = " in sql:
+            spid = int(sql.split("WHERE session_id = ")[1].split()[0])
+            self.rows = [(spid,)] if spid in self.conn.still else []
         else:
             self.rows = [(i,) for i in self.conn.stuck]
 
     def fetchone(self):
-        return self.rows[0]
+        return self.rows[0] if self.rows else None
 
     def fetchall(self):
         return self.rows
@@ -51,6 +60,7 @@ class _Cursor:
 class _Conn:
     def __init__(self, db="orders", stuck=(101, 102), fail=False, me="warden_terminator"):
         self.db, self.stuck, self.fail, self.me = db, list(stuck), fail, me
+        self.still = set(stuck)  # the sessions still idle when they are closed
         self.sql: list = []
         self.killed: list = []
 
@@ -314,3 +324,13 @@ def test_a_close_with_nothing_to_close_says_so_and_closes_nothing(engine):
     conn = _Conn(stuck=())
     report = _platform(engine, conn).apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == [] and "nothing closed" in report and "closed 0" not in report, report
+
+
+@pytest.mark.parametrize("engine", ["postgres", "mysql", "mssql"])
+def test_a_session_that_resumed_after_it_was_listed_is_not_closed(engine):
+    """Register R7-O1: a session was listed idle and closed by a separate statement, with no re-check - one that
+    resumed or committed in between was closed anyway."""
+    conn = _Conn(stuck=(101, 102))
+    conn.still = {102}  # 101 committed between the list and the close
+    out = _platform(engine, conn).apply("db_terminate_idle_in_tx", PARAMS)
+    assert conn.killed == [102] and out.startswith("closed 1 session"), (conn.killed, out)

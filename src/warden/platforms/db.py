@@ -108,11 +108,16 @@ class _Postgres:
             return _as_ids(cur.fetchall())
 
     @staticmethod
-    def terminate(conn: Any, ids: list[int]) -> int:
+    def terminate(conn: Any, ids: list[int], idle_secs: int, users: list[str]) -> int:
+        # The selection again, in the SAME statement as the close (register R7-O1): a session listed idle that has
+        # since resumed, committed, or been replaced by another under its pid is not closed.
         killed = 0
         with conn.cursor() as cur:
             for pid in ids:
-                cur.execute("SELECT pg_terminate_backend(%s)", (int(pid),))
+                cur.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                            "WHERE pid = %s AND state = 'idle in transaction' AND datname = current_database() "
+                            "AND usename = ANY(%s) AND state_change < now() - make_interval(secs => %s) "
+                            "AND pid <> pg_backend_pid()", (int(pid), users, idle_secs))
                 row = cur.fetchone()
                 killed += bool(row and row[0])
         return killed
@@ -140,11 +145,20 @@ class _MySQL:
             return _as_ids(cur.fetchall())
 
     @staticmethod
-    def terminate(conn: Any, ids: list[int]) -> int:
+    def terminate(conn: Any, ids: list[int], idle_secs: int, users: list[str]) -> int:
+        # KILL takes no condition: each session is checked again right before its KILL (register R7-O1). The
+        # window left is one statement long, not the whole list.
+        killed = 0
         with conn.cursor() as cur:
             for tid in ids:
-                cur.execute(f"KILL {int(tid)}")  # nosec B608 - an int; KILL takes no placeholders
-        return len(ids)
+                cur.execute("SELECT p.id FROM information_schema.innodb_trx t "
+                            "JOIN information_schema.processlist p ON t.trx_mysql_thread_id = p.id "
+                            "WHERE p.id = %s AND p.command = 'Sleep' AND p.db = DATABASE() AND p.user IN %s "
+                            "AND p.time >= %s AND p.id <> CONNECTION_ID()", (int(tid), tuple(users), idle_secs))
+                if cur.fetchall():
+                    cur.execute(f"KILL {int(tid)}")  # nosec B608 - an int; KILL takes no placeholders
+                    killed += 1
+        return killed
 
 
 class _MSSQL:
@@ -169,11 +183,21 @@ class _MSSQL:
         return _as_ids(cur.fetchall())
 
     @staticmethod
-    def terminate(conn: Any, ids: list[int]) -> int:
+    def terminate(conn: Any, ids: list[int], idle_secs: int, users: list[str]) -> int:
+        # As for MySQL: checked again right before each KILL (register R7-O1).
         cur = conn.cursor()
+        marks = ", ".join(["%s"] * len(users))
+        killed = 0
         for spid in ids:
-            cur.execute(f"KILL {int(spid)}")  # nosec B608 - an int; KILL takes no placeholders
-        return len(ids)
+            cur.execute(f"SELECT session_id FROM sys.dm_exec_sessions WHERE session_id = {int(spid)} "  # nosec B608
+                        "AND is_user_process = 1 AND open_transaction_count > 0 AND status = 'sleeping' "
+                        f"AND database_id = DB_ID() AND login_name IN ({marks}) "
+                        f"AND last_request_end_time < DATEADD(second, -{int(idle_secs)}, GETDATE()) "
+                        "AND session_id <> @@SPID", tuple(users))
+            if cur.fetchall():
+                cur.execute(f"KILL {int(spid)}")  # nosec B608 - an int; KILL takes no placeholders
+                killed += 1
+        return killed
 
 
 ENGINES = {"postgres": _Postgres, "mysql": _MySQL, "mssql": _MSSQL}
@@ -343,7 +367,7 @@ class DatabasePlatform:
             return f"no session of {', '.join(sorted(self._users))} in {name} was idle in a transaction for " \
                    f"{idle}s or more; nothing closed"
         try:
-            closed = self._sql.terminate(conn, ids)
+            closed = self._sql.terminate(conn, ids, idle, self._users)
         except Exception as exc:
             raise DatabasePlatformError(f"closing sessions in {name} failed: {_one_line(exc)}") from exc
         return f"closed {closed} session(s) idle in a transaction for {idle}s or more in {name} " \
