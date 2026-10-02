@@ -206,9 +206,11 @@ def _apply_overrides(alert: Alert, args) -> Alert:
             update["started_at"] = datetime.now(UTC).isoformat()
         else:
             try:  # fail here, loudly, rather than silently reading the wrong window later
-                datetime.fromisoformat(when)
+                parsed = datetime.fromisoformat(when)
             except ValueError as exc:
                 raise SystemExit(f"--started-at must be ISO-8601 or 'now': {exc}") from exc
+            if parsed.tzinfo is None:  # local or UTC? hours apart (audit A-B-L14)
+                raise SystemExit("--started-at needs a zone: end it with Z or an offset such as +05:30")
             update["started_at"] = when
 
     labels = dict(alert.labels)

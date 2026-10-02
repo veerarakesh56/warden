@@ -84,6 +84,8 @@ bump may carry a breaking change.
   `ArnEquals`, and a rule open to a CIDR or a prefix list was read as no rule.
 - **A Deployment's events are its own** (audit A-B-L6). Matched by name prefix, `checkout` took
   `checkout-api`'s rollout events.
+- **An alert's start time must be real and carry its zone** (audit A-B-L14). `2026-13-45T99:99` passed the shape
+  check and silently became "now", and a zoneless time could be local or UTC.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

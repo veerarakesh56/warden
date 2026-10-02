@@ -71,6 +71,19 @@ RESOURCE_LABELS = frozenset({
 })
 
 
+def _zoned_timestamp(value: str) -> str:
+    if value:
+        from datetime import datetime
+
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            raise ValueError(f"started_at {value!r} is not a real date and time") from None
+        if parsed.tzinfo is None:
+            raise ValueError(f"started_at {value!r} has no zone: write Z or an offset such as +05:30")
+    return value
+
+
 class Alert(BaseModel):
     """What the monitoring stack hands us. Shape mirrors Prometheus Alertmanager."""
 
@@ -88,8 +101,11 @@ class Alert(BaseModel):
     # Free text written by whoever configured the alert rule - UNTRUSTED (audit A-C-1). Rendered
     # only inside a datamarked block for the model and as inline code for people (reporting.py).
     summary: str = Field(max_length=4000)
-    # ISO-8601, or "" when the source does not say. Anything else is refused (audit A-C-1).
-    started_at: str = Field(default="", pattern=r"^$|^\d{4}-\d{2}-\d{2}[T ][0-9:.]{5,15}(?:Z|[+-]\d{2}:?\d{2})?$")
+    # ISO-8601 with its zone, or "" when the source does not say. Anything else is refused (audit A-C-1). A real date
+    # and an explicit zone (audit A-B-L14): `2026-13-45T99:99` passed the shape, failed to parse, and the window
+    # silently became "now"; a time with no zone could be local or UTC, hours apart.
+    started_at: Annotated[str, AfterValidator(_zoned_timestamp)] = Field(
+        default="", pattern=r"^$|^\d{4}-\d{2}-\d{2}[T ][0-9:.]{5,15}(?:Z|[+-]\d{2}:?\d{2})?$")
     labels: dict[str, str] = Field(default_factory=dict)
     rejected_labels: list[str] = Field(default_factory=list)
 
