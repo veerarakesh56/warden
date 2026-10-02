@@ -215,17 +215,19 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
   login-based approval (GitHub environments, PagerDuty tasks).
 - **Identity is AWS-native; Teleport is an optional adapter.** Teleport's agent features were still a
   preview in 2026-09.
-- **Bedrock Opus 5.5 for production**, chosen by WARDEN's own replay results. Public RCA leaderboards
-  flip between systems.
+- **Bedrock Claude Sonnet 5 for production** (owner, 2026-10-03), chosen by WARDEN's own replay
+  results, never by public leaderboards, which flip between systems. On the 30 recorded incidents
+  (src/warden/data/providers.yaml): Fable 5.1 and Fable 5 scored 20 correct, Sonnet 5 19, Sonnet 5.5 16,
+  Opus 5 15 and Opus 5.5 10, none with a wrong fix let through. Sonnet 5 passed the bar at a fifth of
+  Fable 5.1's price. Opus 5.5, the earlier choice, failed it: it escalated 26 of 30 incidents.
 - **Single tenant per company.** No shared namespace, database or bucket across companies.
 - **English-only UI and reports**, UTF-8 safe. Non-English log handling (M23) is recorded as open.
 - **Region:** the runtime and the Temporal namespace both run in ap-south-2. Bedrock uses the
-  global profile `global.anthropic.claude-opus-5-5`. This was verified on 2026-09-28 on the
-  Bedrock model card: from ap-south-2 and ap-south-1, Opus 5.5 is offered only through the global
-  profile, with no in-region and no geo profile. The same card says:
-  - its end of life is no sooner than 2027-09-22;
-  - it has no structured-output mode, so WARDEN uses forced tool use;
-  - it is billed through AWS Marketplace.
+  India geo profile `in.anthropic.claude-sonnet-5`, so inference stays within India; the global
+  profile `global.anthropic.claude-sonnet-5` is the fallback. Both were listed ACTIVE from ap-south-2
+  on 2026-10-03, read live. Opus 5.5, the earlier choice, had only a global profile (checked
+  2026-09-28). Sonnet 5 retires on Anthropic's platforms no sooner than 2027-06-30; Bedrock sets its
+  own date, so check it in W-B. It is billed through AWS Marketplace.
 - **Laptop access: IAM Roles Anywhere, not an access key.**
   - The key is created in the TPM and cannot be exported.
   - The CA is discarded after signing.

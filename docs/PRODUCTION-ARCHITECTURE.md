@@ -29,7 +29,7 @@ architecture carries the protection.
  Temporal Cloud namespace (aws-ap-south-2; HA replica ap-south-1 when enabled)
       │ API key per trust zone · payloads AES-256-GCM encrypted by WARDEN (codec) · codec server for the UI
       ├─► read worker    task role → that environment's reader role, 15 min, SourceIdentity=inc-<id>
-      ├─► llm worker     ONE permission: bedrock:InvokeModel on the pinned Opus 5.5 profile;
+      ├─► llm worker     ONE permission: bedrock:InvokeModel on the pinned Sonnet 5 profile;
       │                  typed, redacted facts only; ≤ 2 calls per incident (counted in the audit)
       ├─► core worker    grounding, policies P1–P16+, outbound gate, KMS-signed audit
       ├─► notify worker  Slack bot (thread per incident) · PagerDuty Events v2 · webhooks
@@ -98,11 +98,13 @@ architecture carries the protection.
 
 ## The model in production
 
-**Amazon Bedrock, Claude Opus 5.5**, pinned by id, through the global inference profile. India has no
-regional Claude endpoint; this is verified live before relying on it. The input is only redacted,
-typed facts, and data residency is recorded per deployment. Fable 5.1 and Sonnet 5 are comparison
-arms, chosen by WARDEN's own replay results, never by public leaderboards. Cost is about $0.09 per
-incident.
+**Amazon Bedrock, Claude Sonnet 5** (`anthropic.claude-sonnet-5`, owner decision 2026-10-03), pinned
+by id, through the India geo inference profile `in.anthropic.claude-sonnet-5`, so inference stays in
+India (read live 2026-10-03). It was chosen by WARDEN's own replay of 30 recorded incidents, never by
+public leaderboards: it passed the qualification bar at a fifth of Fable 5.1's price, and Opus 5.5 did
+not pass. The input is only redacted, typed facts. A model change needs a new qualification
+(register M20). The cost is about $0.05 per incident, assuming the geo profile is billed +10%; this is
+checked in W-B.
 
 If there is no model, the budget is exceeded, or the provider is down, WARDEN produces a
 **rules-only report and pages a person** instead of guessing.

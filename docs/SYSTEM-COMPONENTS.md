@@ -115,7 +115,8 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 2. **Laptop access without a key:** IAM Roles Anywhere (W0-now). Identity Center is not possible in
    one Free-plan account, and console passwords were rejected.
 3. **Temporal Cloud** instead of a self-hosted Temporal. **Secrets Manager** for every secret, SSM
-   for plain config. **Bedrock Opus 5.5** as the production model. **KMS Ed25519** for audit signing.
+   for plain config. **Bedrock Claude Sonnet 5** as the production model (owner, 2026-10-03, after WARDEN's
+   replay qualification). **KMS Ed25519** for audit signing.
    **Passkeys** for approvals, on the owner's Cloudflare domain.
 4. The prices for these choices are in section 11, checked live on 2026-09-28 UTC / 2026-09-29 IST. Rows in sections 1-9
    that still say "free-only" reflect the old rule.
@@ -157,9 +158,9 @@ window.
 | CloudWatch metrics and alarms | $0.30 per custom metric-month; $0.10 per standard alarm-month | 10 of each free |
 | X-Ray | $5 per 1M traces stored; $0.50 per 1M retrieved | 100k stored free |
 | CloudWatch generative-AI observability | no separate charge stated; the underlying logs, spans and metrics are billed | UNCERTAIN |
-| Bedrock, Claude Opus 5.5 | $4 input / $20 output per 1M tokens | from ap-south-2 **Global profile only**; in-region/geo SKUs elsewhere are +10%. UNCERTAIN: listed cache read $0.20 |
-| Bedrock, Claude Fable 5.1 | $10 / $50 per 1M tokens | comparison arm (D12) |
-| Bedrock, Claude Sonnet 5 | $2 / $10 per 1M tokens | comparison arm (D12) |
+| Bedrock, Claude Sonnet 5 | $2 input / $10 output per 1M tokens (Anthropic list price, read 2026-10-03) | **the production model** (D12, 2026-10-03). India geo profile `in.anthropic.claude-sonnet-5` ACTIVE from ap-south-2. UNCERTAIN: the geo SKU may be +10%; checked in W-B |
+| Bedrock, Claude Fable 5.1 | $10 / $50 per 1M tokens | qualified on the replay set; not chosen (price) |
+| Bedrock, Claude Opus 5.5 | $4 / $20 per 1M tokens | the earlier choice; failed WARDEN's replay qualification (2026-10-02) |
 | API Gateway HTTP API | $1.05 per 1M requests | |
 | Lambda | $0.20 per 1M requests + $0.0000166667 per GB-second (Arm: $0.0000133334) | 1M requests and 400k GB-s free |
 | EventBridge | AWS events on the default bus: free; custom events $1.00 per 1M | UNCERTAIN: Scheduler is $1.54 per 1M in the ap-south-2 Price List vs $1.00 in the page example |
@@ -177,6 +178,6 @@ window.
   - a 40-hour test window comes to about $16 a month;
   - always on, it would be about $204 a month.
 - **Not included:** data processing charges, logs beyond the free tier, and model tokens. For
-  example, 10M input + 1M output tokens cost $30 on Sonnet 5 or $60 on Opus 5.5. Temporal is covered
+  example, 10M input + 1M output tokens cost $30 on Sonnet 5, the production model. Temporal is covered
   by the trial's credits only until about 2026-12-27 (90 days from 2026-09-28). That is before the
   G6 windows, which will be paid (ROADMAP calendar).

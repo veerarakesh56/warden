@@ -38,7 +38,7 @@ it, and every register row is either done or deferred with the owner's agreement
 | W0 | GitHub: branch protection with required checks, CODEOWNERS, every environment deploys only from `main`, the OIDC sub-claim customisation | owner (GitHub web UI) | after G3, $0 |
 | G4 | The new failure modes plus the research adoptions: compromised-model tests, ControlArena, blind diagnosis, admission policy and chaos in CI, sandbox-runtime, Scorecard/Checkov, model-weight verification | local + CI | ~3 weeks → **v0.12.0** |
 | G5a | Integrations: Prometheus evidence, GitOps detection, PagerDuty, Slack bot, passkey approval page, KMS signer, Bedrock provider | local | ~2.5 weeks |
-| W-B | Live Bedrock: model qualification (Opus 5.5 / Fable 5.1 / Sonnet 5), Petri audit, Gemini test | owner + Claude | 1 window |
+| W-B | Live Bedrock: Sonnet 5 through the India geo profile, re-qualified on Bedrock (register M20), Petri audit, Gemini test | owner + Claude | 1 window |
 | G5b | Qualification results published | — | → **v0.13.0** |
 | G6 | Production runtime (Temporal Cloud, ECS on EC2, Aurora, S3 Object Lock, KMS, Secrets Manager, intake, approval, observability), change timeline, operations docs, threat model; windows W1 (identity), W2 (laptop-off rehearsal), W3 (the 28-fault run) | local + windows | ~8–10 weeks → **v0.14.0** |
 | G7 | Calibration and shadow mode: independent labels, Platt + conformal, UQLM, Wilson bounds, Inspect AI gate, catch trials | local | ~2 weeks → **v0.15.0** |
@@ -97,7 +97,7 @@ always given in both.
 9. **Releases:** keep the v0.10.0 tag and correct its notes.
 10. **GitOps:** detect it and escalate now; a PR path comes later.
 11. **Identity:** AWS-native; Teleport as an optional adapter.
-12. **Production model:** Bedrock Opus 5.5.
+12. **Production model:** Bedrock Claude Sonnet 5 (owner, 2026-10-03; Opus 5.5 failed WARDEN's replay qualification).
 13. **Paging:** PagerDuty.
 14. **Approvals:** passkeys on the owner's Cloudflare domain.
 15. **Audit signing:** KMS Ed25519, with an S3 Object Lock anchor.

@@ -284,6 +284,7 @@ skip any step you never did:
 | Opus 5.5 / Fable 5.1 / Sonnet 5.5 available to this account | All three are ACTIVE in ap-south-2 and have global inference profiles. Per model: region AVAILABLE, entitlement AVAILABLE, authorization NOT_AUTHORIZED, agreement NOT_AVAILABLE. The plan does not block them; this account is not yet authorized to call them (W-B) | 2026-10-02 13:50 / 19:20 |
 | Anthropic use-case form submitted | No ("You have not filled out the request form") | 2026-10-02 13:50 / 19:20 |
 | Opus 5.5 global-profile quotas | 0 tokens per minute, adjustable; the same for Fable 5.1 and Sonnet 5.5. W-B needs a quota increase before any call can run | 2026-10-02 13:51 / 19:21 |
+| Sonnet 5, the production model since 2026-10-03 (D12) | region AVAILABLE, entitlement AVAILABLE, authorization NOT_AUTHORIZED, agreement NOT_AVAILABLE. Profiles `in.anthropic.claude-sonnet-5` (India geo) and `global.anthropic.claude-sonnet-5` ACTIVE. Both token-per-minute quotas 0, adjustable: W-B needs an increase | 2026-10-02 19:26 / 2026-10-03 00:56 |
 | Temporal Cloud trial ends / credits left | - (step F, from the owner) | - |
 | Next-day check (E5): charges, Access Analyzer findings, sweep | - (due 2026-10-03) | - |
 

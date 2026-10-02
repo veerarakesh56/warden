@@ -44,7 +44,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
 | **Reporting** | an incident report for every team - impact, what was read and when, diagnosis, detected patterns, risks before steps, a runbook with real names, per-team follow-ups - redacted, → Slack, Teams or any webhook |
 | **Integrations** | MCP server · OpenTelemetry GenAI conventions · Terraform ECS module |
-| **Models** | provider-agnostic: Claude via the Claude Max CLI (development and benchmarks), Anthropic API, Gemini, Ollama (local), OpenAI-compatible; Amazon Bedrock (Claude Opus 5.5) planned as the production model |
+| **Models** | provider-agnostic: Claude via the Claude Max CLI (development and benchmarks), Anthropic API, Gemini, Ollama (local), OpenAI-compatible; Amazon Bedrock (Claude Sonnet 5, chosen by WARDEN's own replay qualification) planned as the production model |
 
 ## The problem
 
