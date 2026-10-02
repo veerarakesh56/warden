@@ -886,3 +886,15 @@ def test_a_series_cloudwatch_could_not_finish_is_said():
     clients["cloudwatch"] = Fake(get_metric_data=get_metric_data)
     lines = _backend(clients).logs(_alert(sqs=f"{P}orders"))
     assert any("PartialData" in x for x in lines if x.startswith(aws_stack.PARTIAL_PREFIX)), lines
+
+
+def test_the_sg_line_names_cidr_ranges_and_prefix_lists_too():
+    """Audit A-B-L5: a rule opening the cache port to a CIDR or a prefix list was read as no rule."""
+    clients = _clients()
+    clients["ec2"] = Fake(describe_security_groups={"SecurityGroups": [{"GroupId": "sg-0redis", "IpPermissions": [
+        {"IpProtocol": "tcp", "FromPort": 6379, "ToPort": 6379, "IpRanges": [{"CidrIp": "10.0.0.0/16"}],
+         "PrefixListIds": [{"PrefixListId": "pl-0abc"}], "UserIdGroupPairs": [{"GroupId": "sg-0app"}]},
+        {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}]}]})
+    lines = _backend(clients).logs(_alert(elasticache=f"{P}redis"))
+    [sg] = [x for x in lines if x.startswith("SG sg-0redis")]
+    assert "10.0.0.0/16" in sg and "pl-0abc" in sg and "sg-0app" in sg and "0.0.0.0/0" not in sg, sg

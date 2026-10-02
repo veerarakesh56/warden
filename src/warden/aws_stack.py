@@ -681,10 +681,15 @@ class StackBackend:
             ng = (group.get("NodeGroups") or [{}])[0]
             port = int((ng.get("PrimaryEndpoint") or {}).get("Port") or 6379)
             for g in self._ec2.describe_security_groups(GroupIds=sgs).get("SecurityGroups") or []:
-                src = sorted({p["GroupId"] for r in g.get("IpPermissions") or []
-                              if r.get("IpProtocol") in ("-1", "tcp")
-                              and (r.get("IpProtocol") == "-1" or r.get("FromPort", 0) <= port <= r.get("ToPort", 0))
-                              for p in r.get("UserIdGroupPairs") or []})
+                rules = [r for r in g.get("IpPermissions") or [] if r.get("IpProtocol") in ("-1", "tcp")
+                         and (r.get("IpProtocol") == "-1" or r.get("FromPort", 0) <= port <= r.get("ToPort", 0))]
+                # Groups, CIDR ranges and prefix lists alike (audit A-B-L5): a rule opening the port to a CIDR or a
+                # prefix list was read as no rule at all.
+                src = sorted({p["GroupId"] for r in rules for p in r.get("UserIdGroupPairs") or []}
+                             | {x["CidrIp"] for r in rules for x in r.get("IpRanges") or [] if x.get("CidrIp")}
+                             | {x["CidrIpv6"] for r in rules for x in r.get("Ipv6Ranges") or [] if x.get("CidrIpv6")}
+                             | {x["PrefixListId"] for r in rules for x in r.get("PrefixListIds") or []
+                                if x.get("PrefixListId")})
                 out.lines.append(f"SG {g['GroupId']} ingress tcp/{port} from=[{','.join(src)}]")
         got = self._cw_read(out, "elasticache", alert, queries)
         # Across nodes: the worst node for percentages and lag, the total for counts.
@@ -893,7 +898,7 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
     """Does a queue policy let this SNS topic SendMessage? An explicit Deny wins."""
     if not policy:
         return False
-    def matches(st) -> bool:
+    def matches(st, unknown: bool) -> bool:
         actions = st.get("Action") or []
         actions = [actions] if isinstance(actions, str) else actions
         if not any(a in ("*", "sqs:*", "sqs:SendMessage") for a in actions):
@@ -904,19 +909,33 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
             p = [p] if isinstance(p, str) else p
             if not any(x in ("*", "sns.amazonaws.com") for x in p):
                 return False
-        for test in (st.get("Condition") or {}).values():
-            src = test.get("aws:SourceArn") or test.get("aws:sourceArn")
-            if src is not None:
-                src = [src] if isinstance(src, str) else src
-                if not any(fnmatch.fnmatchcase(topic_arn, s) for s in src):
-                    return False
+        # Each operator by its meaning (audit A-B-L5): `ArnNotEquals` was read as `ArnEquals`, so a Deny of every
+        # topic BUT this one denied this one. An operator not understood here gives `unknown`: an Allow it cannot
+        # prove does not allow, and a Deny it cannot read is taken to apply.
+        for op, test in (st.get("Condition") or {}).items():
+            key = next((k for k in test if k.lower() == "aws:sourcearn"), None)
+            if key is None:
+                continue
+            values = test[key] if isinstance(test[key], list) else [test[key]]
+            base = op.split(":")[-1].removesuffix("IfExists")
+            hit = any(fnmatch.fnmatchcase(topic_arn, str(v)) for v in values)
+            if base in ("ArnEquals", "ArnLike", "StringEquals", "StringLike"):
+                ok = hit
+            elif base in ("ArnNotEquals", "ArnNotLike", "StringNotEquals", "StringNotLike"):
+                ok = not hit
+            elif base == "Null":  # SNS always sends the topic as the source: present, never null
+                ok = str(values[0]).lower() == "false"
+            else:
+                return unknown
+            if not ok:
+                return False
         return True
 
     statements = json.loads(policy).get("Statement") or []
     statements = [statements] if isinstance(statements, dict) else statements
-    if any(st.get("Effect") == "Deny" and matches(st) for st in statements):
+    if any(st.get("Effect") == "Deny" and matches(st, unknown=True) for st in statements):
         return False
-    return any(st.get("Effect") == "Allow" and matches(st) for st in statements)
+    return any(st.get("Effect") == "Allow" and matches(st, unknown=False) for st in statements)
 
 
 def _default_k8s():
