@@ -52,3 +52,15 @@ def test_the_code_hash_changes_with_any_policy_file(tmp_path, monkeypatch):
     finally:
         monkeypatch.undo()
         audit.code_version.cache_clear()
+
+
+def test_a_hash_that_starts_with_ten_digits_is_not_a_phone_number():
+    """CI, 2026-10-02: about one SHA-256 in a hundred starts with ten or more digits, and PHONE withheld the whole
+    report (exit 3). Digits that run straight into letters are the start of a name, as digits after one are."""
+    from warden import gate, redaction
+
+    h = "38510078946511b011b8bd42b6d89a93aadddde3fb07a482130c968956c08fd7"
+    assert gate.data_leaks({"prompt_sha256": h}) == []
+    assert redaction.redact(f"plan_hash {h}").text == f"plan_hash {h}"
+    for phone in ("+1 415-555-0132", "phone=4155550132", "call 4155550132 now", "4111111111111111"):
+        assert "<PHONE_" in redaction.redact(phone).text, phone

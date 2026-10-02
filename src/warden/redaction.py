@@ -140,7 +140,9 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     #     digits in `ip-10-0-3-22`, `orders-db-ro-1` and `wave2-2026-...` are names, not numbers.
     # A phone number written as a phone number (`+1 415-555-0132`, `phone=4155550132`) still starts
     # at a boundary and is still masked; so is a contiguous card number, which relies on this rule.
-    ("PHONE", re.compile(r"(?<![\w.\-])(?!\d{4}-\d\d-\d\d)\+?\d[\d \-]{8,14}\d(?![\d.])")),
+    #   - nor may it END inside one: digits followed by a letter or `_` are the start of a name - a SHA-256 in
+    #     a report or a plan hash beginning `3851007894...` was withheld as a phone number (CI, 2026-10-02).
+    ("PHONE", re.compile(r"(?<![\w.\-])(?!\d{4}-\d\d-\d\d)\+?\d[\d \-]{8,14}\d(?![\w.])")),
     # password=..., secret: ..., aws_secret_access_key="...": the value after a credential-ish key.
     # Runs LAST: a value already masked whole is left alone. The bounded [\w.\-] prefix/suffix lets the sensitive word sit INSIDE a
     # compound key (`aws_secret_access_key`, `db_password`), which a `\b`-anchored form missed — the

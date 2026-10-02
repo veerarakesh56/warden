@@ -39,6 +39,10 @@ bump may carry a breaking change.
 - **A database session is closed only if it is still idle at that moment** (register R7-O1). On PostgreSQL the
   close statement itself carries the selection. MySQL's and SQL Server's `KILL` take no condition, so each
   session is re-checked in the statement right before its `KILL`, leaving a window of one statement.
+- **A hash is no phone number.** The PHONE pattern already refused to start inside a name. It now also
+  refuses to end inside one, so digits running straight into letters, like a SHA-256 that starts
+  `3851007894...`, are no longer masked. About one report in a hundred was refused because of this (CI,
+  2026-10-02). Replaying the 337 recorded contexts changes none of them.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
