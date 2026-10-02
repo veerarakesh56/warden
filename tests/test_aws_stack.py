@@ -863,3 +863,26 @@ def test_an_environment_value_is_shown_only_under_a_configuration_name(name, val
     """Audit A-B-M9: values were shown unless the name looked secret - `DATABASE_URL` carried a password out."""
     [item] = aws_stack._env_items({name: value})
     assert (item == f"{name}={value}") is shown, item
+
+
+@pytest.mark.parametrize("path", [".env", "config/.env", "app.py/../.env", "../app.py", "secrets.json", "a" + chr(92) + "b.py",
+                                  "app.PY.bak", ""])
+def test_a_traceback_cannot_make_warden_read_a_non_python_file(path):
+    """Audit A-B-M17: the source path comes from traceback text in the logs, which anyone writing a log line
+    controls; a forged `File "/var/task/.env"` read the package's .env into the evidence."""
+    package = _zip({"app.py": APP_PY, ".env": "DB_PASSWORD=x", "config/.env": "y", "secrets.json": "{}"})
+    with pytest.raises(ValueError):
+        aws_stack.source_excerpt("fn", package, path, 1)
+    assert aws_stack.source_excerpt("fn", package, "app.py", 41)[3].endswith("sku = body['sku']")
+
+
+def test_a_series_cloudwatch_could_not_finish_is_said():
+    """Audit A-B-M18: a result with StatusCode PartialData read as a complete series."""
+    def get_metric_data(MetricDataQueries, **_):
+        return {"MetricDataResults": [{"Id": q["Id"], "Values": [1.0], "StatusCode": "PartialData"}
+                                      for q in MetricDataQueries]}
+
+    clients = _clients()
+    clients["cloudwatch"] = Fake(get_metric_data=get_metric_data)
+    lines = _backend(clients).logs(_alert(sqs=f"{P}orders"))
+    assert any("PartialData" in x for x in lines if x.startswith(aws_stack.PARTIAL_PREFIX)), lines

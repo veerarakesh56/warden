@@ -203,7 +203,12 @@ def parse_tracebacks(lines: list[str]) -> list[dict]:
 
 
 def source_excerpt(fn: str, package: bytes, path: str, line_no: int) -> list[str]:
-    """SOURCE lines, +-SOURCE_CONTEXT_LINES around `line_no`, read from a zip held in memory."""
+    """SOURCE lines, +-SOURCE_CONTEXT_LINES around `line_no`, read from a zip held in memory. Only a Python file of the
+    package: the path comes from traceback text in the logs, which anyone writing a log line controls, and a forged
+    `File "/var/task/.env"` read the package's .env into the evidence (audit A-B-M17)."""
+    parts = path.split("/")
+    if not path.endswith(".py") or any(p in ("", ".", "..") for p in parts) or "\\" in path:
+        raise ValueError(f"not a Python source path: {path!r}")
     with zipfile.ZipFile(io.BytesIO(package)) as zf:
         text = zf.read(path).decode("utf-8", errors="replace").splitlines()
     lo = max(1, line_no - SOURCE_CONTEXT_LINES)
@@ -438,6 +443,10 @@ class StackBackend:
         got: dict[str, float] = {}
         for res in resp.get("MetricDataResults") or []:
             values = res.get("Values") or []
+            if res.get("Id") in ids and res.get("StatusCode") not in (None, "Complete"):
+                # A series CloudWatch could not finish is said, not read as complete (audit A-B-M18).
+                out.lines.append(_partial(f"{reader} metrics", f"{ids[res['Id']][0]} {res['StatusCode']} "
+                                          "(the series may be incomplete)"))
             if res.get("Id") in ids and values:
                 key, stat = ids[res["Id"]]
                 got[key] = float(sum(values) if stat == "Sum" else

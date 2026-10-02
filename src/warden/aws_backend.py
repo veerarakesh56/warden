@@ -76,7 +76,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError, alert_time, deploy_in_window, failure
+from .tools import PARTIAL_PREFIX, Metrics, ToolError, alert_time, deploy_in_window, failure
 
 # (connect, read) seconds. See note 2 in the module docstring about the budget.
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_AWS_CONNECT_TIMEOUT", "2.0"))
@@ -296,12 +296,12 @@ class AwsBackend:
         )
 
         started = self._started_at(alert)
-        stats = self._utilisation(alert, started)
+        stats, partial = self._utilisation(alert, started)
         out.update(stats)
-        return out
+        return Metrics(out, partial=partial)
 
-    def _utilisation(self, alert: Alert, started: datetime) -> dict[str, float]:
-        """CPU and memory for the service over the window around the alert."""
+    def _utilisation(self, alert: Alert, started: datetime) -> tuple[dict[str, float], list[str]]:
+        """CPU and memory for the service over the window around the alert, and what could not be read."""
         cluster, service = self._cluster(alert), self._service(alert)
         dimensions = [
             {"Name": "ClusterName", "Value": cluster},
@@ -330,19 +330,23 @@ class AwsBackend:
                 EndTime=started + METRIC_WINDOW,
                 ScanBy="TimestampDescending",
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             # Utilisation is supporting evidence; the exact task counts above are the load-bearing
-            # part. Losing it must not lose them, and an omitted key reads as absent, not as zero.
-            return {}
+            # part. Losing it must not lose them, and an omitted key reads as absent, not as zero -
+            # but the failure is said (audit A-B-M18), so absent is not mistaken for "not elevated".
+            return {}, [f"utilisation: {failure(exc)}"]
 
         keys = {"m0": "cpu_utilization_pct", "m1": "memory_utilization_pct"}
         out: dict[str, float] = {}
+        partial: list[str] = []
         for result in resp.get("MetricDataResults") or []:
             values = result.get("Values") or []
             key = keys.get(result.get("Id", ""))
+            if key and result.get("StatusCode") not in (None, "Complete"):
+                partial.append(f"utilisation: {key} {result['StatusCode']} (the series may be incomplete)")
             if key and values:
                 out[key] = float(max(values))
-        return out
+        return out, partial
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
         """A recent TASK DEFINITION IMAGE CHANGE for this service, or nothing.

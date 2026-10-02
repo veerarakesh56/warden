@@ -707,3 +707,17 @@ def test_a_rollback_is_reported_with_nothing_to_roll_back_to():
     assert d["rolled_back_from"] == "checkout:7" and d["previous_task_definition"] == "", d
     assert d["task_definition"] == "checkout:6" and d["previous_image"] == "repo/checkout:broken"
     assert "checkout:5" not in str(d)  # nor one step further back
+
+
+def test_a_failed_or_partial_metric_read_reaches_the_tool_errors():
+    """Audit A-B-M18: a failed utilisation read returned nothing and said nothing, so its absence read as
+    "not elevated"; a series CloudWatch could not finish read as complete."""
+    from warden.tools import gather
+
+    failed = gather(_alert(), _backend(cw=FakeCloudWatch(raises=RuntimeError("ThrottlingException: slow down"))))
+    assert any(e.startswith("metrics: utilisation:") for e in failed.tool_errors), failed.tool_errors
+    assert failed.metrics["tasks_running"] == 2.0  # the task counts survive it
+    partial = gather(_alert(), _backend(cw=FakeCloudWatch(results=[
+        {"Id": "m0", "Values": [61.5], "StatusCode": "PartialData"}, {"Id": "m1", "Values": [10.0]}])))
+    assert any("cpu_utilization_pct PartialData" in e for e in partial.tool_errors), partial.tool_errors
+    assert partial.metrics["cpu_utilization_pct"] == 61.5

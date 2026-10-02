@@ -275,6 +275,15 @@ def _bounded(lines: list, tool_errors: list[str]) -> list[str]:
     return lines
 
 
+class Metrics(dict):
+    """A metrics result that can say what it could not read: `partial` lines go to tool_errors as a list result's do.
+    A failed or partial metric read vanished, and its absence read as "no such signal" (audit A-B-M18)."""
+
+    def __init__(self, *args, partial: list[str] | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.partial = list(partial or [])
+
+
 def _numbers(metrics: object) -> dict[str, float]:
     """Metrics are numbers. `setattr` bypasses pydantic, so a backend (or a fixture file) returning a
     string or a nested secret under a metric name put it into the prompt and the MCP payload as-is."""
@@ -320,6 +329,9 @@ def gather(
                     if sink == "logs":
                         result = _bounded(result, bundle.tool_errors)
                 if sink == "metrics":
+                    for p in getattr(result, "partial", ()):
+                        text = p.removeprefix(PARTIAL_PREFIX)
+                        bundle.tool_errors.append(text if text.startswith(f"{name}: ") else f"{name}: {text}")
                     result = _numbers(result)
                 setattr(bundle, sink, result)
                 sp.set_attribute("warden.tool.ok", True)
