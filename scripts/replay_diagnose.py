@@ -23,7 +23,7 @@ import pathlib
 import shutil
 import sys
 
-from warden.graph import node_diagnose, node_redact, node_verify
+from warden.graph import node_diagnose, node_redact, node_tripwire, node_verify
 from warden.llm import LLMClient
 from warden.models import Alert, ContextBundle, RunReport
 
@@ -31,11 +31,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def rediagnose(report: dict, llm: LLMClient) -> RunReport:
-    """redact -> diagnose -> verify over a recorded context. gather is skipped: its output IS the
-    recorded context, byte for byte, which re-reading through a backend would not guarantee."""
+    """redact -> tripwire -> diagnose -> verify over a recorded context, as production runs them (audit A-B-M16:
+    the tripwire was skipped, so a replay could never show P16). gather is skipped: its output IS the recorded
+    context, byte for byte, which re-reading through a backend would not guarantee."""
     state: dict = {"alert": Alert(**report["alert"]), "context": ContextBundle(**report["context"]),
                    "llm": llm, "audit": []}
-    for node in (node_redact, node_diagnose, node_verify):
+    for node in (node_redact, node_tripwire, node_diagnose, node_verify):
         out = node(state)
         state["audit"] = state["audit"] + out.pop("audit", [])
         state.update(out)
@@ -60,7 +61,13 @@ def replay(src: pathlib.Path, out: pathlib.Path, *, per_scenario: int, only: set
         if only and gt["scenario_id"] not in only:
             continue
         runs = []
-        for run in [r for r in gt.get("runs") or [] if r.get("report_written")][:per_scenario]:
+        for run in (gt.get("runs") or [])[:per_scenario]:
+            if not run.get("report_written"):
+                # A run that failed in the recorded wave stays an ERROR row (audit A-B-M16): dropping it changed the
+                # denominators, and a replay looked steadier than the run it replays.
+                runs.append(run)
+                log(f"{gt['scenario_id']}.{run.get('index')}: ERROR in the recorded run, kept")
+                continue
             report = json.loads((src / run["report"]).read_text(encoding="utf-8"))
             try:
                 new = rediagnose(report, llm_factory())

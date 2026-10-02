@@ -35,6 +35,9 @@ def main(argv: list[str] | None = None) -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--apply", action="store_true",
                         help="actually create it; default says what it would do")
+    parser.add_argument("--reader", action="store_true",
+                        help="also create WARDEN's read-only login warden_reader (pg_monitor); its password is read "
+                             "from WARDEN_BENCH_DB_READER_PASSWORD, never from the command line")
     parser.add_argument("--database", default=EXPECTED_DATABASE,
                         help=f"the database that may be marked (default: {EXPECTED_DATABASE})")
     args = parser.parse_args(argv)
@@ -73,6 +76,26 @@ def main(argv: list[str] | None = None) -> int:
         # database and land somewhere else entirely through a connection-pooler or a search_path.
         if live != args.database:
             return _fail(f"connected to database {live!r}, not {args.database!r} - refusing")
+
+        if args.reader:
+            # WARDEN's own login for a database wave (audit A-B-M13): it reads pg_stat_activity and locks through
+            # pg_monitor and holds no other privilege - not the master the injectors use.
+            password = os.environ.get("WARDEN_BENCH_DB_READER_PASSWORD", "")
+            if not password:
+                return _fail("set WARDEN_BENCH_DB_READER_PASSWORD for the warden_reader login")
+            cur.execute("SELECT 1 FROM pg_roles WHERE rolname = 'warden_reader'")
+            if cur.fetchone() is None:
+                if not args.apply:
+                    print("\ndry run - warden_reader would be created with pg_monitor. Re-run with --apply.")
+                else:
+                    from psycopg import sql
+                    cur.execute(sql.SQL("CREATE ROLE warden_reader LOGIN PASSWORD {}").format(sql.Literal(password)))
+                    cur.execute("GRANT pg_monitor TO warden_reader")
+                    cur.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO warden_reader").format(
+                        sql.Identifier(live)))
+                    print("\nwarden_reader created (pg_monitor, CONNECT only).")
+            else:
+                print("\nwarden_reader already exists.")
 
         cur.execute(f"SELECT to_regclass('{SENTINEL}')")
         if cur.fetchone()[0] is not None:

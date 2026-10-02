@@ -92,6 +92,10 @@ bump may carry a breaking change.
   - The fault flags have opaque names.
   - The deployed apps carry no scenario ids or fault talk.
   - The score headline also counts the NO-EVIDENCE runs the gate let through.
+- **Benchmark harness honesty** (audit A-B-M13, A-B-M16, A-B-L19).
+  - A database wave gives WARDEN a `pg_monitor` login, never the master one.
+  - A replay runs the tripwire and keeps the recorded run's ERROR rows.
+  - The baseline needs the exact log group.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

@@ -239,9 +239,9 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
             "scenario would read the previous one's rollout as evidence"
         )
 
-    if not clients.logs.describe_log_groups(
-        logGroupNamePrefix=target.log_group,
-    ).get("logGroups"):
+    # This exact group (audit A-B-L19): by prefix, `/ecs/checkout-legacy` passed for a deleted `/ecs/checkout`.
+    groups = clients.logs.describe_log_groups(logGroupNamePrefix=target.log_group).get("logGroups") or []
+    if not any(g.get("logGroupName") == target.log_group for g in groups):
         problems.append(f"log group {target.log_group} is missing - a previous run deleted it")
 
     if target.security_group_id:
@@ -1343,6 +1343,19 @@ class _FakeDbEc2:
         return {}
 
 
+def _reader_dsn(harness_dsn: str) -> str:
+    """WARDEN's own DSN for a database wave: a read-only `pg_monitor` login, never the harness's master one (audit
+    A-B-M13 - WARDEN was handed the master credentials the injectors use). Refused when missing or the same login."""
+    reader = os.environ.get("WARDEN_BENCH_DB_READER_DSN", "").strip()
+    if not reader:
+        raise RunnerError("set WARDEN_BENCH_DB_READER_DSN: WARDEN reads as a pg_monitor login, never as the master "
+                          "(`python scripts/setup_proving_ground_db.py --apply --reader` creates it)")
+    if urllib.parse.urlparse(reader).username == urllib.parse.urlparse(harness_dsn).username:
+        raise RunnerError("WARDEN_BENCH_DB_READER_DSN uses the harness's own login - WARDEN must read as the "
+                          "pg_monitor login, not the master")
+    return reader
+
+
 def _db_live_harness(timeout_s: float) -> Harness:
     """The live database harness.
 
@@ -1358,6 +1371,7 @@ def _db_live_harness(timeout_s: float) -> Harness:
         raise RunnerError(
             "set WARDEN_BENCH_DB_DSN from `terraform output -raw db_dsn` (apply with enable_rds=true)"
         )
+    reader = _reader_dsn(dsn)
     security_group_id = os.environ.get("WARDEN_BENCH_DB_SG", "").strip()
     if not security_group_id:
         raise RunnerError(
@@ -1402,8 +1416,8 @@ def _db_live_harness(timeout_s: float) -> Harness:
         # ⛔ The ONLY credential WARDEN gets for this wave, and it is not an AWS one. The identity
         # recorded in the artefact is the database user - never the DSN, which carries its password.
         return {
-            "WARDEN_DB_DSN": dsn,
-            "arn": f"postgres:{parsed.username or 'unknown'}@{target.host}/{target.database}",
+            "WARDEN_DB_DSN": reader,
+            "arn": f"postgres:{urllib.parse.urlparse(reader).username or 'unknown'}@{target.host}/{target.database}",
         }
 
     return Harness(
