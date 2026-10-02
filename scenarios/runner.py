@@ -1020,6 +1020,7 @@ _FAKE_RESPONSES: dict[str, Callable[[str], dict]] = {
     "describe_clusters": lambda tag: {
         "clusters": [{"tags": [{"key": "Stack", "value": tag}]}]
     },
+    "list_tags_log_group": lambda tag: {"tags": {"Stack": tag}},
     "describe_task_definition": lambda tag: {
         "taskDefinition": {
             "family": "checkout", "cpu": "512", "memory": "512", "networkMode": "awsvpc",

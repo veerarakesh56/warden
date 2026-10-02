@@ -86,6 +86,8 @@ bump may carry a breaking change.
   `checkout-api`'s rollout events.
 - **An alert's start time must be real and carry its zone** (audit A-B-L14). `2026-13-45T99:99` passed the shape
   check and silently became "now", and a zoneless time could be local or UTC.
+- **Teardown removes only what is tagged as the proving ground's, and never calls a failed listing clean**
+  (audit A-B-M14, A-B-M19, A-B-L15).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

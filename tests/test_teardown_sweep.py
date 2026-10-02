@@ -180,20 +180,24 @@ def test_a_similarly_named_family_is_not_swept_up():
 # --------------------------------------------------------------------------- doing the job
 
 
-def test_apply_removes_untagged_benchmark_revisions_and_the_recreated_log_group():
-    """The resources Terraform never knew about - the reason this script exists."""
+def test_apply_removes_only_tagged_revisions_and_the_recreated_log_group(capsys):
+    """The resources Terraform never knew about - the reason this script exists. Only those carrying the proving
+    ground's tag (audit A-B-M14): an untagged `checkout` revision may be anyone's, and is reported, never removed."""
+    tag = "warden-proving-ground"
     ecs = FakeEcs(active=["checkout:2", "checkout:9"], inactive=["checkout:7"],
-                  tags={"checkout:2": "warden-proving-ground"})
+                  tags={"checkout:2": tag, "checkout:7": tag})
     logs = FakeLogs()
-    assert _run(ecs, logs, FakeTagging(), "--apply") == 0
-    assert sorted(ecs.deregistered) == ["checkout:2", "checkout:9"]
-    assert ecs.active == [] and ecs.inactive == []
+    _run(ecs, logs, FakeTagging(), "--apply")
+    assert ecs.deregistered == ["checkout:2"]
+    assert ecs.active == ["checkout:9"] and ecs.inactive == []
+    assert "checkout:9 (Stack=untagged)" in capsys.readouterr().out
     assert logs.deleted == ["/ecs/checkout"]
 
 
 def test_deletes_are_batched_at_ten():
     """DeleteTaskDefinitions accepts at most 10 per call; an 11th would fail the whole call."""
-    ecs = FakeEcs(inactive=[f"checkout:{i}" for i in range(4, 27)])
+    revs = [f"checkout:{i}" for i in range(4, 27)]
+    ecs = FakeEcs(inactive=revs, tags=dict.fromkeys(revs, "warden-proving-ground"))
     _run(ecs, FakeLogs(), FakeTagging(), "--apply")
     assert all(len(b) <= 10 for b in ecs.deleted_batches)
     assert sum(len(b) for b in ecs.deleted_batches) == 23
@@ -289,3 +293,31 @@ def test_a_free_orphan_is_reported_without_failing_the_sweep():
                       FakeEc2(SecurityGroups=[{"GroupId": "sg-other", "GroupName": "someone-else"}]))
 
     assert ts.main(["--cluster", "warden-pg-x", "--apply"], session=session) == 0
+
+
+def test_a_listing_that_fails_is_never_clean():
+    """Audit A-B-M19: a failed EC2 listing read as an empty one, and the sweep said "clean" for what it never saw."""
+    class Denied(FakeEc2):
+        def describe_nat_gateways(self, **_):
+            raise PermissionError("AccessDenied")
+
+    found = ts.sweep(FakeEcs(), FakeLogs(), FakeTagging(), "checkout", "/ecs/checkout", "warden-pg-x", ec2=Denied())
+    assert found["nat_gateways"] == ["could not check describe_nat_gateways: PermissionError"]
+
+    class Gone(FakeEcs):
+        def list_tasks(self, **_):
+            raise RuntimeError("ThrottlingException: Rate exceeded")
+
+    found = ts.sweep(Gone(), FakeLogs(), FakeTagging(), "checkout", "/ecs/checkout", "warden-pg-x")
+    assert found["running_tasks"] == ["could not check list_tasks: RuntimeError"]
+
+
+def test_every_page_of_tagged_leftovers_is_read():
+    class Paged(FakeTagging):
+        def get_resources(self, **kw):
+            if kw.get("PaginationToken") == "p2":
+                return {"ResourceTagMappingList": [{"ResourceARN": "arn:aws:logs:x:1:log-group:left"}]}
+            return {"ResourceTagMappingList": [], "PaginationToken": "p2"}
+
+    found = ts.sweep(FakeEcs(), FakeLogs(), Paged(), "checkout", "/ecs/checkout", "warden-pg-x")
+    assert found["tagged"] == ["arn:aws:logs:x:1:log-group:left"]

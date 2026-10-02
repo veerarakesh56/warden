@@ -86,6 +86,10 @@ class FakeLogs:
     def delete_log_group(self, **kw):
         self.calls.append(("delete_log_group", kw))
 
+    def list_tags_log_group(self, **kw):
+        self.calls.append(("list_tags_log_group", kw))
+        return {"tags": dict(getattr(self, "tags", {"Stack": "warden-proving-ground"}))}
+
     def create_log_group(self, **kw):
         self.calls.append(("create_log_group", kw))
 
@@ -462,3 +466,13 @@ def test_the_recreated_log_group_is_tagged_so_teardown_can_find_it(clients, targ
     ops.op_logs_create_group(clients, target, log_group="/ecs/checkout")
     created = [kw for name, kw in clients.logs.calls if name == "create_log_group"]
     assert created and created[-1].get("tags") == target.tags
+
+
+@pytest.mark.parametrize("group, tags", [("/ecs/payments", {"Stack": "warden-proving-ground"}),
+                                         ("/ecs/checkout", {}), ("/ecs/checkout", {"Stack": "payments-prod"})])
+def test_only_the_proving_grounds_own_tagged_log_group_is_deleted(clients, target, group, tags):
+    """Audit A-B-L15: an `/ecs/` prefix let any service's log group in the account through."""
+    clients.logs.tags = tags
+    with pytest.raises(ops.OpError, match="refusing to delete"):
+        ops.op_logs_delete_group(clients, target, log_group=group)
+    assert not any(c[0] == "delete_log_group" for c in clients.logs.calls)

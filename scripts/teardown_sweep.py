@@ -102,8 +102,10 @@ def plan(ecs: Any, logs: Any, family: str, log_group: str) -> dict[str, list[str
     refused: list[str] = []
     for arn in active + inactive:
         tag = _stack_tag(ecs, arn)
-        if tag not in (None, STACK[1]):
-            refused.append(f"{arn.rsplit('/', 1)[-1]} (Stack={tag})")
+        # Only revisions carrying the proving ground's tag (audit A-B-M14): an untagged `checkout` revision may be
+        # anyone's, and was removed. Untagged ones are reported for a person to judge.
+        if tag != STACK[1]:
+            refused.append(f"{arn.rsplit('/', 1)[-1]} (Stack={tag or 'untagged'})")
         else:
             ours.append(arn)
     groups = [g["logGroupName"] for g in
@@ -148,33 +150,39 @@ def _billable_orphans(ec2: Any) -> dict[str, list[str]]:
                             "NetworkInterfaceId",
                             Filters=[{"Name": "status", "Values": ["available"]}]),
         # An EIP that is NOT associated is the one that costs money.
-        "unattached_eips": [a["AllocationId"] for a in
-                            (_raw(ec2, "describe_addresses", "Addresses") or [])
-                            if not a.get("AssociationId")],
+        "unattached_eips": [a.get("_unreadable") or a["AllocationId"] for a in
+                            _raw(ec2, "describe_addresses", "Addresses") if not a.get("AssociationId")],
         "available_volumes": _ids("describe_volumes", "Volumes", "VolumeId",
                                   Filters=[{"Name": "status", "Values": ["available"]}]),
-        "nat_gateways": [n["NatGatewayId"] for n in
-                         (_raw(ec2, "describe_nat_gateways", "NatGateways") or [])
-                         if n.get("State") in ("available", "pending")],
-        "project_security_groups": [g["GroupId"] for g in
-                                    (_raw(ec2, "describe_security_groups", "SecurityGroups") or [])
+        "nat_gateways": [n.get("_unreadable") or n["NatGatewayId"] for n in
+                         _raw(ec2, "describe_nat_gateways", "NatGateways")
+                         if n.get("_unreadable") or n.get("State") in ("available", "pending")],
+        "project_security_groups": [g.get("_unreadable") or g["GroupId"] for g in
+                                    _raw(ec2, "describe_security_groups", "SecurityGroups")
                                     if g.get("GroupName") != "default"],
     }
 
 
-def _raw(ec2: Any, call: str, key: str) -> list[dict] | None:
+def _raw(ec2: Any, call: str, key: str) -> list[dict]:
+    """The listing, or one entry saying it could not be read (audit A-B-M19: a failure read as an empty list, and the
+    sweep said "clean" for an account it never saw)."""
     try:
         return getattr(ec2, call)().get(key) or []
-    except Exception:  # noqa: BLE001 - reported as an empty list; _ids reports the failing ones
-        return None
+    except Exception as exc:  # noqa: BLE001 - a denied API must not hide the rest, nor pass as nothing found
+        return [{"_unreadable": f"could not check {call}: {type(exc).__name__}"}]
 
 
 def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
           cluster: str, ec2: Any = None) -> dict[str, list[str]]:
     """What is still there, by tag AND by name. Empty lists everywhere means clean."""
-    tagged = [r["ResourceARN"] for r in tagging.get_resources(
-        TagFilters=[{"Key": STACK[0], "Values": [STACK[1]]}],
-    ).get("ResourceTagMappingList") or []]
+    tagged: list[str] = []
+    kw: dict[str, Any] = {"TagFilters": [{"Key": STACK[0], "Values": [STACK[1]]}]}
+    while True:  # every page: the first alone could hold none of what is left (audit A-B-M19)
+        page = tagging.get_resources(**kw)
+        tagged += [r["ResourceARN"] for r in page.get("ResourceTagMappingList") or []]
+        if not page.get("PaginationToken"):
+            break
+        kw["PaginationToken"] = page["PaginationToken"]
     # An INACTIVE cluster cannot be removed further and costs nothing; listing it as "left behind"
     # would make the sweep permanently red for something no action can fix.
     tagged = [a for a in tagged if not (":cluster/" in a and a.endswith(f"/{cluster}")
@@ -182,8 +190,10 @@ def sweep(ecs: Any, logs: Any, tagging: Any, family: str, log_group: str,
     running: list[str] = []
     try:
         running = ecs.list_tasks(cluster=cluster).get("taskArns") or []
-    except Exception:  # noqa: BLE001 - a cluster that no longer exists has no running tasks
-        running = []
+    except Exception as exc:  # noqa: BLE001
+        # A cluster that no longer exists has no running tasks; any other failure is not "none" (audit A-B-M19).
+        if "ClusterNotFound" not in type(exc).__name__ + str(exc):
+            running = [f"could not check list_tasks: {type(exc).__name__}"]
     return {
         "tagged": tagged,
         "revisions_active": _revisions(ecs, family, "ACTIVE"),

@@ -320,8 +320,13 @@ def op_ecs_stop_one_task(clients: Clients, target: Target, **_):
 
 
 def op_logs_delete_group(clients: Clients, target: Target, *, log_group: str, **_):
-    if not log_group.startswith("/ecs/"):
-        raise OpError(f"refusing to delete log group {log_group!r} - not a proving-ground group")
+    # The proving ground's own group, carrying its tag (audit A-B-L15): an `/ecs/` prefix let any service's group in
+    # the account through - `/ecs/payments` of a real workload included.
+    if log_group != target.log_group:
+        raise OpError(f"refusing to delete log group {log_group!r} - not the proving ground's {target.log_group!r}")
+    tags = clients.logs.list_tags_log_group(logGroupName=log_group).get("tags") or {}
+    if tags.get(STACK_TAG[0]) != STACK_TAG[1]:
+        raise OpError(f"refusing to delete log group {log_group!r} - it is not tagged {STACK_TAG[0]}={STACK_TAG[1]}")
     clients.logs.delete_log_group(logGroupName=log_group)
     return {"deleted": log_group}
 
