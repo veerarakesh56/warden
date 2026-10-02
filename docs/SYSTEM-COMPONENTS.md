@@ -158,6 +158,9 @@ window.
 | CloudWatch Logs Insights | $0.005 per GB scanned (list price, read 2026-10-03) | WARDEN runs one query per log group per incident, over alert time +/- 15 min (requirement R22). UNCERTAIN: the ap-south-2 rate was not stated |
 | RDS Performance Insights (API) | free: 7 days of data and 1M API requests a month (read 2026-10-03) | WARDEN reads `db.load` by wait-event type per Aurora member (R22). Longer retention is CloudWatch Database Insights, paid, not used |
 | CloudWatch metrics and alarms | $0.30 per custom metric-month; $0.10 per standard alarm-month | 10 of each free |
+| CloudWatch GetMetricData | $0.01 per 1,000 metrics requested; no free tier (read 2026-10-03) | every evidence read of a metric; a few dozen per incident |
+| SQS requests | $0.40 per 1M (standard queues); first 1M a month free (read 2026-10-03) | the evidence reader's queue reads |
+| SNS requests | $0.50 per 1M API requests; first 1M a month free (read 2026-10-03) | the evidence reader's subscription list |
 | X-Ray | $5 per 1M traces stored; $0.50 per 1M retrieved | 100k stored free |
 | CloudWatch generative-AI observability | no separate charge stated; the underlying logs, spans and metrics are billed | UNCERTAIN |
 | Bedrock, Claude Sonnet 5 | $2 input / $10 output per 1M tokens (Anthropic list price, read 2026-10-03) | **the production model** (D12, 2026-10-03). India geo profile `in.anthropic.claude-sonnet-5` ACTIVE from ap-south-2. UNCERTAIN: the geo SKU may be +10%; checked in W-B |

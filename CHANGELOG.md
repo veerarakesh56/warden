@@ -134,6 +134,7 @@ bump may carry a breaking change.
 - **Evidence is read once the alert's last minutes have reached the log store** (requirement R23).
 - **Recovery needs three healthy checks in a row and holds through re-checks at T+15 and T+60** (register C18a, in part).
 - **Free-text configuration does not reach the model: descriptions and tags are never read** (register M11).
+- **Every billed AWS call has its price in the cost table, and a new call must be classified** (requirement R10).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
