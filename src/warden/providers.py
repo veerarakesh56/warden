@@ -114,6 +114,30 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 3)
 
 
+# Register M15: an alias - `sonnet`, `opus`, `*-latest`, ollama's `:latest` - moves when the vendor ships a new model,
+# so the same WARDEN, unchanged, diagnosed with a different model from one day to the next. Only an exact id is
+# accepted. Verified 2026-10-02 on the Claude models page: every Claude API id is a pinned snapshot, the dateless
+# ones from the 4.6 generation on included; the CLI's `sonnet` resolved to claude-sonnet-5-5 that day.
+_FLOATING = re.compile(r"(?i)^(?:sonnet|opus|haiku|fable|default|best|opusplan)(?:\[1m\])?$|[-:]latest$")
+
+
+def pinned(model: str) -> str:
+    """The model id, if it names one model; an alias that can move is refused."""
+    if not model or _FLOATING.search(model.strip()):
+        raise ProviderError(f"model {model!r} is an alias that moves to new models; name an exact model id "
+                            "(register M15)")
+    return model
+
+
+def _sdk_version(package: str) -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return f"{package} {version(package)}"
+    except PackageNotFoundError:
+        return f"{package} unknown"
+
+
 def _sdk_timeout_s() -> float:
     """Seconds a single provider request may take before its own socket times out.
 
@@ -146,7 +170,8 @@ class AnthropicProvider:
     def __init__(self, model: str | None = None) -> None:
         from anthropic import Anthropic
 
-        self.model = model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5")
+        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5"))
+        self.version = _sdk_version("anthropic")
         # Explicit base URL: the SDK would otherwise honour ANTHROPIC_BASE_URL and send the key there.
         self._client = Anthropic(base_url=ANTHROPIC_BASE_URL, timeout=_sdk_timeout_s(), max_retries=0)
 
@@ -177,7 +202,8 @@ class GeminiProvider:
         # ⚠ Model names expire. `gemini-2.0-flash` was the default here and the API answered
         # "no longer available ... use models/gemini-3.6-flash". A hardcoded model id is a dated
         # assumption, which is why WARDEN_MODEL overrides it without touching code.
-        self.model = model or os.environ.get("WARDEN_MODEL", "gemini-3.6-flash")
+        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "gemini-3.6-flash"))
+        self.version = _sdk_version("google-genai")
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             raise ProviderError("GEMINI_API_KEY is not set. Get a free key at aistudio.google.com.")
@@ -241,7 +267,8 @@ class OpenAICompatProvider:
     def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
         from openai import OpenAI
 
-        self.model = model or os.environ.get("WARDEN_MODEL", "gpt-4o-mini")
+        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "gpt-4o-mini"))
+        self.version = _sdk_version("openai")
         # Passed in by resolve() for the aliases; falls back to the env for an explicit custom host.
         # ALWAYS an explicit base URL: without one the SDK reads OPENAI_BASE_URL on its own, and the
         # OpenAI key then went to whatever host that named (independent review 2026-09-28).
@@ -349,7 +376,8 @@ class ClaudeCliProvider:
     def __init__(self, model: str | None = None) -> None:
         import shutil
 
-        self.model = model or os.environ.get("WARDEN_MODEL", "sonnet")
+        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5-5"))
+        self._version = ""
         self._exe = shutil.which("claude")
         if not self._exe:
             raise ProviderError(
@@ -470,6 +498,21 @@ class ClaudeCliProvider:
             raise error
         text = proc.stdout or ""
         return Completion(text, _estimate_tokens(system + user), _estimate_tokens(text))
+
+    @property
+    def version(self) -> str:
+        """`claude --version`, for the audit (register M15): `claude -p` pins the model, the CLI pins the rest."""
+        if not self._version:
+            import subprocess
+
+            try:
+                out = subprocess.run([self._exe, "--version"], capture_output=True, text=True, timeout=15,
+                                     check=False).stdout or ""
+            except (OSError, subprocess.SubprocessError):
+                out = ""
+            found = re.search(r"\d+(?:\.\d+)+", out)
+            self._version = f"claude-cli {found.group(0) if found else 'unknown'}"
+        return self._version
 
 
 # --------------------------------------------------------------------------- resolution

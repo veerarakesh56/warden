@@ -62,7 +62,7 @@ its audit rows.
 
 | # | What goes wrong | Fix | Group | Status | Evidence |
 |---|---|---|---|---|---|
-| M15 | **Model drift.** The provider changes the model or the CLI | Pin dated model ids; record model id and CLI/API version in the audit | G3 | OPEN | |
+| M15 | **Model drift.** The provider changes the model or the CLI | Pin dated model ids; record model id and CLI/API version in the audit | G3 | DONE-local | every provider takes only an exact model id, and an alias that moves (sonnet, opus, -latest, :latest) is refused; the CLI default is claude-sonnet-5-5, which the sonnet alias resolved to on 2026-10-02; the diagnose row's provenance records the CLI or SDK version (tests/test_model_pin_m15.py::test_an_alias_that_moves_is_refused, tests/test_model_pin_m15.py::test_the_cli_defaults_to_an_exact_id_and_reports_its_version, tests/test_model_pin_m15.py::test_the_version_is_in_the_diagnosis_provenance); plant-checked 2026-10-02 |
 | E6 | Model, prompt or CLI changes are not gated | The replay suite (Inspect AI, pass^k, McNemar) gates every change | G7 | OPEN | |
 | M10 | The alert name and summary reach the model as text | Rule id plus sanitised labels; the summary becomes quarantined evidence kind A. Accuracy measured on the replay set before keeping it | G3 | OPEN | |
 | M11 | Free-text config (Lambda descriptions, env values, tags) reaches the model | Allowlist env keys; quarantine free text | G3 | OPEN | |

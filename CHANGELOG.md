@@ -107,6 +107,7 @@ bump may carry a breaking change.
   A-B-L21).
 - **Without the model WARDEN escalates on its rules alone, and a daily cap spans incidents** (registers M19,
   M18, A-P-3, A-P-4).
+- **Only exact model ids, and the CLI or SDK version in every diagnosis's provenance** (register M15).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

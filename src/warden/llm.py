@@ -126,6 +126,11 @@ class LLMClient:
     def model(self) -> str:
         return "mock" if self.mock else getattr(self._provider, "model", "unknown")
 
+    @property
+    def provider_version(self) -> str:
+        """The CLI or SDK version that made the call (register M15)."""
+        return "mock" if self.mock else str(getattr(self._provider, "version", "unknown"))
+
     # ------------------------------------------------------------------ budget
 
     def _charge(self, in_tok: int, out_tok: int) -> None:

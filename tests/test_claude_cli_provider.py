@@ -104,13 +104,13 @@ def test_the_system_prompt_is_passed(provider, monkeypatch):
 
 def test_the_model_is_configurable(monkeypatch):
     monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/claude")
-    monkeypatch.setenv("WARDEN_MODEL", "opus")
+    monkeypatch.setenv("WARDEN_MODEL", "claude-opus-5-5")
     rec = _Recorder()
     monkeypatch.setattr(subprocess, "run", rec)
     p = ClaudeCliProvider()
-    assert p.model == "opus"
+    assert p.model == "claude-opus-5-5"
     p.complete(system="s", user="u")
-    assert rec.cmd[rec.cmd.index("--model") + 1] == "opus"
+    assert rec.cmd[rec.cmd.index("--model") + 1] == "claude-opus-5-5"
 
 
 def test_tokens_are_estimated_not_reported_as_zero(provider, monkeypatch):
