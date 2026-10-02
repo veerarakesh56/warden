@@ -28,6 +28,9 @@ from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
 from .observability import _safe_error
 
+MAX_APPROVAL_TTL_MINUTES = 240
+MAX_RECOVER_WITHIN_MINUTES = 120
+
 
 class FixRequest(BaseModel):
     incident_id: str
@@ -39,8 +42,10 @@ class FixRequest(BaseModel):
     # environment must match it (P18, register S6), and it is part of the plan hash and the workflow id.
     environment: str
     service: str
-    approval_ttl_minutes: int = 30
-    recover_within_minutes: int = 5
+    # Bounded (register O3): every verify check is a timer and an activity in the workflow's history, and Temporal
+    # caps a history at 50k events / 50 MB. The longest verify window allowed here stays near 2k events.
+    approval_ttl_minutes: int = Field(30, ge=1, le=MAX_APPROVAL_TTL_MINUTES)
+    recover_within_minutes: int = Field(5, ge=1, le=MAX_RECOVER_WITHIN_MINUTES)
 
     @field_validator("environment")
     @classmethod

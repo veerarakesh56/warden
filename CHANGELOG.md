@@ -123,6 +123,7 @@ bump may carry a breaking change.
   qualification).
 - **Approval fatigue: hasty approvals recorded, requests capped per hour, T2 and T3 approvers type the target**
   (register H1).
+- **A remediation's history is bounded: its windows are capped, and the worst case is measured** (register O3).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
