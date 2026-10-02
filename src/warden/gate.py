@@ -78,7 +78,7 @@ _REFDEF = re.compile(r"^\s{0,3}(?:(?:[-*+]|\d{1,9}[.)])\s+|>\s*)*" + _LABEL + r"
 # Any scheme, one letter too (`p://evil.com` - ninth review), and a bare `://host`.
 _URL = re.compile(r"(?:\b[a-z][a-z0-9+.\-]{0,30}://|(?<![\w:])://[\w-]+(?:\.|%2e)|\b(?:https?|mailto|data|javascript|vbscript|tel|slack|"
                   r"ms-teams|vscode|ssh|smb|file|sms|facetime|skype|zoommtg|itms-services):"
-                  r"|(?<![\w:/])//[\w-]+(?:\.|%2e))[^\s)>\]'\"]*", re.IGNORECASE)
+                  r"|(?<![\w:/])//[\w-]+(?:\.|%2e))[^\s)>\]'\"`]*", re.IGNORECASE)
 # An IP address with a port or a path is a link to a chat client.
 _IP_LINK = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?/\S*")
 # A tag, not a `<TENANT_1>` placeholder (placeholders carry `_`, which a tag name never does here).

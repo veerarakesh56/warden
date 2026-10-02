@@ -470,6 +470,8 @@ bump may carry a breaking change.
   on 3.11 it could not check whether a cited test's body ran.
 - The injection tripwire's mode can be set per environment (`tripwire:` in environments.yaml); the stricter of
   it and `WARDEN_TRIPWIRE` applies. No environment sets it yet (register R47, deferred).
+- A link removed from inside inline code keeps the closing backtick: the removal ran over it and left an
+  unclosed code span.
 - **Eighth independent review** (2026-10-01): the gate withheld every report quoting a masked cookie - its
   re-scan took `Cookie: <SECRET_1>` for a new secret, because the "nothing but placeholders" skip needed the
   redactor's map (a regression from a95f171; MED). The skip now goes by the value's shape, and no value class

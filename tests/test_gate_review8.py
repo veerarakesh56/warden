@@ -115,3 +115,10 @@ def test_a_one_letter_or_bare_scheme_is_still_a_link(text):
     """Ninth review: `x://evil.com` (one letter) passed unchanged, and so did a scheme broken by a tab."""
     out = gate.enforce(text.replace("\\t", "\t")).text
     assert "evil.com" not in out, out
+
+
+def test_a_link_inside_inline_code_is_removed_without_eating_the_closing_backtick():
+    """Found 2026-10-02: the URL match ran over the closing backtick, so `see `https://evil.com/x` now` became
+    `see `[link removed] now` - an unclosed code span that swallowed the rest of the line."""
+    result = gate.enforce("see `https://evil.com/x` now")
+    assert result.text == "see `[link removed]` now", result.text
