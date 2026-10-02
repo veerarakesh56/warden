@@ -62,7 +62,7 @@ def test_a_coloured_key_is_withheld_on_every_path(name):
     from warden.observability import GatedFormatter
 
     key = TOKENS[name]
-    line = f"login ok token={ESC}[1m{key}{ESC}[0m done"
+    line = f"login ok {ESC}[1m{key}{ESC}[0m done"  # no key name: `token=` masked the value with or without the fix
     assert key not in gate.for_terminal(line)
     assert gate.enforce(line).verdict == "BLOCK" or key not in gate.enforce(line).text
     assert gate.outbound_data({"log": [line]})[0] == "BLOCK"
