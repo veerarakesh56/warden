@@ -16,6 +16,7 @@ Two consumers:
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -124,6 +125,10 @@ class EnvironmentPolicies:
         default = cls._parse("default", doc.get("default", {}))
         envs: dict[str, EnvPolicy] = {}
         for name, raw in (doc.get("environments") or {}).items():
+            # The name becomes AWS names (`warden-<env>-...`, a role, an SSM path): lower-case letters, digits and
+            # dashes only (audit A-B-L12).
+            if not isinstance(name, str) or not _ENV_NAME.fullmatch(name):
+                raise EnvironmentPolicyError(f"environment name {name!r} must match {_ENV_NAME.pattern}")
             envs[name] = cls._parse(name, raw)
         if not envs:
             raise EnvironmentPolicyError("environment policy defines no environments")
@@ -155,13 +160,25 @@ class EnvironmentPolicies:
         return EnvPolicy(
             name=name,
             tier=str(raw.get("tier", "unknown")),
-            auto_remediate=bool(raw.get("auto_remediate", False)),
-            require_human_approval=bool(raw.get("require_human_approval", True)),
+            auto_remediate=_flag(name, raw, "auto_remediate", False),
+            require_human_approval=_flag(name, raw, "require_human_approval", True),
             allow_actions=allow,
             deny_actions=deny,
             authorized_principals=frozenset(str(p) for p in principals),
             credentials_ref=raw.get("credentials_ref"),
         )
+
+
+_ENV_NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
+
+
+def _flag(name: str, raw: dict[str, Any], key: str, default: bool) -> bool:
+    """A YAML boolean, nothing else: `bool("false")` is True, and read so a quoted "false" armed auto_remediate
+    (audit A-B-L12)."""
+    value = raw.get(key, default)
+    if not isinstance(value, bool):
+        raise EnvironmentPolicyError(f"{name}: {key} must be true or false, not {value!r}")
+    return value
 
 
 _DEFAULT: EnvironmentPolicies | None = None

@@ -138,3 +138,29 @@ def test_wardens_own_runtime_environment_has_names_but_no_app_role():
     assert (n.prefix, n.ssm, n.tags) == ("warden-ops", "/warden/ops/", {"Project": "warden", "Environment": "ops"})
     ops = policies.for_env("ops")
     assert [a for a in ActionKind if ops.permits(a)] == [ActionKind.no_action, ActionKind.escalate_to_human]
+
+
+@pytest.mark.parametrize("value", ["false", "no", 0, "off", None])
+def test_a_flag_that_is_not_a_yaml_boolean_is_refused(tmp_path, value):
+    """Audit A-B-L12: `bool("false")` is True - a quoted "false" armed auto_remediate."""
+    import yaml
+
+    from warden.environments import EnvironmentPolicies, EnvironmentPolicyError
+
+    path = tmp_path / "envs.yaml"
+    path.write_text(yaml.safe_dump({"environments": {"dev": {"auto_remediate": value}}}), encoding="utf-8")
+    with pytest.raises(EnvironmentPolicyError, match="auto_remediate must be true or false"):
+        EnvironmentPolicies.load(path)
+
+
+@pytest.mark.parametrize("name", ["Prod", "prod;x", "pre prod", "-dev", "a" * 40, "x_y"])
+def test_an_environment_name_that_cannot_be_an_aws_name_is_refused(tmp_path, name):
+    """Audit A-B-L12: the name becomes `warden-<env>-...` AWS names, a role and an SSM path."""
+    import yaml
+
+    from warden.environments import EnvironmentPolicies, EnvironmentPolicyError
+
+    path = tmp_path / "envs.yaml"
+    path.write_text(yaml.safe_dump({"environments": {name: {"auto_remediate": False}}}), encoding="utf-8")
+    with pytest.raises(EnvironmentPolicyError, match="environment name"):
+        EnvironmentPolicies.load(path)
