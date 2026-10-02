@@ -208,7 +208,11 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
             with contextlib.suppress(Exception):
                 busy.close()
 
-        assert platform_db._Postgres.terminate(admin, [victim_pid]) == 1
+        # The close re-checks the selection on the real server (register R7-O1): too young, or another login,
+        # closes nothing.
+        assert platform_db._Postgres.terminate(admin, [victim_pid], 3600, [PG_USER]) == 0
+        assert platform_db._Postgres.terminate(admin, [victim_pid], 0, ["someone_else"]) == 0
+        assert platform_db._Postgres.terminate(admin, [victim_pid], 0, [PG_USER]) == 1
 
         def still_there():
             with admin.cursor() as cur:
@@ -290,7 +294,11 @@ def test_mysql_terminate_actually_kills_the_sleeping_transaction():
             with contextlib.suppress(Exception):
                 busy.close()
 
-        assert platform_db._MySQL.terminate(admin, [victim_id]) == 1
+        # The close re-checks the selection on the real server (register R7-O1): too young, or another login,
+        # closes nothing.
+        assert platform_db._MySQL.terminate(admin, [victim_id], 3600, [MYSQL_USER]) == 0
+        assert platform_db._MySQL.terminate(admin, [victim_id], 0, ["someone_else"]) == 0
+        assert platform_db._MySQL.terminate(admin, [victim_id], 0, [MYSQL_USER]) == 1
         def still_there():
             with admin.cursor() as cur:
                 cur.execute("SELECT count(*) FROM information_schema.processlist WHERE id = %s", (victim_id,))
@@ -432,7 +440,11 @@ def test_mssql_terminate_actually_kills_the_sleeping_transaction():
                 with contextlib.suppress(Exception):
                     c.close()
 
-        assert platform_db._MSSQL.terminate(admin, [victim_spid]) == 1
+        # The close re-checks the selection on the real server (register R7-O1): too young, or another login,
+        # closes nothing.
+        assert platform_db._MSSQL.terminate(admin, [victim_spid], 3600, [MSSQL_USER]) == 0
+        assert platform_db._MSSQL.terminate(admin, [victim_spid], 0, ["someone_else"]) == 0
+        assert platform_db._MSSQL.terminate(admin, [victim_spid], 0, [MSSQL_USER]) == 1
         def still_there():
             ac = admin.cursor()
             ac.execute("SELECT count(*) FROM sys.dm_exec_sessions WHERE session_id = %d", (victim_spid,))
