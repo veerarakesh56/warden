@@ -410,7 +410,7 @@ def test_an_old_deployment_is_outside_the_window():
 def test_a_naive_datetime_from_a_stub_does_not_raise():
     """boto3 returns tz-aware datetimes; nothing should explode if something else does not."""
     deployments = [{
-        "status": "PRIMARY", "createdAt": datetime.now(),  # noqa: DTZ005 - deliberate
+        "status": "PRIMARY", "createdAt": NOW.replace(tzinfo=None),  # naive UTC, deliberate
         "taskDefinition": "arn:aws:ecs:eu-west-1:1:task-definition/checkout:7",
     }]
     ecs = FakeEcs(services=[_service(deployments=deployments)], task_defs={

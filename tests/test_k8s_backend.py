@@ -38,6 +38,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # --------------------------------------------------------------------------- fakes
 
 
+ALERT_AT = datetime(2026, 8, 22, tzinfo=UTC)  # _alert's started_at: deploys are dated from it (A-B-M10)
+
+
 def _alert(**labels):
     return Alert(
         alert_id="k8s-1", name="PodOOMKilled", severity=Severity.high, service="checkout",
@@ -114,7 +117,7 @@ def _rs(revision, images, *, created=None, owner_uid="dep-uid"):
     return NS(
         metadata=NS(
             annotations={"deployment.kubernetes.io/revision": str(revision)},
-            creation_timestamp=created or datetime.now(UTC),
+            creation_timestamp=created or ALERT_AT - timedelta(minutes=5),
             owner_references=[NS(kind="Deployment", uid=owner_uid)],
         ),
         spec=NS(template=NS(spec=NS(containers=[NS(image=i) for i in images]))),
@@ -300,8 +303,8 @@ def test_log_reads_are_capped_and_newest_first(monkeypatch):
 
 
 def test_image_change_is_a_deploy():
-    rs = [_rs(1, ["acme/checkout:old"], created=datetime.now(UTC) - timedelta(days=2)),
-          _rs(2, ["acme/checkout:new"], created=datetime.now(UTC) - timedelta(minutes=5))]
+    rs = [_rs(1, ["acme/checkout:old"], created=ALERT_AT - timedelta(days=2)),
+          _rs(2, ["acme/checkout:new"], created=ALERT_AT - timedelta(minutes=5))]
     d = _backend(apps=FakeApps(replicasets=rs)).deploys(_alert())
     assert len(d) == 1
     assert d[0]["revision"] == "2" and "new" in d[0]["image"] and "old" in d[0]["previous_image"]
@@ -310,8 +313,8 @@ def test_image_change_is_a_deploy():
 def test_rollout_restart_is_not_a_deploy():
     """Review finding: a `kubectl rollout restart` bumps the revision with the image unchanged, and
     was reported as a deploy - so policy P5 would have allowed a 'rollback' that changes nothing."""
-    rs = [_rs(1, ["acme/checkout:9f2c1ab"], created=datetime.now(UTC) - timedelta(days=2)),
-          _rs(2, ["acme/checkout:9f2c1ab"], created=datetime.now(UTC) - timedelta(minutes=5))]
+    rs = [_rs(1, ["acme/checkout:9f2c1ab"], created=ALERT_AT - timedelta(days=2)),
+          _rs(2, ["acme/checkout:9f2c1ab"], created=ALERT_AT - timedelta(minutes=5))]
     assert _backend(apps=FakeApps(replicasets=rs)).deploys(_alert()) == []
 
 
@@ -331,20 +334,20 @@ def test_init_container_only_image_change_is_a_deploy():
                 containers=[NS(image=app_img)],
             ))),
         )
-    rs = [_rs_init(1, "app:v9", "migrate:v1", datetime.now(UTC) - timedelta(days=2)),
-          _rs_init(2, "app:v9", "migrate:v2", datetime.now(UTC) - timedelta(minutes=5))]
+    rs = [_rs_init(1, "app:v9", "migrate:v1", ALERT_AT - timedelta(days=2)),
+          _rs_init(2, "app:v9", "migrate:v2", ALERT_AT - timedelta(minutes=5))]
     d = _backend(apps=FakeApps(replicasets=rs)).deploys(_alert())
     assert len(d) == 1, "an init-container-only image change must be detected as a deploy"
 
 
 def test_first_rollout_counts():
-    rs = [_rs(1, ["acme/checkout:v1"], created=datetime.now(UTC) - timedelta(minutes=5))]
+    rs = [_rs(1, ["acme/checkout:v1"], created=ALERT_AT - timedelta(minutes=5))]
     assert len(_backend(apps=FakeApps(replicasets=rs)).deploys(_alert())) == 1
 
 
 def test_old_change_is_not_evidence():
-    rs = [_rs(1, ["a:1"], created=datetime.now(UTC) - timedelta(days=9)),
-          _rs(2, ["a:2"], created=datetime.now(UTC) - timedelta(days=3))]
+    rs = [_rs(1, ["a:1"], created=ALERT_AT - timedelta(days=9)),
+          _rs(2, ["a:2"], created=ALERT_AT - timedelta(days=3))]
     assert _backend(apps=FakeApps(replicasets=rs)).deploys(_alert()) == []
 
 

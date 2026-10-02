@@ -20,8 +20,33 @@ import pathlib
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from .models import Alert, ContextBundle
+
+# A change made this long after the alert started still counts: clocks differ between a monitor and a control plane.
+DEPLOY_AFTER_ALERT = timedelta(minutes=float(os.environ.get("WARDEN_DEPLOY_AFTER_ALERT_M", "2")))
+
+
+def alert_time(alert: Alert) -> datetime:
+    """The alert's own start time, or now if it cannot be parsed. Never raises: an unparseable timestamp must not
+    lose the evidence, and `now` reads the most recent window rather than one from 1970."""
+    raw = (alert.started_at or "").strip()
+    if raw:
+        try:
+            parsed = datetime.fromisoformat(raw)  # 3.11+ parses a trailing Z natively
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+    return datetime.now(UTC)
+
+
+def deploy_in_window(alert: Alert, at: datetime | None, window: timedelta) -> bool:
+    """Whether a change reached production in the `window` before the alert started. Measured from the alert, not from
+    now: a replayed or late incident took any change of the last hours, and one made AFTER the alert - often the first
+    attempt at a fix - is no cause of it (audit A-B-M10)."""
+    started = alert_time(alert)
+    return at is not None and started - window <= at <= started + DEPLOY_AFTER_ALERT
 from .observability import _safe_error, span
 
 # Fixtures live INSIDE the package and are shipped as package data.

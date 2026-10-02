@@ -72,6 +72,8 @@ bump may carry a breaking change.
   subscriptions were read one page deep. A cap now says when it is reached.
 - **A Lambda environment value is shown only under a configuration name** (audit A-B-M9). The name deny-list
   let `DATABASE_URL=postgres://user:pw@...` out.
+- **A deploy counts only in the window before the alert** (audit A-B-M10). Measured from now, a replayed or
+  late incident took any recent change, including a fix attempt made after the alert.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

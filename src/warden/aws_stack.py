@@ -56,7 +56,7 @@ from .aws_backend import (
 )
 from .environments import strip_prefix
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError, failure
+from .tools import PARTIAL_PREFIX, ToolError, deploy_in_window, failure
 
 # Re-exported so the report/harness can import the windows from the backend they describe.
 __all__ = [
@@ -472,7 +472,7 @@ class StackBackend:
         return best if calls > 0 else ""
 
     def _in_window(self, alert: Alert, at: datetime | None) -> bool:
-        return at is not None and at >= AwsBackend._started_at(alert) - RECENT_DEPLOY_WINDOW
+        return deploy_in_window(alert, at, RECENT_DEPLOY_WINDOW)
 
     # ------------------------------------------------------------------ lambda
 

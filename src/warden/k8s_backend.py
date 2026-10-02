@@ -60,7 +60,7 @@ import os
 from datetime import UTC, datetime, timedelta
 
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError, failure, failure_tag
+from .tools import PARTIAL_PREFIX, ToolError, deploy_in_window, failure, failure_tag
 
 # Socket timeouts for every API call: (connect, read). The read timeout must be shorter than the
 # tool deadline in tools.py so the worker thread ends on its own instead of being abandoned.
@@ -421,7 +421,7 @@ class KubernetesBackend:
             return []  # revision moved, template did not: a restart, not a deploy
 
         changed_at = _aware(current.metadata.creation_timestamp)
-        if changed_at is None or (datetime.now(UTC) - changed_at) > RECENT_DEPLOY_WINDOW:
+        if not deploy_in_window(alert, changed_at, RECENT_DEPLOY_WINDOW):
             return []
 
         return [{

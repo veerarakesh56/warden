@@ -76,7 +76,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError, failure
+from .tools import PARTIAL_PREFIX, ToolError, alert_time, deploy_in_window, failure
 
 # (connect, read) seconds. See note 2 in the module docstring about the budget.
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_AWS_CONNECT_TIMEOUT", "2.0"))
@@ -174,14 +174,7 @@ class AwsBackend:
         Never raises: an unparseable timestamp must not lose the logs, and `now` is the honest
         fallback — it reads the most recent window rather than a window from 1970.
         """
-        raw = (alert.started_at or "").strip()
-        if raw:
-            try:
-                parsed = datetime.fromisoformat(raw)  # 3.11+ parses a trailing Z natively
-                return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-            except ValueError:
-                pass
-        return datetime.now(UTC)
+        return alert_time(alert)
 
     def _describe_service(self, alert: Alert) -> dict:
         """The one ECS read every method needs. Missing service raises — see note 4."""
@@ -367,8 +360,8 @@ class AwsBackend:
             return []
 
         created = _aware(primary.get("createdAt"))
-        if created is None or (datetime.now(UTC) - created) > RECENT_DEPLOY_WINDOW:
-            return []  # nothing changed recently; P5 then refuses a rollback
+        if not deploy_in_window(alert, created, RECENT_DEPLOY_WINDOW):
+            return []  # nothing changed in the window before the alert; P5 then refuses a rollback
 
         task_def_arn = primary.get("taskDefinition") or service.get("taskDefinition") or ""
         family, revision = _family_revision(task_def_arn)
