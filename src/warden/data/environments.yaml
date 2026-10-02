@@ -44,6 +44,9 @@ version: 1
 # The AWS region every environment runs in (owner requirement R17: Hyderabad). Code never names a region: it asks
 # environments.region(), which honours AWS_REGION first, as every AWS tool does; Terraform and the IAM templates
 # read this value too.
+# Every time WARDEN shows - reports, Slack, the CLI - is stored in UTC and shown in UTC and in this IANA zone too
+# (owner requirement R4). WARDEN_DISPLAY_ZONE overrides it per install.
+display_zone: Asia/Kolkata
 aws_region: ap-south-2
 
 # WARDEN's OWN environment: the runtime (runtime.yml in G6; names warden-ops-*, parameters under

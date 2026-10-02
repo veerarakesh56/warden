@@ -88,9 +88,10 @@ class EnvPolicy:
 
 class EnvironmentPolicies:
     def __init__(self, default: EnvPolicy, environments: dict[str, EnvPolicy], runtime: str | None = None,
-                 aws_region: str | None = None) -> None:
+                 aws_region: str | None = None, display_zone: str | None = None) -> None:
         self.runtime_environment = runtime
         self.aws_region = aws_region
+        self.display_zone = display_zone
         self._default = default
         self._envs = environments
 
@@ -144,7 +145,10 @@ class EnvironmentPolicies:
         region = doc.get("aws_region")
         if region is not None and not (isinstance(region, str) and _REGION.fullmatch(region)):
             raise EnvironmentPolicyError(f"`aws_region` is not a region name: {region!r}")
-        return cls(default, envs, runtime, region)
+        zone = doc.get("display_zone")
+        if zone is not None and not _is_zone(zone):
+            raise EnvironmentPolicyError(f"`display_zone` is not an IANA time zone: {zone!r}")
+        return cls(default, envs, runtime, region, zone)
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:
@@ -257,6 +261,41 @@ def names(env: str) -> EnvNames:
 
 
 _REGION = re.compile(r"[a-z]{2}(?:-[a-z]+)+-\d")
+
+
+def _is_zone(name: object) -> bool:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(str(name))
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+    return isinstance(name, str)
+
+
+def display_zone():
+    """The zone times are shown in beside UTC (owner requirement R4): WARDEN_DISPLAY_ZONE, else environments.yaml
+    `display_zone`, else UTC alone. A ZoneInfo, so daylight saving is the zone's own."""
+    from zoneinfo import ZoneInfo
+
+    name = os.environ.get("WARDEN_DISPLAY_ZONE") or default_environment_policies().display_zone or "UTC"
+    if not _is_zone(name):
+        raise EnvironmentPolicyError(f"WARDEN_DISPLAY_ZONE is not an IANA time zone: {name!r}")
+    return ZoneInfo(name)
+
+
+def both_times(t, *, seconds: bool = True) -> str:
+    """`2026-10-03 01:00:00Z (06:30 IST)` - UTC, and the display zone when it is not UTC (requirement R4)."""
+    from datetime import UTC
+
+    t = t.astimezone(UTC)
+    utc = t.strftime("%Y-%m-%d %H:%M:%SZ" if seconds else "%Y-%m-%d %H:%MZ")
+    zone = display_zone()
+    if str(zone) == "UTC":
+        return utc
+    local = t.astimezone(zone)
+    day = "" if local.date() == t.date() else f"{local:%Y-%m-%d} "
+    return f"{utc} ({day}{local:%H:%M} {local.tzname()})"
 
 
 def region() -> str:

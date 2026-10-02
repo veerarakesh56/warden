@@ -77,7 +77,7 @@ def test_the_warning_comes_before_the_command_it_warns_about():
 
 
 @pytest.mark.parametrize("backend,must,must_not", [
-    ("aws", ["CloudWatch Logs `/ecs/checkout`: 12:16 to 12:46 UTC on 2026-09-24"], []),
+    ("aws", ["CloudWatch Logs `/ecs/checkout`: 2026-09-24 12:16Z (17:46 IST) to 2026-09-24 12:46Z (18:16 IST)"], []),
     ("k8s", ["last 40 log lines per container", "Not read: CloudWatch"], ["CloudWatch Logs `"]),
     ("postgres", ["pg_stat_activity", "Not read: database logs, CloudWatch, Performance Insights"], []),
     (None, ["recorded demo incident"], ["CloudWatch Logs"]),

@@ -34,7 +34,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
-from .environments import EnvironmentPolicies, default_environment_policies
+from .environments import EnvironmentPolicies, both_times, default_environment_policies
 from .gate import hedge
 from .knowledge import SignatureMatch
 from .models import Alert, ContextBundle, RemediationProposal, RootCause, Verdict
@@ -227,7 +227,7 @@ def _timeline(alert: Alert, ctx: ContextBundle) -> list[tuple[str, str]]:
         if len(errors) > 1:
             events.append((errors[-1][0], f"latest error ({len(errors)} error lines in total)"))
     events.sort(key=lambda e: e[0])
-    return [(t.strftime("%Y-%m-%d %H:%M:%SZ"), what) for t, what in events]
+    return [(both_times(t), what) for t, what in events]
 
 
 # --------------------------------------------------------------------------- scrubbing
@@ -352,8 +352,8 @@ def _sources(alert: Alert, backend: str | None, ctx: ContextBundle | None = None
 
         group = alert.labels.get("log_group", f"/ecs/{alert.labels.get('ecs_service', alert.service)}")
         if started:
-            span = (f"{(started - LOG_LOOKBACK):%H:%M} to {(started + LOG_LOOKBACK):%H:%M} UTC on "
-                    f"{started:%Y-%m-%d}")
+            span = (f"{both_times(started - LOG_LOOKBACK, seconds=False)} to "
+                    f"{both_times(started + LOG_LOOKBACK, seconds=False)}")
         else:
             span = f"alert time ± {int(LOG_LOOKBACK.total_seconds() // 60)} min"
         return [
@@ -618,7 +618,9 @@ def _render_markdown(d: dict) -> str:
 
     lines.append(f"# WARDEN incident report - {a['service']} ({a['environment']})")
     lines.append(f"Alert name {untrusted_inline(a['name'])}")
-    lines.append(f"Severity **{a['severity']}** | alert {_c(a['id'])} | started {a.get('started_at') or 'unknown'}")
+    started = _parse_ts(a.get("started_at") or "")
+    lines.append(f"Severity **{a['severity']}** | alert {_c(a['id'])} | started "
+                 f"{both_times(started) if started else a.get('started_at') or 'unknown'}")
     if v:
         lines.append(f"**Next step: {_NEXT_STEP.get(v['status'], v['status'])}**")
     lines.append("")
@@ -734,7 +736,7 @@ def _render_markdown(d: dict) -> str:
         lines.append(" | ".join(f"{_c(k)} = **{_num(val)}**" for k, val in sorted(ev["metrics"].items())))
         lines.append("")
     if ev["timeline"]:
-        lines.append("## Timeline (UTC)")
+        lines.append("## Timeline (UTC, local time in brackets)")
         lines.extend(f"- {_c(t)} {what}" for t, what in ev["timeline"])
         lines.append("")
     if ev["affected"]:
