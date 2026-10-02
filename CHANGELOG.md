@@ -77,6 +77,9 @@ bump may carry a breaking change.
 - **A log line cannot make WARDEN read a non-Python file, and a metric read that fails says so** (audit
   A-B-M17, A-B-M18). A forged traceback path read the package's `.env` into the evidence. A failed or partial
   CloudWatch read vanished, and its absence read as "not elevated".
+- **Database reads close their connections, and count only what is stuck** (audit A-B-L7, A-B-L8, A-B-L9).
+  Every read left a connection open. Mongo's `currentOp` is now filtered on the server. A Postgres session is
+  idle in a transaction only past the threshold.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

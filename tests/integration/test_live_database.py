@@ -167,6 +167,8 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
             )
             state, age = cur.fetchone()
         assert state == "idle in transaction", f"victim is {state!r}, not idle in transaction"
+        # A second idle is no stuck session (audit A-B-L9): the count needs the threshold.
+        assert platform_db_metrics_idle(admin) == 0, "a session idle for a second was counted as stuck"
 
         if age is not None and float(age) < 0:
             # The server stamped this connection in the FUTURE - a host clock step, which Docker
@@ -455,3 +457,7 @@ def test_mssql_terminate_actually_kills_the_sleeping_transaction():
         with contextlib.suppress(Exception):
             victim.close()
         admin.close()
+
+
+def platform_db_metrics_idle(admin) -> float:
+    return _Postgres.metrics(admin)["idle_in_transaction"]

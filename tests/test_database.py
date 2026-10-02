@@ -284,7 +284,8 @@ class _MongoStub:
     def command(self, name, *args, **kw):
         if name == "serverStatus":
             return {"connections": self._conns}
-        return {"inprog": self._ops}
+        least = ((args[0] if args else {}).get("secs_running") or {}).get("$gte", 0)
+        return {"inprog": [op for op in self._ops if op.get("secs_running", 0) >= least]}
 
 
 def test_mongo_metrics_count_long_running_ops():
@@ -634,3 +635,62 @@ def test_a_lock_waiter_is_not_counted_as_a_long_running_query():
     _Postgres.metrics(conn)
     long_q = next(q for q in captured if "60 seconds" in q)
     assert "wait_event_type IS DISTINCT FROM 'Lock'" in long_q
+
+
+def test_mongo_asks_the_server_for_long_running_ops_only():
+    """Audit A-B-L8: currentOp came back unfiltered - one document, capped at 16 MB - and was filtered here."""
+    asked = []
+
+    class Recording(_MongoStub):
+        def command(self, name, *args, **kw):
+            asked.append((name, args))
+            return super().command(name, *args, **kw)
+
+    conn = Recording(ops=[{"secs_running": 900, "opid": 1, "ns": "warden.orders", "command": {"find": "o"}}])
+    _Mongo.metrics(conn)
+    _Mongo.problem_ops(conn, 300)
+    filters = [a[0] for n, a in asked if n == "currentOp"]
+    assert filters == [{"active": True, "secs_running": {"$gte": 60}}, {"active": True, "secs_running": {"$gte": 300}}]
+
+
+def test_postgres_counts_only_sessions_idle_in_a_transaction_past_the_threshold():
+    """Audit A-B-L9: a session between two statements of a transaction is idle for milliseconds."""
+    conn = _SqlStub({"idle in transaction": [(0,)], "SHOW max_connections": [(100,)], "count(*)": [(3,)]})
+    _Postgres.metrics(conn)
+    idle = [q for q in conn.asked if "idle in transaction" in q]
+    assert idle and all("state_change < now() - make_interval" in q for q in idle), idle
+
+
+def test_every_connection_a_read_opens_is_closed(monkeypatch):
+    """Audit A-B-L7: each metrics() and logs() call opened a connection and never closed it."""
+    from warden import database
+
+    opened, closed = [], []
+
+    class Conn:
+        def close(self):
+            closed.append(self)
+
+    class Adapter:
+        engine = "postgres"
+
+        @staticmethod
+        def connect(dsn):
+            opened.append(Conn())
+            return opened[-1]
+
+        @staticmethod
+        def metrics(conn):
+            raise RuntimeError("permission denied")
+
+        @staticmethod
+        def problem_ops(conn, idle):
+            return []
+
+    monkeypatch.setattr(database, "adapter_for", lambda engine: Adapter)
+    backend = DatabaseBackend(dsn="postgresql://db.example/orders", engine="postgres")
+    with pytest.raises(Exception):  # noqa: B017 - the failed read still closes
+        backend.metrics(_alert())
+    backend.logs(_alert())
+    assert len(opened) == 2 and closed == opened
+

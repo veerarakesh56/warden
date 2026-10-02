@@ -18,6 +18,7 @@ that engine is an optional extra (`pip install -e ".[postgres]"` …), imported 
 
 from __future__ import annotations
 
+import contextlib
 import os
 from urllib.parse import urlparse
 
@@ -93,7 +94,10 @@ class _Postgres:
     def metrics(cls, conn) -> dict[str, float]:
         r = cls._rows
         total = r(conn, "SELECT count(*) FROM pg_stat_activity")[0][0]
-        idle_tx = r(conn, "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction'")[0][0]
+        # Only those idle that long (audit A-B-L9): an application between two statements of a transaction is
+        # "idle in transaction" for milliseconds, and counting it called a healthy pool stuck.
+        idle_tx = r(conn, "SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction' "
+                          "AND state_change < now() - make_interval(secs => %s)", (IDLE_SECS,))[0][0]
         # Lock WAITERS are excluded: they are `active` too, and on RDS db-05 two sessions queued
         # behind a lock were counted as two long-running queries. They are `locks_waiting`.
         long_q = r(conn, "SELECT count(*) FROM pg_stat_activity WHERE state = 'active' "
@@ -366,7 +370,9 @@ class _Mongo:
         conns = status.get("connections", {})
         current = float(conns.get("current", 0))
         available = float(conns.get("available", 0))
-        ops = conn.admin.command("currentOp", {"active": True})
+        # Filtered on the server (audit A-B-L8): the unfiltered answer is one document, capped at 16 MB, and a busy
+        # server's every operation came back to be filtered here.
+        ops = conn.admin.command("currentOp", {"active": True, "secs_running": {"$gte": 60}})
         # USER ops only. Counting the server's own heartbeats here reported a healthy cluster as
         # having several long-running operations, every single time.
         user_ops = [op for op in ops.get("inprog", []) if _mongo_is_user_op(op)]
@@ -382,7 +388,7 @@ class _Mongo:
 
     @classmethod
     def problem_ops(cls, conn, idle_secs: int) -> list[str]:
-        ops = conn.admin.command("currentOp", {"active": True})
+        ops = conn.admin.command("currentOp", {"active": True, "secs_running": {"$gte": int(idle_secs)}})
         out = []
         for op in ops.get("inprog", []):
             if not _mongo_is_user_op(op):
@@ -485,26 +491,38 @@ class DatabaseBackend:
             self._dsn = dsn  # may be None; resolved per-alert from labels/env
             self._engine = engine
 
+    @contextlib.contextmanager
     def _resolve(self, alert: Alert):
+        """The adapter and a connection, closed after the read when this opened it (audit A-B-L7: every read opened a
+        connection and left it open - the very pool exhaustion WARDEN is asked to diagnose)."""
         # An injected connection needs no DSN — it is already open, and demanding credentials for a
-        # connection somebody else supplied (a pool, a test) would be a pointless failure.
+        # connection somebody else supplied (a pool, a test) would be a pointless failure. It is the caller's.
         if self._injected is not None:
-            return adapter_for(self._engine), self._injected
+            yield adapter_for(self._engine), self._injected
+            return
         dsn = self._dsn or dsn_of(alert)
         engine = self._engine or engine_of(dsn)
         adapter = adapter_for(engine)
-        conn = self._injected if self._injected is not None else adapter.connect(dsn)
-        return adapter, conn
+        conn = adapter.connect(dsn)
+        try:
+            yield adapter, conn
+        finally:
+            with contextlib.suppress(Exception):
+                conn.close()
 
     def metrics(self, alert: Alert) -> dict[str, float]:
-        adapter, conn = self._resolve(alert)
-        try:
-            return adapter.metrics(conn)
-        except Exception as exc:
-            raise ToolError(f"database metrics read failed: {_one_line(exc)}") from exc
+        with self._resolve(alert) as (adapter, conn):
+            try:
+                return adapter.metrics(conn)
+            except Exception as exc:
+                raise ToolError(f"database metrics read failed: {_one_line(exc)}") from exc
 
     def logs(self, alert: Alert) -> list[str]:
-        adapter, conn = self._resolve(alert)
+        with self._resolve(alert) as (adapter, conn):
+            return self._logs(adapter, conn)
+
+    @staticmethod
+    def _logs(adapter, conn) -> list[str]:
         try:
             ops = adapter.problem_ops(conn, IDLE_SECS)
         except Exception as exc:  # noqa: BLE001 - partial: metrics may still be usable
