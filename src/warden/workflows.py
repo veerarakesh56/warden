@@ -58,10 +58,18 @@ class RemediationWorkflow:
         self._plan: Plan | None = None
         self._stage = "planning"
         self._applying = False  # set the moment apply is sent: from then on the target's state is not known
+        self._alarm_at = ""  # the target's alarm fired during the verify window (register C1)
 
     @workflow.signal
     def approve(self, approval: SignedApproval) -> None:
         self._inbox.append(approval)
+
+    @workflow.signal
+    def alarm(self, at: str) -> None:
+        """The target's alarm fired again (register C1, from intake). Inside the verify window that is the fix not
+        working: the run stops verifying and rolls back. Before the change it is the incident itself, and ignored."""
+        if self._stage == "verifying":
+            self._alarm_at = at
 
     @workflow.query
     def stage(self) -> str:
@@ -159,10 +167,13 @@ class RemediationWorkflow:
         self._stage = "verifying"
         until = workflow.now() + timedelta(minutes=req.recover_within_minutes)
         recovered = False
-        while workflow.now() < until and not recovered:
+        while workflow.now() < until and not recovered and not self._alarm_at:
             await workflow.sleep(CHECK_EVERY)
+            if self._alarm_at:
+                break  # the alarm fired again: not recovered, whatever a check said before it (register C1)
             recovered = await workflow.execute_activity_method(acts.check_success, args=[plan, req.service],
                                                                **QUICK)
+        recovered = recovered and not self._alarm_at
         # The verdict is WARDEN's audit of THIS run's own checks, returned with the run it belongs to: a
         # result replayed from an earlier run of this workflow id carries that run's id and is refused.
         recorded = await workflow.execute_activity_method(acts.record_result, args=[plan, req.service, recovered],
@@ -182,7 +193,8 @@ class RemediationWorkflow:
             # The run still ends on the record, signed: a failed rollback crashed the workflow with no end row
             # (sixth review, 2026-10-01). The activity tripped the kill switch; a person takes it from here.
             return await end("rollback_failed", [f"{req.service} did not recover, and {exc.cause or exc}"])
-        why = f"{req.service} did not recover within {req.recover_within_minutes} min"
+        why = (f"{req.service}'s alarm fired again during the verify window, at {self._alarm_at} (register C1)"
+               if self._alarm_at else f"{req.service} did not recover within {req.recover_within_minutes} min")
         # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
         # fix left it, unhealthy - a person (sixth review, 2026-10-01).
         if str(undone).startswith("nothing to roll back"):
@@ -213,15 +225,29 @@ class IncidentWorkflow:
     from live state; that arrives with the real platforms (Phase 4). Until then a proposal is advice.
     """
 
+    def __init__(self) -> None:
+        self._repeats: list[str] = []
+
+    @workflow.signal
+    def repeat(self, at: str) -> None:
+        """The same alarm fired again while this incident is open (register C2): counted here, not a second incident."""
+        self._repeats.append(at)
+
+    @workflow.query
+    def repeats(self) -> list[str]:
+        return list(self._repeats)
+
     @workflow.run
-    async def run(self, alert: Alert) -> RunReport:
+    async def run(self, alert: Alert, escalate_only: str = "") -> RunReport:
+        """`escalate_only`: intake's reason to hand this alarm to a person on the rules alone (flapping, a storm),
+        without asking the model to propose a change (registers C21, C2)."""
         acts = IncidentActivities
         pack = await workflow.execute_activity_method(acts.prepare, args=[alert], **PREPARE)
         # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
         # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
         # (fourth review, 2026-09-30).
         diagnosed = await workflow.execute_activity_method(
-            acts.diagnose, args=[pack], start_to_close_timeout=timedelta(minutes=10),
+            acts.diagnose, args=[pack, escalate_only], start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=1))
         verified = await workflow.execute_activity_method(acts.verify, args=[pack, diagnosed], **QUICK)
         if diagnosed.model_unavailable:

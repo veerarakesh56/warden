@@ -177,6 +177,7 @@ class RemediationActivities:
                     problems=problems, target=key, environment=req.environment, basis=basis)
         self.audit.append(req.incident_id, "remediation.plan",
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
+                           "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
                            "problems": problems})
         return plan
@@ -466,7 +467,7 @@ class IncidentActivities:
                             masked=len(state.get("redaction_map", {})), steps=steps)
 
     @activity.defn
-    def diagnose(self, pack: EvidencePack) -> Diagnosed:
+    def diagnose(self, pack: EvidencePack, escalate_only: str = "") -> Diagnosed:
         from . import graph
         from .llm import LLMClient
 
@@ -482,9 +483,9 @@ class IncidentActivities:
         today = self._spent_since(datetime.now(UTC) - timedelta(hours=24))
         over = (today.usd + max(llm.max_usd - before.usd, 0.0) > DAILY_MAX_USD
                 or today.input_tokens + today.output_tokens >= DAILY_MAX_TOKENS)
-        if over:
-            reason = (f"the daily model cap is reached (${today.usd:.2f} of ${DAILY_MAX_USD:.2f}, "
-                      f"{today.input_tokens + today.output_tokens} of {DAILY_MAX_TOKENS} tokens in 24 h)")
+        if over or escalate_only:
+            reason = escalate_only or (f"the daily model cap is reached (${today.usd:.2f} of ${DAILY_MAX_USD:.2f}, "
+                                       f"{today.input_tokens + today.output_tokens} of {DAILY_MAX_TOKENS} tokens in 24 h)")
             state = {"alert": pack.alert, "context": pack.context, "llm": llm, "model_unavailable": reason}
             steps = graph.apply_node(state, graph.node_diagnose(state))
             self._record(pack.alert.alert_id, steps)

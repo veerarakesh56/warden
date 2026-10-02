@@ -324,6 +324,13 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {args.platform}); "
                  "Ctrl+C to stop")
             await asyncio.Event().wait()
+    if args.cmd == "intake":
+        from . import intake
+
+        event = intake.AlarmEvent.model_validate_json(args.event.read_text(encoding="utf-8"))
+        decision = await intake.submit(client, event, runtime.open_audit())
+        _out(f"{decision.action}: {decision.workflow_id or '-'} - {_one(decision.reason)}")
+        return 0
     if args.cmd == "incident":
         from temporalio.common import WorkflowIDReusePolicy
         from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -501,6 +508,8 @@ def _main(argv: list[str] | None = None) -> int:
                                "WARDEN_DB_APP_USERS), or all")
     p_incident = sub.add_parser("incident", help="diagnose a bundled incident as a workflow and print the verdict")
     p_incident.add_argument("--incident", default="inc-001")
+    p_intake = sub.add_parser("intake", help="hand one alarm event to intake: start, group, escalate or ignore it")
+    p_intake.add_argument("event", type=pathlib.Path, help="an alarm event, JSON (warden.intake.AlarmEvent)")
     p_status = sub.add_parser("status", help="show a remediation workflow's stage and plan (with its hash)")
     p_status.add_argument("workflow_id")
     p_approve = sub.add_parser("approve", help="sign and send an approval of the plan you reviewed")
@@ -522,7 +531,7 @@ def _main(argv: list[str] | None = None) -> int:
     _load_environment(args.cmd)  # after parsing: what is loaded depends on the command (audit A-B-L17)
     if args.cmd == "audit":
         return _audit_command(args)
-    if args.cmd in ("worker", "incident", "status", "approve"):
+    if args.cmd in ("worker", "incident", "intake", "status", "approve"):
         return asyncio.run(_workflow_command(args))
     if args.cmd == "killswitch":
         return _killswitch_command(args)

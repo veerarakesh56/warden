@@ -525,7 +525,7 @@ def _rules_only(state: WardenState, reason: str) -> tuple[RootCause, Remediation
     alert = state["alert"]
     return (RootCause(hypothesis=f"No model diagnosis: {reason}. Escalated on the evidence alone.", confidence=0.0),
             RemediationProposal(action=ActionKind.escalate_to_human, target=alert.service,
-                                reasoning="rules-only: the model was not available", blast_radius="single_service",
+                                reasoning="rules-only: the model was not used", blast_radius="single_service",
                                 expected_effect="a person reviews the evidence", reversible=True))
 
 
@@ -598,7 +598,7 @@ def node_verify(state: WardenState) -> WardenState:
             # Rules only: whatever the policies alone would allow, a person decides (register M19).
             kept = verdict.status is not VerdictStatus.auto_safe  # "no approval required" no longer holds
             verdict = Verdict(status=VerdictStatus.escalated, requires_approval=True,
-                              reasons=[f"the model was not available ({state['model_unavailable']})",
+                              reasons=[f"the model was not used ({state['model_unavailable']})",
                                        *(verdict.reasons if kept else [])],
                               policy_ids=["P0-MODEL-UNAVAILABLE", *(verdict.policy_ids if kept else [])])
         sp.set_attribute("warden.verdict", verdict.status.value)

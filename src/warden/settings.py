@@ -38,8 +38,8 @@ LOADABLE = frozenset({
 # terminate role's DSN or the audit key's passphrase, and a process that never holds a secret cannot leak it.
 RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DB_ADMIN_DSN": frozenset({"worker"}),
-    "WARDEN_AUDIT_KEY_PASSPHRASE": frozenset({"worker", "incident", "status", "approve", "killswitch", "audit"}),
-    "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "status", "approve", "mcp"}),
+    "WARDEN_AUDIT_KEY_PASSPHRASE": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit"}),
+    "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp"}),
 }
 
 
