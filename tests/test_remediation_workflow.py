@@ -419,9 +419,15 @@ def test_a_cancel_during_apply_ends_on_the_record_and_trips(world, owner):
     assert bounds.killswitch(world["log"]) is not None
 
 
-def test_a_cancel_before_apply_ends_on_the_record_without_a_trip(world, owner):
-    started, release = _blocking(world, "live")  # precheck reads live state, before apply is sent
-    world["platform"].reads = 0
-    statuses = _cancel_once(world, owner, started, release)
+def test_a_cancel_before_apply_ends_on_the_record_without_a_trip(world):
+    """Cancelled while it waits for approval - nothing sent to the target - the run ends `cancelled`, no trip. (Blocking
+    precheck in a thread instead raced the cancel on CI's Linux runners and hung, 2f577cd.)"""
+    async def drive(handle):
+        await _until_awaiting_approval(handle)
+        await handle.cancel()
+
+    with pytest.raises(Exception):  # noqa: B017 - the run ends cancelled, as asked
+        _run(world, drive)
+    statuses = [e["body"]["status"] for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
     assert statuses == ["cancelled"], statuses
     assert bounds.killswitch(world["log"]) is None
