@@ -98,6 +98,11 @@ bump may carry a breaking change.
   - The baseline needs the exact log group.
 - **Each command loads only the secrets it uses** (audit A-B-L17). The terminate DSN is loaded for the worker
   alone.
+- **The publish tooling's gaps are closed** (audit A-B-L18).
+  - Every account id of a run is masked.
+  - A password holding an `@` is masked whole.
+  - `--into` cannot leave the repository.
+  - Database files may never be tracked, and binary files are scanned.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

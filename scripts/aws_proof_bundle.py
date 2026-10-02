@@ -30,10 +30,12 @@ SITUATIONS = [
 
 def _redact(text: str, account: str) -> str:
     """Account id, then anything that still looks like one, then any password in a DSN."""
-    if account:
-        text = text.replace(account, "<ACCOUNT>")
+    for one in filter(None, account.split("|")):  # one id, or several joined with `|` (publish_bench_run)
+        text = text.replace(one, "<ACCOUNT>")
     text = re.sub(r"\b\d{12}\b", "<ACCOUNT>", text)
-    text = re.sub(r"(?<=://)([^:/@\s]+):([^@/\s]+)(?=@)", r"\1:********", text)
+    # Up to the LAST `@` of the token, as libpq reads it (audit A-B-L18): a password holding an `@` was masked only
+    # up to it, and its tail showed beside the host.
+    text = re.sub(r"(?<=://)([^:/@\s]+):\S*@", r"\1:********@", text)
     # An RDS endpoint's middle label (`<id>.c1a2b3.<region>.rds.amazonaws.com`) is fixed per account
     # and region - an account-linked identifier, if not the account id itself. Wave 3's manifest,
     # ground truth and reports all carried it until 2026-09-25. Instance name and region are kept.

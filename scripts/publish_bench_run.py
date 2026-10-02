@@ -59,18 +59,14 @@ def _redact_tree(src: pathlib.Path, dst: pathlib.Path, account: str) -> int:
 
 
 def _account_from(run: pathlib.Path) -> str:
-    """The account id to mask, taken from the run's own manifest rather than from the environment."""
-    manifest = run / "manifest.json"
-    if manifest.exists():
-        text = manifest.read_text(encoding="utf-8")
-        found = re.findall(r"\b\d{12}\b", text)
-        if found:
-            return found[0]
-    for path in (run / "ground-truth").glob("*.json"):
-        found = re.findall(r"\b\d{12}\b", path.read_text(encoding="utf-8"))
-        if found:
-            return found[0]
-    return ""
+    """The account id to mask, taken from the run's own manifest rather than from the environment. Every 12-digit
+    number of the manifest and the ground truth, not the first one found (audit A-B-L18): a run that touched two
+    accounts kept the second one in clear. Several are joined with `|`, one regex alternation."""
+    found: set[str] = set()
+    for path in [run / "manifest.json", *(run / "ground-truth").glob("*.json")]:
+        if path.exists():
+            found |= set(re.findall(r"\b\d{12}\b", path.read_text(encoding="utf-8")))
+    return "|".join(sorted(found))
 
 
 def _content_sha256(data: bytes) -> str:
@@ -152,6 +148,12 @@ def main() -> int:
     args = parser.parse_args()
 
     sys.stdout.reconfigure(encoding="utf-8")  # a Windows console is cp1252 and cannot print ⛔
+    # Inside the repository only, checked before anything else (audit A-B-L18): `--into` could be an absolute path or
+    # climb out with `..`, and the destination is removed before the copy.
+    base = (ROOT / args.into).resolve()
+    if ROOT.resolve() not in base.parents:
+        print(f"⛔ --into must be a directory inside the repository, not {args.into!r}")
+        return 2
     run = pathlib.Path(args.run).resolve()
     if not (run / "manifest.json").exists():
         print(f"{run} has no manifest.json - not a runner output directory")
@@ -184,7 +186,7 @@ def main() -> int:
         print(f"   Inspect it at: {staging}")
         return 1
 
-    dest = ROOT / args.into / run.name
+    dest = base / run.name
     if dest.exists():
         shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)

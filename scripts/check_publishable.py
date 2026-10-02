@@ -87,6 +87,7 @@ FORBIDDEN_NAMES = re.compile(
     r"|client_secret.*\.json"
     r"|.*\.pem|.*\.p12|.*\.pfx|id_rsa|id_ed25519"
     r"|kubeconfig"
+    r"|.*\.db|.*\.sqlite3?|.*\.db-wal|.*\.db-journal"  # an audit or test database: its rows are plain bytes
     r")$"
 )
 # The one deliberate exception: the example file exists to be read.
@@ -220,10 +221,13 @@ def scan(paths: list[pathlib.Path], *, root: pathlib.Path,
             skipped.append(rel)
             continue
 
-        if not path.exists() or not _is_text(path):
+        if not path.exists():
             continue
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            # A binary file is read through its bytes (audit A-B-L18): it went unscanned, and a SQLite file or an
+            # archive holds text as plain bytes.
+            text = (path.read_text(encoding="utf-8", errors="replace") if _is_text(path)
+                    else re.sub(rb"[^\x20-\x7e\n]", b" ", path.read_bytes()).decode("ascii"))
         except OSError:
             continue
 
