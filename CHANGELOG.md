@@ -59,6 +59,10 @@ bump may carry a breaking change.
     SIGTERM ends a run as Ctrl-C does.
   - The register guard judges an explicit list of every test file.
   - The Lambda build follows the extras a requirement asks for (`boto3[crt]` needs `awscrt`).
+- **The outbound gate reads a report as a renderer shows it** (register R9-O1). A key split by Markdown emphasis,
+  strike or code markers, or by an HTML entity, displays joined in Slack, and is now withheld. If any part of
+  an alert id could be part of a withheld value (an overlap, or a case or width variant), the stub names the
+  alert by a hash. The 337 recorded reports keep their verdicts.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

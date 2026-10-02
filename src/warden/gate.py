@@ -52,7 +52,10 @@ P13 in the verifier; the report says when it fired. G4 (commands only from an ap
 
 from __future__ import annotations
 
+import hashlib
+import html
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -170,6 +173,10 @@ def normalise(text: str) -> str:
     return _INVISIBLE_IN_NAME.sub("", strip_controls(strip_ansi(text)))
 
 
+# Emphasis, strike and code markers. Not `_`: a key split by it is whole as written already (`\w` holds it).
+_RENDERED_MARKUP = re.compile(r"[*~`]")
+
+
 def _views(text: str) -> set[str]:
     """Every way a reader may see `text`: as written; without escape sequences (a space where one glued two words,
     and also written out as text); without control characters; and without any invisible character. A key split
@@ -179,6 +186,12 @@ def _views(text: str) -> set[str]:
     views |= {strip_controls(v) for v in list(views)}
     views |= {_INVISIBLE.sub("", v) for v in list(views)}
     return views
+
+
+def _rendered(views: set[str]) -> set[str]:
+    """As a renderer shows them (register R9-O1): Slack and Markdown consume emphasis, strike and code markers and
+    decode entities, so `AKIA**IOSFODNN7...**` and `AKIA&amp;...` show a key joined that no view held whole."""
+    return {_RENDERED_MARKUP.sub("", html.unescape(v)) for v in views}
 
 
 def _defang_outside_code(line: str) -> str:
@@ -321,7 +334,11 @@ def hedge(text: str) -> str:
 
 def leaked_kinds(text: str) -> list[str]:
     """G5: secret kinds the redactor still finds in `text` - identifiers an operator may show excluded."""
-    found = [p for view in _views(text) for p in redact(view).mapping]
+    views = _views(text)
+    found = [p for view in views for p in redact(view).mapping]
+    # A key-shaped value joined by a renderer. Not `name = value` shapes there: with the code marks gone, WARDEN's own
+    # metric `secret_changed_age_s` = 1.36e+04 read as a credential; a value split by markup is already one as written.
+    found += [p for view in _rendered(views) - views for p in redact(view).mapping if not p.startswith("<SECRET_")]
     kinds = {placeholder.strip("<>").rsplit("_", 1)[0] for placeholder in found}
     return sorted(kinds - _SHOWABLE)
 
@@ -374,14 +391,22 @@ def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = Non
         # only in context went out in the stub (seventh review, 2026-10-01); a key-shaped one too (sixth).
         # With the blocked DATA too, normalised, and left out when it is part of a value withheld (eighth review:
         # a secret in the data, an invisible inside the id, or a prefix of the secret went out in the stub).
+        # The id, cleaned like any text (audit A-C-24: the notice names its alert) - unless any part of it could
+        # be part of a withheld value: masked itself, or sharing four characters, in any case or width, with one.
+        # Then a hash names it (register R9-O1: an overlap, an upper-cased copy and a fullwidth variant each showed
+        # part of the value). `ref-` keeps the hash from starting a number.
+        label = ""
         if alert_id:
             blocked = normalise("\n".join([before_redaction or text, *_strings(data_before_redaction)]))
             ident = " ".join(normalise(alert_id).split())
             masked = redact(f"{blocked}\n{ident}")
-            shown = masked.text.rsplit("\n", 1)[-1]
-            hidden = ident and any(ident in v for v in masked.mapping.values() if len(ident) >= 4)
-            alert_id = "" if hidden else sanitise_text(shown)
-        stub = (f"WARDEN report{f' for alert {alert_id}' if alert_id else ''} was withheld by the outbound "
+            withheld = [unicodedata.normalize("NFKC", v).casefold() for v in masked.mapping.values()]
+            probe = unicodedata.normalize("NFKC", ident).casefold()
+            width = min(4, len(probe))
+            shares = any(probe[i:i + width] in w for w in withheld for i in range(len(probe) - width + 1))
+            safe = probe and not shares and masked.text.rsplit("\n", 1)[-1] == ident
+            label = sanitise_text(ident) if safe else f"ref-{hashlib.sha256(alert_id.encode('utf-8')).hexdigest()[:12]}"
+        stub = (f"WARDEN report{f' for alert {label}' if label else ''} was withheld by the outbound "
                 f"gate: it still contained {', '.join(leaks)} after redaction. A person must read the full "
                 "report where WARDEN ran - nothing was sent.")
         return GateResult("BLOCK", stub, [f"G5: {k} in the outgoing text" for k in leaks])

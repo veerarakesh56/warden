@@ -44,9 +44,10 @@ def test_a_full_width_dot_does_not_keep_a_domain_whole(dot):
 
 def test_the_stub_of_a_withheld_report_cleans_the_alert_id():
     """`click.evil.example` is a valid alert id; the stub put it in raw while a passing report defanged it."""
-    result = gate.enforce(f"key {SECRET}", alert_id="click.evil.example")
+    # Not `click.evil.example`: it shares `example` with the key, and such an id is named by a hash (R9-O1).
+    result = gate.enforce(f"key {SECRET}", alert_id="click.evil.invalid")
     assert result.verdict == "BLOCK"
-    assert "click[.]evil[.]example" in result.text and "click.evil.example" not in result.text
+    assert "click[.]evil[.]invalid" in result.text and "click.evil.invalid" not in result.text
 
 
 def test_the_stub_of_a_withheld_report_redacts_a_key_shaped_alert_id():
