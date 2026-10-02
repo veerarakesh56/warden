@@ -104,7 +104,7 @@ def test_start_request_and_read_through_the_tools(tmp_path, monkeypatch):
                 status = (await call("workflow_status", {"workflow_id": wid}, env.client)).structured_content
                 if status["status"] == "COMPLETED":
                     return status["result"]
-                await env.sleep(timedelta(minutes=1))
+                await env.sleep(timedelta(minutes=5))  # past the verify window and the T+60 re-check (C18a)
             raise AssertionError(status)
     assert asyncio.run(main())["status"] == "recovered"
 

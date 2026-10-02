@@ -45,10 +45,14 @@ ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPol
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
 CHECK_EVERY = timedelta(seconds=30)
+# Register C18a, false recovery: a service that died stops reporting errors, and one good reading is not recovery.
+# Recovered = this many healthy checks in a row; then re-checked this long after, the run open until the last.
+CONSECUTIVE_HEALTHY = 3
+RECHECK_AFTER = (timedelta(minutes=15), timedelta(minutes=60))
 # Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
 END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_apply", "apply_failed", "recovered",
                         "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
-                        "failed", "failed_after_apply"})
+                        "failed", "failed_after_apply", "relapsed"})
 
 
 @workflow.defn
@@ -68,7 +72,7 @@ class RemediationWorkflow:
     def alarm(self, at: str) -> None:
         """The target's alarm fired again (register C1, from intake). Inside the verify window that is the fix not
         working: the run stops verifying and rolls back. Before the change it is the incident itself, and ignored."""
-        if self._stage == "verifying":
+        if self._stage in ("verifying", "watching"):
             self._alarm_at = at
 
     @workflow.query
@@ -166,22 +170,41 @@ class RemediationWorkflow:
 
         self._stage = "verifying"
         until = workflow.now() + timedelta(minutes=req.recover_within_minutes)
-        recovered = False
-        while workflow.now() < until and not recovered and not self._alarm_at:
+        need = CONSECUTIVE_HEALTHY if workflow.patched("c18a-consecutive") else 1
+        streak = 0
+        while workflow.now() < until and streak < need and not self._alarm_at:
             await workflow.sleep(CHECK_EVERY)
             if self._alarm_at:
                 break  # the alarm fired again: not recovered, whatever a check said before it (register C1)
-            recovered = await workflow.execute_activity_method(acts.check_success, args=[plan, req.service],
-                                                               **QUICK)
-        recovered = recovered and not self._alarm_at
+            healthy = await workflow.execute_activity_method(acts.check_success, args=[plan, req.service], **QUICK)
+            streak = streak + 1 if healthy else 0
+        recovered = streak >= need and not self._alarm_at
         # The verdict is WARDEN's audit of THIS run's own checks, returned with the run it belongs to: a
         # result replayed from an earlier run of this workflow id carries that run's id and is refused.
-        recorded = await workflow.execute_activity_method(acts.record_result, args=[plan, req.service, recovered],
-                                                          **QUICK)
+        recorded = await workflow.execute_activity_method(acts.record_result,
+                                                          args=[plan, req.service, recovered, need], **QUICK)
         recovered = (isinstance(recorded, Recorded) and recorded.ok is True
                      and recorded.run_id == workflow.info().run_id)
         if recovered:
             done["verified"] = True
+            if workflow.patched("c18a-rechecks"):
+                # Durable re-checks (register C18a): a fix that holds for minutes and fails within the hour is not a
+                # recovery. A relapse is recorded as a failed result (the breaker counts it) and goes to a person:
+                # WARDEN never reverses its own fix on its own (register C8).
+                self._stage = "watching"
+                since = workflow.now()
+                for after in RECHECK_AFTER:
+                    await workflow.sleep(max(since + after - workflow.now(), timedelta(0)))
+                    healthy = not self._alarm_at and await workflow.execute_activity_method(
+                        acts.check_success, args=[plan, req.service], **QUICK)
+                    if not healthy:
+                        await workflow.execute_activity_method(acts.record_result,
+                                                               args=[plan, req.service, False, 1], **QUICK)
+                        cause = (f"its alarm fired again at {self._alarm_at}" if self._alarm_at
+                                 else "a health check failed")
+                        minutes = int(after.total_seconds() // 60)
+                        why = f"{req.service} recovered, then {cause} by the {minutes}-minute re-check"
+                        return await end("relapsed", [why])
             return await end("recovered")
 
         self._stage = "rolling_back"

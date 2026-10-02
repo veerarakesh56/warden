@@ -332,7 +332,7 @@ class RemediationActivities:
         return healthy
 
     @activity.defn
-    def record_result(self, plan: Plan, service: str, ok: bool) -> Recorded:
+    def record_result(self, plan: Plan, service: str, ok: bool, consecutive: int = 1) -> Recorded:
         run = _run_id()
         checks = [e["body"] for e in self.audit.entries(plan.incident_id, kinds=("remediation.check",))
                   if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
@@ -342,7 +342,9 @@ class RemediationActivities:
         applied = any(e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
                       and e["body"].get("plan_hash") == plan.plan_hash
                       for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,)))
-        verified = applied and bool(checks) and checks[-1].get("healthy") is True
+        # The last `consecutive` checks of this run, all healthy (register C18a): one good reading is not recovery.
+        need = max(1, int(consecutive))
+        verified = applied and len(checks) >= need and all(c.get("healthy") is True for c in checks[-need:])
         if verified != ok:
             self.audit.append(plan.incident_id, "remediation.result_mismatch",
                               {"workflow_id": plan.workflow_id, "run_id": run, "claimed": ok, "recorded": verified})
