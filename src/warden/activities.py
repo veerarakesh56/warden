@@ -96,7 +96,7 @@ class Recorded(BaseModel):
 
 
 # Ends that leave the target in a state nobody knows: the kill switch goes on (bounds.trip).
-PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed", "cancelled_after_apply"})
+PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed", "cancelled_after_apply", "failed_after_apply"})
 
 
 class FixOutcome(BaseModel):

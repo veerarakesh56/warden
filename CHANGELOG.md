@@ -18,6 +18,11 @@ bump may carry a breaking change.
     is refused at plan and at precheck.
   - The plan hash also covers the environment, the catalogue, WARDEN's own code and the incident's audit
     record. A worker deployed while a plan waits for approval refuses that plan.
+- **No step is retried forever** (audit A-B-L10). Each short workflow step gets at most 10 tries. Before,
+  Temporal's default retried it without end, holding the run and the target with no end row. A step that fails
+  every try ends the run on the record. After apply it ends as `failed_after_apply`, with the kill switch on.
+- **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
+  re-tripped it on the strength of the failures the reset was for.
 
 ### Security
 - **Tool errors reach the model as fixed words** (audit A-C-2). A failed read used to show the model

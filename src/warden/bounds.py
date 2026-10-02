@@ -106,7 +106,12 @@ def record_applied(log: AuditLog, correlation_id: str, *, service: str, action_c
 def record_result(log: AuditLog, correlation_id: str, *, service: str, ok: bool, now: datetime,
                   limits: Limits = DEFAULT_LIMITS, **detail) -> None:
     log.append(correlation_id, RESULT, {"service": service, "ok": ok, **detail})
-    failures = [e for e in log.entries(kinds=(RESULT,), since=now - limits.breaker_window) if not e["body"]["ok"]]
+    # Only failures since the last reset (audit A-B-L1): a person who reset the switch has seen those, and one new
+    # failure must not re-trip it on the strength of the failures the reset was for.
+    resets = log.entries(kinds=(RESET,))
+    after = resets[-1]["seq"] if resets else 0
+    failures = [e for e in log.entries(kinds=(RESULT,), since=now - limits.breaker_window)
+                if not e["body"]["ok"] and e["seq"] > after]
     if len(failures) >= limits.breaker_failures:
         trip(log, correlation_id, f"{len(failures)} remediations failed their success check within "
                                   f"{limits.breaker_window}")

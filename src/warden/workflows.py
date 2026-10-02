@@ -34,13 +34,21 @@ with workflow.unsafe.imports_passed_through():
     from .models import Alert, RunReport
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
-QUICK = {"start_to_close_timeout": timedelta(seconds=60)}
+# Bounded (audit A-B-L10): Temporal's default retries an activity forever, so a step that kept failing - an audit
+# store that cannot be written, a platform that cannot be read - held the run, and the target, with no end row.
+# About ten minutes of tries, then the run ends on the record (FAILED below) and a person looks.
+QUICK = {"start_to_close_timeout": timedelta(seconds=60),
+         "retry_policy": RetryPolicy(maximum_attempts=10, maximum_interval=timedelta(seconds=60))}
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
 CHECK_EVERY = timedelta(seconds=30)
+# Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
+END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_apply", "apply_failed", "recovered",
+                        "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
+                        "failed", "failed_after_apply"})
 
 
 @workflow.defn
@@ -86,6 +94,11 @@ class RemediationWorkflow:
             # and apply may have acted before it returned (ninth review).
             if isinstance(exc, asyncio.CancelledError) or is_cancelled_exception(exc):
                 await end("cancelled_after_apply" if self._applying else "cancelled", ["the run was cancelled"])
+            elif self._stage not in END_STAGES:
+                # A step that failed every try (audit A-B-L10) ends the run on the record too - after apply, as a
+                # change in an unknown state: the kill switch goes on. If the end row itself cannot be written, the
+                # run fails visibly.
+                await end("failed_after_apply" if self._applying else "failed", [f"a step failed: {exc.cause or exc}"])
             raise
 
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
