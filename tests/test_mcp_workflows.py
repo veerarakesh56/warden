@@ -10,6 +10,7 @@ import pathlib
 import re
 from datetime import timedelta
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from temporalio.testing import WorkflowEnvironment
 
@@ -109,3 +110,14 @@ def test_a_bad_request_is_an_error_not_a_crash():
         return await mcp_server.call_workflow_tool("request_remediation", {"entry": "shell"}, client=None)
     result = asyncio.run(main())
     assert result.is_error and "ValidationError" in result.content[0].text
+
+
+@pytest.mark.parametrize("entry", ["shell", "raw_sql", "put_role_policy", "purge_queue"])
+def test_a_complete_request_for_an_excluded_action_is_refused_by_the_catalogue(entry):
+    """Audit A-B-VT: the bad-request test above fails for missing fields, whatever the entry - it never showed that
+    `shell` is refused. A complete request passes the request model; the catalogue refuses the action itself."""
+    from warden import catalog
+    from warden.activities import FixRequest
+
+    req = FixRequest(incident_id="inc-1", service="orders", entry=entry, params={"cmd": "rm -rf /"})
+    assert catalog.validate(req.entry, req.params, {}) == [f"{entry!r} is not in the catalogue"]
