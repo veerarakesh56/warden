@@ -115,6 +115,10 @@ def symptoms(context) -> list[str]:
         out.append(f"{m.get('pods_ready', 0):.0f} ready of {m['replicas_desired']:.0f} replicas desired")
     if "tasks_desired" in m and m.get("tasks_running", 0) < m["tasks_desired"]:
         out.append(f"{m.get('tasks_running', 0):.0f} of {m['tasks_desired']:.0f} tasks running")
+    if m.get("tasks_pending", 0) > 0:
+        # A task that cannot start is counted, not judged: 2026-10-03 a replay of ecs-13 (a subnet with no route) let a
+        # confident no_action through as auto_safe beside one stuck task and two deployments in flight.
+        out.append(f"{m['tasks_pending']:.0f} task(s) pending, not started")
     if m.get("deployments_failed", 0) > 0 or m.get("deployment_failed_tasks", 0) > 0:
         out.append("a deployment has failed tasks")
     # A full pool is an explicit state, not a rate: every connection the server (or the app's pool)

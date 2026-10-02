@@ -119,6 +119,8 @@ bump may carry a breaking change.
 - **No change while a rollout is under way (P21); a stalled one may still be rolled back** (register C5).
 - **A restart rolls through the target's own strategy, and is refused if that would take most pods down** (register
   C10).
+- **A task that cannot start is a symptom: no_action beside one escalates** (audit Q1, found by the replay
+  qualification).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

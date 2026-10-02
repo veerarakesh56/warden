@@ -404,6 +404,10 @@ def test_p11_does_not_fire_where_the_action_can_help(action, ctx, why):
     (dict(metrics={"pods_ready": 1.0, "pods_total": 2.0}), "1 of 2 pods are ready"),
     (dict(metrics={"pods_total": 0.0, "pods_ready": 0.0, "replicas_desired": 2.0}), "0 ready of 2 replicas desired"),
     (dict(metrics={"tasks_running": 0.0, "tasks_desired": 2.0}), "0 of 2 tasks running"),
+    # ecs-13 (a subnet with no route), replayed 2026-10-03: two deployments in flight, all desired tasks running,
+    # and one task that cannot start. Opus 5 and Fable 5 said "transient" with no_action, and it went out auto_safe.
+    (dict(metrics={"tasks_running": 2.0, "tasks_desired": 2.0, "tasks_pending": 1.0, "deployments_in_flight": 2.0}),
+     "1 task(s) pending, not started"),
     (dict(logs=["postgres stuck connection: pid=1 idle in transaction for 400s: SELECT 1", "a", "b"]), "stuck threshold"),
     (dict(metrics={"locks_waiting": 2.0, "x": 0.0}), "2 sessions are waiting on a lock"),
     (dict(metrics={"long_running_queries": 1.0, "x": 0.0}), "1 query has been running over 60s"),
