@@ -1,0 +1,82 @@
+{
+  "features": [
+    "confidence",
+    "log_lines",
+    "metrics",
+    "has_deploy",
+    "tool_errors",
+    "symptoms",
+    "signatures",
+    "rules_agree",
+    "citations",
+    "passive",
+    "policies",
+    "grounded"
+  ],
+  "mean": [
+    0.48408,
+    3.03723,
+    1.93583,
+    0.352,
+    0.336,
+    0.6,
+    0.712,
+    0.264,
+    0.0,
+    0.68,
+    0.4,
+    1.0
+  ],
+  "scale": [
+    0.227266,
+    1.943024,
+    0.439067,
+    0.477594,
+    0.472339,
+    0.8,
+    1.002525,
+    0.440799,
+    1.0,
+    0.466476,
+    0.726636,
+    1.0
+  ],
+  "weights": [
+    -0.687889,
+    0.590823,
+    -0.020587,
+    -0.634387,
+    -0.189729,
+    -0.85681,
+    -0.008889,
+    0.248532,
+    0.0,
+    -2.341489,
+    0.226568,
+    0.0
+  ],
+  "bias": 0.578267,
+  "label_source": "rubric",
+  "trained_on": {
+    "bundles": [
+      "wave1-2026-09-11T052533Z",
+      "wave1-2026-09-11T155744Z",
+      "wave2-2026-09-24T115746Z",
+      "wave3-2026-09-25T044307Z"
+    ],
+    "runs": 125,
+    "correct": 72
+  },
+  "held_out_by_fault_class": {
+    "runs": 125,
+    "brier": 0.2692,
+    "ece": 0.183,
+    "auc": 0.6247,
+    "self_reported_confidence": {
+      "brier": 0.273,
+      "ece": 0.1606,
+      "auc": 0.5794
+    },
+    "base_rate_brier": 0.2442
+  }
+}

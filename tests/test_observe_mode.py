@@ -26,7 +26,7 @@ def test_it_is_silent_below_its_threshold_and_for_other_actions():
     quiet = verify(_alert(), _ctx(metrics={"error_rate": 0.01, "x": 1.0}), _rc(confidence=0.95),
                    _prop(action=ActionKind.no_action))
     acting = verify(_alert(), _ctx(metrics={"error_rate": 0.31, "x": 1.0}), _rc(), _prop())
-    assert quiet.observed == [] and acting.observed == []
+    assert not any(o.startswith("P25") for o in quiet.observed + acting.observed)
 
 
 def test_the_report_shows_it_as_observed_only():

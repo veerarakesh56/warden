@@ -10,6 +10,7 @@
 /src/warden/approvals.py           @veerarakesh56
 /src/warden/bounds.py              @veerarakesh56
 /src/warden/catalog.py             @veerarakesh56
+/src/warden/decide.py              @veerarakesh56
 /src/warden/evidence.py            @veerarakesh56
 /src/warden/freeze.py              @veerarakesh56
 /src/warden/gate.py                @veerarakesh56

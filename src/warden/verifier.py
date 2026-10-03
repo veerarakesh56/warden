@@ -345,7 +345,21 @@ def _p25_error_rate(alert: Alert, context: ContextBundle, root_cause: RootCause,
     return f"no action proposed while {', '.join(hot)} is at or above {OBSERVE_ERROR_RATE:.0%}" if hot else None
 
 
-OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate),)
+def _p26_decider(alert: Alert, context: ContextBundle, root_cause: RootCause,
+                 proposal: RemediationProposal) -> str | None:
+    """Requirement R44: the calibrated decider's probability that this proposal is right, observed when it is under
+    one half. Held out by fault class it does not yet beat the base rate (data/decider.json), so it decides nothing."""
+    from .decide import bundled, features, probability
+
+    doc = bundled()
+    if doc is None:
+        return None
+    verdict = _enforce(alert, context, root_cause, proposal, check_grounding=True)
+    p = probability(features(alert, context, root_cause, proposal, verdict), doc)
+    return f"the calibrated decider puts this proposal at p={p:.2f} of being right" if p < 0.5 else None
+
+
+OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider))
 
 
 def verify(
