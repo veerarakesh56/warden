@@ -179,8 +179,9 @@ class AuditThreads:
 
 class RemediationActivities:
     def __init__(self, *, audit: AuditLog, policy: approvals.ApproverPolicy, platform: Platform,
-                 limits: bounds.Limits = bounds.DEFAULT_LIMITS) -> None:
+                 limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None) -> None:
         self.audit, self.policy, self.platform, self.limits = audit, policy, platform, limits
+        self.changes = changes  # register O9: where an applied change is recorded (changes.GitHubIssues), if anywhere
 
     @activity.defn
     def resolve_plan(self, req: FixRequest, workflow_id: str) -> Plan:
@@ -529,6 +530,17 @@ class RemediationActivities:
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, "workflow.end", body)
         self.audit.checkpoint()
+        if recorded["applied"] and self.changes is not None and plans:
+            # Register O9: a change to a live system is recorded where the team looks for changes - once per run,
+            # after the signed end row it cites. A record that could not be written is itself recorded.
+            from .changes import issue_text
+
+            title, text = issue_text(incident_id=incident_id, end=body, plan=plans[-1],
+                                     head=self.audit.head(incident_id), at=datetime.now(UTC))
+            url, detail = self.changes.open(title, text)
+            self.audit.append(incident_id, "change.recorded", {"workflow_id": workflow_id, "run_id": run,
+                                                               "url": url, "detail": detail})
+            self.audit.checkpoint()
 
 
 # --------------------------------------------------------------------------- incident

@@ -118,7 +118,9 @@ async def connect(address: str | None = None, key: bytes | None = None) -> Clien
 def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any = None,
            backend: Any = None, llm_factory: Any = None, task_queue: str = TASK_QUEUE) -> Worker:
     inc = IncidentActivities(audit=log, backend=backend, llm_factory=llm_factory)
-    rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform())
+    from .changes import from_environment
+
+    rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform(), changes=from_environment())
     return Worker(client, task_queue=task_queue, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow],
                   activities=[inc.prepare, inc.diagnose, inc.verify, inc.notify,
                               rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
