@@ -48,7 +48,8 @@ Avoid the root user.
 > - E1 14:11 UTC / 19:41 IST: the access key deactivated. E2: STS refuses it (`InvalidClientTokenId`); the
 >   credentials file is moved to `%USERPROFILE%\.warden`; the certificate is the default profile; the
 >   policy validator and the plan read pass under it.
-> - Next: E5 on 2026-10-03; F (the Temporal trial date) from the owner; E3 and E4 by Claude from
+> - E5 2026-10-03: sweep clean; the owner read the bill (all zeros) and Access Analyzer (no findings). F: the Temporal
+>   trial ends 2026-12-27. Next: E3 and E4 by Claude from
 >   2026-10-04 14:11 UTC / 19:41 IST. E3 also deletes the old user's console password, and ends by
 >   deleting `warden-pg-w0setup` and `WardenW0Setup`. Any undo below still needs the owner's admin console.
 
@@ -285,9 +286,9 @@ skip any step you never did:
 | Anthropic use-case form submitted | No ("You have not filled out the request form") | 2026-10-02 13:50 / 19:20 |
 | Opus 5.5 global-profile quotas | 0 tokens per minute, adjustable; the same for Fable 5.1 and Sonnet 5.5. W-B needs a quota increase before any call can run | 2026-10-02 13:51 / 19:21 |
 | Sonnet 5, the production model since 2026-10-03 (D12) | region AVAILABLE, entitlement AVAILABLE, authorization NOT_AUTHORIZED, agreement NOT_AVAILABLE. Profiles `in.anthropic.claude-sonnet-5` (India geo) and `global.anthropic.claude-sonnet-5` ACTIVE. Both token-per-minute quotas 0, adjustable: W-B needs an increase | 2026-10-02 19:26 / 2026-10-03 00:56 |
-| Temporal Cloud trial ends / credits left | - (step F, from the owner) | - |
+| Temporal Cloud trial ends | 2026-12-27 (credits expire; read by the owner in the Temporal Cloud console) | 2026-10-03, from the owner |
 | Next-day check (E5): sweep | 18 regions + global, 43 checks, no check blind: the only resource is `warden/ops/slack-webhook` (Secrets Manager, ap-south-2), which W0-now created on purpose | 2026-10-03 06:35 / 12:05 |
-| Next-day check (E5): charges and Access Analyzer findings | owner, in the console (neither role may read them) - pending | - |
+| Next-day check (E5): charges and Access Analyzer findings | the bill is all zeros; IAM Access Analyzer in ap-south-2 has zero active findings (read by the owner in the console) | 2026-10-03, from the owner |
 
 ---
 
