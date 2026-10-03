@@ -1,0 +1,27 @@
+# Register N8: what decides WARDEN's actions is reviewed by a named owner. A pull request touching any of these
+# requests that review; making the review required is a branch-ruleset setting ("Require review from Code
+# Owners"), which the owner applies. docs/safety-pins.sha256 changes with every policy, prompt or catalogue edit.
+*                                  @veerarakesh56
+/docs/safety-pins.sha256           @veerarakesh56
+/scripts/safety_pins.py            @veerarakesh56
+/src/warden/data/                  @veerarakesh56
+/src/warden/activities.py          @veerarakesh56
+/src/warden/approvals.py           @veerarakesh56
+/src/warden/bounds.py              @veerarakesh56
+/src/warden/catalog.py             @veerarakesh56
+/src/warden/evidence.py            @veerarakesh56
+/src/warden/freeze.py              @veerarakesh56
+/src/warden/gate.py                @veerarakesh56
+/src/warden/graph.py               @veerarakesh56
+/src/warden/grounding.py           @veerarakesh56
+/src/warden/mcp_server.py          @veerarakesh56
+/src/warden/quarantine.py          @veerarakesh56
+/src/warden/redaction.py           @veerarakesh56
+/src/warden/reporting.py           @veerarakesh56
+/src/warden/tripwire.py            @veerarakesh56
+/src/warden/verifier.py            @veerarakesh56
+/src/warden/workflows.py           @veerarakesh56
+/iam/                              @veerarakesh56
+/k8s/                              @veerarakesh56
+/terraform/                        @veerarakesh56
+/.github/                          @veerarakesh56
