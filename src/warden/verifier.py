@@ -351,6 +351,13 @@ def verify(
     rejected = False
     escalate = False
 
+    # P22 — WARDEN does not act on WARDEN (register N7): an alert about its own runtime environment goes to a person,
+    # whatever the proposal - a broken WARDEN diagnosing itself is the case it can be least trusted in.
+    if env_policies.runtime_environment and alert.environment == env_policies.runtime_environment:
+        escalate = True
+        policies.append("P22-SELF-TARGET")
+        reasons.append(f"{alert.environment} is WARDEN's own runtime: a person handles it, WARDEN never acts on itself.")
+
     # P1 — the action must be permitted in this environment at all (from environments.yaml).
     if not env.permits(proposal.action):
         rejected = True

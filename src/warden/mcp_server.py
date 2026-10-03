@@ -512,6 +512,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "labels, deploys, metric resources); anything else is rejected (not "
                             "evaluated here)"
                         ),
+                        "P22-SELF-TARGET": (
+                            "an alert in WARDEN's own runtime environment goes to a person whatever is "
+                            "proposed; WARDEN never acts on its own components"
+                        ),
                     },
                     "environment_allowlist": {
                         env: sorted(

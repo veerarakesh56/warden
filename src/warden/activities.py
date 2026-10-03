@@ -140,6 +140,12 @@ def _environment_problems(env: str, entry: catalog.Entry, params: dict[str, Any]
     OWN environment - its tag or label, as the platform read it - must be that environment, and a name carrying
     another environment's prefix (`warden-prod-orders` for a dev incident) is refused too. Unknown is a mismatch."""
     problems = []
+    runtime = environments.default_environment_policies().runtime_environment
+    named = {environments.env_of_name(str(params.get(p, ""))) for p in entry.target_params}
+    if runtime and runtime in {env, live.get("environment"), *named}:
+        # P22 SELF-TARGET (register N7): WARDEN never changes its own components, whatever the approval.
+        problems.append(f"P22 SELF-TARGET: the target is in WARDEN's own runtime environment {runtime!r}; a person "
+                        "changes it, never WARDEN")
     own = live.get("environment")
     if own != env:
         problems.append(f"P18 ENV-MISMATCH: the target's own environment is {own!r}, not the incident's {env!r}")
