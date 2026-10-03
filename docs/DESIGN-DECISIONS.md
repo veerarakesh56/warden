@@ -289,6 +289,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
   need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
   for the Kubernetes signatures.
+- The alert webhook's front door - `webhooks.py`: Prometheus Alertmanager does not sign its webhooks (it can send
+  an Authorization header, read 2026-10-03), so the check is a bearer secret in constant time, size caps, and
+  Alertmanager's own API confirming each alert is active; no ready-made receiver does that third part.
 - The pipeline and its outputs - `graph.py`, `reporting.py`, `runbook.py`, `playbook.py`, `cli.py`, and the
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 
