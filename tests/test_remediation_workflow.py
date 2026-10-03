@@ -85,7 +85,7 @@ def _run(world, drive, **req):
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
-        methods = [acts.resolve_plan, acts.gate, acts.check_approval, acts.precheck, acts.apply,
+        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.precheck, acts.apply,
                    acts.check_success, acts.record_result, acts.rollback, acts.finish]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):

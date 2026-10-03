@@ -102,7 +102,7 @@ def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPol
     rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform())
     return Worker(client, task_queue=task_queue, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow],
                   activities=[inc.prepare, inc.diagnose, inc.verify, inc.notify,
-                              rem.resolve_plan, rem.gate, rem.check_approval, rem.precheck, rem.apply,
+                              rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.precheck, rem.apply,
                               rem.check_success, rem.record_result, rem.rollback, rem.finish],
                   # ponytail: one thread per activity; the model call is the slow one (one at a time
                   # is what Claude Max allows anyway).

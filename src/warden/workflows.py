@@ -14,6 +14,7 @@ the workflow's own success check can, and the agent has no way to write to it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import datetime, timedelta
 
 from temporalio import workflow
@@ -132,11 +133,24 @@ class RemediationWorkflow:
         accepted: list[SignedApproval] = []
         refused: list[str] = []
         seen = 0
+        # Register H10: halfway through the wait a person is reminded, and at the end told that nothing was done -
+        # an approval request that only expires is one nobody may ever have seen. A failed message changes nothing.
+        ladder = workflow.patched("h10-ladder")
+        halfway, reminded = workflow.now() + timedelta(minutes=req.approval_ttl_minutes) / 2, False
         while True:
-            remaining = deadline - workflow.now()
+            until = halfway if ladder and not reminded and not accepted else deadline
             try:
-                await workflow.wait_condition(lambda n=seen: len(self._inbox) > n, timeout=max(remaining, timedelta(0)))
+                await workflow.wait_condition(lambda n=seen: len(self._inbox) > n,
+                                              timeout=max(until - workflow.now(), timedelta(0)))
             except TimeoutError:
+                if until == halfway and workflow.now() < deadline:
+                    reminded = True
+                    with contextlib.suppress(ActivityError):
+                        await workflow.execute_activity_method(acts.announce, args=[plan, "waiting"], **NOTIFY)
+                    continue
+                if ladder:
+                    with contextlib.suppress(ActivityError):
+                        await workflow.execute_activity_method(acts.announce, args=[plan, "expired"], **NOTIFY)
                 return await end("expired", refused or ["no valid approval arrived in time"])
             approval, seen = self._inbox[seen], seen + 1
             result = await workflow.execute_activity_method(acts.check_approval, args=[plan, approval, accepted],

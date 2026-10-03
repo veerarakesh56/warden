@@ -143,6 +143,7 @@ bump may carry a breaking change.
 - **Every incident message names its incident and audit head; `warden audit show` checks it** (register S17).
 - **A software and model bill of materials, and the detector's weights pinned by commit** (registers A-P-7, S9 in
   part).
+- **An unapproved plan is reminded halfway and reported when it expires with nothing done** (register H10).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

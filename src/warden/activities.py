@@ -205,6 +205,28 @@ class RemediationActivities:
         return reasons
 
     @activity.defn
+    def announce(self, plan: Plan, what: str) -> list[str]:
+        """Tell a person where a plan stands (register H10): `waiting` for an approval, or `expired` with nothing
+        changed. Through the outbound gate, with the incident and its audit head (register S17)."""
+        from .chatops import notify as send
+        from .reporting import Report
+
+        self.audit.checkpoint()
+        head = self.audit.head(plan.incident_id)
+        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({plan.tier}) is waiting for an approval: "
+                            f"`warden status {plan.workflow_id}`. Unapproved, it expires and nothing is changed."),
+                "expired": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` expired without an approval. No action "
+                            "was taken; the incident is still open.")}[what]
+        footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{head[:16]}` · check it with "
+                  f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
+        sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=()))
+        delivered = [n.sink for n in sent if n.delivered]
+        self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
+                                                                     "run_id": _run_id(), "what": what,
+                                                                     "head": head, "delivered": delivered})
+        return delivered
+
+    @activity.defn
     def check_approval(self, plan: Plan, approval: approvals.SignedApproval,
                        accepted: list[approvals.SignedApproval]) -> ApprovalResult:
         used = {e["body"]["nonce"] for e in self.audit.entries(kinds=("approval.accepted",))}
