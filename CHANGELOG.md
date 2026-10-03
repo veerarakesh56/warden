@@ -180,6 +180,8 @@ bump may carry a breaking change.
   (requirement R46).
 - **Non-English logs measured: code-shaped evidence carries over, prose does not, and WARDEN says when logs are not
   English** (register M23).
+- **Governance: an AI policy, a RACI, an impact assessment, a concerns channel and a security policy, Annex IV
+  documentation and instructions for use, and measured model use** (H5, CW1, CW2, CW3, CW4, CW5).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

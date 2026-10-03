@@ -18,7 +18,7 @@ def _ids() -> set[str]:
 
 def test_every_row_the_crosswalk_cites_exists():
     body = DOC[:DOC.index("## Sources")]
-    cited = set(re.findall(r"\b(A-P-\d+|CW\d+|[BCEHMNOQRS]\d{1,2}b?)\b", body))
+    cited = set(re.findall(r"(?<![\w-])(R\d+-O\d+|A-P-\d+|CW\d+|[BCEHMNOQRS]\d{1,2}b?)\b", body))
     missing = cited - _ids()
     assert missing == set(), f"cited but not in any register: {sorted(missing)}"
 

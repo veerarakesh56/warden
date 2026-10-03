@@ -384,6 +384,37 @@ async def _workflow_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def usage_by_day(log, since) -> list[dict]:
+    """Audit row CW3: what WARDEN spent on the model, per UTC day - incidents, calls, tokens, USD - from the
+    incident.llm_spend rows. Tokens are the part of WARDEN's environmental footprint WARDEN can measure itself."""
+    days: dict[str, dict] = {}
+    for e in log.entries(kinds=("incident.llm_spend",), since=since):
+        b, day = e["body"], e["at"].date().isoformat()
+        d = days.setdefault(day, {"day": day, "incidents": set(), "calls": 0, "input_tokens": 0, "output_tokens": 0,
+                                  "usd": 0.0})
+        d["incidents"].add(e["correlation_id"])
+        d["calls"] += int(b.get("calls", 0))
+        d["input_tokens"] += int(b.get("input_tokens", 0))
+        d["output_tokens"] += int(b.get("output_tokens", 0))
+        d["usd"] += float(b.get("usd", 0.0))
+    return [{**d, "incidents": len(d["incidents"])} for _, d in sorted(days.items())]
+
+
+def _usage_command(args: argparse.Namespace) -> int:
+    from datetime import UTC, datetime, timedelta
+
+    from . import audit, runtime
+
+    log = audit.AuditLog(runtime._path("WARDEN_AUDIT_DB", "~/.warden/audit.db"))
+    rows = usage_by_day(log, datetime.now(UTC) - timedelta(days=args.days))
+    for r in rows:
+        _out(f"{r['day']}  incidents {r['incidents']:>4}  calls {r['calls']:>5}  tokens in {r['input_tokens']:>9} "
+             f"out {r['output_tokens']:>8}  USD {r['usd']:.4f}")
+    if not rows:
+        _out(f"no model use recorded in the last {args.days} day(s)")
+    return 0
+
+
 def _label_command(args: argparse.Namespace) -> int:
     """Audit A-P-2: the approver's signed verdict on a diagnosis and its action, recorded for calibration."""
     from . import approvals, labels, runtime
@@ -565,6 +596,8 @@ def _main(argv: list[str] | None = None) -> int:
     p_reset.add_argument("--key", required=True, type=pathlib.Path)
     p_reset.add_argument("--trips", required=True, type=int, help="how many trips you reviewed (`warden killswitch status`)")
 
+    p_usage = sub.add_parser("usage", help="model calls, tokens and cost per day, from the audit")
+    p_usage.add_argument("--days", type=int, default=30)
     p_label = sub.add_parser("label", help="record your signed verdict on an incident's diagnosis and action")
     p_label.add_argument("incident")
     p_label.add_argument("--diagnosis", required=True, choices=("right", "wrong", "unsure"))
@@ -583,6 +616,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _killswitch_command(args)
     if args.cmd == "label":
         return _label_command(args)
+    if args.cmd == "usage":
+        return _usage_command(args)
 
     # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
     # live cluster; the default reads the recorded fixtures so CI never needs one.
