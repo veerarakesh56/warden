@@ -139,6 +139,35 @@ its audit rows.
 - **Code execution by the model:** the model never runs code or commands. Actions come from a closed
   catalogue executed by typed platforms.
 
+## Research coverage (requirement R45)
+
+Every failure class in `docs/research/2026-09-28/failure-mode-solution-map.md` (OWASP Agentic Top 10 2026, OWASP LLM
+Top 10, MITRE ATLAS, published incidents and 2025-2026 research), and the register rows that cover it. A class is
+covered when it has a row - DONE with its evidence, or OPEN with its group - or is not applicable for a stated
+reason. `tests/test_research_coverage_r45.py` holds this list to that file and to the rows above.
+
+- **1. Goal hijack / prompt injection**: B4, M10, M11, N3
+- **2. Tool misuse / excessive agency**: B10, B13, C10, C4, N7
+- **3. Identity**: S6, H6
+- **4. Supply chain**: B14, N8, S9
+- **5. Code execution / output handling**: B5, B6, B11
+- **6. Memory poisoning**: N9, C22
+- **7. Inter-agent communication**: S15; n/a: one model call, no second agent (above)
+- **8. Cascading failures**: B9, B12, C1, C2, C21, C8
+- **9. Human trust / approval fatigue**: H1, H10, N4, H6
+- **10. Rogue agents**: B9, B10, N7, N11
+- **11. Exfiltration and secret leaks**: B6, S2, S17
+- **12. Hidden context exposure**: n/a: the prompts and policies are published in this repository
+- **13. Hallucination**: B1, B2, B3, N1, M2
+- **14. False completion**: C18a, C18b, N1
+- **15. Reward hacking**: N11, N5
+- **16. Sycophancy**: N3
+- **17. Model drift**: M15, M20, E6
+- **18. Cost runaway**: M18
+- **19. Non-determinism**: E6, E7
+- **20. Calibration**: E2, E5
+- **21. Over-refusal**: N6
+
 ## Stated decisions (not gaps)
 
 - **Every fix is human-approved** until Phase 3 shadow evidence (P17) enables a tier. The per-environment
