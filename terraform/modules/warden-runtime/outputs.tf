@@ -1,0 +1,19 @@
+output "audit_signer_key_id" {
+  description = "WARDEN_AUDIT_KMS_KEY_ID: the alias of the key that signs audit checkpoints."
+  value       = aws_kms_alias.audit_signer.name
+}
+
+output "anchor_bucket" {
+  description = "WARDEN_AUDIT_ANCHOR_BUCKET: where every checkpoint is anchored under Object Lock."
+  value       = aws_s3_bucket.anchors.bucket
+}
+
+output "audit_db_endpoint" {
+  description = "The audit database's writer endpoint: WARDEN_AUDIT_DSN points here (a Secrets Manager secret)."
+  value       = aws_rds_cluster.audit.endpoint
+}
+
+output "runtime_security_group_id" {
+  description = "The security group of WARDEN's workers and Lambdas."
+  value       = aws_security_group.runtime.id
+}
