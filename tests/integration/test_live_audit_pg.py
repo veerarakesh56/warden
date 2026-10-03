@@ -64,14 +64,17 @@ def test_many_writers_build_one_unbroken_chain(fresh):
 def test_the_rows_cannot_be_changed_deleted_or_truncated(fresh):
     import psycopg
 
-    log = audit.AuditLog(fresh)
+    key = Ed25519PrivateKey.generate()
+    log = audit.AuditLog(fresh, key=key)
     log.append("inc-1", "test.row", {"x": 1})
+    assert log.checkpoint() == 1  # a row in each table: a row-level trigger fires only on a row (CI, 2026-10-03)
     with psycopg.connect(fresh, autocommit=True) as db:
         for statement in ("UPDATE entries SET body = '{}'", "DELETE FROM entries", "TRUNCATE entries",
                           "DELETE FROM checkpoints"):
             with pytest.raises(psycopg.Error, match="append-only"):
                 db.execute(statement)
-    assert audit.verify(fresh, Ed25519PrivateKey.generate().public_key()).rows == 1
+    result = audit.verify(fresh, key.public_key())
+    assert result.ok and result.rows == 1 and result.signed_through == 1
     log.close()
 
 
