@@ -6,6 +6,7 @@
 /scripts/safety_pins.py            @veerarakesh56
 /src/warden/data/                  @veerarakesh56
 /src/warden/activities.py          @veerarakesh56
+/src/warden/approval_page.py       @veerarakesh56
 /src/warden/approvals.py           @veerarakesh56
 /src/warden/bounds.py              @veerarakesh56
 /src/warden/catalog.py             @veerarakesh56

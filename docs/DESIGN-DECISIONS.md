@@ -289,8 +289,8 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
   need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
   for the Kubernetes signatures.
-- The pipeline and its outputs - `graph.py`, `reporting.py`, `runbook.py`, `playbook.py`, `cli.py`: WARDEN's own
-  product surface.
+- The pipeline and its outputs - `graph.py`, `reporting.py`, `runbook.py`, `playbook.py`, `cli.py`, and the
+  approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 
 **Evidence through the AWS MCP servers or the Agent Toolkit (R57): not adopted.** Each lets a model choose its
 calls (free-form API calls, Python, SQL or log queries), which WARDEN's design forbids; each returns raw text the
