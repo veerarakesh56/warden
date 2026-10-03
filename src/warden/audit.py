@@ -23,6 +23,7 @@ Three layers, because each one alone is beatable:
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import hashlib
 import json
@@ -31,7 +32,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -73,9 +74,68 @@ def code_version() -> str:
     return digest.hexdigest()
 
 
+# How long an anchor cannot be deleted: one day in the lab, configurable per install (Object Lock retention).
+ANCHOR_RETENTION = timedelta(days=1)
+
+
+class KmsSigner:
+    """An Ed25519 key held by AWS KMS (register S12): it signs, and nobody - WARDEN included - can export it, so a
+    copy of the database and the code is not enough to sign a rewritten history. ECC_NIST_EDWARDS25519 keys sign
+    with ED25519_SHA_512 over the RAW message (KMS Sign API, read 2026-10-03); the signature is plain Ed25519, so
+    `verify` checks it with the key's public half like any other."""
+
+    def __init__(self, key_id: str, client: Any = None) -> None:
+        if client is None:
+            import boto3
+
+            client = boto3.client("kms")
+        self.key_id, self._kms = key_id, client
+
+    def sign(self, message: bytes) -> bytes:
+        return self._kms.sign(KeyId=self.key_id, Message=message, MessageType="RAW",
+                              SigningAlgorithm="ED25519_SHA_512")["Signature"]
+
+    def public_key(self) -> Ed25519PublicKey:
+        der = self._kms.get_public_key(KeyId=self.key_id)["PublicKey"]
+        return serialization.load_der_public_key(der)
+
+
+class S3Anchor:
+    """Checkpoints copied to an S3 bucket under Object Lock in COMPLIANCE mode, written by a principal other than the
+    one that holds the audit database (register S12): until the retention ends, nobody - the account root included -
+    can delete or overwrite one. A history rewritten afterwards no longer matches its anchors."""
+
+    def __init__(self, bucket: str, client: Any = None, *, retain: timedelta = ANCHOR_RETENTION,
+                 clock: Callable[[], datetime] | None = None) -> None:
+        if client is None:
+            import boto3
+
+            client = boto3.client("s3")
+        self.bucket, self._s3, self.retain = bucket, client, retain
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def put(self, seq: int, head: str, signature: str) -> None:
+        body = json.dumps({"seq": seq, "hash": head, "signature": signature}, sort_keys=True).encode()
+        self._s3.put_object(Bucket=self.bucket, Key=f"anchors/{seq:012d}.json", Body=body,
+                            ObjectLockMode="COMPLIANCE", ObjectLockRetainUntilDate=self.clock() + self.retain,
+                            ChecksumAlgorithm="SHA256")
+
+    def all(self) -> dict[int, tuple[str, str]]:
+        out: dict[int, tuple[str, str]] = {}
+        for page in self._s3.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix="anchors/"):
+            for obj in page.get("Contents") or []:
+                a = json.loads(self._s3.get_object(Bucket=self.bucket, Key=obj["Key"])["Body"].read())
+                out[int(a["seq"])] = (a["hash"], a["signature"])
+        return out
+
+
 class AuditLog:
-    def __init__(self, path: str | pathlib.Path, *, key: Ed25519PrivateKey | None = None,
-                 checkpoint_every: int = 100, clock: Callable[[], datetime] | None = None) -> None:
+    def __init__(self, path: str | pathlib.Path, *, key: Any = None,
+                 checkpoint_every: int = 100, clock: Callable[[], datetime] | None = None,
+                 anchor: Any = None) -> None:
+        # `key`: anything with sign(bytes) -> bytes - a local Ed25519 key, or a KmsSigner (register S12).
+        # `anchor`: where each new checkpoint is also written, out of this process's reach (S3Anchor).
+        self.anchor = anchor
         self.key = key
         self.clock = clock or (lambda: datetime.now(UTC))
         self.checkpoint_every = checkpoint_every
@@ -112,7 +172,12 @@ class AuditLog:
             if not last:
                 return None
             signature = self.key.sign(_signed_message(*last)).hex()
-            self.db.execute("INSERT OR IGNORE INTO checkpoints VALUES (?, ?, ?)", (*last, signature))
+            new = self.db.execute("INSERT OR IGNORE INTO checkpoints VALUES (?, ?, ?)", (*last, signature)).rowcount
+        if new and self.anchor is not None:
+            # A failed anchor leaves the checkpoint unanchored, and `verify` with the anchors says so: an outage of
+            # the anchor store must not stop an incident from being recorded.
+            with contextlib.suppress(Exception):
+                self.anchor.put(last[0], last[1], signature)
         return last[0]
 
     def head(self, correlation_id: str) -> str:
@@ -158,9 +223,12 @@ class Verification:
         return self.rows - self.signed_through
 
 
-def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey) -> Verification:
+def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey,
+           anchors: dict[int, tuple[str, str]] | None = None) -> Verification:
     """Recompute the whole chain and check every checkpoint signature. Never raises on a damaged file:
-    damage is a finding."""
+    damage is a finding. With `anchors` (S3Anchor.all()), every checkpoint must also match the copy written out of
+    reach when it was made: whoever holds the key and the database can re-sign a rewritten history, not its anchors
+    (register S12)."""
     result = Verification()
     try:
         db = sqlite3.connect(f"file:{pathlib.Path(path).as_posix()}?mode=ro", uri=True)
@@ -196,6 +264,15 @@ def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey) -> Verificati
             result.problems.append(f"checkpoint {seq} was signed over a different history")
             continue
         result.signed_through = max(result.signed_through, seq)
+    if anchors is not None:
+        stored = {seq: (head, signature) for seq, head, signature in checkpoints}
+        for seq, (head, signature) in sorted(stored.items()):
+            if seq not in anchors:
+                result.problems.append(f"checkpoint {seq} was never anchored")
+            elif anchors[seq] != (head, signature):
+                result.problems.append(f"checkpoint {seq} differs from its anchor: the history was rewritten")
+        for seq in sorted(set(anchors) - set(stored)):
+            result.problems.append(f"anchor {seq} has no checkpoint here: the database lost history")
     return result
 
 

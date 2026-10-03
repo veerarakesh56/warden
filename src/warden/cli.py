@@ -261,7 +261,10 @@ def _audit_command(args: argparse.Namespace) -> int:
         _out(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
               f"public key {args.public}")
         return 0
-    result = audit.verify(args.db, audit.load_public_key(args.public_key))
+    # With the anchor bucket, every checkpoint must also match its Object Lock copy (register S12).
+    bucket = getattr(args, "anchor_bucket", None)
+    anchors = audit.S3Anchor(bucket).all() if bucket else None
+    result = audit.verify(args.db, audit.load_public_key(args.public_key), anchors)
     if args.audit_cmd == "show":
         # Register S17: what a message's footer names, read from the record itself, after the chain is verified.
         from .environments import both_times
@@ -518,6 +521,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_verify = audit_sub.add_parser("verify", help="recompute the hash chain and check every signature")
     p_verify.add_argument("--db", required=True, type=pathlib.Path)
     p_verify.add_argument("--public-key", required=True, type=pathlib.Path)
+    p_verify.add_argument("--anchor-bucket", help="the S3 Object Lock bucket the checkpoints are anchored in (S12)")
 
     p_worker = sub.add_parser("worker", help="run the workflow worker against the Temporal server")
     p_worker.add_argument("--platform", choices=("none", "k8s", "db", "all"), default="none",
