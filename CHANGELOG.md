@@ -166,6 +166,7 @@ bump may carry a breaking change.
 - **A single approver, said in the record of every change** (requirement R50).
 - **One Slack thread per incident, its first line updated in place** (register H3).
 - **Every applied change leaves a GitHub issue citing its plan hash and audit head** (register O9).
+- **An observe mode for new policies: measured on every verdict, obeyed only after a reviewed change** (audit A-P-8).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

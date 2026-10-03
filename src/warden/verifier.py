@@ -328,7 +328,43 @@ def _contradiction(proposal, context) -> str | None:
     return None
 
 
+# Observe mode (audit A-P-8). A new policy runs here first: evaluated on every verdict and recorded in
+# `Verdict.observed`, never obeyed - so replays and shadow runs show what it WOULD have done, on healthy controls as
+# well as faults, before a reviewed change moves it into the enforced policies below. A guess at a threshold is
+# measured here instead of being imposed.
+OBSERVE_ERROR_RATE = 0.05  # APP-5XX-001's own threshold
+
+
+def _p25_error_rate(alert: Alert, context: ContextBundle, root_cause: RootCause,
+                    proposal: RemediationProposal) -> str | None:
+    """Audit Q2's candidate: "nothing to do" while an error-rate metric is at or above 5%. P12 counts broken states,
+    never rates, so this case passes it; whether a rate rule escalates healthy controls is what observing measures."""
+    if proposal.action is not ActionKind.no_action:
+        return None
+    hot = sorted(k for k, v in context.metrics.items() if "error_rate" in k.lower() and v >= OBSERVE_ERROR_RATE)
+    return f"no action proposed while {', '.join(hot)} is at or above {OBSERVE_ERROR_RATE:.0%}" if hot else None
+
+
+OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate),)
+
+
 def verify(
+    alert: Alert,
+    context: ContextBundle,
+    root_cause: RootCause,
+    proposal: RemediationProposal,
+    *,
+    policies_config: EnvironmentPolicies | None = None,
+    check_grounding: bool = True,
+) -> Verdict:
+    """The binding decision (`_enforce`), with what each observe-mode policy would have said recorded beside it."""
+    verdict = _enforce(alert, context, root_cause, proposal, policies_config=policies_config,
+                       check_grounding=check_grounding)
+    observed = [f"{pid}: {why}" for pid, check in OBSERVED if (why := check(alert, context, root_cause, proposal))]
+    return verdict.model_copy(update={"observed": observed}) if observed else verdict
+
+
+def _enforce(
     alert: Alert,
     context: ContextBundle,
     root_cause: RootCause,

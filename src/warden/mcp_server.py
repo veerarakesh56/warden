@@ -520,6 +520,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "no action proposed for an incident no known signature describes: an "
                             "alert WARDEN cannot explain is closed by a person; escalates (not evaluated here)"
                         ),
+                        "P25-NO-ACTION-OVER-ERROR-RATE": (
+                            "OBSERVE MODE, never obeyed: no action proposed while an error-rate metric is "
+                            "at or above 5%; recorded on the verdict to be measured before it is enforced"
+                        ),
                         "P22-SELF-TARGET": (
                             "an alert in WARDEN's own runtime environment goes to a person whatever is "
                             "proposed; WARDEN never acts on its own components"

@@ -275,6 +275,7 @@ def score_one(run: dict, scenario: dict, run_dir: pathlib.Path, rubric: dict) ->
     row["confidence"] = root_cause.get("confidence")
     row["verdict"] = verdict.get("status")
     row["policy_ids"] = verdict.get("policy_ids") or []
+    row["observed"] = [o.split(":", 1)[0] for o in verdict.get("observed") or []]  # observe-mode policies (A-P-8)
 
     if not row["action"] or not row["verdict"]:
         row["note"] = "the graph produced no proposal or no verdict"
@@ -520,6 +521,10 @@ def summarise(scored: dict) -> dict:
         "reversible_flips": _reversible_flips(rows),
         "window_overlaps": sum(1 for r in rows if r.get("window_overlaps")),
         "escalated": sum(1 for r in rows if r["gate"] == "refused" or r["action"] == ESCALATE),
+        # Observe-mode policies (audit A-P-8): where each would have fired, by diagnosis - the measurement that
+        # decides whether it is ever enforced (a rule that fires on CORRECT healthy controls costs escalations).
+        "observed": {pid: dict(collections.Counter(r["diagnosis"] for r in rows if pid in r.get("observed", [])))
+                     for pid in sorted({p for r in rows for p in r.get("observed", [])})},
         "act_abstain": _act_abstain(rows),
         **extra,
     }

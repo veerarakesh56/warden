@@ -156,7 +156,10 @@ def test_describe_policy_lists_every_policy():
     src = pathlib.Path(verifier.__file__).read_text(encoding="utf-8")
     gate_ids = set(re.findall(r'append\("(P\d+-[A-Z-]+)"\)', src))
     assert len(gate_ids) >= 12
-    assert set(out["policies"]) == gate_ids
+    # Observe-mode policies (audit A-P-8) are described too: a caller sees what is being measured.
+    observed = {pid for pid, _ in verifier.OBSERVED}
+    assert observed and not observed & gate_ids
+    assert set(out["policies"]) == gate_ids | observed
     assert "prod" in out["environment_allowlist"]
 
 

@@ -577,6 +577,7 @@ def build_report(
             "status": verdict.status.value,
             "policy_ids": verdict.policy_ids,
             "reasons": list(verdict.reasons),
+            "observed": list(verdict.observed),
         }
     if remediation:
         data["remediation"] = {
@@ -683,6 +684,9 @@ def _render_markdown(d: dict) -> str:
         lines.append(f"- **Status**: {_c(v['status'])}" + (f" - policies: {', '.join(v['policy_ids'])}"
                                                            if v["policy_ids"] else ""))
         lines.extend(f"  - {r}" for r in v["reasons"])
+        if v.get("observed"):
+            lines.append("- **Observed only, not enforced** (policies being measured before they decide anything):")
+            lines.extend(f"  - {_c(o)}" for o in v["observed"])
         lines.append("")
 
     # ---- diagnosis

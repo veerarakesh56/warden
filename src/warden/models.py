@@ -315,6 +315,8 @@ class Verdict(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     policy_ids: list[str] = Field(default_factory=list)
     requires_approval: bool = True
+    # Policies in observe mode (audit A-P-8) that would have fired: recorded with their reason, never obeyed.
+    observed: list[str] = Field(default_factory=list)
 
 
 class CostRecord(BaseModel):
