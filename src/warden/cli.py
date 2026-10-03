@@ -343,7 +343,11 @@ async def _workflow_command(args: argparse.Namespace) -> int:
                 return 1
             _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {args.platform}); "
                  "Ctrl+C to stop")
-            await asyncio.Event().wait()
+            publish = runtime.cloudwatch_publisher()
+            if publish is None:
+                await asyncio.Event().wait()
+            else:  # register C13: a beat only while a full round trip works; the alarm on silence is outside WARDEN
+                await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True))
     if args.cmd == "intake":
         from . import intake
 

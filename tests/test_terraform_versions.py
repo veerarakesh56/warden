@@ -10,7 +10,8 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-MODULES = [ROOT / "terraform", ROOT / "terraform" / "fullstack", ROOT / "terraform" / "proving-ground"]
+MODULES = [ROOT / "terraform", ROOT / "terraform" / "fullstack", ROOT / "terraform" / "proving-ground",
+           ROOT / "terraform" / "modules" / "warden-runtime"]
 
 
 def _spec(constraint: str) -> SpecifierSet:

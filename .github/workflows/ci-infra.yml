@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths:
       - "terraform/fullstack/**"
+      - "terraform/modules/**"
+      - "tests/test_runtime_module_g6.py"
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/_infra-validate.yml"
@@ -30,6 +32,8 @@ on:
   pull_request:
     paths:
       - "terraform/fullstack/**"
+      - "terraform/modules/**"
+      - "tests/test_runtime_module_g6.py"
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/_infra-validate.yml"

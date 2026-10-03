@@ -38,6 +38,7 @@ LOADABLE = frozenset({
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY",
     "WARDEN_TEMPORAL_API_KEY", "WARDEN_TEMPORAL_ADDRESS", "WARDEN_TEMPORAL_NAMESPACE",
     "WARDEN_GITHUB_TOKEN", "WARDEN_CHANGE_REPO", "WARDEN_TEMPORAL_KEY_PREVIOUS",
+    "WARDEN_HEARTBEAT_NAMESPACE", "WARDEN_AWS_READER_ROLE_ARN", "WARDEN_AWS_ACTOR_ROLE_ARN",
 })
 
 
@@ -51,6 +52,10 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_TEMPORAL_API_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp"}),
     "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "mcp"}),
     "WARDEN_GITHUB_TOKEN": frozenset({"worker"}),
+    # Only the worker writes to AWS or beats; no other command needs to know the roles (audit A-P-5, register C13).
+    "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
+    "WARDEN_AWS_ACTOR_ROLE_ARN": frozenset({"worker"}),
+    "WARDEN_HEARTBEAT_NAMESPACE": frozenset({"worker"}),
 }
 
 

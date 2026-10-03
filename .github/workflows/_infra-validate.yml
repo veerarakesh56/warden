@@ -22,6 +22,10 @@ jobs:
       - run: terraform -chdir=terraform/fullstack fmt -check -recursive
       - run: terraform -chdir=terraform/fullstack init -backend=false -input=false
       - run: terraform -chdir=terraform/fullstack validate
+      # The runtime module (G6): built and validated here; applied in a cloud window.
+      - run: terraform -chdir=terraform/modules/warden-runtime fmt -check -recursive
+      - run: terraform -chdir=terraform/modules/warden-runtime init -backend=false -input=false
+      - run: terraform -chdir=terraform/modules/warden-runtime validate
       # Every name carries the prefix, every role its boundary, alarm text names no cause, the policies
       # fit their limits.
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
@@ -36,4 +40,4 @@ jobs:
       # (tests/test_ci_lanes.py keeps this list complete), and so does the one that holds the AWS platform's
       # roles in iam/templates to its code.
       - run: uv sync --locked --extra aws --extra dev
-      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_env_iam.py tests/test_helios_gate_r56.py tests/test_platform_iam_g6.py -q -rs
+      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_env_iam.py tests/test_helios_gate_r56.py tests/test_platform_iam_g6.py tests/test_runtime_module_g6.py -q -rs

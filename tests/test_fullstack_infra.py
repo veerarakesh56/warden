@@ -487,8 +487,9 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
     checks = {"tests/test_fullstack_infra.py", "tests/test_aws_stack.py", "tests/test_docs_honesty.py",
               "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
-              "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py"}
-    assert all(p.startswith(("terraform/fullstack/", ".github/workflows/", "iam/")) or p in checks
+              "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
+              "tests/test_runtime_module_g6.py"}
+    assert all(p.startswith(("terraform/fullstack/", "terraform/modules/", ".github/workflows/", "iam/")) or p in checks
                or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
                          "src/warden/data/environments.yaml")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"])

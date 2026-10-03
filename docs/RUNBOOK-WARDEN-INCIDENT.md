@@ -37,7 +37,7 @@ Signs that WARDEN is the incident:
 | WARDEN may be acting on injected text | policy `P16-SUSPECTED-INJECTION` on a verdict; quoted text steering toward an action in a report |
 | The model behaves strangely | many escalations at once (the escalation SLO, N6), the same wrong action repeated, a model change in the `llm.call` rows |
 | The record may be tampered with | `warden audit verify` reports a broken chain, a bad signature or a checkpoint that differs from its anchor |
-| WARDEN is down | no Slack thread for a firing alarm; no heartbeat (G6); Temporal shows no worker polling |
+| WARDEN is down | no Slack thread for a firing alarm; the `warden-<env>-heartbeat-missing` alarm pages (no worker completed a round trip through Temporal); Temporal shows no worker polling |
 
 Check the record first: it is what every other answer rests on.
 

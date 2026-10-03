@@ -93,6 +93,54 @@ async def check_clock(client: Client, task_queue: str = TASK_QUEUE, wait_s: floa
     return skew_problem(before, server, datetime.now(UTC))
 
 
+# Register C13: WARDEN can fail together with the incident it should help with, and nobody notices. A worker beats
+# only when a whole round trip works - a workflow through Temporal, run by a worker on this task queue, its result
+# decoded, the clock in tolerance - and each beat is a CloudWatch metric. The page on missing beats is an alarm that
+# reads silence as failure (treat_missing_data = breaching), outside WARDEN. Every 5 minutes by default: Temporal
+# Cloud bills by action, and ~288 round trips a day keep that small.
+HEARTBEAT_EVERY = timedelta(seconds=int(os.environ.get("WARDEN_HEARTBEAT_SECONDS", "300")))
+HEARTBEAT_METRIC = "Heartbeat"
+
+
+async def beat(client: Client, publish: Any, task_queue: str = TASK_QUEUE, wait_s: float = 60) -> str:
+    """One heartbeat: '' and a published beat when the round trip works, else why not - and nothing published."""
+    problem = await check_clock(client, task_queue, wait_s)
+    if problem:
+        return problem
+    publish()
+    return ""
+
+
+async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEAT_EVERY, task_queue: str = TASK_QUEUE,
+                    log: Any = None) -> None:
+    """Beat until cancelled. A failed beat publishes nothing - the missing metric is the page - and is said once."""
+    while True:
+        try:
+            problem = await beat(client, publish, task_queue)
+        except Exception as exc:  # noqa: BLE001 - a beat that cannot run is a missed beat, never a crashed worker
+            problem = f"the heartbeat could not run: {type(exc).__name__}"
+        if problem and log:
+            log(f"heartbeat missed: {problem}")
+        await asyncio.sleep(every.total_seconds())
+
+
+def cloudwatch_publisher() -> Any:
+    """Publishes one beat to CloudWatch under WARDEN_HEARTBEAT_NAMESPACE (e.g. `WARDEN/dev`), with the worker's own
+    credentials; None when no namespace is configured (a local worker beats nowhere)."""
+    namespace = os.environ.get("WARDEN_HEARTBEAT_NAMESPACE", "").strip()
+    if not namespace:
+        return None
+    import boto3
+
+    from .environments import region
+
+    cw = boto3.client("cloudwatch", region_name=region())
+    queue = TASK_QUEUE
+    return lambda: cw.put_metric_data(Namespace=namespace, MetricData=[{
+        "MetricName": HEARTBEAT_METRIC, "Value": 1, "Unit": "Count",
+        "Dimensions": [{"Name": "TaskQueue", "Value": queue}]}])
+
+
 TYPED_TIERS = frozenset({"T2", "T3"})
 
 
