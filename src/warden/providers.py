@@ -37,7 +37,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 from urllib.parse import urlparse
 
 # The claude CLI's own words for an API error status and for a connection that never opened.
@@ -538,8 +538,6 @@ class BedrockProvider:
     # Converse forces one named tool for these families only (ToolChoice `tool`, read 2026-10-03); any other model
     # answers in text, with the schema in the prompt, and LLMClient validates that answer like any provider's.
     FORCED_TOOL_FAMILIES = frozenset({"anthropic", "amazon"})
-    # Inference-profile prefixes: a geography (or `global`) in front of the model id.
-    _GEO = frozenset({"global", "in", "apac", "us", "eu", "jp", "au", "ca", "us-gov"})
 
     def __init__(self, model: str | None = None, client: Any = None) -> None:
         chosen = model or os.environ.get("WARDEN_BEDROCK_MODEL", "")
@@ -557,6 +555,27 @@ class BedrockProvider:
             client = boto3.client("bedrock-runtime", region_name=region(), config=Config(
                 read_timeout=_sdk_timeout_s(), connect_timeout=10, retries={"max_attempts": 1, "mode": "standard"}))
         self._client = client
+
+    # Register S11: where a geography profile may process a request (AWS cross-Region inference, read 2026-10-03).
+    _WHERE: ClassVar[dict[str, str]] = {
+        "global": "any commercial AWS Region (global profile)", "in": "India (geography profile)",
+        "apac": "Asia Pacific (geography profile)", "us": "United States (geography profile)",
+        "eu": "European Union (geography profile)", "jp": "Japan (geography profile)",
+        "au": "Australia (geography profile)", "ca": "Canada (geography profile)",
+        "us-gov": "AWS GovCloud (US) (geography profile)"}
+    # Inference-profile prefixes: a geography (or `global`) in front of the model id.
+    _GEO = frozenset(_WHERE)
+
+    @property
+    def geography(self) -> str:
+        """Where Bedrock may process the request (register S11): the profile's geography, or the configured Region
+        for an in-Region model id."""
+        prefix = self.model.split(".")[0]
+        if prefix in self._WHERE and self.model.count(".") >= 2:
+            return self._WHERE[prefix]
+        from .environments import region
+
+        return f"{region()} only (in-Region model)"
 
     @property
     def family(self) -> str:

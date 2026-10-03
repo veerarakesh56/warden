@@ -127,6 +127,13 @@ class LLMClient:
         return "mock" if self.mock else getattr(self._provider, "model", "unknown")
 
     @property
+    def processed_in(self) -> str:
+        """Where the provider processes the prompt (register S11), as far as WARDEN can know it."""
+        if self.mock:
+            return "nowhere (mock)"
+        return str(getattr(self._provider, "geography", "set by the provider, outside WARDEN's configuration"))
+
+    @property
     def provider_version(self) -> str:
         """The CLI or SDK version that made the call (register M15)."""
         return "mock" if self.mock else str(getattr(self._provider, "version", "unknown"))

@@ -187,6 +187,7 @@ bump may carry a breaking change.
 - **Every time WARDEN shows or the docs give is in UTC and IST, the approval page and the docs held by tests**
   (requirement R4).
 - **README: the whole-system diagram redrawn from the v2 code, held to it by a test** (requirement R30).
+- **Where the model processed each diagnosis is recorded in its audit provenance** (register S11).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

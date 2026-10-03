@@ -34,7 +34,9 @@ escalate often; that is the safe failure.
 change; the gate's policies are shown before the model's prose.
 
 **Inputs and data.** Logs, metrics, deploy records and configuration, redacted before any model sees them.
-Untrusted text reaches the model only as typed facts.
+Untrusted text reaches the model only as typed facts. Where the model processed them is recorded with every
+diagnosis (`processed_in` in the audit's provenance); the production deployment uses Bedrock's India geography
+profile, so inference stays in India (D12).
 
 **Operating and maintenance.** `docs/OPERATIONS.md` (rotation), `docs/RUNBOOK-WARDEN-INCIDENT.md` (when WARDEN is
 the incident), `docs/governance/GAME-DAY.md` (keeping the skill), yearly signature review (R46).

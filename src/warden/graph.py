@@ -592,6 +592,7 @@ def _diagnose(state: WardenState, llm: LLMClient) -> WardenState:
     # Provenance (audit A-P-1): which model said this, to exactly which prompt, under which of WARDEN's code and
     # policies. Hashes only - the prompt is redacted, but its text stays out of the record all the same.
     provenance = {"provider": llm.provider_name, "model": llm.model, "version": llm.provider_version,
+                  "processed_in": llm.processed_in,  # register S11: residency recorded with every diagnosis
                   "system_sha256": _sha256(SYSTEM_DIAGNOSE), "prompt_sha256": _sha256(user),
                   "response_sha256": _sha256(d.model_dump_json()), "code": code_version()}
     return {
