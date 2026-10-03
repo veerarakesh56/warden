@@ -39,6 +39,9 @@ class Limits:
     per_class_per_day: int = 10
     breaker_failures: int = 2
     breaker_window: timedelta = timedelta(hours=1)
+    # Register C8, oscillation: after WARDEN changes a target, nothing changes it again until the first change has
+    # had this long to prove itself - a fix on a fix, or a rollback of a rollback, waits for a person or the clock.
+    cooldown: timedelta = timedelta(minutes=30)
 
 
 DEFAULT_LIMITS = Limits()
@@ -95,6 +98,11 @@ def blocked(log: AuditLog, *, service: str, action_class: str, now: datetime,
         reasons.append(f"the kill switch is on: {row['body']['reason']}")
     hour = [e for e in log.entries(kinds=(APPLIED,), since=now - timedelta(hours=1))
             if e["body"].get("service") == service]
+    recent = [e for e in log.entries(kinds=(APPLIED,), since=now - limits.cooldown)
+              if e["body"].get("service") == service] if limits.cooldown > timedelta(0) else []
+    if recent:
+        reasons.append(f"C8: WARDEN changed {service} at {recent[-1]['at']:%Y-%m-%d %H:%M}Z; the cool-down is "
+                       f"{int(limits.cooldown.total_seconds() // 60)} min, so a second change waits for the first to hold")
     if len(hour) >= limits.per_service_per_hour:
         reasons.append(f"{service} already had {len(hour)} changes in the last hour")
     day = [e for e in log.entries(kinds=(APPLIED,), since=now - timedelta(days=1))

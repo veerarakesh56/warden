@@ -7,7 +7,7 @@ import asyncio
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
@@ -16,7 +16,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from test_remediation_workflow import REQ, FakePlatform, _until_awaiting_approval
-from warden import approvals, audit, codec
+from warden import approvals, audit, bounds, codec
 from warden.activities import FixOutcome, FixRequest, RemediationActivities
 from warden.workflows import RemediationWorkflow
 
@@ -29,7 +29,9 @@ def _world(platform):
                                           serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     policy = approvals.ApproverPolicy(approvers={"owner": approvals.Approver(public_key=pem, tiers=["T1", "T2"])})
     log = audit.AuditLog(Path(tempfile.mkdtemp()) / "audit.db", key=Ed25519PrivateKey.generate())
-    return owner, log, RemediationActivities(audit=log, policy=policy, platform=platform)
+    # About scoping a plan to its run, not the cool-down (register C8, which would hold the second run for 30 min).
+    return owner, log, RemediationActivities(audit=log, policy=policy, platform=platform,
+                                             limits=bounds.Limits(cooldown=timedelta(0)))
 
 
 def _every(a):

@@ -56,11 +56,24 @@ def test_nothing_blocks_a_first_change(log, clock):
 
 
 def test_a_service_gets_three_changes_an_hour_then_waits(log, clock):
+    hourly = bounds.Limits(cooldown=timedelta(0))  # the hourly count alone; the cool-down has its own test
     _apply(log, n=3)
-    assert bounds.blocked(log, service="orders-api", action_class="other", now=clock.now) == [
+    assert bounds.blocked(log, service="orders-api", action_class="other", now=clock.now, limits=hourly) == [
         "orders-api already had 3 changes in the last hour"]
-    assert bounds.blocked(log, service="checkout", action_class="other", now=clock.now) == []
+    assert bounds.blocked(log, service="checkout", action_class="other", now=clock.now, limits=hourly) == []
     clock.advance(minutes=61)
+    assert bounds.blocked(log, service="orders-api", action_class="other", now=clock.now, limits=hourly) == []
+
+
+def test_a_target_wardens_changed_waits_out_the_cool_down(log, clock):
+    """Register C8, oscillation: a fix on a fix, or a rollback of a rollback, waits until the first change held."""
+    _apply(log, n=1)
+    first = bounds.blocked(log, service="orders-api", action_class="other", now=clock.now)
+    assert len(first) == 1 and first[0].startswith("C8: WARDEN changed orders-api") and "30 min" in first[0]
+    assert bounds.blocked(log, service="checkout", action_class="other", now=clock.now) == []
+    clock.advance(minutes=29)
+    assert bounds.blocked(log, service="orders-api", action_class="other", now=clock.now)
+    clock.advance(minutes=2)
     assert bounds.blocked(log, service="orders-api", action_class="other", now=clock.now) == []
 
 
