@@ -334,6 +334,8 @@ def gather(
                         bundle.tool_errors.append(text if text.startswith(f"{name}: ") else f"{name}: {text}")
                     result = _numbers(result)
                 setattr(bundle, sink, result)
+                if not result and sink != "recent_deploys":  # no deploy in the window is a finding; no logs is not
+                    bundle.empty_reads.append(name)
                 sp.set_attribute("warden.tool.ok", True)
             except FutureTimeout:
                 msg = f"{name}: [timed out] timed out after {timeout:.1f}s"

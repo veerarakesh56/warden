@@ -477,6 +477,14 @@ def verify(
         policies.append("P11-ACTION-CONTRADICTS-EVIDENCE")
         reasons.append(contradiction)
 
+    # P23 — "nothing to do" because a read came back empty (register N2). An empty answer from a throttled,
+    # lagging or misdirected query looks exactly like a quiet, healthy service; it is unknown, never healthy.
+    if proposal.action is ActionKind.no_action and context.empty_reads:
+        escalate = True
+        policies.append("P23-EMPTY-READ")
+        reasons.append("No action proposed, but these reads returned nothing, which is not the same as healthy: "
+                       + ", ".join(context.empty_reads) + ".")
+
     # P12 — "nothing to do" while the evidence shows something broken.
     #
     # no_action became subject to P4/P8/P9 after Wave 1, but a CONFIDENT no_action over plenty of

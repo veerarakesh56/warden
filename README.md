@@ -38,7 +38,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 | | |
 |---|---|
 | **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
-| **Safety** | 16 policies (P1–P16), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
+| **Safety** | 19 incident policies (P0–P16, P22, P23) and 3 plan-gate refusals (P18, P19, P21), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
 | **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. Platforms for Kubernetes (restart, a bounded scale) and databases (close idle-in-transaction sessions of the app's logins) connect with `warden worker --platform`; the in-process live backends are removed (D16) |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
@@ -93,8 +93,9 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   - a password equal to a usage word (`--password PASSWORD`, `api_key=true`) is not masked at all.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
-- **A deterministic gate.** Sixteen policies (P1–P16) in plain Python decide what happens. No prompt, no
-  probability. Each returns a policy id so a rejection can be explained without re-running anything.
+- **A deterministic gate.** Nineteen incident policies (P0–P16, P22 self-target, P23 empty read) and three
+  plan-gate refusals (P18 environment mismatch, P19 freeze, P21 rollout in progress) in plain Python decide
+  what happens. No prompt, no probability. Each returns a policy id so a rejection can be explained without re-running anything.
 - **A researched incident knowledge base.** 34 signatures, basic (OOMKilled, CrashLoopBackOff,
   ImagePullBackOff) to advanced (metastable failure, cache stampede, split-brain, retry storm,
   control-plane saturation), each carrying a deterministic detector and ranked fixes drawn only from

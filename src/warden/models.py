@@ -147,6 +147,9 @@ class ContextBundle(BaseModel):
     metrics: dict[str, float] = Field(default_factory=dict)
     recent_deploys: list[dict[str, str]] = Field(default_factory=list)
     tool_errors: list[str] = Field(default_factory=list)
+    # Reads that succeeded and returned nothing (register N2): a throttled or misdirected query answers with an
+    # empty list as readily as a healthy service does, so "nothing came back" is unknown, never "all clear".
+    empty_reads: list[str] = Field(default_factory=list)
     # The alert rule's summary, as whoever wrote the rule wrote it (register M10): untrusted evidence of kind A,
     # shown to the model only as quarantined facts, never as prose that frames the diagnosis.
     alert_text: str = ""

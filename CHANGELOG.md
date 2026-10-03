@@ -150,6 +150,7 @@ bump may carry a breaking change.
 - **WARDEN's output never flows back into its own knowledge** (register N9, audit A-N-9).
 - **A policy, prompt or catalogue change cannot pass unseen in a pull request: pinned hashes and CODEOWNERS** (register
   N8, audit A-N-8).
+- **An empty read is unknown, never healthy: P23-EMPTY-READ** (register N2, audit A-N-2).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

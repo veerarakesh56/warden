@@ -389,6 +389,7 @@ def node_redact(state: WardenState) -> WardenState:
         recent_deploys=redacted_deploys,
         tool_errors=redacted_errors,
         alert_text=" ".join(summary_text.split()),  # register M10: evidence of kind A, quarantined
+        empty_reads=context.empty_reads,  # register N2: source names only, nothing to redact
     )
     return {
         "alert": alert,
