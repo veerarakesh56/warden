@@ -515,6 +515,31 @@ which exists only once the cluster does.
 
 Undo: delete the role `warden-dev-harness` and the policy `WardenHarness-dev`.
 
+### WARDEN's own AWS roles (in the window, once the runtime's worker role `warden-ops-worker` exists)
+
+WARDEN fixes an AWS target through two roles per environment. The **platform reader** reads what a fix
+needs; the **actor** makes one approved change. The runtime worker takes the actor only for one plan:
+for 15 minutes, named for the incident, tagged with who approved it, and limited to that one action on
+that one resource. Both are in `iam/<env>/` (dev shown), and a test holds them to the code
+(`tests/test_platform_iam_g6.py`).
+
+1. Claude runs `python scripts/render_env_iam.py --account`, which writes `iam/dev/actor-trust.local.json`
+   and `iam/dev/platform-reader-trust.local.json` with this account's id (neither is committed).
+2. **IAM** -> **Policies** -> **Create policy** -> **JSON**. Paste the whole of `iam/dev/platform-reader.json`.
+   **Next**. Name: `WardenPlatformReader-dev`. Tags `Project` = `warden`, `Environment` = `dev`.
+   **Create policy**. Do the same with `iam/dev/actor.json`, named `WardenActor-dev`.
+3. **IAM** -> **Roles** -> **Create role** -> **Custom trust policy**. Paste the whole of
+   `iam/dev/platform-reader-trust.local.json` -> **Next** -> tick `WardenPlatformReader-dev` -> **Next**.
+   Name `warden-dev-platform-reader`. Maximum session duration **1 hour**. Tags `Project` = `warden`,
+   `Environment` = `dev`. **Create role**.
+4. The same for the actor: trust `iam/dev/actor-trust.local.json`, policy `WardenActor-dev`, name
+   `warden-dev-actor`, maximum session duration **1 hour**, the same tags.
+5. Claude sets `WARDEN_AWS_READER_ROLE_ARN` and `WARDEN_AWS_ACTOR_ROLE_ARN` for the worker and checks,
+   with one approved test fix, that CloudTrail shows the session tags `approver`, `incident` and `plan`.
+
+Undo: delete the roles `warden-dev-actor` and `warden-dev-platform-reader`, then the policies
+`WardenActor-dev` and `WardenPlatformReader-dev`.
+
 ## Done 2026-09-27
 
 1. `WardenFullstackOperator` updated: the operator may delete detached network interfaces (used the

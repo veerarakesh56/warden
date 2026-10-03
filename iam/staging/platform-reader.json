@@ -1,0 +1,56 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadThisEnvironmentsResources",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:ListTagsOfResource",
+        "ecs:DescribeServiceRevisions",
+        "ecs:DescribeServices",
+        "ecs:ListServiceDeployments",
+        "events:DescribeRule",
+        "events:ListTagsForResource",
+        "lambda:GetAlias",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-staging-*",
+        "arn:aws:ecs:ap-south-2:*:service/warden-staging-*/*",
+        "arn:aws:ecs:ap-south-2:*:service-revision/warden-staging-*/*/*",
+        "arn:aws:events:ap-south-2:*:rule/warden-staging-*",
+        "arn:aws:lambda:ap-south-2:*:function:warden-staging-*"
+      ]
+    },
+    {
+      "Sid": "EventSourceMappingsOfThisEnvironmentsFunctions",
+      "Effect": "Allow",
+      "Action": "lambda:GetEventSourceMapping",
+      "Resource": "arn:aws:lambda:ap-south-2:*:event-source-mapping:*",
+      "Condition": {
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:ap-south-2:*:function:warden-staging-*"
+        }
+      }
+    },
+    {
+      "Sid": "ReadsThatNameNoResource",
+      "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:DescribeScalableTargets",
+        "cloudwatch:GetMetricData",
+        "lambda:GetAccountSettings"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    }
+  ]
+}

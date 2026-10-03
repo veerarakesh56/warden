@@ -1,0 +1,12 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TheWorker",
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-ops-worker"},
+      "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
+      "Condition": {"StringLike": {"sts:SourceIdentity": ["inc-*", "warden-worker"]}}
+    }
+  ]
+}

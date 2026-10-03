@@ -1,0 +1,43 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TheWorkerForOneIncident",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-worker"
+      },
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetSourceIdentity"
+      ],
+      "Condition": {
+        "StringLike": {
+          "sts:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "NamingWhoApprovedTheIncidentAndThePlan",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-worker"
+      },
+      "Action": "sts:TagSession",
+      "Condition": {
+        "Null": {
+          "aws:RequestTag/approver": "false",
+          "aws:RequestTag/incident": "false",
+          "aws:RequestTag/plan": "false"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "approver",
+            "incident",
+            "plan"
+          ]
+        }
+      }
+    }
+  ]
+}

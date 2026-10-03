@@ -1,0 +1,42 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ApprovedFixesOnThisEnvironmentsResources",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:UpdateTable",
+        "ecs:UpdateService",
+        "events:DisableRule",
+        "events:EnableRule",
+        "lambda:PutFunctionConcurrency",
+        "lambda:UpdateAlias"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-dev-*",
+        "arn:aws:ecs:ap-south-2:*:service/warden-dev-*/*",
+        "arn:aws:events:ap-south-2:*:rule/warden-dev-*",
+        "arn:aws:lambda:ap-south-2:*:function:warden-dev-*"
+      ],
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "EventSourceMappingsOfThisEnvironmentsFunctions",
+      "Effect": "Allow",
+      "Action": "lambda:UpdateEventSourceMapping",
+      "Resource": "arn:aws:lambda:ap-south-2:*:event-source-mapping:*",
+      "Condition": {
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:ap-south-2:*:function:warden-dev-*"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    }
+  ]
+}

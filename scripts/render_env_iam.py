@@ -1,7 +1,7 @@
 """Render the per-environment IAM files from iam/templates/ - one boundary, deploy policy and trust
 policy per environment in src/warden/data/environments.yaml (v2 Phase 1.5).
 
-    python scripts/render_env_iam.py            # write iam/<env>/{boundary,deploy,deploy-ec2,trust}.json
+    python scripts/render_env_iam.py            # write iam/<env>/{boundary,deploy,deploy-ec2,trust,actor,...}.json
     python scripts/render_env_iam.py --account   # also trust.local.json with the real account id
                                                  # (gitignored; for pasting into the console)
 
@@ -24,8 +24,11 @@ sys.path.insert(0, str(ROOT / "src"))
 from warden.environments import EnvironmentPolicies, names
 
 TEMPLATES = ROOT / "iam" / "templates"
-# The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit.
-KINDS = ("boundary", "deploy", "deploy-ec2", "trust")
+# The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit. The actor and
+# platform-reader roles are WARDEN's own per-environment identities for its AWS platform (G6, audit A-P-5): the
+# runtime worker assumes the reader to read, and the actor - for one approved plan - to write.
+KINDS = ("boundary", "deploy", "deploy-ec2", "trust", "actor", "actor-trust", "platform-reader", "platform-reader-trust")
+TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # The benchmark harness runs only here, as the operator on the laptop (owner, 2026-10-02; audit A-I-18).
 HARNESS_ENVS = ("dev",)
 
@@ -65,7 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         for kind, text in render(env).items():
             (d / f"{kind}.json").write_text(text, encoding="utf-8")
         if account:
-            (d / "trust.local.json").write_text(render(env, account)["trust"], encoding="utf-8")
+            for kind in TRUSTS:
+                (d / f"{kind}.local.json").write_text(render(env, account)[kind], encoding="utf-8")
             if env in HARNESS_ENVS:
                 (d / "harness-trust.local.json").write_text(render(env, account)["harness-trust"], encoding="utf-8")
         if args.cluster_resource_id and env in HARNESS_ENVS:

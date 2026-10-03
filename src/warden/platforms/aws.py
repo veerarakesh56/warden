@@ -225,7 +225,7 @@ class AwsPlatform:
             raise AwsPlatformRefused(f"alias {p['alias']} serves version {now.get('version')}, not the {want_now} the "
                                      "plan expected; nothing was changed")
         arn = self._read("lambda").get_function_configuration(FunctionName=p["function"])["FunctionArn"]
-        lam = self._actor(who, ["lambda:UpdateAlias"], [arn, f"{arn}:{p['alias']}"], None)("lambda")
+        lam = self._actor(who, ["lambda:UpdateAlias"], [arn], None)("lambda")  # the function: the service reference
         # RevisionId: Lambda refuses the update if the alias changed after this read (PreconditionFailed).
         lam.update_alias(FunctionName=p["function"], Name=p["alias"], FunctionVersion=to,
                          RevisionId=now.get("revision"))
@@ -309,8 +309,12 @@ class AwsPlatform:
         if now.get("enabled") != back:  # enabling needs it disabled; the rollback needs it enabled
             raise AwsPlatformRefused(f"event source mapping {p['mapping']} is already "
                                      f"{'enabled' if now.get('enabled') else 'disabled'}; nothing was changed")
-        lam = self._actor(who, ["lambda:UpdateEventSourceMapping"], ["*"],
-                          {"ArnEquals": {"lambda:FunctionArn": _unqualified(now["function"])}})("lambda")
+        # The mapping's own ARN, and its function's as a condition (lambda:FunctionArn): AWS's service reference
+        # (read 2026-10-03) names both for UpdateEventSourceMapping.
+        fn = _unqualified(now["function"])
+        mapping_arn = fn.split(":function:")[0] + f":event-source-mapping:{p['mapping']}"
+        lam = self._actor(who, ["lambda:UpdateEventSourceMapping"], [mapping_arn],
+                          {"ArnEquals": {"lambda:FunctionArn": fn}})("lambda")
         lam.update_event_source_mapping(UUID=p["mapping"], Enabled=not back)
         return f"{'disabled' if back else 'enabled'} event source mapping {p['mapping']}"
 

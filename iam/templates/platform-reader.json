@@ -1,0 +1,44 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadThisEnvironmentsResources",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:ListTagsOfResource",
+        "ecs:DescribeServiceRevisions",
+        "ecs:DescribeServices",
+        "ecs:ListServiceDeployments",
+        "events:DescribeRule",
+        "events:ListTagsForResource",
+        "lambda:GetAlias",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
+        "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
+        "arn:aws:ecs:${region}:*:service-revision/warden-${env}-*/*/*",
+        "arn:aws:events:${region}:*:rule/warden-${env}-*",
+        "arn:aws:lambda:${region}:*:function:warden-${env}-*"
+      ]
+    },
+    {
+      "Sid": "EventSourceMappingsOfThisEnvironmentsFunctions",
+      "Effect": "Allow",
+      "Action": "lambda:GetEventSourceMapping",
+      "Resource": "arn:aws:lambda:${region}:*:event-source-mapping:*",
+      "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:${region}:*:function:warden-${env}-*"}}
+    },
+    {
+      "Sid": "ReadsThatNameNoResource",
+      "Effect": "Allow",
+      "Action": ["application-autoscaling:DescribeScalableTargets", "cloudwatch:GetMetricData", "lambda:GetAccountSettings"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "${region}"}}
+    }
+  ]
+}

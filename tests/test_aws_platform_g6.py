@@ -155,7 +155,7 @@ def test_the_alias_goes_back_to_the_version_that_served_traffic_not_the_numerica
     out = p.apply("lambda_move_alias", params, snapshot=live["state"], who=WHO)
     assert f.writes == [("update_alias", {"FunctionName": FN, "Name": "live", "FunctionVersion": "3", "RevisionId": "r1"})]
     [s] = f.sessions
-    assert s["who"] == WHO and s["actions"] == ["lambda:UpdateAlias"] and s["resources"] == [FN_ARN, f"{FN_ARN}:live"]
+    assert s["who"] == WHO and s["actions"] == ["lambda:UpdateAlias"] and s["resources"] == [FN_ARN]
     assert "from version 9 to 3" in out
 
 
@@ -212,7 +212,8 @@ def test_an_event_source_mapping_is_enabled_under_its_functions_exact_arn(aws):
     assert live["mapping"] == {"u-1"} and _ok("lambda_enable_esm", {"mapping": "u-1"}, live) == []
     p.apply("lambda_enable_esm", {"mapping": "u-1"}, snapshot=live["state"], who=WHO)
     assert f.writes == [("update_event_source_mapping", {"UUID": "u-1", "Enabled": True})]
-    assert f.sessions[0]["resources"] == ["*"] and f.sessions[0]["condition"] == {"ArnEquals": {"lambda:FunctionArn": FN_ARN}}
+    esm_arn = f"arn:aws:lambda:test-region-1:{ACCT}:event-source-mapping:u-1"
+    assert f.sessions[0]["resources"] == [esm_arn] and f.sessions[0]["condition"] == {"ArnEquals": {"lambda:FunctionArn": FN_ARN}}
     f.esm["State"] = "Enabled"
     assert p.live("lambda_enable_esm", {"mapping": "u-1"})["mapping"] == set()  # nothing to enable
     with pytest.raises(AwsPlatformRefused, match="already enabled"):
