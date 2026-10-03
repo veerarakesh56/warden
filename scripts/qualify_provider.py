@@ -30,7 +30,8 @@ def tally(out: pathlib.Path) -> dict[str, int]:
     from warden.verifier import AUTO_SAFE_ACTIONS
 
     inert = {a.value for a in AUTO_SAFE_ACTIONS}
-    counts = {"correct": 0, "runs": 0, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}
+    counts = {"correct": 0, "runs": 0, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0,
+              "unanswered": 0}
     for name in RUNS:
         run_out = out / name
         scored = score_run_dir(run_out, rubric_path=run_out / "grading" / "scoring.yaml")
@@ -45,6 +46,9 @@ def tally(out: pathlib.Path) -> dict[str, int]:
             1 for r in scored["rows"]
             if r["diagnosis"] == "NO-EVIDENCE" and r["gate"] == "allowed" and r["action"] not in inert)
         counts["errors"] += int(summary["errors"])
+        # The model never answered (quota, outage, no access) and the gate escalated on rules alone: that row measures
+        # the gate, not the model - a model refused 30 of 30 times was once scored "7 correct" (2026-10-03, R15).
+        counts["unanswered"] += sum(1 for r in scored["rows"] if "P0-MODEL-UNAVAILABLE" in (r.get("policy_ids") or []))
         counts["escalated"] = counts.get("escalated", 0) + int(summary["escalated"])
         for k, v in summary["act_abstain"].items():
             counts[k] = counts.get(k, 0) + int(v)
@@ -163,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--budget-usd", type=float, default=None,
                    help="a hard ceiling on what this run may spend in total (paid providers; WARDEN_PRICE_IN/OUT must "
                         "be the model's real prices)")
+    p.add_argument("--pace-s", type=float, default=0.0,
+                   help="wait this long before each incident's model calls: a free tier's per-minute quota otherwise "
+                        "answers most of the set with 429, which measures the quota, not the model")
     a = p.parse_args(argv)
     out = a.out.expanduser().resolve()
     if ROOT.resolve() in out.parents:
@@ -183,9 +190,18 @@ def main(argv: list[str] | None = None) -> int:
 
         probe = LLMClient()
         budget = Budget(a.budget_usd) if a.budget_usd is not None else None
+        factory = budget
+        if a.pace_s > 0:
+            import time
+
+            inner = budget or LLMClient
+
+            def factory():
+                time.sleep(a.pace_s)
+                return inner()
         for name in RUNS:
             replay(ROOT / "docs" / "bench" / name, out / name, per_scenario=1, only=None,
-                   **({"llm_factory": budget} if budget else {}))
+                   **({"llm_factory": factory} if factory else {}))
         result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
                   "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "prompt": prompt_fingerprint()}
         if budget:
@@ -195,15 +211,19 @@ def main(argv: list[str] | None = None) -> int:
     bar = doc["bar"]
     if "slo" in doc:
         result["slo_breaches"] = slo_breaches(result, doc["slo"])
-    result["passed"] = result["wrong_and_allowed"] <= bar["wrong_and_allowed"] and result["correct"] >= bar["min_correct"]
+    result["passed"] = (result["wrong_and_allowed"] <= bar["wrong_and_allowed"] and result["correct"] >= bar["min_correct"]
+                        and result.get("unanswered", 0) == 0)
     (out / "qualification.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
     if result["passed"]:
         print("\nadd to src/warden/data/providers.yaml under `qualified:`")
         print(f"  - {json.dumps({k: v for k, v in result.items() if k not in ("passed", "slo_breaches")})}")
         return 0
+    if result.get("unanswered"):
+        print(f"\nNOT MEASURED: the model did not answer {result['unanswered']} of {result['runs']} incidents (quota, "
+              "outage or no access); those rows measure the gate's fallback, not the model")
     print("\nNOT QUALIFIED: the bar is wrong_and_allowed <= "
-          f"{bar['wrong_and_allowed']} and correct >= {bar['min_correct']}")
+          f"{bar['wrong_and_allowed']}, correct >= {bar['min_correct']} and every incident answered")
     return 1
 
 

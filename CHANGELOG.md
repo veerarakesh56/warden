@@ -191,6 +191,8 @@ bump may carry a breaking change.
 - **AWS write platform: Lambda alias and concurrency, event source mappings, EventBridge rules, DynamoDB
   capacity and ECS rollback, each write in a per-plan actor session naming its approvers** (audit A-P-5; G6
   real platforms, live proof in the cloud windows).
+- **Gemini tested with the owner's AI Studio key: the free tier could not answer WARDEN's replay set, and the
+  qualification no longer scores a model that never answered** (requirement R15).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
