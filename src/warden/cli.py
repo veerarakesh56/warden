@@ -384,6 +384,21 @@ async def _workflow_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _label_command(args: argparse.Namespace) -> int:
+    """Audit A-P-2: the approver's signed verdict on a diagnosis and its action, recorded for calibration."""
+    from . import approvals, labels, runtime
+
+    policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
+    label = labels.sign(_approver_key(args.key), incident_id=args.incident, approver=args.approver,
+                        diagnosis=args.diagnosis, action=args.action, note=args.note or "")
+    problems = labels.record(runtime.open_audit(), label, policy)
+    if problems:
+        _out("label not recorded: " + "; ".join(problems), err=True)
+        return 1
+    _out(f"label recorded for {args.incident}: diagnosis {args.diagnosis}, action {args.action}")
+    return 0
+
+
 def _killswitch_command(args: argparse.Namespace) -> int:
     from . import approvals, bounds, runtime
 
@@ -550,6 +565,14 @@ def _main(argv: list[str] | None = None) -> int:
     p_reset.add_argument("--key", required=True, type=pathlib.Path)
     p_reset.add_argument("--trips", required=True, type=int, help="how many trips you reviewed (`warden killswitch status`)")
 
+    p_label = sub.add_parser("label", help="record your signed verdict on an incident's diagnosis and action")
+    p_label.add_argument("incident")
+    p_label.add_argument("--diagnosis", required=True, choices=("right", "wrong", "unsure"))
+    p_label.add_argument("--action", required=True, choices=("right", "wrong", "unsure"))
+    p_label.add_argument("--note", help="optional, up to 500 characters")
+    p_label.add_argument("--approver", required=True)
+    p_label.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+
     args = parser.parse_args(argv)
     _load_environment(args.cmd)  # after parsing: what is loaded depends on the command (audit A-B-L17)
     if args.cmd == "audit":
@@ -558,6 +581,8 @@ def _main(argv: list[str] | None = None) -> int:
         return asyncio.run(_workflow_command(args))
     if args.cmd == "killswitch":
         return _killswitch_command(args)
+    if args.cmd == "label":
+        return _label_command(args)
 
     # Evidence source is a deployment decision, like the model provider. WARDEN_BACKEND=k8s reads a
     # live cluster; the default reads the recorded fixtures so CI never needs one.

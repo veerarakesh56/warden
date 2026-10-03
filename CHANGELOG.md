@@ -168,6 +168,7 @@ bump may carry a breaking change.
 - **Every applied change leaves a GitHub issue citing its plan hash and audit head** (register O9).
 - **An observe mode for new policies: measured on every verdict, obeyed only after a reviewed change** (audit A-P-8).
 - **A runbook for incidents WARDEN itself causes, its commands held to the real CLI** (audit A-P-6).
+- **Approvers' verdicts on each diagnosis are recorded as signed labels for calibration** (audit A-P-2).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
