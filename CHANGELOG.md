@@ -164,6 +164,7 @@ bump may carry a breaking change.
 - **The AWS MCP servers and Agent Toolkit evaluated as evidence sources: not adopted, with reasons** (requirement
   R57).
 - **A single approver, said in the record of every change** (requirement R50).
+- **One Slack thread per incident, its first line updated in place** (register H3).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

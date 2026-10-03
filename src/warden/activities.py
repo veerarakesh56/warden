@@ -160,6 +160,21 @@ def _basis_now(plan: Plan) -> dict[str, str]:
     return {**plan.basis, "catalog": catalog.fingerprint(), "code": code_version()}
 
 
+class AuditThreads:
+    """Which Slack thread each incident has (register H3), kept in the audit so every worker continues the same one:
+    a `chatops.thread` row per incident, the latest wins."""
+
+    def __init__(self, audit: AuditLog) -> None:
+        self.audit = audit
+
+    def get(self, incident: str, default: str | None = None) -> str | None:
+        rows = self.audit.entries(incident, kinds=("chatops.thread",))
+        return rows[-1]["body"]["ts"] if rows else default
+
+    def __setitem__(self, incident: str, ts: str) -> None:
+        self.audit.append(incident, "chatops.thread", {"ts": ts})
+
+
 class RemediationActivities:
     def __init__(self, *, audit: AuditLog, policy: approvals.ApproverPolicy, platform: Platform,
                  limits: bounds.Limits = bounds.DEFAULT_LIMITS) -> None:
@@ -225,7 +240,8 @@ class RemediationActivities:
                             "was taken; the incident is still open.")}[what]
         footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{head[:16]}` · check it with "
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
-        sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=()))
+        sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=()),
+                    threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,
@@ -619,7 +635,7 @@ class IncidentActivities:
         footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{head[:16]}` · check it with "
                   f"`warden audit show {alert_id}`. WARDEN never asks for an approval in chat: approvals are signed "
                   "out of band.")
-        sent = send(dataclasses.replace(report, markdown=report.markdown + footer))
+        sent = send(dataclasses.replace(report, markdown=report.markdown + footer), threads=AuditThreads(self.audit))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
                                                         "sinks": [n.sink for n in sent],
                                                         "delivered": [n.sink for n in sent if n.delivered]})

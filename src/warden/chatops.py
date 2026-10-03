@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -107,6 +108,72 @@ class SlackWebhookSink:
                             detail=notes[0].detail + (f" ({len(parts)} parts)" if len(parts) > 1 else ""))
 
 
+_SLACK_API = "https://slack.com/api/"
+_MAX_RETRY_AFTER_S = 10.0
+
+
+def _slack_call(method: str, payload: dict, token: str) -> tuple[dict | None, str]:
+    """One Slack Web API call with the bot token: (response, detail), never an exception. Slack answers HTTP 200 with
+    `ok: false` for most failures, so `ok` is what counts. A rate limit (HTTP 429; chat.postMessage allows about one
+    message a second per channel) is waited out once, as its Retry-After says, up to a ceiling."""
+    body = json.dumps(payload).encode("utf-8")
+    for attempt in (1, 2):
+        req = urllib.request.Request(_SLACK_API + method, data=body, method="POST", headers={
+            "Content-Type": "application/json; charset=utf-8", "Authorization": f"Bearer {token}"})
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https host
+                answer = json.loads(resp.read() or b"{}")
+            return (answer, "ok") if answer.get("ok") else (None, f"slack error: {answer.get('error', 'unknown')}")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt == 1:
+                time.sleep(min(float(exc.headers.get("Retry-After") or 1), _MAX_RETRY_AFTER_S))
+                continue
+            return None, f"HTTP {exc.code}"
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            return None, f"transport error: {type(exc).__name__}"
+    return None, "rate limited"
+
+
+class SlackBotSink:
+    """Slack through a bot token (decision D8, register H3): one thread per incident instead of a new message for
+    every report, reminder and expiry. The first message for an incident is a one-line status - "WARDEN · inc-<id> ·
+    <headline>" - and every report goes into its thread; each later message updates that first line in place, so the
+    channel shows one line per incident, current. The thread is found again through `threads` (the audit, in the
+    workers), so any worker continues the same thread. Rate limits are waited out; Slack is never the record."""
+
+    name = "slack-bot"
+
+    def __init__(self, token: str, channel: str, *, live: bool, threads=None) -> None:
+        self._token, self.channel, self.live = token, channel, live
+        self.threads = threads if threads is not None else {}
+
+    def _post(self, text: str, **extra) -> tuple[dict | None, str]:
+        # No unfurling, as the webhook sink: a URL would make Slack's servers fetch it.
+        return _slack_call("chat.postMessage", {"channel": self.channel, "text": text, "unfurl_links": False,
+                                                "unfurl_media": False, **extra}, self._token)
+
+    def send(self, text: str, data: dict) -> Notification:
+        if not self.live:
+            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+        incident = str((data.get("alert") or {}).get("id", "")) or "unknown"
+        parts = split_for_slack(to_slack_mrkdwn(text))
+        status = f"WARDEN · inc-{incident.removeprefix('inc-')} · {parts[0].strip().splitlines()[0][:150]}"
+        root = self.threads.get(incident)
+        if root is None:
+            answer, detail = self._post(status)
+            if answer is None:
+                return Notification(sink=self.name, delivered=False, detail=detail)
+            root = answer["ts"]
+            self.threads[incident] = root
+        else:
+            _slack_call("chat.update", {"channel": self.channel, "ts": root, "text": status}, self._token)
+        failed = [d for d in (self._post(part, thread_ts=root)[1] for part in parts) if d != "ok"]
+        if failed:
+            return Notification(sink=self.name, delivered=False,
+                                detail=f"{len(failed)} of {len(parts)} part(s) failed: {failed[0]}")
+        return Notification(sink=self.name, delivered=True, detail=f"thread {root} ({len(parts)} part(s))")
+
+
 class TeamsWebhookSink:
     name = "teams"
 
@@ -142,14 +209,18 @@ class GenericWebhookSink:
         return _post_json(self._url, data, self.name)
 
 
-def resolve_sinks() -> list[ChatOpsSink]:
+def resolve_sinks(threads=None) -> list[ChatOpsSink]:
     """Build the sink list from the environment. Empty of webhooks -> a single ConsoleSink.
 
+    WARDEN_SLACK_BOT_TOKEN with WARDEN_SLACK_CHANNEL (one thread per incident; `threads` remembers them),
     WARDEN_SLACK_WEBHOOK / WARDEN_TEAMS_WEBHOOK / WARDEN_WEBHOOK_URL configure destinations.
     WARDEN_CHATOPS_LIVE=1 arms them; otherwise every sink is dry-run.
     """
     live = os.environ.get("WARDEN_CHATOPS_LIVE") == "1"
     sinks: list[ChatOpsSink] = []
+    token, channel = os.environ.get("WARDEN_SLACK_BOT_TOKEN"), os.environ.get("WARDEN_SLACK_CHANNEL")
+    if token and channel:
+        sinks.append(SlackBotSink(token, channel, live=live, threads=threads))
     if url := os.environ.get("WARDEN_SLACK_WEBHOOK"):
         sinks.append(SlackWebhookSink(url, live=live))
     if url := os.environ.get("WARDEN_TEAMS_WEBHOOK"):
@@ -230,9 +301,9 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
     return [f"_(part {i}/{total})_\n" + "\n".join(lines) for i, lines in enumerate(parts, 1)]
 
 
-def notify(report: Report, sinks: list[ChatOpsSink] | None = None) -> list[Notification]:
+def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None) -> list[Notification]:
     """Deliver `report` to every configured sink, redacting the exact payload one more time first."""
-    sinks = sinks if sinks is not None else resolve_sinks()
+    sinks = sinks if sinks is not None else resolve_sinks(threads)
     # Both payloads that leave the process are re-redacted here: the text (Slack/Teams display) and
     # the structured JSON (a generic webhook). redact() is idempotent, so re-scrubbing an already
     # clean payload costs nothing and closes any upstream hole before data crosses the boundary.

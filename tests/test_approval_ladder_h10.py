@@ -38,7 +38,7 @@ def sink(monkeypatch):
     import test_remediation_workflow
 
     s = _Sink()
-    monkeypatch.setattr(chatops, "resolve_sinks", lambda: [s])
+    monkeypatch.setattr(chatops, "resolve_sinks", lambda *_a, **_k: [s])
     # A workflow id shaped as production makes them (rem-<env>-<16 hex>): the harness's random UUID is, rightly,
     # withheld by the outbound gate.
     monkeypatch.setattr(test_remediation_workflow, "uuid", types.SimpleNamespace(uuid4=lambda: "dev-6a3fb36ac419b7e0"))

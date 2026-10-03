@@ -38,7 +38,7 @@ class _Sink:
 
 def _incident(monkeypatch, provider=None):
     sink = _Sink()
-    monkeypatch.setattr(chatops, "resolve_sinks", lambda: [sink])
+    monkeypatch.setattr(chatops, "resolve_sinks", lambda *_a, **_k: [sink])
     key = Ed25519PrivateKey.generate()
     db = Path(tempfile.mkdtemp()) / "audit.db"
     log = audit.AuditLog(db, key=key)
