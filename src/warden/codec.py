@@ -27,7 +27,10 @@ Honest limits:
 - A `Replayer` must be given the namespace the history was recorded in: its default namespace
   ("ReplayNamespace") binds nothing it replays, so every payload would be refused.
 
-ponytail: one active key; add a list of previous keys for decode when rotation is needed.
+Rotation (register S4): payloads are always encrypted with the current key, and decrypted with whichever key their
+metadata names - the current one or one of `WARDEN_TEMPORAL_KEY_PREVIOUS` (comma-separated, base64). A workflow
+started before a rotation keeps reading its own history; drop the old key once no running workflow needs it
+(docs/OPERATIONS.md).
 """
 
 from __future__ import annotations
@@ -55,11 +58,14 @@ REFUSED = b"binary/refused-unencrypted"  # what a plain payload decodes to: unre
 
 
 class EncryptionCodec(PayloadCodec, WithSerializationContext):
-    def __init__(self, key: bytes) -> None:
-        if len(key) != 32:
-            raise ValueError("the Temporal payload key must be 32 bytes")
+    def __init__(self, key: bytes, previous: Sequence[bytes] = ()) -> None:
+        for k in (key, *previous):
+            if len(k) != 32:
+                raise ValueError("the Temporal payload key must be 32 bytes")
         self._aes = AESGCM(key)
         self.key_id = hashlib.sha256(key).hexdigest()[:16].encode()
+        # Every key that may decrypt: the current one and the previous ones, by their id (register S4).
+        self._by_id = {hashlib.sha256(k).hexdigest()[:16].encode(): AESGCM(k) for k in (*previous, key)}
         self.scope = b""  # "<namespace>/<workflow id>" once the SDK gives a context
 
     def with_context(self, context: SerializationContext) -> EncryptionCodec:
@@ -70,8 +76,8 @@ class EncryptionCodec(PayloadCodec, WithSerializationContext):
         bound.scope = f"{getattr(context, 'namespace', '')}/{workflow_id}".encode() if workflow_id else b""
         return bound
 
-    def _aad(self) -> bytes:
-        return self.key_id + b"\x00" + self.scope
+    def _aad(self, key_id: bytes | None = None) -> bytes:
+        return (key_id or self.key_id) + b"\x00" + self.scope
 
     async def encode(self, payloads: Sequence[Payload]) -> list[Payload]:
         out = []
@@ -96,9 +102,10 @@ class EncryptionCodec(PayloadCodec, WithSerializationContext):
                 # workflow carries on.
                 out.append(Payload(metadata={"encoding": REFUSED}))
                 continue
-            try:  # another key fails here too: the key id is in the associated data
+            try:  # an unknown key fails here too, and the key id is in the associated data
+                key_id = p.metadata.get("encryption-key-id", b"")
                 plain = Payload()
-                plain.ParseFromString(self._aes.decrypt(p.data[:12], p.data[12:], self._aad()))
+                plain.ParseFromString(self._by_id[key_id].decrypt(p.data[:12], p.data[12:], self._aad(key_id)))
             except Exception:  # noqa: BLE001 - wrong key, forged or changed bytes, another workflow
                 plain = Payload(metadata={"encoding": REFUSED})
             out.append(plain)
@@ -112,11 +119,18 @@ def key_from_env() -> bytes:
     return base64.b64decode(raw)
 
 
-def data_converter(key: bytes | None = None) -> DataConverter:
+def previous_keys_from_env() -> list[bytes]:
+    raw = os.environ.get("WARDEN_TEMPORAL_KEY_PREVIOUS", "")
+    return [base64.b64decode(k) for k in raw.split(",") if k.strip()]
+
+
+def data_converter(key: bytes | None = None, previous: Sequence[bytes] | None = None) -> DataConverter:
     """The converter every WARDEN client and worker uses: pydantic models, encrypted payloads and
-    encoded failure details."""
+    encoded failure details. With no key given, the current and previous keys come from the environment."""
+    if key is None:
+        key, previous = key_from_env(), previous_keys_from_env() if previous is None else previous
     return dataclasses.replace(
         pydantic_data_converter,
-        payload_codec=EncryptionCodec(key if key is not None else key_from_env()),
+        payload_codec=EncryptionCodec(key, previous or ()),
         failure_converter_class=DefaultFailureConverterWithEncodedAttributes,
     )

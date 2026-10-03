@@ -37,7 +37,7 @@ LOADABLE = frozenset({
     "WARDEN_AWS_CLUSTER", "WARDEN_AWS_LOG_GROUP", "WARDEN_AWS_REGION", "WARDEN_MODEL",
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY",
     "WARDEN_TEMPORAL_API_KEY", "WARDEN_TEMPORAL_ADDRESS", "WARDEN_TEMPORAL_NAMESPACE",
-    "WARDEN_GITHUB_TOKEN", "WARDEN_CHANGE_REPO",
+    "WARDEN_GITHUB_TOKEN", "WARDEN_CHANGE_REPO", "WARDEN_TEMPORAL_KEY_PREVIOUS",
 })
 
 
@@ -49,6 +49,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
                                               "label"}),
     "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp"}),
     "WARDEN_TEMPORAL_API_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp"}),
+    "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "mcp"}),
     "WARDEN_GITHUB_TOKEN": frozenset({"worker"}),
 }
 
@@ -59,6 +60,7 @@ SECRETS = frozenset({
     "WARDEN_DB_DSN", "WARDEN_DB_ADMIN_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
+    "WARDEN_TEMPORAL_KEY_PREVIOUS",
 })
 
 
