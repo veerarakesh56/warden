@@ -153,6 +153,8 @@ bump may carry a breaking change.
 - **An empty read is unknown, never healthy: P23-EMPTY-READ** (register N2, audit A-N-2).
 - **A report never claims a check that did not run: what each read returned is said, and a check the model claims is
   marked** (register N1, audit A-N-1).
+- **Nothing the benchmark adds reaches the prompt** (register N5, audit A-N-5; the shadow-vs-production comparison is
+  the new row N5b, G7).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
