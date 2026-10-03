@@ -9,6 +9,7 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -137,3 +138,33 @@ def test_audit_verify_checks_the_anchor_bucket_when_named(monkeypatch, capsys, t
 
 
 _Real = audit.S3Anchor
+
+
+def test_the_runtime_signs_with_kms_and_anchors_when_configured(monkeypatch, tmp_path):
+    """G6: with WARDEN_AUDIT_KMS_KEY_ID and WARDEN_AUDIT_ANCHOR_BUCKET the runtime's audit signs with the KMS key and
+    writes every checkpoint to the Object Lock bucket; without them, the local key file and no anchor."""
+    import boto3
+
+    from warden import audit as audit_mod
+    from warden import runtime
+
+    made = []
+    monkeypatch.setattr(boto3, "client", lambda service, **kw: made.append(service) or object())
+    monkeypatch.setattr("warden.environments.region", lambda: "test-region-1")
+    monkeypatch.setenv("WARDEN_AUDIT_KMS_KEY_ID", "alias/warden-dev-audit")
+    monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_BUCKET", "warden-dev-anchors")
+    monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_DAYS", "30")
+    signer, anchor = runtime.audit_signer(), runtime.audit_anchor()
+    assert isinstance(signer, audit_mod.KmsSigner) and signer.key_id == "alias/warden-dev-audit"
+    assert isinstance(anchor, audit_mod.S3Anchor) and anchor.bucket == "warden-dev-anchors" and anchor.retain.days == 30
+    assert made == ["kms", "s3"]
+    monkeypatch.setenv("WARDEN_AUDIT_ANCHOR_DAYS", "0")
+    with pytest.raises(RuntimeError):
+        runtime.audit_anchor()
+    for name in ("WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET"):
+        monkeypatch.delenv(name)
+    key = tmp_path / "k.pem"
+    audit_mod.generate_key(key, tmp_path / "k.pub")
+    monkeypatch.setenv("WARDEN_AUDIT_KEY", str(key))
+    monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
+    assert not isinstance(runtime.audit_signer(), audit_mod.KmsSigner) and runtime.audit_anchor() is None

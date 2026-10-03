@@ -74,9 +74,38 @@ def audit_target() -> str | pathlib.Path:
     return db
 
 
-def open_audit() -> audit.AuditLog:
+def audit_signer() -> Any:
+    """The key that signs checkpoints: the runtime's KMS Ed25519 key when WARDEN_AUDIT_KMS_KEY_ID names one (register
+    S12 - nobody, WARDEN included, can export it), else the local key file WARDEN_AUDIT_KEY."""
+    key_id = os.environ.get("WARDEN_AUDIT_KMS_KEY_ID", "").strip()
+    if key_id:
+        import boto3
+
+        from .environments import region
+
+        return audit.KmsSigner(key_id, boto3.client("kms", region_name=region()))
     passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or None
-    return audit.AuditLog(audit_target(), key=audit.load_private_key(_path("WARDEN_AUDIT_KEY"), passphrase))
+    return audit.load_private_key(_path("WARDEN_AUDIT_KEY"), passphrase)
+
+
+def audit_anchor() -> Any:
+    """Where each checkpoint is also written, out of the database's reach: the S3 Object Lock bucket
+    WARDEN_AUDIT_ANCHOR_BUCKET (register S12), for WARDEN_AUDIT_ANCHOR_DAYS days (default 1, the lab's)."""
+    bucket = os.environ.get("WARDEN_AUDIT_ANCHOR_BUCKET", "").strip()
+    if not bucket:
+        return None
+    import boto3
+
+    from .environments import region
+
+    days = int(os.environ.get("WARDEN_AUDIT_ANCHOR_DAYS", "1"))
+    if days < 1:
+        raise RuntimeError("WARDEN_AUDIT_ANCHOR_DAYS must be at least 1")
+    return audit.S3Anchor(bucket, boto3.client("s3", region_name=region()), retain=timedelta(days=days))
+
+
+def open_audit() -> audit.AuditLog:
+    return audit.AuditLog(audit_target(), key=audit_signer(), anchor=audit_anchor())
 
 
 def skew_problem(before: datetime, server: datetime, after: datetime,
