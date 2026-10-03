@@ -532,6 +532,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "OBSERVE MODE, never obeyed: a percentage or duration in the model's prose that "
                             "no metric of its kind supports once both are in one unit"
                         ),
+                        "P28-NON-ENGLISH-LOGS": (
+                            "OBSERVE MODE, never obeyed: most log lines are not English, so WARDEN's English "
+                            "keyword checks may miss what they say"
+                        ),
                         "P22-SELF-TARGET": (
                             "an alert in WARDEN's own runtime environment goes to a person whatever is "
                             "proposed; WARDEN never acts on its own components"

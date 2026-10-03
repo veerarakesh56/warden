@@ -178,6 +178,8 @@ bump may carry a breaking change.
   E6).
 - **Stale knowledge is not evidence: every signature carries its review date and expires after a year unreviewed**
   (requirement R46).
+- **Non-English logs measured: code-shaped evidence carries over, prose does not, and WARDEN says when logs are not
+  English** (register M23).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

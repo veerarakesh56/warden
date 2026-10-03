@@ -370,8 +370,18 @@ def _p27_numbers(alert: Alert, context: ContextBundle, root_cause: RootCause,
     return "; ".join(found[:5]) if found else None
 
 
+def _p28_language(alert: Alert, context: ContextBundle, root_cause: RootCause,
+                  proposal: RemediationProposal) -> str | None:
+    """Register M23: most log lines are not English, so WARDEN's English keyword checks (signatures, symptoms, the
+    quarantine's phrases) may miss what they say; a person should read them. Code-shaped facts still count."""
+    from .language import foreign_share
+
+    share = foreign_share(context.logs)
+    return f"{share:.0%} of the log lines are not English: WARDEN's keyword checks are English" if share > 0.3 else None
+
+
 OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider),
-            ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers))
+            ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers), ("P28-NON-ENGLISH-LOGS", _p28_language))
 
 
 def verify(
