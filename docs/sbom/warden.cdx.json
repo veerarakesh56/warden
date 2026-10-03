@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:2b823769-6ad7-5492-8e7c-f1f838d1e9d0",
+  "serialNumber": "urn:uuid:1bc010c7-8897-58ff-afe9-7c01422305a4",
   "version": 1,
   "metadata": {
     "component": {
@@ -113,6 +113,19 @@
         {
           "alg": "SHA-256",
           "content": "d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/awslambdaric@4.1.0",
+      "name": "awslambdaric",
+      "version": "4.1.0",
+      "purl": "pkg:pypi/awslambdaric@4.1.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "73a349ce4118632ac7c63bd45999c0be476d0e14a184da682b9cd83c6c05d032"
         }
       ]
     },
@@ -2060,6 +2073,19 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/simplejson@4.2.0",
+      "name": "simplejson",
+      "version": "4.2.0",
+      "purl": "pkg:pypi/simplejson@4.2.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "55b121b70a560f4610bd3a355ab2015aca4f39978f6a82353f24d2013fe85861"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/six@1.17.0",
       "name": "six",
       "version": "1.17.0",
@@ -2068,6 +2094,19 @@
         {
           "alg": "SHA-256",
           "content": "ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/snapshot-restore-py@1.0.0",
+      "name": "snapshot-restore-py",
+      "version": "1.0.0",
+      "purl": "pkg:pypi/snapshot-restore-py@1.0.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "4d27f82fb6f09968f422501e9c3c2dea48a46cd19dc798eb7d6cbc57523c8004"
         }
       ]
     },

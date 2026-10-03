@@ -118,7 +118,7 @@ def alertmanager(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 def approval_page() -> Any:
     """The page as the runtime runs it: links and challenges in the audit, the plan read from the workflow, the
     approval sent to it as a signal."""
-    from . import approvals, runtime
+    from . import runtime
     from .approval_page import ApprovalPage, AuditLinkStore
     from .workflows import RemediationWorkflow
 
@@ -144,7 +144,7 @@ def approval_page() -> Any:
     rp_id = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
     if not rp_id:
         raise RuntimeError("WARDEN_APPROVAL_RP_ID is not set: the passkeys' relying party is the approval domain")
-    policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
+    policy = runtime.approver_policy()
     return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
                         store=AuditLinkStore(runtime.open_audit()))
 

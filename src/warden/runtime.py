@@ -74,6 +74,23 @@ def audit_target() -> str | pathlib.Path:
     return db
 
 
+def approver_policy() -> approvals.ApproverPolicy:
+    """Who may approve what: the file WARDEN_APPROVERS, or - in the cloud runtime, where a Lambda has no such file - the
+    SSM parameter /warden/<env>/approvers (public keys and tiers only; nothing in it is secret)."""
+    if os.environ.get("WARDEN_APPROVERS"):
+        return approvals.ApproverPolicy.load(_path("WARDEN_APPROVERS"))
+    env = os.environ.get("WARDEN_ENV", "").strip()
+    if not env:
+        raise RuntimeError("WARDEN_APPROVERS is not set, and no WARDEN_ENV names the SSM parameter to read instead")
+    import boto3
+
+    from .environments import names, region
+
+    name = names(env).ssm + "approvers"
+    text = boto3.client("ssm", region_name=region()).get_parameter(Name=name)["Parameter"]["Value"]
+    return approvals.ApproverPolicy.loads(text)
+
+
 def audit_signer() -> Any:
     """The key that signs checkpoints: the runtime's KMS Ed25519 key when WARDEN_AUDIT_KMS_KEY_ID names one (register
     S12 - nobody, WARDEN included, can export it), else the local key file WARDEN_AUDIT_KEY."""

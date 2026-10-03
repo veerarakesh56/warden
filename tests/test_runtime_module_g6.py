@@ -136,3 +136,80 @@ def test_every_runtime_identity_reads_only_its_own_secrets_settings_and_metrics(
         block = iam[iam.index(f'data "aws_iam_policy_document" "{trust}"'):]
         assert 'variable = "aws:SourceAccount"' in block[:block.index("\n}\n")]
 
+
+
+def _frontdoor() -> str:
+    return (MODULE / "frontdoor.tf").read_text(encoding="utf-8")
+
+
+def test_every_front_door_runs_a_handler_that_exists_from_the_digest_pinned_image():
+    import importlib
+
+    tf = _frontdoor()
+    handlers = re.findall(r'handler = "(warden\.lambdas\.\w+)"', tf)
+    assert sorted(h.rsplit(".", 1)[1] for h in handlers) == ["alarm", "alertmanager", "approval"]
+    for h in handlers:
+        module, name = h.rsplit(".", 1)
+        assert callable(getattr(importlib.import_module(module), name))
+    assert 'entry_point = ["/opt/warden/bin/python", "-m", "awslambdaric"]' in tf and "image_uri     = var.runtime_image" in tf
+    assert 'can(regex("@sha256:[0-9a-f]{64}$", var.runtime_image))' in (MODULE / "variables.tf").read_text(encoding="utf-8")
+
+
+def test_the_alarm_rule_sends_what_the_alarm_lambda_accepts_and_a_lost_alarm_pages():
+    from warden import lambdas
+
+    tf = _frontdoor()
+    rule = _block(tf, "aws_cloudwatch_event_rule", "alarms")
+    assert 'source        = ["aws.cloudwatch"]' in rule and '"detail-type" = ["CloudWatch Alarm State Change"]' in rule
+    assert lambdas.alarm_event({"source": "aws.cloudwatch", "detail-type": "CloudWatch Alarm State Change",
+                                "detail": {"alarmName": "warden-dev-x", "state": {"value": "OK",
+                                                                                  "timestamp": "2026-10-04T00:00:00Z"}}},
+                               "dev") is not None
+    assert '{ prefix = "warden-${e}-" }' in rule
+    target = _block(tf, "aws_cloudwatch_event_target", "alarms")
+    assert "dead_letter_config" in target and "maximum_retry_attempts" in target
+    page = _block(tf, "aws_cloudwatch_metric_alarm", "alarm_dlq")
+    assert "alarm_actions       = [var.page_topic_arn]" in page
+
+
+def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook_serve():
+    from warden import approval_page
+
+    tf = _frontdoor()
+    stage = _block(tf, "aws_apigatewayv2_stage", "front")
+    assert "throttling_rate_limit  = var.api_rate_limit" in stage and "throttling_burst_limit = var.api_burst_limit" in stage
+    assert "access_log_settings" in stage
+    assert re.findall(r'"(GET /a/\{token\})", "(POST /a/\{token\}/\{step\})"', tf)
+    assert 'route_key = "POST /alertmanager"' in tf
+    # Every page step the page serves is a POST on /a/{token}/{step}; the shell is the GET.
+    import inspect
+
+    src = inspect.getsource(approval_page.ApprovalPage.handle)
+    steps = set(re.findall(r'\("POST", "([a-z-]+)"\)', src))
+    assert steps >= {"login-options", "login", "approve-options", "approve", "deny-options", "deny"}
+    assert '("GET", "")' in src
+
+
+def test_the_lambdas_get_the_names_the_runtime_reads():
+    from warden import runtime
+
+    tf = _frontdoor()
+    names = set(re.findall(r"^\s+(WARDEN_[A-Z_]+)\s+=", tf, re.MULTILINE))
+    assert names == {"WARDEN_ENV", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_APPROVAL_RP_ID"}
+    import inspect
+
+    src = inspect.getsource(runtime)
+    for name in names - {"WARDEN_ENV", "WARDEN_APPROVAL_RP_ID"}:
+        assert f'"{name}"' in src, name
+
+
+def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_extra():
+    text = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    plain = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    froms = re.findall(r"^FROM (\S+)", text, re.MULTILINE)
+    assert froms and all("@sha256:" in f for f in froms)
+    assert set(froms) <= set(re.findall(r"^FROM (\S+)", plain, re.MULTILINE))  # the same bases as the tool image
+    assert "uv sync --locked --no-editable --extra runtime" in text and "USER warden" in text
+    assert "check_package.py" in text
+    py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert re.search(r'^runtime = \["awslambdaric>=4\.1"', py, re.MULTILINE)

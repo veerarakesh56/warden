@@ -197,6 +197,8 @@ bump may carry a breaking change.
   state in the shared audit** (requirement R28; register H6).
 - **A daily synthetic shadow incident, and the page when it stops passing: WARDEN failing silently is now
   noticed** (register C13).
+- **The runtime's front doors: Lambdas behind an HTTP API (throttled, logged) and an EventBridge alarm rule
+  (retried, dead-lettered, paging), from one digest-pinned runtime image built in CI** (registers S5, N10).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

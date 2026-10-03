@@ -342,13 +342,13 @@ def _platform(choice: str):
 
 
 async def _workflow_command(args: argparse.Namespace) -> int:
-    from . import approvals, runtime
+    from . import runtime
     from .workflows import IncidentWorkflow
 
     client = await runtime.connect()
     if args.cmd == "worker":
         _install_log_gate()
-        policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
+        policy = runtime.approver_policy()
         platform = _platform(args.platform)
         async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend(),
                                   platform=platform):
@@ -442,9 +442,9 @@ def _usage_command(args: argparse.Namespace) -> int:
 
 def _label_command(args: argparse.Namespace) -> int:
     """Audit A-P-2: the approver's signed verdict on a diagnosis and its action, recorded for calibration."""
-    from . import approvals, labels, runtime
+    from . import labels, runtime
 
-    policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
+    policy = runtime.approver_policy()
     label = labels.sign(_approver_key(args.key), incident_id=args.incident, approver=args.approver,
                         diagnosis=args.diagnosis, action=args.action, note=args.note or "")
     problems = labels.record(runtime.open_audit(), label, policy)
@@ -475,7 +475,7 @@ def _killswitch_command(args: argparse.Namespace) -> int:
             _out(f"not reset: you reviewed {args.trips}, there are {len(shown)}; check them and pass --trips "
                  f"{len(shown)}")
             return 1
-        policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
+        policy = runtime.approver_policy()
         signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id="killswitch",
                                 plan_hash=bounds.trips_hash(log), tier="T3")
         problems = bounds.reset(log, signed, policy=policy, now=datetime.now(UTC))

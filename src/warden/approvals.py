@@ -100,7 +100,11 @@ class ApproverPolicy(BaseModel):
 
     @classmethod
     def load(cls, path: str | pathlib.Path) -> ApproverPolicy:
-        return cls.model_validate(yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8")))
+        return cls.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+
+    @classmethod
+    def loads(cls, text: str) -> ApproverPolicy:
+        return cls.model_validate(yaml.safe_load(text))
 
     def key_of(self, name: str) -> Ed25519PublicKey | None:
         approver = self.approvers.get(name)

@@ -143,7 +143,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -161,6 +161,15 @@ jobs:
           echo "$out" | grep -q "APPROVED_FOR_HUMAN" || { echo "::error::container produced no APPROVED_FOR_HUMAN"; exit 1; }
           echo "$out" | grep -q "REJECTED"           || { echo "::error::container produced no REJECTED"; exit 1; }
           test "$(echo "$out" | grep -c 'AUTO_SAFE')" -eq 1 || { echo "::error::container: expected exactly one AUTO_SAFE - fixtures missing from the wheel?"; exit 1; }
+      # The cloud runtime's image (G6): the worker and the three Lambdas. It must carry AWS's Lambda runtime interface
+      # client and the handlers, offer the worker command, and run as the non-root user.
+      - name: Build the runtime image and assert what it carries
+        run: |
+          docker build --network=host -f Dockerfile.runtime -t warden-runtime:ci .
+          docker run --rm --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
+            "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
+          docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
+          test "$(docker run --rm --entrypoint id warden-runtime:ci -u)" = "10001" || { echo "::error::the runtime image runs as root"; exit 1; }
 
   # Against a REAL cluster. Every step here was first done by hand and read by eye; this job
   # replays it so it cannot regress. Assertions are on OUTPUT and on the API server's own answers,

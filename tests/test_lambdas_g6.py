@@ -100,3 +100,30 @@ def test_each_lambda_loads_only_its_own_settings(monkeypatch):
     assert "WARDEN_ALERTMANAGER_TOKEN" in webhook and "WARDEN_ALERTMANAGER_TOKEN" not in alarm | page
     assert all({"WARDEN_TEMPORAL_API_KEY", "WARDEN_AUDIT_DSN"} <= s for s in loaded)
     assert not any("WARDEN_GITHUB_TOKEN" in s or "WARDEN_DB_ADMIN_DSN" in s for s in loaded)
+
+
+def test_the_approver_policy_comes_from_the_file_or_else_from_ssm(monkeypatch, tmp_path):
+    """G6: a Lambda has no policy file, so the runtime reads /warden/<env>/approvers (public keys and tiers only)."""
+    import boto3
+
+    from warden import runtime
+
+    text = "approvers:\n  owner:\n    public_key: k\n    tiers: [T1]\n"
+    (tmp_path / "a.yaml").write_text(text, encoding="utf-8")
+    monkeypatch.setenv("WARDEN_APPROVERS", str(tmp_path / "a.yaml"))
+    assert runtime.approver_policy().approvers["owner"].tiers == ["T1"]
+    asked = []
+
+    class _Ssm:
+        def get_parameter(self, Name):
+            asked.append(Name)
+            return {"Parameter": {"Value": text.replace("T1", "T2")}}
+
+    monkeypatch.delenv("WARDEN_APPROVERS")
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    monkeypatch.setattr(boto3, "client", lambda *a, **kw: _Ssm())
+    monkeypatch.setattr("warden.environments.region", lambda: "test-region-1")
+    assert runtime.approver_policy().approvers["owner"].tiers == ["T2"] and asked == ["/warden/dev/approvers"]
+    monkeypatch.delenv("WARDEN_ENV")
+    with pytest.raises(RuntimeError):
+        runtime.approver_policy()

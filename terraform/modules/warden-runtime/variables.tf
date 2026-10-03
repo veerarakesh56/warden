@@ -90,3 +90,36 @@ variable "bedrock_model_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "runtime_image" {
+  description = "The runtime image (Dockerfile.runtime) by digest: the ECR URI ending @sha256:... that runtime.yml built, signed and attested."
+  type        = string
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.runtime_image))
+    error_message = "runtime_image is pinned by digest (...@sha256:<64 hex>), never by a tag."
+  }
+}
+
+variable "approval_domain" {
+  description = "The approval page's domain - the passkeys' relying party (decision D17), e.g. approve.warden.<your domain>. Empty: no approval page."
+  type        = string
+  default     = ""
+}
+
+variable "approval_certificate_arn" {
+  description = "An ACM certificate for approval_domain, in this Region (DNS-validated)."
+  type        = string
+  default     = ""
+}
+
+variable "api_rate_limit" {
+  description = "Steady requests per second the HTTP API accepts across its routes (register N10: flooding)."
+  type        = number
+  default     = 10
+}
+
+variable "api_burst_limit" {
+  description = "Burst the HTTP API accepts above the steady rate (register N10)."
+  type        = number
+  default     = 20
+}

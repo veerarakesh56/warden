@@ -31,6 +31,12 @@ locals {
       "arn:aws:ssm:${local.region}:${local.account}:parameter/warden/${var.environment}/env/*"]
     },
     {
+      Sid      = "WhoMayApprove"
+      Effect   = "Allow"
+      Action   = ["ssm:GetParameter"]
+      Resource = "arn:aws:ssm:${local.region}:${local.account}:parameter/warden/${var.environment}/approvers"
+    },
+    {
       Sid       = "ItsOwnMetrics"
       Effect    = "Allow"
       Action    = ["cloudwatch:PutMetricData"]

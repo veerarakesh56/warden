@@ -37,7 +37,7 @@ def test_the_worker_runs_the_clock_check_against_the_servers_time():
 def test_the_worker_command_stops_when_the_clock_is_off(monkeypatch, capsys):
     import contextlib
 
-    from warden import approvals, cli
+    from warden import cli
 
     async def connect():
         return object()
@@ -54,7 +54,7 @@ def test_the_worker_command_stops_when_the_clock_is_off(monkeypatch, capsys):
     monkeypatch.setattr(runtime, "check_clock", check_clock)
     monkeypatch.setattr(runtime, "open_audit", lambda: None)
     monkeypatch.setattr(runtime, "_path", lambda env, default=None: env)
-    monkeypatch.setattr(approvals.ApproverPolicy, "load", staticmethod(lambda path: None))
+    monkeypatch.setattr(runtime, "approver_policy", lambda: None)
     monkeypatch.setattr(cli, "_platform", lambda name: None)
     monkeypatch.setattr(cli, "resolve_backend", lambda: None)
 
