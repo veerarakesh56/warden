@@ -30,6 +30,9 @@
 # ActionKind; the loader validates this so a typo can't smuggle in a fake action.
 # remediation_risk: how dangerous the fix itself is (informs env gating).
 # maturity: basic | intermediate | advanced  (curriculum / coverage tracking)
+# reviewed: the date a person last checked the entry against current practice (requirement R46). An entry not
+# reviewed for 365 days stops matching, and a test fails 60 days before any entry would. The catalogue last changed
+# on 2026-08-27; every entry carries that date until it is reviewed again.
 # ---------------------------------------------------------------------------
 
 version: 1
@@ -39,6 +42,7 @@ signatures:
   # ========================= BASIC =========================
 
   - id: K8S-OOM-001
+    reviewed: 2026-08-27
     category: memory
     maturity: basic
     title: Container OOMKilled (exceeded memory limit)
@@ -63,6 +67,7 @@ signatures:
       - "kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/"
 
   - id: K8S-CLB-001
+    reviewed: 2026-08-27
     category: compute
     maturity: basic
     title: CrashLoopBackOff
@@ -85,6 +90,7 @@ signatures:
       - "kubernetes.io/docs/tasks/debug/debug-application/"
 
   - id: K8S-IPB-001
+    reviewed: 2026-08-27
     category: deploy
     maturity: basic
     title: ImagePullBackOff / ErrImagePull
@@ -105,6 +111,7 @@ signatures:
       - "kubernetes.io/docs/concepts/containers/images/"
 
   - id: K8S-PROBE-001
+    reviewed: 2026-08-27
     category: compute
     maturity: basic
     title: Readiness / liveness probe failing
@@ -124,6 +131,7 @@ signatures:
     remediation_risk: low
 
   - id: K8S-PENDING-001
+    reviewed: 2026-08-27
     category: compute
     maturity: basic
     title: Pods Pending / unschedulable (insufficient resources)
@@ -143,6 +151,7 @@ signatures:
     remediation_risk: medium
 
   - id: DISK-FULL-001
+    reviewed: 2026-08-27
     category: storage
     maturity: basic
     title: Disk / volume full (DiskPressure)
@@ -162,6 +171,7 @@ signatures:
     remediation_risk: high
 
   - id: CPU-THROTTLE-001
+    reviewed: 2026-08-27
     category: compute
     maturity: basic
     title: Sustained high CPU / CFS throttling
@@ -181,6 +191,7 @@ signatures:
     remediation_risk: medium
 
   - id: DEPLOY-BAD-001
+    reviewed: 2026-08-27
     category: deploy
     maturity: basic
     title: Error-rate / latency spike immediately after a deploy
@@ -200,6 +211,7 @@ signatures:
     remediation_risk: medium
 
   - id: CONFIG-001
+    reviewed: 2026-08-27
     category: application
     maturity: basic
     title: Bad config / missing secret (CreateContainerConfigError)
@@ -218,6 +230,7 @@ signatures:
     remediation_risk: low
 
   - id: APP-5XX-001
+    reviewed: 2026-08-27
     category: application
     maturity: basic
     title: Elevated 5xx from the service
@@ -241,6 +254,7 @@ signatures:
   # ===================== INTERMEDIATE =====================
 
   - id: MEM-LEAK-001
+    reviewed: 2026-08-27
     category: memory
     maturity: intermediate
     title: Memory leak (slow growth toward OOM)
@@ -262,6 +276,7 @@ signatures:
     remediation_risk: medium
 
   - id: DB-POOL-001
+    reviewed: 2026-08-27
     category: database
     maturity: intermediate
     title: Connection-pool exhaustion
@@ -285,6 +300,7 @@ signatures:
     remediation_risk: high
 
   - id: DB-SLOW-001
+    reviewed: 2026-08-27
     category: database
     maturity: intermediate
     title: Slow queries / lock contention
@@ -305,6 +321,7 @@ signatures:
     remediation_risk: high
 
   - id: CERT-EXPIRE-001
+    reviewed: 2026-08-27
     category: security
     maturity: intermediate
     title: TLS certificate expired / near expiry
@@ -323,6 +340,7 @@ signatures:
       - "cert-manager.io/docs/troubleshooting/"
 
   - id: HPA-MAX-001
+    reviewed: 2026-08-27
     category: compute
     maturity: intermediate
     title: HPA pinned at max replicas, still saturated
@@ -342,6 +360,7 @@ signatures:
     remediation_risk: medium
 
   - id: NODE-NOTREADY-001
+    reviewed: 2026-08-27
     category: compute
     maturity: intermediate
     title: Node NotReady / kubelet unhealthy
@@ -359,6 +378,7 @@ signatures:
     remediation_risk: high
 
   - id: DNS-FAIL-001
+    reviewed: 2026-08-27
     category: network
     maturity: intermediate
     title: DNS resolution failures (CoreDNS)
@@ -376,6 +396,7 @@ signatures:
     remediation_risk: medium
 
   - id: RATE-429-001
+    reviewed: 2026-08-27
     category: network
     maturity: intermediate
     title: Upstream rate limiting / 429s
@@ -395,6 +416,7 @@ signatures:
     remediation_risk: medium
 
   - id: LATENCY-P99-001
+    reviewed: 2026-08-27
     category: application
     maturity: intermediate
     title: p99 latency regression
@@ -415,6 +437,7 @@ signatures:
     remediation_risk: medium
 
   - id: QUEUE-BACKLOG-001
+    reviewed: 2026-08-27
     category: application
     maturity: intermediate
     title: Consumer lag / queue backlog growing
@@ -436,6 +459,7 @@ signatures:
     remediation_risk: medium
 
   - id: REPLICA-LAG-001
+    reviewed: 2026-08-27
     category: database
     maturity: intermediate
     title: Read-replica lag
@@ -455,6 +479,7 @@ signatures:
     remediation_risk: high
 
   - id: FD-LEAK-001
+    reviewed: 2026-08-27
     category: application
     maturity: intermediate
     title: File-descriptor / socket leak
@@ -474,6 +499,7 @@ signatures:
   # ======================= ADVANCED / SYSTEMIC =======================
 
   - id: CASCADE-001
+    reviewed: 2026-08-27
     category: systemic
     maturity: advanced
     title: Cascading failure across services
@@ -495,6 +521,7 @@ signatures:
       - "sre.google/sre-book/addressing-cascading-failures/"
 
   - id: RETRY-STORM-001
+    reviewed: 2026-08-27
     category: systemic
     maturity: advanced
     title: Retry storm / thundering herd
@@ -516,6 +543,7 @@ signatures:
       - "aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/"
 
   - id: CACHE-STAMPEDE-001
+    reviewed: 2026-08-27
     category: cache
     maturity: advanced
     title: Cache stampede on expiry/flush
@@ -537,6 +565,7 @@ signatures:
       - "aws.amazon.com/builders-library/caching-challenges-and-strategies/"
 
   - id: METASTABLE-001
+    reviewed: 2026-08-27
     category: systemic
     maturity: advanced
     title: Metastable failure (won't self-recover after trigger is gone)
@@ -558,6 +587,7 @@ signatures:
       - "sigops.org/s/conferences/hotos/2021/papers/hotos21-s11-bronson.pdf"
 
   - id: SPLIT-BRAIN-001
+    reviewed: 2026-08-27
     category: database
     maturity: advanced
     title: Split-brain / dual primary
@@ -575,6 +605,7 @@ signatures:
     remediation_risk: high
 
   - id: DEADLOCK-001
+    reviewed: 2026-08-27
     category: database
     maturity: advanced
     title: Database deadlocks
@@ -592,6 +623,7 @@ signatures:
     remediation_risk: medium
 
   - id: NOISY-NEIGHBOR-001
+    reviewed: 2026-08-27
     category: systemic
     maturity: advanced
     title: Noisy neighbour / resource contention
@@ -608,6 +640,7 @@ signatures:
     remediation_risk: medium
 
   - id: CONTROLPLANE-001
+    reviewed: 2026-08-27
     category: compute
     maturity: advanced
     title: Control-plane / API server saturation (etcd slow)
@@ -625,6 +658,7 @@ signatures:
     remediation_risk: high
 
   - id: CLOUD-QUOTA-001
+    reviewed: 2026-08-27
     category: cloud
     maturity: advanced
     title: Cloud API quota / throttling (provider-side)
@@ -642,6 +676,7 @@ signatures:
     remediation_risk: medium
 
   - id: SECRET-ROTATION-001
+    reviewed: 2026-08-27
     category: security
     maturity: advanced
     title: Expired / rotated credential causing auth failures
@@ -660,6 +695,7 @@ signatures:
     remediation_risk: high
 
   - id: CROSSAZ-001
+    reviewed: 2026-08-27
     category: network
     maturity: advanced
     title: Cross-AZ / cross-region latency or partition
@@ -678,6 +714,7 @@ signatures:
     remediation_risk: high
 
   - id: CLOCK-SKEW-001
+    reviewed: 2026-08-27
     category: systemic
     maturity: advanced
     title: Clock skew breaking auth / tokens / certs

@@ -176,6 +176,8 @@ bump may carry a breaking change.
 - **Numbers in the model's prose are checked against the metrics in one unit (observe mode, P27)** (register M2).
 - **A prompt change is gated: the qualified prompt is pinned by hash, and runs are compared with McNemar** (register
   E6).
+- **Stale knowledge is not evidence: every signature carries its review date and expires after a year unreviewed**
+  (requirement R46).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

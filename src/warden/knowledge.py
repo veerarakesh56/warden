@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,9 @@ class Signature:
     suggested_actions: tuple[SuggestedAction, ...]
     remediation_risk: str
     references: tuple[str, ...] = ()
+    # When a person last checked this signature against current practice (requirement R46: no blind trust in stale
+    # data). Older than REVIEW_DAYS, it stops matching: an unchecked pattern is not evidence.
+    reviewed: date | None = None
 
 
 @dataclass(frozen=True)
@@ -114,6 +118,24 @@ def _affirmed(term: str, corpus: str) -> bool:
             return True
         start = corpus.find(term, start + 1)
     return False
+
+
+REVIEW_DAYS = 365
+
+
+def _reviewed(sid: str, raw: Any) -> date:
+    if isinstance(raw, datetime):
+        raw = raw.date()
+    if isinstance(raw, str):
+        try:
+            raw = date.fromisoformat(raw)
+        except ValueError as exc:
+            raise KnowledgeError(f"{sid}: reviewed must be a date (YYYY-MM-DD)") from exc
+    if not isinstance(raw, date):
+        raise KnowledgeError(f"{sid}: missing required field 'reviewed' (the date a person last checked it)")
+    if raw > datetime.now(UTC).date() + timedelta(days=1):
+        raise KnowledgeError(f"{sid}: reviewed is in the future")
+    return raw
 
 
 class KnowledgeBase:
@@ -193,12 +215,13 @@ class KnowledgeBase:
             suggested_actions=tuple(actions),
             remediation_risk=risk,
             references=tuple(raw.get("references", ()) or ()),
+            reviewed=_reviewed(sid, raw.get("reviewed")),
         )
 
     # --------------------------------------------------------------- matching
 
     def match(
-        self, alert: Alert, context: ContextBundle, *, limit: int = 3
+        self, alert: Alert, context: ContextBundle, *, limit: int = 3, today: date | None = None
     ) -> list[SignatureMatch]:
         """Rank signatures against one incident. Deterministic; no model call.
 
@@ -211,8 +234,11 @@ class KnowledgeBase:
         if alert.summary:
             corpus += "\n" + alert.summary.lower()
 
+        oldest = (today or datetime.now(UTC).date()) - timedelta(days=REVIEW_DAYS)
         matches: list[SignatureMatch] = []
         for sig in self.signatures:
+            if sig.reviewed is not None and sig.reviewed < oldest:
+                continue  # stale: not reviewed within REVIEW_DAYS, so not trusted as evidence (R46)
             d = sig.detect
             # Guard: a declared severity filter must pass, or the signature is not applicable at all.
             if "severity_in" in d and alert.severity.value not in d["severity_in"]:
