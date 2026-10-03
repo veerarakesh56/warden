@@ -21,6 +21,14 @@
 bar:
   wrong_and_allowed: 0
   min_correct: 17
+# Register E6: the prompt the models were qualified with - system text, answer schema and the rendered evidence of
+# every bundled incident, hashed by scripts/qualify_provider.py prompt_fingerprint() (the per-call data marker
+# normalised). Checked 2026-10-03: the prompt of commit 5b71048, which the claude-sonnet-5 run of 2026-10-02 22:46Z
+# used (19 correct), hashes to this same value. A prompt change fails tests/test_prompt_pin_e6.py until the model is
+# qualified again with it and this pin is updated in the same commit.
+prompt:
+  sha: 03300eac840889719817cff42108cc96f5cf86646174945aaf3cbd5a1e4698af
+  pinned: "2026-10-03"
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):
 #   model                escalated  acted right  escalated a right fix  escalated rightly  stopped wrong  acted wrongly

@@ -174,6 +174,8 @@ bump may carry a breaking change.
 - **The decision component: trained on independent labels, checked before use, and held back by a Wilson bound**
   (registers C22, E2, E5; R44 in part).
 - **Numbers in the model's prose are checked against the metrics in one unit (observe mode, P27)** (register M2).
+- **A prompt change is gated: the qualified prompt is pinned by hash, and runs are compared with McNemar** (register
+  E6).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

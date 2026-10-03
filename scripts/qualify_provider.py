@@ -62,6 +62,51 @@ def slo_breaches(result: dict, slo: dict) -> list[str]:
     return out
 
 
+def prompt_fingerprint() -> str:
+    """The prompt as a model sees it - system text, answer schema and the rendered evidence of every bundled incident
+    - as one hash (register E6). Rendered offline by a capturing provider: no model is called."""
+    import hashlib
+    import re
+
+    from warden.cli import DEMO_ALERTS
+    from warden.graph import run
+    from warden.llm import LLMClient
+    from warden.models import Alert
+    from warden.providers import Completion
+
+    seen: list[list[str]] = []
+
+    class _Capture:
+        name, model = "capture", "capture"
+
+        def complete(self, *, system, user, schema=None):
+            # The data marker is random per call on purpose (spotlighting: injected text cannot forge the boundary);
+            # it is not part of what the prompt says, so it is replaced by a fixed one before hashing.
+            user = re.sub(r"<<(END )?DATA [0-9a-f]+>>", r"<<\1DATA nonce>>", user)
+            seen.append([system, user, json.dumps(schema.model_json_schema() if schema else None, sort_keys=True)])
+            body = {"root_cause": {"hypothesis": "x", "confidence": 0.5, "evidence": []},
+                    "proposal": {"action": "escalate_to_human", "target": "x", "reasoning": "x",
+                                 "expected_effect": "x", "blast_radius": "single_service", "reversible": True}}
+            return Completion(json.dumps(body), 1, 1)
+
+    for incident in sorted(DEMO_ALERTS):
+        run(Alert(**DEMO_ALERTS[incident]), llm=LLMClient(provider=_Capture(), mock=False))
+    return hashlib.sha256(json.dumps(seen, sort_keys=True).encode()).hexdigest()
+
+
+def mcnemar(before: dict[str, bool], after: dict[str, bool]) -> dict:
+    """Exact McNemar test on the incidents both runs graded: did the change fix more than it broke, or is the
+    difference within chance? (register E6) Two-sided binomial p over the discordant pairs."""
+    from math import comb
+
+    shared = sorted(set(before) & set(after))
+    fixed = sum(1 for k in shared if after[k] and not before[k])
+    broke = sum(1 for k in shared if before[k] and not after[k])
+    n = fixed + broke
+    tail = sum(comb(n, i) for i in range(min(fixed, broke) + 1)) / 2 ** n if n else 1.0
+    return {"incidents": len(shared), "fixed": fixed, "broke": broke, "p": min(1.0, 2 * tail)}
+
+
 class Budget:
     """A hard ceiling on what one qualification run may spend, in USD, across every incident it replays. Each
     incident's client gets what is left (never more than its own per-incident ceiling); once it is gone, the next
@@ -142,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
             replay(ROOT / "docs" / "bench" / name, out / name, per_scenario=1, only=None,
                    **({"llm_factory": budget} if budget else {}))
         result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
-                  "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ")}
+                  "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "prompt": prompt_fingerprint()}
         if budget:
             result.update(budget_usd=budget.total, spent_usd=round(budget.spent(), 4))
     result.update(tally(out))
