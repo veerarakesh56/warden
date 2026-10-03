@@ -147,6 +147,7 @@ bump may carry a breaking change.
 - **Audit checkpoints signed by a key WARDEN cannot export and anchored where it cannot rewrite them** (register
   S12; deployed in W1).
 - **WARDEN never acts on its own components (P22-SELF-TARGET)** (register N7, audit A-N-7).
+- **WARDEN's output never flows back into its own knowledge** (register N9, audit A-N-9).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

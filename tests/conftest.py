@@ -32,10 +32,18 @@ def _root_logger_restored():
 
 
 
+_DATA_KEY = pytest.StashKey[dict]()
+
+
 def pytest_configure(config):
     """Under pytest-xdist, start Temporal's time-skipping test server once in the controller, before any
     worker exists: the SDK downloads its binary on first use to one shared path, and several workers doing
     that at once failed with "Text file busy" (CI, 2026-09-30, commit 14e32e1). Workers then find it."""
+    if not hasattr(config, "workerinput"):
+        # Register N9: nothing WARDEN runs writes into its own data/ (held for the whole run, controller only).
+        from data_snapshot import snapshot
+
+        config.stash[_DATA_KEY] = snapshot()
     if hasattr(config, "workerinput") or not config.getoption("numprocesses", default=None):
         return
     import asyncio
@@ -242,6 +250,14 @@ def missing_evidence(reports: dict[str, set[str]], cited: set[tuple[str, str]]) 
 
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
+    if not hasattr(config, "workerinput") and _DATA_KEY in getattr(config, "stash", {}):
+        from data_snapshot import snapshot
+
+        if snapshot() != config.stash[_DATA_KEY]:
+            reporter = config.pluginmanager.get_plugin("terminalreporter")
+            if reporter:
+                reporter.write_line("WARDEN's data/ CHANGED DURING THE RUN (register N9)", red=True)
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
     if hasattr(config, "workerinput") or not _full_run(config):
         return
     missing = missing_evidence(_REPORTS, set(_cited()))
