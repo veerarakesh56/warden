@@ -160,6 +160,9 @@ bump may carry a breaking change.
 - **An unknown kind of incident always reaches a person (P24-UNRECOGNISED)** (requirement R39).
 - **Every researched AI failure class is mapped to the register rows that cover it, held by a test** (requirement
   R45).
+- **Every component is recorded as adopted or built, with the reason, from live research** (requirement R9).
+- **The AWS MCP servers and Agent Toolkit evaluated as evidence sources: not adopted, with reasons** (requirement
+  R57).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

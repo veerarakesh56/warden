@@ -22,8 +22,8 @@ dependencies = [
     "pyyaml>=6.0",
     # Ed25519 signatures for the audit log's checkpoints (and, next, for approvals).
     "cryptography>=43",
-    # Durable workflows: approvals as signals, timers, retries, replay (self-hosted OSS, MIT; never
-    # Temporal Cloud). Tests use its time-skipping test server.
+    # Durable workflows: approvals, timers, retries, replay (MIT SDK; the service is Temporal Cloud,
+    # decision D2). Tests use its time-skipping test server.
     "temporalio>=1.33,<2",
     # The outbound gate finds code regions the way CommonMark does (MIT, pure Python). A line-by-line
     # tracker could not follow fences inside lists and quotes (third review, 2026-09-30).

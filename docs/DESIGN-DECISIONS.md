@@ -247,3 +247,53 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
 
   None of the 2,667 recorded value facts was dropped. Honest limit: a compound key with no
   separator (`actionplan`) counts as one word.
+
+## 17. Built or adopted, per component (requirements R9 and R57, 2026-10-03)
+
+The rule (R9): use a ready-made production tool wherever one does the job; build only where none does, and say
+why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md` and
+`docs/research/2026-10-03/aws-mcp-servers.md`. `tests/test_build_or_adopt_r9.py` requires every module in
+`src/warden/` to be named here.
+
+**Adopted** (WARDEN's code is the wiring around them):
+
+- Orchestration: Temporal Cloud and the `temporalio` SDK - `workflows.py`, `runtime.py`, `activities.py` (the
+  steps, run as Temporal activities).
+- Payload encryption: Temporal's payload-codec interface with `cryptography`'s AES-256-GCM - `codec.py`.
+- Signatures: `cryptography`'s Ed25519 for approvals and audit checkpoints (`approvals.py`); AWS KMS for the
+  non-exportable signer and S3 Object Lock for the anchors (`audit.py`, register S12).
+- Injection tripwire: Meta Llama Prompt Guard 2, pinned by commit, safetensors only - `tripwire.py`.
+- Model access: the vendors' own SDKs and the Claude CLI, behind one client - `providers.py`, `llm.py`.
+- Typed contracts: Pydantic - `models.py`. Tracing: OpenTelemetry - `observability.py`. MCP: the `mcp` SDK -
+  `mcp_server.py`. CommonMark parsing for the outbound gate: `markdown-it-py` - `gate.py`.
+- AWS, Kubernetes and database reads: boto3, the Kubernetes client and the database drivers - `aws_backend.py`,
+  `aws_stack.py`, `k8s_backend.py`, `database.py`, `tools.py`.
+- Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
+- Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
+
+**Built, and why no ready-made tool fits:**
+
+- The decision rules - `verifier.py`, `grounding.py`, `catalog.py`, `bounds.py`, `freeze.py`, `intake.py`,
+  `read_scope.py`, `remediation.py`, `gate.py`'s rules: most policies need evidence that Python computes first
+  (section 16 records why not OPA or Cedar).
+- The evidence trust boundary - `evidence.py`, `quarantine.py`: the published defences (dual-LLM, CaMeL, FIDES)
+  are patterns or research code, not libraries for log evidence; WARDEN implements the pattern.
+- Redaction - `redaction.py`: nothing found is deterministic, reversible with indexed placeholders, covers
+  credentials and PII, runs locally and is fast on 20,000 lines; the managed filters are probabilistic and send the
+  text out, and LLM Guard was archived on 2026-07-09. Kept under review against the gitleaks, Betterleaks and
+  Kingfisher rule sets.
+- The audit chain - `audit.py`: Amazon QLDB reached end of support on 2025-07-31 and CloudTrail Lake closed to new
+  customers on 2026-05-31; immudb is a BSL-licensed server and Tessera a Go library that needs Aurora on AWS. The
+  chain is a SQLite table in CloudTrail's digest pattern, verifiable offline.
+- The signature catalogue - `knowledge.py`: k8sgpt, Robusta and the kube-prometheus rules cover Kubernetes only and
+  need a live cluster; HolmesGPT and the AWS DevOps Agent are agent loops, not libraries. They serve as checklists
+  for the Kubernetes signatures.
+- The pipeline and its outputs - `graph.py`, `reporting.py`, `runbook.py`, `playbook.py`, `cli.py`: WARDEN's own
+  product surface.
+
+**Evidence through the AWS MCP servers or the Agent Toolkit (R57): not adopted.** Each lets a model choose its
+calls (free-form API calls, Python, SQL or log queries), which WARDEN's design forbids; each returns raw text the
+quarantine would still have to handle; the local awslabs servers are being replaced by the managed AWS MCP Server
+(GA 2026-05-06, no India region), and the SQL servers carry read-only bypass advisories. The one read they would
+add, CloudTrail, is planned as a fixed boto3 `lookup_events` reader with the change timeline (G6). Revisit the
+managed server only if it offers fixed, typed operations in an India region.
