@@ -38,7 +38,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 | | |
 |---|---|
 | **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
-| **Safety** | 19 incident policies (P0–P16, P22, P23) and 3 plan-gate refusals (P18, P19, P21), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
+| **Safety** | 20 incident policies (P0–P16, P22–P24) and 3 plan-gate refusals (P18, P19, P21), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
 | **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. Platforms for Kubernetes (restart, a bounded scale) and databases (close idle-in-transaction sessions of the app's logins) connect with `warden worker --platform`; the in-process live backends are removed (D16) |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
@@ -93,7 +93,7 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   - a password equal to a usage word (`--password PASSWORD`, `api_key=true`) is not masked at all.
 - **Typed proposals.** The model returns a `RemediationProposal` from a **closed action enum** or
   the call fails. It cannot invent `delete_database`.
-- **A deterministic gate.** Nineteen incident policies (P0–P16, P22 self-target, P23 empty read) and three
+- **A deterministic gate.** Twenty incident policies (P0–P16, P22 self-target, P23 empty read, P24 unrecognised) and three
   plan-gate refusals (P18 environment mismatch, P19 freeze, P21 rollout in progress) in plain Python decide
   what happens. No prompt, no probability. Each returns a policy id so a rejection can be explained without re-running anything.
 - **A researched incident knowledge base.** 34 signatures, basic (OOMKilled, CrashLoopBackOff,
@@ -1056,7 +1056,9 @@ The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
   **and 2 are not**: a model that is confident, has evidence and is still wrong gets through, which
   no deterministic gate catches without a second opinion. The cost is over-refusal: 3 runs where
   `no_action` was *correct* now escalate. The Wave 1 numbers in `docs/bench/` were measured under
-  the old gate and are left as measured.
+  the old gate and are left as measured. Since 2026-10-03 (requirement R39) a `no_action` over an incident no
+  signature describes escalates (`P24`). Still open (audit Q2): "nothing to do" over a failure that shows only as
+  a rate, such as an error rate of 31%, which `P12` - counting broken states, never rates - does not see.
 - **Two policies used to read fields the model wrote.** `P2` keyed on a `reversible` boolean and
   `P6` on a `blast_radius` string, both supplied by the model — and, through the MCP server, by any
   caller. Two live models reported opposite values for the identical operation and got opposite

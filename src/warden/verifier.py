@@ -14,6 +14,7 @@ from . import evidence, tripwire
 from .environments import EnvironmentPolicies, default_environment_policies, strip_prefix
 from .evidence import tokens
 from .grounding import action_support_problem, citation_problems, target_problem
+from .knowledge import default_knowledge_base
 from .models import (
     ACTION_FACTS,
     ActionKind,
@@ -485,13 +486,25 @@ def verify(
         reasons.append("No action proposed, but these reads returned nothing, which is not the same as healthy: "
                        + ", ".join(context.empty_reads) + ".")
 
-    # P12 — "nothing to do" while the evidence shows something broken.
-    #
-    # no_action became subject to P4/P8/P9 after Wave 1, but a CONFIDENT no_action over plenty of
-    # evidence still went out auto_safe even with pods OOM-killed or not ready. In the measured runs
-    # low confidence happened to catch every such case; that was luck, not a rule. Same disclosure
-    # as P11: written after seeing the runs.
+    # P24 — "nothing to do" about an incident WARDEN does not recognise (requirement R39). symptoms() counts known
+    # broken states, never rates, so a new kind of failure - one no signature describes, showing only as errors and
+    # latency - passed P12 and was closed: a novel failing service under a confident no_action went out auto_safe.
+    # An alert fired; when nothing WARDEN knows describes it, closing it is a person's call. Measured 2026-10-03:
+    # every no_action in the 30 replayed incidents already reached a person, so this changes none of their verdicts.
+    # (A signature match is not a symptom: signatures also fire on the alert's name. Audit Q2 is the rate case.)
     if proposal.action is ActionKind.no_action:
+        if not default_knowledge_base().match(alert, context):
+            escalate = True
+            policies.append("P24-UNRECOGNISED")
+            reasons.append("No action proposed for an incident no known signature describes: an alert WARDEN cannot "
+                           "explain is closed by a person, not by WARDEN.")
+
+        # P12 — "nothing to do" while the evidence shows something broken.
+        #
+        # no_action became subject to P4/P8/P9 after Wave 1, but a CONFIDENT no_action over plenty of
+        # evidence still went out auto_safe even with pods OOM-killed or not ready. In the measured runs
+        # low confidence happened to catch every such case; that was luck, not a rule. Same disclosure
+        # as P11: written after seeing the runs.
         found = symptoms(context)
         if found:
             escalate = True

@@ -516,6 +516,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "no action proposed while a log or metric read came back empty: an empty "
                             "answer is unknown, never healthy; escalates (not evaluated here)"
                         ),
+                        "P24-UNRECOGNISED": (
+                            "no action proposed for an incident no known signature describes: an "
+                            "alert WARDEN cannot explain is closed by a person; escalates (not evaluated here)"
+                        ),
                         "P22-SELF-TARGET": (
                             "an alert in WARDEN's own runtime environment goes to a person whatever is "
                             "proposed; WARDEN never acts on its own components"

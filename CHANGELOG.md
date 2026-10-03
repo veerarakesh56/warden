@@ -157,6 +157,7 @@ bump may carry a breaking change.
   the new row N5b, G7).
 - **The escalation rate and act/abstain accuracy are scored, with an SLO from measured numbers** (register N6, audit
   A-N-6). Measured: the production model escalates 25 of 30 replayed incidents, 10 of them right fixes.
+- **An unknown kind of incident always reaches a person (P24-UNRECOGNISED)** (requirement R39).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
