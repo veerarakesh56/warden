@@ -274,7 +274,7 @@ def _audit_command(args: argparse.Namespace) -> int:
         log.close()
         for e in rows:
             # Hash first, row number last: `7  2026-10-03 06` read as a phone number and the gate withheld the line.
-            _out(f"{e['hash'][:16]}  {e['kind']:<24} {both_times(e['at'])}  row {e['seq']}")
+            _out(f"{audit.short(e['hash'])}  {e['kind']:<24} {both_times(e['at'])}  row {e['seq']}")
         _out(f"incident {args.incident}: {len(rows)} row(s); the chain is {'intact' if result.ok else 'NOT intact'}")
         return 0 if result.ok and rows else 1
     for problem in result.problems:

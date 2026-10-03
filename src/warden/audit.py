@@ -78,6 +78,16 @@ def code_version() -> str:
 ANCHOR_RETENTION = timedelta(days=1)
 
 
+def short(digest: str) -> str:
+    """A hash as a person sees it, in a footer or `warden audit show`: its first 16 hex characters - longer when
+    those are all digits, up to the first letter. Sixteen digits read as a phone or card number to redaction and
+    the outbound gate, which then blocked the whole message (about one hash in 2,000; CI, 2026-10-03)."""
+    end = 16
+    while end < len(digest) and digest[:end].isdigit():
+        end += 1
+    return digest[:end]
+
+
 class KmsSigner:
     """An Ed25519 key held by AWS KMS (register S12): it signs, and nobody - WARDEN included - can export it, so a
     copy of the database and the code is not enough to sign a rewritten history. ECC_NIST_EDWARDS25519 keys sign

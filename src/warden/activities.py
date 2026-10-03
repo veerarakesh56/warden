@@ -241,7 +241,7 @@ class RemediationActivities:
                             f"`warden status {plan.workflow_id}`. Unapproved, it expires and nothing is changed."),
                 "expired": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` expired without an approval. No action "
                             "was taken; the incident is still open.")}[what]
-        footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{head[:16]}` · check it with "
+        footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it with "
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
         sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=()),
                     threads=AuditThreads(self.audit))
@@ -703,7 +703,7 @@ class IncidentActivities:
         head = self.audit.head(alert_id)
         report = build_report(pack.alert, root_cause=diagnosed.root_cause, proposal=diagnosed.proposal,
                               verdict=verified.verdict, context=pack.context, show_identifiers=False)
-        footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{head[:16]}` · check it with "
+        footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it with "
                   f"`warden audit show {alert_id}`. WARDEN never asks for an approval in chat: approvals are signed "
                   "out of band.")
         sent = send(dataclasses.replace(report, markdown=report.markdown + footer), threads=AuditThreads(self.audit))

@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 
+from .audit import short
 from .environments import both_times
 from .gate import enforce
 
@@ -39,7 +40,7 @@ def issue_text(*, incident_id: str, end: dict, plan: dict, head: str, at: dateti
         (f"- **Approved by:** {approvers} (required: {end.get('required', '?')}"
          f"{', a single approver' if end.get('single_approver') else ''})"),
         f"- **Ended:** {end.get('status', '?')} at {both_times(at)}",
-        f"- **Audit head:** `{head[:16]}`, check with `warden audit show {incident_id}`",
+        f"- **Audit head:** `{short(head)}`, check with `warden audit show {incident_id}`",
     ])
     return title[:256], body
 

@@ -114,3 +114,17 @@ def test_audit_show_refuses_a_record_that_was_rewritten(monkeypatch, capsys, tmp
                                                   serialization.PublicFormat.SubjectPublicKeyInfo))
     assert main(["audit", "show", "inc-001", "--db", str(db), "--public-key", str(pub)]) == 1
     assert "NOT intact" in capsys.readouterr().out
+
+
+def test_a_hash_that_begins_with_sixteen_digits_is_still_shown_and_sent():
+    """CI, 2026-10-03: a head of 16 digits read as a phone number, so the gate blocked the whole report."""
+    from warden import audit as audit_mod
+    from warden.gate import enforce
+    from warden.redaction import redact
+
+    digest = "4507307866213908" + "ab" + "0" * 46
+    shown = audit_mod.short(digest)
+    assert shown == "4507307866213908a" and digest.startswith(shown)
+    assert audit_mod.short("2d79092d9c4d96c0" + "0" * 48) == "2d79092d9c4d96c0"
+    footer = f"WARDEN · incident `inc-001` · audit head `{shown}` · check it with `warden audit show inc-001`"
+    assert enforce(footer).verdict != "BLOCK" and shown in redact(footer).text
