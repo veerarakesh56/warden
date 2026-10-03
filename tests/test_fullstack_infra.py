@@ -982,3 +982,19 @@ def test_the_deployed_apps_carry_no_scenario_ids_or_fault_talk():
         text = path.read_text(encoding="utf-8")
         hits = re.findall(r"(?i)\bfs-\d\d\b|\bfault|\binject|\bbenchmark|\bscenario|\bharness", text)
         assert not hits, (path.name, hits)
+
+
+def test_a_health_alarm_reads_missing_data_as_failure_and_an_error_alarm_does_not():
+    """Register C18b: a dead service stops emitting data. An alarm that wants a signal PRESENT (fewer than N
+    healthy, too few runs) must go to ALARM on silence (`breaching`); an alarm that counts errors must not,
+    or every quiet minute pages someone."""
+    text = (ROOT / "terraform" / "fullstack" / "alarms.tf").read_text(encoding="utf-8")
+    body = text[text.index("  alarms = {"):text.index('resource "aws_cloudwatch_metric_alarm"')]
+    entries = dict(re.findall(r"^    ([a-z0-9-]+) = \{\n(.*?)^    \}", body, re.MULTILINE | re.DOTALL))
+    assert len(entries) >= 20
+    health = {k for k, v in entries.items() if 'op = "LessThanThreshold"' in re.sub(r"\s+", " ", v)}
+    assert {"alb-healthy-low", "reconciler-invocations-low", "catalog-errors", "cart-worker-stalled"} <= health
+    for name, v in entries.items():
+        breaching = re.search(r'missing\s*=\s*"breaching"', v) is not None
+        assert breaching == (name in health), name
+    assert 'treat_missing_data  = lookup(each.value, "missing", "notBreaching")' in text

@@ -183,6 +183,9 @@ bump may carry a breaking change.
 - **Governance: an AI policy, a RACI, an impact assessment, a concerns channel and a security policy, Annex IV
   documentation and instructions for use, and measured model use** (H5, CW1, CW2, CW3, CW4, CW5).
 - **Helios checks every Terraform change before apply, and again on the applied state** (register R56).
+- **Every health alarm reads silence as failure, held by a test** (register C18b).
+- **Every time WARDEN shows or the docs give is in UTC and IST, the approval page and the docs held by tests**
+  (requirement R4).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

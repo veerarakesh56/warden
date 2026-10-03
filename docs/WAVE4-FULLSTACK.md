@@ -378,7 +378,7 @@ Found by the first real deploy, each fixed with a test (commits `d669cf0`, `fb45
 - The Container Insights metrics `pod_status_ready` and `pod_status_running` exist with `{ClusterName, Namespace, PodName}` and arrive every minute.
 - The `soak` step now needs an unbroken healthy streak of the minimum length. Before, it accepted "healthy at minute 30" after an earlier break.
 
-**Preflight on the real stack (2026-09-26, 10:37-11:28 UTC).** Every fault fs-01..fs-27 was injected and
+**Preflight on the real stack (2026-09-26, 10:37-11:28 UTC / 16:07-16:58 IST).** Every fault fs-01..fs-27 was injected and
 reverted once, and the whole-stack baseline was clean after each revert. What it found and settled:
 
 - **fs-12 failed the first time, and the cause was the harness.**
@@ -403,7 +403,7 @@ reverted once, and the whole-stack baseline was clean after each revert. What it
   the preflight's activity, so its first inject waits 18 minutes after the preflight's last revert (the
   same quiet gap it enforces between its own faults).
 
-**The measured run, fs-00 (2026-09-26, 12:07-12:29 UTC), and what changed because of it.** Every item
+**The measured run, fs-00 (2026-09-26, 12:07-12:29 UTC / 17:37-17:59 IST), and what changed because of it.** Every item
 below is also printed in the run's RESULTS.md section 7.
 
 - **The first diagnose produced no report.** Every attempt of one model call hit the claude_cli
@@ -428,7 +428,7 @@ below is also printed in the run's RESULTS.md section 7.
   - The harness pins every evidence window in WARDEN's environment: 15 min logs, 10 metrics,
     **30 deploy history**. The quiet gap between faults is therefore 33 minutes.
   - The change of isolation settings is written to the manifest and printed in the results.
-- **After fs-02 (13:56 UTC): the Lambda rollback target.**
+- **After fs-02 (13:56 UTC / 19:26 IST): the Lambda rollback target.**
   - WARDEN took "previous" to be the numerically previous version. Each injected fault publishes one,
     so fs-01's fix aimed at version 6 (the preflight's fs-04 version). fs-02's fix aimed at 7, fs-01's
     broken version. It was applied and did not fix it: 27 of 27 invocations still erred.
@@ -444,7 +444,7 @@ below is also printed in the run's RESULTS.md section 7.
   - WARDEN's fix was rebuilt without `AWS_REGION`, so it came out without `--region` and the
     allow-list refused it. fs-01's `fix_not_allowed` is therefore a harness artefact; its record says
     so, and what the fix would have done.
-- **fs-03 (14:29-14:52 UTC), an account limit, not a WARDEN defect.**
+- **fs-03 (14:29-14:52 UTC / 19:59-20:22 IST), an account limit, not a WARDEN defect.**
   - WARDEN diagnosed it correctly: reserved concurrency 0.
   - It printed `put-function-concurrency ... 4`, with its standing caveat that AWS keeps 10 concurrent
     executions unreserved. AWS refused it with `InvalidParameterValueException`. This Free-plan
@@ -455,9 +455,9 @@ below is also printed in the run's RESULTS.md section 7.
     exact command.
   - A change to print it was tried and withdrawn rather than weaken a deliberate safety rule mid-run.
     On an account with a normal limit (1000), WARDEN's printed fix applies.
-- **fs-04 (15:46-15:58 UTC) was the first full success.** WARDEN rolled back to version 3 (the
+- **fs-04 (15:46-15:58 UTC / 21:16-21:28 IST) was the first full success.** WARDEN rolled back to version 3 (the
   version that had served traffic) and the verifier confirmed the fix after 167 s.
-- **After fs-05 (16:31-16:42 UTC): two WARDEN evidence bugs, each wrong since before Wave 4.**
+- **After fs-05 (16:31-16:42 UTC / 22:01-22:12 IST): two WARDEN evidence bugs, each wrong since before Wave 4.**
   - *Logs kept the wrong end.* `filter_log_events` pages oldest-first, and the reader kept the first
     120 lines. On fs-05 every kept line predated the fault, and the `AccessDenied ... dynamodb:PutItem`
     lines that named the cause were dropped. WARDEN escalated at confidence 0.25, calling it an

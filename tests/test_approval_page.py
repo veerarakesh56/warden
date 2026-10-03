@@ -125,3 +125,13 @@ def test_every_response_is_locked_down(setup):
     assert "<script src" not in shell and "http://" not in shell and "https://" not in shell
     nonce = page.handle("GET", f"/a/{token}").headers["Content-Security-Policy"].split("'nonce-")[1].split("'")[0]
     assert len(nonce) >= 16
+
+
+def test_the_page_gives_every_time_in_utc_and_the_installs_zone(setup, monkeypatch):
+    """Requirement R4: the approval page says when the plan was made and when the link stops working, in UTC
+    and in the install's display zone (IST here)."""
+    monkeypatch.setenv("WARDEN_DISPLAY_ZONE", "Asia/Kolkata")
+    page, device, _, _ = setup
+    plan = json.loads(_show(page, device, page.new_link("rem-dev-1", "owner")).body)["plan"]
+    assert plan["made"] == "2026-10-03 09:00:00Z (14:30 IST)"
+    assert plan["link_expires"].endswith(" IST)") and plan["link_expires"].startswith("2026-10-03 ")
