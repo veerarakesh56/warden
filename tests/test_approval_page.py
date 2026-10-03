@@ -135,3 +135,43 @@ def test_the_page_gives_every_time_in_utc_and_the_installs_zone(setup, monkeypat
     plan = json.loads(_show(page, device, page.new_link("rem-dev-1", "owner")).body)["plan"]
     assert plan["made"] == "2026-10-03 09:00:00Z (14:30 IST)"
     assert plan["link_expires"].endswith(" IST)") and plan["link_expires"].startswith("2026-10-03 ")
+
+
+def test_a_stateless_page_keeps_its_links_and_challenges_in_the_audit(setup, tmp_path):
+    """G6: the page runs as a Lambda, so no request may rely on the last one's memory. Every request here is served by
+    a fresh page sharing only the audit; the whole approval still works once, and the record holds no live token."""
+    import dataclasses
+
+    from warden import audit
+    from warden.approval_page import AuditLinkStore
+
+    first, device, sent, clock = setup
+    log = audit.AuditLog(tmp_path / "a.db")
+
+    def fresh():
+        return dataclasses.replace(first, store=AuditLinkStore(log, clock=clock))
+
+    token = fresh().new_link("rem-dev-1", "owner")
+    assert fresh().handle("GET", f"/a/{token}").status == 200
+    login = _ceremony(fresh(), device, token, "login")
+    assert fresh().handle("POST", f"/a/{token}/login", json.dumps({"response": login})).status == 200
+    response = _ceremony(fresh(), device, token, "approve")
+    ok = fresh().handle("POST", f"/a/{token}/approve", json.dumps({"response": response, "typed_target": PLAN.target}))
+    assert ok.status == 200 and len(sent) == 1 and sent[0][1].plan_hash == PLAN.plan_hash
+    assert fresh().handle("GET", f"/a/{token}").status == 404  # used once, for every later invocation
+    again = fresh().handle("POST", f"/a/{token}/approve", json.dumps({"response": response, "typed_target": PLAN.target}))
+    assert again.status == 404 and len(sent) == 1
+    rows = json.dumps([e["body"] for e in log.entries()])
+    assert token not in rows and "approval.link_used" in {e["kind"] for e in log.entries()}
+
+
+def test_a_challenge_in_the_audit_is_taken_once(setup, tmp_path):
+    from warden import audit
+    from warden.approval_page import AuditLinkStore
+
+    _, _, _, clock = setup
+    store = AuditLinkStore(audit.AuditLog(tmp_path / "a.db"), clock=clock)
+    pending = passkeys.Pending("rem-dev-1", "p" * 64, "T2", "n-1", T0 + timedelta(minutes=5), "c-1")
+    store.put_challenge("tok:approve", pending)
+    assert store.take_challenge("tok:approve") == pending
+    assert store.take_challenge("tok:approve") is None and store.challenge("tok:approve") is None

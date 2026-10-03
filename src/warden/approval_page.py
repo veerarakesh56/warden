@@ -50,14 +50,112 @@ class Response:
     body: str
 
 
+class MemoryLinkStore:
+    """Links and passkey challenges in this process: one long-running server, or a test."""
+
+    def __init__(self) -> None:
+        self.links: dict[str, Link] = {}
+        self.pending: dict[str, passkeys.Pending] = {}
+
+    def add_link(self, token: str, link: Link) -> None:
+        self.links[token] = link
+
+    def link(self, token: str) -> Link | None:
+        return self.links.get(token)
+
+    def mark_viewed(self, token: str) -> None:
+        self.links[token].viewed = True
+
+    def use_link(self, token: str) -> None:
+        self.links.pop(token, None)
+
+    def put_challenge(self, key: str, pending: passkeys.Pending) -> None:
+        self.pending[key] = pending
+
+    def challenge(self, key: str) -> passkeys.Pending | None:
+        return self.pending.get(key)
+
+    def take_challenge(self, key: str) -> passkeys.Pending | None:
+        return self.pending.pop(key, None)
+
+
+class AuditLinkStore:
+    """Links and challenges as rows of the shared audit (G6): the page runs as a Lambda, and one invocation's memory
+    is gone by the next. Append-only - a link viewed or used, a challenge taken, is a later row - and every token is
+    kept only as its SHA-256, so the record never holds a live link."""
+
+    def __init__(self, log: Any, clock: Callable[[], datetime] | None = None) -> None:
+        self.log = log
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    @staticmethod
+    def _key(token: str) -> str:
+        import hashlib
+
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def _rows(self, kind: str, key: str) -> list[dict]:
+        since = self.clock() - LINK_TTL - timedelta(hours=1)
+        return [e["body"] for e in self.log.entries(kinds=(kind,), since=since) if e["body"].get("key") == key]
+
+    def add_link(self, token: str, link: Link) -> None:
+        self.log.append(link.workflow_id, "approval.link", {"key": self._key(token), "workflow_id": link.workflow_id,
+                                                             "approver": link.approver,
+                                                             "expires_at": link.expires_at.isoformat()})
+
+    def link(self, token: str) -> Link | None:
+        key = self._key(token)
+        made = self._rows("approval.link", key)
+        if not made or self._rows("approval.link_used", key):
+            return None
+        b = made[-1]
+        return Link(b["workflow_id"], b["approver"], datetime.fromisoformat(b["expires_at"]),
+                    viewed=bool(self._rows("approval.link_viewed", key)))
+
+    def mark_viewed(self, token: str) -> None:
+        link = self.link(token)
+        self.log.append(link.workflow_id if link else "approval", "approval.link_viewed", {"key": self._key(token)})
+
+    def use_link(self, token: str) -> None:
+        link = self.link(token)
+        self.log.append(link.workflow_id if link else "approval", "approval.link_used", {"key": self._key(token)})
+
+    def put_challenge(self, key: str, pending: passkeys.Pending) -> None:
+        self.log.append(pending.workflow_id, "approval.challenge", {
+            "key": self._key(key), "workflow_id": pending.workflow_id, "plan_hash": pending.plan_hash,
+            "tier": pending.tier, "nonce": pending.nonce, "expires_at": pending.expires_at.isoformat(),
+            "challenge": pending.challenge})
+
+    def challenge(self, key: str) -> passkeys.Pending | None:
+        hashed = self._key(key)
+        put = self._rows("approval.challenge", hashed)
+        if not put:
+            return None
+        b = put[-1]
+        # A challenge is used once: one taken after this one was issued closes it.
+        taken = [t for t in self._rows("approval.challenge_taken", hashed) if t.get("nonce") == b["nonce"]]
+        if taken:
+            return None
+        return passkeys.Pending(workflow_id=b["workflow_id"], plan_hash=b["plan_hash"], tier=b["tier"],
+                                nonce=b["nonce"], expires_at=datetime.fromisoformat(b["expires_at"]),
+                                challenge=b["challenge"])
+
+    def take_challenge(self, key: str) -> passkeys.Pending | None:
+        pending = self.challenge(key)
+        if pending is not None:
+            self.log.append(pending.workflow_id, "approval.challenge_taken", {"key": self._key(key),
+                                                                              "nonce": pending.nonce})
+        return pending
+
+
 @dataclass
 class ApprovalPage:
     rp_id: str
     policy: ApproverPolicy
     plan_of: Callable[[str], Any]  # workflow id -> its Plan, or None (a Temporal query in the runtime)
     signal: Callable[[str, PasskeyAssertion], None]  # workflow id, assertion -> sent
-    links: dict[str, Link] = field(default_factory=dict)
-    pending: dict[str, passkeys.Pending] = field(default_factory=dict)
+    # Where links and challenges live: memory for one long-running server, the audit for the Lambda (AuditLinkStore).
+    store: Any = field(default_factory=MemoryLinkStore)
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
 
     @property
@@ -66,7 +164,7 @@ class ApprovalPage:
 
     def new_link(self, workflow_id: str, approver: str) -> str:
         token = secrets.token_urlsafe(32)
-        self.links[token] = Link(workflow_id, approver, self.clock() + LINK_TTL)
+        self.store.add_link(token, Link(workflow_id, approver, self.clock() + LINK_TTL))
         return token
 
     # ------------------------------------------------------------------ routing
@@ -76,7 +174,7 @@ class ApprovalPage:
         if len(parts) < 2 or parts[0] != "a":
             return _json(404, {"error": "not found"})
         token, action = parts[1], (parts[2] if len(parts) > 2 else "")
-        link = self.links.get(token)
+        link = self.store.link(token)
         if link is None or self.clock() >= link.expires_at:
             # One answer for unknown, expired and used: a link reveals nothing about which it is.
             return _json(404, {"error": "this approval link is not valid"})
@@ -103,13 +201,15 @@ class ApprovalPage:
 
     def _login_options(self, token: str, link: Link, data: dict) -> Response:
         options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=self._credentials(link.approver),
-                                                     workflow_id=link.workflow_id, plan_hash=f"{VIEW}:{token}",
+                                                     workflow_id=link.workflow_id,
+                                                     # The link's hash, never the link: challenges are recorded (G6).
+                                                     plan_hash=f"{VIEW}:{AuditLinkStore._key(token)}",
                                                      tier=VIEW, now=self.clock())
-        self.pending[f"{token}:{VIEW}"] = pending
+        self.store.put_challenge(f"{token}:{VIEW}", pending)
         return _json(200, {"options": json.loads(options)})
 
     def _verify(self, key: str, link: Link, response: Any) -> list[str]:
-        pending = self.pending.pop(key, None)
+        pending = self.store.take_challenge(key)
         if pending is None or not isinstance(response, dict):
             return ["no challenge is waiting for this answer"]
         credential = next((c for c in self._credentials(link.approver) if c.credential_id == response.get("id")), None)
@@ -126,7 +226,7 @@ class ApprovalPage:
         plan = self.plan_of(link.workflow_id)
         if plan is None or plan.problems:
             return _json(409, {"error": "this plan is no longer waiting for an approval"})
-        link.viewed = True
+        self.store.mark_viewed(token)
         return _json(200, {"plan": {
             "entry": plan.entry, "target": plan.target, "tier": plan.tier, "environment": plan.environment,
             "values": plan.params, "plan_hash": plan.plan_hash, "made": both_times(plan.created_at),
@@ -139,7 +239,7 @@ class ApprovalPage:
         options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=self._credentials(link.approver),
                                                      workflow_id=plan.workflow_id, plan_hash=plan.plan_hash,
                                                      tier=plan.tier, now=self.clock())
-        self.pending[f"{token}:approve"] = pending
+        self.store.put_challenge(f"{token}:approve", pending)
         return _json(200, {"options": json.loads(options)})
 
     def _approve(self, token: str, link: Link, data: dict) -> Response:
@@ -148,14 +248,14 @@ class ApprovalPage:
             return _json(403, {"error": "show the plan first"})
         if plan.tier in TYPED_TIERS and data.get("typed_target") != plan.target:
             return _json(400, {"error": f"a {plan.tier} approval needs the target typed exactly"})
-        pending = self.pending.get(f"{token}:approve")
+        pending = self.store.challenge(f"{token}:approve")
         problems = self._verify(f"{token}:approve", link, data.get("response"))
         if problems or pending is None:
             return _json(403, {"error": "the passkey was not accepted", "problems": problems})
         self.signal(plan.workflow_id, PasskeyAssertion(
             approver=link.approver, workflow_id=pending.workflow_id, plan_hash=pending.plan_hash, tier=pending.tier,
             nonce=pending.nonce, expires_at=pending.expires_at, challenge=pending.challenge, response=data["response"]))
-        del self.links[token]  # used once
+        self.store.use_link(token)  # used once
         return _json(200, {"sent": True, "note": "WARDEN re-checks this approval before anything changes."})
 
 
