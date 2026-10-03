@@ -11,9 +11,10 @@ Configuration, all from the environment (SSM in the cloud through settings.py):
 - WARDEN_AUDIT_KEY          the audit signing key (PEM; passphrase WARDEN_AUDIT_KEY_PASSPHRASE)
 - WARDEN_APPROVERS          the approver allowlist (YAML; approvals.py)
 
-The worker holds no approver key and no cloud credential. Phase 2 has no real platform yet, so a
-remediation against a live system is refused at planning (`NoPlatform` reads nothing, and a
-catalogue entry needs values WARDEN read); Phase 4 adds the platforms with their JIT roles.
+The worker holds no approver key and no standing write credential. With no platform (`--platform none`) a
+remediation against a live system is refused at planning (`NoPlatform` reads nothing, and a catalogue entry
+needs values WARDEN read); `--platform k8s|db|aws|all` connects the platforms in src/warden/platforms/, the AWS
+one writing only through a per-plan actor session (identity.py).
 """
 
 from __future__ import annotations

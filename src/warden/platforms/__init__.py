@@ -29,13 +29,12 @@ class RoutedPlatform:
         p = self._for(entry)
         return p.live(entry, params) if p else {}
 
-    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None) -> str:
+    def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
+              who: dict[str, Any] | None = None) -> str:
         p = self._for(entry)
         if p is None:
             raise RuntimeError(f"no platform is connected for {entry}")
-        if "snapshot" in inspect.signature(p.apply).parameters:
-            return p.apply(entry, params, snapshot=snapshot)
-        return p.apply(entry, params)
+        return p.apply(entry, params, **_accepted(p.apply, snapshot=snapshot, who=who))
 
     def healthy(self, service: str) -> bool:
         # Asked only of the platforms that know the service: a database platform knows nothing of a
@@ -44,14 +43,23 @@ class RoutedPlatform:
         answers = [p.healthy(service) for p in self._by_kind.values() if p.knows(service)]
         return bool(answers) and all(answers)
 
-    def healthy_for(self, entry: str, service: str) -> bool:
+    def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None) -> bool:
         """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a
-        database with a Deployment's name decided the Deployment's verdict). None connected is not healthy."""
+        database with a Deployment's name decided the Deployment's verdict). None connected is not healthy. A
+        platform serving several kinds (AWS) is told the entry and its parameters: a table and a function may share
+        a name, and a service is named by its cluster too."""
         p = self._for(entry)
-        return bool(p and p.healthy(service))
+        return bool(p and p.healthy(service, **_accepted(p.healthy, entry=entry, params=params)))
 
-    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
+    def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
+                 who: dict[str, Any] | None = None) -> str:
         p = self._for(entry)
         if p is None:
             raise RuntimeError(f"no platform is connected for {entry}")
-        return p.rollback(entry, params, snapshot)
+        return p.rollback(entry, params, snapshot, **_accepted(p.rollback, who=who))
+
+
+def _accepted(method: Any, **extra: Any) -> dict[str, Any]:
+    """The keyword arguments `method` takes, of those given: the Kubernetes and database platforms take no `who`."""
+    names = inspect.signature(method).parameters
+    return {k: v for k, v in extra.items() if k in names}

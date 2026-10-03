@@ -619,9 +619,10 @@ flowchart TB
 
     subgraph WRITE[Writes - only after a signed approval]
         KW[restart, bounded scale<br/><i>platforms/k8s.py</i>]
+        AW[Lambda alias and concurrency, event source<br/>mapping, EventBridge rule, DynamoDB<br/>capacity, ECS rollback <i>platforms/aws.py</i><br/>per-plan actor session <i>identity.py</i>]
         DW[close idle-in-transaction sessions<br/><i>platforms/db.py</i>]
     end
-    APPLY --> KW & DW
+    APPLY --> KW & DW & AW
 
     subgraph RECORD[The record]
         AUD[(audit: hash chain, signed checkpoints<br/><i>audit.py</i>)]
@@ -645,8 +646,9 @@ flowchart TB
   "observed only", never obeyed, until measured.
 - **Nothing changes without a person.** A remediation runs in its own workflow and applies only a
   plan whose exact hash a person signed - a CLI key or a passkey on the approval page.
-- **Not yet deployed:** the webhook and approval-page hosts, the KMS signer and the S3 anchor are
-  built and tested locally; they go live in the G6 cloud windows.
+- **Not yet deployed:** the webhook and approval-page hosts, the KMS signer, the S3 anchor and the AWS
+  write platform (with its reader and actor roles) are built and tested locally; they go live in the G6
+  cloud windows.
 
 ### 1. One incident, end to end
 

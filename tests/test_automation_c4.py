@@ -45,7 +45,7 @@ def test_a_gitops_owned_deployment_is_refused_a_direct_change(labels, annotation
 def test_a_scale_an_autoscaler_owns_is_refused_and_a_restart_is_not():
     live = _live("k8s_scale", autoscaling=_Hpas("orders"))
     assert live["autoscaled"] is True
-    assert any("HorizontalPodAutoscaler owns" in p for p in catalog.validate("k8s_scale", {**OK, "replicas": 3}, live))
+    assert any("an autoscaler (a HorizontalPodAutoscaler" in p for p in catalog.validate("k8s_scale", {**OK, "replicas": 3}, live))
     assert not [p for p in catalog.validate("k8s_restart", OK, {**live, "at_once": 0}) if p.startswith("C4")]
     other = _live("k8s_scale", autoscaling=_Hpas("payments"))  # an HPA for another Deployment
     assert other["autoscaled"] is False and catalog.validate("k8s_scale", {**OK, "replicas": 3}, other) == []

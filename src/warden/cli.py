@@ -318,6 +318,11 @@ def _platform(choice: str):
         from .platforms.db import DatabasePlatform
 
         platforms["db"] = DatabasePlatform()
+    if choice in ("aws", "all"):
+        from .platforms.aws import from_environment
+
+        aws = from_environment()
+        platforms.update({"lambda": aws, "events": aws, "dynamodb": aws, "ecs": aws})
     return RoutedPlatform(**platforms)
 
 
@@ -570,7 +575,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_verify.add_argument("--anchor-bucket", help="the S3 Object Lock bucket the checkpoints are anchored in (S12)")
 
     p_worker = sub.add_parser("worker", help="run the workflow worker against the Temporal server")
-    p_worker.add_argument("--platform", choices=("none", "k8s", "db", "all"), default="none",
+    p_worker.add_argument("--platform", choices=("none", "k8s", "db", "aws", "all"), default="none",
                           help="what this worker may change, behind a signed approval: none (default - every "
                                "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_ADMIN_DSN, "
                                "WARDEN_DB_APP_USERS), or all")

@@ -380,6 +380,14 @@ class RemediationActivities:
             return ["no clean precheck of this plan after its approval"]
         return self._blocked(plan)
 
+    def _who(self, plan: Plan, run: str) -> dict[str, Any]:
+        """Who approved this plan in this run, from the audit's own rows - never from a caller (audit A-P-5): the
+        actor session that makes the change names them."""
+        approvers = {e["body"].get("approver") for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",))
+                     if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                     and e["body"].get("plan_hash") == plan.plan_hash}
+        return {"incident": plan.incident_id, "plan_hash": plan.plan_hash, "approvers": sorted(a for a in approvers if a)}
+
     def _blocked(self, plan: Plan) -> list[str]:
         """The kill switch, the bounds and the change freezes (register C6, P19), at the gate and again right
         before apply: a freeze that starts while a plan waits for its approval still holds."""
@@ -407,10 +415,9 @@ class RemediationActivities:
         try:
             # The approved snapshot goes to a platform that can hold the write to it (sixth review: a count that
             # moved after the precheck was stepped from).
-            if "snapshot" in inspect.signature(self.platform.apply).parameters:
-                detail = self.platform.apply(plan.entry, plan.params, snapshot=plan.snapshot)
-            else:
-                detail = self.platform.apply(plan.entry, plan.params)
+            takes = inspect.signature(self.platform.apply).parameters
+            extra = {k: v for k, v in (("snapshot", plan.snapshot), ("who", self._who(plan, run))) if k in takes}
+            detail = self.platform.apply(plan.entry, plan.params, **extra)
         except Exception as exc:
             if not getattr(exc, "nothing_changed", False):
                 raise  # the change may be half-made: the workflow says so, and a person decides
@@ -428,7 +435,10 @@ class RemediationActivities:
         # Asked of the platform that made the change, when it can route by entry: a database of the same name
         # must not judge a Deployment (sixth review).
         routed = getattr(self.platform, "healthy_for", None)
-        healthy = bool(routed(plan.entry, service) if routed else self.platform.healthy(service))
+        if routed and "params" in inspect.signature(routed).parameters:
+            healthy = bool(routed(plan.entry, service, params=plan.params))
+        else:
+            healthy = bool(routed(plan.entry, service) if routed else self.platform.healthy(service))
         # Every real check is on the record with its run: the verdict is taken from these rows, never from
         # what an activity result or the workflow claims (fourth review, 2026-09-30: run 1's "healthy"
         # replayed into run 2 marked a fix verified with no health check made).
@@ -472,7 +482,8 @@ class RemediationActivities:
             self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
             return detail
         try:
-            detail = self.platform.rollback(plan.entry, plan.params, plan.snapshot)
+            extra = {"who": self._who(plan, run)} if "who" in inspect.signature(self.platform.rollback).parameters else {}
+            detail = self.platform.rollback(plan.entry, plan.params, plan.snapshot, **extra)
         except Exception as exc:  # noqa: BLE001 - every failure is the same fact: WARDEN's change may still be there
             reason = f"rollback failed: {_safe_error(exc)}"
             self.audit.append(plan.incident_id, "remediation.rollback_failed", {**row, "why": reason})

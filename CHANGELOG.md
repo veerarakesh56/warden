@@ -188,6 +188,9 @@ bump may carry a breaking change.
   (requirement R4).
 - **README: the whole-system diagram redrawn from the v2 code, held to it by a test** (requirement R30).
 - **Where the model processed each diagnosis is recorded in its audit provenance** (register S11).
+- **AWS write platform: Lambda alias and concurrency, event source mappings, EventBridge rules, DynamoDB
+  capacity and ECS rollback, each write in a per-plan actor session naming its approvers** (audit A-P-5; G6
+  real platforms, live proof in the cloud windows).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
