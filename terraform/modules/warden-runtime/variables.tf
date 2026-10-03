@@ -75,3 +75,18 @@ variable "audit_db_backup_days" {
     error_message = "keep at least 7 days of point-in-time recovery for the audit."
   }
 }
+
+variable "watched_environments" {
+  description = "The environments this runtime diagnoses and fixes: their platform-reader and actor roles (iam/<env>/) are the only roles the worker may assume."
+  type        = list(string)
+  validation {
+    condition     = length(var.watched_environments) > 0 && alltrue([for e in var.watched_environments : can(regex("^[a-z][a-z0-9-]{1,30}$", e))])
+    error_message = "name at least one environment, lower-case environments.yaml names."
+  }
+}
+
+variable "bedrock_model_arns" {
+  description = "The Bedrock inference profile and the foundation-model ARNs it routes to (decision D12): the only models the worker may invoke. Empty: no Bedrock."
+  type        = list(string)
+  default     = []
+}

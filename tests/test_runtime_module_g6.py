@@ -95,3 +95,44 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     ingress = _block(net, "aws_vpc_security_group_ingress_rule", "audit_db_from_runtime")
     assert "referenced_security_group_id = aws_security_group.runtime.id" in ingress and "5432" in ingress
     assert "cidr_ipv4" not in net.split('resource "aws_security_group" "audit_db"')[1]  # no address range reaches it
+
+
+def test_the_worker_is_the_principal_the_actor_and_reader_trust_and_writes_nothing_itself():
+    """A-P-5 / G6: the worker role is `warden-<env>-worker` - for the ops runtime the exact principal the templates
+    trust - and holds no write to any watched resource: it reaches one only through an assumed actor session."""
+    import json
+
+    iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
+    worker = _block(iam, "aws_iam_role", "worker")
+    assert 'name               = "warden-${var.environment}-worker"' in worker
+    for name in ("actor-trust", "platform-reader-trust"):
+        trust = json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
+        assert {st["Principal"]["AWS"] for st in trust["Statement"]} == {"arn:aws:iam::${account}:role/warden-ops-worker"}
+    assumable = iam[iam.index("assumable = flatten("):iam.index("])", iam.index("assumable = flatten("))]
+    assert re.findall(r"role/warden-\$\{e\}-([a-z-]+)", assumable) == ["platform-reader", "actor"]
+    actions = set(re.findall(r'"([a-z0-9-]+:[A-Za-z*]+)"', iam))
+    assert not {a for a in actions if a.split(":")[0] in ("lambda", "ecs", "dynamodb", "events", "rds", "elasticache")}
+    assert '"sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"' in iam and "Resource = local.assumable" in iam
+
+
+def test_the_lambdas_assume_nothing_and_call_no_model():
+    iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
+    policy = _block(iam, "aws_iam_role_policy", "lambda")
+    assert "Statement = local.own" in policy
+    own = iam[iam.index("  own = ["):iam.index("data \"aws_iam_policy_document\" \"ecs_tasks_trust\"")]
+    assert "sts:" not in own and "bedrock:" not in own
+
+
+def test_every_runtime_identity_reads_only_its_own_secrets_settings_and_metrics():
+    from warden import runtime, settings
+
+    iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
+    assert "secret:warden/${var.environment}/*" in iam  # settings.secret_id: warden/<env>/<name>
+    assert settings.secret_id("dev", "WARDEN_GITHUB_TOKEN").startswith("warden/dev/")
+    assert "parameter/warden/${var.environment}/env/*" in iam
+    assert '"cloudwatch:namespace" = "WARDEN/${var.environment}"' in iam
+    assert runtime.cloudwatch_publisher.__doc__ and "WARDEN/dev" in runtime.cloudwatch_publisher.__doc__
+    for trust in ("ecs_tasks_trust", "lambda_trust"):
+        block = iam[iam.index(f'data "aws_iam_policy_document" "{trust}"'):]
+        assert 'variable = "aws:SourceAccount"' in block[:block.index("\n}\n")]
+
