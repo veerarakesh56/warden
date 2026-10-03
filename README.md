@@ -37,7 +37,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 
 | | |
 |---|---|
-| **Pipeline** | Temporal workflows (self-hosted): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
+| **Pipeline** | Temporal workflows (Temporal Cloud): alert → evidence → redaction → RCA → typed proposal → deterministic gate → signed approval → apply once → verify |
 | **Safety** | 20 incident policies (P0–P16, P22–P24) and 3 plan-gate refusals (P18, P19, P21), closed action enum, redaction (the outbound gate re-checks what leaves), token/USD budget, real tool timeouts, signed approvals, tamper-evident audit, kill switch |
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
 | **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. Platforms for Kubernetes (restart, a bounded scale) and databases (close idle-in-transaction sessions of the app's logins) connect with `warden worker --platform`; the in-process live backends are removed (D16) |
@@ -106,6 +106,12 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   (staging, qa-staging, pre-prod, qa-prod, prod, dev), an allow/deny action list, the authorised
   principals, and whether WARDEN may auto-remediate at all. An unrecognised environment resolves to a
   restrictive default that can only escalate — widening the environment set can never loosen safety.
+- **One approver in this lab, said plainly** (requirement R50). Every tier here needs one approval
+  (`required` in the approvers file). The code enforces a two-person rule wherever `required` says 2 - it
+  counts approvals from *different* approvers - but this lab has one person, so one approver's key, or one
+  hasty approval, decides a change alone. What stands beside that person: the T3 cooling-off, the typed
+  target for T2 and above, the hasty-approval flag, and the catch trials (G7). Every approval row and every
+  end row records `required`, the approvers, and `single_approver`.
 - **One write path, behind a signed approval** (decision D16). A live change happens only through the
   Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, bounds and the
   kill switch, a fresh read right before acting, apply once, its own success check, rollback. The

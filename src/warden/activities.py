@@ -249,6 +249,8 @@ class RemediationActivities:
                                                    "latency_s": round(latency, 1), "hasty": latency < HASTY_S,
                                                    "approver": approval.approver,
                                                    "nonce": approval.nonce, "plan_hash": plan.plan_hash,
+                                                   # Requirement R50: how many different people this tier needs.
+                                                   "required": self.policy.required.get(plan.tier, 1),
                                                    "problems": problems})
         valid = accepted + ([approval] if not problems else [])
         return ApprovalResult(problems=problems, enough=approvals.enough(valid, plan.tier, self.policy))
@@ -434,7 +436,11 @@ class RemediationActivities:
         recorded["applied"] = bool(ours(bounds.APPLIED))
         results = ours(bounds.RESULT)
         recorded["verified"] = bool(results) and results[-1].get("ok") is True
-        body = {"workflow_id": workflow_id, "run_id": run, **outcome.model_dump(), "checklist": recorded}
+        body = {"workflow_id": workflow_id, "run_id": run, **outcome.model_dump(), "checklist": recorded,
+                # Requirement R50: who approved, how many the tier required, and - said, not implied - whether one
+                # person alone decided this change.
+                "approvers": sorted(a for a in approvers if a), "required": self.policy.required.get(tier, 1),
+                "single_approver": recorded["approved"] and len(approvers) == 1}
         if recorded != outcome.checklist:
             body["claimed_checklist"] = outcome.checklist
         # A run that leaves a target in an unknown state stops every automatic fix until a person resets the
