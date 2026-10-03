@@ -551,101 +551,102 @@ managed service.
 Every diagram below is drawn from the code it names, not from intent. If a box and the code disagree,
 the code is right and the diagram is a bug.
 
-> ⚠ **These diagrams predate v2 (2026-09-28).** They show the pipeline as it was before the Temporal
-> workflows (`workflows.py`), signed approvals, the tamper-evident audit and the catalogue. The v2
-> architecture and its target production design are in
-> [`docs/PRODUCTION-ARCHITECTURE.md`](docs/PRODUCTION-ARCHITECTURE.md); these diagrams are being
-> redrawn.
+Section 0 is drawn from the v2 code (2026-10-03): the Temporal workflows, signed approvals, the
+tamper-evident audit and the catalogue. ⚠ **Sections 1-10 predate v2 (2026-09-28)** and show the
+pipeline before those parts; the target production design is in
+[`docs/PRODUCTION-ARCHITECTURE.md`](docs/PRODUCTION-ARCHITECTURE.md).
 
 ### 0. The whole system on one page
 
 Every box is a module or file in this repository; every arrow is a call that exists in the code.
-Solid arrows run on every incident; dotted arrows are opt-in (a flag or an environment variable).
+Dotted arrows are opt-in (a flag, a setting, or a part whose cloud host is built in G6 and not yet
+deployed).
 
 ```mermaid
 flowchart TB
     subgraph IN[Ways in]
-        CLI[warden run / warden demo<br/><i>cli.py</i>]
-        JOB[Kubernetes Job<br/><i>k8s/job.yaml</i>]
-        TASK[ECS Fargate task<br/><i>terraform/</i>]
-        BENCH[benchmark harness<br/><i>scenarios/runner.py</i>]
-        MCP[warden-mcp<br/>MCP server over stdio<br/><i>mcp_server.py</i>]
+        ALARM[an alarm event<br/><i>warden intake</i>, <i>intake.py</i>]
+        AM[Alertmanager webhook<br/><i>webhooks.py</i>: bearer token,<br/>size caps, still-firing check]
+        MCP[warden-mcp<br/><i>mcp_server.py</i><br/>start_incident_diagnosis,<br/>request_remediation, workflow_status]
+        CLI[warden run / demo<br/><i>cli.py</i>, in-process]
     end
-    JOB -->|runs| CLI
-    TASK -->|runs| CLI
-    BENCH -->|runs as a subprocess<br/>with a scoped identity| CLI
+    AM -.->|"host: API Gateway (G6)"| ALARM
+    ALARM -->|"group repeats, flapping,<br/>open-incident cap"| IW
 
-    subgraph SRC[Evidence backends - read-only, picked by WARDEN_BACKEND<br/><i>tools.resolve_backend</i>]
-        FX[fixture<br/>5 recorded incidents]
-        AWSB[aws - <i>aws_backend.py</i><br/>CloudWatch Logs + metrics, ECS<br/>4 IAM read actions]
-        K8B[k8s - <i>k8s_backend.py</i><br/>pods, events, logs, crashed-container logs,<br/>Deployment, ReplicaSets, HPA<br/>6 RBAC read grants]
-        DBB[postgres / mysql / redis / mongo / mssql<br/><i>database.py</i><br/>session views: SELECT, SHOW, INFO,<br/>serverStatus, currentOp only]
+    subgraph TEMPORAL[Temporal Cloud - payloads encrypted by <i>codec.py</i>, API key + TLS <i>runtime.py</i>]
+        IW[IncidentWorkflow<br/><i>workflows.py</i>]
+        RW[RemediationWorkflow<br/><i>workflows.py</i><br/>one per target]
     end
+    MCP --> IW & RW
 
-    subgraph GRAPH[Diagnosis pipeline - IncidentWorkflow activities<br/><i>graph.py nodes, workflows.py</i>]
-        N1[ingest] --> N2[gather<br/><i>tools.gather</i><br/>per-call timeout] --> N3[redact<br/><i>redaction.py</i>] --> N4[diagnose<br/>ONE LLM call<br/>cites evidence ids] --> N6{verify<br/><i>verifier.py</i><br/>P1-P14}
-        N6 --> X1[halt] & X2[escalate] & X3[await_approval] & X4[record_safe]
+    subgraph INC[Incident activities - <i>activities.py</i>]
+        PREP[prepare: gather, redact, tripwire,<br/>evidence ids, quarantine to typed facts<br/><i>tools, redaction, tripwire, evidence, quarantine</i>]
+        DIAG[diagnose: ONE model call<br/><i>llm.LLMClient</i> -> <i>providers.py</i><br/>Bedrock - Anthropic - claude_cli - others]
+        VER[verify: P0-P24 enforced,<br/>P25-P28 observed only<br/><i>verifier, grounding, numbers, language, decide</i>]
+        NOTE[notify: report through the outbound gate<br/><i>reporting, gate, chatops</i>]
+        PREP --> DIAG --> VER --> NOTE
     end
-    CLI --> N1
-    N2 --> FX & AWSB & K8B & DBB
+    IW --> PREP
+    CLI --> PREP
 
-    subgraph LLMBOX[Model access - the only way out to a model<br/><i>llm.LLMClient</i>]
-        BUD[USD + call-count budget, call timeout,<br/>typed reply: closed action enum<br/>WARDEN_MOCK=1: no provider at all]
-        PRV[<i>providers.py</i><br/>anthropic - gemini - claude_cli<br/>openai / groq / openrouter / ollama]
-        BUD --> PRV
+    subgraph SRC[Read-only evidence backends - <i>tools.resolve_backend</i>]
+        FX[fixtures]
+        AWSB[AWS: CloudWatch, ECS, Lambda, ...<br/><i>aws_backend, aws_stack</i>]
+        K8B[Kubernetes<br/><i>k8s_backend</i>]
+        DBB[five database engines<br/><i>database.py</i>]
     end
-    N4 & N5 --> BUD
+    PREP --> FX & AWSB & K8B & DBB
 
-    subgraph DATA[Data, not code - <i>src/warden/data/</i>]
-        KB[incident_signatures.yaml<br/>34 signatures<br/><i>knowledge.py</i>]
-        ENV[environments.yaml<br/>per-environment allow/deny,<br/>principals, auto-remediate<br/><i>environments.py</i>]
+    subgraph REM[Remediation activities - <i>activities.py</i>]
+        PLAN[resolve_plan: catalogue entry -> exact plan<br/>from live state, plan hash; environment<br/>and self-target checks <i>catalog, environments</i>]
+        GATE[gate: bounds, cool-down, kill switch,<br/>change freeze, approval-fatigue cap<br/><i>bounds, freeze</i>]
+        APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
+        APPLY[precheck - apply - check_success<br/>K=3, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered]
+        FIN[finish: audit row, change record<br/><i>changes.py</i>]
+        PLAN --> GATE --> APPR --> APPLY --> FIN
     end
-    KB -.->|"opt-in: WARDEN_KNOWLEDGE_IN_PROMPT=1"| N4
-    ENV -->|P1 allow-list| N6
+    RW --> PLAN
+    APPR -.->|"announce: waiting,<br/>expired (H10)"| NOTE
 
-    subgraph OUT[After the verdict - in <i>cli.py</i>, on request]
-        REM[decide_remediation<br/><i>remediation.py</i><br/>four-way gate]
-        REP[build_report<br/><i>reporting.py + playbook.py + runbook.py</i>]
-        NOT[notify<br/><i>chatops.py</i><br/>re-redact, mrkdwn, split]
+    subgraph PEOPLE[People]
+        SIGN[warden approve<br/>Ed25519 break-glass key]
+        PAGE[approval page<br/><i>approval_page.py</i>: passkey,<br/>typed target]
+        SLACK([Slack thread per incident,<br/>Teams, webhooks])
     end
-    X1 & X2 & X3 & X4 --> DONE([RunReport: verdict + audit trail])
-    DONE -.->|"flags: --report, --principal, --emit-chatops"| REP
-    DONE -.->|"flag: --principal<br/>any verdict but approved_for_human<br/>comes back blocked"| REM
-    ENV --> REM
-    REM --> REP
-    KB -->|patterns| REP
-    ENV -->|promotion plan| REP
-    REP -.->|"flag: --emit-chatops"| NOT
-    NOT --> SINKS([Slack - Teams - generic webhook<br/>dry-run unless WARDEN_CHATOPS_LIVE=1])
-    DONE -.->|"flag: --json"| JSON([RunReport JSON<br/>redaction map never serialised])
+    SIGN -->|signal approve| RW
+    PAGE -.->|"signal approve_passkey<br/>host: G6"| RW
+    NOTE --> SLACK
 
-    subgraph ACT[Writes - separate credentials, off by default]
-        DRY[DryRunBackend<br/>the CLI gate: records, changes nothing]
-        WF[RemediationWorkflow<br/>signed approval of the exact plan<br/><i>workflows.py</i>]
-        KW[restart / bounded scale<br/><i>platforms/k8s.py</i><br/>ServiceAccount warden-remediator]
-        DW[close idle-in-transaction sessions<br/><i>platforms/db.py</i><br/>own database, app logins only]
+    subgraph WRITE[Writes - only after a signed approval]
+        KW[restart, bounded scale<br/><i>platforms/k8s.py</i>]
+        DW[close idle-in-transaction sessions<br/><i>platforms/db.py</i>]
     end
-    REM --> DRY
-    WF --> KW & DW
+    APPLY --> KW & DW
 
-    MCP -->|verify_remediation| N6
-    MCP -->|redact_text| N3
-    MCP -->|gather_incident_context<br/>fixture backend only| FX
-    MCP -->|describe_policy| ENV
+    subgraph RECORD[The record]
+        AUD[(audit: hash chain, signed checkpoints<br/><i>audit.py</i>)]
+        ANCHOR[(S3 Object Lock anchors)]
+        GH([GitHub issue per applied change])
+    end
+    INC & REM -->|every step| AUD
+    AUD -.->|"KMS signer and anchor<br/>adapters (G6)"| ANCHOR
+    FIN -.->|"WARDEN_CHANGE_REPO"| GH
 
-    GRAPH -.->|"OTel spans, GenAI conventions<br/><i>observability.py</i>"| OTEL([console or any OTLP collector<br/>Langfuse, Phoenix])
+    subgraph DATA[Data, pinned by hash - <i>src/warden/data/</i>]
+        D1[incident_signatures, environments,<br/>freeze, providers, decider]
+    end
+    D1 --> VER & GATE & PLAN
 ```
 
-- **One path to a model.** `diagnose` is the only node that calls a model (once per incident), and only
-  through `LLMClient`, which enforces the budget and the timeout and rejects any action outside the
-  closed enum. Nothing reaches it that has not been through `redact`. With `WARDEN_MOCK=1` no
-  provider is built at all - that is what CI and the demo run.
-- **The MCP server shares the gate, not the graph.** It calls the same `verify()`, `redact()` and
-  environment policy, and every `verify_remediation` reply carries `may_execute: false`. Its `gather_incident_context`
-  reads the bundled fixtures only - it is not wired to a live backend.
-- **Writing is a different program path with different credentials.** The read backends cannot
-  write by construction (and a test parses each module for write verbs); the write platforms are
-  reached only through the RemediationWorkflow, after a signed approval of the exact plan.
+- **One path to a model.** `diagnose` is the only step that calls a model, once per incident, through
+  `LLMClient` (budget, timeout, closed action enum). It sees redacted, typed facts, never raw log text.
+  With no model, or over the daily cap, the incident is escalated on rules alone.
+- **The model proposes; rules decide.** `verify` enforces P0-P24; P25-P28 are recorded and shown as
+  "observed only", never obeyed, until measured.
+- **Nothing changes without a person.** A remediation runs in its own workflow and applies only a
+  plan whose exact hash a person signed - a CLI key or a passkey on the approval page.
+- **Not yet deployed:** the webhook and approval-page hosts, the KMS signer and the S3 anchor are
+  built and tested locally; they go live in the G6 cloud windows.
 
 ### 1. One incident, end to end
 
