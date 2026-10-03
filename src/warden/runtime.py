@@ -2,6 +2,10 @@
 
 Configuration, all from the environment (SSM in the cloud through settings.py):
 - WARDEN_TEMPORAL_ADDRESS   the Temporal server, default 127.0.0.1:7233 (the local dev server)
+- WARDEN_TEMPORAL_NAMESPACE the namespace, default `default`
+- WARDEN_TEMPORAL_API_KEY   the API key of this worker's service account (Temporal Cloud, decision D2; a Secrets
+                            Manager secret, one service account per trust zone - register S15). Required for any
+                            server that is not on this machine: an unauthenticated remote connection is refused.
 - WARDEN_TEMPORAL_KEY       payload encryption key (codec.py); required
 - WARDEN_AUDIT_DB           the audit log, default ~/.warden/audit.db
 - WARDEN_AUDIT_KEY          the audit signing key (PEM; passphrase WARDEN_AUDIT_KEY_PASSPHRASE)
@@ -91,9 +95,24 @@ async def check_clock(client: Client, task_queue: str = TASK_QUEUE, wait_s: floa
 TYPED_TIERS = frozenset({"T2", "T3"})
 
 
+_LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+
+
 async def connect(address: str | None = None, key: bytes | None = None) -> Client:
-    return await Client.connect(address or os.environ.get("WARDEN_TEMPORAL_ADDRESS", "127.0.0.1:7233"),
-                                data_converter=codec.data_converter(key))
+    """A client for the configured server. Temporal Cloud authenticates by API key over TLS; any server off this
+    machine without a key is refused, never tried (register S15): a worker that talked to a server anyone could
+    reach would take its tasks - and its plans - from anyone."""
+    target = address or os.environ.get("WARDEN_TEMPORAL_ADDRESS", "127.0.0.1:7233")
+    api_key = os.environ.get("WARDEN_TEMPORAL_API_KEY")
+    host = target.rsplit(":", 1)[0]  # host:port, or [ipv6]:port
+    if host not in _LOOPBACK and not api_key:
+        raise RuntimeError(f"refusing an unauthenticated connection to {host}: set WARDEN_TEMPORAL_API_KEY "
+                           "(register S15)")
+    options: dict[str, Any] = {"namespace": os.environ.get("WARDEN_TEMPORAL_NAMESPACE", "default"),
+                               "data_converter": codec.data_converter(key)}
+    if api_key:
+        options.update(api_key=api_key, tls=True)
+    return await Client.connect(target, **options)
 
 
 def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any = None,
