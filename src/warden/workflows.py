@@ -31,7 +31,7 @@ with workflow.unsafe.imports_passed_through():
         Recorded,
         RemediationActivities,
     )
-    from .approvals import SignedApproval
+    from .approvals import PasskeyAssertion, SignedApproval
     from .models import Alert, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -60,7 +60,7 @@ END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_
 @workflow.defn
 class RemediationWorkflow:
     def __init__(self) -> None:
-        self._inbox: list[SignedApproval] = []
+        self._inbox: list[SignedApproval | PasskeyAssertion] = []
         self._plan: Plan | None = None
         self._stage = "planning"
         self._applying = False  # set the moment apply is sent: from then on the target's state is not known
@@ -69,6 +69,11 @@ class RemediationWorkflow:
     @workflow.signal
     def approve(self, approval: SignedApproval) -> None:
         self._inbox.append(approval)
+
+    @workflow.signal
+    def approve_passkey(self, assertion: PasskeyAssertion) -> None:
+        """A passkey approval from the approval page (register H6): re-verified by check_passkey before it counts."""
+        self._inbox.append(assertion)
 
     @workflow.signal
     def alarm(self, at: str) -> None:
@@ -153,9 +158,14 @@ class RemediationWorkflow:
                         await workflow.execute_activity_method(acts.announce, args=[plan, "expired"], **NOTIFY)
                 return await end("expired", refused or ["no valid approval arrived in time"])
             approval, seen = self._inbox[seen], seen + 1
-            result = await workflow.execute_activity_method(acts.check_approval, args=[plan, approval, accepted],
-                                                            **QUICK)
-            if result.problems:
+            if isinstance(approval, PasskeyAssertion):
+                result = await workflow.execute_activity_method(acts.check_passkey, args=[plan, approval, accepted],
+                                                                **QUICK)
+                approval = result.accepted
+            else:
+                result = await workflow.execute_activity_method(acts.check_approval,
+                                                                args=[plan, approval, accepted], **QUICK)
+            if result.problems or approval is None:
                 refused += result.problems
                 continue
             accepted.append(approval)

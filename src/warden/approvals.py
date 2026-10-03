@@ -51,9 +51,35 @@ class SignedApproval(BaseModel):
         return b"warden-approval:v1:" + json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()
 
 
+class PasskeyCredential(BaseModel):
+    """A passkey enrolled for an approver (passkeys.py): its id and public key (base64url), the signature counter at
+    enrolment - the audit holds every later one - and whether it is device-bound (T3 needs that)."""
+
+    credential_id: str
+    public_key: str
+    sign_count: int = 0
+    device_bound: bool = True
+
+
 class Approver(BaseModel):
-    public_key: str  # PEM
+    public_key: str  # PEM: the Ed25519 break-glass key (decision D14)
     tiers: list[str] = Field(default_factory=list)
+    passkeys: list[PasskeyCredential] = Field(default_factory=list)
+
+
+class PasskeyAssertion(BaseModel):
+    """What an approval page sends the workflow: the browser's WebAuthn assertion and the challenge it answered.
+    Nothing in it is trusted - the workflow re-verifies the assertion against the approver's enrolled passkey, and the
+    challenge must be the plan's own (register H6)."""
+
+    approver: str
+    workflow_id: str
+    plan_hash: str
+    tier: str
+    nonce: str
+    expires_at: datetime
+    challenge: str
+    response: dict
 
 
 class ApproverPolicy(BaseModel):

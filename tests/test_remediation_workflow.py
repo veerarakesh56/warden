@@ -84,9 +84,10 @@ def _run(world, drive, **req):
     """Start the workflow, let `drive(handle, sign)` interact with it, return the outcome."""
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=CONVERTER)
-        acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
-        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.precheck, acts.apply,
-                   acts.check_success, acts.record_result, acts.rollback, acts.finish]
+        acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"],
+                                     limits=world.get("limits", bounds.DEFAULT_LIMITS))
+        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
+                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),

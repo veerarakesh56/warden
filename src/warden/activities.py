@@ -92,6 +92,8 @@ def _run_id() -> str:
 class ApprovalResult(BaseModel):
     problems: list[str]
     enough: bool = False
+    # A passkey approval, once verified, recorded in the same shape as a signed one for the quorum.
+    accepted: approvals.SignedApproval | None = None
 
 
 class Recorded(BaseModel):
@@ -270,6 +272,63 @@ class RemediationActivities:
                                                    "problems": problems})
         valid = accepted + ([approval] if not problems else [])
         return ApprovalResult(problems=problems, enough=approvals.enough(valid, plan.tier, self.policy))
+
+    @activity.defn
+    def check_passkey(self, plan: Plan, assertion: approvals.PasskeyAssertion,
+                      accepted: list[approvals.SignedApproval]) -> ApprovalResult:
+        """A passkey approval (decision D14, register H6), re-verified here whatever the page that sent it checked:
+        the approver may approve this tier, the assertion answers THIS plan's challenge, with their enrolled passkey,
+        user-verified, once, unexpired, its counter past every one the audit has seen, and device-bound for T3."""
+        from . import passkeys
+
+        now = datetime.now(UTC)
+        problems: list[str] = []
+        approver = self.policy.approvers.get(assertion.approver)
+        if approver is None:
+            problems.append(f"{assertion.approver!r} is not an approver")
+        elif plan.tier not in approver.tiers:
+            problems.append(f"{assertion.approver} may not approve {plan.tier}")
+        if (assertion.workflow_id, assertion.plan_hash, assertion.tier) != (plan.workflow_id, plan.plan_hash, plan.tier):
+            problems.append("the passkey approval is for a different plan")
+        cooling = timedelta(minutes=self.policy.cooling_off_minutes.get(plan.tier, 0))
+        if now < plan.created_at + cooling:
+            problems.append(f"{plan.tier} needs the plan to exist for {cooling} before it is approved")
+        if any(a.approver == assertion.approver for a in accepted):
+            problems.append(f"{assertion.approver} has already approved this plan")
+        enrolled = next((c for c in (approver.passkeys if approver else [])
+                         if c.credential_id == assertion.response.get("id")), None)
+        if approver is not None and enrolled is None:
+            problems.append(f"the passkey used is not one {assertion.approver} enrolled")
+        rp_id = os.environ.get("WARDEN_APPROVAL_RP_ID", "")
+        if not rp_id:
+            problems.append("no approval domain is configured (WARDEN_APPROVAL_RP_ID)")
+        seen = self.audit.entries(kinds=("approval.accepted",))
+        verified = None
+        if enrolled is not None and rp_id:  # every reason is reported, not only the first
+            counts = [e["body"].get("sign_count", 0) for e in seen if e["body"].get("credential_id") == enrolled.credential_id]
+            verified, found = passkeys.verify_approval(
+                assertion.response, credential=passkeys.Credential(
+                    assertion.approver, enrolled.credential_id, enrolled.public_key,
+                    max([enrolled.sign_count, *counts]), enrolled.device_bound),
+                pending=passkeys.Pending(plan.workflow_id, plan.plan_hash, plan.tier, assertion.nonce,
+                                         assertion.expires_at, assertion.challenge),
+                rp_id=rp_id, origin=f"https://{rp_id}", now=now, used_nonces={e["body"]["nonce"] for e in seen})
+            problems += found
+        latency = (now - plan.created_at).total_seconds()
+        self.audit.append(plan.incident_id, "approval.refused" if problems else "approval.accepted", {
+            "workflow_id": plan.workflow_id, "run_id": _run_id(), "method": "passkey", "latency_s": round(latency, 1),
+            "hasty": latency < HASTY_S, "approver": assertion.approver, "nonce": assertion.nonce,
+            "plan_hash": plan.plan_hash, "required": self.policy.required.get(plan.tier, 1),
+            "credential_id": enrolled.credential_id if enrolled else "",
+            "sign_count": verified.new_sign_count if verified else None, "problems": problems})
+        if problems:
+            return ApprovalResult(problems=problems)
+        record = approvals.SignedApproval(approver=assertion.approver, workflow_id=plan.workflow_id,
+                                          plan_hash=plan.plan_hash, tier=plan.tier, issued_at=now,
+                                          expires_at=assertion.expires_at, nonce=assertion.nonce,
+                                          signature=f"passkey:{enrolled.credential_id}")
+        return ApprovalResult(problems=[], accepted=record,
+                              enough=approvals.enough([*accepted, record], plan.tier, self.policy))
 
     @activity.defn
     def precheck(self, plan: Plan) -> list[str]:
