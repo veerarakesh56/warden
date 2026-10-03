@@ -21,6 +21,8 @@ Select with `WARDEN_PROVIDER`:
                own fixtures. Results are not reproducible by a reader; see the class docstring.
     gemini     GEMINI_API_KEY      free tier at aistudio.google.com. ⚠ 20 requests/DAY per model on
                the free tier, which is four WARDEN runs. A benchmark wave needs far more.
+    bedrock    IAM (no key)        Amazon Bedrock Converse, WARDEN_BEDROCK_MODEL = an inference-profile id;
+                                   the production path (D12), refused until qualified (M20)
     openai     OPENAI_API_KEY      also Groq (GROQ_API_KEY) / OpenRouter (OPENROUTER_API_KEY) / Ollama
                                    (no key) / any WARDEN_BASE_URL (WARDEN_API_KEY)
 
@@ -518,10 +520,69 @@ class ClaudeCliProvider:
         return self._version
 
 
+# --------------------------------------------------------------------------- bedrock
+
+
+class BedrockProvider:
+    """Amazon Bedrock's Converse API - the production path (decision D12: Claude Sonnet 5 on Bedrock, IAM, no key).
+
+    The model is an inference-profile id from WARDEN_BEDROCK_MODEL (the India geo profile is
+    `in.anthropic.claude-sonnet-5`); like every provider it must pass the replay set first (register M20), so it is
+    refused until W-B qualifies it. With a schema the answer is forced through one tool whose input schema IS the
+    schema - Converse `toolChoice: {"tool": {"name": ...}}`, read 2026-10-03 - so the API enforces the shape rather
+    than the prompt asking for it. The region is WARDEN's configured one, never a literal."""
+
+    name = "bedrock"
+    TOOL = "submit_answer"
+
+    def __init__(self, model: str | None = None, client: Any = None) -> None:
+        chosen = model or os.environ.get("WARDEN_BEDROCK_MODEL", "")
+        if not chosen:
+            raise ProviderError("WARDEN_PROVIDER=bedrock needs WARDEN_BEDROCK_MODEL: an exact inference-profile id")
+        self.model = pinned(chosen)
+        self.version = _sdk_version("boto3")
+        if client is None:
+            import boto3
+            from botocore.config import Config
+
+            from .environments import region
+
+            # One attempt and a bounded socket: WARDEN's own retry loop and per-call ceiling decide, not the SDK's.
+            client = boto3.client("bedrock-runtime", region_name=region(), config=Config(
+                read_timeout=_sdk_timeout_s(), connect_timeout=10, retries={"max_attempts": 1, "mode": "standard"}))
+        self._client = client
+
+    def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
+        import json
+
+        request: dict[str, Any] = {"modelId": self.model, "system": [{"text": system}],
+                                   "messages": [{"role": "user", "content": [{"text": user}]}],
+                                   "inferenceConfig": {"maxTokens": 1500}}
+        if schema is not None:
+            request["toolConfig"] = {
+                "tools": [{"toolSpec": {"name": self.TOOL, "description": "Return the answer in this exact shape.",
+                                        "inputSchema": {"json": schema.model_json_schema()}}}],
+                "toolChoice": {"tool": {"name": self.TOOL}}}
+        try:
+            resp = self._client.converse(**request)
+        except Exception as exc:
+            code = (getattr(exc, "response", None) or {}).get("Error", {}).get("Code", "")
+            if code in ("ThrottlingException", "ServiceQuotaExceededException"):
+                raise ProviderExhausted(f"bedrock: {code}") from exc
+            raise ProviderError(f"bedrock: {code or type(exc).__name__}") from exc
+        content = resp["output"]["message"]["content"]
+        tool = next((c["toolUse"]["input"] for c in content if "toolUse" in c), None)
+        text = json.dumps(tool) if tool is not None else "".join(c.get("text", "") for c in content)
+        usage = resp.get("usage") or {}
+        return Completion(text, int(usage.get("inputTokens") or _estimate_tokens(system + user)),
+                          int(usage.get("outputTokens") or _estimate_tokens(text)))
+
+
 # --------------------------------------------------------------------------- resolution
 
 _REGISTRY = {
     "anthropic": AnthropicProvider,
+    "bedrock": BedrockProvider,
     "claude_cli": ClaudeCliProvider,
     "claude-cli": ClaudeCliProvider,
     "gemini": GeminiProvider,
