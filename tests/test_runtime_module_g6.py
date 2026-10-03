@@ -32,3 +32,14 @@ def test_the_alarm_period_is_the_workers_beat():
     block = variables[variables.index('variable "heartbeat_period_seconds"'):]
     default = int(re.search(r"default\s*=\s*(\d+)", block).group(1))
     assert default == runtime.HEARTBEAT_EVERY.total_seconds()
+
+
+def test_the_synthetic_alarm_pages_after_a_day_without_a_pass():
+    alarm = _block((MODULE / "heartbeat.tf").read_text(encoding="utf-8"), "aws_cloudwatch_metric_alarm", "synthetic")
+    assert re.search(rf'metric_name\s*=\s*"{runtime.SYNTHETIC_METRIC}"', alarm)
+    assert re.search(r'treat_missing_data\s*=\s*"breaching"', alarm)
+    period = int(re.search(r"period\s*=\s*(\d+)", alarm).group(1))
+    periods = int(re.search(r"evaluation_periods\s*=\s*(\d+)", alarm).group(1))
+    assert int(re.search(r"datapoints_to_alarm\s*=\s*(\d+)", alarm).group(1)) == periods
+    # Longer than the synthetic's own day, within CloudWatch's seven-day limit for hourly periods (PutMetricAlarm).
+    assert runtime.SYNTHETIC_EVERY.total_seconds() < period * periods <= 7 * 86400 and period >= 3600

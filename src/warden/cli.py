@@ -362,7 +362,8 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             if publish is None:
                 await asyncio.Event().wait()
             else:  # register C13: a beat only while a full round trip works; the alarm on silence is outside WARDEN
-                await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True))
+                await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True),
+                                        shadow=runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC))
     if args.cmd == "intake":
         from . import intake
 

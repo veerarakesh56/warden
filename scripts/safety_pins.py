@@ -13,8 +13,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PINS = ROOT / "docs" / "safety-pins.sha256"
 PACKAGE = "src/warden"
 PINNED = ("activities.py", "approval_page.py", "approvals.py", "bounds.py", "catalog.py", "decide.py", "evidence.py", "freeze.py", "gate.py",
-          "graph.py", "grounding.py", "mcp_server.py", "passkeys.py", "quarantine.py", "redaction.py", "reporting.py", "tripwire.py",
-          "verifier.py", "workflows.py")
+          "graph.py", "grounding.py", "mcp_server.py", "passkeys.py", "quarantine.py", "redaction.py", "reporting.py", "runtime.py",
+          "tripwire.py", "verifier.py", "workflows.py")
 
 
 def files() -> list[str]:

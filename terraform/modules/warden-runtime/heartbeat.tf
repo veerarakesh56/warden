@@ -18,3 +18,25 @@ resource "aws_cloudwatch_metric_alarm" "heartbeat" {
   ok_actions          = [var.page_topic_arn]
   tags                = { Project = "warden", Environment = var.environment }
 }
+
+# Register C13: once a day a worker runs a bundled recorded incident through the whole diagnosis path in shadow (the
+# model, the gate, the report; src/warden/runtime.py `synthetic`) and publishes WARDEN/<env> Synthetic only when the
+# model answered and the report passed the gate. 25 hourly periods without one - the model gone, a key expired, the
+# pipeline broken - page a person; missing data is BREACHING.
+resource "aws_cloudwatch_metric_alarm" "synthetic" {
+  alarm_name          = "warden-${var.environment}-synthetic-missing"
+  alarm_description   = "WARDEN's daily synthetic incident has not passed for a day: the model or the diagnosis pipeline may be broken. Follow docs/RUNBOOK-WARDEN-INCIDENT.md."
+  namespace           = "WARDEN/${var.environment}"
+  metric_name         = "Synthetic"
+  dimensions          = { TaskQueue = "warden" }
+  statistic           = "Sum"
+  period              = 3600
+  evaluation_periods  = 25
+  datapoints_to_alarm = 25
+  threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+  alarm_actions       = [var.page_topic_arn]
+  ok_actions          = [var.page_topic_arn]
+  tags                = { Project = "warden", Environment = var.environment }
+}

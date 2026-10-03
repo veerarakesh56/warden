@@ -151,9 +151,39 @@ async def beat(client: Client, publish: Any, task_queue: str = TASK_QUEUE, wait_
     return ""
 
 
+# Register C13: once a day the whole diagnosis path runs on a bundled recorded incident, in shadow - the model, the
+# gate, the report; no workflow, no remediation, no message to anyone. A heartbeat proves Temporal and a worker; this
+# proves the model still answers and the pipeline still holds together. Published only when the model answered.
+SYNTHETIC_EVERY = timedelta(hours=24)
+SYNTHETIC_METRIC = "Synthetic"
+SYNTHETIC_INCIDENT = "inc-002"  # a bundled recording (an OOM-killed service): its evidence never changes
+
+
+def synthetic() -> str:
+    """One shadow diagnosis: '' when the model answered and the report passed the outbound gate, else why not."""
+    from .cli import DEMO_ALERTS
+    from .gate import enforce
+    from .graph import run
+    from .models import Alert
+    from .reporting import build_report
+    from .tools import FixtureBackend
+
+    alert = Alert(**{**DEMO_ALERTS[SYNTHETIC_INCIDENT], "alert_id": f"synthetic-{datetime.now(UTC):%Y%m%d}"})
+    report = run(alert, backend=FixtureBackend())
+    if report.verdict is None or "P0-MODEL-UNAVAILABLE" in report.verdict.policy_ids:
+        return "the model did not answer"
+    built = build_report(alert, root_cause=report.root_cause, proposal=report.proposal, verdict=report.verdict,
+                         context=report.context, redaction_map=report.redaction_map)
+    if enforce(built.markdown, alert_id=alert.alert_id).verdict == "BLOCK":
+        return "the outbound gate blocked the report"
+    return ""
+
+
 async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEAT_EVERY, task_queue: str = TASK_QUEUE,
-                    log: Any = None) -> None:
-    """Beat until cancelled. A failed beat publishes nothing - the missing metric is the page - and is said once."""
+                    log: Any = None, shadow: Any = None) -> None:
+    """Beat until cancelled. A failed beat publishes nothing - the missing metric is the page - and is said once.
+    With `shadow` (a publisher of the synthetic metric), the synthetic incident runs once a day as well."""
+    last_synthetic: datetime | None = None
     while True:
         try:
             problem = await beat(client, publish, task_queue)
@@ -161,12 +191,25 @@ async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEA
             problem = f"the heartbeat could not run: {type(exc).__name__}"
         if problem and log:
             log(f"heartbeat missed: {problem}")
+        now = datetime.now(UTC)
+        if shadow is not None and (last_synthetic is None or now - last_synthetic >= SYNTHETIC_EVERY):
+            last_synthetic = now
+            try:
+                failed = await asyncio.to_thread(synthetic)
+            except Exception as exc:  # noqa: BLE001 - a synthetic run that cannot run is a failed one
+                failed = f"the synthetic incident could not run: {type(exc).__name__}"
+            if failed:
+                if log:
+                    log(f"synthetic incident failed: {failed}")
+            else:
+                shadow()
         await asyncio.sleep(every.total_seconds())
 
 
-def cloudwatch_publisher() -> Any:
-    """Publishes one beat to CloudWatch under WARDEN_HEARTBEAT_NAMESPACE (e.g. `WARDEN/dev`), with the worker's own
-    credentials; None when no namespace is configured (a local worker beats nowhere)."""
+def cloudwatch_publisher(metric: str = HEARTBEAT_METRIC) -> Any:
+    """Publishes one `metric` data point (a beat, or a synthetic success) to CloudWatch under
+    WARDEN_HEARTBEAT_NAMESPACE (e.g. `WARDEN/dev`), with the worker's own credentials; None when no namespace is
+    configured (a local worker beats nowhere)."""
     namespace = os.environ.get("WARDEN_HEARTBEAT_NAMESPACE", "").strip()
     if not namespace:
         return None
@@ -177,7 +220,7 @@ def cloudwatch_publisher() -> Any:
     cw = boto3.client("cloudwatch", region_name=region())
     queue = TASK_QUEUE
     return lambda: cw.put_metric_data(Namespace=namespace, MetricData=[{
-        "MetricName": HEARTBEAT_METRIC, "Value": 1, "Unit": "Count",
+        "MetricName": metric, "Value": 1, "Unit": "Count",
         "Dimensions": [{"Name": "TaskQueue", "Value": queue}]}])
 
 

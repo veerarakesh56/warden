@@ -195,6 +195,8 @@ bump may carry a breaking change.
   qualification no longer scores a model that never answered** (requirement R15).
 - **Approve and deny from chat: approval links in the waiting message, a deny on the approval page, the page's
   state in the shared audit** (requirement R28; register H6).
+- **A daily synthetic shadow incident, and the page when it stops passing: WARDEN failing silently is now
+  noticed** (register C13).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
