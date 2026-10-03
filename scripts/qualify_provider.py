@@ -62,6 +62,33 @@ def slo_breaches(result: dict, slo: dict) -> list[str]:
     return out
 
 
+class Budget:
+    """A hard ceiling on what one qualification run may spend, in USD, across every incident it replays. Each
+    incident's client gets what is left (never more than its own per-incident ceiling); once it is gone, the next
+    incident is an ERROR row - counted, never silently skipped - and no further call is made."""
+
+    def __init__(self, total_usd: float, factory=None) -> None:
+        if not total_usd > 0:
+            raise ValueError("the budget must be a positive number of USD")
+        from warden.llm import LLMClient
+
+        self.total, self.factory, self.clients = float(total_usd), factory or LLMClient, []
+
+    def spent(self) -> float:
+        return sum(c.cost.usd for c in self.clients)
+
+    def __call__(self):
+        from warden.llm import BudgetExceeded
+
+        left = self.total - self.spent()
+        if left <= 0:
+            raise BudgetExceeded(f"the qualification budget of ${self.total:.2f} is spent")
+        client = self.factory()
+        client.max_usd = min(client.max_usd, left)
+        self.clients.append(client)
+        return client
+
+
 def reverify(out: pathlib.Path) -> int:
     """Re-run today's verifier over every stored report under `out`; return how many verdicts changed."""
     from warden.models import Alert, ContextBundle, RemediationProposal, RootCause
@@ -88,6 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--reverify", action="store_true",
                    help="with --score-only: put each stored diagnosis through today's gate first (deterministic, no "
                         "model call), so a gate fix made after the run counts")
+    p.add_argument("--budget-usd", type=float, default=None,
+                   help="a hard ceiling on what this run may spend in total (paid providers; WARDEN_PRICE_IN/OUT must "
+                        "be the model's real prices)")
     a = p.parse_args(argv)
     out = a.out.expanduser().resolve()
     if ROOT.resolve() in out.parents:
@@ -107,10 +137,14 @@ def main(argv: list[str] | None = None) -> int:
         from warden.llm import LLMClient
 
         probe = LLMClient()
+        budget = Budget(a.budget_usd) if a.budget_usd is not None else None
         for name in RUNS:
-            replay(ROOT / "docs" / "bench" / name, out / name, per_scenario=1, only=None)
+            replay(ROOT / "docs" / "bench" / name, out / name, per_scenario=1, only=None,
+                   **({"llm_factory": budget} if budget else {}))
         result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
                   "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ")}
+        if budget:
+            result.update(budget_usd=budget.total, spent_usd=round(budget.spent(), 4))
     result.update(tally(out))
     doc = load_qualified()
     bar = doc["bar"]

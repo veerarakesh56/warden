@@ -528,12 +528,18 @@ class BedrockProvider:
 
     The model is an inference-profile id from WARDEN_BEDROCK_MODEL (the India geo profile is
     `in.anthropic.claude-sonnet-5`); like every provider it must pass the replay set first (register M20), so it is
-    refused until W-B qualifies it. With a schema the answer is forced through one tool whose input schema IS the
-    schema - Converse `toolChoice: {"tool": {"name": ...}}`, read 2026-10-03 - so the API enforces the shape rather
-    than the prompt asking for it. The region is WARDEN's configured one, never a literal."""
+    refused until W-B qualifies it. For Anthropic and Amazon models, with a schema the answer is forced through one
+    tool whose input schema IS the schema - Converse `toolChoice: {"tool": {"name": ...}}`, read 2026-10-03 - so the
+    API enforces the shape rather than the prompt asking for it; any other family (OpenAI, xAI, Moonshot, open-weight
+    models) answers in text against the schema in the prompt, validated by LLMClient as for every provider. The region is WARDEN's configured one, never a literal."""
 
     name = "bedrock"
     TOOL = "submit_answer"
+    # Converse forces one named tool for these families only (ToolChoice `tool`, read 2026-10-03); any other model
+    # answers in text, with the schema in the prompt, and LLMClient validates that answer like any provider's.
+    FORCED_TOOL_FAMILIES = frozenset({"anthropic", "amazon"})
+    # Inference-profile prefixes: a geography (or `global`) in front of the model id.
+    _GEO = frozenset({"global", "in", "apac", "us", "eu", "jp", "au", "ca", "us-gov"})
 
     def __init__(self, model: str | None = None, client: Any = None) -> None:
         chosen = model or os.environ.get("WARDEN_BEDROCK_MODEL", "")
@@ -552,13 +558,19 @@ class BedrockProvider:
                 read_timeout=_sdk_timeout_s(), connect_timeout=10, retries={"max_attempts": 1, "mode": "standard"}))
         self._client = client
 
+    @property
+    def family(self) -> str:
+        """The model's provider: `anthropic` for `in.anthropic.claude-sonnet-5`, `openai` for `openai.gpt-6-sol`."""
+        parts = self.model.split(".")
+        return parts[1] if len(parts) > 2 and parts[0] in self._GEO else parts[0]
+
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         import json
 
         request: dict[str, Any] = {"modelId": self.model, "system": [{"text": system}],
                                    "messages": [{"role": "user", "content": [{"text": user}]}],
                                    "inferenceConfig": {"maxTokens": 1500}}
-        if schema is not None:
+        if schema is not None and self.family in self.FORCED_TOOL_FAMILIES:
             request["toolConfig"] = {
                 "tools": [{"toolSpec": {"name": self.TOOL, "description": "Return the answer in this exact shape.",
                                         "inputSchema": {"json": schema.model_json_schema()}}}],

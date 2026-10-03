@@ -85,3 +85,35 @@ def test_a_model_must_be_named_exactly_and_pass_qualification(monkeypatch):
     monkeypatch.delenv("WARDEN_QUALIFYING", raising=False)
     with pytest.raises(ProviderError, match="(?i)qualif"):
         providers.resolve("bedrock")
+
+
+class _TextConverse:
+    """A model Converse cannot force to a tool: it answers in text."""
+
+    def __init__(self, text):
+        self.requests, self.text = [], text
+
+    def converse(self, **request):
+        self.requests.append(request)
+        return {"output": {"message": {"role": "assistant", "content": [{"reasoningContent": {"x": 1}},
+                                                                        {"text": self.text}]}},
+                "usage": {"inputTokens": 10, "outputTokens": 5}}
+
+
+@pytest.mark.parametrize(("model", "family"), [
+    ("in.anthropic.claude-sonnet-5", "anthropic"), ("global.anthropic.claude-fable-5-1", "anthropic"),
+    ("anthropic.claude-sonnet-5", "anthropic"), ("openai.gpt-6-sol", "openai"), ("global.xai.grok-4.7", "xai"),
+    ("apac.amazon.nova-pro-v1:0", "amazon"), ("us.meta.llama4-maverick-17b-instruct-v1:0", "meta"),
+])
+def test_the_family_is_read_through_any_geography_prefix(model, family):
+    assert BedrockProvider(model=model, client=_Converse()).family == family
+
+
+def test_a_family_converse_cannot_force_answers_in_text_and_is_still_typed():
+    stub = _TextConverse(json.dumps(ANSWER))
+    provider = BedrockProvider(model="global.openai.gpt-6-sol", client=stub)
+    out = provider.complete(system="s", user="u", schema=Diagnosis)
+    assert "toolConfig" not in stub.requests[0] and json.loads(out.text) == ANSWER
+    report = run(Alert(**DEMO_ALERTS["inc-001"]), llm=LLMClient(provider=BedrockProvider(
+        model="global.openai.gpt-6-sol", client=_TextConverse(json.dumps(ANSWER))), mock=False))
+    assert report.proposal.action.value == "escalate_to_human"
