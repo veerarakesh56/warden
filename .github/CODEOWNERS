@@ -15,6 +15,7 @@
 /src/warden/graph.py               @veerarakesh56
 /src/warden/grounding.py           @veerarakesh56
 /src/warden/mcp_server.py          @veerarakesh56
+/src/warden/passkeys.py            @veerarakesh56
 /src/warden/quarantine.py          @veerarakesh56
 /src/warden/redaction.py           @veerarakesh56
 /src/warden/reporting.py           @veerarakesh56

@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:014f15b3-ea57-5065-aa3e-230164afb6ce",
+  "serialNumber": "urn:uuid:2b823769-6ad7-5492-8e7c-f1f838d1e9d0",
   "version": 1,
   "metadata": {
     "component": {
@@ -178,6 +178,19 @@
         {
           "alg": "SHA-256",
           "content": "e6220afafa4c22a47dd0badb319f84475d79108100d04e26e8542ef7d3ab05a1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/cbor2@6.1.5",
+      "name": "cbor2",
+      "version": "6.1.5",
+      "purl": "pkg:pypi/cbor2@6.1.5",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6eb06160c42315ac0c4ded461c7d84d92fa18c69d13d17fc1dfc1fae96580c95"
         }
       ]
     },
@@ -1730,6 +1743,19 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:pypi/pyopenssl@26.4.0",
+      "name": "pyopenssl",
+      "version": "26.4.0",
+      "purl": "pkg:pypi/pyopenssl@26.4.0",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "28dfcce0162b9211413e26dfbfdf1d24317fbeba18fc93c12400a1856b2a0bc7"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:pypi/pyparsing@3.3.3",
       "name": "pyparsing",
       "version": "3.3.3",
@@ -2429,6 +2455,19 @@
         {
           "alg": "SHA-256",
           "content": "a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/webauthn@3.0.1",
+      "name": "webauthn",
+      "version": "3.0.1",
+      "purl": "pkg:pypi/webauthn@3.0.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "da862342c91fc03fbcf9a89cee7346e55c56f8b93fbaf66cfe8a55e2f0a05f6c"
         }
       ]
     },

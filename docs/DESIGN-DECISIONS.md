@@ -260,6 +260,7 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - Orchestration: Temporal Cloud and the `temporalio` SDK - `workflows.py`, `runtime.py`, `activities.py` (the
   steps, run as Temporal activities).
 - Payload encryption: Temporal's payload-codec interface with `cryptography`'s AES-256-GCM - `codec.py`.
+- Passkey approvals: py_webauthn (duo-labs, BSD-3-Clause) verifies every WebAuthn ceremony - `passkeys.py`.
 - Signatures: `cryptography`'s Ed25519 for approvals and audit checkpoints (`approvals.py`); AWS KMS for the
   non-exportable signer and S3 Object Lock for the anchors (`audit.py`, register S12).
 - Injection tripwire: Meta Llama Prompt Guard 2, pinned by commit, safetensors only - `tripwire.py`.

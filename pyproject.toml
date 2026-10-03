@@ -38,6 +38,8 @@ openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via WA
 mcp = ["mcp>=2.0"]                      # expose the policy gate to any MCP client
 k8s = ["kubernetes>=30"]                # read a live cluster: WARDEN_BACKEND=k8s
 aws = ["boto3>=1.34"]                   # read a live AWS account (CloudWatch + ECS): WARDEN_BACKEND=aws
+approval = ["webauthn>=3.0.1"]          # passkey approvals over the exact plan (decision D14; BSD-3-Clause,
+                                        # duo-labs/py_webauthn, read 2026-10-03)
 # Database backends (read health + terminate stuck connections): WARDEN_BACKEND=postgres|mysql|redis|mongo|mssql
 postgres = ["psycopg[binary]>=3.1"]
 mysql = ["pymysql>=1.1"]

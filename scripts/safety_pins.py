@@ -13,7 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PINS = ROOT / "docs" / "safety-pins.sha256"
 PACKAGE = "src/warden"
 PINNED = ("activities.py", "approvals.py", "bounds.py", "catalog.py", "evidence.py", "freeze.py", "gate.py",
-          "graph.py", "grounding.py", "mcp_server.py", "quarantine.py", "redaction.py", "reporting.py", "tripwire.py",
+          "graph.py", "grounding.py", "mcp_server.py", "passkeys.py", "quarantine.py", "redaction.py", "reporting.py", "tripwire.py",
           "verifier.py", "workflows.py")
 
 

@@ -97,7 +97,7 @@ jobs:
           activate-environment: true
 
       - name: Install (locked)
-        run: uv sync --locked --extra dev --extra all-providers --extra mcp --extra k8s --extra aws
+        run: uv sync --locked --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval
 
       # The core package must import with NO vendor SDK present. providers.py imports them lazily,
       # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
