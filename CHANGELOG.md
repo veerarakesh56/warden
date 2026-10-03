@@ -170,6 +170,7 @@ bump may carry a breaking change.
 - **A runbook for incidents WARDEN itself causes, its commands held to the real CLI** (audit A-P-6).
 - **Approvers' verdicts on each diagnosis are recorded as signed labels for calibration** (audit A-P-2).
 - **A rotation plan for every secret, and the payload key can now be rotated under running workflows** (register S4).
+- **A compliance crosswalk to NIST AI RMF, ISO/IEC 42001, OWASP Agentic Top 10 and the EU AI Act; its gaps are\n  register rows CW1-CW5** (audit A-P-9).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
