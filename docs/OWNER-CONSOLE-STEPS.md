@@ -286,7 +286,8 @@ skip any step you never did:
 | Opus 5.5 global-profile quotas | 0 tokens per minute, adjustable; the same for Fable 5.1 and Sonnet 5.5. W-B needs a quota increase before any call can run | 2026-10-02 13:51 / 19:21 |
 | Sonnet 5, the production model since 2026-10-03 (D12) | region AVAILABLE, entitlement AVAILABLE, authorization NOT_AUTHORIZED, agreement NOT_AVAILABLE. Profiles `in.anthropic.claude-sonnet-5` (India geo) and `global.anthropic.claude-sonnet-5` ACTIVE. Both token-per-minute quotas 0, adjustable: W-B needs an increase | 2026-10-02 19:26 / 2026-10-03 00:56 |
 | Temporal Cloud trial ends / credits left | - (step F, from the owner) | - |
-| Next-day check (E5): charges, Access Analyzer findings, sweep | - (due 2026-10-03) | - |
+| Next-day check (E5): sweep | 18 regions + global, 43 checks, no check blind: the only resource is `warden/ops/slack-webhook` (Secrets Manager, ap-south-2), which W0-now created on purpose | 2026-10-03 06:35 / 12:05 |
+| Next-day check (E5): charges and Access Analyzer findings | owner, in the console (neither role may read them) - pending | - |
 
 ---
 

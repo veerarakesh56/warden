@@ -262,6 +262,18 @@ def _audit_command(args: argparse.Namespace) -> int:
               f"public key {args.public}")
         return 0
     result = audit.verify(args.db, audit.load_public_key(args.public_key))
+    if args.audit_cmd == "show":
+        # Register S17: what a message's footer names, read from the record itself, after the chain is verified.
+        from .environments import both_times
+
+        log = audit.AuditLog(args.db)
+        rows = log.entries(args.incident)
+        log.close()
+        for e in rows:
+            # Hash first, row number last: `7  2026-10-03 06` read as a phone number and the gate withheld the line.
+            _out(f"{e['hash'][:16]}  {e['kind']:<24} {both_times(e['at'])}  row {e['seq']}")
+        _out(f"incident {args.incident}: {len(rows)} row(s); the chain is {'intact' if result.ok else 'NOT intact'}")
+        return 0 if result.ok and rows else 1
     for problem in result.problems:
         _out(f"TAMPERED: {problem}")
     _out(f"{result.rows} rows, signed through row {result.signed_through}"
@@ -499,6 +511,10 @@ def _main(argv: list[str] | None = None) -> int:
     p_keygen = audit_sub.add_parser("keygen", help="create an Ed25519 signing key pair")
     p_keygen.add_argument("--private", required=True, type=pathlib.Path)
     p_keygen.add_argument("--public", required=True, type=pathlib.Path)
+    p_show = audit_sub.add_parser("show", help="one incident's rows and their hashes, after verifying the chain")
+    p_show.add_argument("incident")
+    p_show.add_argument("--db", required=True, type=pathlib.Path)
+    p_show.add_argument("--public-key", required=True, type=pathlib.Path)
     p_verify = audit_sub.add_parser("verify", help="recompute the hash chain and check every signature")
     p_verify.add_argument("--db", required=True, type=pathlib.Path)
     p_verify.add_argument("--public-key", required=True, type=pathlib.Path)

@@ -568,6 +568,30 @@ class IncidentActivities:
         return total
 
     @activity.defn
+    def notify(self, pack: EvidencePack, diagnosed: Diagnosed, verified: Verified) -> list[str]:
+        """The incident's report to the configured sinks, through the outbound gate (register S17). Its footer names
+        the incident and the head of its audit record - signed first - so a reader can check that a message claiming
+        to be WARDEN's is one: `warden audit show <incident>` lists the same hash. Returns the sinks it reached."""
+        import dataclasses
+
+        from .chatops import notify as send
+        from .reporting import build_report
+
+        alert_id = pack.alert.alert_id
+        self.audit.checkpoint()
+        head = self.audit.head(alert_id)
+        report = build_report(pack.alert, root_cause=diagnosed.root_cause, proposal=diagnosed.proposal,
+                              verdict=verified.verdict, context=pack.context, show_identifiers=False)
+        footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{head[:16]}` · check it with "
+                  f"`warden audit show {alert_id}`. WARDEN never asks for an approval in chat: approvals are signed "
+                  "out of band.")
+        sent = send(dataclasses.replace(report, markdown=report.markdown + footer))
+        self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
+                                                        "sinks": [n.sink for n in sent],
+                                                        "delivered": [n.sink for n in sent if n.delivered]})
+        return [n.sink for n in sent if n.delivered]
+
+    @activity.defn
     def verify(self, pack: EvidencePack, diagnosed: Diagnosed) -> Verified:
         from . import graph
 

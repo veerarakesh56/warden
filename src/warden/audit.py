@@ -133,11 +133,11 @@ class AuditLog:
         if since:
             where.append("at >= ?")  # ISO-8601 UTC strings sort in time order
             params.append(since.astimezone(UTC).isoformat(timespec="microseconds"))
-        query = "SELECT seq, at, correlation_id, kind, body FROM entries"
+        query = "SELECT seq, at, correlation_id, kind, body, hash FROM entries"
         rows = self.db.execute(query + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY seq",
                                params)
-        return [{"seq": s, "at": datetime.fromisoformat(a), "correlation_id": c, "kind": k, "body": json.loads(b)}
-                for s, a, c, k, b in rows]
+        return [{"seq": s, "at": datetime.fromisoformat(a), "correlation_id": c, "kind": k, "body": json.loads(b),
+                 "hash": h} for s, a, c, k, b, h in rows]
 
     def close(self) -> None:
         self.db.close()

@@ -40,6 +40,7 @@ STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "
 QUICK = {"start_to_close_timeout": timedelta(seconds=60),
          "retry_policy": RetryPolicy(maximum_attempts=10, maximum_interval=timedelta(seconds=60))}
 ONCE = {"start_to_close_timeout": timedelta(minutes=5), "retry_policy": RetryPolicy(maximum_attempts=1)}
+NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # prepare reads, redacts and runs the tripwire (bounded by tripwire.MAX_SCAN_TOKENS, about three minutes):
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
@@ -280,6 +281,14 @@ class IncidentWorkflow:
             acts.diagnose, args=[pack, escalate_only], start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=1))
         verified = await workflow.execute_activity_method(acts.verify, args=[pack, diagnosed], **QUICK)
+        if workflow.patched("s17-notify"):
+            # Register S17: a person is told, with the incident id and the audit head to check the message against -
+            # before an escalate-only run ends. A notification that fails does not fail the incident: the audit holds
+            # the verdict.
+            try:
+                await workflow.execute_activity_method(acts.notify, args=[pack, diagnosed, verified], **NOTIFY)
+            except ActivityError:
+                pass
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
             # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).

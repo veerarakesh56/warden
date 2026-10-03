@@ -140,6 +140,7 @@ bump may carry a breaking change.
 - **No fight with other automation: a GitOps-owned target is changed in Git, an autoscaled count is not scaled**
   (register C4).
 - **A target WARDEN changed waits 30 minutes before any second change** (register C8, in part).
+- **Every incident message names its incident and audit head; `warden audit show` checks it** (register S17).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
