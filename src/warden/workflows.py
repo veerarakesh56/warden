@@ -31,7 +31,7 @@ with workflow.unsafe.imports_passed_through():
         Recorded,
         RemediationActivities,
     )
-    from .approvals import PasskeyAssertion, SignedApproval
+    from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .models import Alert, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -54,13 +54,13 @@ RECHECK_AFTER = (timedelta(minutes=15), timedelta(minutes=60))
 # Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
 END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_apply", "apply_failed", "recovered",
                         "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
-                        "failed", "failed_after_apply", "relapsed"})
+                        "failed", "failed_after_apply", "relapsed", "denied"})
 
 
 @workflow.defn
 class RemediationWorkflow:
     def __init__(self) -> None:
-        self._inbox: list[SignedApproval | PasskeyAssertion] = []
+        self._inbox: list[SignedApproval | PasskeyAssertion | Denial] = []
         self._plan: Plan | None = None
         self._stage = "planning"
         self._applying = False  # set the moment apply is sent: from then on the target's state is not known
@@ -74,6 +74,11 @@ class RemediationWorkflow:
     def approve_passkey(self, assertion: PasskeyAssertion) -> None:
         """A passkey approval from the approval page (register H6): re-verified by check_passkey before it counts."""
         self._inbox.append(assertion)
+
+    @workflow.signal
+    def deny(self, denial: Denial) -> None:
+        """An approver's "no" from the approval page (requirement R28): the plan ends denied, nothing changed."""
+        self._inbox.append(denial)
 
     @workflow.signal
     def alarm(self, at: str) -> None:
@@ -133,6 +138,12 @@ class RemediationWorkflow:
             return await end("blocked", blocked or ["the gate's answer could not be read"])
         done["policy"] = True
 
+        # Registers H6/R28: the approvers are told as the wait starts - with the approval links when the runtime has an
+        # approval domain - not only at the halfway reminder. Sent before the stage reads "awaiting_approval", so
+        # whoever sees the plan waiting can already have its links.
+        if workflow.patched("h6-links"):
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(acts.announce, args=[plan, "opening"], **NOTIFY)
         self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
         accepted: list[SignedApproval] = []
@@ -158,6 +169,12 @@ class RemediationWorkflow:
                         await workflow.execute_activity_method(acts.announce, args=[plan, "expired"], **NOTIFY)
                 return await end("expired", refused or ["no valid approval arrived in time"])
             approval, seen = self._inbox[seen], seen + 1
+            if isinstance(approval, Denial):
+                if approval.workflow_id == wid and approval.plan_hash == plan.plan_hash:
+                    return await end("denied", [f"denied by {approval.approver}" +
+                                                (f": {approval.reason}" if approval.reason else "")])
+                refused.append("a denial for another plan was ignored")
+                continue
             if isinstance(approval, PasskeyAssertion):
                 result = await workflow.execute_activity_method(acts.check_passkey, args=[plan, approval, accepted],
                                                                 **QUICK)

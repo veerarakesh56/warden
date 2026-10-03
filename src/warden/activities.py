@@ -235,6 +235,11 @@ class RemediationActivities:
         from .chatops import notify as send
         from .reporting import Report
 
+        actions = self._approval_links(plan) if what in ("opening", "waiting") else ()
+        if what == "opening":
+            if not actions:
+                return []  # no approval domain: the incident's report already said a plan waits
+            what = "waiting"
         self.audit.checkpoint()
         head = self.audit.head(plan.incident_id)
         said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({plan.tier}) is waiting for an approval: "
@@ -243,13 +248,34 @@ class RemediationActivities:
                             "was taken; the incident is still open.")}[what]
         footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it with "
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
-        sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=()),
-                    threads=AuditThreads(self.audit))
+        if actions:
+            said += " Approve with your passkey on the page below; it shows the exact plan first."
+        sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=(),
+                           actions=actions), threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,
                                                                      "head": head, "delivered": delivered})
         return delivered
+
+    def _approval_links(self, plan: Plan) -> tuple[tuple[str, str], ...]:
+        """One approval-page link per approver who may approve this tier and has a passkey enrolled (registers H6,
+        R28), each valid for 15 minutes and recorded in the audit by its hash only. None without an approval domain
+        (WARDEN_APPROVAL_RP_ID)."""
+        import secrets as _secrets
+
+        from .approval_page import LINK_TTL, AuditLinkStore, Link
+
+        rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
+        if not rp:
+            return ()
+        store, now, out = AuditLinkStore(self.audit), datetime.now(UTC), []
+        for name, approver in sorted(self.policy.approvers.items()):
+            if plan.tier in approver.tiers and approver.passkeys:
+                token = _secrets.token_urlsafe(32)
+                store.add_link(token, Link(plan.workflow_id, name, now + LINK_TTL))
+                out.append((f"Approve as {name}", f"https://{rp}/a/{token}"))
+        return tuple(out)
 
     @activity.defn
     def check_approval(self, plan: Plan, approval: approvals.SignedApproval,

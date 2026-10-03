@@ -301,6 +301,21 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
     return [f"_(part {i}/{total})_\n" + "\n".join(lines) for i, lines in enumerate(parts, 1)]
 
 
+_APPROVAL_LABEL = re.compile(r"Approve as [A-Za-z0-9._-]{1,64}")
+
+
+def approval_links(actions: tuple[tuple[str, str], ...]) -> list[str]:
+    """The approval links that may leave, as lines: each exactly `https://<the approval domain>/a/<a 43-character
+    token>` with an "Approve as <approver>" label. The gate removes every URL from a message - anything a model or
+    an alert wrote could carry data out - so WARDEN's own links go beside the gated text, and nothing else can."""
+    rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
+    if not rp:
+        return []
+    url = re.compile(rf"https://{re.escape(rp)}/a/[A-Za-z0-9_-]{{43}}")
+    return [f"{label}: {link}" for label, link in actions
+            if _APPROVAL_LABEL.fullmatch(label) and url.fullmatch(link)]
+
+
 def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None) -> list[Notification]:
     """Deliver `report` to every configured sink, redacting the exact payload one more time first."""
     sinks = sinks if sinks is not None else resolve_sinks(threads)
@@ -325,4 +340,6 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None)
         safe_data = {"withheld": True, "gate": gate.verdict, "reasons": gate.reasons}
     else:
         safe_data = {**sanitise_data(safe_data), "gate": gate.verdict, "gate_reasons": gate.reasons}
-    return [sink.send(gate.text, safe_data) for sink in sinks]
+    links = approval_links(report.actions)
+    text = gate.text + ("\n\n" + "\n".join(links) if links else "")
+    return [sink.send(text, safe_data) for sink in sinks]

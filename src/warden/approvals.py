@@ -67,6 +67,17 @@ class Approver(BaseModel):
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
 
 
+class Denial(BaseModel):
+    """An approver's "no" (requirement R28), sent by the approval page after a passkey ceremony over the plan. Fail-safe
+    by construction: a denial can only end a plan with nothing changed, so the workflow takes it as it comes - for
+    this workflow and this exact plan only."""
+
+    approver: str = Field(pattern=r"^[A-Za-z0-9._-]{1,64}$")
+    workflow_id: str
+    plan_hash: str
+    reason: str = Field(default="", max_length=200)
+
+
 class PasskeyAssertion(BaseModel):
     """What an approval page sends the workflow: the browser's WebAuthn assertion and the challenge it answered.
     Nothing in it is trusted - the workflow re-verifies the assertion against the approver's enrolled passkey, and the

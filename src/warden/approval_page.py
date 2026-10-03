@@ -156,6 +156,8 @@ class ApprovalPage:
     signal: Callable[[str, PasskeyAssertion], None]  # workflow id, assertion -> sent
     # Where links and challenges live: memory for one long-running server, the audit for the Lambda (AuditLinkStore).
     store: Any = field(default_factory=MemoryLinkStore)
+    # workflow id, Denial -> sent (requirement R28); None: this page offers no deny.
+    deny: Callable[[str, Any], None] | None = None
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
 
     @property
@@ -184,7 +186,8 @@ class ApprovalPage:
             return _json(400, {"error": "the request is not JSON"})
         routes = {("GET", ""): self._shell, ("POST", "login-options"): self._login_options,
                   ("POST", "login"): self._login, ("POST", "approve-options"): self._approve_options,
-                  ("POST", "approve"): self._approve}
+                  ("POST", "approve"): self._approve, ("POST", "deny-options"): self._deny_options,
+                  ("POST", "deny"): self._deny}
         route = routes.get((method.upper(), action))
         return route(token, link, data) if route else _json(404, {"error": "not found"})
 
@@ -242,6 +245,32 @@ class ApprovalPage:
         self.store.put_challenge(f"{token}:approve", pending)
         return _json(200, {"options": json.loads(options)})
 
+    def _deny_options(self, token: str, link: Link, data: dict) -> Response:
+        plan = self.plan_of(link.workflow_id)
+        if self.deny is None or not link.viewed or plan is None:
+            return _json(403, {"error": "show the plan first"})
+        options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=self._credentials(link.approver),
+                                                     workflow_id=plan.workflow_id, plan_hash=f"deny:{plan.plan_hash}",
+                                                     tier="deny", now=self.clock())
+        self.store.put_challenge(f"{token}:deny", pending)
+        return _json(200, {"options": json.loads(options)})
+
+    def _deny(self, token: str, link: Link, data: dict) -> Response:
+        """The approver says no, with their passkey (requirement R28): the plan ends denied, nothing changed."""
+        from .approvals import Denial
+
+        plan = self.plan_of(link.workflow_id)
+        if self.deny is None or not link.viewed or plan is None:
+            return _json(403, {"error": "show the plan first"})
+        problems = self._verify(f"{token}:deny", link, data.get("response"))
+        if problems:
+            return _json(403, {"error": "the passkey was not accepted", "problems": problems})
+        reason = str(data.get("reason") or "")[:200]
+        self.deny(plan.workflow_id, Denial(approver=link.approver, workflow_id=plan.workflow_id,
+                                           plan_hash=plan.plan_hash, reason=reason))
+        self.store.use_link(token)  # used once, either way
+        return _json(200, {"sent": True, "note": "The plan is denied; nothing will change."})
+
     def _approve(self, token: str, link: Link, data: dict) -> Response:
         plan = self.plan_of(link.workflow_id)
         if not link.viewed or plan is None:
@@ -289,7 +318,9 @@ dt{font-weight:600}button{font:inherit;padding:.5rem 1rem}[hidden]{display:none}
 <button id="who" type="button">Show the plan with my passkey</button>
 <section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h">The plan</h2><dl id="facts"></dl>
 <p><label for="typed">Type the target exactly to approve it</label><br><input id="typed" autocomplete="off"></p>
-<button id="ok" type="button">Approve this plan with my passkey</button></section>
+<button id="ok" type="button">Approve this plan with my passkey</button>
+<p><label for="why">Or deny it (optional reason)</label><br><input id="why" maxlength="200" autocomplete="off"></p>
+<button id="no" type="button">Deny this plan with my passkey</button></section>
 </main>
 <script nonce="{{NONCE}}">
 const base = location.pathname.replace(/\\/$/, "");
@@ -329,6 +360,13 @@ document.getElementById("ok").addEventListener("click", async () => {
     const [ok, d] = await post("approve", {response, typed_target: document.getElementById("typed").value});
     say(ok ? "Sent. " + d.note : d.error);
   } catch (e) { say("Not approved: " + e.message); }
+});
+document.getElementById("no").addEventListener("click", async () => {
+  try {
+    const response = await passkey("deny-options");
+    const [ok, d] = await post("deny", {response, reason: document.getElementById("why").value});
+    say(ok ? d.note : d.error);
+  } catch (e) { say("Not denied: " + e.message); }
 });
 </script></body></html>
 """

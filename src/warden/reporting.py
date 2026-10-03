@@ -90,6 +90,9 @@ class Report:
     markdown: str
     data: dict
     promotion: tuple[PromotionTarget, ...]
+    # (label, url) approval links WARDEN itself minted (register H6): delivered after the gate, never through it, and
+    # only in the exact shape chatops.approval_links accepts.
+    actions: tuple[tuple[str, str], ...] = ()
 
 
 def _promotion_targets(

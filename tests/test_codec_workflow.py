@@ -40,7 +40,7 @@ def test_a_plain_signal_after_apply_does_not_stop_the_rollback():
         platform = FakePlatform(healthy_after=None)  # never recovers: the workflow must roll back
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         acts = RemediationActivities(audit=log, policy=policy, platform=platform)
-        methods = [acts.resolve_plan, acts.gate, acts.check_approval, acts.precheck, acts.apply,
+        methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck, acts.apply,
                    acts.check_success, acts.record_result, acts.rollback, acts.finish]
         async with env, Worker(env.client, task_queue="plain", workflows=[RemediationWorkflow],
                                activities=methods, activity_executor=ThreadPoolExecutor(4)):
@@ -294,7 +294,7 @@ def test_an_unreadable_gate_answer_blocks_instead_of_passing():
 
     platform = FakePlatform(healthy_after=1)
     acts = _NullGate(audit=log, policy=policy, platform=platform)
-    methods = [acts.resolve_plan, acts.gate, acts.check_approval, acts.precheck, acts.apply, acts.check_success,
+    methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck, acts.apply, acts.check_success,
                acts.record_result, acts.rollback, acts.finish]
 
     async def main():

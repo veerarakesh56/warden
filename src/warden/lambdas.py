@@ -136,11 +136,16 @@ def approval_page() -> Any:
                 RemediationWorkflow.approve_passkey, assertion)
         asyncio.run(go())
 
+    def deny(workflow_id: str, denial: Any) -> None:
+        async def go() -> None:
+            await (await runtime.connect()).get_workflow_handle(workflow_id).signal(RemediationWorkflow.deny, denial)
+        asyncio.run(go())
+
     rp_id = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
     if not rp_id:
         raise RuntimeError("WARDEN_APPROVAL_RP_ID is not set: the passkeys' relying party is the approval domain")
     policy = approvals.ApproverPolicy.load(runtime._path("WARDEN_APPROVERS"))
-    return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal,
+    return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
                         store=AuditLinkStore(runtime.open_audit()))
 
 
