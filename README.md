@@ -1082,7 +1082,9 @@ The result that matters, from 42 runs on ap-south-2 against Claude Sonnet:
 
 [Helios](https://github.com/veerarakesh56/helios) — Rust + Z3 infrastructure failure simulator where
 Claude proposes Terraform fixes and an SMT engine re-verifies each one. Same principle, different
-domain: **rigorous core, AI shell.**
+domain: **rigorous core, AI shell.** WARDEN's infra deploy runs Helios on every Terraform plan and
+refuses one that fails anything under a zone outage or resource loss the stack survives today
+(`scripts/helios_gate.py`).
 
 ## License
 

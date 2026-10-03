@@ -486,9 +486,11 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
     # the IAM files it validates and what they render from. Its jobs install from uv.lock, so the lock and
     # pyproject.toml trigger it too (2026-10-01). Nothing of the tool's or the apps' own code.
     checks = {"tests/test_fullstack_infra.py", "tests/test_aws_stack.py", "tests/test_docs_honesty.py",
-              "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py"}
+              "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
+              "tests/test_helios_gate_r56.py"}
     assert all(p.startswith(("terraform/fullstack/", ".github/workflows/", "iam/")) or p in checks
-               or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "src/warden/data/environments.yaml")
+               or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py",
+                         "src/warden/data/environments.yaml")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"])
     assert "workflow_dispatch" not in wf["on"]
     for name in ("ci-infra.yml", "_infra-validate.yml"):

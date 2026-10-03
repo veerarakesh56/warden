@@ -63,6 +63,19 @@ jobs:
           # poisoned cache would install unchecked (fifth review E, 2026-10-01).
           enable-cache: false
       - run: uv sync --locked --only-group infra-deploy   # aurora_express.py: stdlib + boto3 only
+      # Helios (register R56) checks the plan before apply. Built from a pinned commit with its
+      # Cargo.lock, before the job holds credentials; helios_gate.py runs it with an environment that
+      # carries no credentials.
+      - name: Build Helios at a pinned commit
+        if: env.ACTION != 'destroy'
+        env:
+          HELIOS_COMMIT: bf4f3dd0c0e420146382a31c21a930e47c9deab7  # v0.2.0
+        run: |
+          git init -q "$RUNNER_TEMP/helios"
+          git -C "$RUNNER_TEMP/helios" fetch -q --depth 1 https://github.com/veerarakesh56/helios "$HELIOS_COMMIT"
+          git -C "$RUNNER_TEMP/helios" checkout -q FETCH_HEAD
+          cargo build --manifest-path "$RUNNER_TEMP/helios/Cargo.toml" --release --locked --bin helios
+          echo "HELIOS_BIN=$RUNNER_TEMP/helios/target/release/helios" >> "$GITHUB_ENV"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -89,19 +102,35 @@ jobs:
             -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
           # The environment IS the workspace; terraform refuses any other (main.tf precondition).
           terraform -chdir=terraform/fullstack workspace select -or-create "$WARDEN_ENV"
-      - name: plan
-        if: env.ACTION == 'plan'
-        run: terraform -chdir=terraform/fullstack plan -input=false -no-color
+      - name: plan, and Helios on it (R56)
+        if: env.ACTION != 'destroy'
+        run: |
+          set -o pipefail
+          terraform -chdir=terraform/fullstack show -json > "$RUNNER_TEMP/before.json"
+          terraform -chdir=terraform/fullstack plan -input=false -no-color -out="$RUNNER_TEMP/tfplan"
+          terraform -chdir=terraform/fullstack show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
+          # Refuses the change when it fails anything under a scenario today's stack survives.
+          python scripts/helios_gate.py --helios "$HELIOS_BIN" --plan "$RUNNER_TEMP/plan.json" \
+            --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: apply and publish stack.json
         if: env.ACTION == 'apply'
         run: |
-          terraform -chdir=terraform/fullstack apply -input=false -auto-approve -no-color
+          # The plan Helios checked, and nothing else.
+          terraform -chdir=terraform/fullstack apply -input=false -no-color "$RUNNER_TEMP/tfplan"
           # stack.json: every output EXCEPT the sensitive ones.
           terraform -chdir=terraform/fullstack output -json \
             | jq 'with_entries(select(.value.sensitive | not))' > "$RUNNER_TEMP/stack.json"
           # Aurora (express configuration) after the VPC exists; it merges its keys into stack.json.
           python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json"
           aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/fullstack/stack.json" --only-show-errors
+      - name: Helios on the applied state (R56)
+        if: env.ACTION == 'apply'
+        run: |
+          set -o pipefail
+          # The scenarios a plan could not decide (values unknown until apply), and every other one again.
+          terraform -chdir=terraform/fullstack show -json > "$RUNNER_TEMP/after.json"
+          python scripts/helios_gate.py --helios "$HELIOS_BIN" --after "$RUNNER_TEMP/after.json" \
+            --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: destroy
         if: env.ACTION == 'destroy'
         run: |

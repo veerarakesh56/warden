@@ -96,7 +96,7 @@ Status: **IN USE** today · **PLANNED** (v2 plan phase) · **OPTIONAL** (free, a
 | Component | Role | Status | Cost |
 |---|---|---|---|
 | Terraform (BUSL, free to use) | all AWS infrastructure | IN USE | FREE; OpenTofu (MPL-2.0) is the fully open alternative |
-| **Helios** (owner's own; Rust + Z3, MIT) | proves a Terraform plan safe before apply | PLANNED, Phase 5 | FREE |
+| **Helios** (owner's own; Rust + Z3, Apache-2.0) | checks every Terraform plan before apply: `scripts/helios_gate.py` in the infra deploy (R56) | BUILT; first live run in the next infra window | FREE |
 | AWS Budgets | spend alarm per stack | IN USE with each stack | FREE |
 | AWS test stacks: EKS, NAT gateway, ALB, Aurora, ElastiCache, ECS Fargate | the real systems WARDEN is measured on | only during test windows | **PAID** from credits: about $0.50/hour while up; destroyed after every window |
 | Lambda, SQS, DynamoDB on-demand, SNS, EventBridge, API Gateway | smaller parts of the test stack | test windows | mostly inside free tiers |

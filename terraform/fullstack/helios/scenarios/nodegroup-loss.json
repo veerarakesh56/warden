@@ -1,0 +1,7 @@
+{
+ "name": "nodegroup-loss",
+ "kind": {
+  "type": "resource-loss",
+  "resource_id": "aws_eks_node_group.this"
+ }
+}

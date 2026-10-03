@@ -1,0 +1,24 @@
+{
+ "az-outage": [
+  "aws_eks_node_group.this",
+  "aws_lambda_function.fn[\"ops\"]",
+  "aws_lambda_function.fn[\"order-processor\"]",
+  "aws_lambda_function.fn[\"reconciler\"]",
+  "aws_nat_gateway.this",
+  "aws_subnet.private[0]",
+  "aws_subnet.private[1]",
+  "aws_subnet.public[0]",
+  "aws_subnet.public[1]",
+  "aws_vpc_endpoint.interface[\"secretsmanager\"]",
+  "aws_vpc_endpoint.interface[\"sqs\"]"
+ ],
+ "redis-loss": [
+  "aws_elasticache_replication_group.redis"
+ ],
+ "nodegroup-loss": [
+  "aws_eks_node_group.this"
+ ],
+ "orders-queue-loss": [
+  "aws_sqs_queue.main[\"orders\"]"
+ ]
+}
