@@ -281,6 +281,8 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   (section 16 records why not OPA or Cedar).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
+- Number checks in the model's prose - `numbers.py`: a unit library (pint) would convert units, but naming which
+  metric a number in free prose refers to is the hard part, and no library does it.
 - The evidence trust boundary - `evidence.py`, `quarantine.py`: the published defences (dual-LLM, CaMeL, FIDES)
   are patterns or research code, not libraries for log evidence; WARDEN implements the pattern.
 - Redaction - `redaction.py`: nothing found is deterministic, reversible with indexed placeholders, covers

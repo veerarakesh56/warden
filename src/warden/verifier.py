@@ -359,7 +359,19 @@ def _p26_decider(alert: Alert, context: ContextBundle, root_cause: RootCause,
     return f"the calibrated decider puts this proposal at p={p:.2f} of being right" if p < 0.5 else None
 
 
-OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider))
+def _p27_numbers(alert: Alert, context: ContextBundle, root_cause: RootCause,
+                 proposal: RemediationProposal) -> str | None:
+    """Register M2: a number with a unit in the model's prose (a percentage, a duration) that no metric of its kind
+    supports once both are in one unit - "42%" over error_rate=0.042."""
+    from .numbers import problems
+
+    found = problems([root_cause.hypothesis, *root_cause.evidence, proposal.reasoning, proposal.expected_effect],
+                     context.metrics)
+    return "; ".join(found[:5]) if found else None
+
+
+OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider),
+            ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers))
 
 
 def verify(

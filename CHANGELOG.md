@@ -173,6 +173,7 @@ bump may carry a breaking change.
 - **A compliance crosswalk to NIST AI RMF, ISO/IEC 42001, OWASP Agentic Top 10 and the EU AI Act; its gaps are\n  register rows CW1-CW5** (audit A-P-9).
 - **The decision component: trained on independent labels, checked before use, and held back by a Wilson bound**
   (registers C22, E2, E5; R44 in part).
+- **Numbers in the model's prose are checked against the metrics in one unit (observe mode, P27)** (register M2).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
