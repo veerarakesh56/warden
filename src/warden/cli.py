@@ -261,15 +261,30 @@ def _audit_command(args: argparse.Namespace) -> int:
         _out(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
               f"public key {args.public}")
         return 0
+    if args.audit_cmd == "migrate":
+        # Run by the migration role (its DSN in WARDEN_AUDIT_MIGRATION_DSN), never by the runtime: the runtime's
+        # role gets SELECT and INSERT only (G6).
+        dsn = os.environ.get("WARDEN_AUDIT_MIGRATION_DSN", "").strip()
+        if not audit._is_postgres(dsn):
+            _out("error: set WARDEN_AUDIT_MIGRATION_DSN to the migration role's postgresql:// DSN", err=True)
+            return 1
+        audit.migrate(dsn, writer_role=args.writer_role)
+        _out(f"audit tables ready; {args.writer_role} may read and append, nothing else")
+        return 0
+    # The DSN comes from the environment (a secret), never the command line; else the --db file.
+    target = os.environ.get("WARDEN_AUDIT_DSN", "").strip() or args.db
+    if target is None:
+        _out("error: give --db, or set WARDEN_AUDIT_DSN", err=True)
+        return 1
     # With the anchor bucket, every checkpoint must also match its Object Lock copy (register S12).
     bucket = getattr(args, "anchor_bucket", None)
     anchors = audit.S3Anchor(bucket).all() if bucket else None
-    result = audit.verify(args.db, audit.load_public_key(args.public_key), anchors)
+    result = audit.verify(target, audit.load_public_key(args.public_key), anchors)
     if args.audit_cmd == "show":
         # Register S17: what a message's footer names, read from the record itself, after the chain is verified.
         from .environments import both_times
 
-        log = audit.AuditLog(args.db)
+        log = audit.AuditLog(target)
         rows = log.entries(args.incident)
         log.close()
         for e in rows:
@@ -414,7 +429,7 @@ def _usage_command(args: argparse.Namespace) -> int:
 
     from . import audit, runtime
 
-    log = audit.AuditLog(runtime._path("WARDEN_AUDIT_DB", "~/.warden/audit.db"))
+    log = audit.AuditLog(runtime.audit_target())
     rows = usage_by_day(log, datetime.now(UTC) - timedelta(days=args.days))
     for r in rows:
         _out(f"{r['day']}  incidents {r['incidents']:>4}  calls {r['calls']:>5}  tokens in {r['input_tokens']:>9} "
@@ -571,12 +586,14 @@ def _main(argv: list[str] | None = None) -> int:
     p_keygen.add_argument("--public", required=True, type=pathlib.Path)
     p_show = audit_sub.add_parser("show", help="one incident's rows and their hashes, after verifying the chain")
     p_show.add_argument("incident")
-    p_show.add_argument("--db", required=True, type=pathlib.Path)
+    p_show.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
     p_show.add_argument("--public-key", required=True, type=pathlib.Path)
     p_verify = audit_sub.add_parser("verify", help="recompute the hash chain and check every signature")
-    p_verify.add_argument("--db", required=True, type=pathlib.Path)
+    p_verify.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")
     p_verify.add_argument("--public-key", required=True, type=pathlib.Path)
     p_verify.add_argument("--anchor-bucket", help="the S3 Object Lock bucket the checkpoints are anchored in (S12)")
+    p_migrate = audit_sub.add_parser("migrate", help="create the PostgreSQL audit tables (migration role only)")
+    p_migrate.add_argument("--writer-role", required=True, help="the runtime's database role: SELECT and INSERT only")
 
     p_worker = sub.add_parser("worker", help="run the workflow worker against the Temporal server")
     p_worker.add_argument("--platform", choices=("none", "k8s", "db", "aws", "all"), default="none",

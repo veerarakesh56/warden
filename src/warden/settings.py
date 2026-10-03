@@ -39,6 +39,7 @@ LOADABLE = frozenset({
     "WARDEN_TEMPORAL_API_KEY", "WARDEN_TEMPORAL_ADDRESS", "WARDEN_TEMPORAL_NAMESPACE",
     "WARDEN_GITHUB_TOKEN", "WARDEN_CHANGE_REPO", "WARDEN_TEMPORAL_KEY_PREVIOUS",
     "WARDEN_HEARTBEAT_NAMESPACE", "WARDEN_AWS_READER_ROLE_ARN", "WARDEN_AWS_ACTOR_ROLE_ARN",
+    "WARDEN_AUDIT_DSN",
 })
 
 
@@ -56,6 +57,9 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_AWS_ACTOR_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_HEARTBEAT_NAMESPACE": frozenset({"worker"}),
+    # The commands that open the audit (runtime.open_audit) and the ones that read it.
+    "WARDEN_AUDIT_DSN": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
+                                   "label", "usage"}),
 }
 
 
@@ -65,7 +69,7 @@ SECRETS = frozenset({
     "WARDEN_DB_DSN", "WARDEN_DB_ADMIN_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
-    "WARDEN_TEMPORAL_KEY_PREVIOUS",
+    "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN",
 })
 
 

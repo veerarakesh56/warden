@@ -11,9 +11,9 @@ from warden import catalog
 SRC = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
 DDL = re.compile(r"\b(?:CREATE|ALTER|DROP)\s+(?:UNIQUE\s+)?(?:INDEX|TABLE|SCHEMA|VIEW|DATABASE)\b|\bREINDEX\b",
                  re.IGNORECASE)
-# WARDEN's own audit store (SQLite) creates its own tables; the runbook prints, for a person, one ALTER DATABASE that
-# sets a session timeout - text, never executed.
-OWN = {("audit.py", "CREATE TABLE"), ("runbook.py", "ALTER DATABASE")}
+# WARDEN's own audit store (SQLite, or PostgreSQL through `audit migrate`) creates its own tables and indexes; the
+# runbook prints, for a person, one ALTER DATABASE that sets a session timeout - text, never executed.
+OWN = {("audit.py", "CREATE TABLE"), ("audit.py", "CREATE INDEX"), ("runbook.py", "ALTER DATABASE")}
 
 
 def test_no_code_issues_schema_changes_to_a_watched_database():

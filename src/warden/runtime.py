@@ -61,11 +61,22 @@ def _path(env: str, default: str | None = None) -> pathlib.Path:
     return pathlib.Path(value).expanduser()
 
 
-def open_audit() -> audit.AuditLog:
+def audit_target() -> str | pathlib.Path:
+    """The shared PostgreSQL audit when WARDEN_AUDIT_DSN is set (the runtime's Aurora: a Secrets Manager secret,
+    since a DSN may carry a password), else the SQLite file WARDEN_AUDIT_DB."""
+    dsn = os.environ.get("WARDEN_AUDIT_DSN", "").strip()
+    if dsn:
+        if not audit._is_postgres(dsn):
+            raise RuntimeError("WARDEN_AUDIT_DSN must be a postgresql:// DSN")
+        return dsn
     db = _path("WARDEN_AUDIT_DB", "~/.warden/audit.db")
     db.parent.mkdir(parents=True, exist_ok=True)
+    return db
+
+
+def open_audit() -> audit.AuditLog:
     passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or None
-    return audit.AuditLog(db, key=audit.load_private_key(_path("WARDEN_AUDIT_KEY"), passphrase))
+    return audit.AuditLog(audit_target(), key=audit.load_private_key(_path("WARDEN_AUDIT_KEY"), passphrase))
 
 
 def skew_problem(before: datetime, server: datetime, after: datetime,

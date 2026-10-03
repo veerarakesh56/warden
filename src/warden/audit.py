@@ -53,6 +53,90 @@ CREATE TABLE IF NOT EXISTS checkpoints (seq INTEGER PRIMARY KEY, hash TEXT NOT N
 )
 
 
+# The same tables on PostgreSQL (Aurora in the runtime: every worker and Lambda writes one chain). Created only by
+# `migrate`, run under a migration role; the runtime's role holds SELECT and INSERT and nothing else, and the
+# triggers refuse UPDATE, DELETE and TRUNCATE even to a role that could (register O4, G6).
+_PG_SCHEMA = (
+    ("CREATE TABLE IF NOT EXISTS entries (seq BIGINT PRIMARY KEY, at TEXT NOT NULL, correlation_id TEXT NOT NULL, "
+     "kind TEXT NOT NULL, body TEXT NOT NULL, prev TEXT NOT NULL, hash TEXT NOT NULL)"),
+    "CREATE TABLE IF NOT EXISTS checkpoints (seq BIGINT PRIMARY KEY, hash TEXT NOT NULL, signature TEXT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS entries_by_correlation ON entries (correlation_id, seq)",
+    "CREATE INDEX IF NOT EXISTS entries_by_kind ON entries (kind, seq)",
+    ("CREATE OR REPLACE FUNCTION warden_audit_append_only() RETURNS trigger LANGUAGE plpgsql AS "
+     "$f$ BEGIN RAISE EXCEPTION 'the audit log is append-only'; END $f$"),
+    *(f"CREATE OR REPLACE TRIGGER {t}_append_only BEFORE UPDATE OR DELETE ON {t} FOR EACH ROW "
+      "EXECUTE FUNCTION warden_audit_append_only()" for t in ("entries", "checkpoints")),
+    *(f"CREATE OR REPLACE TRIGGER {t}_no_truncate BEFORE TRUNCATE ON {t} FOR EACH STATEMENT "
+      "EXECUTE FUNCTION warden_audit_append_only()" for t in ("entries", "checkpoints")),
+)
+# One chain, many writers: each append holds this transaction-scoped advisory lock (a fixed key: "warden-audit").
+_PG_LOCK = int.from_bytes(b"wardenau", "big") >> 1
+
+
+def _is_postgres(target: str | pathlib.Path) -> bool:
+    return isinstance(target, str) and target.startswith(("postgresql://", "postgres://"))
+
+
+def _pg_connect(dsn: str) -> Any:
+    import psycopg
+
+    return psycopg.connect(dsn, autocommit=True, connect_timeout=10)
+
+
+def migrate(dsn: str, writer_role: str | None = None) -> None:
+    """Create the audit tables and their append-only triggers on PostgreSQL, and grant `writer_role` (the runtime's
+    database user) SELECT and INSERT on them and nothing else. Run by a migration role, never by the runtime."""
+    import re
+
+    with _pg_connect(dsn) as db:
+        for statement in _PG_SCHEMA:
+            db.execute(statement)
+        if writer_role:
+            if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", writer_role):
+                raise ValueError(f"not a plain database role name: {writer_role!r}")
+            for t in ("entries", "checkpoints"):
+                db.execute(f"REVOKE ALL ON {t} FROM {writer_role}")
+                db.execute(f"GRANT SELECT, INSERT ON {t} TO {writer_role}")
+
+
+class _Store:
+    """The few statements the log runs, on SQLite (a file) or PostgreSQL (a `postgresql://` DSN)."""
+
+    def __init__(self, target: str | pathlib.Path) -> None:
+        self.pg = _is_postgres(target)
+        if self.pg:
+            self.db = _pg_connect(str(target))
+        else:
+            self.db = sqlite3.connect(str(target), isolation_level=None, check_same_thread=False)
+            self.db.executescript(_SCHEMA)
+
+    def run(self, sql: str, params: tuple | list = ()) -> Any:
+        return self.db.execute(sql.replace("?", "%s") if self.pg else sql, params)
+
+    @contextlib.contextmanager
+    def transaction(self):
+        if self.pg:
+            with self.db.transaction():
+                self.db.execute("SELECT pg_advisory_xact_lock(%s)", (_PG_LOCK,))
+                yield
+            return
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def insert_checkpoint(self, seq: int, head: str, signature: str) -> int:
+        sql = ("INSERT INTO checkpoints VALUES (?, ?, ?) ON CONFLICT (seq) DO NOTHING" if self.pg
+               else "INSERT OR IGNORE INTO checkpoints VALUES (?, ?, ?)")
+        return self.run(sql, (seq, head, signature)).rowcount
+
+    def close(self) -> None:
+        self.db.close()
+
+
 def _hash(prev: str, seq: int, at: str, correlation_id: str, kind: str, body: str) -> str:
     material = json.dumps([prev, seq, at, correlation_id, kind, body], ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
@@ -150,25 +234,19 @@ class AuditLog:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.checkpoint_every = checkpoint_every
         self._lock = threading.Lock()
-        self.db = sqlite3.connect(str(path), isolation_level=None, check_same_thread=False)
-        self.db.executescript(_SCHEMA)
+        # `path`: a SQLite file, or a `postgresql://` DSN for the shared runtime audit (G6).
+        self.store = _Store(path)
 
     def append(self, correlation_id: str, kind: str, body: dict[str, Any]) -> str:
         """Add one row and return its hash."""
         text = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
         at = self.clock().astimezone(UTC).isoformat(timespec="microseconds")
-        with self._lock:
-            self.db.execute("BEGIN IMMEDIATE")
-            try:
-                last = self.db.execute("SELECT seq, hash FROM entries ORDER BY seq DESC LIMIT 1").fetchone()
-                seq, prev = (last[0] + 1, last[1]) if last else (1, GENESIS)
-                digest = _hash(prev, seq, at, correlation_id, kind, text)
-                self.db.execute("INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                (seq, at, correlation_id, kind, text, prev, digest))
-                self.db.execute("COMMIT")
-            except BaseException:
-                self.db.execute("ROLLBACK")
-                raise
+        with self._lock, self.store.transaction():
+            last = self.store.run("SELECT seq, hash FROM entries ORDER BY seq DESC LIMIT 1").fetchone()
+            seq, prev = (last[0] + 1, last[1]) if last else (1, GENESIS)
+            digest = _hash(prev, seq, at, correlation_id, kind, text)
+            self.store.run("INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?, ?)",
+                           (seq, at, correlation_id, kind, text, prev, digest))
         if self.key is not None and seq % self.checkpoint_every == 0:
             self.checkpoint()
         return digest
@@ -178,11 +256,11 @@ class AuditLog:
         if self.key is None:
             return None
         with self._lock:
-            last = self.db.execute("SELECT seq, hash FROM entries ORDER BY seq DESC LIMIT 1").fetchone()
+            last = self.store.run("SELECT seq, hash FROM entries ORDER BY seq DESC LIMIT 1").fetchone()
             if not last:
                 return None
             signature = self.key.sign(_signed_message(*last)).hex()
-            new = self.db.execute("INSERT OR IGNORE INTO checkpoints VALUES (?, ?, ?)", (*last, signature)).rowcount
+            new = self.store.insert_checkpoint(last[0], last[1], signature)
         if new and self.anchor is not None:
             # A failed anchor leaves the checkpoint unanchored, and `verify` with the anchors says so: an outage of
             # the anchor store must not stop an incident from being recorded.
@@ -192,8 +270,8 @@ class AuditLog:
 
     def head(self, correlation_id: str) -> str:
         """The hash of the latest row of one correlation id ("" if it has none): the record a plan was made on."""
-        row = self.db.execute("SELECT hash FROM entries WHERE correlation_id = ? ORDER BY seq DESC LIMIT 1",
-                              (correlation_id,)).fetchone()
+        row = self.store.run("SELECT hash FROM entries WHERE correlation_id = ? ORDER BY seq DESC LIMIT 1",
+                             (correlation_id,)).fetchone()
         return row[0] if row else ""
 
     def entries(self, correlation_id: str | None = None, *, kinds: tuple[str, ...] = (),
@@ -206,16 +284,24 @@ class AuditLog:
             where.append(f"kind IN ({','.join('?' * len(kinds))})")
             params.extend(kinds)
         if since:
-            where.append("at >= ?")  # ISO-8601 UTC strings sort in time order
+            # ISO-8601 UTC strings of one fixed shape sort in time order, byte by byte (COLLATE "C" on PostgreSQL).
+            where.append('at COLLATE "C" >= ?' if self.store.pg else "at >= ?")
             params.append(since.astimezone(UTC).isoformat(timespec="microseconds"))
         query = "SELECT seq, at, correlation_id, kind, body, hash FROM entries"
-        rows = self.db.execute(query + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY seq",
-                               params)
+        rows = self.store.run(query + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY seq",
+                              params).fetchall()
         return [{"seq": s, "at": datetime.fromisoformat(a), "correlation_id": c, "kind": k, "body": json.loads(b),
                  "hash": h} for s, a, c, k, b, h in rows]
 
+    @property
+    def db(self) -> Any:
+        """The SQLite connection (tests and tools read the file through it); PostgreSQL goes through `store`."""
+        if self.store.pg:
+            raise AttributeError("a PostgreSQL audit is read through AuditLog's methods")
+        return self.store.db
+
     def close(self) -> None:
-        self.db.close()
+        self.store.close()
 
 
 @dataclass
@@ -241,13 +327,18 @@ def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey,
     (register S12)."""
     result = Verification()
     try:
-        db = sqlite3.connect(f"file:{pathlib.Path(path).as_posix()}?mode=ro", uri=True)
-        try:
-            rows = db.execute("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq").fetchall()
-            checkpoints = db.execute("SELECT seq, hash, signature FROM checkpoints ORDER BY seq").fetchall()
-        finally:
-            db.close()
-    except sqlite3.DatabaseError as exc:
+        if _is_postgres(path):
+            with _pg_connect(str(path)) as db:
+                rows = db.execute("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq").fetchall()
+                checkpoints = db.execute("SELECT seq, hash, signature FROM checkpoints ORDER BY seq").fetchall()
+        else:
+            db = sqlite3.connect(f"file:{pathlib.Path(path).as_posix()}?mode=ro", uri=True)
+            try:
+                rows = db.execute("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries ORDER BY seq").fetchall()
+                checkpoints = db.execute("SELECT seq, hash, signature FROM checkpoints ORDER BY seq").fetchall()
+            finally:
+                db.close()
+    except Exception as exc:  # noqa: BLE001 - damage or an unreachable store is a finding, never a crash
         result.problems.append(f"the audit database cannot be read: {exc}")
         return result
 
