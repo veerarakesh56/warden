@@ -155,6 +155,8 @@ bump may carry a breaking change.
   marked** (register N1, audit A-N-1).
 - **Nothing the benchmark adds reaches the prompt** (register N5, audit A-N-5; the shadow-vs-production comparison is
   the new row N5b, G7).
+- **The escalation rate and act/abstain accuracy are scored, with an SLO from measured numbers** (register N6, audit
+  A-N-6). Measured: the production model escalates 25 of 30 replayed incidents, 10 of them right fixes.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

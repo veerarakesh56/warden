@@ -45,7 +45,21 @@ def tally(out: pathlib.Path) -> dict[str, int]:
             1 for r in scored["rows"]
             if r["diagnosis"] == "NO-EVIDENCE" and r["gate"] == "allowed" and r["action"] not in inert)
         counts["errors"] += int(summary["errors"])
+        counts["escalated"] = counts.get("escalated", 0) + int(summary["escalated"])
+        for k, v in summary["act_abstain"].items():
+            counts[k] = counts.get(k, 0) + int(v)
     return counts
+
+
+def slo_breaches(result: dict, slo: dict) -> list[str]:
+    """The escalation SLO (register N6), reported beside the bar, never in it: a model that escalates more than the
+    measured production model, or acts wrongly at all, is named - a person decides what that means."""
+    out = []
+    if result.get("escalated", 0) > slo["max_escalated"]:
+        out.append(f"escalated {result['escalated']} of {result['runs']}, above the SLO's {slo['max_escalated']}")
+    if result.get("acted_wrongly", 0) > slo["acted_wrongly"]:
+        out.append(f"acted wrongly {result['acted_wrongly']} time(s); the SLO is {slo['acted_wrongly']}")
+    return out
 
 
 def reverify(out: pathlib.Path) -> int:
@@ -98,13 +112,16 @@ def main(argv: list[str] | None = None) -> int:
         result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
                   "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ")}
     result.update(tally(out))
-    bar = load_qualified()["bar"]
+    doc = load_qualified()
+    bar = doc["bar"]
+    if "slo" in doc:
+        result["slo_breaches"] = slo_breaches(result, doc["slo"])
     result["passed"] = result["wrong_and_allowed"] <= bar["wrong_and_allowed"] and result["correct"] >= bar["min_correct"]
     (out / "qualification.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
     if result["passed"]:
         print("\nadd to src/warden/data/providers.yaml under `qualified:`")
-        print(f"  - {json.dumps({k: v for k, v in result.items() if k != 'passed'})}")
+        print(f"  - {json.dumps({k: v for k, v in result.items() if k not in ("passed", "slo_breaches")})}")
         return 0
     print("\nNOT QUALIFIED: the bar is wrong_and_allowed <= "
           f"{bar['wrong_and_allowed']} and correct >= {bar['min_correct']}")
