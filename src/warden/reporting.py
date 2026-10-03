@@ -335,6 +335,22 @@ def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
     return out
 
 
+def _returned(ctx: ContextBundle) -> list[str]:
+    """What each read actually returned (register N1), from the gathered record rather than the backend's
+    settings: the sources say where WARDEN looks, this says what came back - including nothing, and failure."""
+    failed = {e.split(":", 1)[0] for e in ctx.tool_errors}
+    out = []
+    for name, got, unit in (("logs", len(ctx.logs), "line(s)"), ("metrics", len(ctx.metrics), "value(s)"),
+                            ("recent_deploys", len(ctx.recent_deploys), "deploy(s)")):
+        if name in failed and not got:
+            out.append(f"{name}: could not be read")
+        elif name in ctx.empty_reads:
+            out.append(f"{name}: returned nothing - unknown, not healthy")
+        else:
+            out.append(f"{name}: {got} {unit}" + (" (partly unread)" if name in failed else ""))
+    return out
+
+
 def _sources(alert: Alert, backend: str | None, ctx: ContextBundle | None = None) -> list[str]:
     """Where the evidence came from and over what window - said in every report.
 
@@ -495,6 +511,7 @@ def build_report(
             "key_log_lines": _key_log_lines(ordinary_logs),
             "checked": checked,
             "log_lines_read": len(ctx.logs),
+            "returned": _returned(ctx),
             "recent_deploys": [dict(d) for d in ctx.recent_deploys],
             "timeline": _timeline(alert, ctx),
             "affected": {k: [[v, n] for v, n in vals] for k, vals in affected.items()},
@@ -652,6 +669,8 @@ def _render_markdown(d: dict) -> str:
     # ---- what was read
     lines.append("## What WARDEN read")
     lines.extend(f"- {s}" for s in d["sources"])
+    if ev.get("returned"):
+        lines.append("- **Returned**: " + "; ".join(ev["returned"]) + ".")
     if ev["tool_errors"]:
         lines.append("")
         lines.append("**⚠ What WARDEN could NOT read** - the diagnosis was made without this:")

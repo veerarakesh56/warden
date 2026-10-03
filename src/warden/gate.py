@@ -322,7 +322,10 @@ _UNVERIFIABLE = re.compile(
     r"|\bno\s+(?:customers?|users?|clients?)\s+(?:were|was|are|is)\s+affected"
     r"|\bno\s+data\s+(?:was\s+|were\s+)?(?:lost|loss|affected|corrupted|leaked)"
     r"|\b(?:has|have)\s+(?:been\s+)?(?:resolved|fixed|mitigated|recovered)"
-    r"|\b(?:is|are|was|were)\s+(?:now\s+)?(?:resolved|fixed|mitigated|recovered)",
+    r"|\b(?:is|are|was|were)\s+(?:now\s+)?(?:resolved|fixed|mitigated|recovered)"
+    # Register N1: the model reads evidence and runs nothing, so a check it says it ran is false by construction.
+    r"|\b(?:I|we)\s+(?:have\s+|also\s+)?(?:checked|verified|confirmed|inspected|tested|ran|queried|validated)\b"
+    r"|\b(?:after|upon)\s+(?:checking|verifying|inspecting|testing|querying)\b",
     re.IGNORECASE,
 )
 

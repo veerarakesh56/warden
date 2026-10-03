@@ -151,6 +151,8 @@ bump may carry a breaking change.
 - **A policy, prompt or catalogue change cannot pass unseen in a pull request: pinned hashes and CODEOWNERS** (register
   N8, audit A-N-8).
 - **An empty read is unknown, never healthy: P23-EMPTY-READ** (register N2, audit A-N-2).
+- **A report never claims a check that did not run: what each read returned is said, and a check the model claims is
+  marked** (register N1, audit A-N-1).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
