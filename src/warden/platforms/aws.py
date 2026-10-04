@@ -71,10 +71,22 @@ def _one_line(value: Any) -> str:
 
 
 class AwsPlatform:
-    def __init__(self, *, reader: Clients, actor: Actor, clock: Callable[[], datetime] | None = None) -> None:
+    def __init__(self, *, reader: Clients, actor: Actor, clock: Callable[[], datetime] | None = None,
+                 per_environment: Callable[[str], AwsPlatform] | None = None) -> None:
         self._read = reader
         self._actor = actor
         self._now = clock or (lambda: datetime.now(UTC))
+        self._per_environment = per_environment
+        self._instances: dict[str, AwsPlatform] = {}
+
+    def for_environment(self, environment: str) -> AwsPlatform:
+        """This platform as one environment sees it: its reader and actor roles (a runtime watching several
+        environments); itself when it serves one."""
+        if self._per_environment is None:
+            return self
+        if environment not in self._instances:
+            self._instances[environment] = self._per_environment(environment)
+        return self._instances[environment]
 
     # ------------------------------------------------------------------ the shape every platform has
 
@@ -449,20 +461,50 @@ class AwsPlatform:
 
 def from_environment() -> AwsPlatform:
     """The platform a worker runs (`warden worker --platform aws`): reads in the environment's reader role, each
-    write in an actor session minted for that one approved plan. The roles come from WARDEN_AWS_READER_ROLE_ARN
-    and WARDEN_AWS_ACTOR_ROLE_ARN; the Region is WARDEN's configured one. Both are assumed with the worker's own
+    write in an actor session minted for that one approved plan. A runtime watching several environments names its
+    roles by WARDEN_AWS_ROLE_ARN_TEMPLATE (`...:role/warden-{env}-{role}`), so each plan reads and writes through its
+    own environment's roles only; one watching a single environment may name them by WARDEN_AWS_READER_ROLE_ARN and
+    WARDEN_AWS_ACTOR_ROLE_ARN. The Region is WARDEN's configured one; every role is assumed with the worker's own
     credentials (its ECS task role)."""
     import boto3
 
-    from .. import identity
     from ..environments import region
 
+    where = region()
+    sts = boto3.client("sts", region_name=where)
+    template = os.environ.get("WARDEN_AWS_ROLE_ARN_TEMPLATE", "").strip()
+    if template:
+        # Several watched environments (the runtime module sets the template): each plan through its own
+        # environment's roles, `warden-<env>-platform-reader` and `warden-<env>-actor`.
+        if not template.startswith("arn:aws:iam::") or "{env}" not in template or "{role}" not in template:
+            raise AwsPlatformError("WARDEN_AWS_ROLE_ARN_TEMPLATE must be an IAM role ARN with {env} and {role}")
+        from ..environments import default_environment_policies
+
+        known = set(default_environment_policies().known_environments)
+
+        def per_environment(env: str) -> AwsPlatform:
+            if env not in known:
+                raise AwsPlatformRefused(f"{env!r} is not a configured environment; nothing was read or changed")
+            return _platform(sts, where, template.format(env=env, role="platform-reader"),
+                             template.format(env=env, role="actor"))
+
+        def unnamed(*_a: Any) -> Any:
+            raise AwsPlatformRefused("no environment was named for this AWS call; nothing was read or changed")
+
+        return AwsPlatform(reader=unnamed, actor=unnamed, per_environment=per_environment)
     reader_arn, actor_arn = (os.environ.get("WARDEN_AWS_READER_ROLE_ARN", ""),
                              os.environ.get("WARDEN_AWS_ACTOR_ROLE_ARN", ""))
     if not reader_arn or not actor_arn:
-        raise AwsPlatformError("the AWS platform needs WARDEN_AWS_READER_ROLE_ARN and WARDEN_AWS_ACTOR_ROLE_ARN")
-    where = region()
-    sts = boto3.client("sts", region_name=where)
+        raise AwsPlatformError("the AWS platform needs WARDEN_AWS_ROLE_ARN_TEMPLATE, or WARDEN_AWS_READER_ROLE_ARN and "
+                               "WARDEN_AWS_ACTOR_ROLE_ARN for one environment")
+    return _platform(sts, where, reader_arn, actor_arn)
+
+
+def _platform(sts: Any, where: str, reader_arn: str, actor_arn: str) -> AwsPlatform:
+    """One environment's platform: reads in its reader role, each write in an actor session for one plan."""
+    import boto3
+
+    from .. import identity
 
     def session(creds: dict[str, str]) -> Clients:
         s = boto3.Session(**creds, region_name=where)

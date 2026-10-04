@@ -326,3 +326,85 @@ def test_the_approvers_reach_the_platform_from_this_runs_audit_rows(tmp_path):
     applied, rolled = world["platform"].who
     assert applied == rolled and applied["approvers"] == ["owner"] and applied["incident"] == "inc-42"
     assert len(applied["plan_hash"]) == 64
+
+
+def test_each_plan_reads_and_writes_through_its_own_environments_platform():
+    """A runtime watching several environments: the router hands the plan's environment to the AWS platform, which
+    answers with that environment's instance - its reader and actor roles - and never another's."""
+    made = {}
+
+    def per_environment(env):
+        f = Fake()
+        made[env] = f
+        return AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: NOW)
+
+    def unnamed(*_a):
+        raise AwsPlatformRefused("no environment was named")
+
+    aws = AwsPlatform(reader=unnamed, actor=unnamed, per_environment=per_environment)
+    r = RoutedPlatform(**{"lambda": aws, "events": aws, "dynamodb": aws, "ecs": aws})
+    params = {"function": FN, "alias": "live", "to_version": "3"}
+    snap = r.live("lambda_move_alias", params, environment="dev")["state"]
+    r.apply("lambda_move_alias", params, snapshot=snap, who=WHO, environment="dev")
+    assert list(made) == ["dev"] and made["dev"].writes and made["dev"].sessions[0]["who"] == WHO
+    r.live("lambda_move_alias", params, environment="staging")
+    assert set(made) == {"dev", "staging"} and not made["staging"].writes
+    assert r.live("lambda_move_alias", params) == {}  # no environment named: nothing read (live swallows, reads nothing)
+
+
+def test_the_role_template_names_each_environments_roles_and_refuses_an_unknown_one(monkeypatch):
+    import boto3
+
+    from warden import identity
+    from warden.platforms import aws as aws_mod
+
+    assumed = []
+    monkeypatch.setattr(boto3, "client", lambda *a, **kw: object())
+    monkeypatch.setattr("warden.environments.region", lambda: "test-region-1")
+    monkeypatch.setattr(identity, "reader_session", lambda sts, role_arn, incident: assumed.append(role_arn) or {})
+    monkeypatch.setattr(boto3, "Session", lambda **kw: type("S", (), {"client": lambda self, s: Fake()})())
+    monkeypatch.setenv("WARDEN_AWS_ROLE_ARN_TEMPLATE", f"arn:aws:iam::{ACCT}:role/warden-{{env}}-{{role}}")
+    p = aws_mod.from_environment()
+    p.for_environment("dev").live("events_enable_rule", {"rule": "warden-dev-r"})
+    assert assumed == [f"arn:aws:iam::{ACCT}:role/warden-dev-platform-reader"]
+    with pytest.raises(AwsPlatformRefused):
+        p.for_environment("not-an-env")
+    monkeypatch.setenv("WARDEN_AWS_ROLE_ARN_TEMPLATE", "arn:aws:iam::x:role/fixed")
+    with pytest.raises(AwsPlatformError):
+        aws_mod.from_environment()
+
+
+def test_every_platform_call_of_a_run_names_the_plans_environment(tmp_path):
+    from test_remediation_workflow import FakePlatform, _approve_with, _run
+    from test_remediation_workflow import owner as owner_fixture
+    from test_remediation_workflow import world as world_fixture
+
+    class EnvSays(FakePlatform):
+        def __init__(self):
+            super().__init__(healthy_after=None)  # never recovers: the rollback runs too
+            self.envs = []
+
+        def live(self, entry, params, environment=None):
+            self.envs.append(("live", environment))
+            return super().live(entry, params)
+
+        def apply(self, entry, params, snapshot=None, who=None, environment=None):
+            self.envs.append(("apply", environment))
+            return super().apply(entry, params)
+
+        def healthy_for(self, entry, service, params=None, environment=None):
+            self.envs.append(("healthy", environment))
+            return False
+
+        def rollback(self, entry, params, snapshot, who=None, environment=None):
+            self.envs.append(("rollback", environment))
+            return super().rollback(entry, params, snapshot)
+
+    key = owner_fixture.__wrapped__()
+    world = world_fixture.__wrapped__(tmp_path, key)
+    world["platform"] = EnvSays()
+    out = _run(world, _approve_with(key))
+    assert out.status == "rolled_back"
+    kinds = {k for k, _ in world["platform"].envs}
+    assert kinds == {"live", "apply", "healthy", "rollback"}
+    assert {e for _, e in world["platform"].envs} == {"dev"}

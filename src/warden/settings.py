@@ -38,7 +38,7 @@ LOADABLE = frozenset({
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY",
     "WARDEN_TEMPORAL_API_KEY", "WARDEN_TEMPORAL_ADDRESS", "WARDEN_TEMPORAL_NAMESPACE",
     "WARDEN_GITHUB_TOKEN", "WARDEN_CHANGE_REPO", "WARDEN_TEMPORAL_KEY_PREVIOUS",
-    "WARDEN_HEARTBEAT_NAMESPACE", "WARDEN_AWS_READER_ROLE_ARN", "WARDEN_AWS_ACTOR_ROLE_ARN",
+    "WARDEN_HEARTBEAT_NAMESPACE", "WARDEN_AWS_READER_ROLE_ARN", "WARDEN_AWS_ACTOR_ROLE_ARN", "WARDEN_AWS_ROLE_ARN_TEMPLATE",
     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_AUDIT_ANCHOR_DAYS",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "WARDEN_ALERTMANAGER_URL", "WARDEN_APPROVAL_RP_ID",
 })
@@ -57,6 +57,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     # Only the worker writes to AWS or beats; no other command needs to know the roles (audit A-P-5, register C13).
     "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
     "WARDEN_AWS_ACTOR_ROLE_ARN": frozenset({"worker"}),
+    "WARDEN_AWS_ROLE_ARN_TEMPLATE": frozenset({"worker"}),
     "WARDEN_HEARTBEAT_NAMESPACE": frozenset({"worker"}),
     # The commands that open the audit (runtime.open_audit) and the ones that read it.
     "WARDEN_AUDIT_DSN": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",

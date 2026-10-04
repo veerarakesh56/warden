@@ -21,17 +21,22 @@ class RoutedPlatform:
     def __init__(self, **platforms: Any) -> None:
         self._by_kind = {kind: p for kind, p in platforms.items() if p is not None}
 
-    def _for(self, entry: str) -> Any | None:
+    def _for(self, entry: str, environment: str | None = None) -> Any | None:
+        """The platform for this entry's kind - and, for one serving several environments (AWS), its instance for the
+        plan's environment, so a plan reads and writes through that environment's roles only."""
         spec = CATALOG.get(entry)
-        return self._by_kind.get(spec.platform) if spec else None
+        p = self._by_kind.get(spec.platform) if spec else None
+        if p is not None and environment and hasattr(p, "for_environment"):
+            p = p.for_environment(environment)
+        return p
 
-    def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
-        p = self._for(entry)
+    def live(self, entry: str, params: dict[str, Any], environment: str | None = None) -> dict[str, Any]:
+        p = self._for(entry, environment)
         return p.live(entry, params) if p else {}
 
     def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
-              who: dict[str, Any] | None = None) -> str:
-        p = self._for(entry)
+              who: dict[str, Any] | None = None, environment: str | None = None) -> str:
+        p = self._for(entry, environment)
         if p is None:
             raise RuntimeError(f"no platform is connected for {entry}")
         return p.apply(entry, params, **_accepted(p.apply, snapshot=snapshot, who=who))
@@ -43,17 +48,18 @@ class RoutedPlatform:
         answers = [p.healthy(service) for p in self._by_kind.values() if p.knows(service)]
         return bool(answers) and all(answers)
 
-    def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None) -> bool:
+    def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None,
+                    environment: str | None = None) -> bool:
         """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a
         database with a Deployment's name decided the Deployment's verdict). None connected is not healthy. A
         platform serving several kinds (AWS) is told the entry and its parameters: a table and a function may share
         a name, and a service is named by its cluster too."""
-        p = self._for(entry)
+        p = self._for(entry, environment)
         return bool(p and p.healthy(service, **_accepted(p.healthy, entry=entry, params=params)))
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any],
-                 who: dict[str, Any] | None = None) -> str:
-        p = self._for(entry)
+                 who: dict[str, Any] | None = None, environment: str | None = None) -> str:
+        p = self._for(entry, environment)
         if p is None:
             raise RuntimeError(f"no platform is connected for {entry}")
         return p.rollback(entry, params, snapshot, **_accepted(p.rollback, who=who))

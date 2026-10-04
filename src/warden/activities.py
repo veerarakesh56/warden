@@ -125,6 +125,11 @@ class Platform(Protocol):
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str: ...
 
 
+def _env(method: Any, environment: str) -> dict[str, str]:
+    """`environment=` for a platform method that takes it (the AWS platform reads and writes per environment)."""
+    return {"environment": environment} if "environment" in inspect.signature(method).parameters else {}
+
+
 def plan_hash(entry: str, params: dict[str, Any], snapshot: dict[str, Any], basis: dict[str, str] | None = None) -> str:
     material = json.dumps([entry, params, snapshot, *([basis] if basis else [])], sort_keys=True,
                           separators=(",", ":"), default=str)
@@ -186,7 +191,7 @@ class RemediationActivities:
     @activity.defn
     def resolve_plan(self, req: FixRequest, workflow_id: str) -> Plan:
         entry = catalog.CATALOG.get(req.entry)
-        live = self.platform.live(req.entry, req.params)
+        live = self.platform.live(req.entry, req.params, **_env(self.platform.live, req.environment))
         problems = catalog.validate(req.entry, req.params, live)
         target = req.params.get(entry.target_param) if entry else None
         if entry and target != req.service:
@@ -361,7 +366,7 @@ class RemediationActivities:
     def precheck(self, plan: Plan) -> list[str]:
         """Read live state again right before acting: a plan approved against a state that no longer
         exists is not the plan that was approved."""
-        live = self.platform.live(plan.entry, plan.params)
+        live = self.platform.live(plan.entry, plan.params, **_env(self.platform.live, plan.environment))
         problems = catalog.validate(plan.entry, plan.params, live)
         if _basis_now(plan) != plan.basis:
             problems.append("WARDEN's code or catalogue changed after the plan was made; it needs a new plan")
@@ -442,7 +447,8 @@ class RemediationActivities:
             # The approved snapshot goes to a platform that can hold the write to it (sixth review: a count that
             # moved after the precheck was stepped from).
             takes = inspect.signature(self.platform.apply).parameters
-            extra = {k: v for k, v in (("snapshot", plan.snapshot), ("who", self._who(plan, run))) if k in takes}
+            extra = {k: v for k, v in (("snapshot", plan.snapshot), ("who", self._who(plan, run)),
+                                       ("environment", plan.environment)) if k in takes}
             detail = self.platform.apply(plan.entry, plan.params, **extra)
         except Exception as exc:
             if not getattr(exc, "nothing_changed", False):
@@ -462,7 +468,7 @@ class RemediationActivities:
         # must not judge a Deployment (sixth review).
         routed = getattr(self.platform, "healthy_for", None)
         if routed and "params" in inspect.signature(routed).parameters:
-            healthy = bool(routed(plan.entry, service, params=plan.params))
+            healthy = bool(routed(plan.entry, service, params=plan.params, **_env(routed, plan.environment)))
         else:
             healthy = bool(routed(plan.entry, service) if routed else self.platform.healthy(service))
         # Every real check is on the record with its run: the verdict is taken from these rows, never from
@@ -508,7 +514,8 @@ class RemediationActivities:
             self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
             return detail
         try:
-            extra = {"who": self._who(plan, run)} if "who" in inspect.signature(self.platform.rollback).parameters else {}
+            takes = inspect.signature(self.platform.rollback).parameters
+            extra = {k: v for k, v in (("who", self._who(plan, run)), ("environment", plan.environment)) if k in takes}
             detail = self.platform.rollback(plan.entry, plan.params, plan.snapshot, **extra)
         except Exception as exc:  # noqa: BLE001 - every failure is the same fact: WARDEN's change may still be there
             reason = f"rollback failed: {_safe_error(exc)}"
