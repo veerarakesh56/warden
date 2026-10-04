@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -38,6 +39,11 @@ HEALTH_WINDOW = timedelta(minutes=5)
 # merely older. A version that served for a minute before being replaced is no fallback.
 KNOWN_GOOD = timedelta(minutes=30)
 _PERIOD = 300  # CloudWatch's period for the served-version reads, seconds
+# Register C17: a Lambda alias moves through a canary - this share of its traffic to the version first, for this long,
+# then all of it only if that share was served without an error. (An ECS service canaries by its own deployment
+# strategy, CANARY or LINEAR, which the plan shows; WARDEN does not change a service's strategy.)
+CANARY_WEIGHT = 0.1
+CANARY_FOR = timedelta(minutes=2)
 _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lambda", "lambda_enable_esm": "lambda",
           "events_enable_rule": "events", "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs",
           "aurora_failover": "rds"}
@@ -80,10 +86,12 @@ def _one_line(value: Any) -> str:
 
 class AwsPlatform:
     def __init__(self, *, reader: Clients, actor: Actor, clock: Callable[[], datetime] | None = None,
-                 per_environment: Callable[[str], AwsPlatform] | None = None) -> None:
+                 per_environment: Callable[[str], AwsPlatform] | None = None,
+                 sleep: Callable[[float], None] | None = None) -> None:
         self._read = reader
         self._actor = actor
         self._now = clock or (lambda: datetime.now(UTC))
+        self._sleep = sleep or time.sleep
         self._per_environment = per_environment
         self._instances: dict[str, AwsPlatform] = {}
 
@@ -290,9 +298,45 @@ class AwsPlatform:
         arn = self._read("lambda").get_function_configuration(FunctionName=p["function"])["FunctionArn"]
         lam = self._actor(who, ["lambda:UpdateAlias"], [arn], None)("lambda")  # the function: the service reference
         # RevisionId: Lambda refuses the update if the alias changed after this read (PreconditionFailed).
-        lam.update_alias(FunctionName=p["function"], Name=p["alias"], FunctionVersion=to,
-                         RevisionId=now.get("revision"))
-        return f"moved lambda {p['function']} alias {p['alias']} from version {want_now} to {to}"
+        if back:  # back to the version the alias served before: no canary for a return
+            lam.update_alias(FunctionName=p["function"], Name=p["alias"], FunctionVersion=to,
+                             RevisionId=now.get("revision"))
+            return f"moved lambda {p['function']} alias {p['alias']} from version {want_now} to {to}"
+        return self._canary(lam, p["function"], p["alias"], want_now, to, now.get("revision"))
+
+    def _canary(self, lam: Any, fn: str, alias: str, current: str, to: str, revision: Any) -> str:
+        """Register C17: CANARY_WEIGHT of the alias's traffic to `to` for CANARY_FOR, then all of it - or, if `to`
+        erred there, the alias back on `current` and nothing changed."""
+        got = lam.update_alias(FunctionName=fn, Name=alias, FunctionVersion=current, RevisionId=revision,
+                               RoutingConfig={"AdditionalVersionWeights": {to: CANARY_WEIGHT}}) or {}
+        start = self._now()
+        self._sleep(CANARY_FOR.total_seconds())
+        calls, errors = self._version_sums(fn, alias, to, start, self._now())
+        if errors:
+            try:
+                lam.update_alias(FunctionName=fn, Name=alias, FunctionVersion=current, RevisionId=got.get("RevisionId"),
+                                 RoutingConfig={"AdditionalVersionWeights": {}})
+            except Exception as exc:
+                raise AwsPlatformError(f"the canary of version {to} erred and the alias {alias} could not be put "
+                                       f"back on {current}: {_one_line(exc)}") from exc
+            raise AwsPlatformRefused(f"canary: version {to} erred {errors:g} time(s) in {calls:g} call(s) on "
+                                     f"{CANARY_WEIGHT:.0%} of alias {alias}'s traffic; the alias is back on {current}, "
+                                     "nothing was changed")
+        lam.update_alias(FunctionName=fn, Name=alias, FunctionVersion=to, RevisionId=got.get("RevisionId"),
+                         RoutingConfig={"AdditionalVersionWeights": {}})
+        return (f"moved lambda {fn} alias {alias} from version {current} to {to}, after a {CANARY_WEIGHT:.0%} canary "
+                f"for {CANARY_FOR.total_seconds() / 60:g} min ({calls:g} call(s), no error)")
+
+    def _version_sums(self, fn: str, alias: str, version: str, start: datetime, end: datetime) -> tuple[float, float]:
+        """(invocations, errors) of one version behind the alias, start..end."""
+        specs = [{"Id": m[0].lower(), "ReturnData": True, "MetricStat": {
+            "Metric": {"Namespace": "AWS/Lambda", "MetricName": m, "Dimensions": [
+                {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:{alias}"},
+                {"Name": "ExecutedVersion", "Value": version}]}, "Period": 60, "Stat": "Sum"}}
+                 for m in ("Invocations", "Errors")]
+        resp = self._read("cloudwatch").get_metric_data(MetricDataQueries=specs, StartTime=start, EndTime=end)
+        sums = {r["Id"]: sum(r.get("Values") or []) for r in resp.get("MetricDataResults") or []}
+        return sums.get("i", 0.0), sums.get("e", 0.0)
 
     def _lambda_healthy(self, fn: str, params: dict[str, Any]) -> bool:
         """Traffic served without errors or throttles in the last five minutes: at least one invocation (a request
@@ -466,11 +510,15 @@ class AwsPlatform:
         deployments = svc.get("deployments") or []
         busy = len(deployments) > 1 or any(d.get("rolloutState") == "IN_PROGRESS" for d in deployments)
         previous = self._previous_steady(cluster, service, current)
+        strategy = (svc.get("deploymentConfiguration") or {}).get("strategy") or "ROLLING"
         return {"cluster": {cluster}, "service": {svc["serviceName"]}, "to_task_definition": {previous} if previous else set(),
                 "environment": {t["key"]: t["value"] for t in svc.get("tags") or []}.get(ENV_TAG),
                 "rollout": "progressing" if busy else "complete",
                 "state": {"cluster": cluster, "service": svc["serviceName"], "arn": svc["serviceArn"],
-                          "task_definition": current, "where": self._where(svc["serviceArn"])}}
+                          "task_definition": current, "where": self._where(svc["serviceArn"]),
+                          # C17, in the plan the approver signs: a CANARY or LINEAR service canaries the rollback
+                          # itself; a ROLLING one replaces its tasks a batch at a time.
+                          "strategy": strategy}}
 
     def _previous_steady(self, cluster: str, service: str, current: str) -> str:
         """The task definition of the service's last successful deployment before the one now running, from ECS's

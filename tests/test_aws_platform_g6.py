@@ -167,7 +167,7 @@ class Fake:
 @pytest.fixture
 def aws():
     f = Fake()
-    return f, AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: NOW)
+    return f, AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: NOW, sleep=lambda s: None)
 
 
 def _ok(entry, params, live):
@@ -182,7 +182,11 @@ def test_the_alias_goes_back_to_the_version_that_served_traffic_not_the_numerica
     assert _ok("lambda_move_alias", params, live) == []
     assert _ok("lambda_move_alias", {**params, "to_version": "8"}, live)  # the Wave 4 mistake is refused
     out = p.apply("lambda_move_alias", params, snapshot=live["state"], who=WHO)
-    assert f.writes == [("update_alias", {"FunctionName": FN, "Name": "live", "FunctionVersion": "3", "RevisionId": "r1"})]
+    canary, full = f.writes  # register C17: 10% first, then all of it
+    assert canary == ("update_alias", {"FunctionName": FN, "Name": "live", "FunctionVersion": "9", "RevisionId": "r1",
+                                       "RoutingConfig": {"AdditionalVersionWeights": {"3": 0.1}}})
+    assert full[1]["FunctionVersion"] == "3" and full[1]["RoutingConfig"] == {"AdditionalVersionWeights": {}}
+    assert "after a 10% canary" in out
     [s] = f.sessions
     assert s["who"] == WHO and s["actions"] == ["lambda:UpdateAlias"] and s["resources"] == [FN_ARN]
     assert "from version 9 to 3" in out
@@ -365,7 +369,7 @@ def test_each_plan_reads_and_writes_through_its_own_environments_platform():
     def per_environment(env):
         f = Fake()
         made[env] = f
-        return AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: NOW)
+        return AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: NOW, sleep=lambda s: None)
 
     def unnamed(*_a):
         raise AwsPlatformRefused("no environment was named")
@@ -505,3 +509,25 @@ def test_only_a_known_good_revision_is_offered_to_restore(aws):
     assert p.live("ecs_rollback_service", ecs)["to_task_definition"] == {"arn:td/orders:9"}
     f.history[1]["finishedAt"] = NOW - timedelta(minutes=25)  # settled ten minutes before the next deploy began
     assert p.live("ecs_rollback_service", ecs)["to_task_definition"] == set()
+
+
+def test_a_canary_that_errs_puts_the_alias_back_and_changes_nothing(aws):
+    """Register C17: the version erred on its share of traffic - the alias returns to the version it served, all of
+    its traffic, and the run reports nothing changed."""
+    f, p = aws
+    live = p.live("lambda_move_alias", {"function": FN, "alias": "live"})
+    f.version_errors = {"3": 2.0}  # known-good when it last served; failing now
+    with pytest.raises(AwsPlatformRefused, match="canary: version 3 erred") as refused:
+        p.apply("lambda_move_alias", {"function": FN, "alias": "live", "to_version": "3"}, snapshot=live["state"], who=WHO)
+    assert refused.value.nothing_changed
+    canary, back = f.writes
+    assert canary[1]["RoutingConfig"] == {"AdditionalVersionWeights": {"3": 0.1}}
+    assert back[1]["FunctionVersion"] == "9" and back[1]["RoutingConfig"] == {"AdditionalVersionWeights": {}}
+
+
+def test_an_ecs_plan_shows_the_services_own_deployment_strategy(aws):
+    f, p = aws
+    ecs = {"cluster": "c1", "service": "orders"}
+    assert p.live("ecs_rollback_service", ecs)["state"]["strategy"] == "ROLLING"
+    f.service["deploymentConfiguration"] = {"strategy": "CANARY"}
+    assert p.live("ecs_rollback_service", ecs)["state"]["strategy"] == "CANARY"

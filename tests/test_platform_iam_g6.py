@@ -41,7 +41,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
         clients = f.actor(who, actions, resources, condition)
         return lambda service: _Recording(service, clients(service), writes)
 
-    p = AwsPlatform(reader=lambda service: _Recording(service, f, reads), actor=actor, clock=lambda: NOW)
+    p = AwsPlatform(reader=lambda service: _Recording(service, f, reads), actor=actor, clock=lambda: NOW, sleep=lambda s: None)
     plans = {"lambda_move_alias": {"function": FN, "alias": "live", "to_version": "3"},
              "lambda_set_reserved_concurrency": {"function": FN, "concurrency": 5},
              "lambda_enable_esm": {"mapping": "u-1"}, "events_enable_rule": {"rule": f.rule["Name"]},
