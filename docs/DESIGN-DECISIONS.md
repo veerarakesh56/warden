@@ -214,7 +214,12 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
 - **Passkeys (WebAuthn) for approvals, signed over the exact plan hash.** This is stronger than a
   login-based approval (GitHub environments, PagerDuty tasks).
 - **Identity is AWS-native; Teleport is an optional adapter.** Teleport's agent features were still a
-  preview in 2026-09.
+  preview in 2026-09. Re-checked 2026-10-04: Teleport has since added Beams, a runtime for infrastructure agents, and
+  agent behaviour controls to its commercial Identity Security platform (July 2026). WARDEN still needs none of it:
+  every control it relies on - a 900-second session per incident, the incident as SourceIdentity, the approvers and
+  plan as session tags, a session policy naming the plan's exact resources, and AWS's own record of each session held
+  to the audit (actor_use.py) - comes from STS and CloudTrail, free and in the account. A company that runs Teleport
+  can add it as an adapter; nothing in WARDEN requires it.
 - **Bedrock Claude Sonnet 5 for production** (owner, 2026-10-03), chosen by WARDEN's own replay
   results, never by public leaderboards, which flip between systems. On the 30 recorded incidents
   (src/warden/data/providers.yaml): Fable 5.1 and Fable 5 scored 20 correct, Sonnet 5 19, Sonnet 5.5 16,
