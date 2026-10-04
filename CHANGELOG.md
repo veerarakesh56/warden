@@ -199,6 +199,8 @@ bump may carry a breaking change.
   noticed** (register C13).
 - **The runtime's front doors: Lambdas behind an HTTP API (throttled, logged) and an EventBridge alarm rule
   (retried, dead-lettered, paging), from one digest-pinned runtime image built in CI** (registers S5, N10).
+- **The runtime module's worker: ECS on an EC2 capacity provider, metadata locked, read-only and non-root**
+  (requirement R20).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

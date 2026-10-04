@@ -213,3 +213,31 @@ def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_ex
     assert "check_package.py" in text
     py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'^runtime = \["awslambdaric>=4\.1"', py, re.MULTILINE)
+
+
+def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only():
+    """Requirement R20 (ECS on EC2, not Fargate) and the runtime's own safety: IMDSv2 one hop away and blocked from
+    tasks, a read-only root as the image's non-root user, the worker's task role, and the settings the code reads."""
+    from warden import runtime
+
+    tf = (MODULE / "compute.tf").read_text(encoding="utf-8")
+    assert 'requires_compatibilities = ["EC2"]' in tf and "FARGATE" not in tf.upper().replace("NOT FARGATE", "")
+    lt = _block(tf, "aws_launch_template", "instances")
+    assert 'http_tokens                 = "required"' in lt and "http_put_response_hop_limit = 1" in lt
+    assert "ECS_AWSVPC_BLOCK_IMDS=true" in lt and "encrypted   = true" in lt
+    task = _block(tf, "aws_ecs_task_definition", "worker")
+    assert "task_role_arn            = aws_iam_role.worker.arn" in task and "readonlyRootFilesystem = true" in task
+    uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
+    assert f'user                   = "{uid.group(1)}"' in task
+    assert 'command                = ["worker", "--platform", "aws"]' in task
+    assert 'WARDEN_HEARTBEAT_NAMESPACE   = "WARDEN/${var.environment}"' in task
+    template = re.search(r'WARDEN_AWS_ROLE_ARN_TEMPLATE = "([^"]+)"', task).group(1)
+    assert "{env}" in template and "{role}" in template and template.startswith("arn:aws:iam::${local.account}:role/")
+    import inspect
+
+    from warden.platforms import aws
+
+    assert '"WARDEN_AWS_ROLE_ARN_TEMPLATE"' in inspect.getsource(aws.from_environment)
+    assert "WARDEN_HEARTBEAT_NAMESPACE" in inspect.getsource(runtime.cloudwatch_publisher)
+    service = _block(tf, "aws_ecs_service", "worker")
+    assert "rollback = true" in service and "security_groups = [aws_security_group.runtime.id]" in service

@@ -138,14 +138,16 @@ The Claude Max CLI remains the development and benchmark backend.
 
 All of these are written in G6.
 
-## What exists today (2026-09-28)
+## What exists today (2026-10-04)
 
 | Part | Status |
 |---|---|
-| Diagnosis, grounding, quarantine, verifier, outbound gate | built, **with audit findings being fixed** (quarantine and gate gaps, see `AUDIT-2026-09-28.md`) |
-| Temporal workflows, signed approvals (Ed25519), tamper-evident audit (SQLite), bounds, catalogue, encrypted payloads | built as v0.10.0, **with workflow defects being fixed** (G1–G3) |
-| Per-environment names, IAM templates, Terraform workspaces | built; IAM isolation gaps being fixed (G1) |
+| Diagnosis, grounding, quarantine, verifier, outbound gate | built and reviewed; observe-mode policies P25-P28 |
+| Temporal workflows, signed and passkey approvals, deny, tamper-evident audit (SQLite or PostgreSQL), bounds, catalogue, encrypted payloads | built |
+| Per-environment names, IAM templates (deploy, platform reader, actor), Terraform workspaces | built |
 | Temporal Cloud namespace | created (W-T, 2026-09-28) |
-| Intake, Postgres audit, KMS signing, passkeys, Slack bot, PagerDuty, Bedrock, workers in AWS, change timeline | not built (G3–G6) |
-| Calibration and shadow mode | not built (G7) |
-| Helios gate | not built (G8) |
+| Intake (alarm and Alertmanager Lambdas), the PostgreSQL audit, KMS signing and S3 anchors, the approval page, the Slack bot thread, the Bedrock provider, the AWS write platform with per-plan actor sessions, the heartbeat and the daily synthetic incident | built and tested locally; first run in the cloud windows (W1-W2) |
+| The runtime module (`terraform/modules/warden-runtime`): KMS, anchors, secrets, Aurora, identities, Lambdas, HTTP API, EventBridge, ECS on EC2, alarms | built and validated; not yet applied (W1-W2) |
+| PagerDuty Events API v2, the change timeline across stages | not built (G6) |
+| Calibration and shadow mode | the decider is built; it does not yet beat the base rate (G7, R44) |
+| Helios gate | built in the infra deploy (R56); first live run in the next infra window |

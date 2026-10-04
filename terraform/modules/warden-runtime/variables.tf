@@ -123,3 +123,31 @@ variable "api_burst_limit" {
   type        = number
   default     = 20
 }
+
+variable "worker_instances" {
+  description = "Workers (one ECS task per EC2 instance), spread over the private subnets' zones."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.worker_instances >= 1
+    error_message = "run at least one worker."
+  }
+}
+
+variable "worker_instance_type" {
+  description = "The EC2 instance type of the ECS capacity provider (x86_64: the runtime image is built for it)."
+  type        = string
+  default     = "t3.small"
+}
+
+variable "worker_cpu" {
+  description = "CPU units of the worker task."
+  type        = number
+  default     = 1024
+}
+
+variable "worker_memory" {
+  description = "Memory (MiB) of the worker task."
+  type        = number
+  default     = 1536
+}
