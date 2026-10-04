@@ -6,6 +6,8 @@
   without the bearer secret or over its caps; an alert Alertmanager itself no longer lists as active is dropped.
 - `approval`: the passkey approval page, behind API Gateway on the approval domain. Its links and challenges live in
   the shared audit (AuditLinkStore), because one invocation's memory is gone by the next.
+- `actor_use`: an EventBridge rule on CloudTrail's AssumeRole of an actor role. A session the audit does not show
+  approved is recorded and pages a person (actor_use.check).
 
 Every handler reads its configuration from the environment the runtime module sets (settings.load fills it from
 SSM and Secrets Manager), writes to the shared audit (runtime.open_audit) and reaches Temporal Cloud with its own
@@ -154,3 +156,45 @@ def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     method, path, _, body = _http(event)
     r = approval_page().handle(method, path, body.decode("utf-8", errors="replace"))
     return {"statusCode": r.status, "headers": r.headers, "body": r.body}
+
+
+UNAPPROVED_METRIC = "UnapprovedActorUse"
+
+
+def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    """An EventBridge rule on CloudTrail's AssumeRole events of the watched environments' actor roles. A session the
+    audit does not show approved (actor_use.check), or one that cannot be checked because the audit cannot be read,
+    is written to the audit when it can be and counted in `UnapprovedActorUse`, whose alarm pages a person."""
+    from . import actor_use as au
+    from . import runtime
+
+    _configure("lambda-actor-use")
+    detail = event.get("detail") or {}
+    if not au.is_actor_session(detail):
+        return {"ignored": "not a successful AssumeRole of an actor role"}
+    log = None
+    try:
+        log = runtime.open_audit()
+        problems = au.check(detail, log)
+    except Exception as e:  # noqa: BLE001 - a session that cannot be checked is treated as unapproved
+        problems = [f"the audit could not be read to check this session ({type(e).__name__})"]
+    if not problems:
+        return {"approved": True}
+    params = detail.get("requestParameters") or {}
+    body = {"role": params.get("roleArn"), "source_identity": params.get("sourceIdentity"),
+            "caller": (detail.get("userIdentity") or {}).get("arn"), "event_id": detail.get("eventID"),
+            "event_time": detail.get("eventTime"), "problems": problems}
+    if log is not None:
+        try:
+            log.append(str(params.get("sourceIdentity") or "actor-use"), "actor.unapproved", body)
+        except Exception as e:  # noqa: BLE001 - the page below still goes out, and the log line says why
+            body["audit_error"] = type(e).__name__
+    import boto3
+
+    from .environments import region
+
+    boto3.client("cloudwatch", region_name=region()).put_metric_data(
+        Namespace=f"WARDEN/{os.environ.get('WARDEN_ENV', '')}",
+        MetricData=[{"MetricName": UNAPPROVED_METRIC, "Value": 1, "Unit": "Count"}])
+    print(json.dumps({"unapproved_actor_use": body}, default=str))
+    return {"approved": False, "problems": problems}

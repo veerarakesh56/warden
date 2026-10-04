@@ -37,6 +37,7 @@ Signs that WARDEN is the incident:
 | WARDEN may be acting on injected text | policy `P16-SUSPECTED-INJECTION` on a verdict; quoted text steering toward an action in a report |
 | The model behaves strangely | many escalations at once (the escalation SLO, N6), the same wrong action repeated, a model change in the `llm.call` rows |
 | The record may be tampered with | `warden audit verify` reports a broken chain, a bad signature or a checkpoint that differs from its anchor |
+| An actor role was used without an approval | the `warden-<env>-unapproved-actor` alarm pages; `actor.unapproved` rows in the audit name the role, the caller and the CloudTrail event id |
 | WARDEN is down | no Slack thread for a firing alarm; the `warden-<env>-heartbeat-missing` alarm pages (no worker completed a round trip through Temporal); Temporal shows no worker polling |
 
 Check the record first: it is what every other answer rests on.
@@ -63,6 +64,12 @@ matched to the record or exposed as forged.
   model WARDEN escalates every incident on its rules alone (register M19). Re-qualify before using a model again.
 - **Tampering.** Stop the worker. Keep the database file as it is (copy it, do not repair it), and compare it with
   the S3 anchors, which cannot be rewritten; rotate the audit key, and anything the attacker could have reached.
+- **An actor role used without an approval.** Treat it as a credential compromise. Turn the kill switch on, then
+  find the session in the witness trail by the event id on the `actor.unapproved` row (CloudTrail, the
+  `warden-<env>-witness` trail): who assumed the role, and what it did in its 15 minutes. Revoke the role's active
+  sessions (IAM, the role, **Revoke active sessions**), and keep the trail's files as they are - Object Lock keeps
+  them for the retention period. If the alarm says the audit could not be read, check the audit database first: the
+  session may have been approved, and the check could not see it.
 - **WARDEN down.** Incidents go to people directly: the alarms page as they did before WARDEN. Start the worker
   again (`warden worker`), and check the clock (`warden worker` refuses to run with a skewed clock, O6).
 

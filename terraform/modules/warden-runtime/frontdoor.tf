@@ -2,7 +2,9 @@
 # - CloudWatch alarm state changes of the watched environments' alarms -> EventBridge -> the `alarm` Lambda (retried,
 #   then kept in a dead-letter queue that pages);
 # - Alertmanager -> POST /alertmanager -> the `alertmanager` Lambda (bearer secret, size caps; register S5);
-# - an approver's browser -> /a/... -> the `approval` Lambda (passkeys; registers H6, R28, R58).
+# - an approver's browser -> /a/... -> the `approval` Lambda (passkeys; registers H6, R28, R58);
+# - every session of a watched environment's actor role -> CloudTrail -> EventBridge -> the `actor-use` Lambda
+#   (witness.tf).
 # The HTTP API throttles every route (register N10) and writes JSON access logs.
 locals {
   lambda_env = {
@@ -15,6 +17,7 @@ locals {
     alarm        = { handler = "warden.lambdas.alarm", timeout = 60 }
     alertmanager = { handler = "warden.lambdas.alertmanager", timeout = 60 }
     approval     = { handler = "warden.lambdas.approval", timeout = 30 }
+    actor-use    = { handler = "warden.lambdas.actor_use", timeout = 60 }
   }
 }
 
@@ -73,12 +76,12 @@ resource "aws_sqs_queue_policy" "alarm_dlq" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Sid       = "OnlyThisRulesUndeliveredEvents"
+      Sid       = "OnlyTheseRulesUndeliveredEvents"
       Effect    = "Allow"
       Principal = { Service = "events.amazonaws.com" }
       Action    = "sqs:SendMessage"
       Resource  = aws_sqs_queue.alarm_dlq.arn
-      Condition = { ArnEquals = { "aws:SourceArn" = aws_cloudwatch_event_rule.alarms.arn } }
+      Condition = { ArnEquals = { "aws:SourceArn" = [aws_cloudwatch_event_rule.alarms.arn, aws_cloudwatch_event_rule.actor_use.arn] } }
     }]
   })
 }
@@ -106,7 +109,7 @@ resource "aws_lambda_permission" "alarms" {
 # An alarm that never reached intake pages a person: the dead-letter queue is never silently full.
 resource "aws_cloudwatch_metric_alarm" "alarm_dlq" {
   alarm_name          = "warden-${var.environment}-alarm-dlq"
-  alarm_description   = "An alarm change did not reach WARDEN's intake after every retry. Read the queue and handle the alarm by hand: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  alarm_description   = "An alarm change or an actor session did not reach WARDEN after every retry. Read the queue and handle it by hand: docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "AWS/SQS"
   metric_name         = "ApproximateNumberOfMessagesVisible"
   dimensions          = { QueueName = aws_sqs_queue.alarm_dlq.name }

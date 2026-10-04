@@ -19,7 +19,8 @@
         "tag:*",
         "secretsmanager:ListSecrets",
         "kms:CreateKey",
-        "kms:ListAliases"
+        "kms:ListAliases",
+        "cloudtrail:*"
       ],
       "Resource": "*",
       "Condition": {
@@ -228,7 +229,10 @@
         "s3:PutBucketPolicy",
         "s3:Put*PublicAccessBlock"
       ],
-      "NotResource": "arn:aws:s3:::warden-${env}-anchors-*"
+      "NotResource": [
+        "arn:aws:s3:::warden-${env}-anchors-*",
+        "arn:aws:s3:::warden-${env}-witness-*"
+      ]
     },
     {
       "Sid": "DenySelfEdit",

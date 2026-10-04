@@ -28,7 +28,8 @@
         "kms:CreateKey",
         "kms:ListAliases",
         "apigateway:*",
-        "ecr:GetAuthorizationToken"
+        "ecr:GetAuthorizationToken",
+        "cloudtrail:DescribeTrails"
       ],
       "Resource": "*",
       "Condition": {
@@ -80,7 +81,8 @@
         "secretsmanager:UntagResource",
         "secretsmanager:DeleteSecret",
         "secretsmanager:GetResourcePolicy",
-        "secretsmanager:UpdateSecret"
+        "secretsmanager:UpdateSecret",
+        "cloudtrail:*"
       ],
       "Resource": [
         "arn:aws:lambda:ap-south-2:*:function:warden-ops-*",
@@ -102,7 +104,8 @@
         "arn:aws:autoscaling:ap-south-2:*:autoScalingGroup:*:autoScalingGroupName/warden-ops-*",
         "arn:aws:s3:::warden-ops-*",
         "arn:aws:s3:::warden-ops-*/*",
-        "arn:aws:secretsmanager:ap-south-2:*:secret:warden/ops/*"
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden/ops/*",
+        "arn:aws:cloudtrail:ap-south-2:*:trail/warden-ops-*"
       ]
     },
     {

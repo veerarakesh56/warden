@@ -147,7 +147,7 @@ def test_every_front_door_runs_a_handler_that_exists_from_the_digest_pinned_imag
 
     tf = _frontdoor()
     handlers = re.findall(r'handler = "(warden\.lambdas\.\w+)"', tf)
-    assert sorted(h.rsplit(".", 1)[1] for h in handlers) == ["alarm", "alertmanager", "approval"]
+    assert sorted(h.rsplit(".", 1)[1] for h in handlers) == ["actor_use", "alarm", "alertmanager", "approval"]
     for h in handlers:
         module, name = h.rsplit(".", 1)
         assert callable(getattr(importlib.import_module(module), name))

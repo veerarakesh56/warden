@@ -62,7 +62,8 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_HEARTBEAT_NAMESPACE": frozenset({"worker"}),
     # The commands that open the audit (runtime.open_audit) and the ones that read it.
     "WARDEN_AUDIT_DSN": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
-                                   "label", "usage", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
+                                   "label", "usage", "lambda-alarm", "lambda-alertmanager", "lambda-approval",
+                                   "lambda-actor-use"}),
     # The Alertmanager webhook's bearer secrets: only the Lambda that checks them (register S5).
     "WARDEN_ALERTMANAGER_TOKEN": frozenset({"lambda-alertmanager"}),
     # Paging (decision D13): only what sends messages - the worker, and a manual run that emits its report.

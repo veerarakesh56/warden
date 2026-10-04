@@ -206,6 +206,8 @@ bump may carry a breaking change.
   is deployed by digest** (registers S9, R13).
 - **The runtime's own IAM: a deploy role only runtime.yml on main may assume, and a boundary on it and on every role
   the runtime makes** (requirements R18, R36). `terraform/runtime` now accepts only the runtime environment.
+- **An actor role used without an approval pages a person.** A CloudTrail witness trail (Object Lock, log file
+  validation) feeds every actor session to a Lambda that holds it to the audit's accepted approvals.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

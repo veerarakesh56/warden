@@ -274,6 +274,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
   Alertmanager webhook, the approval page) - `lambdas.py`, thin adapters over intake, webhooks and the approval page.
+- Who used an actor role: AWS CloudTrail (a management-event trail, the only record WARDEN itself does not write)
+  delivered by EventBridge, held to WARDEN's audit - `actor_use.py`. Paging goes through a CloudWatch alarm, as for
+  WARDEN's other health signals.
 - Which change broke it: GitHub's Deployments REST API and AWS CloudTrail's LookupEvents, merged with WARDEN's own
   applied fixes - `timeline.py`. Cursor's Rollouts and Sentry's release tracking answer the same question as paid or
   heavy services (2026-09-27 research); three reads cover WARDEN's stages.
