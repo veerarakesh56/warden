@@ -40,6 +40,7 @@ LOADABLE = frozenset({
     "WARDEN_GITHUB_TOKEN", "WARDEN_CHANGE_REPO", "WARDEN_TEMPORAL_KEY_PREVIOUS",
     "WARDEN_HEARTBEAT_NAMESPACE", "WARDEN_AWS_READER_ROLE_ARN", "WARDEN_AWS_ACTOR_ROLE_ARN", "WARDEN_AWS_ROLE_ARN_TEMPLATE",
     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_AUDIT_ANCHOR_DAYS",
+    "WARDEN_PAGERDUTY_ROUTING_KEY",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "WARDEN_ALERTMANAGER_URL", "WARDEN_APPROVAL_RP_ID",
 })
 
@@ -64,6 +65,8 @@ RESTRICTED: dict[str, frozenset[str]] = {
                                    "label", "usage", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
     # The Alertmanager webhook's bearer secrets: only the Lambda that checks them (register S5).
     "WARDEN_ALERTMANAGER_TOKEN": frozenset({"lambda-alertmanager"}),
+    # Paging (decision D13): only what sends messages - the worker, and a manual run that emits its report.
+    "WARDEN_PAGERDUTY_ROUTING_KEY": frozenset({"worker", "run"}),
     "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS": frozenset({"lambda-alertmanager"}),
 }
 
@@ -75,6 +78,7 @@ SECRETS = frozenset({
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
     "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
+    "WARDEN_PAGERDUTY_ROUTING_KEY",
 })
 
 

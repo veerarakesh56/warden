@@ -574,6 +574,15 @@ class RemediationActivities:
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, "workflow.end", body)
         self.audit.checkpoint()
+        if outcome.status == "recovered":
+            # Decision D13: the fix is verified, so the incident's page is resolved - and the resolve is on the record.
+            from .chatops import page_resolve
+
+            resolved = page_resolve(incident_id)
+            if resolved is not None:
+                self.audit.append(incident_id, "page.resolved", {"workflow_id": workflow_id, "run_id": run,
+                                                                 "delivered": resolved.delivered,
+                                                                 "detail": resolved.detail})
         if recorded["applied"] and self.changes is not None and plans:
             # Register O9: a change to a live system is recorded where the team looks for changes - once per run,
             # after the signed end row it cites. A record that could not be written is itself recorded.

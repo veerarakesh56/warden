@@ -174,6 +174,55 @@ class SlackBotSink:
         return Notification(sink=self.name, delivered=True, detail=f"thread {root} ({len(parts)} part(s))")
 
 
+# Decision D13: PagerDuty through its Events API v2 (read 2026-10-04: https://events.pagerduty.com/v2/enqueue; a
+# 32-character routing key; trigger, acknowledge or resolve; dedup_key up to 255 characters; summary up to 1024;
+# severity critical, error, warning or info).
+PAGERDUTY_URL = "https://events.pagerduty.com/v2/enqueue"
+_PD_SEVERITY = {"critical": "critical", "high": "error", "medium": "warning", "low": "info"}
+
+
+def _dedup(incident: str) -> str:
+    """One PagerDuty alert per incident: every message about it - the report, a reminder, an expiry - updates that one
+    alert instead of paging again, and the resolve closes it."""
+    return f"inc-{incident.removeprefix('inc-')}"[:255]
+
+
+class PagerDutySink:
+    """Pages the on-call through PagerDuty (decision D13). The summary is the gated message's first line; nothing
+    else of the message leaves - no evidence, no link."""
+
+    name = "pagerduty"
+
+    def __init__(self, routing_key: str, *, live: bool) -> None:
+        self._key, self.live = routing_key, live
+
+    def send(self, text: str, data: dict) -> Notification:
+        if not self.live:
+            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+        alert = data.get("alert") or {}
+        incident = str(alert.get("id", "")) or "unknown"
+        summary = next((line.strip() for line in text.splitlines() if line.strip()), "WARDEN incident")[:1024]
+        event = {"routing_key": self._key, "event_action": "trigger", "dedup_key": _dedup(incident),
+                 "payload": {"summary": summary, "source": f"warden/{alert.get('service') or 'unknown'}"[:255],
+                             "severity": _PD_SEVERITY.get(str(alert.get("severity", "")).lower(), "error"),
+                             "component": str(alert.get("service") or "")[:255],
+                             "group": str(alert.get("environment") or "")[:255], "class": "warden-incident",
+                             "custom_details": {"incident": incident, "gate": data.get("gate", "")}}}
+        return _post_json(PAGERDUTY_URL, event, self.name)
+
+
+def page_resolve(incident: str) -> Notification | None:
+    """Resolve the incident's PagerDuty alert (decision D13): called once a fix is verified. None when PagerDuty is not
+    configured."""
+    key = os.environ.get("WARDEN_PAGERDUTY_ROUTING_KEY", "").strip()
+    if not key:
+        return None
+    if os.environ.get("WARDEN_CHATOPS_LIVE") != "1":
+        return Notification(sink="pagerduty", delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+    return _post_json(PAGERDUTY_URL, {"routing_key": key, "event_action": "resolve", "dedup_key": _dedup(incident)},
+                      "pagerduty")
+
+
 class TeamsWebhookSink:
     name = "teams"
 
@@ -227,6 +276,8 @@ def resolve_sinks(threads=None) -> list[ChatOpsSink]:
         sinks.append(TeamsWebhookSink(url, live=live))
     if url := os.environ.get("WARDEN_WEBHOOK_URL"):
         sinks.append(GenericWebhookSink(url, live=live))
+    if key := os.environ.get("WARDEN_PAGERDUTY_ROUTING_KEY", "").strip():
+        sinks.append(PagerDutySink(key, live=live))
     if not sinks:
         sinks.append(ConsoleSink())
     return sinks

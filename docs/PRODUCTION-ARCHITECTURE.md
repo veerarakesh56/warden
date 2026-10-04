@@ -146,8 +146,8 @@ All of these are written in G6.
 | Temporal workflows, signed and passkey approvals, deny, tamper-evident audit (SQLite or PostgreSQL), bounds, catalogue, encrypted payloads | built |
 | Per-environment names, IAM templates (deploy, platform reader, actor), Terraform workspaces | built |
 | Temporal Cloud namespace | created (W-T, 2026-09-28) |
-| Intake (alarm and Alertmanager Lambdas), the PostgreSQL audit, KMS signing and S3 anchors, the approval page, the Slack bot thread, the Bedrock provider, the AWS write platform with per-plan actor sessions, the heartbeat and the daily synthetic incident | built and tested locally; first run in the cloud windows (W1-W2) |
+| Intake (alarm and Alertmanager Lambdas), the PostgreSQL audit, KMS signing and S3 anchors, the approval page, the Slack bot thread, PagerDuty (Events API v2), the Bedrock provider, the AWS write platform with per-plan actor sessions, the heartbeat and the daily synthetic incident | built and tested locally; first run in the cloud windows (W1-W2) |
 | The runtime module (`terraform/modules/warden-runtime`): KMS, anchors, secrets, Aurora, identities, Lambdas, HTTP API, EventBridge, ECS on EC2, alarms | built and validated; not yet applied (W1-W2) |
-| PagerDuty Events API v2, the change timeline across stages | not built (G6) |
+| The change timeline across stages | not built (G6) |
 | Calibration and shadow mode | the decider is built; it does not yet beat the base rate (G7, R44) |
 | Helios gate | built in the infra deploy (R56); first live run in the next infra window |

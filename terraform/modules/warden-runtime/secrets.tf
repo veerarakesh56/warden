@@ -7,7 +7,7 @@ locals {
     "db-dsn", "db-admin-dsn", "stack-db-writer-dsn", "stack-db-reader-dsn",
     "gemini-api-key", "google-api-key", "openai-api-key", "anthropic-api-key",
     "audit-key-passphrase", "temporal-key", "temporal-api-key", "github-token", "temporal-key-previous",
-    "audit-dsn", "alertmanager-token", "alertmanager-token-previous",
+    "audit-dsn", "alertmanager-token", "alertmanager-token-previous", "pagerduty-routing-key",
   ])
 }
 
