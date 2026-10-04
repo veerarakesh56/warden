@@ -32,13 +32,15 @@ class _Apps:
         self.fail = fail
         self.patches: list[tuple[str, object]] = []
         self.moved_to: int | None = None   # someone else scales before our write lands
+        self.marks: dict[str, dict] = {}    # name -> the Deployment's own annotations (R7-O3's scaled-from mark)
 
     def _dep(self, name):
         n = self.replicas[name]
         status = types.SimpleNamespace(available_replicas=n, updated_replicas=n, unavailable_replicas=0,
                                        observed_generation=7, conditions=[])
         return types.SimpleNamespace(metadata=types.SimpleNamespace(name=name, generation=7,
-                                                                       labels={"environment": "dev"}),
+                                                                       labels={"environment": "dev"},
+                                                                       annotations=dict(self.marks.get(name, {})) or None),
                                      spec=types.SimpleNamespace(replicas=n), status=status)
 
     def list_namespaced_deployment(self, ns, **kw):
@@ -55,13 +57,24 @@ class _Apps:
         if self.fail:
             raise RuntimeError("403 forbidden")
         self.patches.append((name, body))
-        if isinstance(body, list):
+        if isinstance(body, list):  # a JSON Patch, applied whole or not at all
             if self.moved_to is not None:
                 self.replicas[name] = self.moved_to
-            test, replace = body
-            if test["value"] != self.replicas[name]:
-                raise _Conflict("the test op did not hold")
-            self.replicas[name] = replace["value"]
+            replicas, marks = self.replicas[name], dict(self.marks.get(name, {}))
+            for op in body:
+                path, key = op["path"], op["path"].rsplit("/", 1)[-1].replace("~1", "/").replace("~0", "~")
+                held = replicas if path == "/spec/replicas" else marks.get(key)
+                if op["op"] == "test" and held != op["value"]:
+                    raise _Conflict("the test op did not hold")
+                if path == "/spec/replicas" and op["op"] == "replace":
+                    replicas = op["value"]
+                elif path == "/metadata/annotations" and op["op"] == "add":
+                    marks = dict(op["value"])
+                elif op["op"] == "add":
+                    marks[key] = op["value"]
+                elif op["op"] == "remove":
+                    marks.pop(key)
+            self.replicas[name], self.marks[name] = replicas, marks
 
 
 class _Hpas:
@@ -104,7 +117,9 @@ def test_a_scale_is_bounded_and_conditioned_on_the_count_just_read():
     out = _platform(apps).apply("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4})
     assert "from 2 to 4" in out and apps.replicas["orders"] == 4
     assert apps.patches[-1][1] == [{"op": "test", "path": "/spec/replicas", "value": 2},
-                                   {"op": "replace", "path": "/spec/replicas", "value": 4}]
+                                   {"op": "replace", "path": "/spec/replicas", "value": 4},
+                                   {"op": "add", "path": "/metadata/annotations", "value": {"warden.io/scaled-from": "2"}}]
+    assert apps.marks["orders"] == {"warden.io/scaled-from": "2"}  # where a step down may return to (R7-O3)
 
 
 @pytest.mark.parametrize("replicas", [2, 1, 5, 0, True, "3"])
@@ -158,9 +173,15 @@ def test_an_api_fault_is_an_error_not_a_silent_success():
 
 def test_rollback_returns_the_scale_to_the_planned_snapshot_and_a_restart_needs_none():
     apps = _Apps(replicas=4)
+    apps.marks["orders"] = {"warden.io/scaled-from": "2", "team": "shop"}
     p = _platform(apps)
     out = p.rollback("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4}, {"replicas": 2})
     assert "from 4 to 2" in out and apps.replicas["orders"] == 2
+    assert apps.marks["orders"] == {"team": "shop"}  # the mark cleared, the Deployment's own annotations kept
+    apps.replicas["orders"], apps.marks["orders"] = 4, {"warden.io/scaled-from": "3"}
+    with pytest.raises(KubernetesPlatformError, match="not scaled up from 2 by WARDEN"):  # R7-O3: only back to the mark
+        p.rollback("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 4}, {"replicas": 2})
+    assert apps.replicas["orders"] == 4
     assert "nothing to roll back" in p.rollback("k8s_restart", {"namespace": NS, "deployment": "orders"}, {})
     with pytest.raises(KubernetesPlatformError, match="no replica count"):
         p.rollback("k8s_scale", {"namespace": NS, "deployment": "orders", "replicas": 2}, {})
@@ -257,7 +278,14 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     k8s_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "platforms" / "k8s.py").read_text()
     assert '"WARDEN_REMEDIATION_MAX_REPLICAS", "10"' in k8s_src and "object.spec.replicas <= 10 " in rules
     # The ceiling only when the count changes: a restart of a Deployment above ten was refused (eighth review).
-    assert "object.spec.replicas == oldObject.spec.replicas ||" in rules
+    assert "object.spec.replicas == oldObject.spec.replicas ?" in rules
+    # R7-O3: a step up records the count it replaced; a step down returns only to it and clears it.
+    assert 'variables.meta["warden.io/scaled-from"] == string(oldObject.spec.replicas)' in rules
+    assert ('variables.oldMeta["warden.io/scaled-from"] == string(object.spec.replicas) && '
+            '!("warden.io/scaled-from" in variables.meta))') in " ".join(rules.split())  # and the step down clears it
+    from warden.platforms import k8s
+
+    assert k8s.SCALED_FROM == "warden.io/scaled-from"
     # Matched for updates of Deployments themselves - a CREATE or a misspelt resource would match nothing.
     [rule] = vap["spec"]["matchConstraints"]["resourceRules"]
     assert rule == {"apiGroups": ["apps"], "apiVersions": ["v1"], "operations": ["UPDATE"], "resources": ["deployments"]}

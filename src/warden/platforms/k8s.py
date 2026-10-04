@@ -24,6 +24,11 @@ REQUEST_TIMEOUT = (float(os.environ.get("WARDEN_K8S_CONNECT_TIMEOUT", "3.0")),
                    float(os.environ.get("WARDEN_K8S_READ_TIMEOUT", "4.0")))
 MAX_REPLICAS = int(os.environ.get("WARDEN_REMEDIATION_MAX_REPLICAS", "10"))
 RESTARTED_AT = "kubectl.kubernetes.io/restartedAt"
+# Register R7-O3: a scale up records the count it replaced on the Deployment; the admission policy lets the remediator
+# step a count down only back to that count, clearing the mark - so no series of patches takes a Deployment below where
+# WARDEN found it.
+SCALED_FROM = "warden.io/scaled-from"
+_MARK = "/metadata/annotations/" + SCALED_FROM.replace("~", "~0").replace("/", "~1")
 # The Deployment's own label naming its environment (P18, register S6): one without it is in no environment WARDEN
 # may change.
 ENV_LABEL = os.environ.get("WARDEN_K8S_ENV_LABEL", "environment")
@@ -201,8 +206,23 @@ class KubernetesPlatform:
     def _write_replicas(self, deployment: str, *, expect: int, to: int) -> str:
         # Conditioned on spec.replicas, not on the object's version: a Deployment's resourceVersion moves
         # whenever its controller writes status. The API server rejects the whole patch if `test` fails.
+        try:
+            dep = self._read(deployment)
+            marks = getattr(dep.metadata, "annotations", None) or {}
+        except Exception as exc:
+            raise KubernetesPlatformRefused(f"could not read deployment/{deployment}: {_one_line(exc)}") from exc
+        if to > expect:  # the count this replaces, the floor of any later step down (R7-O3)
+            note = [{"op": "add", "path": _MARK, "value": str(expect)} if marks else
+                    {"op": "add", "path": "/metadata/annotations", "value": {SCALED_FROM: str(expect)}}]
+        elif marks.get(SCALED_FROM) != str(to) and _replicas(dep) == expect:
+            # (A count that moved is the `test` op's to refuse, as the server words it.)
+            raise KubernetesPlatformRefused(f"deployment/{deployment} was not scaled up from {to} by WARDEN (its "
+                                          f"{SCALED_FROM} mark is {marks.get(SCALED_FROM)!r}); a step down goes only "
+                                          "back to that count; nothing was changed")
+        else:
+            note = [{"op": "test", "path": _MARK, "value": str(to)}, {"op": "remove", "path": _MARK}]
         patch = [{"op": "test", "path": "/spec/replicas", "value": expect},
-                 {"op": "replace", "path": "/spec/replicas", "value": to}]
+                 {"op": "replace", "path": "/spec/replicas", "value": to}, *note]
         try:
             self._apps.patch_namespaced_deployment(deployment, self._ns, patch,
                                                    _content_type="application/json-patch+json",

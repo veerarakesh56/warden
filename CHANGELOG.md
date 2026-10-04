@@ -216,6 +216,8 @@ bump may carry a breaking change.
   readers, the model, paging and chat, and the actors each in a process of their own.
 - **The runtime module runs each trust zone as its own ECS service and task role**, reading only that zone's secrets
   and its own Temporal key; the Lambdas read only theirs.
+- **No series of scale patches takes a Deployment below where WARDEN found it** (R7-O3): a step up records the count
+  it replaced, and the admission policy lets a step down return only to that count.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

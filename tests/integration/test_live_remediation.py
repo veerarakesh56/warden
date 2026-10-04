@@ -23,7 +23,12 @@ pytestmark = pytest.mark.skipif(
 
 kubernetes = pytest.importorskip("kubernetes", reason="pip install -e '.[k8s]'")
 
-from warden.platforms.k8s import RESTARTED_AT, KubernetesPlatform, KubernetesPlatformError
+from warden.platforms.k8s import (
+    RESTARTED_AT,
+    SCALED_FROM,
+    KubernetesPlatform,
+    KubernetesPlatformError,
+)
 
 NS = "default"
 NAME = "warden-rem-target"
@@ -205,13 +210,53 @@ def test_the_admission_policy_caps_the_replica_count(apps, target):
 
     remediator = _as_remediator()
     try:
-        for n in (3, 5, 7, 9):
-            remediator.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": n}})
+        for before, n in ((1, 3), (3, 5), (5, 7), (7, 9)):  # each step up records where it came from (R7-O3)
+            remediator.patch_namespaced_deployment(NAME, NS, _step(n, str(before)))
         with pytest.raises(ApiException):
-            remediator.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 11}})
+            remediator.patch_namespaced_deployment(NAME, NS, _step(11, "9"))
         assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == 9
     finally:
-        apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
+        _reset(apps)
+
+
+def _step(replicas, scaled_from):
+    return {"metadata": {"annotations": {SCALED_FROM: scaled_from}}, "spec": {"replicas": replicas}}
+
+
+def _reset(apps):
+    apps.patch_namespaced_deployment(NAME, NS, {"metadata": {"annotations": {SCALED_FROM: None}},
+                                                "spec": {"replicas": 1}})
+
+
+def test_no_series_of_patches_takes_the_count_below_where_warden_found_it(apps, target):
+    """Register R7-O3, on the real API server: a step down goes only back to the count the step up recorded, and
+    clears it - so up, down, down again stops at the starting count, and a bare step down is refused."""
+    from kubernetes.client.exceptions import ApiException
+
+    remediator = _as_remediator()
+    try:
+        apps.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 3}})
+        for refused in ({"spec": {"replicas": 2}},                    # down, with nothing recorded
+                        {"spec": {"replicas": 4}},                    # up, without recording where from
+                        _step(4, "1"),                                # up, recording a count it did not replace
+                        {"metadata": {"annotations": {SCALED_FROM: "1"}}}):  # a mark alone
+            with pytest.raises(ApiException) as no:
+                remediator.patch_namespaced_deployment(NAME, NS, refused)
+            assert no.value.status in (403, 422), (refused, no.value)
+        p = KubernetesPlatform(apps=remediator, namespace=NS)
+        p.apply("k8s_scale", _params(replicas=5))
+        assert apps.read_namespaced_deployment(NAME, NS).metadata.annotations[SCALED_FROM] == "3"
+        with pytest.raises(ApiException):  # down, but not to the recorded count
+            remediator.patch_namespaced_deployment(NAME, NS, {"metadata": {"annotations": {SCALED_FROM: None}},
+                                                              "spec": {"replicas": 4}})
+        p.rollback("k8s_scale", _params(replicas=5), {"replicas": 3})
+        after = apps.read_namespaced_deployment(NAME, NS)
+        assert after.spec.replicas == 3 and SCALED_FROM not in (after.metadata.annotations or {})
+        with pytest.raises(ApiException):  # and no further: nothing is recorded below the start
+            remediator.patch_namespaced_deployment(NAME, NS, {"spec": {"replicas": 1}})
+        assert apps.read_namespaced_deployment(NAME, NS).spec.replicas == 3
+    finally:
+        _reset(apps)
 
 
 def test_a_write_the_policy_refuses_is_reported_as_the_policy_s(apps, target):

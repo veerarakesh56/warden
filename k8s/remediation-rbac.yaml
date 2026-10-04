@@ -11,7 +11,9 @@
 # most two, between one and ten (up for a scale, down for its rollback), and the template's restartedAt
 # annotation; every other field of the Deployment is held - except metadata.managedFields, which the API
 # server itself rewrites when a field changes owner, so it cannot be compared (eighth review, 2026-10-01: a
-# patch of managedFields alone could hand a field to a server-side-apply manager). Proven in CI against the
+# patch of managedFields alone could hand a field to a server-side-apply manager). A step up records the count it
+# replaced in the `warden.io/scaled-from` annotation, and a step down goes only back to that count, clearing it: no
+# series of patches takes a Deployment below where WARDEN found it (register R7-O3). Proven in CI against the
 # real API server (tests/integration/test_live_remediation.py).
 #
 # Proven from the API server's own view, both sides, in CI:
@@ -99,6 +101,10 @@ spec:
       expression: "has(object.spec.template.metadata.annotations) ? object.spec.template.metadata.annotations : {}"
     - name: oldAnn
       expression: "has(oldObject.spec.template.metadata.annotations) ? oldObject.spec.template.metadata.annotations : {}"
+    - name: meta
+      expression: "has(object.metadata.annotations) ? object.metadata.annotations : {}"
+    - name: oldMeta
+      expression: "has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
   validations:
     - expression: object.spec.template.spec == oldObject.spec.template.spec
       message: the remediator may not change the pod spec (image, command, service account, volumes)
@@ -122,22 +128,32 @@ spec:
     - expression: >-
         has(object.metadata.ownerReferences) == has(oldObject.metadata.ownerReferences) && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences == oldObject.metadata.ownerReferences) &&
         has(object.metadata.finalizers) == has(oldObject.metadata.finalizers) && (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers) &&
-        has(object.metadata.labels) == has(oldObject.metadata.labels) && (!has(object.metadata.labels) || object.metadata.labels == oldObject.metadata.labels) &&
-        has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations)
-      message: the remediator may not change the Deployment's owners, finalizers, labels or annotations
+        has(object.metadata.labels) == has(oldObject.metadata.labels) && (!has(object.metadata.labels) || object.metadata.labels == oldObject.metadata.labels)
+      message: the remediator may not change the Deployment's owners, finalizers or labels
+    - expression: >-
+        (has(object.metadata.annotations) ? object.metadata.annotations : {}).all(k, k == "warden.io/scaled-from" || (k in variables.oldMeta && variables.oldMeta[k] == variables.meta[k])) &&
+        variables.oldMeta.all(k, k == "warden.io/scaled-from" || k in variables.meta)
+      message: the remediator may change only the warden.io/scaled-from annotation of the Deployment
     - expression: >-
         has(object.spec.minReadySeconds) == has(oldObject.spec.minReadySeconds) && (!has(object.spec.minReadySeconds) || object.spec.minReadySeconds == oldObject.spec.minReadySeconds) &&
         has(object.spec.revisionHistoryLimit) == has(oldObject.spec.revisionHistoryLimit) && (!has(object.spec.revisionHistoryLimit) || object.spec.revisionHistoryLimit == oldObject.spec.revisionHistoryLimit) &&
         has(object.spec.progressDeadlineSeconds) == has(oldObject.spec.progressDeadlineSeconds) && (!has(object.spec.progressDeadlineSeconds) || object.spec.progressDeadlineSeconds == oldObject.spec.progressDeadlineSeconds) &&
         has(object.spec.template.metadata.finalizers) == has(oldObject.spec.template.metadata.finalizers) && (!has(object.spec.template.metadata.finalizers) || object.spec.template.metadata.finalizers == oldObject.spec.template.metadata.finalizers)
       message: the remediator may not change how rollouts are kept or judged, or the pods' finalizers
-    # 10 = WARDEN_REMEDIATION_MAX_REPLICAS' default: keep the two in step. Per request only - a policy cannot see
-    # the approved plan, so a series of patches can still step down to one replica.
+    # 10 = WARDEN_REMEDIATION_MAX_REPLICAS' default: keep the two in step. A step up of at most two records the count
+    # it replaced; a step down of at most two goes only back to the recorded count and clears it; an unchanged count
+    # leaves the mark as it was (register R7-O3).
     - expression: >-
-        object.spec.replicas == oldObject.spec.replicas ||
-        (object.spec.replicas >= 1 && object.spec.replicas <= 10 && object.spec.replicas <= oldObject.spec.replicas + 2 &&
-         object.spec.replicas >= oldObject.spec.replicas - 2)
-      message: the remediator may change the replica count by at most two, never below one or above ten
+        object.spec.replicas == oldObject.spec.replicas ?
+          (("warden.io/scaled-from" in variables.meta) == ("warden.io/scaled-from" in variables.oldMeta) &&
+           (!("warden.io/scaled-from" in variables.meta) || variables.meta["warden.io/scaled-from"] == variables.oldMeta["warden.io/scaled-from"])) :
+        object.spec.replicas > oldObject.spec.replicas ?
+          (object.spec.replicas <= 10 && object.spec.replicas <= oldObject.spec.replicas + 2 &&
+           "warden.io/scaled-from" in variables.meta && variables.meta["warden.io/scaled-from"] == string(oldObject.spec.replicas)) :
+          (object.spec.replicas >= 1 && object.spec.replicas >= oldObject.spec.replicas - 2 &&
+           "warden.io/scaled-from" in variables.oldMeta && variables.oldMeta["warden.io/scaled-from"] == string(object.spec.replicas) &&
+           !("warden.io/scaled-from" in variables.meta))
+      message: the remediator may step the replica count up by at most two (recording where from) and down only back to that, never above ten
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
