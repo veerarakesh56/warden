@@ -43,14 +43,14 @@ approval = ["webauthn>=3.0.1"]          # passkey approvals over the exact plan 
 # The cloud runtime's image (G6): the worker and the Lambdas from one image - AWS's Lambda runtime interface client
 # (Apache-2.0, aws/aws-lambda-python-runtime-interface-client, 4.1.0 read 2026-10-04), AWS, the PostgreSQL audit and
 # passkey approvals.
-runtime = ["awslambdaric>=4.1", "boto3>=1.34", "psycopg[binary]>=3.1", "webauthn>=3.0.1"]
+runtime = ["awslambdaric>=4.1", "boto3>=1.34", "psycopg[binary]>=3.3.6", "webauthn>=3.0.1"]
 # Database backends (read health + terminate stuck connections): WARDEN_BACKEND=postgres|mysql|redis|mongo|mssql
-postgres = ["psycopg[binary]>=3.1"]
+postgres = ["psycopg[binary]>=3.3.6"]
 mysql = ["pymysql>=1.1"]
 redis = ["redis>=5.0"]
 mongo = ["pymongo>=4.6"]
 mssql = ["pymssql>=2.2"]
-databases = ["psycopg[binary]>=3.1", "pymysql>=1.1", "redis>=5.0", "pymongo>=4.6", "pymssql>=2.2"]
+databases = ["psycopg[binary]>=3.3.6", "pymysql>=1.1", "redis>=5.0", "pymongo>=4.6", "pymssql>=2.2"]
 # Ship spans over OTLP/HTTP (OTEL_EXPORTER_OTLP_ENDPOINT). Without it WARDEN falls back to the console.
 otlp = ["opentelemetry-exporter-otlp-proto-http>=1.20"]
 all-providers = ["anthropic>=1.0", "google-genai>=1.0", "openai>=1.0"]
@@ -65,9 +65,9 @@ guard = ["transformers>=4.50", "torch>=2.4", "huggingface_hub>=0.30"]
 scan = ["pip-audit==2.10.1", "bandit==1.9.4", "zizmor==1.30.1"]
 # pip too: scripts/deploy_fullstack_apps.py builds the Lambda zips with `pip install --platform`, and a uv
 # environment has none (CI · apps failed on 83f65e6 without it).
-apps-check = ["ruff>=0.6", "pytest>=8.0", "pyyaml>=6.0", "psycopg[binary]>=3.1", "redis>=5.0", "boto3>=1.34",
+apps-check = ["ruff>=0.6", "pytest>=8.0", "pyyaml>=6.0", "psycopg[binary]>=3.3.6", "redis>=5.0", "boto3>=1.34",
               "packaging>=24", "pip>=24"]
-apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.1", "boto3>=1.34", "packaging>=24", "pip>=24"]
+apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.3.6", "boto3>=1.34", "packaging>=24", "pip>=24"]
 infra-deploy = ["boto3>=1.34"]   # terraform/fullstack/aurora_express.py: stdlib + boto3 only
 
 [tool.uv.build-backend]
