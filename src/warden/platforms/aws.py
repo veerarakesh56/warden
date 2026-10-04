@@ -24,6 +24,7 @@ configuration copies environment values, which WARDEN does not read (audit A-B-M
 
 from __future__ import annotations
 
+import itertools
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,10 @@ from ..aws_stack import SERVED_LOOKBACK
 
 ENV_TAG = os.environ.get("WARDEN_AWS_ENV_TAG", "Environment")
 HEALTH_WINDOW = timedelta(minutes=5)
+# Register C8: a revision WARDEN restores must have been healthy this long when it last served - known-good, not
+# merely older. A version that served for a minute before being replaced is no fallback.
+KNOWN_GOOD = timedelta(minutes=30)
+_PERIOD = 300  # CloudWatch's period for the served-version reads, seconds
 _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lambda", "lambda_enable_esm": "lambda",
           "events_enable_rule": "events", "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs",
           "aurora_failover": "rds"}
@@ -245,20 +250,36 @@ class AwsPlatform:
 
     def _served_before(self, fn: str, alias: str, candidates: list[str], before: datetime | None) -> str:
         """The version that served the alias's traffic most in the lookback before the current version was
-        published - Lambda keeps no alias history; its ExecutedVersion metric does (Wave 4, fs-01/fs-02)."""
+        published - Lambda keeps no alias history; its ExecutedVersion metric does (Wave 4, fs-01/fs-02) - and only
+        if it was known-good there: KNOWN_GOOD of unbroken five-minute periods with invocations and no error (C8)."""
         if not candidates or before is None:
             return ""
         cands = candidates[-20:]
         specs = [{"Id": f"v{i}", "ReturnData": True, "MetricStat": {
             "Metric": {"Namespace": "AWS/Lambda", "MetricName": "Invocations", "Dimensions": [
                 {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:{alias}"},
-                {"Name": "ExecutedVersion", "Value": v}]}, "Period": 300, "Stat": "Sum"}} for i, v in enumerate(cands)]
+                {"Name": "ExecutedVersion", "Value": v}]}, "Period": _PERIOD, "Stat": "Sum"}} for i, v in enumerate(cands)]
+        specs += [{"Id": f"e{i}", "ReturnData": True, "MetricStat": {
+            "Metric": {"Namespace": "AWS/Lambda", "MetricName": "Errors", "Dimensions": [
+                {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:{alias}"},
+                {"Name": "ExecutedVersion", "Value": v}]}, "Period": _PERIOD, "Stat": "Sum"}} for i, v in enumerate(cands)]
         resp = self._read("cloudwatch").get_metric_data(MetricDataQueries=specs, StartTime=before - SERVED_LOOKBACK,
                                                         EndTime=before)
-        served = {cands[int(r["Id"][1:])]: sum(r.get("Values") or []) for r in resp.get("MetricDataResults") or []
-                  if str(r.get("Id", "")).startswith("v")}
+        results = resp.get("MetricDataResults") or []
+        series = {(r["Id"][0], cands[int(r["Id"][1:])]): dict(zip(r.get("Timestamps") or [], r.get("Values") or [],
+                                                                  strict=False))
+                  for r in results if str(r.get("Id", ""))[:1] in ("v", "e")}
+        served = {v: sum(series.get(("v", v), {}).values()) for v in cands}
         best, calls = max(served.items(), key=lambda kv: (kv[1], int(kv[0])), default=("", 0.0))
-        return best if calls > 0 else ""
+        if calls <= 0:
+            return ""
+        calls_at, errors_at = series.get(("v", best), {}), series.get(("e", best), {})
+        good = sorted(_when(t) for t, n in calls_at.items() if n > 0 and not errors_at.get(t) and _when(t))
+        run = longest = 1 if good else 0
+        for a, b in itertools.pairwise(good):
+            run = run + 1 if (b - a).total_seconds() == _PERIOD else 1
+            longest = max(longest, run)
+        return best if longest * _PERIOD >= KNOWN_GOOD.total_seconds() else ""
 
     def _move_alias(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("function", "alias"), f"lambda {p['function']}:{p['alias']}")
@@ -459,7 +480,8 @@ class AwsPlatform:
         done = ecs.list_service_deployments(cluster=cluster, service=service, status=["SUCCESSFUL"],
                                             maxResults=20).get("serviceDeployments") or []
         done = sorted(done, key=lambda d: _when(d.get("finishedAt")) or datetime.min.replace(tzinfo=UTC), reverse=True)
-        arns = [d["targetServiceRevisionArn"] for d in done if d.get("targetServiceRevisionArn")]
+        done = [d for d in done if d.get("targetServiceRevisionArn")]
+        arns = [d["targetServiceRevisionArn"] for d in done]
         if not arns:
             return ""
         revisions = {r["serviceRevisionArn"]: r.get("taskDefinition", "")
@@ -468,7 +490,13 @@ class AwsPlatform:
         # The newest success is the running one; the steady one before it is the next with another task definition.
         if not tds or tds[0] != current:
             return ""  # the running task definition is not the last success: a person reads the history
-        return next((td for td in tds[1:] if td and td != current), "")
+        i = next((i for i, td in enumerate(tds) if i and td and td != current), None)
+        if i is None:
+            return ""
+        # Register C8: known-good - it served, steady, for KNOWN_GOOD: from its deployment finishing to the next one
+        # starting. A revision replaced minutes after it settled is no fallback.
+        served_from, until = _when(done[i].get("finishedAt")), _when(done[i - 1].get("startedAt") or done[i - 1].get("createdAt"))
+        return tds[i] if served_from and until and until - served_from >= KNOWN_GOOD else ""
 
     def _ecs(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("cluster", "service", "arn"), f"service {p['service']}")

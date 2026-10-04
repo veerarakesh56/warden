@@ -34,6 +34,8 @@ class Fake:
         self.versions = [{"Version": "$LATEST"}] + [
             {"Version": str(v), "LastModified": "2026-10-03T11:00:00.000+0000"} for v in range(1, 10)]
         self.served = {"3": 500.0, "8": 0.0}  # version 8 is the numerically previous one; 3 served the traffic
+        self.served_periods = 12  # five-minute periods version 3 served in: an hour, known-good (C8)
+        self.version_errors: dict[str, float] = {}  # errors per version, in each period it served
         self.reserved = 0
         self.free = 900
         self.esm = {"UUID": "u-1", "FunctionArn": FN_ARN, "State": "Disabled"}
@@ -47,7 +49,8 @@ class Fake:
                         "taskDefinition": "arn:td/orders:12", "deployments": [{"rolloutState": "COMPLETED"}],
                         "desiredCount": 2, "runningCount": 2, "tags": [{"key": "Environment", "value": "dev"}]}
         self.history = [  # newest first by finish time once sorted; the running one is the newest success
-            {"targetServiceRevisionArn": "rev-12", "finishedAt": NOW - timedelta(minutes=5)},
+            {"targetServiceRevisionArn": "rev-12", "startedAt": NOW - timedelta(minutes=15),
+             "finishedAt": NOW - timedelta(minutes=5)},
             {"targetServiceRevisionArn": "rev-11", "finishedAt": NOW - timedelta(days=2)},
             {"targetServiceRevisionArn": "rev-10", "finishedAt": NOW - timedelta(days=9)}]
         self.revisions = {"rev-12": "arn:td/orders:12", "rev-11": "arn:td/orders:9", "rev-10": "arn:td/orders:8"}
@@ -96,7 +99,11 @@ class Fake:
         for q in MetricDataQueries:
             dims = {d["Name"]: d["Value"] for d in q["MetricStat"]["Metric"]["Dimensions"]}
             if "ExecutedVersion" in dims:
-                out.append({"Id": q["Id"], "Values": [self.served.get(dims["ExecutedVersion"], 0.0)]})
+                v, metric = dims["ExecutedVersion"], q["MetricStat"]["Metric"]["MetricName"]
+                total = self.served.get(v, 0.0)
+                stamps = [NOW - timedelta(hours=2) + timedelta(minutes=5 * i) for i in range(self.served_periods)] if total else []
+                each = self.version_errors.get(v, 0.0) if metric == "Errors" else total / max(len(stamps), 1)
+                out.append({"Id": q["Id"], "Timestamps": stamps, "Values": [each] * len(stamps)})
             else:
                 out.append({"Id": q["Id"], "StatusCode": "PartialData" if self.partial else "Complete",
                             "Values": [self.metrics[q["MetricStat"]["Metric"]["MetricName"]]]})
@@ -483,3 +490,18 @@ def test_a_failover_is_healthy_only_once_the_named_reader_writes_and_is_availabl
     f.cluster["Status"] = "available"
     f.instances["warden-dev-orders-b"]["DBInstanceStatus"] = "rebooting"
     assert not p.healthy("warden-dev-orders", entry="aurora_failover", params=CLUSTER)
+
+
+def test_only_a_known_good_revision_is_offered_to_restore(aws):
+    """Register C8: what WARDEN restores served, healthy, for at least 30 minutes - not merely an older revision."""
+    f, p = aws
+    alias = {"function": FN, "alias": "live"}
+    assert p.live("lambda_move_alias", alias)["to_version"] == {"3"}  # an hour without an error
+    f.served_periods = 3  # served for fifteen minutes
+    assert p.live("lambda_move_alias", alias)["to_version"] == set()
+    f.served_periods, f.version_errors = 12, {"3": 1.0}  # served an hour, failing all along
+    assert p.live("lambda_move_alias", alias)["to_version"] == set()
+    ecs = {"cluster": "c1", "service": "orders"}
+    assert p.live("ecs_rollback_service", ecs)["to_task_definition"] == {"arn:td/orders:9"}
+    f.history[1]["finishedAt"] = NOW - timedelta(minutes=25)  # settled ten minutes before the next deploy began
+    assert p.live("ecs_rollback_service", ecs)["to_task_definition"] == set()

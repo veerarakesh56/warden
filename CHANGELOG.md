@@ -221,6 +221,7 @@ bump may carry a breaking change.
 - **The proving ground's Redis takes TLS in transit** (R8-O2), and every benchmark client connects with it.
 - **The 30-minute soak and the 30-minute watch can no longer be shortened** (R12); `fullstack_cli destroy-check`
   must pass before the stack is destroyed.
+- **Only a known-good revision is restored** (register C8): one that served, healthy, for at least 30 minutes.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
