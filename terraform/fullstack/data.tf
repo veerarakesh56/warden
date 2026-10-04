@@ -91,7 +91,7 @@ resource "aws_elasticache_replication_group" "redis" {
   subnet_group_name          = aws_elasticache_subnet_group.redis.name
   security_group_ids         = [aws_security_group.redis.id]
   at_rest_encryption_enabled = true
-  transit_encryption_enabled = false # VPC-only; the apps connect with plain redis-py
+  transit_encryption_enabled = true # TLS in the VPC too (register R8-O2); the apps connect with ssl=True
   snapshot_retention_limit   = 0
   apply_immediately          = true
 }

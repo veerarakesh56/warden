@@ -27,7 +27,7 @@ def _info(r):
 
 
 def handler(event, context):
-    r = redis.Redis(host=os.environ["REDIS_HOST"], port=6379, socket_timeout=10, socket_connect_timeout=5)
+    r = redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, socket_timeout=10, socket_connect_timeout=5)
     cmd = event.get("op")
     prefix = event.get("prefix", "filler:")
     if cmd in ("fill", "flush_prefix") and not prefix.startswith("filler:"):

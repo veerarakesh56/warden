@@ -61,7 +61,7 @@ def int_setting(name: str, default: int, low: int, high: int) -> int:
 
 
 def cache() -> redis.Redis:
-    return redis.Redis(host=os.environ["REDIS_HOST"], port=6379, socket_timeout=2,
+    return redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, socket_timeout=2,
                        socket_connect_timeout=2, decode_responses=True)
 
 
