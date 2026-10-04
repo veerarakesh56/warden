@@ -525,8 +525,12 @@ instance). Tests hold the files to the module (`tests/test_runtime_iam_g6.py`, `
 Costs: IAM, OIDC, Parameter Store (Standard) and GitHub Environments are free; the state bucket holds kilobytes.
 The image repository is paid per GB stored; what the runtime itself costs while up is published before W1.
 
-**Before this, at W1:** a VPC with private subnets in two zones and a way out (NAT or endpoints) for the runtime.
-It is not in the repository yet; Claude proposes it, with its cost, at W1.
+The runtime's network is Terraform's (`terraform/runtime/network.tf`: a VPC in two availability zones, private
+subnets, one NAT gateway for a lab window). Cost while up, AWS price list for Hyderabad read 2026-10-04: about
+**$0.25 an hour** (two t3.medium $0.0448/h each, the NAT gateway $0.056/h plus $0.056 per GB, Aurora Serverless v2
+$0.18 per ACU-hour at about half an ACU) - a one-to-two-day window is about $6-12 - plus about **$12 a month** for
+what stays (about 27 secret slots at $0.40, one KMS key at $1). The model, Gemini on Google AI Studio's free tier
+(owner, 2026-10-04), costs nothing.
 
 1. **Policies.** IAM → **Policies** → **Create policy** → **JSON** → **Ctrl+A**, **Delete**, paste → **Next** →
    name → tags `Project` = `warden`, `Environment` = `ops` → **Create policy**. Three times:
@@ -573,17 +577,47 @@ It is not in the repository yet; Claude proposes it, with its cost, at W1.
    The last line prints the repository URI: copy it for step 5. (The deploy role may not set repository policies
    - one can open a repository to another account - so this one is yours, once. AWS documents that Lambda needs
    exactly these two actions to pull an image from a same-account repository.)
-5. **Parameters** (Parameter Store, Standard, tags `Environment` = `ops`; String unless shown):
-   `/warden/ops/tf/vpc_id`, `/warden/ops/tf/private_subnet_ids` (comma-separated), `/warden/ops/tf/page_topic_arn`
-   (WARDEN's own pager topic), `/warden/ops/tf/watched_environments` (comma-separated, e.g. `dev`). Optional:
-   `approval_domain`, `approval_certificate_arn`, `bedrock_model_arns`, `audit_db_instances`, `worker_instances`.
+5. **WARDEN's own pager topic and the parameters.** CloudShell (Hyderabad) -> paste this whole block -> Enter. It asks
+   for three things and writes nothing secret: the e-mail address WARDEN's own alarms page, and the Temporal Cloud
+   namespace and address (`temporal cloud namespace list`, or Temporal Cloud -> Namespaces; neither is a secret).
+
+   ```bash
+   set -euo pipefail
+   REGION=ap-south-2
+   read -r -p "e-mail for WARDEN's own pages: " EMAIL
+   read -r -p "Temporal namespace (name.account): " NS
+   read -r -p "Temporal address (host:7233): " ADDR
+   TOPIC=$(aws sns create-topic --region "$REGION" --name warden-ops-page \
+     --tags Key=Project,Value=warden Key=Environment,Value=ops --query TopicArn --output text)
+   aws sns subscribe --region "$REGION" --topic-arn "$TOPIC" --protocol email --notification-endpoint "$EMAIL" >/dev/null
+   put() { aws ssm put-parameter --region "$REGION" --name "$1" --value "$2" --type String --overwrite >/dev/null; }
+   put /warden/ops/tf/page_topic_arn "$TOPIC"
+   put /warden/ops/tf/watched_environments dev
+   put /warden/ops/tf/model_provider gemini
+   put /warden/ops/tf/model gemini-3.8-flash
+   put /warden/ops/tf/audit_db_instances 1
+   put /warden/ops/tf/worker_instances 1
+   put /warden/ops/env/WARDEN_TEMPORAL_NAMESPACE "$NS"
+   put /warden/ops/env/WARDEN_TEMPORAL_ADDRESS "$ADDR"
+   echo "done: confirm the subscription e-mail AWS just sent to $EMAIL"
+   ```
+
+   Confirm the subscription in that e-mail. (`model` is the one Claude qualifies first; if another Gemini model
+   passes instead, Claude gives you the one-line change.)
 6. **GitHub.** Repository → **Settings** → **Environments** → **New environment** `ops`:
    - **Required reviewers**: yourself. **Deployment branches**: **Selected branches**, rule `main`.
    - **Environment variables**: `AWS_ROLE_ARN` (step 2), `AWS_REGION` = `ap-south-2`, `TF_STATE_BUCKET` (step 3),
      `RUNTIME_ECR_REPOSITORY` (the URI from step 4).
 7. **Tell Claude "ops is ready".** Claude runs **Runtime · ops** with `image`, then `plan`, and shows you the plan
    before anything is applied.
-8. **After the first apply: one Temporal Cloud service account per trust zone** (register S15), so Temporal's audit
+8. **After the first apply: the secret values.** Terraform made the slots; the values are yours, set in the console,
+   never in a chat or a file:
+   - `warden/ops/gemini-api-key`: Secrets Manager -> the secret -> **Retrieve secret value** -> **Set secret value**
+     -> **Plaintext** -> the Google AI Studio key -> **Save**.
+   - `warden/ops/temporal-key`, the payload encryption key - CloudShell, which makes it and stores it without showing
+     it: `aws secretsmanager put-secret-value --region ap-south-2 --secret-id warden/ops/temporal-key
+     --secret-string "$(head -c 32 /dev/urandom | base64)"`.
+9. **After the first apply: one Temporal Cloud service account per trust zone** (register S15), so Temporal's audit
    log names the zone that called. Temporal Cloud → **Settings** → **Identities** → **Create Service Account**,
    five times: `warden-ops-core`, `-read`, `-llm`, `-notify`, `-act`, each **namespace-scoped** to the WARDEN namespace
    (account role Read; namespace permission **Write**, which a worker needs to poll and complete tasks; Temporal's docs,

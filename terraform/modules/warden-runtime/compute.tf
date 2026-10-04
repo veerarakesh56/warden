@@ -176,7 +176,7 @@ resource "aws_ecs_task_definition" "zone" {
     user                   = "10001"
     readonlyRootFilesystem = true
     linuxParameters        = { tmpfs = [{ containerPath = "/tmp", size = 256 }] }
-    environment = [for k, v in {
+    environment = [for k, v in merge({
       WARDEN_ENV                   = var.environment
       WARDEN_AUDIT_KMS_KEY_ID      = aws_kms_alias.audit_signer.name
       WARDEN_AUDIT_ANCHOR_BUCKET   = aws_s3_bucket.anchors.bucket
@@ -185,7 +185,9 @@ resource "aws_ecs_task_definition" "zone" {
       WARDEN_AWS_ROLE_ARN_TEMPLATE = "arn:aws:iam::${local.account}:role/warden-{env}-{role}"
       WARDEN_AUDIT_DSN             = local.audit_dsn
       WARDEN_AUDIT_IAM_AUTH        = "1"
-    } : { name = k, value = v }]
+      # The model, for the llm zone only (the only zone that calls one); never loaded from SSM (settings.py).
+      }, each.key == "llm" && var.model_provider != "" ? { WARDEN_PROVIDER = var.model_provider, WARDEN_MODEL = var.model } : {}) :
+    { name = k, value = v }]
     logConfiguration = {
       logDriver = "awslogs"
       options = {

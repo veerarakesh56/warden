@@ -161,3 +161,19 @@ variable "permissions_boundary_arn" {
   type        = string
   default     = null
 }
+
+variable "model_provider" {
+  description = "The provider the llm zone calls (src/warden/providers.py: gemini, bedrock, ...); empty: the CLI's default. It must be qualified (register M20) or every incident is escalated on the rules alone."
+  type        = string
+  default     = ""
+}
+
+variable "model" {
+  description = "The pinned model id for model_provider (a dated id; register M15)."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.model == "" || can(regex("^[a-z0-9][a-z0-9.:_-]{1,80}$", var.model))
+    error_message = "model is a plain model id."
+  }
+}

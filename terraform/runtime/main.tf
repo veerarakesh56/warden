@@ -48,8 +48,8 @@ resource "terraform_data" "environment_is_known" {
       error_message = "the workspace must be the runtime environment, environments.yaml's runtime: (terraform workspace select -or-create <it>)."
     }
     precondition {
-      condition     = alltrue([for k in ["vpc_id", "private_subnet_ids", "page_topic_arn", "watched_environments"] : contains(keys(local.tf), k)])
-      error_message = "set /warden/<env>/tf/vpc_id, private_subnet_ids, page_topic_arn and watched_environments in SSM first."
+      condition     = alltrue([for k in ["page_topic_arn", "watched_environments"] : contains(keys(local.tf), k)])
+      error_message = "set /warden/<env>/tf/page_topic_arn and watched_environments in SSM first."
     }
   }
 }
@@ -58,8 +58,8 @@ module "runtime" {
   source                   = "../modules/warden-runtime"
   environment              = local.env
   runtime_image            = var.runtime_image
-  vpc_id                   = lookup(local.tf, "vpc_id", "")
-  private_subnet_ids       = lookup(local.csv, "private_subnet_ids", [])
+  vpc_id                   = aws_vpc.runtime.id # network.tf
+  private_subnet_ids       = aws_subnet.private[*].id
   page_topic_arn           = lookup(local.tf, "page_topic_arn", "")
   watched_environments     = lookup(local.csv, "watched_environments", [])
   approval_domain          = lookup(local.tf, "approval_domain", "")
@@ -68,7 +68,11 @@ module "runtime" {
   audit_db_instances       = tonumber(lookup(local.tf, "audit_db_instances", "2"))
   worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
   permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
-  depends_on               = [terraform_data.environment_is_known]
+  # The model the llm zone calls (decision D12; the owner's 2026-10-04 window: gemini). Unqualified, it is refused
+  # (register M20) and every incident is escalated on the rules alone.
+  model_provider = lookup(local.tf, "model_provider", "")
+  model          = lookup(local.tf, "model", "")
+  depends_on     = [terraform_data.environment_is_known]
 }
 
 output "runtime" {

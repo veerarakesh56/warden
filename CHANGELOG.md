@@ -228,6 +228,8 @@ bump may carry a breaking change.
   asks only what it did not, and stops when the day's quota refuses.
 - **The cloud audit has no password**: a migrate Lambda, the only reader of the cluster's master secret, creates the
   schema and an IAM-token writer login after each deploy; every zone and Lambda connects as that writer.
+- **The runtime builds its own network** (a VPC in two zones, private subnets, a NAT gateway, an S3 endpoint), and the
+  deploy sets the llm zone's model (Gemini for the first window).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 
