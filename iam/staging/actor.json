@@ -10,13 +10,16 @@
         "events:DisableRule",
         "events:EnableRule",
         "lambda:PutFunctionConcurrency",
-        "lambda:UpdateAlias"
+        "lambda:UpdateAlias",
+        "rds:FailoverDBCluster"
       ],
       "Resource": [
         "arn:aws:dynamodb:ap-south-2:*:table/warden-staging-*",
         "arn:aws:ecs:ap-south-2:*:service/warden-staging-*/*",
         "arn:aws:events:ap-south-2:*:rule/warden-staging-*",
-        "arn:aws:lambda:ap-south-2:*:function:warden-staging-*"
+        "arn:aws:lambda:ap-south-2:*:function:warden-staging-*",
+        "arn:aws:rds:ap-south-2:*:cluster:warden-staging-*",
+        "arn:aws:rds:ap-south-2:*:db:warden-staging-*"
       ],
       "Condition": {
         "StringLike": {

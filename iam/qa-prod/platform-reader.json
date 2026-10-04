@@ -16,14 +16,18 @@
         "lambda:GetFunctionConcurrency",
         "lambda:GetFunctionConfiguration",
         "lambda:ListTags",
-        "lambda:ListVersionsByFunction"
+        "lambda:ListVersionsByFunction",
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBInstances"
       ],
       "Resource": [
         "arn:aws:dynamodb:ap-south-2:*:table/warden-qa-prod-*",
         "arn:aws:ecs:ap-south-2:*:service/warden-qa-prod-*/*",
         "arn:aws:ecs:ap-south-2:*:service-revision/warden-qa-prod-*/*/*",
         "arn:aws:events:ap-south-2:*:rule/warden-qa-prod-*",
-        "arn:aws:lambda:ap-south-2:*:function:warden-qa-prod-*"
+        "arn:aws:lambda:ap-south-2:*:function:warden-qa-prod-*",
+        "arn:aws:rds:ap-south-2:*:cluster:warden-qa-prod-*",
+        "arn:aws:rds:ap-south-2:*:db:warden-qa-prod-*"
       ]
     },
     {

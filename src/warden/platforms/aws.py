@@ -16,7 +16,9 @@ numerically previous version", Wave 4), lambda_set_reserved_concurrency (raise a
 create one: a new reservation caps the function), lambda_enable_esm, events_enable_rule,
 dynamodb_raise_capacity (the table's provisioned WRITE capacity; read capacity is untouched), and
 ecs_rollback_service (to the task definition of the service's last successful deployment before the current
-one, from ECS's own deployment history). lambda_restore_config is not carried out here: restoring a
+one, from ECS's own deployment history), and aurora_failover (T3: promote one available reader the approver named,
+only while the writer is still the one they saw; irreversible - a person decides what comes after). lambda_restore_config
+is not carried out here: restoring a
 configuration copies environment values, which WARDEN does not read (audit A-B-M9).
 """
 
@@ -32,7 +34,8 @@ from ..aws_stack import SERVED_LOOKBACK
 ENV_TAG = os.environ.get("WARDEN_AWS_ENV_TAG", "Environment")
 HEALTH_WINDOW = timedelta(minutes=5)
 _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lambda", "lambda_enable_esm": "lambda",
-          "events_enable_rule": "events", "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs"}
+          "events_enable_rule": "events", "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs",
+          "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
 Clients = Callable[[str], Any]
@@ -96,7 +99,8 @@ class AwsPlatform:
         change that matters. Nothing read means nothing allowed."""
         read = {"lambda_move_alias": self._live_alias, "lambda_set_reserved_concurrency": self._live_concurrency,
                 "lambda_enable_esm": self._live_esm, "events_enable_rule": self._live_rule,
-                "dynamodb_raise_capacity": self._live_table, "ecs_rollback_service": self._live_ecs}.get(entry)
+                "dynamodb_raise_capacity": self._live_table, "ecs_rollback_service": self._live_ecs,
+                "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
         try:
@@ -131,7 +135,8 @@ class AwsPlatform:
     def healthy(self, service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
         check = {"lambda_move_alias": self._lambda_healthy, "lambda_set_reserved_concurrency": self._lambda_healthy,
                  "lambda_enable_esm": self._esm_healthy, "events_enable_rule": self._rule_healthy,
-                 "dynamodb_raise_capacity": self._table_healthy, "ecs_rollback_service": self._ecs_healthy}.get(entry or "")
+                 "dynamodb_raise_capacity": self._table_healthy, "ecs_rollback_service": self._ecs_healthy,
+                 "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
         try:
@@ -152,6 +157,9 @@ class AwsPlatform:
                  who: dict[str, Any] | None = None) -> str:
         if entry not in _KINDS:
             raise AwsPlatformError(f"{entry} is not something the AWS platform does")
+        if entry == "aurora_failover":
+            # Irreversible (the catalogue's T3): failing back is another failover, a new decision for a person.
+            return "nothing rolled back: a failover is not undone automatically; a person decides whether to fail back"
         if not who or not who.get("approvers"):
             raise AwsPlatformError("no approvers were handed to the AWS platform for the rollback")
         return self._change(entry, params, snapshot, who, back=True)
@@ -163,7 +171,8 @@ class AwsPlatform:
             raise AwsPlatformRefused(f"could not read the target of {entry}; nothing was changed")
         write = {"lambda_move_alias": self._move_alias, "lambda_set_reserved_concurrency": self._set_concurrency,
                  "lambda_enable_esm": self._esm, "events_enable_rule": self._rule,
-                 "dynamodb_raise_capacity": self._capacity, "ecs_rollback_service": self._ecs}[entry]
+                 "dynamodb_raise_capacity": self._capacity, "ecs_rollback_service": self._ecs,
+                 "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
         except AwsPlatformError:
@@ -478,6 +487,56 @@ class AwsPlatform:
         deps = svc.get("deployments") or []
         return len(deps) == 1 and deps[0].get("rolloutState") == "COMPLETED" \
             and svc.get("desiredCount", 0) >= 1 and svc.get("runningCount") == svc.get("desiredCount")
+
+
+    # ------------------------------------------------------------------ rds: fail an Aurora cluster over
+
+    def _live_cluster(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = params.get("cluster")
+        if not isinstance(name, str):
+            return {}
+        rds = self._read("rds")
+        [c] = rds.describe_db_clusters(DBClusterIdentifier=name)["DBClusters"]
+        members = c.get("DBClusterMembers") or []
+        writer = next((m["DBInstanceIdentifier"] for m in members if m.get("IsClusterWriter")), None)
+        readers = [m["DBInstanceIdentifier"] for m in members if not m.get("IsClusterWriter")]
+        # Each reader by name: a filtered describe is authorized against every instance in the account, which the
+        # reader role, held to this environment's names, may not read.
+        ready = {}
+        for r in readers:
+            try:
+                [i] = rds.describe_db_instances(DBInstanceIdentifier=r)["DBInstances"]
+            except Exception:  # noqa: BLE001, S112 - a reader that cannot be read cannot be named
+                continue
+            if i.get("DBInstanceStatus") == "available":  # only a reader that is up can take over
+                ready[r] = i["DBInstanceArn"]
+        return {"cluster": {c["DBClusterIdentifier"]}, "target_instance": set(ready),
+                "environment": {t["Key"]: t["Value"] for t in c.get("TagList") or []}.get(ENV_TAG),
+                "rollout": "complete" if c.get("Status") == "available" and writer else "progressing",
+                "state": {"cluster": c["DBClusterIdentifier"], "arn": c["DBClusterArn"], "writer": writer,
+                          "readers": ready, "where": self._where(c["DBClusterArn"])}}
+
+    def _failover(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("cluster", "arn", "writer"), f"cluster {p['cluster']}")
+        target = p["target_instance"]
+        arn = (now.get("readers") or {}).get(target)
+        if not arn or arn != (snapshot.get("readers") or {}).get(target):
+            raise AwsPlatformRefused(f"{target} is not an available reader of cluster {p['cluster']} now; nothing "
+                                     "was changed")
+        rds = self._actor(who, ["rds:FailoverDBCluster"], [now["arn"], arn], None)("rds")
+        rds.failover_db_cluster(DBClusterIdentifier=p["cluster"], TargetDBInstanceIdentifier=target)
+        return f"failed cluster {p['cluster']} over from {now['writer']} to {target}"
+
+    def _cluster_healthy(self, name: str, params: dict[str, Any]) -> bool:
+        """The cluster available, the named reader now its writer, and that instance available - a positive signal."""
+        rds = self._read("rds")
+        [c] = rds.describe_db_clusters(DBClusterIdentifier=name)["DBClusters"]
+        writer = next((m["DBInstanceIdentifier"] for m in c.get("DBClusterMembers") or [] if m.get("IsClusterWriter")),
+                      None)
+        if c.get("Status") != "available" or not writer or writer != params.get("target_instance"):
+            return False
+        [i] = rds.describe_db_instances(DBInstanceIdentifier=writer)["DBInstances"]
+        return i.get("DBInstanceStatus") == "available"
 
 
 def from_environment() -> AwsPlatform:

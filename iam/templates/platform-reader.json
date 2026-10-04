@@ -16,14 +16,18 @@
         "lambda:GetFunctionConcurrency",
         "lambda:GetFunctionConfiguration",
         "lambda:ListTags",
-        "lambda:ListVersionsByFunction"
+        "lambda:ListVersionsByFunction",
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBInstances"
       ],
       "Resource": [
         "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
         "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
         "arn:aws:ecs:${region}:*:service-revision/warden-${env}-*/*/*",
         "arn:aws:events:${region}:*:rule/warden-${env}-*",
-        "arn:aws:lambda:${region}:*:function:warden-${env}-*"
+        "arn:aws:lambda:${region}:*:function:warden-${env}-*",
+        "arn:aws:rds:${region}:*:cluster:warden-${env}-*",
+        "arn:aws:rds:${region}:*:db:warden-${env}-*"
       ]
     },
     {

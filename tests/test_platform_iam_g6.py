@@ -15,7 +15,7 @@ from warden.platforms.aws import AwsPlatform
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs": "ecs",
-          "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail"}
+          "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds"}
 
 
 def _action(service: str, method: str) -> str:
@@ -46,7 +46,8 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
              "lambda_set_reserved_concurrency": {"function": FN, "concurrency": 5},
              "lambda_enable_esm": {"mapping": "u-1"}, "events_enable_rule": {"rule": f.rule["Name"]},
              "dynamodb_raise_capacity": {"table": "warden-dev-carts", "capacity": 10},
-             "ecs_rollback_service": {"cluster": "c1", "service": "orders", "to_task_definition": "arn:td/orders:9"}}
+             "ecs_rollback_service": {"cluster": "c1", "service": "orders", "to_task_definition": "arn:td/orders:9"},
+             "aurora_failover": {"cluster": "warden-dev-orders", "target_instance": "warden-dev-orders-b"}}
     for entry, params in plans.items():
         snap = p.live(entry, params)["state"]
         p.apply(entry, params, snapshot=snap, who=WHO)

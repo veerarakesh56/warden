@@ -53,6 +53,16 @@ class Fake:
         self.revisions = {"rev-12": "arn:td/orders:12", "rev-11": "arn:td/orders:9", "rev-10": "arn:td/orders:8"}
         self.metrics = {"Invocations": 40.0, "Errors": 0.0, "Throttles": 0.0, "ConsumedWriteCapacityUnits": 3.0,
                         "WriteThrottleEvents": 0.0}
+        self.cluster = {"DBClusterIdentifier": "warden-dev-orders", "Status": "available",
+                        "DBClusterArn": f"arn:aws:rds:test-region-1:{ACCT}:cluster:warden-dev-orders",
+                        "TagList": [{"Key": "Environment", "Value": "dev"}],
+                        "DBClusterMembers": [{"DBInstanceIdentifier": "warden-dev-orders-a", "IsClusterWriter": True},
+                                             {"DBInstanceIdentifier": "warden-dev-orders-b", "IsClusterWriter": False},
+                                             {"DBInstanceIdentifier": "warden-dev-orders-c", "IsClusterWriter": False}]}
+        self.instances = {n: {"DBInstanceIdentifier": n, "DBInstanceStatus": st,
+                              "DBInstanceArn": f"arn:aws:rds:test-region-1:{ACCT}:db:{n}"}
+                          for n, st in (("warden-dev-orders-a", "available"), ("warden-dev-orders-b", "available"),
+                                        ("warden-dev-orders-c", "modifying"))}
         self.partial = False
         self.writes = []
         self.sessions = []
@@ -119,6 +129,14 @@ class Fake:
     def describe_service_revisions(self, serviceRevisionArns):
         return {"serviceRevisions": [{"serviceRevisionArn": a, "taskDefinition": self.revisions[a]}
                                      for a in serviceRevisionArns]}
+
+    # --- rds
+    def describe_db_clusters(self, DBClusterIdentifier):
+        return {"DBClusters": [{**self.cluster, "DBClusterMembers": [dict(m) for m in self.cluster["DBClusterMembers"]]}]}
+
+    def describe_db_instances(self, DBInstanceIdentifier=None, Filters=None):
+        names = [DBInstanceIdentifier] if DBInstanceIdentifier else list(self.instances)
+        return {"DBInstances": [{**self.instances[n]} for n in names]}
 
     # --- cloudtrail
     def lookup_events(self, **kw):
@@ -412,3 +430,56 @@ def test_every_platform_call_of_a_run_names_the_plans_environment(tmp_path):
     kinds = {k for k, _ in world["platform"].envs}
     assert kinds == {"live", "apply", "healthy", "rollback"}
     assert {e for _, e in world["platform"].envs} == {"dev"}
+
+
+CLUSTER = {"cluster": "warden-dev-orders", "target_instance": "warden-dev-orders-b"}
+
+
+def _writer(f, name):
+    for m in f.cluster["DBClusterMembers"]:
+        m["IsClusterWriter"] = m["DBInstanceIdentifier"] == name
+
+
+def test_a_failover_promotes_only_an_available_reader_while_the_writer_is_the_one_approved(aws):
+    f, p = aws
+    live = p.live("aurora_failover", CLUSTER)
+    assert live["target_instance"] == {"warden-dev-orders-b"}  # c is modifying, a is the writer
+    assert live["environment"] == "dev" and live["rollout"] == "complete" and live["state"]["writer"] == "warden-dev-orders-a"
+    assert _ok("aurora_failover", CLUSTER, live) == []
+    assert _ok("aurora_failover", {**CLUSTER, "target_instance": "warden-dev-orders-c"}, live)
+    assert _ok("aurora_failover", {**CLUSTER, "target_instance": "warden-dev-orders-a"}, live)
+    out = p.apply("aurora_failover", CLUSTER, snapshot=live["state"], who=WHO)
+    assert "from warden-dev-orders-a to warden-dev-orders-b" in out
+    assert f.writes == [("failover_db_cluster", {"DBClusterIdentifier": "warden-dev-orders",
+                                                 "TargetDBInstanceIdentifier": "warden-dev-orders-b"})]
+    (session,) = f.sessions
+    assert session["actions"] == ["rds:FailoverDBCluster"]
+    assert session["resources"] == [f.cluster["DBClusterArn"], f.instances["warden-dev-orders-b"]["DBInstanceArn"]]
+
+
+def test_a_failover_is_refused_when_the_cluster_moved_and_never_rolled_back(aws):
+    f, p = aws
+    snap = p.live("aurora_failover", CLUSTER)["state"]
+    _writer(f, "warden-dev-orders-c")  # someone else failed it over since the approval
+    with pytest.raises(AwsPlatformRefused, match="changed since the plan was approved"):
+        p.apply("aurora_failover", CLUSTER, snapshot=snap, who=WHO)
+    _writer(f, "warden-dev-orders-a")
+    f.instances["warden-dev-orders-b"]["DBInstanceStatus"] = "rebooting"
+    with pytest.raises(AwsPlatformRefused, match="not an available reader"):
+        p.apply("aurora_failover", CLUSTER, snapshot=snap, who=WHO)
+    assert f.writes == [] and f.sessions == []
+    assert "not undone automatically" in p.rollback("aurora_failover", CLUSTER, snap, who=WHO)
+    assert f.writes == []
+    assert p.live("aurora_failover", {"cluster": 7}) == {}
+
+
+def test_a_failover_is_healthy_only_once_the_named_reader_writes_and_is_available(aws):
+    f, p = aws
+    assert not p.healthy("warden-dev-orders", entry="aurora_failover", params=CLUSTER)  # a still writes
+    _writer(f, "warden-dev-orders-b")
+    assert p.healthy("warden-dev-orders", entry="aurora_failover", params=CLUSTER)
+    f.cluster["Status"] = "failing-over"
+    assert not p.healthy("warden-dev-orders", entry="aurora_failover", params=CLUSTER)
+    f.cluster["Status"] = "available"
+    f.instances["warden-dev-orders-b"]["DBInstanceStatus"] = "rebooting"
+    assert not p.healthy("warden-dev-orders", entry="aurora_failover", params=CLUSTER)

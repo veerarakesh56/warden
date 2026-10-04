@@ -210,6 +210,8 @@ bump may carry a breaking change.
   validation) feeds every actor session to a Lambda that holds it to the audit's accepted approvals.
 - **`db_terminate_blocker` (PostgreSQL): closes the one session the approver saw blocking others**, only if it is
   still blocking and still the same backend, in the statement that closes it.
+- **`aurora_failover` (T3): promotes the available reader the approver named**, only while the writer is still the
+  one they saw, through an actor session limited to that cluster and that instance; never rolled back automatically.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

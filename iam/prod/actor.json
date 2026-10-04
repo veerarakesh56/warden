@@ -10,13 +10,16 @@
         "events:DisableRule",
         "events:EnableRule",
         "lambda:PutFunctionConcurrency",
-        "lambda:UpdateAlias"
+        "lambda:UpdateAlias",
+        "rds:FailoverDBCluster"
       ],
       "Resource": [
         "arn:aws:dynamodb:ap-south-2:*:table/warden-prod-*",
         "arn:aws:ecs:ap-south-2:*:service/warden-prod-*/*",
         "arn:aws:events:ap-south-2:*:rule/warden-prod-*",
-        "arn:aws:lambda:ap-south-2:*:function:warden-prod-*"
+        "arn:aws:lambda:ap-south-2:*:function:warden-prod-*",
+        "arn:aws:rds:ap-south-2:*:cluster:warden-prod-*",
+        "arn:aws:rds:ap-south-2:*:db:warden-prod-*"
       ],
       "Condition": {
         "StringLike": {

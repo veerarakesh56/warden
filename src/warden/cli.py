@@ -337,7 +337,7 @@ def _platform(choice: str):
         from .platforms.aws import from_environment
 
         aws = from_environment()
-        platforms.update({"lambda": aws, "events": aws, "dynamodb": aws, "ecs": aws})
+        platforms.update({"lambda": aws, "events": aws, "dynamodb": aws, "ecs": aws, "rds": aws})
     return RoutedPlatform(**platforms)
 
 
