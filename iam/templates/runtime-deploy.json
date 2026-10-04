@@ -1,0 +1,266 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadsAndCreatesThatNameNoResource",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:Describe*",
+        "ecs:List*",
+        "ecs:RegisterTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:CreateCluster",
+        "ecs:CreateCapacityProvider",
+        "ecs:TagResource",
+        "rds:Describe*",
+        "rds:ListTagsForResource",
+        "lambda:List*",
+        "lambda:GetAccountSettings",
+        "logs:Describe*",
+        "logs:ListTagsForResource",
+        "cloudwatch:Describe*",
+        "cloudwatch:ListTagsForResource",
+        "events:Describe*",
+        "events:List*",
+        "sqs:ListQueues",
+        "autoscaling:Describe*",
+        "secretsmanager:ListSecrets",
+        "kms:CreateKey",
+        "kms:ListAliases",
+        "apigateway:*",
+        "ecr:GetAuthorizationToken"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "KmsOwnKeys",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateAlias",
+        "kms:DeleteAlias",
+        "kms:UpdateAlias",
+        "kms:TagResource",
+        "kms:UntagResource",
+        "kms:ScheduleKeyDeletion",
+        "kms:PutKeyPolicy",
+        "kms:GetKeyPolicy",
+        "kms:GetKeyRotationStatus",
+        "kms:ListResourceTags",
+        "kms:DescribeKey",
+        "kms:GetPublicKey"
+      ],
+      "Resource": [
+        "arn:aws:kms:${region}:*:key/*",
+        "arn:aws:kms:${region}:*:alias/warden-${env}-*"
+      ]
+    },
+    {
+      "Sid": "OwnEnvNamedResources",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:*",
+        "sqs:*",
+        "events:*",
+        "logs:*",
+        "cloudwatch:*Alarm*",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource",
+        "rds:*",
+        "ecs:*",
+        "autoscaling:*",
+        "s3:*",
+        "secretsmanager:CreateSecret",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:UntagResource",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:GetResourcePolicy",
+        "secretsmanager:UpdateSecret"
+      ],
+      "Resource": [
+        "arn:aws:lambda:${region}:*:function:warden-${env}-*",
+        "arn:aws:sqs:${region}:*:warden-${env}-*",
+        "arn:aws:events:${region}:*:rule/warden-${env}-*",
+        "arn:aws:logs:${region}:*:log-group:/aws/lambda/warden-${env}-*",
+        "arn:aws:logs:${region}:*:log-group:/aws/vendedlogs/warden-${env}-*",
+        "arn:aws:logs:${region}:*:log-group:/warden/${env}/*",
+        "arn:aws:cloudwatch:${region}:*:alarm:warden-${env}-*",
+        "arn:aws:rds:${region}:*:cluster:warden-${env}-*",
+        "arn:aws:rds:${region}:*:db:warden-${env}-*",
+        "arn:aws:rds:${region}:*:subgrp:warden-${env}-*",
+        "arn:aws:rds:${region}:*:cluster-pg:default.*",
+        "arn:aws:rds:${region}:*:pg:default.*",
+        "arn:aws:ecs:${region}:*:cluster/warden-${env}-*",
+        "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
+        "arn:aws:ecs:${region}:*:capacity-provider/warden-${env}-*",
+        "arn:aws:ecs:${region}:*:task-definition/warden-${env}-*:*",
+        "arn:aws:autoscaling:${region}:*:autoScalingGroup:*:autoScalingGroupName/warden-${env}-*",
+        "arn:aws:s3:::warden-${env}-*",
+        "arn:aws:s3:::warden-${env}-*/*",
+        "arn:aws:secretsmanager:${region}:*:secret:warden/${env}/*"
+      ]
+    },
+    {
+      "Sid": "RdsManagedMasterSecret",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:TagResource"
+      ],
+      "Resource": "arn:aws:secretsmanager:${region}:*:secret:rds!*"
+    },
+    {
+      "Sid": "PushTheRuntimeImage",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:DescribeImages",
+        "ecr:GetRepositoryPolicy"
+      ],
+      "Resource": "arn:aws:ecr:${region}:*:repository/warden-${env}-*"
+    },
+    {
+      "Sid": "IamOwnEnvRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:PutRolePermissionsBoundary",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:*InstanceProfile"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/warden-${env}-*",
+        "arn:aws:iam::*:instance-profile/warden-${env}-*"
+      ]
+    },
+    {
+      "Sid": "AttachOnlyTheManagedPoliciesUsed",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "arn:aws:iam::*:role/warden-${env}-*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+            "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role",
+            "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "PassOwnEnvRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/warden-${env}-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "ecs-tasks.amazonaws.com",
+            "ec2.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateSlrs",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "rds.amazonaws.com",
+            "autoscaling.amazonaws.com",
+            "ops.apigateway.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ReadSlrs",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
+    },
+    {
+      "Sid": "KmsViaServices",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:CreateGrant",
+        "kms:DescribeKey"
+      ],
+      "Resource": "arn:aws:kms:${region}:*:key/*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "secretsmanager.${region}.amazonaws.com",
+            "rds.${region}.amazonaws.com",
+            "ssm.${region}.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "WhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "OwnParametersAndTheEcsImage",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": [
+        "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf",
+        "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf/*",
+        "arn:aws:ssm:${region}::parameter/aws/service/ecs/*"
+      ]
+    },
+    {
+      "Sid": "OwnStateBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::warden-${env}-tfstate-*",
+        "arn:aws:s3:::warden-${env}-tfstate-*/*"
+      ]
+    }
+  ]
+}

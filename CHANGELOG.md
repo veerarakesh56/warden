@@ -204,6 +204,8 @@ bump may carry a breaking change.
 - **Which change broke it: the incident message lists the changes near the alert, as suspects** (requirement R38).
 - **The runtime pipeline: WARDEN's own image built, signed with cosign, given provenance, and verified before it
   is deployed by digest** (registers S9, R13).
+- **The runtime's own IAM: a deploy role only runtime.yml on main may assume, and a boundary on it and on every role
+  the runtime makes** (requirements R18, R36). `terraform/runtime` now accepts only the runtime environment.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

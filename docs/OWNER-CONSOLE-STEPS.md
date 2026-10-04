@@ -515,6 +515,78 @@ which exists only once the cluster does.
 
 Undo: delete the role `warden-dev-harness` and the policy `WardenHarness-dev`.
 
+### WARDEN's runtime: its deploy role, image repository and `ops` environment (window W1, before the first runtime.yml run)
+
+What this gives: `.github/workflows/runtime.yml` can build WARDEN's runtime image, sign it and deploy
+`terraform/runtime` into the `ops` environment, with short-lived OIDC credentials and nothing stored. The `ops`
+boundary bounds the deploy role **and** every role the runtime creates (worker, front door, task execution, ECS
+instance). Tests hold the files to the module (`tests/test_runtime_iam_g6.py`, `tests/test_env_iam.py`).
+
+Costs: IAM, OIDC, Parameter Store (Standard) and GitHub Environments are free; the state bucket holds kilobytes.
+The image repository is paid per GB stored; what the runtime itself costs while up is published before W1.
+
+**Before this, at W1:** a VPC with private subnets in two zones and a way out (NAT or endpoints) for the runtime.
+It is not in the repository yet; Claude proposes it, with its cost, at W1.
+
+1. **Policies.** IAM → **Policies** → **Create policy** → **JSON** → **Ctrl+A**, **Delete**, paste → **Next** →
+   name → tags `Project` = `warden`, `Environment` = `ops` → **Create policy**. Three times:
+
+   | Name | File (complete) |
+   |---|---|
+   | `WardenEnvBoundary-ops` | [`iam/ops/boundary.json`](https://github.com/veerarakesh56/warden/blob/main/iam/ops/boundary.json) |
+   | `WardenEnvDeploy-ops` | [`iam/ops/deploy.json`](https://github.com/veerarakesh56/warden/blob/main/iam/ops/deploy.json) |
+   | `WardenEnvDeployEc2-ops` | [`iam/ops/deploy-ec2.json`](https://github.com/veerarakesh56/warden/blob/main/iam/ops/deploy-ec2.json) |
+
+2. **The deploy role.** Claude runs `python scripts/render_env_iam.py --account` first. IAM → **Roles** →
+   **Create role** → **Custom trust policy**. Paste the whole of `C:\work\warden\iam\ops\trust.local.json`
+   (this computer, never committed). It trusts exactly one thing: `runtime.yml`, on `main`, in the GitHub
+   environment `ops`. **Next** → tick `WardenEnvDeploy-ops` and `WardenEnvDeployEc2-ops` → **Set permissions
+   boundary** → `WardenEnvBoundary-ops` → **Next**. Name `warden-ops-deploy`, maximum session duration
+   **2 hours** (creating the audit database can take most of one), tags `Project` = `warden`, `Environment` =
+   `ops`. **Create role**. Copy its **ARN** for step 5.
+3. **The state bucket.** As for `dev` (step 5 above), named `warden-ops-tfstate-` followed by 6 random lowercase
+   letters and digits, tags `Environment` = `ops`. Copy its name for step 5.
+4. **The image repository** (tags immutable; Lambda may pull from it, only for `warden-ops-*` functions of this
+   account). Console in **Asia Pacific (Hyderabad)** → **CloudShell** → paste this whole block, Enter. It reads
+   the account number itself:
+
+   ```bash
+   set -euo pipefail
+   ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+   [[ "$ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo "could not read the account number - stop and tell Claude"; exit 1; }
+   REGION=ap-south-2
+   aws ecr create-repository --region "$REGION" --repository-name warden-ops-runtime \
+     --image-tag-mutability IMMUTABLE --image-scanning-configuration scanOnPush=true \
+     --encryption-configuration encryptionType=AES256 --tags Key=Project,Value=warden Key=Environment,Value=ops
+   cat > warden-ecr-lambda.json <<EOF
+   {"Version": "2012-10-17", "Statement": [{
+     "Sid": "LambdaPullsTheRuntimeImage", "Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"},
+     "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+     "Condition": {"ArnLike": {"aws:sourceArn": "arn:aws:lambda:${REGION}:${ACCOUNT}:function:warden-ops-*"}}}]}
+   EOF
+   aws ecr set-repository-policy --region "$REGION" --repository-name warden-ops-runtime \
+     --policy-text file://warden-ecr-lambda.json
+   aws ecr describe-repositories --region "$REGION" --repository-names warden-ops-runtime \
+     --query 'repositories[0].repositoryUri' --output text
+   ```
+
+   The last line prints the repository URI: copy it for step 5. (The deploy role may not set repository policies
+   - one can open a repository to another account - so this one is yours, once. AWS documents that Lambda needs
+   exactly these two actions to pull an image from a same-account repository.)
+5. **Parameters** (Parameter Store, Standard, tags `Environment` = `ops`; String unless shown):
+   `/warden/ops/tf/vpc_id`, `/warden/ops/tf/private_subnet_ids` (comma-separated), `/warden/ops/tf/page_topic_arn`
+   (WARDEN's own pager topic), `/warden/ops/tf/watched_environments` (comma-separated, e.g. `dev`). Optional:
+   `approval_domain`, `approval_certificate_arn`, `bedrock_model_arns`, `audit_db_instances`, `worker_instances`.
+6. **GitHub.** Repository → **Settings** → **Environments** → **New environment** `ops`:
+   - **Required reviewers**: yourself. **Deployment branches**: **Selected branches**, rule `main`.
+   - **Environment variables**: `AWS_ROLE_ARN` (step 2), `AWS_REGION` = `ap-south-2`, `TF_STATE_BUCKET` (step 3),
+     `RUNTIME_ECR_REPOSITORY` (the URI from step 4).
+7. **Tell Claude "ops is ready".** Claude runs **Runtime · ops** with `image`, then `plan`, and shows you the plan
+   before anything is applied.
+
+Undo: delete the role `warden-ops-deploy`, the three policies, the repository `warden-ops-runtime` (after its
+images), the parameters under `/warden/ops/tf/`, the state bucket (after its objects) and the `ops` environment.
+
 ### WARDEN's own AWS roles (in the window, once the runtime's worker role `warden-ops-worker` exists)
 
 WARDEN fixes an AWS target through two roles per environment. The **platform reader** reads what a fix

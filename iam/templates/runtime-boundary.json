@@ -1,0 +1,359 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CeilingRegional",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "ecs:*",
+        "ecr:*",
+        "rds:*",
+        "logs:*",
+        "cloudwatch:*",
+        "lambda:*",
+        "sqs:*",
+        "autoscaling:*",
+        "events:*",
+        "apigateway:*",
+        "tag:*",
+        "secretsmanager:ListSecrets",
+        "kms:CreateKey",
+        "kms:ListAliases"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "CeilingOwnNames",
+      "Effect": "Allow",
+      "Action": [
+        "s3:*",
+        "secretsmanager:*",
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": [
+        "arn:aws:s3:::warden-${env}-*",
+        "arn:aws:s3:::warden-${env}-*/*",
+        "arn:aws:secretsmanager:${region}:*:secret:warden/${env}/*",
+        "arn:aws:ssm:${region}:*:parameter/warden/${env}/*",
+        "arn:aws:ssm:${region}::parameter/aws/service/ecs/*"
+      ]
+    },
+    {
+      "Sid": "CeilingOwnKeys",
+      "Effect": "Allow",
+      "Action": "kms:*",
+      "Resource": [
+        "arn:aws:kms:${region}:*:key/*",
+        "arn:aws:kms:${region}:*:alias/warden-${env}-*"
+      ]
+    },
+    {
+      "Sid": "CeilingRdsSecret",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": "arn:aws:secretsmanager:${region}:*:secret:rds!*"
+    },
+    {
+      "Sid": "CeilingIam",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:PutRolePermissionsBoundary",
+        "iam:List*",
+        "iam:*InstanceProfile",
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/warden-${env}-*",
+        "arn:aws:iam::*:instance-profile/warden-${env}-*"
+      ]
+    },
+    {
+      "Sid": "CeilingWatchedRoles",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetSourceIdentity",
+        "sts:TagSession"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/warden-*-platform-reader",
+        "arn:aws:iam::*:role/warden-*-actor"
+      ]
+    },
+    {
+      "Sid": "CeilingModel",
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/*",
+        "arn:aws:bedrock:*:*:inference-profile/*",
+        "arn:aws:bedrock:*:*:application-inference-profile/*"
+      ]
+    },
+    {
+      "Sid": "CeilingCreateSlrs",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "rds.amazonaws.com",
+            "autoscaling.amazonaws.com",
+            "ops.apigateway.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CeilingReadSlrs",
+      "Effect": "Allow",
+      "Action": "iam:GetRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*"
+    },
+    {
+      "Sid": "CeilingWhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyRoleWithoutThisBoundary",
+      "Effect": "Deny",
+      "Action": [
+        "iam:CreateRole",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "iam:PermissionsBoundary": "arn:aws:iam::*:policy/WardenEnvBoundary-${env}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyAlways",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeleteRolePermissionsBoundary",
+        "rds:DeleteDBSnapshot",
+        "rds:DeleteDBClusterSnapshot",
+        "ec2:RunScheduledInstances",
+        "ec2:RequestSpot*",
+        "ec2:Purchase*",
+        "ec2:CreateFleet",
+        "ec2:AllocateHosts",
+        "ecs:RunTask",
+        "ecs:StartTask",
+        "s3:Put*Acl",
+        "rds:Modify*SnapshotAttribute",
+        "ec2:ModifySnapshotAttribute",
+        "ec2:ModifyImageAttribute",
+        "secretsmanager:PutResourcePolicy",
+        "secretsmanager:PutSecretValue",
+        "ecr:SetRepositoryPolicy",
+        "logs:*ResourcePolicy",
+        "logs:PutSubscriptionFilter",
+        "logs:PutDestination*",
+        "events:Put*P*",
+        "ecr:PutRe*",
+        "logs:*AccountPolicy",
+        "ec2:*BlockPublicAccess*",
+        "ec2:*Ebs*Default*",
+        "ec2:*MetadataDefaults",
+        "ecs:PutAccountSetting*",
+        "ecr:*CreationTemplate",
+        "ec2:Accept*",
+        "ec2:CreateVpcPeering*",
+        "ec2:*ServicePermissions",
+        "lambda:AddLayer*",
+        "sqs:AddPermission",
+        "rds:Purchase*",
+        "ec2:*CapacityReservation*",
+        "kms:ReplicateKey",
+        "kms:*Import*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyNoTemplate",
+      "Effect": "Deny",
+      "Action": "ec2:RunInstances",
+      "Resource": "*",
+      "Condition": {
+        "Null": {
+          "ec2:LaunchTemplate": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyNoImdsv2",
+      "Effect": "Deny",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {
+        "StringNotEquals": {
+          "ec2:MetadataHttpTokens": "required"
+        }
+      }
+    },
+    {
+      "Sid": "DenyBucketPolicy",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPolicy",
+        "s3:Put*PublicAccessBlock"
+      ],
+      "NotResource": "arn:aws:s3:::warden-${env}-anchors-*"
+    },
+    {
+      "Sid": "DenySelfEdit",
+      "Effect": "Deny",
+      "Action": [
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": "arn:aws:iam::*:role/warden-${env}-deploy"
+    },
+    {
+      "Sid": "DenyOtherEnvResources",
+      "Effect": "Deny",
+      "NotAction": "sts:*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        },
+        "Null": {
+          "aws:ResourceTag/Environment": "false"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOtherEnvTags",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:RequestTag/Environment": "${env}"
+        },
+        "Null": {
+          "aws:RequestTag/Environment": "false"
+        }
+      }
+    },
+    {
+      "Sid": "DenyUntaggedNet",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:*NetworkAclEntry",
+        "ec2:*SecurityGroup*gress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:*Route"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*:*:*/acl-*",
+        "arn:aws:ec2:*:*:*/sg-*",
+        "arn:aws:ec2:*:*:*/rtb-*"
+      ],
+      "Condition": {
+        "Null": {
+          "aws:ResourceTag/Environment": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyDestroyingOthers",
+      "Effect": "Deny",
+      "Action": [
+        "rds:DeleteDBCluster",
+        "rds:DeleteDBInstance",
+        "secretsmanager:DeleteSecret",
+        "s3:DeleteBucket"
+      ],
+      "NotResource": [
+        "arn:aws:rds:*:*:cluster:warden-${env}-*",
+        "arn:aws:rds:*:*:db:warden-${env}-*",
+        "arn:aws:secretsmanager:*:*:secret:warden/${env}/*",
+        "arn:aws:s3:::warden-${env}-*"
+      ]
+    },
+    {
+      "Sid": "DenyOtherClusters",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:*Service",
+        "ecs:*Task",
+        "ecs:*TaskSet",
+        "ecs:*Daemon"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotLike": {
+          "ecs:cluster": "arn:aws:ecs:*:*:cluster/warden-${env}-*"
+        }
+      }
+    },
+    {
+      "Sid": "DenyFnUrls",
+      "Effect": "Deny",
+      "Action": [
+        "lambda:CreateFunctionUrlConfig",
+        "lambda:UpdateFunctionUrlConfig"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "lambda:FunctionUrlAuthType": "NONE"
+        }
+      }
+    },
+    {
+      "Sid": "DenyInvokeByAll",
+      "Effect": "Deny",
+      "Action": "lambda:AddPermission",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEquals": {
+          "lambda:Principal": [
+            "events.amazonaws.com",
+            "apigateway.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}

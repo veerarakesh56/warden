@@ -29,6 +29,9 @@ TEMPLATES = ROOT / "iam" / "templates"
 # runtime worker assumes the reader to read, and the actor - for one approved plan - to write.
 KINDS = ("boundary", "deploy", "deploy-ec2", "trust", "actor", "actor-trust", "platform-reader", "platform-reader-trust")
 TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
+# WARDEN's own runtime environment (`runtime:` in environments.yaml) gets no application IAM: its deploy role - the one
+# runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
+RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "trust")
 # The benchmark harness runs only here, as the operator on the laptop (owner, 2026-10-02; audit A-I-18).
 HARNESS_ENVS = ("dev",)
 
@@ -48,6 +51,20 @@ def render(env: str, account: str = "<ACCOUNT_ID>", cluster: str = "<CLUSTER_RES
 
 def environments() -> tuple[str, ...]:
     return EnvironmentPolicies.load().known_environments
+
+
+def runtime_environment() -> str:
+    return EnvironmentPolicies.load().runtime_environment
+
+
+def render_runtime(env: str, account: str = "<ACCOUNT_ID>") -> dict[str, str]:
+    """{kind: JSON text} for the runtime environment, from iam/templates/runtime-<kind>.json."""
+    out = {}
+    for kind in RUNTIME_KINDS:
+        text = string.Template((TEMPLATES / f"runtime-{kind}.json").read_text(encoding="utf-8"))
+        out[kind] = json.dumps(json.loads(text.substitute(env=env, account=account, region=names(env).region)),
+                               indent=2) + "\n"
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -77,7 +94,14 @@ def main(argv: list[str] | None = None) -> int:
                 p.error("--cluster-resource-id must look like cluster-ABC123... (the cluster's Resource ID)")
             (d / "harness.local.json").write_text(render(env, cluster=args.cluster_resource_id)["harness"],
                                                   encoding="utf-8")
-    print(f"rendered {len(environments())} environments into iam/")
+    runtime = runtime_environment()
+    d = ROOT / "iam" / runtime
+    d.mkdir(parents=True, exist_ok=True)
+    for kind, text in render_runtime(runtime).items():
+        (d / f"{kind}.json").write_text(text, encoding="utf-8")
+    if account:
+        (d / "trust.local.json").write_text(render_runtime(runtime, account)["trust"], encoding="utf-8")
+    print(f"rendered {len(environments())} environments and the runtime ({runtime}) into iam/")
     return 0
 
 

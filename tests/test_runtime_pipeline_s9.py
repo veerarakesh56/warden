@@ -49,8 +49,9 @@ def test_the_pipeline_is_by_hand_into_ops_only():
 def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     tf = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
     assert 'source                   = "../modules/warden-runtime"' in tf
-    assert 'path = "/warden/${local.env}/tf"' in tf and "env          = terraform.workspace" in tf
-    assert "contains(local.environments, local.env)" in tf
+    assert 'path = "/warden/${local.env}/tf"' in tf and re.search(r"\n  env\s+= terraform\.workspace\n", tf)
+    assert re.search(r"condition\s+= local\.env == local\.runtime\n", tf)  # WARDEN's own environment, nothing else
+    assert re.search(r"\n  runtime\s+= local\.config\.runtime\n", tf)
     assert "WardenEnvBoundary-${local.env}" in tf
     assert not re.search(r"\b\d{12}\b", tf)  # no account id
     assert not re.search(r"\b(?:ap|us|eu|ca|sa|me|af|il)-[a-z]+-\d\b", tf)  # no region

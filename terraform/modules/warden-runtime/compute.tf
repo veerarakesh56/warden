@@ -8,7 +8,8 @@ data "aws_ssm_parameter" "ecs_ami" {
 }
 
 resource "aws_ecs_cluster" "runtime" {
-  name = "warden-${var.environment}"
+  # warden-<env>-*: the environment boundary lets its deploy role touch ECS services in such clusters only.
+  name = "warden-${var.environment}-runtime"
   setting {
     name  = "containerInsights"
     value = "enabled"

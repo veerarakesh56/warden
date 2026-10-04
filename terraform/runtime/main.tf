@@ -2,8 +2,8 @@
 # environment - `ops` - from .github/workflows/runtime.yml, with the runtime image that workflow built, signed and
 # attested, by digest. Infrastructure only, like terraform/fullstack: no code is built here.
 #
-# THE ENVIRONMENT IS THE WORKSPACE (`terraform workspace select -or-create ops`), refused unless environments.yaml
-# names it. Every per-install value comes from SSM Parameter Store, /warden/<env>/tf/*, never a tfvars file and never a
+# THE ENVIRONMENT IS THE WORKSPACE (`terraform workspace select -or-create ops`), refused unless it is environments.yaml's
+# `runtime:` - WARDEN's own environment, never an application one. Every per-install value comes from SSM Parameter Store, /warden/<env>/tf/*, never a tfvars file and never a
 # literal in this repository (owner rule: no environment, region or account literals in code).
 terraform {
   required_version = ">= 1.15.0, < 1.17.0" # CI pins 1.16.4; a later minor is a deliberate change
@@ -19,9 +19,9 @@ variable "runtime_image" {
 }
 
 locals {
-  config       = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml"))
-  env          = terraform.workspace
-  environments = keys(local.config.environments)
+  config  = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml"))
+  env     = terraform.workspace
+  runtime = local.config.runtime
   # Per-install values; the optional ones may be absent.
   tf = { for i, name in data.aws_ssm_parameters_by_path.tf.names :
   trimprefix(name, "/warden/${local.env}/tf/") => nonsensitive(data.aws_ssm_parameters_by_path.tf.values[i]) }
@@ -44,8 +44,8 @@ data "aws_ssm_parameters_by_path" "tf" {
 resource "terraform_data" "environment_is_known" {
   lifecycle {
     precondition {
-      condition     = contains(local.environments, local.env)
-      error_message = "the workspace must be an environment in src/warden/data/environments.yaml (select one with terraform workspace select)."
+      condition     = local.env == local.runtime
+      error_message = "the workspace must be the runtime environment, environments.yaml's runtime: (terraform workspace select -or-create <it>)."
     }
     precondition {
       condition     = alltrue([for k in ["vpc_id", "private_subnet_ids", "page_topic_arn", "watched_environments"] : contains(keys(local.tf), k)])

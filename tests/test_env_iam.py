@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import render_env_iam as r  # after the sys.path line above
 
 ENVS = r.environments()
+RUNTIME = r.runtime_environment()  # iam/<runtime>/: same kinds, from the runtime-* templates (test_runtime_iam_g6.py)
 LIMIT = 6144
 
 
@@ -48,7 +49,7 @@ def _allows(doc):
 
 def test_every_environment_has_its_files_and_nothing_else_exists():
     dirs = {p.name for p in (ROOT / "iam").iterdir() if p.is_dir()} - {"templates", "operator"}
-    assert dirs == set(ENVS)
+    assert dirs == {*ENVS, RUNTIME}
     assert len(ENVS) == 6
 
 
@@ -59,9 +60,9 @@ def test_committed_files_are_exactly_the_render(env):
         assert committed == text, f"iam/{env}/{kind}.json drifted: run scripts/render_env_iam.py"
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", [*ENVS, RUNTIME])
 def test_each_file_fits_iams_limit(env):
-    for kind in r.KINDS:
+    for kind in r.KINDS if env != RUNTIME else r.RUNTIME_KINDS:
         size = len("".join(json.dumps(_load(env, kind), separators=(",", ":")).split()))
         assert size <= LIMIT, f"{env}/{kind}: {size} > {LIMIT}"
 
@@ -92,7 +93,7 @@ def test_parameters_and_buckets_are_only_its_own(env):
         "the region-wide ceiling must not grant parameters, buckets or secrets of every environment"
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", [*ENVS, RUNTIME])
 def test_the_deploy_policy_fits_inside_its_boundary(env):
     boundary, deploy = _load(env, "boundary"), _deploy(env)
     ceiling = _allows(boundary)
@@ -439,7 +440,7 @@ def test_no_role_changes_account_settings_opens_a_way_out_or_buys_capacity(env):
         assert not any(fnmatch.fnmatchcase(kept.lower(), p) for p in flat), kept
 
 
-@pytest.mark.parametrize("env", ENVS)
+@pytest.mark.parametrize("env", [*ENVS, RUNTIME])
 def test_every_deploy_grant_lies_inside_the_boundary_on_resources_too(env):
     """Audit A-I-VT: the fit test compared action names only - a grant on a resource the boundary never allows (another
     environment's bucket) passed, and would silently do nothing in AWS. Each (action, resource) the deploy policy
