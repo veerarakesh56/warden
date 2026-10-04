@@ -80,3 +80,39 @@ def test_a_workflow_on_the_main_queue_runs_each_activity_in_its_zone(tmp_path):
         zone = next((z for z, names in workflows.ZONES.items() if name in names), None)
         assert queue == (f"{workflows.MAIN_QUEUE}-{zone}" if zone else workflows.MAIN_QUEUE), (name, queue)
     assert {q for _, q in _scheduled(on_q)} == {"q"}  # a test's own queue keeps everything with it
+
+
+def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
+    from warden import settings
+
+    llm, notify = settings.loadable_for("worker", "llm"), settings.loadable_for("worker", "notify")
+    assert "ANTHROPIC_API_KEY" in llm and "WARDEN_SLACK_BOT_TOKEN" not in llm and "WARDEN_DB_ADMIN_DSN" not in llm
+    assert "WARDEN_SLACK_BOT_TOKEN" in notify and "ANTHROPIC_API_KEY" not in notify
+    assert "WARDEN_DB_ADMIN_DSN" in settings.loadable_for("worker", "act")
+    everything = settings.loadable_for("worker")
+    assert settings.loadable_for("worker", "all") == everything >= llm | notify
+    lam = settings.loadable_for("lambda-approval")
+    assert not (lam & settings.SECRETS) - settings.LAMBDA_SECRETS and "WARDEN_SLACK_BOT_TOKEN" not in lam
+
+    asked = []
+
+    class Secrets:
+        def get_secret_value(self, SecretId):
+            asked.append(SecretId)
+            return {"SecretString": "x"}
+
+    class Ssm:
+        def get_paginator(self, _):
+            return type("P", (), {"paginate": lambda self, **kw: [{"Parameters": []}]})()
+
+    import os
+
+    keep = {k: os.environ.pop(k) for k in list(os.environ) if k in settings.SECRETS}
+    try:
+        settings.load("dev", only=settings.loadable_for("worker", "read"), ssm=Ssm(), secrets=Secrets(), zone="read")
+    finally:
+        for k in settings.SECRETS:
+            os.environ.pop(k, None)
+        os.environ.update(keep)
+    assert "warden/dev/temporal-api-key-read" in asked and "warden/dev/temporal-api-key" not in asked
+    assert not any(a.endswith(("slack-bot-token", "anthropic-api-key", "db-admin-dsn")) for a in asked)

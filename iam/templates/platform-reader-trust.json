@@ -2,9 +2,10 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "TheWorker",
+      "Sid": "TheRuntimeZonesThatRead",
       "Effect": "Allow",
-      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-ops-worker"},
+      "Principal": {"AWS": ["arn:aws:iam::${account}:role/warden-ops-read", "arn:aws:iam::${account}:role/warden-ops-notify",
+                            "arn:aws:iam::${account}:role/warden-ops-act"]},
       "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
       "Condition": {"StringLike": {"sts:SourceIdentity": ["inc-*", "warden-worker"]}}
     }

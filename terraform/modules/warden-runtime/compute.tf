@@ -1,7 +1,8 @@
-# The worker (G6; requirement R20: ECS on an EC2 capacity provider, not Fargate): `warden worker --platform aws` from
-# the runtime image, in the private subnets of at least two zones. The instances' metadata service needs a session
-# token and is one hop away, and tasks are blocked from it entirely (ECS_AWSVPC_BLOCK_IMDS), so a task holds only its own
-# role - the worker's, which writes nothing itself. The task's root filesystem is read-only, as the non-root user.
+# The worker (G6; requirement R20: ECS on an EC2 capacity provider, not Fargate): one service per trust zone (register
+# S15), each `warden worker --zone <zone>` from the runtime image with its own task role (iam.tf), in the private
+# subnets of at least two availability zones. The instances' metadata service needs a session token and is one hop
+# away, and tasks are blocked from it entirely (ECS_AWSVPC_BLOCK_IMDS), so a task holds only its own zone's role, which
+# writes nothing itself. The task's root filesystem is read-only, as the non-root user.
 data "aws_ssm_parameter" "ecs_ami" {
   # AWS's own pointer to the current ECS-optimized Amazon Linux 2023 image.
   name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id"
@@ -157,19 +158,21 @@ resource "aws_cloudwatch_log_group" "worker" {
   tags              = { Project = "warden", Environment = var.environment }
 }
 
-resource "aws_ecs_task_definition" "worker" {
-  family                   = "warden-${var.environment}-worker"
+resource "aws_ecs_task_definition" "zone" {
+  for_each                 = local.zones
+  family                   = "warden-${var.environment}-${each.key}"
   network_mode             = "awsvpc"
   requires_compatibilities = ["EC2"]
-  cpu                      = var.worker_cpu
-  memory                   = var.worker_memory
-  task_role_arn            = aws_iam_role.worker.arn
+  cpu                      = var.zone_sizes[each.key].cpu
+  memory                   = var.zone_sizes[each.key].memory
+  task_role_arn            = aws_iam_role.zone[each.key].arn
   execution_role_arn       = aws_iam_role.execution.arn
   container_definitions = jsonencode([{
-    name                   = "worker"
-    image                  = var.runtime_image
-    essential              = true
-    command                = ["worker", "--platform", "aws"]
+    name      = "worker"
+    image     = var.runtime_image
+    essential = true
+    # The AWS platform where a zone reads or writes a watched environment; none where it cannot (iam.tf).
+    command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]
     user                   = "10001"
     readonlyRootFilesystem = true
     linuxParameters        = { tmpfs = [{ containerPath = "/tmp", size = 256 }] }
@@ -186,17 +189,18 @@ resource "aws_ecs_task_definition" "worker" {
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.worker.name
         "awslogs-region"        = local.region
-        "awslogs-stream-prefix" = "worker"
+        "awslogs-stream-prefix" = each.key
       }
     }
   }])
   tags = { Project = "warden", Environment = var.environment }
 }
 
-resource "aws_ecs_service" "worker" {
-  name            = "warden-${var.environment}-worker"
+resource "aws_ecs_service" "zone" {
+  for_each        = local.zones
+  name            = "warden-${var.environment}-${each.key}"
   cluster         = aws_ecs_cluster.runtime.id
-  task_definition = aws_ecs_task_definition.worker.arn
+  task_definition = aws_ecs_task_definition.zone[each.key].arn
   desired_count   = var.worker_instances
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.instances.name
@@ -210,7 +214,8 @@ resource "aws_ecs_service" "worker" {
     enable   = true
     rollback = true
   }
-  # One task per instance, and the instances spread over the subnets' zones: losing one loses one worker.
+  # One task of each zone per instance, the instances spread over the subnets' availability zones: losing one
+  # instance loses one task of each zone, never a zone.
   placement_constraints {
     type = "distinctInstance"
   }

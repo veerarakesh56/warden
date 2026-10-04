@@ -135,21 +135,25 @@ variable "worker_instances" {
 }
 
 variable "worker_instance_type" {
-  description = "The EC2 instance type of the ECS capacity provider (x86_64: the runtime image is built for it)."
+  description = "The EC2 instance type of the ECS capacity provider (x86_64: the runtime image is built for it). Each instance runs one task of every zone, so it must hold the sum of zone_sizes (t3.medium: 2 vCPU, 4 GiB)."
   type        = string
-  default     = "t3.small"
+  default     = "t3.medium"
 }
 
-variable "worker_cpu" {
-  description = "CPU units of the worker task."
-  type        = number
-  default     = 1024
-}
-
-variable "worker_memory" {
-  description = "Memory (MiB) of the worker task."
-  type        = number
-  default     = 1536
+variable "zone_sizes" {
+  description = "CPU units and memory (MiB) of each trust zone's task (register S15). The read zone holds the tripwire model."
+  type        = map(object({ cpu = number, memory = number }))
+  default = {
+    core   = { cpu = 256, memory = 512 }
+    read   = { cpu = 512, memory = 1536 }
+    llm    = { cpu = 256, memory = 512 }
+    notify = { cpu = 256, memory = 384 }
+    act    = { cpu = 256, memory = 384 }
+  }
+  validation {
+    condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act"])
+    error_message = "zone_sizes names every trust zone: core, read, llm, notify, act."
+  }
 }
 
 variable "permissions_boundary_arn" {

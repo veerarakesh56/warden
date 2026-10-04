@@ -79,10 +79,13 @@ def test_the_actor_role_holds_exactly_the_platforms_writes_and_every_session_ask
     assert not any(a.split(":")[1].startswith(("Get", "List", "Describe")) for a in writes)
 
 
-def test_the_roles_trust_only_the_runtime_worker_and_the_actor_needs_the_approval_tags():
-    for name in ("actor-trust", "platform-reader-trust"):
+def test_the_roles_trust_only_the_runtime_zones_and_the_actor_needs_the_approval_tags():
+    # Register S15: the actor only the act zone; the reader the zones that read (read, notify, and act, which re-reads).
+    for name, zones in (("actor-trust", {"act"}), ("platform-reader-trust", {"read", "notify", "act"})):
         doc = json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
-        assert {st["Principal"]["AWS"] for st in doc["Statement"]} == {"arn:aws:iam::${account}:role/warden-ops-worker"}
+        principals = {p for st in doc["Statement"] for p in ([st["Principal"]["AWS"]] if isinstance(
+            st["Principal"]["AWS"], str) else st["Principal"]["AWS"])}
+        assert principals == {f"arn:aws:iam::${{account}}:role/warden-ops-{z}" for z in zones}
     actor = json.loads((ROOT / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))["Statement"]
     tag = next(st for st in actor if st["Action"] == "sts:TagSession")
     assert tag["Condition"]["Null"] == {f"aws:RequestTag/{k}": "false" for k in ("approver", "incident", "plan")}

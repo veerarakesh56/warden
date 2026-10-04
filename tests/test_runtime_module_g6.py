@@ -57,6 +57,8 @@ def test_every_secret_the_code_loads_has_a_slot_and_no_slot_is_unused():
     block = text[text.index("toset(["):text.index("])", text.index("toset(["))]
     slots = set(re.findall(r'"([a-z0-9-]+)"', block))
     wanted = {settings.secret_id("dev", n).removeprefix("warden/dev/") for n in settings.SECRETS}
+    wanted |= {settings.secret_id("dev", n, z).removeprefix("warden/dev/") for n in settings.PER_ZONE
+               for z in settings.ZONE_SECRETS}  # register S15: each zone's own Temporal key
     assert slots == wanted
     assert 'name                    = "warden/${var.environment}/${each.key}"' in text
     assert "secret_string" not in _module_text()  # no secret value in Terraform, so none in its state
@@ -97,44 +99,70 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     assert "cidr_ipv4" not in net.split('resource "aws_security_group" "audit_db"')[1]  # no address range reaches it
 
 
-def test_the_worker_is_the_principal_the_actor_and_reader_trust_and_writes_nothing_itself():
-    """A-P-5 / G6: the worker role is `warden-<env>-worker` - for the ops runtime the exact principal the templates
-    trust - and holds no write to any watched resource: it reaches one only through an assumed actor session."""
+def _zones(iam: str) -> dict[str, dict]:
+    """iam.tf's `zones` local: per zone, its secrets, the watched roles it assumes and whether it calls the model."""
+    block = iam[iam.index("  zones = {"):iam.index("\n  }\n", iam.index("  zones = {"))]
+    out = {}
+    for zone, body in re.findall(r"^\s+(\w+)\s+= \{(.*)\}$", block, re.MULTILINE):
+        lists = dict(re.findall(r"(\w+) = \[([^\]]*)\]", body))
+        out[zone] = {k: re.findall(r'"([a-z0-9-]+)"', v) for k, v in lists.items()} | {"model": "model = true" in body}
+    return out
+
+
+def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
+    """A-P-5 / S15: a task role per zone, `warden-<env>-<zone>` - for the ops runtime the exact principals the templates
+    trust. Only the act zone may assume an actor; the read and notify zones (and act, which re-reads before it writes)
+    a reader; only llm may call the model. No zone holds a write to any watched resource itself."""
     import json
 
+    from warden import workflows
+
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
-    worker = _block(iam, "aws_iam_role", "worker")
-    assert re.search(r'name\s+=\s+"warden-\$\{var\.environment\}-worker"', worker)
-    for name in ("actor-trust", "platform-reader-trust"):
-        trust = json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
-        assert {st["Principal"]["AWS"] for st in trust["Statement"]} == {"arn:aws:iam::${account}:role/warden-ops-worker"}
-    assumable = iam[iam.index("assumable = flatten("):iam.index("])", iam.index("assumable = flatten("))]
-    assert re.findall(r"role/warden-\$\{e\}-([a-z-]+)", assumable) == ["platform-reader", "actor"]
+    zones = _zones(iam)
+    assert set(zones) == {"core", *workflows.ZONES}
+    assert {z for z, v in zones.items() if "actor" in v["assumes"]} == {"act"}
+    assert {z for z, v in zones.items() if "platform-reader" in v["assumes"]} == {"read", "notify", "act"}
+    assert {z for z, v in zones.items() if v["model"]} == {"llm"}
+    role = _block(iam, "aws_iam_role", "zone")
+    assert "for_each             = local.zones" in role and 'name                 = "warden-${var.environment}-${each.key}"' in role
+    reader = json.loads((ROOT / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
+    assert {p for st in reader["Statement"] for p in st["Principal"]["AWS"]} == {
+        f"arn:aws:iam::${{account}}:role/warden-ops-{z}" for z in ("read", "notify", "act")}
+    actor = json.loads((ROOT / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))
+    assert {st["Principal"]["AWS"] for st in actor["Statement"]} == {"arn:aws:iam::${account}:role/warden-ops-act"}
     actions = set(re.findall(r'"([a-z0-9-]+:[A-Za-z*]+)"', iam))
     assert not {a for a in actions if a.split(":")[0] in ("lambda", "ecs", "dynamodb", "events", "rds", "elasticache")}
-    assert '"sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"' in iam and "Resource = local.assumable" in iam
+    assert 'role/warden-${e}-${r}' in iam and "each.value.model && length(var.bedrock_model_arns) > 0" in iam
 
 
-def test_the_lambdas_assume_nothing_and_call_no_model():
+def test_the_lambdas_assume_nothing_call_no_model_and_read_only_their_secrets():
+    from warden import settings
+
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
     policy = _block(iam, "aws_iam_role_policy", "lambda")
-    assert "Statement = local.own" in policy
-    own = iam[iam.index("  own = ["):iam.index("data \"aws_iam_policy_document\" \"ecs_tasks_trust\"")]
-    assert "sts:" not in own and "bedrock:" not in own
+    assert "concat(local.own," in policy and "local.lambda_secrets" in policy
+    own = iam[iam.index("  own = ["):iam.index("  every_zone_secrets")]
+    assert "sts:" not in own and "bedrock:" not in own and "secretsmanager:" not in own
+    listed = re.findall(r'"([a-z0-9-]+)"', iam[iam.index("  lambda_secrets = ["):iam.index("]", iam.index("  lambda_secrets = ["))])
+    used = {n for c in ("lambda-alarm", "lambda-alertmanager", "lambda-approval", "lambda-actor-use")
+            for n in settings.loadable_for(c) & settings.SECRETS}
+    assert set(listed) == {settings.secret_id("dev", n).removeprefix("warden/dev/") for n in used}
 
 
-def test_every_runtime_identity_reads_only_its_own_secrets_settings_and_metrics():
-    from warden import runtime, settings
+def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
+    """S15: iam.tf's per-zone secrets are settings.ZONE_SECRETS, named by settings.secret_id - the zone's own Temporal
+    key included - so a zone's task role can read no secret another zone holds."""
+    from warden import settings
 
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
-    assert "secret:warden/${var.environment}/*" in iam  # settings.secret_id: warden/<env>/<name>
-    assert settings.secret_id("dev", "WARDEN_GITHUB_TOKEN").startswith("warden/dev/")
-    assert "parameter/warden/${var.environment}/env/*" in iam
-    assert '"cloudwatch:namespace" = "WARDEN/${var.environment}"' in iam
-    assert runtime.cloudwatch_publisher.__doc__ and "WARDEN/dev" in runtime.cloudwatch_publisher.__doc__
-    for trust in ("ecs_tasks_trust", "lambda_trust"):
-        block = iam[iam.index(f'data "aws_iam_policy_document" "{trust}"'):]
-        assert 'variable = "aws:SourceAccount"' in block[:block.index("\n}\n")]
+    every = re.findall(r'"([a-z0-9-]+)"', iam[iam.index("every_zone_secrets = ["):iam.index("]", iam.index("every_zone_secrets = ["))])
+    for zone, v in _zones(iam).items():
+        granted = set(every) | set(v["secrets"]) | {f"temporal-api-key-{zone}"}
+        wanted = {settings.secret_id("dev", n, zone).removeprefix("warden/dev/") for n in settings.ZONE_SECRETS[zone]}
+        assert granted == wanted, zone
+    for policy in ("zone", "lambda"):  # each name exactly, not a prefix of another
+        block = _block(iam, "aws_iam_role_policy", policy)
+        assert '"${local.secret_arn}/${s}-??????"' in block and "secret_arn}/${s}*" not in block, policy
 
 
 
@@ -225,11 +253,12 @@ def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only()
     lt = _block(tf, "aws_launch_template", "instances")
     assert 'http_tokens                 = "required"' in lt and "http_put_response_hop_limit = 1" in lt
     assert "ECS_AWSVPC_BLOCK_IMDS=true" in lt and "encrypted   = true" in lt
-    task = _block(tf, "aws_ecs_task_definition", "worker")
-    assert "task_role_arn            = aws_iam_role.worker.arn" in task and "readonlyRootFilesystem = true" in task
+    task = _block(tf, "aws_ecs_task_definition", "zone")
+    assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task and "readonlyRootFilesystem = true" in task
+    assert "for_each                 = local.zones" in task
     uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
     assert f'user                   = "{uid.group(1)}"' in task
-    assert 'command                = ["worker", "--platform", "aws"]' in task
+    assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]' in task
     assert 'WARDEN_HEARTBEAT_NAMESPACE   = "WARDEN/${var.environment}"' in task
     template = re.search(r'WARDEN_AWS_ROLE_ARN_TEMPLATE = "([^"]+)"', task).group(1)
     assert "{env}" in template and "{role}" in template and template.startswith("arn:aws:iam::${local.account}:role/")
@@ -239,5 +268,5 @@ def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only()
 
     assert '"WARDEN_AWS_ROLE_ARN_TEMPLATE"' in inspect.getsource(aws.from_environment)
     assert "WARDEN_HEARTBEAT_NAMESPACE" in inspect.getsource(runtime.cloudwatch_publisher)
-    service = _block(tf, "aws_ecs_service", "worker")
+    service = _block(tf, "aws_ecs_service", "zone")
     assert "rollback = true" in service and "security_groups = [aws_security_group.runtime.id]" in service

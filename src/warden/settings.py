@@ -83,14 +83,38 @@ SECRETS = frozenset({
 })
 
 
-def secret_id(env: str, name: str) -> str:
-    """`warden/<env>/<name>`: WARDEN_SLACK_WEBHOOK -> warden/<env>/slack-webhook, GEMINI_API_KEY -> .../gemini-api-key."""
-    return f"warden/{names(env).env}/" + name.lower().removeprefix("warden_").replace("_", "-")
+# Register S15: what each trust zone's worker reads - and so the only secrets its task role may read. Every zone holds
+# the payload codec keys (both, for a rotation), its own Temporal service account's key, the audit and its key's
+# passphrase (a local signer; the cloud signs with KMS).
+_EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
+                         "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE"})
+ZONE_SECRETS: dict[str, frozenset[str]] = {
+    "core": _EVERY_ZONE,
+    "read": _EVERY_ZONE | {"WARDEN_DB_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN"},
+    "llm": _EVERY_ZONE | {"GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"},
+    "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK",
+                             "WARDEN_WEBHOOK_URL", "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_GITHUB_TOKEN"},
+    "act": _EVERY_ZONE | {"WARDEN_DB_ADMIN_DSN"},
+}
+# The runtime's Lambdas (lambdas.py): the codec, their Temporal key, the audit and the Alertmanager webhook's secrets -
+# what their role may read (terraform/modules/warden-runtime/iam.tf); RESTRICTED narrows it per Lambda.
+LAMBDA_SECRETS = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
+                            "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS"})
+# One per zone: each zone's own Temporal Cloud service account, so Temporal's audit log names the zone that called.
+PER_ZONE = frozenset({"WARDEN_TEMPORAL_API_KEY"})
+
+
+def secret_id(env: str, name: str, zone: str | None = None) -> str:
+    """`warden/<env>/<name>`: WARDEN_SLACK_WEBHOOK -> warden/<env>/slack-webhook, GEMINI_API_KEY -> .../gemini-api-key;
+    a PER_ZONE name read by one zone's worker gets the zone: warden/<env>/temporal-api-key-read."""
+    slug = name.lower().removeprefix("warden_").replace("_", "-")
+    return f"warden/{names(env).env}/{slug}" + (f"-{zone}" if name in PER_ZONE and zone in ZONE_SECRETS else "")
 
 
 def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any = None,
-         secrets: Any = None) -> list[str]:
-    """Plain values from SSM and secrets from Secrets Manager, for the names `only` allows; the NAMES loaded."""
+         secrets: Any = None, zone: str | None = None) -> list[str]:
+    """Plain values from SSM and secrets from Secrets Manager, for the names `only` allows; the NAMES loaded. `zone`:
+    the trust zone a worker serves, whose own Temporal key it reads (S15)."""
     env = env if env is not None else os.environ.get("WARDEN_ENV")
     if not env:
         return []
@@ -103,7 +127,7 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
         secrets = boto3.client("secretsmanager")
     for name in wanted:
         try:
-            value = secrets.get_secret_value(SecretId=secret_id(env, name))
+            value = secrets.get_secret_value(SecretId=secret_id(env, name, zone))
         except Exception as exc:  # a secret this environment does not have is simply not loaded; others raise
             if _code(exc) == "ResourceNotFoundException":
                 continue
@@ -118,9 +142,13 @@ def _code(exc: Exception) -> str:
     return str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
 
 
-def loadable_for(command: str) -> frozenset[str]:
-    """The names a command may load: every LOADABLE one, less the restricted ones it does not use."""
-    return frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
+def loadable_for(command: str, zone: str | None = None) -> frozenset[str]:
+    """The names a command may load: every LOADABLE one, less the restricted ones it does not use - and for one trust
+    zone's worker, less every secret another zone holds (S15)."""
+    allowed = frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
+    if command.startswith("lambda-"):
+        allowed -= SECRETS - LAMBDA_SECRETS
+    return allowed - (SECRETS - ZONE_SECRETS[zone]) if zone in ZONE_SECRETS else allowed
 
 
 def load_from_ssm(env: str | None = None, *, client: Any = None, only: frozenset[str] | None = None) -> list[str]:

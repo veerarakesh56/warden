@@ -48,12 +48,13 @@ NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": Retry
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
 # Register S15, the trust zones: each activity runs where its credentials are. The read zone holds the watched
-# environments' readers, the llm zone the model, the notify zone the paging and chat secrets, the act zone the actors;
+# environments' readers, the llm zone the model, the notify zone the paging, chat and change-record secrets (and so a
+# run's end, which resolves its page and records the change), the act zone the actors;
 # the rest - the audit's own steps and the workflows - run on the main queue (the core zone). A workflow on the main
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "resolve_plan", "precheck", "check_success"), "llm": ("diagnose",),
-         "notify": ("notify", "announce"), "act": ("apply", "rollback")}
+         "notify": ("notify", "announce", "finish"), "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 

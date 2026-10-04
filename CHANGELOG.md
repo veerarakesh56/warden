@@ -214,6 +214,8 @@ bump may carry a breaking change.
   one they saw, through an actor session limited to that cluster and that instance; never rolled back automatically.
 - **Trust zones (S15): each activity runs on its zone's queue, and `warden worker --zone` serves one zone** - the
   readers, the model, paging and chat, and the actors each in a process of their own.
+- **The runtime module runs each trust zone as its own ECS service and task role**, reading only that zone's secrets
+  and its own Temporal key; the Lambdas read only theirs.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

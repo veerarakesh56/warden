@@ -583,11 +583,20 @@ It is not in the repository yet; Claude proposes it, with its cost, at W1.
      `RUNTIME_ECR_REPOSITORY` (the URI from step 4).
 7. **Tell Claude "ops is ready".** Claude runs **Runtime · ops** with `image`, then `plan`, and shows you the plan
    before anything is applied.
+8. **After the first apply: one Temporal Cloud service account per trust zone** (register S15), so Temporal's audit
+   log names the zone that called. Temporal Cloud → **Settings** → **Identities** → **Create Service Account**,
+   five times: `warden-ops-core`, `-read`, `-llm`, `-notify`, `-act`, each **namespace-scoped** to the WARDEN namespace
+   (account role Read; namespace permission **Write**, which a worker needs to poll and complete tasks; Temporal's docs,
+   read 2026-10-04). Each gets an API key (one the UI makes with the account has the 2-year maximum expiry: replace it
+   within 90 days, as for every key) - paste it into its Secrets Manager slot
+   `warden/ops/temporal-api-key-<zone>` (Secrets Manager → the secret → **Retrieve secret value** → **Set secret
+   value** → plaintext). The key is shown once; never paste it anywhere else. Each zone's role can read its own
+   slot and no other.
 
 Undo: delete the role `warden-ops-deploy`, the three policies, the repository `warden-ops-runtime` (after its
 images), the parameters under `/warden/ops/tf/`, the state bucket (after its objects) and the `ops` environment.
 
-### WARDEN's own AWS roles (in the window, once the runtime's worker role `warden-ops-worker` exists)
+### WARDEN's own AWS roles (in the window, once the runtime's zone roles `warden-ops-read`, `-notify` and `-act` exist)
 
 WARDEN fixes an AWS target through two roles per environment. The **platform reader** reads what a fix
 needs; the **actor** makes one approved change. The runtime worker takes the actor only for one plan:

@@ -231,7 +231,7 @@ def _apply_overrides(alert: Alert, args) -> Alert:
     return Alert.model_validate({**alert.model_dump(), **update}) if update else alert
 
 
-def _load_environment(command: str) -> None:
+def _load_environment(command: str, zone: str | None = None) -> None:
     """With WARDEN_ENV set, read that environment's plain values from SSM and its secrets from Secrets Manager
     (settings.py). An unknown environment or an unreachable store stops the run: running with half a config would be
     worse than not running."""
@@ -239,7 +239,7 @@ def _load_environment(command: str) -> None:
     from .environments import EnvironmentPolicyError
 
     try:
-        loaded = settings.load(only=settings.loadable_for(command))
+        loaded = settings.load(only=settings.loadable_for(command, zone), zone=zone)
     except EnvironmentPolicyError as exc:
         raise SystemExit(f"WARDEN_ENV: {exc}") from exc
     except Exception as exc:
@@ -355,7 +355,11 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             if args.zone not in ("all", "core"):  # a zone's activities only: no workflow to time or beat through
                 _out(f"worker running the {args.zone} zone on task queue {runtime.zone_queue(args.zone)!r}; "
                      "Ctrl+C to stop")
+                shadow = runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC) if args.zone == "llm" else None
+                if shadow is not None:  # register C13: the daily shadow incident runs where the model is
+                    await runtime.synthetic_loop(shadow, log=lambda line: _out(line, err=True))
                 await asyncio.Event().wait()
+                return 0
             problem = await runtime.check_clock(client)
             if problem:
                 _out(f"error: {problem}", err=True)
@@ -367,7 +371,8 @@ async def _workflow_command(args: argparse.Namespace) -> int:
                 await asyncio.Event().wait()
             else:  # register C13: a beat only while a full round trip works; the alarm on silence is outside WARDEN
                 await runtime.heartbeat(client, publish, log=lambda line: _out(line, err=True),
-                                        shadow=runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC))
+                                        shadow=runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC)
+                                        if args.zone == "all" else None)
     if args.cmd == "intake":
         from . import intake
 
@@ -642,7 +647,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_label.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
 
     args = parser.parse_args(argv)
-    _load_environment(args.cmd)  # after parsing: what is loaded depends on the command (audit A-B-L17)
+    _load_environment(args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
     if args.cmd == "audit":
         return _audit_command(args)
     if args.cmd in ("worker", "incident", "intake", "status", "approve"):

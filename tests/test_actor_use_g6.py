@@ -22,7 +22,7 @@ def _detail(tags=None, *, role=ROLE, source="inc-7", error=None, event="AssumeRo
     """CloudTrail's AssumeRole record as EventBridge delivers it (requestParameters.tags as key/value pairs)."""
     tags = {"approver": "alice", "incident": "inc-7", "plan": PLAN[:16]} if tags is None else tags
     d = {"eventSource": "sts.amazonaws.com", "eventName": event, "eventID": "e-1", "eventTime": "2026-10-04T10:00:00Z",
-         "userIdentity": {"arn": f"arn:aws:sts::{ACCOUNT}:assumed-role/warden-ops-worker/task"},
+         "userIdentity": {"arn": f"arn:aws:sts::{ACCOUNT}:assumed-role/warden-ops-act/task"},
          "requestParameters": {"roleArn": role, "roleSessionName": source, "sourceIdentity": source,
                                "durationSeconds": 900, "tags": [{"key": k, "value": v} for k, v in tags.items()]}}
     if error:

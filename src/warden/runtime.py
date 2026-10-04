@@ -219,15 +219,27 @@ async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEA
         now = datetime.now(UTC)
         if shadow is not None and (last_synthetic is None or now - last_synthetic >= SYNTHETIC_EVERY):
             last_synthetic = now
-            try:
-                failed = await asyncio.to_thread(synthetic)
-            except Exception as exc:  # noqa: BLE001 - a synthetic run that cannot run is a failed one
-                failed = f"the synthetic incident could not run: {type(exc).__name__}"
-            if failed:
-                if log:
-                    log(f"synthetic incident failed: {failed}")
-            else:
-                shadow()
+            await _synthetic_once(shadow, log)
+        await asyncio.sleep(every.total_seconds())
+
+
+async def _synthetic_once(shadow: Any, log: Any) -> None:
+    try:
+        failed = await asyncio.to_thread(synthetic)
+    except Exception as exc:  # noqa: BLE001 - a synthetic run that cannot run is a failed one
+        failed = f"the synthetic incident could not run: {type(exc).__name__}"
+    if failed:
+        if log:
+            log(f"synthetic incident failed: {failed}")
+    else:
+        shadow()
+
+
+async def synthetic_loop(shadow: Any, *, every: timedelta = SYNTHETIC_EVERY, log: Any = None) -> None:
+    """The daily synthetic incident on its own, until cancelled: the llm zone's worker runs it, where the model is
+    (register S15) - the core zone, which beats, holds no model."""
+    while True:
+        await _synthetic_once(shadow, log)
         await asyncio.sleep(every.total_seconds())
 
 
