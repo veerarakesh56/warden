@@ -92,8 +92,9 @@ locals {
         TOPIC_ARN  = aws_sns_topic.order_events.arn
         # Fault flags at their baseline values, so the variable NAMES never change during a fault
         # (scenarios/ops_fullstack.py FLAGS): fs-01 sets v2, fs-02 sets 2000.
-        CHECKOUT_FF_1 = "v1"
-        CHECKOUT_FF_2 = "0"
+        CHECKOUT_FF_1    = "v1"
+        CHECKOUT_FF_2    = "0"
+        API_TOKEN_SECRET = aws_secretsmanager_secret.api_token.arn # A-I-13: the token POST /checkout requires
       }
     }
     order-processor = {
@@ -130,6 +131,7 @@ locals {
         ORDERS_QUEUE_URL  = aws_sqs_queue.main["orders"].id
         CHECKOUTS_PER_MIN = "10"
         ORDERS_PER_MIN    = "10"
+        API_TOKEN_SECRET  = aws_secretsmanager_secret.api_token.arn # sent as a bearer token (A-I-13)
       }
     }
     ops = {
@@ -148,6 +150,7 @@ locals {
     checkout = [
       { Sid = "WriteCarts", Effect = "Allow", Action = ["dynamodb:PutItem"], Resource = [aws_dynamodb_table.carts.arn] },
       { Sid = "PublishOrderEvents", Effect = "Allow", Action = ["sns:Publish"], Resource = [aws_sns_topic.order_events.arn] },
+      { Sid = "ReadApiToken", Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [aws_secretsmanager_secret.api_token.arn] },
     ]
     order-processor = [
       { Sid = "ConsumeOrders", Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = [aws_sqs_queue.main["orders"].arn] },
@@ -163,6 +166,7 @@ locals {
     ]
     traffic = [
       { Sid = "SendOrders", Effect = "Allow", Action = ["sqs:SendMessage"], Resource = [aws_sqs_queue.main["orders"].arn] },
+      { Sid = "ReadApiToken", Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = [aws_secretsmanager_secret.api_token.arn] },
     ]
     ops = []
   }

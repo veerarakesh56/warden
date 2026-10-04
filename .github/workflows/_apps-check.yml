@@ -36,7 +36,7 @@ jobs:
         run: bandit -q -r scenarios/fullstack scripts/deploy_fullstack_apps.py -ll
       - run: python -m compileall -q scenarios/fullstack
       # test_fullstack_infra also checks the k8s manifests and the apps' SQL/handlers.
-      - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_k8s_tokens.py -q
+      - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_k8s_tokens.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py -q
       - name: build artifacts (zips + image)
         run: python scripts/deploy_fullstack_apps.py --out "$RUNNER_TEMP/build" build --tag "${GITHUB_SHA::12}"
       - name: render k8s/fullstack

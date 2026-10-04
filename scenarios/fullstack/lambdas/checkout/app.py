@@ -2,10 +2,12 @@
 
 Validates the order JSON, writes it to DynamoDB (TABLE_NAME), publishes an order event to SNS.
 
-Feature flags CHECKOUT_FF_1 and CHECKOUT_FF_2 are set by the stack.
+Feature flags CHECKOUT_FF_1 and CHECKOUT_FF_2 are set by the stack. POST /checkout requires the bearer token in the
+Secrets Manager secret API_TOKEN_SECRET names (audit A-I-13); GET /health touches nothing and stays open.
 The Lambda runtime's log format already carries level + ISO timestamp; an unhandled exception is
 logged with its traceback by the runtime.
 """
+import hmac
 import json
 import logging
 import os
@@ -19,6 +21,15 @@ log.setLevel(logging.INFO)
 
 TABLE = boto3.resource("dynamodb").Table(os.environ.get("TABLE_NAME", "unset"))
 SNS = boto3.client("sns")
+_TOKEN: list[str] = []  # read once per container
+
+
+def _authorized(event):
+    if not _TOKEN:
+        _TOKEN.append(boto3.client("secretsmanager").get_secret_value(
+            SecretId=os.environ["API_TOKEN_SECRET"])["SecretString"])
+    got = (event.get("headers") or {}).get("authorization", "")  # HTTP API v2 lower-cases header names
+    return hmac.compare_digest(got.encode(), f"Bearer {_TOKEN[0]}".encode())
 
 
 def _resp(status, body):
@@ -41,6 +52,8 @@ def _items(body):
 def handler(event, context):
     if event.get("routeKey") == "GET /health":
         return _resp(200, {"status": "ok"})
+    if not _authorized(event):
+        return _resp(401, {"error": "a bearer token is required"})
     try:
         body = json.loads(event.get("body") or "")
     except ValueError:

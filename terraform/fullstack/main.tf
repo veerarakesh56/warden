@@ -17,6 +17,7 @@ terraform {
   required_providers {
     aws     = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
     archive = { source = "hashicorp/archive", version = ">= 2.4, < 3.0" }
+    random  = { source = "hashicorp/random", version = ">= 3.7, < 4.0" } # ephemeral random_password (A-I-13)
   }
   # No backend block on purpose: a local apply keeps local state. CI writes a backend_override.tf
   # (S3) before init - see .github/workflows/_infra-deploy.yml.
