@@ -198,3 +198,25 @@ def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         MetricData=[{"MetricName": UNAPPROVED_METRIC, "Value": 1, "Unit": "Count"}])
     print(json.dumps({"unapproved_actor_use": body}, default=str))
     return {"approved": False, "problems": problems}
+
+
+AUDIT_WRITER = "warden_audit_writer"
+
+
+def migrate(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    """Once per deploy (runtime.yml invokes it after apply): the audit's tables and append-only triggers on the
+    runtime's Aurora, and its writer login - SELECT and INSERT only, signing in with an IAM token, no password. The
+    only code that reads the cluster's master secret, which RDS keeps in Secrets Manager; its role reads that secret
+    and nothing else. Idempotent."""
+    import boto3
+    from psycopg.conninfo import make_conninfo
+
+    from . import audit
+    from .environments import region
+
+    master = json.loads(boto3.client("secretsmanager", region_name=region()).get_secret_value(
+        SecretId=os.environ["WARDEN_AUDIT_MASTER_SECRET"])["SecretString"])
+    dsn = make_conninfo(host=os.environ["WARDEN_AUDIT_HOST"], port=5432, dbname=os.environ["WARDEN_AUDIT_DB"],
+                        user=master["username"], password=master["password"], sslmode="require")
+    audit.migrate(dsn, AUDIT_WRITER, iam_login=True)
+    return {"migrated": True, "writer": AUDIT_WRITER}

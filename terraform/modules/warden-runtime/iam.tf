@@ -42,6 +42,13 @@ locals {
       Resource = aws_kms_key.audit_signer.arn
     },
     {
+      # The audit, as its writer (migrate.tf): an IAM token instead of a password.
+      Sid      = "ConnectAsTheAuditWriter"
+      Effect   = "Allow"
+      Action   = ["rds-db:connect"]
+      Resource = "arn:aws:rds-db:${local.region}:${local.account}:dbuser:${aws_rds_cluster.audit.cluster_resource_id}/${local.audit_writer}"
+    },
+    {
       Sid      = "AnchorCheckpoints"
       Effect   = "Allow"
       Action   = ["s3:PutObject", "s3:PutObjectRetention"]

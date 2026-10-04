@@ -20,7 +20,8 @@
         "secretsmanager:ListSecrets",
         "kms:CreateKey",
         "kms:ListAliases",
-        "cloudtrail:*"
+        "cloudtrail:*",
+        "rds-db:connect"
       ],
       "Resource": "*",
       "Condition": {
@@ -62,7 +63,8 @@
       "Action": [
         "secretsmanager:CreateSecret",
         "secretsmanager:TagResource",
-        "secretsmanager:DescribeSecret"
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue"
       ],
       "Resource": "arn:aws:secretsmanager:ap-south-2:*:secret:rds!*"
     },

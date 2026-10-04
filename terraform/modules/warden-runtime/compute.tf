@@ -183,6 +183,8 @@ resource "aws_ecs_task_definition" "zone" {
       WARDEN_HEARTBEAT_NAMESPACE   = "WARDEN/${var.environment}"
       WARDEN_APPROVAL_RP_ID        = var.approval_domain
       WARDEN_AWS_ROLE_ARN_TEMPLATE = "arn:aws:iam::${local.account}:role/warden-{env}-{role}"
+      WARDEN_AUDIT_DSN             = local.audit_dsn
+      WARDEN_AUDIT_IAM_AUTH        = "1"
     } : { name = k, value = v }]
     logConfiguration = {
       logDriver = "awslogs"

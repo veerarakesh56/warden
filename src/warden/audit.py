@@ -27,6 +27,7 @@ import contextlib
 import functools
 import hashlib
 import json
+import os
 import pathlib
 import sqlite3
 import threading
@@ -78,14 +79,31 @@ def _is_postgres(target: str | pathlib.Path) -> bool:
 
 
 def _pg_connect(dsn: str) -> Any:
+    """A connection; with WARDEN_AUDIT_IAM_AUTH=1 and no password in the DSN, signed in with a 15-minute IAM token
+    for the DSN's user (the runtime: no audit password exists anywhere, and the task role's rds-db:connect decides)."""
     import psycopg
 
-    return psycopg.connect(dsn, autocommit=True, connect_timeout=10)
+    extra: dict[str, Any] = {}
+    if os.environ.get("WARDEN_AUDIT_IAM_AUTH") == "1":
+        from psycopg.conninfo import conninfo_to_dict
+
+        parts = conninfo_to_dict(dsn)
+        if not parts.get("password"):
+            import boto3
+
+            from .environments import region
+
+            extra = {"password": boto3.client("rds", region_name=region()).generate_db_auth_token(
+                DBHostname=parts["host"], Port=int(parts.get("port") or 5432), DBUsername=parts["user"]),
+                "sslmode": "require"}
+    return psycopg.connect(dsn, autocommit=True, connect_timeout=10, **extra)
 
 
-def migrate(dsn: str, writer_role: str | None = None) -> None:
+def migrate(dsn: str, writer_role: str | None = None, *, iam_login: bool = False) -> None:
     """Create the audit tables and their append-only triggers on PostgreSQL, and grant `writer_role` (the runtime's
-    database user) SELECT and INSERT on them and nothing else. Run by a migration role, never by the runtime."""
+    database user) SELECT and INSERT on them and nothing else. Run by a migration role, never by the runtime.
+    `iam_login` (Aurora): the writer is also created if missing, as a login with no password that signs in only with
+    an IAM token (rds_iam)."""
     import re
 
     with _pg_connect(dsn) as db:
@@ -94,6 +112,11 @@ def migrate(dsn: str, writer_role: str | None = None) -> None:
         if writer_role:
             if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", writer_role):
                 raise ValueError(f"not a plain database role name: {writer_role!r}")
+            if iam_login:
+                db.execute(f"DO $r$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{writer_role}') THEN "
+                           f"CREATE ROLE {writer_role} LOGIN; END IF; END $r$")  # nosec B608 - a checked role name
+                db.execute(f"GRANT rds_iam TO {writer_role}")
+                db.execute(f"GRANT USAGE ON SCHEMA public TO {writer_role}")
             for t in ("entries", "checkpoints"):
                 db.execute(f"REVOKE ALL ON {t} FROM {writer_role}")
                 db.execute(f"GRANT SELECT, INSERT ON {t} TO {writer_role}")

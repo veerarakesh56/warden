@@ -37,6 +37,9 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     assert 'gh attestation verify "oci://$IMAGE" --repo "$REPO"' in DEPLOY_JOB
     assert '-var "runtime_image=$IMAGE"' in DEPLOY_JOB and 'apply -input=false -no-color "$RUNNER_TEMP/tfplan"' in DEPLOY_JOB
     assert "-auto-approve" not in DEPLOY_JOB
+    # After an apply, the audit's schema and writer login, from inside the VPC; a failure fails the deploy.
+    assert DEPLOY_JOB.index("apply -input=false") < DEPLOY_JOB.index("jq -r .migrate_function")
+    assert '!= "None" ]; then' in DEPLOY_JOB
     assert DEPLOY_JOB.index("Runtime deploys run from main only") < DEPLOY_JOB.index("configure-aws-credentials")
 
 
@@ -56,4 +59,4 @@ def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     assert not re.search(r"\b\d{12}\b", tf)  # no account id
     assert not re.search(r"\b(?:ap|us|eu|ca|sa|me|af|il)-[a-z]+-\d\b", tf)  # no region
     module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
-    assert module.count("permissions_boundary = var.permissions_boundary_arn") == 4  # every role the module makes
+    assert module.count("permissions_boundary = var.permissions_boundary_arn") == 5  # every role the module makes

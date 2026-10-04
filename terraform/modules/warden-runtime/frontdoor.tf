@@ -12,6 +12,8 @@ locals {
     WARDEN_AUDIT_KMS_KEY_ID    = aws_kms_alias.audit_signer.name
     WARDEN_AUDIT_ANCHOR_BUCKET = aws_s3_bucket.anchors.bucket
     WARDEN_APPROVAL_RP_ID      = var.approval_domain
+    WARDEN_AUDIT_DSN           = local.audit_dsn
+    WARDEN_AUDIT_IAM_AUTH      = "1"
   }
   front_doors = {
     alarm        = { handler = "warden.lambdas.alarm", timeout = 60 }

@@ -79,5 +79,6 @@ output "runtime" {
     front_door_url      = module.runtime.front_door_url
     approval_dns_target = module.runtime.approval_dns_target
     audit_db_endpoint   = module.runtime.audit_db_endpoint
+    migrate_function    = module.runtime.migrate_function
   }
 }

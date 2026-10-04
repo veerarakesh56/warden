@@ -223,10 +223,13 @@ def test_the_lambdas_get_the_names_the_runtime_reads():
 
     tf = _frontdoor()
     names = set(re.findall(r"^\s+(WARDEN_[A-Z_]+)\s+=", tf, re.MULTILINE))
-    assert names == {"WARDEN_ENV", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_APPROVAL_RP_ID"}
+    assert names == {"WARDEN_ENV", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_APPROVAL_RP_ID",
+                     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_IAM_AUTH"}
     import inspect
 
-    src = inspect.getsource(runtime)
+    from warden import audit
+
+    src = inspect.getsource(runtime) + inspect.getsource(audit)
     for name in names - {"WARDEN_ENV", "WARDEN_APPROVAL_RP_ID"}:
         assert f'"{name}"' in src, name
 
@@ -270,3 +273,23 @@ def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only()
     assert "WARDEN_HEARTBEAT_NAMESPACE" in inspect.getsource(runtime.cloudwatch_publisher)
     service = _block(tf, "aws_ecs_service", "zone")
     assert "rollback = true" in service and "security_groups = [aws_security_group.runtime.id]" in service
+
+
+def test_the_audit_is_reached_as_its_writer_with_an_iam_token_and_only_migrate_reads_the_master_secret():
+    """G6: no audit password exists. migrate.tf's Lambda - the one identity that reads the cluster's master secret -
+    creates the schema and `warden_audit_writer`, a login that signs in only with an IAM token; every zone and Lambda
+    connects as that writer, by rds-db:connect on that one database user."""
+    from warden import lambdas
+
+    mig = (MODULE / "migrate.tf").read_text(encoding="utf-8")
+    iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
+    assert f'audit_writer = "{lambdas.AUDIT_WRITER}"' in mig
+    assert "postgresql://${local.audit_writer}@" in mig and "sslmode=require" in mig and ":${" not in mig.split("postgresql://")[1].split("@")[0]
+    assert 'Resource = aws_rds_cluster.audit.master_user_secret[0].secret_arn' in mig
+    assert 'command     = ["warden.lambdas.migrate"]' in mig
+    module = _module_text()
+    assert module.count("master_user_secret[0].secret_arn") == 2  # the migrate role's grant and its environment
+    assert '"rds-db:connect"' in iam and "dbuser:${aws_rds_cluster.audit.cluster_resource_id}/${local.audit_writer}" in iam
+    for tf in ("compute.tf", "frontdoor.tf"):
+        text = (MODULE / tf).read_text(encoding="utf-8")
+        assert re.search(r'WARDEN_AUDIT_IAM_AUTH\s+= "1"', text) and re.search(r"WARDEN_AUDIT_DSN\s+= local.audit_dsn", text), tf

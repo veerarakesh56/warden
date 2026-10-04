@@ -226,6 +226,8 @@ bump may carry a breaking change.
 - **The proving ground's public API takes a bearer token** (audit A-I-13), made at apply and in no plan or state.
 - **A free tier can qualify a model over several days**: `qualify_provider.py --resume` keeps what the model answered,
   asks only what it did not, and stops when the day's quota refuses.
+- **The cloud audit has no password**: a migrate Lambda, the only reader of the cluster's master secret, creates the
+  schema and an IAM-token writer login after each deploy; every zone and Lambda connects as that writer.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

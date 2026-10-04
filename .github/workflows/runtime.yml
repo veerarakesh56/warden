@@ -145,3 +145,14 @@ jobs:
       - name: apply the plan just made
         if: env.ACTION == 'apply'
         run: terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan"
+      # The audit's tables, triggers and writer login, from inside the VPC (migrate.tf). Idempotent.
+      - name: the audit's schema and writer login
+        if: env.ACTION == 'apply'
+        run: |
+          fn=$(terraform -chdir=terraform/runtime output -json runtime | jq -r .migrate_function)
+          aws lambda invoke --function-name "$fn" --cli-binary-format raw-in-base64-out --payload '{}' \
+            --query FunctionError --output text "$RUNNER_TEMP/migrate.json" > "$RUNNER_TEMP/migrate.err"
+          if [ "$(cat "$RUNNER_TEMP/migrate.err")" != "None" ]; then
+            echo "::error::the migrate Lambda failed: $(cat "$RUNNER_TEMP/migrate.json")"
+            exit 1
+          fi

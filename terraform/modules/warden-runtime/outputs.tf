@@ -27,3 +27,8 @@ output "approval_dns_target" {
   description = "Where the approval domain's DNS-only CNAME points (empty without an approval domain)."
   value       = var.approval_domain == "" ? "" : aws_apigatewayv2_domain_name.approval[0].domain_name_configuration[0].target_domain_name
 }
+
+output "migrate_function" {
+  description = "The Lambda that creates the audit's schema and writer login; runtime.yml invokes it after each apply."
+  value       = aws_lambda_function.migrate.function_name
+}
