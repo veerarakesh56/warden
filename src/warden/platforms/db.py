@@ -1,4 +1,9 @@
-"""Databases behind the RemediationWorkflow: `db_terminate_idle_in_tx` (decision D16).
+"""Databases behind the RemediationWorkflow: `db_terminate_idle_in_tx` and `db_terminate_blocker` (decision D16).
+
+`db_terminate_blocker` (PostgreSQL only) closes ONE session the approver saw blocking others: an application
+login's session in this database that others have waited behind for at least BLOCK_SECS (pg_blocking_pids). The
+close carries the whole selection again, in the same statement - still blocking, still the same backend (its start
+time, so a pid the server reused is not closed) - and the plan shows what it blocked.
 
 The workflow decides whether to act; this closes the sessions an approved plan describes - idle inside
 a transaction for at least `min_idle_seconds`, at most `max_sessions` of them - and nothing else. What
@@ -26,7 +31,12 @@ from typing import Any
 from ..database import IDLE_SECS, adapter_for, engine_of
 
 MAX_TERMINATE = int(os.environ.get("WARDEN_DB_TERMINATE_MAX", "20"))
+# How long others must have waited behind a session before it counts as blocking - a lock held for a moment is how
+# a database works, not an incident.
+BLOCK_SECS = int(os.environ.get("WARDEN_DB_BLOCK_SECS", "30"))
 _ENTRY = "db_terminate_idle_in_tx"
+_BLOCKER = "db_terminate_blocker"
+_ENTRIES = (_ENTRY, _BLOCKER)
 
 
 # What decides the server a libpq DSN reaches, in the order the plan shows them.
@@ -121,6 +131,31 @@ class _Postgres:
                 row = cur.fetchone()
                 killed += bool(row and row[0])
         return killed
+
+    # A session of an application login that a session of this database has waited behind for `wait` seconds.
+    BLOCKING = ("b.datname = current_database() AND b.usename = ANY(%s) AND b.pid <> pg_backend_pid() AND "
+                "w.datname = current_database() AND b.pid = ANY(pg_blocking_pids(w.pid)) AND "
+                "w.query_start < now() - make_interval(secs => %s)")
+
+    @staticmethod
+    def blockers(conn: Any, users: list[str], wait: int, limit: int) -> list[tuple[int, str, int]]:
+        """(pid, backend start, sessions it blocks), the most blocking first."""
+        with conn.cursor() as cur:
+            cur.execute("SELECT b.pid, b.backend_start::text, count(w.pid) FROM pg_stat_activity w "  # nosec B608 - constant SQL; every value is a parameter
+                        "JOIN pg_stat_activity b ON true WHERE " + _Postgres.BLOCKING +
+                        " GROUP BY b.pid, b.backend_start ORDER BY count(w.pid) DESC, b.pid LIMIT %s",
+                        (users, wait, limit))
+            return [(int(r[0]), str(r[1]), int(r[2])) for r in cur.fetchall()]
+
+    @staticmethod
+    def terminate_blocker(conn: Any, pid: int, started: str, users: list[str], wait: int) -> bool:
+        # The selection again in the same statement (register R7-O1): still blocking, still the same backend.
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_terminate_backend(b.pid) FROM pg_stat_activity b WHERE b.pid = %s AND "  # nosec B608 - constant SQL; every value is a parameter
+                        "b.backend_start::text = %s AND EXISTS (SELECT 1 FROM pg_stat_activity w WHERE " +
+                        _Postgres.BLOCKING + ")", (int(pid), started, users, wait))
+            row = cur.fetchone()
+            return bool(row and row[0])
 
 
 class _MySQL:
@@ -252,14 +287,28 @@ class DatabasePlatform:
     def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
         """The connected database, and only when the application's logins are named: with no allowlist
         nothing may be closed, so nothing is read and the catalogue refuses."""
-        if entry != _ENTRY or not self._users:
+        if entry not in _ENTRIES or not self._users or (entry == _BLOCKER and self._engine != "postgres"):
             return {}
         name = self._database()
         if not name:
             return {}
-        return {"database": {name}, "environment": self._environment,
-                "state": {"engine": self._engine, "database": name,
-                                              "app_users": sorted(self._users), "server": self._server()}}
+        state = {"engine": self._engine, "database": name, "app_users": sorted(self._users), "server": self._server()}
+        live = {"database": {name}, "environment": self._environment, "state": state}
+        if entry == _BLOCKER:
+            # The sessions blocking others now: the only pids an approved plan may name. The named one's start time
+            # goes into the plan - so the close can tell it from a later session the server gave the same pid - and
+            # nothing else that moves while the approver reads (another waiter queueing is not drift).
+            with self._lock:
+                try:
+                    found = self._sql.blockers(self._connection(), self._users, BLOCK_SECS, self._max)
+                except Exception:  # noqa: BLE001 - unreadable: nothing is allowed
+                    self._drop()
+                    return {}
+            live["pid"] = {str(pid) for pid, _, _ in found}
+            named = next(((pid, started) for pid, started, _ in found if str(pid) == params.get("pid")), None)
+            if named:
+                state["blocker"] = {"pid": str(named[0]), "backend_start": named[1]}
+        return live
 
     def _server(self) -> str:
         """Where the connection goes, in the plan the approver signs (sixth review) - never the user or password.
@@ -310,41 +359,41 @@ class DatabasePlatform:
 
     def healthy(self, service: str) -> bool:
         """The database answers and none of the application's sessions is still idle in a transaction past
-        the threshold - a positive read, never the absence of an error."""
+        the threshold, nor (PostgreSQL) blocking others past BLOCK_SECS - a positive read, never the absence of an
+        error."""
         with self._lock:
             if not self._users or self._database() != service:
                 return False
             try:
-                return self._sql.candidates(self._connection(), IDLE_SECS, 1, self._users) == []
+                conn = self._connection()
+                return self._sql.candidates(conn, IDLE_SECS, 1, self._users) == [] and \
+                    (self._engine != "postgres" or self._sql.blockers(conn, self._users, BLOCK_SECS, 1) == [])
             except Exception:  # noqa: BLE001 - unknown is not healthy
                 self._drop()
                 return False
 
     def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None) -> str:
-        # `snapshot` (what the approver saw) adds nothing here: the sessions are chosen afresh by the bounds.
+        # `snapshot` (what the approver saw) adds nothing to the idle close - the sessions are chosen afresh by the
+        # bounds - and names the one session a blocker close may touch.
         with self._lock:
             try:
+                if entry == _BLOCKER:
+                    return self._close_blocker(params, snapshot or {})
                 return self._apply(entry, params)
             except DatabasePlatformError as exc:
                 if exc.__cause__ is not None:  # the server failed, not the plan: reconnect next time
                     self._drop()
                 raise
 
-    def _apply(self, entry: str, params: dict[str, Any]) -> str:
-        if entry != _ENTRY:
-            raise DatabasePlatformRefused(f"{entry} is not something the database platform does "
-                                        f"(it does {_ENTRY} only)")
+    def _checked(self, params: dict[str, Any]) -> tuple[str, Any]:
+        """(database, connection) once the plan names this platform's database and the application logins exclude
+        the platform's own; refused otherwise, before anything is closed."""
         if not self._users:
             raise DatabasePlatformRefused("no application logins are named (WARDEN_DB_APP_USERS); nothing is closed")
         name = self._database()
         if name is None or params.get("database") != name:
             raise DatabasePlatformRefused(f"database {params.get('database')!r} is not the one this platform is "
                                         f"connected to ({name})")
-        idle, limit = params.get("min_idle_seconds"), params.get("max_sessions")
-        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (idle, limit)) \
-                or idle < IDLE_SECS or not 1 <= limit <= self._max:
-            raise DatabasePlatformRefused(f"min_idle_seconds={idle!r} / max_sessions={limit!r} are outside the "
-                                        f"bounds (idle at least {IDLE_SECS}s, 1..{self._max} sessions)")
         conn = self._connection()
         try:
             cur = conn.cursor()
@@ -358,6 +407,34 @@ class DatabasePlatform:
             # (seventh review); on PostgreSQL this can only refuse more.
             raise DatabasePlatformRefused(f"WARDEN_DB_APP_USERS names this platform's own login {own!r}; "
                                         "nothing is closed")
+        return name, conn
+
+    def _close_blocker(self, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
+        if self._engine != "postgres":
+            raise DatabasePlatformRefused(f"{_BLOCKER} is supported on PostgreSQL only, not {self._engine}")
+        pid, seen = params.get("pid"), snapshot.get("blocker")
+        if not (isinstance(pid, str) and pid.isdigit() and isinstance(seen, dict) and seen.get("pid") == pid
+                and seen.get("backend_start")):
+            raise DatabasePlatformRefused(f"pid {pid!r} is not a session the approved plan showed blocking others")
+        name, conn = self._checked(params)
+        try:
+            closed = self._sql.terminate_blocker(conn, int(pid), seen["backend_start"], self._users, BLOCK_SECS)
+        except Exception as exc:
+            raise DatabasePlatformError(f"closing session {pid} in {name} failed: {_one_line(exc)}") from exc
+        if not closed:
+            return f"session {pid} in {name} no longer blocks anyone (or is another session now); nothing closed"
+        return f"closed session {pid} in {name}, which was blocking others (started {seen['backend_start']})"
+
+    def _apply(self, entry: str, params: dict[str, Any]) -> str:
+        if entry != _ENTRY:
+            raise DatabasePlatformRefused(f"{entry} is not something the database platform does "
+                                        f"(it does {', '.join(_ENTRIES)} only)")
+        idle, limit = params.get("min_idle_seconds"), params.get("max_sessions")
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (idle, limit)) \
+                or idle < IDLE_SECS or not 1 <= limit <= self._max:
+            raise DatabasePlatformRefused(f"min_idle_seconds={idle!r} / max_sessions={limit!r} are outside the "
+                                        f"bounds (idle at least {IDLE_SECS}s, 1..{self._max} sessions)")
+        name, conn = self._checked(params)
         try:
             # The ceiling again in Python: a broken LIMIT must not widen what is closed.
             ids = self._sql.candidates(conn, idle, limit, self._users)[:limit]
@@ -374,7 +451,7 @@ class DatabasePlatform:
                f"({self._engine}; ids {', '.join(map(str, ids))})"
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
-        if entry != _ENTRY:
+        if entry not in _ENTRIES:
             raise DatabasePlatformError(f"{entry} is not something the database platform does")
         return "nothing to roll back: a closed session's transaction rolled back, and the application reconnects"
 

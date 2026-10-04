@@ -266,8 +266,8 @@ MUTATIONS = [
     (
         "the database platform closes sessions with no application login named",
         "platforms/db.py",
-        "        if entry != _ENTRY or not self._users:",
-        "        if entry != _ENTRY:",
+        "        if entry not in _ENTRIES or not self._users or (entry == _BLOCKER and self._engine != \"postgres\"):",
+        "        if entry not in _ENTRIES or (entry == _BLOCKER and self._engine != \"postgres\"):",
         "with no allowlist every login's sessions - an admin's included - would be candidates",
     ),
     (

@@ -33,6 +33,15 @@ class _Cursor:
             self.rows = [(self.conn.db,)]
         elif sql in ("SELECT session_user", "SELECT SUBSTRING_INDEX(CURRENT_USER(), '@', 1)", "SELECT SUSER_SNAME()"):
             self.rows = [(self.conn.me,)]
+        elif "pg_terminate_backend(b.pid)" in sql:
+            # A blocker close: this pid, this backend start, still blocking - all in the one statement.
+            pid, started = params[0], params[1]
+            hit = "pg_blocking_pids" in sql and self.conn.blocking.get(pid) == started
+            if hit:
+                self.conn.killed.append(pid)
+            self.rows = [(True,)] if hit else []
+        elif "count(w.pid)" in sql:
+            self.rows = [(pid, started, n) for pid, (started, n) in self.conn.blockers.items()]
         elif "pg_terminate_backend" in sql:
             # The close carries the selection (R7-O1): only a session still idle in a transaction is closed.
             checked = "pid = %s" in sql and "state = 'idle in transaction'" in sql and "usename = ANY" in sql
@@ -63,6 +72,8 @@ class _Conn:
         self.still = set(stuck)  # the sessions still idle when they are closed
         self.sql: list = []
         self.killed: list = []
+        self.blockers: dict = {}  # pid -> (backend start, sessions it blocks), as read
+        self.blocking: dict = {}  # pid -> backend start, for the sessions still blocking at the close
 
     def cursor(self):
         return _Cursor(self)
@@ -79,7 +90,7 @@ def test_live_names_the_connected_database_only_when_app_logins_are_named():
     assert _platform().live("db_terminate_idle_in_tx", {})["database"] == {"orders"}
     assert _platform(users=[]).live("db_terminate_idle_in_tx", {}) == {}, "no allowlist: nothing may be closed"
     assert _platform(conn=_Conn(fail=True)).live("db_terminate_idle_in_tx", {}) == {}
-    assert _platform().live("db_terminate_blocker", {}) == {}
+    assert _platform("mysql").live("db_terminate_blocker", {}) == {}, "blockers: PostgreSQL only"
 
 
 def test_postgres_closes_only_idle_app_sessions_in_its_own_database_and_never_its_own():
@@ -144,7 +155,7 @@ def test_engines_without_an_idle_in_transaction_state_are_refused(engine):
 
 def test_other_entries_and_faults_are_errors():
     with pytest.raises(DatabasePlatformError, match="not something the database platform does"):
-        _platform().apply("db_terminate_blocker", {"database": "orders", "pid": "7"})
+        _platform().apply("aurora_failover", {"cluster": "orders", "target_instance": "b"})
     with pytest.raises(DatabasePlatformError):
         _platform(conn=_Conn(fail=True)).apply("db_terminate_idle_in_tx", PARAMS)
 
@@ -334,3 +345,65 @@ def test_a_session_that_resumed_after_it_was_listed_is_not_closed(engine):
     conn.still = {102}  # 101 committed between the list and the close
     out = _platform(engine, conn).apply("db_terminate_idle_in_tx", PARAMS)
     assert conn.killed == [102] and out.startswith("closed 1 session"), (conn.killed, out)
+
+
+STARTED = "2026-10-04 09:00:00.123+00"
+
+
+def _blocking(conn=None):
+    conn = conn or _Conn(stuck=())
+    conn.blockers = {4242: (STARTED, 3), 4343: (STARTED, 1)}
+    conn.blocking = {4242: STARTED, 4343: STARTED}
+    return conn
+
+
+def test_a_blocker_close_may_name_only_a_session_seen_blocking():
+    conn = _blocking()
+    live = _platform(conn=conn).live("db_terminate_blocker", {"pid": "4242"})
+    assert live["pid"] == {"4242", "4343"} and live["database"] == {"orders"}
+    assert live["state"]["blocker"] == {"pid": "4242", "backend_start": STARTED}  # the named one, nothing that moves
+    conn.blockers[4545] = (STARTED, 9)  # another blocker, more waiters: the plan's snapshot is unchanged (no drift)
+    conn.blockers[4242] = (STARTED, 7)
+    assert _platform(conn=conn).live("db_terminate_blocker", {"pid": "4242"})["state"] == live["state"]
+    sql, params = next((s, p) for s, p in conn.sql if "count(w.pid)" in s)
+    for clause in ("pg_blocking_pids(w.pid)", "b.datname = current_database()", "w.datname = current_database()",
+                   "b.usename = ANY(%s)", "b.pid <> pg_backend_pid()", "w.query_start < now() - make_interval"):
+        assert clause in sql, clause
+    assert params[0] == APP and params[1] >= 30  # the app's logins only; a momentary lock is not a blocker
+    assert _platform(users=[], conn=_blocking()).live("db_terminate_blocker", {}) == {}
+
+
+def test_a_blocker_is_closed_only_if_it_is_still_the_same_session_and_still_blocking():
+    conn = _blocking()
+    platform = _platform(conn=conn)
+    snapshot = platform.live("db_terminate_blocker", {"pid": "4242"})["state"]
+    out = platform.apply("db_terminate_blocker", {"database": "orders", "pid": "4242"}, snapshot)
+    assert conn.killed == [4242] and "was blocking others" in out
+    sql = next(s for s, _ in conn.sql if "pg_terminate_backend(b.pid)" in s)
+    assert "b.backend_start::text = %s" in sql and "pg_blocking_pids(w.pid)" in sql and "b.usename = ANY(%s)" in sql
+    snapshot = platform.live("db_terminate_blocker", {"pid": "4343"})["state"]
+    conn.blocking[4343] = "2026-10-04 09:30:00+00"  # the pid now belongs to a later session
+    out = platform.apply("db_terminate_blocker", {"database": "orders", "pid": "4343"}, snapshot)
+    assert conn.killed == [4242] and "nothing closed" in out
+
+
+@pytest.mark.parametrize("params, snapshot, needle", [
+    ({"database": "orders", "pid": "9999"}, None, "not a session the approved plan showed"),
+    ({"database": "orders", "pid": "4242; SELECT 1"}, None, "not a session the approved plan showed"),
+    ({"database": "other", "pid": "4242"}, None, "not the one this platform is connected to"),
+])
+def test_a_blocker_close_refuses_what_the_plan_did_not_show(params, snapshot, needle):
+    conn = _blocking()
+    platform = _platform(conn=conn)
+    snapshot = snapshot or platform.live("db_terminate_blocker", {"pid": "4242"})["state"]
+    with pytest.raises(DatabasePlatformError, match=needle):
+        platform.apply("db_terminate_blocker", params, snapshot)
+    assert conn.killed == []
+    with pytest.raises(DatabasePlatformError, match="PostgreSQL only"):
+        _platform("mysql", _blocking()).apply("db_terminate_blocker", {"database": "orders", "pid": "4242"},
+                                              {"blocker": {"pid": "4242", "backend_start": STARTED}})
+
+
+def test_a_database_with_a_blocker_is_not_healthy():
+    assert _platform(conn=_Conn(stuck=())).healthy("orders")
+    assert not _platform(conn=_blocking()).healthy("orders")

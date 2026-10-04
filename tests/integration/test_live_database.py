@@ -229,6 +229,60 @@ def test_postgres_terminate_actually_removes_the_stuck_connection():
         admin.close()
 
 
+@needs_pg
+def test_postgres_blocker_close_finds_and_closes_only_the_session_still_blocking():
+    """db_terminate_blocker against a real catalog: pg_blocking_pids, backend_start::text and the close's own
+    re-check must parse and select exactly the blocking session - and a stale backend start closes nothing."""
+    import psycopg
+
+    admin = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    blocker = psycopg.connect(PG_DSN, autocommit=False)
+    waiter = psycopg.connect(PG_DSN, autocommit=False)
+    with admin.cursor() as cur:
+        cur.execute("CREATE TABLE IF NOT EXISTS warden_blocker_probe (id int)")
+    try:
+        with blocker.cursor() as cur:
+            cur.execute("LOCK TABLE warden_blocker_probe IN ACCESS EXCLUSIVE MODE")
+        blocker_pid = blocker.info.backend_pid
+
+        def wait():
+            with contextlib.suppress(Exception), waiter.cursor() as cur:
+                cur.execute("LOCK TABLE warden_blocker_probe IN ACCESS EXCLUSIVE MODE")
+
+        threading.Thread(target=wait, daemon=True).start()
+        found = []
+        for _ in range(40):
+            found = platform_db._Postgres.blockers(admin, [PG_USER], 1, 20)
+            if found:
+                break
+            time.sleep(0.25)
+        assert [pid for pid, _, _ in found] == [blocker_pid], found
+        (_, started, blocking), = found
+        assert blocking == 1 and started
+        assert platform_db._Postgres.blockers(admin, ["someone_else"], 1, 20) == []
+        assert platform_db._Postgres.blockers(admin, [PG_USER], 3600, 20) == [], "a wait of seconds is not an hour's"
+        # The close re-checks on the real server: another backend start, or another login, closes nothing.
+        assert not platform_db._Postgres.terminate_blocker(admin, blocker_pid, "1999-01-01 00:00:00+00", [PG_USER], 1)
+        assert not platform_db._Postgres.terminate_blocker(admin, blocker_pid, started, ["someone_else"], 1)
+        assert platform_db._Postgres.terminate_blocker(admin, blocker_pid, started, [PG_USER], 1)
+
+        def still_there():
+            with admin.cursor() as cur:
+                cur.execute("SELECT count(*) FROM pg_stat_activity WHERE pid = %s", (blocker_pid,))
+                return cur.fetchone()[0]
+
+        assert _gone(still_there), "the blocker was reported closed but is still on the server"
+    finally:
+        with contextlib.suppress(Exception):
+            blocker.close()
+        with contextlib.suppress(Exception):
+            waiter.rollback()
+        waiter.close()
+        with admin.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS warden_blocker_probe")
+        admin.close()
+
+
 # ------------------------------------------------------------------ MySQL
 
 @needs_mysql
