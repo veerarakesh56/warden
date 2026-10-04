@@ -151,3 +151,9 @@ variable "worker_memory" {
   type        = number
   default     = 1536
 }
+
+variable "permissions_boundary_arn" {
+  description = "The permissions boundary every role here carries (the environment's WardenEnvBoundary-<env>, whose deploy role may create no role without it). Null: none."
+  type        = string
+  default     = null
+}

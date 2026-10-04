@@ -26,6 +26,9 @@ jobs:
       - run: terraform -chdir=terraform/modules/warden-runtime fmt -check -recursive
       - run: terraform -chdir=terraform/modules/warden-runtime init -backend=false -input=false
       - run: terraform -chdir=terraform/modules/warden-runtime validate
+      - run: terraform -chdir=terraform/runtime fmt -check -recursive
+      - run: terraform -chdir=terraform/runtime init -backend=false -input=false
+      - run: terraform -chdir=terraform/runtime validate
       # Every name carries the prefix, every role its boundary, alarm text names no cause, the policies
       # fit their limits.
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
@@ -41,4 +44,4 @@ jobs:
       # roles in iam/templates to its code.
       # approval: the runtime-module test reads the approval page's routes, which import webauthn (CI, 2026-10-03).
       - run: uv sync --locked --extra aws --extra dev --extra approval
-      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_env_iam.py tests/test_helios_gate_r56.py tests/test_platform_iam_g6.py tests/test_runtime_module_g6.py -q -rs
+      - run: pytest tests/test_fullstack_infra.py tests/test_aws_stack.py tests/test_docs_honesty.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_env_iam.py tests/test_helios_gate_r56.py tests/test_platform_iam_g6.py tests/test_runtime_module_g6.py tests/test_runtime_pipeline_s9.py -q -rs

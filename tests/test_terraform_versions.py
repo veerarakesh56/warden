@@ -11,7 +11,7 @@ from packaging.version import Version
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODULES = [ROOT / "terraform", ROOT / "terraform" / "fullstack", ROOT / "terraform" / "proving-ground",
-           ROOT / "terraform" / "modules" / "warden-runtime"]
+           ROOT / "terraform" / "modules" / "warden-runtime", ROOT / "terraform" / "runtime"]
 
 
 def _spec(constraint: str) -> SpecifierSet:

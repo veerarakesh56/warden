@@ -27,10 +27,11 @@ data "aws_iam_policy_document" "ec2_trust" {
 }
 
 resource "aws_iam_role" "instance" {
-  name               = "warden-${var.environment}-ecs-instance"
-  description        = "WARDEN ${var.environment}: the ECS container instances (registering with the cluster only)"
-  assume_role_policy = data.aws_iam_policy_document.ec2_trust.json
-  tags               = { Project = "warden", Environment = var.environment }
+  name                 = "warden-${var.environment}-ecs-instance"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: the ECS container instances (registering with the cluster only)"
+  assume_role_policy   = data.aws_iam_policy_document.ec2_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
 }
 
 resource "aws_iam_role_policy_attachment" "instance" {
@@ -137,10 +138,11 @@ resource "aws_ecs_cluster_capacity_providers" "runtime" {
 }
 
 resource "aws_iam_role" "execution" {
-  name               = "warden-${var.environment}-task-execution"
-  description        = "WARDEN ${var.environment}: pulls the runtime image and writes the worker's logs"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
-  tags               = { Project = "warden", Environment = var.environment }
+  name                 = "warden-${var.environment}-task-execution"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: pulls the runtime image and writes the worker's logs"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
 }
 
 resource "aws_iam_role_policy_attachment" "execution" {

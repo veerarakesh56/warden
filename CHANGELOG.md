@@ -202,6 +202,8 @@ bump may carry a breaking change.
 - **The runtime module's worker: ECS on an EC2 capacity provider, metadata locked, read-only and non-root**
   (requirement R20).
 - **Which change broke it: the incident message lists the changes near the alert, as suspects** (requirement R38).
+- **The runtime pipeline: WARDEN's own image built, signed with cosign, given provenance, and verified before it
+  is deployed by digest** (registers S9, R13).
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

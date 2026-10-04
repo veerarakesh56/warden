@@ -74,10 +74,11 @@ data "aws_iam_policy_document" "ecs_tasks_trust" {
 }
 
 resource "aws_iam_role" "worker" {
-  name               = "warden-${var.environment}-worker"
-  description        = "WARDEN ${var.environment}: the worker's task role - assumes a watched environment's reader or actor, never writes itself"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_trust.json
-  tags               = { Project = "warden", Environment = var.environment }
+  name                 = "warden-${var.environment}-worker"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: the worker's task role - assumes a watched environment's reader or actor, never writes itself"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
 }
 
 resource "aws_iam_role_policy" "worker" {
@@ -117,10 +118,11 @@ data "aws_iam_policy_document" "lambda_trust" {
 }
 
 resource "aws_iam_role" "lambda" {
-  name               = "warden-${var.environment}-front-door"
-  description        = "WARDEN ${var.environment}: the intake, webhook and approval-page Lambdas - no AWS role to assume, no model"
-  assume_role_policy = data.aws_iam_policy_document.lambda_trust.json
-  tags               = { Project = "warden", Environment = var.environment }
+  name                 = "warden-${var.environment}-front-door"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: the intake, webhook and approval-page Lambdas - no AWS role to assume, no model"
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
 }
 
 resource "aws_iam_role_policy" "lambda" {

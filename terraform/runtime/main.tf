@@ -1,0 +1,83 @@
+# WARDEN's own runtime (G6): the root configuration that deploys terraform/modules/warden-runtime for one runtime
+# environment - `ops` - from .github/workflows/runtime.yml, with the runtime image that workflow built, signed and
+# attested, by digest. Infrastructure only, like terraform/fullstack: no code is built here.
+#
+# THE ENVIRONMENT IS THE WORKSPACE (`terraform workspace select -or-create ops`), refused unless environments.yaml
+# names it. Every per-install value comes from SSM Parameter Store, /warden/<env>/tf/*, never a tfvars file and never a
+# literal in this repository (owner rule: no environment, region or account literals in code).
+terraform {
+  required_version = ">= 1.15.0, < 1.17.0" # CI pins 1.16.4; a later minor is a deliberate change
+  required_providers {
+    aws = { source = "hashicorp/aws", version = ">= 6.0, < 7.0" }
+  }
+  # No backend block on purpose: CI writes a backend_override.tf (S3) before init, as for terraform/fullstack.
+}
+
+variable "runtime_image" {
+  description = "The runtime image by digest (runtime.yml passes the digest it signed and attested)."
+  type        = string
+}
+
+locals {
+  config       = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml"))
+  env          = terraform.workspace
+  environments = keys(local.config.environments)
+  # Per-install values; the optional ones may be absent.
+  tf = { for i, name in data.aws_ssm_parameters_by_path.tf.names :
+  trimprefix(name, "/warden/${local.env}/tf/") => nonsensitive(data.aws_ssm_parameters_by_path.tf.values[i]) }
+  csv = { for k, v in local.tf : k => [for x in split(",", v) : trimspace(x) if trimspace(x) != ""] }
+}
+
+provider "aws" {
+  region = local.config.aws_region
+  default_tags {
+    tags = { Project = "warden", Environment = local.env, ManagedBy = "terraform" }
+  }
+}
+
+data "aws_caller_identity" "current" {}
+
+data "aws_ssm_parameters_by_path" "tf" {
+  path = "/warden/${local.env}/tf"
+}
+
+resource "terraform_data" "environment_is_known" {
+  lifecycle {
+    precondition {
+      condition     = contains(local.environments, local.env)
+      error_message = "the workspace must be an environment in src/warden/data/environments.yaml (select one with terraform workspace select)."
+    }
+    precondition {
+      condition     = alltrue([for k in ["vpc_id", "private_subnet_ids", "page_topic_arn", "watched_environments"] : contains(keys(local.tf), k)])
+      error_message = "set /warden/<env>/tf/vpc_id, private_subnet_ids, page_topic_arn and watched_environments in SSM first."
+    }
+  }
+}
+
+module "runtime" {
+  source                   = "../modules/warden-runtime"
+  environment              = local.env
+  runtime_image            = var.runtime_image
+  vpc_id                   = lookup(local.tf, "vpc_id", "")
+  private_subnet_ids       = lookup(local.csv, "private_subnet_ids", [])
+  page_topic_arn           = lookup(local.tf, "page_topic_arn", "")
+  watched_environments     = lookup(local.csv, "watched_environments", [])
+  approval_domain          = lookup(local.tf, "approval_domain", "")
+  approval_certificate_arn = lookup(local.tf, "approval_certificate_arn", "")
+  bedrock_model_arns       = lookup(local.csv, "bedrock_model_arns", [])
+  audit_db_instances       = tonumber(lookup(local.tf, "audit_db_instances", "2"))
+  worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
+  permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
+  depends_on               = [terraform_data.environment_is_known]
+}
+
+output "runtime" {
+  description = "What the runtime needs set elsewhere: the audit key alias, the anchor bucket, the front door, the approval domain's DNS target."
+  value = {
+    audit_signer_key_id = module.runtime.audit_signer_key_id
+    anchor_bucket       = module.runtime.anchor_bucket
+    front_door_url      = module.runtime.front_door_url
+    approval_dns_target = module.runtime.approval_dns_target
+    audit_db_endpoint   = module.runtime.audit_db_endpoint
+  }
+}

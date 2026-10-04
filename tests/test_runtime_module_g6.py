@@ -104,7 +104,7 @@ def test_the_worker_is_the_principal_the_actor_and_reader_trust_and_writes_nothi
 
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
     worker = _block(iam, "aws_iam_role", "worker")
-    assert 'name               = "warden-${var.environment}-worker"' in worker
+    assert re.search(r'name\s+=\s+"warden-\$\{var\.environment\}-worker"', worker)
     for name in ("actor-trust", "platform-reader-trust"):
         trust = json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
         assert {st["Principal"]["AWS"] for st in trust["Statement"]} == {"arn:aws:iam::${account}:role/warden-ops-worker"}

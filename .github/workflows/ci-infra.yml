@@ -8,6 +8,8 @@ on:
     paths:
       - "terraform/fullstack/**"
       - "terraform/modules/**"
+      - "terraform/runtime/**"
+      - "tests/test_runtime_pipeline_s9.py"
       - "tests/test_runtime_module_g6.py"
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
@@ -33,6 +35,8 @@ on:
     paths:
       - "terraform/fullstack/**"
       - "terraform/modules/**"
+      - "terraform/runtime/**"
+      - "tests/test_runtime_pipeline_s9.py"
       - "tests/test_runtime_module_g6.py"
       - "tests/test_fullstack_infra.py"
       - ".github/workflows/ci-infra.yml"
