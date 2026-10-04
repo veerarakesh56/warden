@@ -35,7 +35,7 @@ class Clock:
 
 def _soaked(run: pathlib.Path) -> None:
     run.mkdir(parents=True, exist_ok=True)
-    (run / "state.json").write_text(json.dumps({"active": None, "soaked_at": "2026-01-01T00:00:00+00:00"}),
+    (run / "state.json").write_text(json.dumps({"active": None, "soaked_at": "2026-01-01T00:00:00+00:00", "soak_minutes": 30}),
                                     encoding="utf-8")
 
 
@@ -405,7 +405,7 @@ def test_watch_reports_a_delayed_effect(tmp_path):
     states = iter([[], [], ["warden-dev-orders-dlq holds 3 message(s)"]])
     env = dataclasses.replace(fake_env([], alarm_state="OK"), sleep=clock.sleep, clock=clock,
                               baseline=lambda: next(states, []))
-    assert cli.step_watch(env, tmp_path, minutes=5, every_s=60) is False
+    assert cli.step_watch(env, tmp_path, minutes=30, every_s=600) is False
     watch = json.loads((tmp_path / "watch.json").read_text())
     assert watch["unhealthy_checks"] == 1
 
@@ -662,3 +662,29 @@ def test_the_alert_names_the_runs_own_environments_stack(tmp_path, monkeypatch, 
     assert len(names) == 13, labels
     for value in names:
         assert "__ENV__" not in value and all(n.startswith(prefix) for n in value.split(",")), value
+
+
+def test_a_fault_needs_a_full_soak_and_a_destroy_a_full_watch_after_the_last_activity(tmp_path):
+    """Requirement R12, the owner's order: 30 unbroken healthy minutes before any fault - a shorter soak (the
+    --min-minutes override) is recorded and refused at inject - and 30 minutes of watching after the last fault
+    before the stack is destroyed (destroy-check reads what the watch recorded)."""
+    import json as _json
+
+    env = cli.dry_env()
+    run = tmp_path
+    assert cli.step_soak(env, run, min_s=60, every_s=60) is True
+    with pytest.raises(cli.StepError, match="the recorded soak was 1 min"):
+        cli.step_inject(env, run, next(iter(cli._catalog())))
+    with pytest.raises(cli.StepError, match="at least 30 minutes"):
+        cli.step_watch(env, run, minutes=5)
+    assert any("no finished watch" in p for p in cli.destroy_problems(run))
+    cli._set_state(run, last_activity_at="2026-01-01T00:00:00+00:00")
+    cli.step_watch(env, run, minutes=30)
+    assert cli.destroy_problems(run) == []
+    cli._set_state(run, last_activity_at="2999-01-01T00:00:00+00:00")  # an activity after the watch began
+    assert any("before the run's last activity" in p for p in cli.destroy_problems(run))
+    watch = _json.loads((run / "watch.json").read_text(encoding="utf-8"))
+    assert watch["minutes"] == 30 and watch["started_at"] <= watch["finished_at"]
+    cli._set_state(run, active="fs-01")
+    assert any("still injected" in p for p in cli.destroy_problems(run))
+    assert cli.main(["--run", str(run), "--dry-run", "destroy-check"]) == 1

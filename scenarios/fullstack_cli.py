@@ -8,6 +8,7 @@
     python -m scenarios.fullstack_cli revert fs-07       # put the exact prior state back, wait for baseline
     python -m scenarios.fullstack_cli status             # every fault's steps, and the stack's health now
     python -m scenarios.fullstack_cli watch              # after the last fault: 30 min of health checks
+    python -m scenarios.fullstack_cli destroy-check      # before destroy: a full watch after the last activity?
     python -m scenarios.fullstack_cli score              # RESULTS.md over the run directory
     python -m scenarios.fullstack_cli run fs-07          # all five steps chained - only if you ask for it
 
@@ -598,6 +599,12 @@ def _poll_until(env: Env, check: Callable[[], Any], timeout_s: float, every_s: f
 # =========================================================================== the steps
 
 
+# Requirement R12, the owner's order: every component healthy for 30 unbroken minutes before any fault, and 30
+# minutes of watching after the last fault before anyone destroys the stack. Neither can be shortened.
+SOAK_MINUTES = 30
+WATCH_MINUTES = 30
+
+
 def step_inject(env: Env, run: pathlib.Path, key: str, *, skip_quiet: bool = False,
                 wait_alarm: bool = True) -> dict:
     scenario = scenario_for(key)
@@ -610,6 +617,9 @@ def step_inject(env: Env, run: pathlib.Path, key: str, *, skip_quiet: bool = Fal
     if not state.get("soaked_at"):
         # ⛔ The owner's order: soak (every component healthy for 30 unbroken minutes) BEFORE any fault.
         raise StepError("no soak recorded for this run - run `soak` first")
+    if (state.get("soak_minutes") or 0) < SOAK_MINUTES:
+        raise StepError(f"the recorded soak was {state.get('soak_minutes') or 0:g} min; the owner's rule is "
+                        f"{SOAK_MINUTES} unbroken minutes before any fault - run `soak` again")
     existing = _record(run, sid)
     if existing and existing.get("runs"):
         raise StepError(f"{sid} already has a measured run; one run per fault (the owner's choice)")
@@ -863,7 +873,7 @@ def step_soak(env: Env, run: pathlib.Path, *, min_s: float = 1800, max_s: float 
         env.log(f"soak {(now - start) / 60:5.1f} min: " + (f"healthy for {streak / 60:.1f} min" if not problems
                                                            else "; ".join(problems)))
         if not problems and streak >= min_s:
-            _set_state(run, soaked_at=_now())
+            _set_state(run, soaked_at=_now(), soak_minutes=round(min_s / 60, 2))
             return True
         if now - start >= max_s:
             return False
@@ -874,8 +884,11 @@ def step_watch(env: Env, run: pathlib.Path, *, minutes: float = 30, every_s: flo
     """After the last fault, BEFORE destroy: keep checking every component for `minutes`.
 
     Delayed effects of earlier faults (a DLQ filling late, a rollout stalling, an alarm that only
-    evaluates after its period) show up here rather than after the evidence is gone."""
-    start, seen = env.clock(), []
+    evaluates after its period) show up here rather than after the evidence is gone. Never shorter than
+    WATCH_MINUTES (R12); `destroy-check` reads what it recorded."""
+    if minutes < WATCH_MINUTES:
+        raise StepError(f"a watch is at least {WATCH_MINUTES} minutes (the owner's rule), not {minutes:g}")
+    started_at, start, seen = _now(), env.clock(), []
     while True:
         problems = stack_problems(env)
         elapsed = env.clock() - start
@@ -885,8 +898,27 @@ def step_watch(env: Env, run: pathlib.Path, *, minutes: float = 30, every_s: flo
             break
         env.sleep(every_s)
     unhealthy = [s for s in seen if s["problems"]]
-    _write_json(run / "watch.json", {"minutes": minutes, "checks": seen, "unhealthy_checks": len(unhealthy)})
+    _write_json(run / "watch.json", {"minutes": minutes, "started_at": started_at, "finished_at": _now(),
+                                     "checks": seen, "unhealthy_checks": len(unhealthy)})
     return not unhealthy
+
+
+def destroy_problems(run: pathlib.Path) -> list[str]:
+    """Why the stack may not be destroyed yet (R12): no fault still injected, and a full watch begun after the run's
+    last activity. Unhealthy checks during the watch are reported, not refused: they are what the watch is for."""
+    state, problems = _state(run), []
+    if state.get("active"):
+        problems.append(f"{state['active']} is still injected - revert it first")
+    path = run / "watch.json"
+    watch = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    if not watch or not watch.get("finished_at"):
+        return [*problems, f"no finished watch recorded - run `watch` ({WATCH_MINUTES} min) after the last fault"]
+    if (watch.get("minutes") or 0) < WATCH_MINUTES:
+        problems.append(f"the watch was {watch.get('minutes')} min; the owner's rule is {WATCH_MINUTES}")
+    last = state.get("last_activity_at")
+    if last and dt.datetime.fromisoformat(watch.get("started_at") or watch["finished_at"]) < dt.datetime.fromisoformat(last):
+        problems.append(f"the watch began before the run's last activity ({last}) - run `watch` again")
+    return problems
 
 
 def step_status(env: Env, run: pathlib.Path, *, check: bool = True) -> list[str]:
@@ -968,7 +1000,8 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
     s = sub.add_parser("status")
     s.add_argument("--no-check", action="store_true")
     s = sub.add_parser("watch")
-    s.add_argument("--minutes", type=float, default=30)
+    s.add_argument("--minutes", type=float, default=WATCH_MINUTES)
+    sub.add_parser("destroy-check", help="exit 0 only when the stack may be destroyed (R12)")
     sub.add_parser("score")
     s = sub.add_parser("run")
     s.add_argument("fault")
@@ -982,6 +1015,11 @@ def main(argv: list[str] | None = None, *, env: Env | None = None) -> int:
     if args.cmd == "score":
         from . import score
         return score.main(["--run", str(run)])
+    if args.cmd == "destroy-check":
+        problems = destroy_problems(run)
+        print("\n".join(f"not yet: {p}" for p in problems) or "the stack may be destroyed: a full watch followed "
+              "the last activity")
+        return 1 if problems else 0
     try:
         env = env or (dry_env() if args.dry_run else live_env(run, warden_timeout=args.warden_timeout))
         if args.cmd == "_hold":

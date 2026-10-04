@@ -49,8 +49,11 @@ Operating sequence for this wave: infra up -> apps deployed -> **soak** until ev
 healthy and at least 30 minutes have passed -> for each fault, step by step and each step started by
 the operator: `inject`, `diagnose` (WARDEN, with Claude through the `claude` CLI on the owner's Max
 plan), `fix`, `verify`, `revert` -> after the last fault, **watch** for at least 30 minutes before
-anything is destroyed, because some failures only appear after time -> destroy, then verify nothing
-is left billing. WARDEN never starts itself.
+anything is destroyed, because some failures only appear after time -> `fullstack_cli destroy-check`
+must pass -> destroy, then verify nothing is left billing. WARDEN never starts itself. Neither wait can be
+shortened: `inject` refuses a soak recorded shorter than 30 minutes (the `--min-minutes` override is for
+testing the soak itself), `watch` refuses fewer than 30 minutes, and `destroy-check` refuses until a full
+watch began after the run's last activity (requirement R12).
 
 ## 2. The stack
 
