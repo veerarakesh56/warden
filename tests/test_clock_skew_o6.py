@@ -50,7 +50,7 @@ def test_the_worker_command_stops_when_the_clock_is_off(monkeypatch, capsys):
         return "this host's clock is 180s behind the Temporal server's (register O6)"
 
     monkeypatch.setattr(runtime, "connect", connect)
-    monkeypatch.setattr(runtime, "worker", worker)
+    monkeypatch.setattr(runtime, "serving", worker)
     monkeypatch.setattr(runtime, "check_clock", check_clock)
     monkeypatch.setattr(runtime, "open_audit", lambda: None)
     monkeypatch.setattr(runtime, "_path", lambda env, default=None: env)

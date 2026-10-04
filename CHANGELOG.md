@@ -212,6 +212,8 @@ bump may carry a breaking change.
   still blocking and still the same backend, in the statement that closes it.
 - **`aurora_failover` (T3): promotes the available reader the approver named**, only while the writer is still the
   one they saw, through an actor session limited to that cluster and that instance; never rolled back automatically.
+- **Trust zones (S15): each activity runs on its zone's queue, and `warden worker --zone` serves one zone** - the
+  readers, the model, paging and chat, and the actors each in a process of their own.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

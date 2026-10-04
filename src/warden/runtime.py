@@ -20,6 +20,7 @@ one writing only through a per-plan actor session (identity.py).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import pathlib
 import secrets
@@ -33,9 +34,16 @@ from temporalio.worker import Worker
 
 from . import approvals, audit, codec
 from .activities import IncidentActivities, Plan, RemediationActivities
-from .workflows import ClockWorkflow, IncidentWorkflow, RemediationWorkflow
+from .workflows import (
+    MAIN_QUEUE,
+    ZONES,
+    ClockWorkflow,
+    IncidentWorkflow,
+    RemediationWorkflow,
+    zone_queue,
+)
 
-TASK_QUEUE = "warden"
+TASK_QUEUE = MAIN_QUEUE  # the workflows and the core zone (register S15)
 
 
 class NoPlatform:
@@ -264,19 +272,58 @@ async def connect(address: str | None = None, key: bytes | None = None) -> Clien
     return await Client.connect(target, **options)
 
 
-def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any = None,
-           backend: Any = None, llm_factory: Any = None, task_queue: str = TASK_QUEUE) -> Worker:
+def _activities(log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any, backend: Any,
+                llm_factory: Any) -> list[Any]:
     inc = IncidentActivities(audit=log, backend=backend, llm_factory=llm_factory, platform=platform)
     from .changes import from_environment
 
     rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform(), changes=from_environment())
+    return [inc.prepare, inc.diagnose, inc.verify, inc.notify,
+            rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
+            rem.check_success, rem.record_result, rem.rollback, rem.finish]
+
+
+def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any = None,
+           backend: Any = None, llm_factory: Any = None, task_queue: str = TASK_QUEUE) -> Worker:
+    """The workflows and every activity on one queue. On the main queue the workflows send zoned activities to the
+    zones' queues: run serving(zone="all") there instead."""
     return Worker(client, task_queue=task_queue, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow],
-                  activities=[inc.prepare, inc.diagnose, inc.verify, inc.notify,
-                              rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
-                              rem.check_success, rem.record_result, rem.rollback, rem.finish],
+                  activities=_activities(log, policy, platform, backend, llm_factory),
                   # ponytail: one thread per activity; the model call is the slow one (one at a time
                   # is what Claude Max allows anyway).
                   activity_executor=ThreadPoolExecutor(4))
+
+
+ZONE_CHOICES = ("all", "core", *ZONES)
+
+
+def workers(client: Client, *, zone: str = "all", log: audit.AuditLog, policy: approvals.ApproverPolicy,
+            platform: Any = None, backend: Any = None, llm_factory: Any = None) -> list[Worker]:
+    """The workers of one trust zone (register S15): `core` - the workflows and the audit's own steps on the main
+    queue; `read`, `llm`, `notify`, `act` - only that zone's activities, on its queue, so a zone's process holds only
+    that zone's credentials. `all` runs every zone in one process (a laptop, a test)."""
+    acts = _activities(log, policy, platform, backend, llm_factory)
+    if zone == "all":
+        return [worker(client, log=log, policy=policy, platform=platform, backend=backend, llm_factory=llm_factory),
+                *(Worker(client, task_queue=zone_queue(z), activities=[a for a in acts if a.__name__ in names],
+                         activity_executor=ThreadPoolExecutor(2)) for z, names in ZONES.items())]
+    if zone == "core":
+        zoned = {n for names in ZONES.values() for n in names}
+        return [Worker(client, task_queue=MAIN_QUEUE, workflows=[IncidentWorkflow, RemediationWorkflow, ClockWorkflow],
+                       activities=[a for a in acts if a.__name__ not in zoned], activity_executor=ThreadPoolExecutor(4))]
+    if zone not in ZONES:
+        raise ValueError(f"unknown zone {zone!r} (one of {', '.join(ZONE_CHOICES)})")
+    return [Worker(client, task_queue=zone_queue(zone), activities=[a for a in acts if a.__name__ in ZONES[zone]],
+                   activity_executor=ThreadPoolExecutor(2))]
+
+
+@contextlib.asynccontextmanager
+async def serving(client: Client, *, zone: str = "all", **kw: Any) -> Any:
+    """Every worker of `zone` (workers()) running until the block ends."""
+    async with contextlib.AsyncExitStack() as stack:
+        for w in workers(client, zone=zone, **kw):
+            await stack.enter_async_context(w)
+        yield
 
 
 async def status(client: Client, workflow_id: str) -> tuple[str, Plan | None]:

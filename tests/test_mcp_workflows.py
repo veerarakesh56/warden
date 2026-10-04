@@ -67,7 +67,7 @@ def test_start_request_and_read_through_the_tools(tmp_path, monkeypatch):
 
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
-        async with env, runtime.worker(env.client, log=log, policy=policy, platform=FakePlatform(),
+        async with env, runtime.serving(env.client, log=log, policy=policy, platform=FakePlatform(),
                                        llm_factory=lambda: LLMClient(mock=True)):
             call = mcp_server.call_workflow_tool
             alert = _alert_from("inc-001").model_dump(mode="json")

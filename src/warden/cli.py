@@ -350,8 +350,12 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         _install_log_gate()
         policy = runtime.approver_policy()
         platform = _platform(args.platform)
-        async with runtime.worker(client, log=runtime.open_audit(), policy=policy, backend=resolve_backend(),
-                                  platform=platform):
+        async with runtime.serving(client, zone=args.zone, log=runtime.open_audit(), policy=policy,
+                                   backend=resolve_backend(), platform=platform):
+            if args.zone not in ("all", "core"):  # a zone's activities only: no workflow to time or beat through
+                _out(f"worker running the {args.zone} zone on task queue {runtime.zone_queue(args.zone)!r}; "
+                     "Ctrl+C to stop")
+                await asyncio.Event().wait()
             problem = await runtime.check_clock(client)
             if problem:
                 _out(f"error: {problem}", err=True)
@@ -601,6 +605,10 @@ def _main(argv: list[str] | None = None) -> int:
                           help="what this worker may change, behind a signed approval: none (default - every "
                                "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_ADMIN_DSN, "
                                "WARDEN_DB_APP_USERS), or all")
+    p_worker.add_argument("--zone", choices=("all", "core", "read", "llm", "notify", "act"), default="all",
+                          help="the trust zone this process serves (register S15): core runs the workflows and the "
+                               "audit's steps, read/llm/notify/act only that zone's activities with only its "
+                               "credentials; all runs every zone in one process (default)")
     p_incident = sub.add_parser("incident", help="diagnose a bundled incident as a workflow and print the verdict")
     p_incident.add_argument("--incident", default="inc-001")
     p_intake = sub.add_parser("intake", help="hand one alarm event to intake: start, group, escalate or ignore it")

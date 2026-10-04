@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import datetime, timedelta
+from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -46,6 +47,27 @@ NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": Retry
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
+# Register S15, the trust zones: each activity runs where its credentials are. The read zone holds the watched
+# environments' readers, the llm zone the model, the notify zone the paging and chat secrets, the act zone the actors;
+# the rest - the audit's own steps and the workflows - run on the main queue (the core zone). A workflow on the main
+# queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
+MAIN_QUEUE = "warden"
+ZONES = {"read": ("prepare", "resolve_plan", "precheck", "check_success"), "llm": ("diagnose",),
+         "notify": ("notify", "announce"), "act": ("apply", "rollback")}
+_ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
+
+
+def zone_queue(zone: str) -> str:
+    return f"{MAIN_QUEUE}-{zone}"
+
+
+def _zoned(activity: Any) -> dict[str, str]:
+    """The task queue an activity runs on, as activity options. Patched: a run begun before the zones keeps every
+    activity on the main queue when it replays."""
+    zone = _ZONE_OF.get(activity.__name__)
+    if zone and workflow.info().task_queue == MAIN_QUEUE and workflow.patched("s15-zones"):
+        return {"task_queue": zone_queue(zone)}
+    return {}
 CHECK_EVERY = timedelta(seconds=30)
 # Register C18a, false recovery: a service that died stops reporting errors, and one good reading is not recovery.
 # Recovered = this many healthy checks in a row; then re-checked this long after, the run open until the last.
@@ -105,7 +127,7 @@ class RemediationWorkflow:
             self._stage = status
             outcome = FixOutcome(status=status, reasons=reasons or [], checklist=done,
                                  plan_hash=self._plan.plan_hash if self._plan else "")
-            await workflow.execute_activity_method(acts.finish, args=[req.incident_id, wid, outcome], **QUICK)
+            await workflow.execute_activity_method(acts.finish, **_zoned(acts.finish), args=[req.incident_id, wid, outcome], **QUICK)
             done["audited"] = True
             return outcome.model_copy(update={"checklist": dict(done)})
 
@@ -126,12 +148,12 @@ class RemediationWorkflow:
             raise
 
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
-        plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, args=[req, wid], **QUICK)
+        plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, **_zoned(acts.resolve_plan), args=[req, wid], **QUICK)
         if plan.problems:
             return await end("refused", plan.problems)
         done["planned"] = True
 
-        blocked = await workflow.execute_activity_method(acts.gate, args=[plan, req.service], **QUICK)
+        blocked = await workflow.execute_activity_method(acts.gate, **_zoned(acts.gate), args=[plan, req.service], **QUICK)
         # Only an explicit empty list is "not blocked": an unreadable or forged answer decodes to None,
         # which `if blocked:` read as a pass (third review, 2026-09-30).
         if blocked != []:
@@ -143,7 +165,7 @@ class RemediationWorkflow:
         # whoever sees the plan waiting can already have its links.
         if workflow.patched("h6-links"):
             with contextlib.suppress(ActivityError):
-                await workflow.execute_activity_method(acts.announce, args=[plan, "opening"], **NOTIFY)
+                await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"], **NOTIFY)
         self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
         accepted: list[SignedApproval] = []
@@ -162,11 +184,11 @@ class RemediationWorkflow:
                 if until == halfway and workflow.now() < deadline:
                     reminded = True
                     with contextlib.suppress(ActivityError):
-                        await workflow.execute_activity_method(acts.announce, args=[plan, "waiting"], **NOTIFY)
+                        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "waiting"], **NOTIFY)
                     continue
                 if ladder:
                     with contextlib.suppress(ActivityError):
-                        await workflow.execute_activity_method(acts.announce, args=[plan, "expired"], **NOTIFY)
+                        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "expired"], **NOTIFY)
                 return await end("expired", refused or ["no valid approval arrived in time"])
             approval, seen = self._inbox[seen], seen + 1
             if isinstance(approval, Denial):
@@ -176,11 +198,11 @@ class RemediationWorkflow:
                 refused.append("a denial for another plan was ignored")
                 continue
             if isinstance(approval, PasskeyAssertion):
-                result = await workflow.execute_activity_method(acts.check_passkey, args=[plan, approval, accepted],
+                result = await workflow.execute_activity_method(acts.check_passkey, **_zoned(acts.check_passkey), args=[plan, approval, accepted],
                                                                 **QUICK)
                 approval = result.accepted
             else:
-                result = await workflow.execute_activity_method(acts.check_approval,
+                result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
                                                                 args=[plan, approval, accepted], **QUICK)
             if result.problems or approval is None:
                 refused += result.problems
@@ -191,7 +213,7 @@ class RemediationWorkflow:
         done["approved"] = True
 
         self._stage = "prechecking"
-        drift = await workflow.execute_activity_method(acts.precheck, args=[plan], **QUICK)
+        drift = await workflow.execute_activity_method(acts.precheck, **_zoned(acts.precheck), args=[plan], **QUICK)
         if drift != []:  # as for the gate: only an explicit empty list is clean
             return await end("drifted", drift or ["the precheck's answer could not be read"])
         done["prechecked"] = True
@@ -199,7 +221,7 @@ class RemediationWorkflow:
         self._stage = "applying"
         self._applying = True
         try:
-            await workflow.execute_activity_method(acts.apply, args=[plan, req.service], **ONCE)
+            await workflow.execute_activity_method(acts.apply, **_zoned(acts.apply), args=[plan, req.service], **ONCE)
         except ActivityError as exc:
             if is_cancelled_exception(exc):
                 raise  # a cancel, not a failed apply: run() ends it, after apply (ninth review)
@@ -218,12 +240,12 @@ class RemediationWorkflow:
             await workflow.sleep(CHECK_EVERY)
             if self._alarm_at:
                 break  # the alarm fired again: not recovered, whatever a check said before it (register C1)
-            healthy = await workflow.execute_activity_method(acts.check_success, args=[plan, req.service], **QUICK)
+            healthy = await workflow.execute_activity_method(acts.check_success, **_zoned(acts.check_success), args=[plan, req.service], **QUICK)
             streak = streak + 1 if healthy else 0
         recovered = streak >= need and not self._alarm_at
         # The verdict is WARDEN's audit of THIS run's own checks, returned with the run it belongs to: a
         # result replayed from an earlier run of this workflow id carries that run's id and is refused.
-        recorded = await workflow.execute_activity_method(acts.record_result,
+        recorded = await workflow.execute_activity_method(acts.record_result, **_zoned(acts.record_result),
                                                           args=[plan, req.service, recovered, need], **QUICK)
         recovered = (isinstance(recorded, Recorded) and recorded.ok is True
                      and recorded.run_id == workflow.info().run_id)
@@ -238,9 +260,9 @@ class RemediationWorkflow:
                 for after in RECHECK_AFTER:
                     await workflow.sleep(max(since + after - workflow.now(), timedelta(0)))
                     healthy = not self._alarm_at and await workflow.execute_activity_method(
-                        acts.check_success, args=[plan, req.service], **QUICK)
+                        acts.check_success, **_zoned(acts.check_success), args=[plan, req.service], **QUICK)
                     if not healthy:
-                        await workflow.execute_activity_method(acts.record_result,
+                        await workflow.execute_activity_method(acts.record_result, **_zoned(acts.record_result),
                                                                args=[plan, req.service, False, 1], **QUICK)
                         cause = (f"its alarm fired again at {self._alarm_at}" if self._alarm_at
                                  else "a health check failed")
@@ -251,7 +273,7 @@ class RemediationWorkflow:
 
         self._stage = "rolling_back"
         try:
-            undone = await workflow.execute_activity_method(acts.rollback, args=[plan], **ONCE)
+            undone = await workflow.execute_activity_method(acts.rollback, **_zoned(acts.rollback), args=[plan], **ONCE)
         except ActivityError as exc:
             if is_cancelled_exception(exc):
                 raise
@@ -314,20 +336,20 @@ class IncidentWorkflow:
             wait = ingestion_wait(Alert.model_validate(alert).started_at, workflow.now())
             if wait > timedelta(0):
                 await workflow.sleep(wait)
-        pack = await workflow.execute_activity_method(acts.prepare, args=[alert], **PREPARE)
+        pack = await workflow.execute_activity_method(acts.prepare, **_zoned(acts.prepare), args=[alert], **PREPARE)
         # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
         # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
         # (fourth review, 2026-09-30).
         diagnosed = await workflow.execute_activity_method(
-            acts.diagnose, args=[pack, escalate_only], start_to_close_timeout=timedelta(minutes=10),
+            acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only], start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=1))
-        verified = await workflow.execute_activity_method(acts.verify, args=[pack, diagnosed], **QUICK)
+        verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
         if workflow.patched("s17-notify"):
             # Register S17: a person is told, with the incident id and the audit head to check the message against -
             # before an escalate-only run ends. A notification that fails does not fail the incident: the audit holds
             # the verdict.
             try:
-                await workflow.execute_activity_method(acts.notify, args=[pack, diagnosed, verified], **NOTIFY)
+                await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify), args=[pack, diagnosed, verified], **NOTIFY)
             except ActivityError:
                 pass
         if diagnosed.model_unavailable:

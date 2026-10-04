@@ -34,7 +34,7 @@ def _session(setup, platform, drive):
 
     async def main():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(KEY))
-        async with env, runtime.worker(env.client, log=log, policy=policy, platform=platform):
+        async with env, runtime.serving(env.client, log=log, policy=policy, platform=platform):
             wid = f"rem-{uuid.uuid4()}"
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**REQ), id=wid,
                                                      task_queue=runtime.TASK_QUEUE)
