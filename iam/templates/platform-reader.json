@@ -36,7 +36,7 @@
     {
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
-      "Action": ["application-autoscaling:DescribeScalableTargets", "cloudwatch:GetMetricData", "lambda:GetAccountSettings"],
+      "Action": ["application-autoscaling:DescribeScalableTargets", "cloudtrail:LookupEvents", "cloudwatch:GetMetricData", "lambda:GetAccountSettings"],
       "Resource": "*",
       "Condition": {"StringEquals": {"aws:RequestedRegion": "${region}"}}
     }

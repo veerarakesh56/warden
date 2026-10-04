@@ -42,6 +42,7 @@
       "Effect": "Allow",
       "Action": [
         "application-autoscaling:DescribeScalableTargets",
+        "cloudtrail:LookupEvents",
         "cloudwatch:GetMetricData",
         "lambda:GetAccountSettings"
       ],

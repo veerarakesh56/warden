@@ -104,6 +104,27 @@ class AwsPlatform:
         except Exception:  # noqa: BLE001 - absent or unreadable allows nothing; the catalogue refuses
             return {}
 
+    def changes(self, since: datetime, until: datetime, environment: str) -> list[dict[str, Any]]:
+        """Write events on this environment's resources in CloudTrail (requirement R38): when, what, by whom. Read-only
+        events are left out; at most four pages are read."""
+        out, token, mark = [], None, f"warden-{environment}-"
+        trail = self._read("cloudtrail")
+        for _ in range(4):
+            page = trail.lookup_events(LookupAttributes=[{"AttributeKey": "ReadOnly", "AttributeValue": "false"}],
+                                       StartTime=since, EndTime=until, MaxResults=50,
+                                       **({"NextToken": token} if token else {}))
+            for e in page.get("Events") or []:
+                names = [str(r.get("ResourceName", "")) for r in e.get("Resources") or []]
+                hit = next((n for n in names if mark in n), None)
+                if hit:
+                    out.append({"at": _when(e.get("EventTime")) or since, "source": "cloudtrail",
+                                "what": f"{e.get('EventName', '?')} on {hit.rsplit(':', 1)[-1].rsplit('/', 1)[-1]}",
+                                "who": str(e.get("Username") or "?")})
+            token = page.get("NextToken")
+            if not token:
+                break
+        return out
+
     def knows(self, service: str) -> bool:
         return False  # health is asked by entry (healthy_for), never by a bare name that two kinds could share
 

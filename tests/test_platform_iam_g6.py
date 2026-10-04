@@ -15,7 +15,7 @@ from warden.platforms.aws import AwsPlatform
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs": "ecs",
-          "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch"}
+          "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail"}
 
 
 def _action(service: str, method: str) -> str:
@@ -52,6 +52,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
         p.apply(entry, params, snapshot=snap, who=WHO)
         p.healthy(next(iter(params.values())) if entry != "ecs_rollback_service" else "orders", entry=entry,
                   params=params)
+    p.changes(NOW, NOW, "dev")  # the change timeline's CloudTrail read (requirement R38)
     # The rollbacks, each from the state its apply left.
     f.alias["FunctionVersion"] = "3"
     p.rollback("lambda_move_alias", plans["lambda_move_alias"], {**p.live("lambda_move_alias", plans["lambda_move_alias"])["state"], "version": "9"}, who=WHO)

@@ -638,9 +638,10 @@ class IncidentActivities:
     `prepare` reads and redacts, `diagnose` is the only model call, `verify` has no model."""
 
     def __init__(self, *, audit: AuditLog, backend: Any = None,
-                 llm_factory: Callable[[], Any] | None = None) -> None:
+                 llm_factory: Callable[[], Any] | None = None, platform: Any = None) -> None:
         self.audit, self.backend = audit, backend
         self.llm_factory = llm_factory
+        self.platform = platform  # requirement R38: the AWS platform's CloudTrail reads for the change timeline
 
     def _record(self, alert_id: str, steps: list[dict[str, Any]]) -> None:
         for step in steps:
@@ -759,7 +760,14 @@ class IncidentActivities:
         footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it with "
                   f"`warden audit show {alert_id}`. WARDEN never asks for an approval in chat: approvals are signed "
                   "out of band.")
-        sent = send(dataclasses.replace(report, markdown=report.markdown + footer), threads=AuditThreads(self.audit))
+        # Requirement R38: the changes near the alert, for the people reading it - suspects, never the cause.
+        from . import timeline
+
+        changes, unread = timeline.recent(pack.alert, log=self.audit, platform=self.platform)
+        self.audit.append(alert_id, "incident.changes", {"run_id": _run_id(), "found": len(changes), "unread": unread,
+                                                         "sources": sorted({c["source"] for c in changes})})
+        markdown = report.markdown + timeline.section(changes, unread) + footer
+        sent = send(dataclasses.replace(report, markdown=markdown), threads=AuditThreads(self.audit))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
                                                         "sinks": [n.sink for n in sent],
                                                         "delivered": [n.sink for n in sent if n.delivered]})

@@ -120,6 +120,10 @@ class Fake:
         return {"serviceRevisions": [{"serviceRevisionArn": a, "taskDefinition": self.revisions[a]}
                                      for a in serviceRevisionArns]}
 
+    # --- cloudtrail
+    def lookup_events(self, **kw):
+        return {"Events": getattr(self, "trail", [])}
+
     # --- the actor's clients
     def actor(self, who, actions, resources, condition):
         self.sessions.append({"who": who, "actions": actions, "resources": resources, "condition": condition})

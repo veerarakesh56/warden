@@ -274,6 +274,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.
 - The cloud's front doors: AWS Lambda behind EventBridge (CloudWatch alarm state changes) and API Gateway (the
   Alertmanager webhook, the approval page) - `lambdas.py`, thin adapters over intake, webhooks and the approval page.
+- Which change broke it: GitHub's Deployments REST API and AWS CloudTrail's LookupEvents, merged with WARDEN's own
+  applied fixes - `timeline.py`. Cursor's Rollouts and Sentry's release tracking answer the same question as paid or
+  heavy services (2026-09-27 research); three reads cover WARDEN's stages.
 - Per-incident AWS identity: AWS STS AssumeRole - SourceIdentity, session tags and an inline session policy -
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
