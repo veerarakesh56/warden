@@ -46,21 +46,40 @@ def rediagnose(report: dict, llm: LLMClient) -> RunReport:
                      audit=state["audit"])
 
 
+UNAVAILABLE = "P0-MODEL-UNAVAILABLE"  # the gate's rules-only answer: the model was never heard
+
+
+def _answered(path: pathlib.Path) -> bool:
+    if not path.exists():
+        return False
+    report = json.loads(path.read_text(encoding="utf-8"))
+    return UNAVAILABLE not in ((report.get("verdict") or {}).get("policy_ids") or [])
+
+
 def replay(src: pathlib.Path, out: pathlib.Path, *, per_scenario: int, only: set[str] | None,
-           llm_factory=LLMClient, log=print) -> None:
-    out.mkdir(parents=True)
-    shutil.copytree(src / "grading", out / "grading")
-    manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
-    manifest["replay"] = {"of": src.name, "at": dt.datetime.now(dt.UTC).isoformat(),
-                          "note": "a replay, not a measurement: recorded evidence, today's pipeline"}
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    (out / "ground-truth").mkdir()
-    (out / "reports").mkdir()
+           llm_factory=LLMClient, log=print, resume: bool = False, quota: dict | None = None) -> None:
+    """Re-diagnose every recorded run of `src` into `out`. With `resume` an existing `out` is kept: a run the model
+    already answered is not asked again, and only the unanswered ones are (a free tier's quota, spread over days).
+    `quota` ({"stop_after": n}) stops asking after n refusals in a row - the day's quota is gone - and leaves the rest
+    unanswered for the next resume; it is shared across the runs of one qualification."""
+    if not (resume and out.exists()):
+        out.mkdir(parents=True)
+        shutil.copytree(src / "grading", out / "grading")
+        manifest = json.loads((src / "manifest.json").read_text(encoding="utf-8"))
+        manifest["replay"] = {"of": src.name, "at": dt.datetime.now(dt.UTC).isoformat(),
+                              "note": "a replay, not a measurement: recorded evidence, today's pipeline"}
+        (out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        (out / "ground-truth").mkdir()
+        (out / "reports").mkdir()
+    quota = quota if quota is not None else {}
     for gt_path in sorted((src / "ground-truth").glob("*.json")):
         gt = json.loads(gt_path.read_text(encoding="utf-8"))
         if only and gt["scenario_id"] not in only:
             continue
         runs = []
+        before = out / "ground-truth" / gt_path.name
+        kept = {r.get("index"): r for r in json.loads(before.read_text(encoding="utf-8")).get("runs") or []} \
+            if resume and before.exists() else {}
         for run in (gt.get("runs") or [])[:per_scenario]:
             if not run.get("report_written"):
                 # A run that failed in the recorded wave stays an ERROR row (audit A-B-M16): dropping it changed the
@@ -68,9 +87,18 @@ def replay(src: pathlib.Path, out: pathlib.Path, *, per_scenario: int, only: set
                 runs.append(run)
                 log(f"{gt['scenario_id']}.{run.get('index')}: ERROR in the recorded run, kept")
                 continue
+            prior = kept.get(run.get("index"))
+            if prior and prior.get("report_written") and _answered(out / run["report"]):
+                runs.append(prior)  # answered on an earlier day: kept, not asked again
+                continue
+            if quota.get("refused", 0) >= quota.get("stop_after", 10**9):
+                runs.append(prior or {**run, "exit_code": 1, "report_written": False,
+                                      "stderr_tail": "not asked: the model's quota refused the calls before it"})
+                continue
             report = json.loads((src / run["report"]).read_text(encoding="utf-8"))
             try:
                 new = rediagnose(report, llm_factory())
+                quota["refused"] = quota.get("refused", 0) + 1 if UNAVAILABLE in new.verdict.policy_ids else 0
                 (out / run["report"]).write_text(new.model_dump_json(indent=2), encoding="utf-8")
                 runs.append({**run, "exit_code": 0, "report_written": True, "stderr_tail": ""})
                 log(f"{gt['scenario_id']}.{run['index']}: {new.proposal.action.value} "

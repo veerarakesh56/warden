@@ -167,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--budget-usd", type=float, default=None,
                    help="a hard ceiling on what this run may spend in total (paid providers; WARDEN_PRICE_IN/OUT must "
                         "be the model's real prices)")
+    p.add_argument("--resume", action="store_true",
+                   help="continue the run in --out: incidents the model answered are kept, only unanswered ones are "
+                        "asked again, and asking stops after 3 refusals in a row - a free tier's day of quota")
     p.add_argument("--pace-s", type=float, default=0.0,
                    help="wait this long before each incident's model calls: a free tier's per-minute quota otherwise "
                         "answers most of the set with 429, which measures the quota, not the model")
@@ -199,8 +202,9 @@ def main(argv: list[str] | None = None) -> int:
             def factory():
                 time.sleep(a.pace_s)
                 return inner()
+        quota = {"stop_after": 3} if a.resume else None
         for name in RUNS:
-            replay(ROOT / "docs" / "bench" / name, out / name, per_scenario=1, only=None,
+            replay(ROOT / "docs" / "bench" / name, out / name, per_scenario=1, only=None, resume=a.resume, quota=quota,
                    **({"llm_factory": factory} if factory else {}))
         result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
                   "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "prompt": prompt_fingerprint()}
