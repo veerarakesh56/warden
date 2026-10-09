@@ -18,6 +18,15 @@ resource "aws_security_group" "runtime" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  # Every egress rule is here, in the group's own blocks: Terraform treats them as the whole list, so a separate
+  # egress rule resource was deleted by the group's next in-place update (the audit became unreachable, 2026-10-09).
+  egress {
+    description     = "PostgreSQL to the audit database"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.audit_db.id]
+  }
   tags = { Project = "warden", Environment = var.environment }
 }
 
@@ -35,13 +44,4 @@ resource "aws_vpc_security_group_ingress_rule" "audit_db_from_runtime" {
   to_port                      = 5432
   ip_protocol                  = "tcp"
   description                  = "PostgreSQL from the WARDEN runtime only"
-}
-
-resource "aws_vpc_security_group_egress_rule" "runtime_to_audit_db" {
-  security_group_id            = aws_security_group.runtime.id
-  referenced_security_group_id = aws_security_group.audit_db.id
-  from_port                    = 5432
-  to_port                      = 5432
-  ip_protocol                  = "tcp"
-  description                  = "PostgreSQL to the audit database"
 }

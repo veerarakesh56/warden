@@ -348,10 +348,15 @@ def test_instances_fall_back_through_a_list_of_types_on_demand_only():
     assert "for_each = var.worker_instance_types" in asg and "launch_template_id = aws_launch_template.instances.id" in asg
 
 
-def test_the_runtime_reaches_out_on_https_and_temporal_clouds_port_only():
+def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_only():
     """Every worker timed out connecting to Temporal Cloud with only 443 open (2026-10-09): its endpoints listen on
-    7233. Out: 443 and 7233, nothing else; in: nothing."""
-    sg = _block((MODULE / "network.tf").read_text(encoding="utf-8"), "aws_security_group", "runtime")
+    7233. Out: 443 and 7233 anywhere, 5432 to the audit database's group, nothing else; in: nothing. Every egress rule
+    sits in the group's own blocks - a separate egress rule resource was deleted by the group's next in-place update,
+    and the audit became unreachable (2026-10-09)."""
+    net = (MODULE / "network.tf").read_text(encoding="utf-8")
+    sg = _block(net, "aws_security_group", "runtime")
     ports = sorted(int(p) for p in re.findall(r"from_port\s*=\s*(\d+)", sg))
-    assert ports == [443, 7233] and re.findall(r"to_port\s*=\s*(\d+)", sg) == ["443", "7233"]
-    assert "ingress" not in sg
+    assert ports == [443, 5432, 7233]
+    assert "security_groups = [aws_security_group.audit_db.id]" in sg and "ingress" not in sg
+    module = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
+    assert "aws_vpc_security_group_egress_rule" not in module
