@@ -375,15 +375,19 @@ def test_the_group_can_grow_to_hold_every_zones_tasks_and_a_rolling_deployment()
     max = workers + 1 the read zone's task waited for a place (2026-10-09). The maximum follows from the tasks."""
     asg = _block((MODULE / "compute.tf").read_text(encoding="utf-8"), "aws_autoscaling_group", "instances")
     assert "max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1" in asg
-    assert "min_size              = var.paused ? 0 : var.worker_instances" in asg
+    assert "min_size              = var.worker_instances" in asg
 
 
 def test_paused_the_runtime_keeps_its_audit_and_stops_its_spend():
     """Between test windows (owner, 2026-10-10): no worker task or instance, no NAT gateway, no alarm intake and no
     self-page for the silent workers; the audit, its key, the secrets, the witness and the anchors are untouched."""
     compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
-    assert "min_size              = var.paused ? 0 : var.worker_instances" in compute
-    assert "desired_count   = var.paused ? 0 : var.worker_instances" in compute
+    # Removed, not scaled: with no task ECS managed scaling never scaled the instances in (2026-10-10).
+    for block in ("aws_autoscaling_group", "aws_ecs_capacity_provider", "aws_ecs_cluster_capacity_providers"):
+        assert "count = var.paused ? 0 : 1" in " ".join(_block(compute, block, "instances" if "cluster_capacity" not in
+                                                                block else "runtime").split()), block
+    assert "for_each = var.paused ? {} : local.zones" in " ".join(compute.split())
+    assert "force_delete = true" in " ".join(_block(compute, "aws_autoscaling_group", "instances").split())
     front = (MODULE / "frontdoor.tf").read_text(encoding="utf-8")
     assert 'state       = var.paused ? "DISABLED" : "ENABLED"' in _block(front, "aws_cloudwatch_event_rule", "alarms")
     beat = (MODULE / "heartbeat.tf").read_text(encoding="utf-8")

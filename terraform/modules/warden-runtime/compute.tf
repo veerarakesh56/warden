@@ -96,13 +96,17 @@ resource "aws_launch_template" "instances" {
   }
 }
 
+# Paused (var.paused), the group, its capacity provider and the services are removed, the instances force-deleted:
+# with no task ECS managed scaling kept CapacityProviderReservation at 100 and never scaled in (2026-10-10).
 resource "aws_autoscaling_group" "instances" {
+  count               = var.paused ? 0 : 1
   name_prefix         = "warden-${var.environment}-"
+  force_delete        = true # its instances carry scale-in protection; removing the group must not wait on them
   vpc_zone_identifier = var.private_subnet_ids
   # Each task has its own network interface (awsvpc), so an instance holds only worker_tasks_per_instance tasks (2 on a
   # large type without ENI trunking): enough instances for every zone's tasks, plus one for a rolling deployment. The
   # capacity provider scales between min and max (2026-10-09: max = workers + 1 left a zone's task pending).
-  min_size              = var.paused ? 0 : var.worker_instances # paused: the capacity provider scales in to none
+  min_size              = var.worker_instances
   max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1
   desired_capacity      = var.worker_instances
   protect_from_scale_in = true
@@ -136,9 +140,10 @@ resource "aws_autoscaling_group" "instances" {
 }
 
 resource "aws_ecs_capacity_provider" "instances" {
-  name = "warden-${var.environment}-ec2"
+  count = var.paused ? 0 : 1
+  name  = "warden-${var.environment}-ec2"
   auto_scaling_group_provider {
-    auto_scaling_group_arn         = aws_autoscaling_group.instances.arn
+    auto_scaling_group_arn         = aws_autoscaling_group.instances[0].arn
     managed_termination_protection = "ENABLED"
     managed_scaling {
       status          = "ENABLED"
@@ -149,10 +154,11 @@ resource "aws_ecs_capacity_provider" "instances" {
 }
 
 resource "aws_ecs_cluster_capacity_providers" "runtime" {
+  count              = var.paused ? 0 : 1
   cluster_name       = aws_ecs_cluster.runtime.name
-  capacity_providers = [aws_ecs_capacity_provider.instances.name]
+  capacity_providers = [aws_ecs_capacity_provider.instances[0].name]
   default_capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.instances.name
+    capacity_provider = aws_ecs_capacity_provider.instances[0].name
     weight            = 1
   }
 }
@@ -224,13 +230,13 @@ resource "aws_ecs_task_definition" "zone" {
 }
 
 resource "aws_ecs_service" "zone" {
-  for_each        = local.zones
+  for_each        = var.paused ? {} : local.zones
   name            = "warden-${var.environment}-${each.key}"
   cluster         = aws_ecs_cluster.runtime.id
   task_definition = aws_ecs_task_definition.zone[each.key].arn
-  desired_count   = var.paused ? 0 : var.worker_instances
+  desired_count   = var.worker_instances
   capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.instances.name
+    capacity_provider = aws_ecs_capacity_provider.instances[0].name
     weight            = 1
   }
   network_configuration {
@@ -249,4 +255,20 @@ resource "aws_ecs_service" "zone" {
   propagate_tags = "SERVICE"
   tags           = { Project = "warden", Environment = var.environment }
   depends_on     = [aws_ecs_cluster_capacity_providers.runtime]
+}
+
+# One instance of each, before the paused switch made them counted (2026-10-10).
+moved {
+  from = aws_autoscaling_group.instances
+  to   = aws_autoscaling_group.instances[0]
+}
+
+moved {
+  from = aws_ecs_capacity_provider.instances
+  to   = aws_ecs_capacity_provider.instances[0]
+}
+
+moved {
+  from = aws_ecs_cluster_capacity_providers.runtime
+  to   = aws_ecs_cluster_capacity_providers.runtime[0]
 }
