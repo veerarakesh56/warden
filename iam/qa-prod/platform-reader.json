@@ -31,6 +31,15 @@
       ]
     },
     {
+      "Sid": "TheEvidenceReadersLogsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "logs:FilterLogEvents",
+      "Resource": [
+        "arn:aws:logs:ap-south-2:*:log-group:/ecs/warden-qa-prod-*",
+        "arn:aws:logs:ap-south-2:*:log-group:/aws/lambda/warden-qa-prod-*"
+      ]
+    },
+    {
       "Sid": "EventSourceMappingsOfThisEnvironmentsFunctions",
       "Effect": "Allow",
       "Action": "lambda:GetEventSourceMapping",
@@ -48,6 +57,7 @@
         "application-autoscaling:DescribeScalableTargets",
         "cloudtrail:LookupEvents",
         "cloudwatch:GetMetricData",
+        "ecs:DescribeTaskDefinition",
         "lambda:GetAccountSettings"
       ],
       "Resource": "*",

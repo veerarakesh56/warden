@@ -69,8 +69,11 @@ def _actions(name: str) -> set[str]:
 
 
 def test_the_reader_role_holds_exactly_the_platforms_reads():
+    """And the evidence reader's (aws_backend.py, held to this role by tests/test_aws_backend.py): the cloud runtime
+    reads each incident in this role, and it held no logs read at all (2026-10-09)."""
     reads, _, _ = _exercise()
-    assert reads == _actions("platform-reader")
+    assert _actions("platform-reader") - reads == {"logs:FilterLogEvents", "ecs:DescribeTaskDefinition"}
+    assert reads <= _actions("platform-reader")
 
 
 def test_the_actor_role_holds_exactly_the_platforms_writes_and_every_session_asks_only_for_them():

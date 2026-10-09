@@ -31,6 +31,15 @@
       ]
     },
     {
+      "Sid": "TheEvidenceReadersLogsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "logs:FilterLogEvents",
+      "Resource": [
+        "arn:aws:logs:${region}:*:log-group:/ecs/warden-${env}-*",
+        "arn:aws:logs:${region}:*:log-group:/aws/lambda/warden-${env}-*"
+      ]
+    },
+    {
       "Sid": "EventSourceMappingsOfThisEnvironmentsFunctions",
       "Effect": "Allow",
       "Action": "lambda:GetEventSourceMapping",
@@ -40,7 +49,7 @@
     {
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
-      "Action": ["application-autoscaling:DescribeScalableTargets", "cloudtrail:LookupEvents", "cloudwatch:GetMetricData", "lambda:GetAccountSettings"],
+      "Action": ["application-autoscaling:DescribeScalableTargets", "cloudtrail:LookupEvents", "cloudwatch:GetMetricData", "ecs:DescribeTaskDefinition", "lambda:GetAccountSettings"],
       "Resource": "*",
       "Condition": {"StringEquals": {"aws:RequestedRegion": "${region}"}}
     }

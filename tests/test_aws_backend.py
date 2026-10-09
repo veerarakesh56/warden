@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 import pathlib
 import re
 from datetime import UTC, datetime, timedelta
@@ -721,3 +722,14 @@ def test_a_failed_or_partial_metric_read_reaches_the_tool_errors():
         {"Id": "m0", "Values": [61.5], "StatusCode": "PartialData"}, {"Id": "m1", "Values": [10.0]}])))
     assert any("cpu_utilization_pct PartialData" in e for e in partial.tool_errors), partial.tool_errors
     assert partial.metrics["cpu_utilization_pct"] == 61.5
+
+
+def test_the_watched_environments_reader_role_grants_every_call_the_code_makes():
+    """In the cloud runtime every read runs in `warden-<env>-platform-reader` (aws_backend._bind): that role must grant
+    each call, or a real incident is read as AccessDenied - the logs read was missing (2026-10-09)."""
+    called = {_iam_action(attr, method) for attr, method in _api_calls()}
+    doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
+    granted = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
+    assert called and called <= granted, sorted(called - granted)
+    logs = next(st for st in doc["Statement"] if st["Action"] == "logs:FilterLogEvents")["Resource"]
+    assert all("warden-${env}-" in r for r in logs)  # this environment's log groups only
