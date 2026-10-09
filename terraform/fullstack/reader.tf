@@ -38,6 +38,7 @@ data "aws_iam_policy_document" "fs_reader" {
     sid    = "ReadOwnStack"
     effect = "Allow"
     actions = [
+      "cloudwatch:DescribeAlarms",
       "dynamodb:DescribeTable",
       "ecs:DescribeServices",
       "elasticache:DescribeReplicationGroups",
@@ -57,6 +58,7 @@ data "aws_iam_policy_document" "fs_reader" {
       "sqs:GetQueueUrl",
     ]
     resources = [
+      "arn:aws:cloudwatch:${local.reader_arn}:alarm:${local.name}-*",
       "arn:aws:dynamodb:${local.reader_arn}:table/${local.name}-*",
       "arn:aws:ecs:${local.reader_arn}:service/${local.name}-*",
       "arn:aws:elasticache:${local.reader_arn}:replicationgroup:${local.name}-*",
@@ -78,7 +80,9 @@ data "aws_iam_policy_document" "fs_reader" {
     sid    = "ReadAnywhere"
     effect = "Allow"
     actions = [
+      "cloudtrail:LookupEvents",
       "cloudwatch:GetMetricData",
+      "cloudwatch:ListMetrics",
       "ec2:DescribeSecurityGroups",
       "ecs:DescribeTaskDefinition",
       "elasticache:DescribeCacheClusters",

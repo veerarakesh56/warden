@@ -150,6 +150,27 @@ def _retag_aws_line(tag: str, line: str) -> str:
     return f"LOG {tag} {_z(_parse_time(stamp))} {message}"
 
 
+# The universal alarm reader (G9-A2a): how many of the resource's other metrics, and CloudTrail's limits.
+SIBLING_METRICS = int(os.environ.get("WARDEN_ALARM_SIBLING_METRICS", "12"))
+CHANGE_NAMES = 3
+CHANGE_MAX = 20
+_READ_VERBS = ("Describe", "Get", "List", "Lookup", "BatchGet", "Head", "Search", "Scan", "Query")
+
+
+def _safe(value) -> str:
+    """An AWS-returned name or code as one token: anything else becomes `_` (no space, no quote, no newline)."""
+    return re.sub(r"[^A-Za-z0-9._:/@=+-]", "_", str(value if value is not None else "-"))[:120] or "-"
+
+
+def _dims(dims: dict[str, str]) -> str:
+    return ",".join(f"{_safe(k)}={_safe(v)}" for k, v in sorted(dims.items())) or "-"
+
+
+def _key(name: str) -> str:
+    """`ApproximateNumberOfMessagesVisible` -> `approximatenumberofmessagesvisible`; a metric key, never text."""
+    return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")[:60] or "metric"
+
+
 def _partial(reader: str, line_or_exc) -> str:
     text = line_or_exc if isinstance(line_or_exc, str) else failure(line_or_exc)
     return f"{PARTIAL_PREFIX}{reader}: {text.removeprefix(PARTIAL_PREFIX)}"
@@ -278,7 +299,7 @@ class StackBackend:
         # Injectable clients/factories so the unit tests need no AWS account, cluster or database.
         clients = dict(clients or {})
         needed = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds",
-                  "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi")
+                  "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail")
         missing = [n for n in needed if n not in clients]
         if missing:
             try:
@@ -320,6 +341,7 @@ class StackBackend:
         self._ec2 = clients["ec2"]
         self._eks = clients["eks"]
         self._pi = clients["pi"]
+        self._ct = clients["cloudtrail"]
         self._sleep = time.sleep
         # AwsBackend over the SAME clients: its logs read also serves the Lambda log groups.
         self._aws = AwsBackend(logs=self._logs, cloudwatch=self._cw, ecs=self._ecs)
@@ -360,6 +382,10 @@ class StackBackend:
         lab = alert.labels
         fns, queues, rules, deps = (_names(alert, k) for k in ("lambda", "sqs", "eventbridge_rule", "deployment"))
         readers: list[tuple[str, object]] = []
+        # Any alarm on any service (G9-A2a): the alarm as CloudWatch defines it, its metric and the resource's others,
+        # and the writes to the resource. The per-service readers below add each service's own state.
+        if lab.get("alarm"):
+            readers.append(("alarm", lambda out: self._read_alarm(out, alert, lab["alarm"])))
         readers += [(f"lambda/{f}", lambda out, f=f: self._read_lambda(out, alert, f, _suffix(f, len(fns) > 1))) for f in fns]
         readers += [(f"sqs/{q}", lambda out, q=q: self._read_sqs(out, alert, q, _suffix(q, len(queues) > 1))) for q in queues]
         if lab.get("dynamodb_table"):
@@ -463,6 +489,61 @@ class StackBackend:
                 got[key] = float(sum(values) if stat == "Sum" else
                                  max(values) / METRIC_PERIOD_S if stat == "Sum/s" else max(values))
         return got
+
+    def _read_alarm(self, out: _Out, alert: Alert, name: str) -> None:
+        """Any alarm, any service (G9-A2a): the alarm exactly as CloudWatch defines it - never its name's or its
+        description's text - its own metric over the window, the resource's other recently active metrics, and the
+        writes to the resource in CloudTrail. Before this an alarm on anything but the named readers' resources read
+        nothing (audit 2026-10-10)."""
+        found = self._cw.describe_alarms(AlarmNames=[name], AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
+        if not found:
+            raise ToolError("no metric alarm by that name (a composite alarm is read through the alarms it names)")
+        a = found[0]
+        ns, metric = a.get("Namespace"), a.get("MetricName")
+        dims = {str(d.get("Name")): str(d.get("Value")) for d in a.get("Dimensions") or []}
+        threshold = (f"threshold {_safe(a.get('ComparisonOperator'))} {a.get('Threshold')} "
+                     f"datapoints={a.get('DatapointsToAlarm') or a.get('EvaluationPeriods')}/{a.get('EvaluationPeriods')} "
+                     f"missing={_safe(a.get('TreatMissingData') or 'missing')} state={_safe(a.get('StateValue'))}")
+        if not (ns and metric):  # metric math: the expression is the owner's text, not read
+            out.lines.append(f"ALARM metric-math {threshold}")
+            self._read_changes(out, alert, {})
+            return
+        stat = a.get("Statistic") or "Maximum"  # an extended statistic (p99) is read as the maximum
+        out.lines.append(f"ALARM {_safe(ns)}/{_safe(metric)} {_dims(dims)} stat={_safe(a.get('Statistic') or a.get('ExtendedStatistic'))} "
+                         f"period={a.get('Period')}s {threshold}")
+        out.metrics.update(self._cw_read(out, "alarm", alert, {f"alarm_{_key(metric)}": (ns, metric, dims, stat)}))
+        listed, _ = _pages(self._cw.list_metrics, "Metrics", token="NextToken", Namespace=ns,
+                           Dimensions=[{"Name": k, "Value": v} for k, v in dims.items()], RecentlyActive="PT3H")
+        others: dict[str, tuple] = {}
+        for m in listed:
+            other = str(m.get("MetricName") or "")
+            same = {str(d.get("Name")): str(d.get("Value")) for d in m.get("Dimensions") or []} == dims
+            if other and other != metric and same and len(others) < SIBLING_METRICS:
+                others[f"{_key(ns.split('/')[-1])}_{_key(other)}"] = (ns, other, dims, "Maximum")
+        out.metrics.update(self._cw_read(out, "alarm-siblings", alert, others))
+        self._read_changes(out, alert, dims)
+
+    def _read_changes(self, out: _Out, alert: Alert, dims: dict[str, str]) -> None:
+        """Writes to the alarm's resource in the RECENT_DEPLOY_WINDOW before the alert (CloudTrail management events;
+        change is the leading cause of outages - research 2026-10-10). A CloudTrail lookup takes one resource name
+        per call and two calls a second per account, so the first CHANGE_NAMES names only."""
+        from .resources import LABEL_KEYS
+
+        started = AwsBackend._started_at(alert)
+        names = sorted({v for k, v in alert.labels.items() if k in LABEL_KEYS and v} | set(dims.values()))
+        for n in names[:CHANGE_NAMES]:
+            try:
+                events, _ = _pages(self._ct.lookup_events, "Events", token="NextToken",
+                                   LookupAttributes=[{"AttributeKey": "ResourceName", "AttributeValue": n}],
+                                   StartTime=started - RECENT_DEPLOY_WINDOW, EndTime=started + timedelta(minutes=5))
+            except Exception as exc:  # noqa: BLE001
+                out.lines.append(_partial("changes", exc))
+                continue
+            writes = [e for e in events if str(e.get("ReadOnly", "")).lower() == "false"
+                      or (e.get("ReadOnly") is None and not str(e.get("EventName", "")).startswith(_READ_VERBS))]
+            for e in writes[:CHANGE_MAX]:
+                out.lines.append(f"CHANGE {_z(e.get('EventTime'))} {_safe(e.get('EventSource'))} "
+                                 f"{_safe(e.get('EventName'))} on {_safe(n)} by {_safe(e.get('Username') or '?')}")
 
     def _served_before(self, fn: str, candidates: list[str], before: datetime) -> str:
         """The version that served the most `live` traffic in the SERVED_LOOKBACK before `before`

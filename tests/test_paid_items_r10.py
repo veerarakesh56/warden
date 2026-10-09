@@ -19,6 +19,9 @@ BILLED = {
     ("_sqs", "get_queue_attributes"): "SQS requests",
     ("_sqs", "get_queue_url"): "SQS requests",
     ("_sns", "list_subscriptions_by_topic"): "SNS requests",
+    # The universal alarm reader (G9-A2a): 1 million CloudWatch API requests a month free, then billed (read 2026-10-10).
+    ("_cw", "list_metrics"): "CloudWatch API requests",
+    ("_cw", "describe_alarms"): "CloudWatch API requests",
 }
 # Control-plane reads AWS does not bill, and the halves of a billed query (results, cancel) the query already pays for.
 FREE = {
@@ -31,6 +34,7 @@ FREE = {
     ("_logs", "filter_log_events"), ("_logs", "get_query_results"), ("_logs", "stop_query"),
     ("_rds", "describe_db_clusters"), ("_rds", "describe_db_instances"), ("_rds", "describe_events"),
     ("_sts", "get_caller_identity"),
+    ("_ct", "lookup_events"),  # CloudTrail event history: free (read 2026-10-10)
 }
 
 

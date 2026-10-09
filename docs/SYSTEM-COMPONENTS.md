@@ -159,6 +159,7 @@ window.
 | RDS Performance Insights (API) | free: 7 days of data and 1M API requests a month (read 2026-10-03) | WARDEN reads `db.load` by wait-event type per Aurora member (R22). Longer retention is CloudWatch Database Insights, paid, not used |
 | CloudWatch metrics and alarms | $0.30 per custom metric-month; $0.10 per standard alarm-month | 10 of each free |
 | CloudWatch GetMetricData | $0.01 per 1,000 metrics requested; no free tier (read 2026-10-03) | every evidence read of a metric; a few dozen per incident |
+| CloudWatch API requests | $0.01 per 1,000 requests after 1 million free a month (read 2026-10-10) | ListMetrics and DescribeAlarms: the universal alarm reader, two per incident (G9-A2a). CloudTrail LookupEvents is free (event history) |
 | SQS requests | $0.40 per 1M (standard queues); first 1M a month free (read 2026-10-03) | the evidence reader's queue reads |
 | SNS requests | $0.50 per 1M API requests; first 1M a month free (read 2026-10-03) | the evidence reader's subscription list |
 | X-Ray | $5 per 1M traces stored; $0.50 per 1M retrieved | 100k stored free |

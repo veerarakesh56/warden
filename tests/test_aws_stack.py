@@ -228,6 +228,7 @@ def _clients(**over):
             {"Protocol": "sqs", "Endpoint": f"arn:aws:sqs:ap-south-2:1:{P}notifications"}]}),
         "events": Fake(describe_rule={"State": "DISABLED", "ScheduleExpression": "rate(5 minutes)"}),
         "sts": Fake(get_caller_identity={"Account": "1"}),
+        "cloudtrail": Fake(lookup_events=lambda **kw: {"Events": []}),
         # ⛔ Every client the backend builds MUST be faked here: a missing one makes StackBackend build
         # a REAL boto3 client inside a unit test (test_no_real_client_is_ever_built guards it).
         "ec2": Fake(describe_security_groups={"SecurityGroups": [{"GroupId": "sg-0redis", "IpPermissions": [
@@ -606,6 +607,7 @@ _CLIENT_PREFIX = {
     "_ddb": "dynamodb", "_ec": "elasticache", "_rds": "rds", "_elb": "elasticloadbalancing",
     "_ec2": "ec2", "_eks": "eks", "_pi": "pi",
     "_apigw": "apigateway", "_sm": "secretsmanager", "_sns": "sns", "_events": "events", "_sts": "sts",
+    "_ct": "cloudtrail",
 }
 _NOT_CLIENTS = {"_aws"}  # the reused AwsBackend; its own calls are collected from aws_backend.py
 # Where the IAM action is not the CamelCase of the boto3 method.
@@ -679,7 +681,7 @@ def test_every_granted_action_is_a_read():
         verb = action.split(":", 1)[1]
         # StartQuery / StopQuery run and cancel a Logs Insights query: IAM's own access level for both is Read.
         assert (action in ("apigateway:GET", "logs:StartQuery", "logs:StopQuery")
-                or verb.startswith(("Describe", "Get", "List", "Filter"))), action
+                or verb.startswith(("Describe", "Get", "List", "Filter", "Lookup"))), action
     for forbidden in ("secretsmanager:GetSecretValue", "s3:GetObject", "ssm:GetParameter"):
         assert not any(a.startswith(forbidden) for a in _granted()), forbidden
 
@@ -797,12 +799,15 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         "elasticache:DescribeCacheClusters", "elasticache:DescribeEvents", "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth", "lambda:ListEventSourceMappings", "rds:DescribeDBInstances",
         "rds:DescribeEvents", "sts:GetCallerIdentity",
+        # The universal alarm reader (G9-A2a): ListMetrics and LookupEvents take no resource.
+        "cloudwatch:ListMetrics", "cloudtrail:LookupEvents",
         # Logs Insights results and cancel name a query id, not a resource: AWS gives them no resource type (R22).
         "logs:GetQueryResults", "logs:StopQuery"}
 
 
 # The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).
 _ARN_FORMATS = {
+    "cloudwatch": ["alarm:{AlarmName}"],  # AWS's Service Reference: arn:aws:cloudwatch:r:a:alarm:{AlarmName}
     "dynamodb": ["table/{TableName}"], "ecs": ["service/{ClusterName}/{ServiceName}"],
     "elasticache": ["replicationgroup:{ReplicationGroupId}"], "eks": ["cluster/{ClusterName}"],
     "events": ["rule/{RuleName}", "rule/{EventBusName}/{RuleName}"], "lambda": ["function:{FunctionName}"],
@@ -818,7 +823,7 @@ def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
     text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
     arns = re.findall(r'"arn:aws:([a-z0-9-]+):\$\{local\.reader_arn\}:([^"]+)"', own)
-    assert len(arns) == 12, arns
+    assert len(arns) == 13, arns  # + the stack's alarms (G9-A2a)
     # Each service once (two log groups), so a grant moved to another service's prefix is caught.
     assert sorted(s for s, _ in arns) == sorted([*_ARN_FORMATS, "logs"]), arns
     for service, resource in arns:
