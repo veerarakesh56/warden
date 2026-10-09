@@ -214,8 +214,9 @@ resource "aws_ecs_task_definition" "zone" {
       # The notify zone posts for real - the only zone that does. chatops.py is dry-run unless this is set, and it is
       # never loaded from SSM; without it every report was dropped silently (2026-10-09).
       each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {},
-      # The read zone gathers the evidence: live AWS, through each watched environment's reader role (aws_backend.py).
-      each.key == "read" ? { WARDEN_BACKEND = "aws" } : {}) :
+      # The read zone gathers the evidence: every resource the alarm names, through each watched environment's reader
+      # role (aws_stack.py, G9-A2b; it reuses aws_backend for ECS).
+      each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}) :
     { name = k, value = v }]
     logConfiguration = {
       logDriver = "awslogs"

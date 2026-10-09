@@ -72,8 +72,11 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
     """And the evidence reader's (aws_backend.py, held to this role by tests/test_aws_backend.py): the cloud runtime
     reads each incident in this role, and it held no logs read at all (2026-10-09)."""
     reads, _, _ = _exercise()
-    assert _actions("platform-reader") - reads == {"logs:FilterLogEvents", "ecs:DescribeTaskDefinition"}
+    from test_aws_stack import _api_calls, _iam_action
+
+    evidence = {_iam_action(a, m) for a, m in _api_calls()}  # the evidence readers' (aws_stack + aws_backend, G9-A2b)
     assert reads <= _actions("platform-reader")
+    assert _actions("platform-reader") - reads <= evidence, sorted(_actions("platform-reader") - reads - evidence)
 
 
 def test_the_actor_role_holds_exactly_the_platforms_writes_and_every_session_asks_only_for_them():

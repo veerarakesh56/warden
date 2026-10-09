@@ -116,9 +116,10 @@ def _in_environment(read: Any) -> Any:
     return wrapper
 
 
-def _reader_clients(session: Any, cfg: Any, template: str) -> Any:
-    """Per (environment, incident): logs, CloudWatch and ECS clients in `warden-<env>-platform-reader`, assumed with the
-    worker's own credentials and the incident as SourceIdentity; kept 10 minutes of the 15-minute session."""
+def _reader_clients(session: Any, cfg: Any, template: str,
+                    services: tuple[str, ...] = ("logs", "cloudwatch", "ecs")) -> Any:
+    """Per (environment, incident): `services`' clients in `warden-<env>-platform-reader`, assumed with the worker's
+    own credentials and the incident as SourceIdentity; kept 10 minutes of the 15-minute session."""
     import boto3
 
     from . import identity
@@ -145,7 +146,7 @@ def _reader_clients(session: Any, cfg: Any, template: str) -> Any:
         except Exception as exc:
             raise ToolError(f"could not read {env}: its reader role was refused ({_one_line(exc)})") from exc
         s = boto3.session.Session(**creds, region_name=session.region_name)
-        made = {n: s.client(n, config=cfg) for n in ("logs", "cloudwatch", "ecs")}
+        made = {n: s.client(n, config=cfg) for n in services}
         with lock:
             held[key] = (time.monotonic() + 600, made)
         return made

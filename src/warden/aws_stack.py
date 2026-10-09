@@ -297,6 +297,7 @@ class StackBackend:
     def __init__(self, *, clients: dict | None = None, k8s_factory=None, db_factory=None,
                  download=None, region: str | None = None) -> None:
         # Injectable clients/factories so the unit tests need no AWS account, cluster or database.
+        own = not clients  # nothing injected: this backend makes its clients (and, in the runtime, per incident)
         clients = dict(clients or {})
         needed = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds",
                   "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail")
@@ -350,17 +351,40 @@ class StackBackend:
         self._download = download or _download
         self._lock = threading.Lock()
         self._snap: tuple[tuple, object] | None = None
+        # The cloud runtime (WARDEN_AWS_ROLE_ARN_TEMPLATE): every incident is read in its own environment's reader
+        # role, `warden-<env>-platform-reader`, under the incident's name - never the worker's own role (G9-A2b).
+        template = os.environ.get("WARDEN_AWS_ROLE_ARN_TEMPLATE", "").strip()
+        self._per_env = None
+        self._bound: dict[int, StackBackend] = {}
+        if template and own:
+            from .aws_backend import _reader_clients
+
+            self._per_env = _reader_clients(session, cfg, template, needed)
 
     # ------------------------------------------------------------------ the contract
 
     def logs(self, alert: Alert) -> list[str]:
-        return self._snapshot(alert).lines
+        return self._incident(alert)._snapshot(alert).lines
 
     def metrics(self, alert: Alert) -> dict[str, float]:
-        return self._snapshot(alert).metrics
+        return self._incident(alert)._snapshot(alert).metrics
 
     def deploys(self, alert: Alert) -> list[dict]:
-        return self._snapshot(alert).deploys
+        return self._incident(alert)._snapshot(alert).deploys
+
+    def _incident(self, alert: Alert) -> StackBackend:
+        """This backend, or - in the cloud runtime - one over the incident's own reader-role clients. An environment
+        the policy does not know, or a refused role, is a ToolError: a failed read, never a read as the worker."""
+        if vars(self).get("_per_env") is None:
+            return self
+        clients = self._per_env(alert.environment, alert.alert_id)
+        with self._lock:
+            bound = self._bound.get(id(clients))
+            if bound is None:
+                bound = StackBackend(clients=clients, k8s_factory=self._k8s_factory, db_factory=self._db_factory,
+                                     download=self._download)
+                self._bound = {id(clients): bound}  # one incident's at a time; the session itself is held 10 min
+        return bound
 
     def _snapshot(self, alert: Alert) -> _Out:
         """Read everything once per alert; the three methods are views of it (note 2).

@@ -5,35 +5,52 @@
       "Sid": "ReadThisEnvironmentsResources",
       "Effect": "Allow",
       "Action": [
+        "cloudwatch:DescribeAlarms",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
         "ecs:DescribeServiceRevisions",
         "ecs:DescribeServices",
         "ecs:ListServiceDeployments",
+        "eks:DescribeCluster",
+        "elasticache:DescribeReplicationGroups",
         "events:DescribeRule",
         "events:ListTagsForResource",
         "lambda:GetAlias",
+        "lambda:GetFunction",
         "lambda:GetFunctionConcurrency",
         "lambda:GetFunctionConfiguration",
         "lambda:ListTags",
         "lambda:ListVersionsByFunction",
         "rds:DescribeDBClusters",
-        "rds:DescribeDBInstances"
+        "rds:DescribeDBInstances",
+        "secretsmanager:DescribeSecret",
+        "sns:ListSubscriptionsByTopic",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
       ],
       "Resource": [
+        "arn:aws:cloudwatch:${region}:*:alarm:warden-${env}-*",
         "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
-        "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
         "arn:aws:ecs:${region}:*:service-revision/warden-${env}-*/*/*",
+        "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
+        "arn:aws:eks:${region}:*:cluster/warden-${env}-*",
+        "arn:aws:elasticache:${region}:*:replicationgroup:warden-${env}-*",
         "arn:aws:events:${region}:*:rule/warden-${env}-*",
         "arn:aws:lambda:${region}:*:function:warden-${env}-*",
         "arn:aws:rds:${region}:*:cluster:warden-${env}-*",
-        "arn:aws:rds:${region}:*:db:warden-${env}-*"
+        "arn:aws:rds:${region}:*:db:warden-${env}-*",
+        "arn:aws:secretsmanager:${region}:*:secret:warden-${env}-*",
+        "arn:aws:sns:${region}:*:warden-${env}-*",
+        "arn:aws:sqs:${region}:*:warden-${env}-*"
       ]
     },
     {
       "Sid": "TheEvidenceReadersLogsOfThisEnvironment",
       "Effect": "Allow",
-      "Action": "logs:FilterLogEvents",
+      "Action": [
+        "logs:FilterLogEvents",
+        "logs:StartQuery"
+      ],
       "Resource": [
         "arn:aws:logs:${region}:*:log-group:/ecs/warden-${env}-*",
         "arn:aws:logs:${region}:*:log-group:/aws/lambda/warden-${env}-*"
@@ -44,14 +61,41 @@
       "Effect": "Allow",
       "Action": "lambda:GetEventSourceMapping",
       "Resource": "arn:aws:lambda:${region}:*:event-source-mapping:*",
-      "Condition": {"ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:${region}:*:function:warden-${env}-*"}}
+      "Condition": {
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:${region}:*:function:warden-${env}-*"
+        }
+      }
     },
     {
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
-      "Action": ["application-autoscaling:DescribeScalableTargets", "cloudtrail:LookupEvents", "cloudwatch:GetMetricData", "ecs:DescribeTaskDefinition", "lambda:GetAccountSettings"],
+      "Action": [
+        "apigateway:GET",
+        "application-autoscaling:DescribeScalableTargets",
+        "cloudtrail:LookupEvents",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "ec2:DescribeSecurityGroups",
+        "ecs:DescribeTaskDefinition",
+        "elasticache:DescribeCacheClusters",
+        "elasticache:DescribeEvents",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "lambda:GetAccountSettings",
+        "lambda:ListEventSourceMappings",
+        "logs:GetQueryResults",
+        "logs:StopQuery",
+        "pi:GetResourceMetrics",
+        "rds:DescribeEvents",
+        "sts:GetCallerIdentity"
+      ],
       "Resource": "*",
-      "Condition": {"StringEquals": {"aws:RequestedRegion": "${region}"}}
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
     }
   ]
 }

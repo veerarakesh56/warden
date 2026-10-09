@@ -5,35 +5,52 @@
       "Sid": "ReadThisEnvironmentsResources",
       "Effect": "Allow",
       "Action": [
+        "cloudwatch:DescribeAlarms",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
         "ecs:DescribeServiceRevisions",
         "ecs:DescribeServices",
         "ecs:ListServiceDeployments",
+        "eks:DescribeCluster",
+        "elasticache:DescribeReplicationGroups",
         "events:DescribeRule",
         "events:ListTagsForResource",
         "lambda:GetAlias",
+        "lambda:GetFunction",
         "lambda:GetFunctionConcurrency",
         "lambda:GetFunctionConfiguration",
         "lambda:ListTags",
         "lambda:ListVersionsByFunction",
         "rds:DescribeDBClusters",
-        "rds:DescribeDBInstances"
+        "rds:DescribeDBInstances",
+        "secretsmanager:DescribeSecret",
+        "sns:ListSubscriptionsByTopic",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
       ],
       "Resource": [
+        "arn:aws:cloudwatch:ap-south-2:*:alarm:warden-staging-*",
         "arn:aws:dynamodb:ap-south-2:*:table/warden-staging-*",
-        "arn:aws:ecs:ap-south-2:*:service/warden-staging-*/*",
         "arn:aws:ecs:ap-south-2:*:service-revision/warden-staging-*/*/*",
+        "arn:aws:ecs:ap-south-2:*:service/warden-staging-*/*",
+        "arn:aws:eks:ap-south-2:*:cluster/warden-staging-*",
+        "arn:aws:elasticache:ap-south-2:*:replicationgroup:warden-staging-*",
         "arn:aws:events:ap-south-2:*:rule/warden-staging-*",
         "arn:aws:lambda:ap-south-2:*:function:warden-staging-*",
         "arn:aws:rds:ap-south-2:*:cluster:warden-staging-*",
-        "arn:aws:rds:ap-south-2:*:db:warden-staging-*"
+        "arn:aws:rds:ap-south-2:*:db:warden-staging-*",
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-staging-*",
+        "arn:aws:sns:ap-south-2:*:warden-staging-*",
+        "arn:aws:sqs:ap-south-2:*:warden-staging-*"
       ]
     },
     {
       "Sid": "TheEvidenceReadersLogsOfThisEnvironment",
       "Effect": "Allow",
-      "Action": "logs:FilterLogEvents",
+      "Action": [
+        "logs:FilterLogEvents",
+        "logs:StartQuery"
+      ],
       "Resource": [
         "arn:aws:logs:ap-south-2:*:log-group:/ecs/warden-staging-*",
         "arn:aws:logs:ap-south-2:*:log-group:/aws/lambda/warden-staging-*"
@@ -54,11 +71,24 @@
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
       "Action": [
+        "apigateway:GET",
         "application-autoscaling:DescribeScalableTargets",
         "cloudtrail:LookupEvents",
         "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "ec2:DescribeSecurityGroups",
         "ecs:DescribeTaskDefinition",
-        "lambda:GetAccountSettings"
+        "elasticache:DescribeCacheClusters",
+        "elasticache:DescribeEvents",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "lambda:GetAccountSettings",
+        "lambda:ListEventSourceMappings",
+        "logs:GetQueryResults",
+        "logs:StopQuery",
+        "pi:GetResourceMetrics",
+        "rds:DescribeEvents",
+        "sts:GetCallerIdentity"
       ],
       "Resource": "*",
       "Condition": {

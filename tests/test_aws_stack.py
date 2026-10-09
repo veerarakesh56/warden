@@ -609,7 +609,8 @@ _CLIENT_PREFIX = {
     "_apigw": "apigateway", "_sm": "secretsmanager", "_sns": "sns", "_events": "events", "_sts": "sts",
     "_ct": "cloudtrail",
 }
-_NOT_CLIENTS = {"_aws"}  # the reused AwsBackend; its own calls are collected from aws_backend.py
+_NOT_CLIENTS = {"_aws", "_bound"}  # the reused AwsBackend (its calls are collected from aws_backend.py); the
+# per-incident backends of the cloud runtime (G9-A2b), whose calls are this module's own
 # Where the IAM action is not the CamelCase of the boto3 method.
 _ACTION_OVERRIDES = {
     ("_rds", "describe_db_clusters"): "rds:DescribeDBClusters",
@@ -933,3 +934,14 @@ def test_a_fault_flags_value_never_reaches_the_evidence():
 
     for fault, (name, _baseline, value) in FLAGS.items():
         assert aws_stack._env_items({name: value}) == [name], (fault, name)
+
+
+def test_the_watched_environments_reader_role_grants_every_call_the_stack_backend_makes():
+    """G9-A2b (2026-10-10): the cloud runtime's read zone runs this backend in `warden-<env>-platform-reader`; a call the
+    role does not grant is an AccessDenied found during a real incident."""
+    import json
+
+    called = {_iam_action(a, m) for a, m in _api_calls()}
+    doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
+    granted = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
+    assert called <= granted, sorted(called - granted)

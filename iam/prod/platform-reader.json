@@ -5,35 +5,52 @@
       "Sid": "ReadThisEnvironmentsResources",
       "Effect": "Allow",
       "Action": [
+        "cloudwatch:DescribeAlarms",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
         "ecs:DescribeServiceRevisions",
         "ecs:DescribeServices",
         "ecs:ListServiceDeployments",
+        "eks:DescribeCluster",
+        "elasticache:DescribeReplicationGroups",
         "events:DescribeRule",
         "events:ListTagsForResource",
         "lambda:GetAlias",
+        "lambda:GetFunction",
         "lambda:GetFunctionConcurrency",
         "lambda:GetFunctionConfiguration",
         "lambda:ListTags",
         "lambda:ListVersionsByFunction",
         "rds:DescribeDBClusters",
-        "rds:DescribeDBInstances"
+        "rds:DescribeDBInstances",
+        "secretsmanager:DescribeSecret",
+        "sns:ListSubscriptionsByTopic",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
       ],
       "Resource": [
+        "arn:aws:cloudwatch:ap-south-2:*:alarm:warden-prod-*",
         "arn:aws:dynamodb:ap-south-2:*:table/warden-prod-*",
-        "arn:aws:ecs:ap-south-2:*:service/warden-prod-*/*",
         "arn:aws:ecs:ap-south-2:*:service-revision/warden-prod-*/*/*",
+        "arn:aws:ecs:ap-south-2:*:service/warden-prod-*/*",
+        "arn:aws:eks:ap-south-2:*:cluster/warden-prod-*",
+        "arn:aws:elasticache:ap-south-2:*:replicationgroup:warden-prod-*",
         "arn:aws:events:ap-south-2:*:rule/warden-prod-*",
         "arn:aws:lambda:ap-south-2:*:function:warden-prod-*",
         "arn:aws:rds:ap-south-2:*:cluster:warden-prod-*",
-        "arn:aws:rds:ap-south-2:*:db:warden-prod-*"
+        "arn:aws:rds:ap-south-2:*:db:warden-prod-*",
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-prod-*",
+        "arn:aws:sns:ap-south-2:*:warden-prod-*",
+        "arn:aws:sqs:ap-south-2:*:warden-prod-*"
       ]
     },
     {
       "Sid": "TheEvidenceReadersLogsOfThisEnvironment",
       "Effect": "Allow",
-      "Action": "logs:FilterLogEvents",
+      "Action": [
+        "logs:FilterLogEvents",
+        "logs:StartQuery"
+      ],
       "Resource": [
         "arn:aws:logs:ap-south-2:*:log-group:/ecs/warden-prod-*",
         "arn:aws:logs:ap-south-2:*:log-group:/aws/lambda/warden-prod-*"
@@ -54,11 +71,24 @@
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
       "Action": [
+        "apigateway:GET",
         "application-autoscaling:DescribeScalableTargets",
         "cloudtrail:LookupEvents",
         "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "ec2:DescribeSecurityGroups",
         "ecs:DescribeTaskDefinition",
-        "lambda:GetAccountSettings"
+        "elasticache:DescribeCacheClusters",
+        "elasticache:DescribeEvents",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "lambda:GetAccountSettings",
+        "lambda:ListEventSourceMappings",
+        "logs:GetQueryResults",
+        "logs:StopQuery",
+        "pi:GetResourceMetrics",
+        "rds:DescribeEvents",
+        "sts:GetCallerIdentity"
       ],
       "Resource": "*",
       "Condition": {

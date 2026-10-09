@@ -731,5 +731,5 @@ def test_the_watched_environments_reader_role_grants_every_call_the_code_makes()
     doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
     granted = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
     assert called and called <= granted, sorted(called - granted)
-    logs = next(st for st in doc["Statement"] if st["Action"] == "logs:FilterLogEvents")["Resource"]
+    logs = next(st for st in doc["Statement"] if "logs:FilterLogEvents" in st["Action"])["Resource"]
     assert all("warden-${env}-" in r for r in logs)  # this environment's log groups only

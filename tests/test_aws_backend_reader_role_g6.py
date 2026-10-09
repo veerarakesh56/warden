@@ -92,7 +92,7 @@ def test_a_bound_incidents_clients_are_its_threads_own():
 def test_only_the_read_zone_reads_live_aws():
     compute = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert compute.count("WARDEN_BACKEND") == 1
-    assert 'each.key == "read" ? { WARDEN_BACKEND = "aws" } : {}' in compute
+    assert 'each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}' in compute
     assert "WARDEN_AWS_ROLE_ARN_TEMPLATE = " in compute
 
 
