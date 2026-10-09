@@ -39,4 +39,4 @@ jobs:
       # every integration file run): a change to a deploy or shared workflow triggers only this scan.
       - name: Workflow structure tests
         run: |
-          pytest tests/test_ci_lanes.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_helios_gate_r56.py tests/test_runtime_pipeline_s9.py tests/test_runtime_iam_g6.py -q -rs
+          pytest tests/test_ci_lanes.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_terraform_versions.py tests/test_helios_gate_r56.py tests/test_runtime_pipeline_s9.py tests/test_runtime_iam_g6.py tests/test_base_image_mirror.py -q -rs

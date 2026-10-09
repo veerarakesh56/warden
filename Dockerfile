@@ -3,7 +3,7 @@
 FROM ghcr.io/astral-sh/uv:0.12.21@sha256:a7aed3216253ee804de3e2d8afa5073baa1a177335345d43845cd4165e43b711 AS uv
 # Two stages: the source is copied and installed in `build`; the image is the installed package only - a COPY
 # layer keeps every file it copied even if a later RUN deletes it (seventh review, 2026-10-01).
-FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
+FROM public.ecr.aws/docker/library/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/warden \
     UV_PYTHON_DOWNLOADS=never \
@@ -29,7 +29,7 @@ RUN uv sync --locked --no-editable --extra k8s --extra anthropic
 COPY scripts/check_package.py ./
 RUN /opt/warden/bin/python check_package.py "$(/opt/warden/bin/python -c 'import os, warden; print(os.path.dirname(warden.__file__))')"
 
-FROM python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+FROM public.ecr.aws/docker/library/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
