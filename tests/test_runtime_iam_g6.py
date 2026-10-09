@@ -102,3 +102,11 @@ def test_the_ecs_cluster_is_one_the_boundary_lets_its_services_into():
     assert 'name = "warden-${var.environment}-runtime"' in compute
     cluster = _sid(_load("boundary"), "DenyOtherClusters")["Condition"]["ArnNotLike"]["ecs:cluster"]
     assert fnmatch.fnmatchcase(f"arn:aws:ecs:r:0:cluster/warden-{RUNTIME}-runtime", cluster)
+
+
+def test_an_address_comes_off_its_aws_managed_interface_and_nothing_more():
+    """A NAT gateway's network interface is AWS-managed and untagged, so the tag-conditioned DisassociateAddress was
+    refused and pausing the runtime stopped half-way (2026-10-10). The interface side is allowed for that action only."""
+    st = _sid(_load("deploy-ec2"), "AnAddressOffItsAwsManagedInterface")
+    assert st["Action"] == "ec2:DisassociateAddress" and "Condition" not in st
+    assert st["Resource"] == f"arn:aws:ec2:{r.names(RUNTIME).region}:*:network-interface/*"

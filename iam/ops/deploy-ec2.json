@@ -63,6 +63,12 @@
       }
     },
     {
+      "Sid": "AnAddressOffItsAwsManagedInterface",
+      "Effect": "Allow",
+      "Action": "ec2:DisassociateAddress",
+      "Resource": "arn:aws:ec2:ap-south-2:*:network-interface/*"
+    },
+    {
       "Sid": "RulesOfOwnGroups",
       "Effect": "Allow",
       "Action": [
