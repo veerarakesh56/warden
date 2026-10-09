@@ -8,13 +8,15 @@ name: "Runtime · ops"
 #          with cosign (keyless: this workflow's own GitHub identity) and attest how it was built (register S9).
 #   plan / apply: verify that signature and attestation, then plan or apply terraform/runtime with that digest -
 #          an image this workflow did not build and sign is never deployed.
+#   restart: a fresh deployment of every zone's service, no image and no plan - after a secret is set or rotated (a
+#          worker reads its secrets when it starts).
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: "image only, or image then plan / apply the runtime"
+        description: "image only, or image then plan / apply the runtime; restart: redeploy the zone services"
         type: choice
-        options: [image, plan, apply]
+        options: [image, plan, apply, restart]
         default: image
 
 permissions:
@@ -26,6 +28,7 @@ concurrency:
 
 jobs:
   image:
+    if: inputs.action != 'restart'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ops
@@ -95,7 +98,7 @@ jobs:
           push-to-registry: true
 
   deploy:
-    if: inputs.action != 'image'
+    if: inputs.action != 'image' && inputs.action != 'restart'
     needs: image
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -167,3 +170,38 @@ jobs:
             echo "::error::the migrate Lambda failed: $(cat "$RUNNER_TEMP/migrate.json")"
             exit 1
           fi
+
+  restart:
+    if: inputs.action == 'restart'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ops
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Runtime deploys run from main only
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::the runtime is built and deployed from main only"
+          exit 1
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+          mask-aws-account-id: true
+      # The same task definitions, started again: each worker reads its secrets at start. Fails unless every
+      # service is stable again - a worker that cannot start is reported here, not found later.
+      - name: A fresh deployment of every zone's service
+        run: |
+          cluster=warden-ops-runtime
+          services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
+          test -n "$services" || { echo "::error::no services in $cluster: apply first"; exit 1; }
+          for svc in $services; do
+            aws ecs update-service --cluster "$cluster" --service "$svc" --force-new-deployment \
+              --query service.serviceName --output text
+          done
+          # shellcheck disable=SC2086
+          aws ecs wait services-stable --cluster "$cluster" --services $services
+          echo "every zone's service is stable"

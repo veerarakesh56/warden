@@ -11,7 +11,7 @@ import re
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FLOW = (ROOT / ".github" / "workflows" / "runtime.yml").read_text(encoding="utf-8")
 IMAGE_JOB = FLOW[FLOW.index("\n  image:"):FLOW.index("\n  deploy:")]
-DEPLOY_JOB = FLOW[FLOW.index("\n  deploy:"):]
+DEPLOY_JOB = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
 
 
 def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
@@ -55,7 +55,19 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
 def test_the_pipeline_is_by_hand_into_ops_only():
     on = FLOW[FLOW.index("\non:"):FLOW.index("\npermissions:")]
     assert "workflow_dispatch" in on and "push" not in on and "pull_request" not in on
-    assert FLOW.count("environment: ops") == 2
+    assert FLOW.count("environment: ops") == 3
+
+
+def test_restart_redeploys_the_zone_services_without_an_image_or_a_plan():
+    """After a secret is set or rotated the workers must start again (they read secrets at start; 2026-10-09 every
+    service had stopped retrying before its secrets were set). restart builds nothing and plans nothing."""
+    restart = FLOW[FLOW.index("\n  restart:"):]
+    assert "if: inputs.action == 'restart'" in restart
+    assert "if: inputs.action != 'restart'" in IMAGE_JOB
+    assert "if: inputs.action != 'image' && inputs.action != 'restart'" in DEPLOY_JOB
+    assert "--force-new-deployment" in restart and "aws ecs wait services-stable" in restart
+    assert restart.index("Runtime deploys run from main only") < restart.index("configure-aws-credentials")
+    assert "terraform" not in restart and "docker" not in restart
 
 
 def test_the_runtime_root_reads_every_per_install_value_from_ssm():
