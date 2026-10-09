@@ -33,8 +33,8 @@ bar:
 # used (19 correct), hashes to this same value. A prompt change fails tests/test_prompt_pin_e6.py until the model is
 # qualified again with it and this pin is updated in the same commit.
 prompt:
-  sha: e0f6ecb0140ddd4038cd111f521172c600e49c1cc5542f563cb17c55b4db078e
-  pinned: "2026-10-10"  # G9-B: the investigation loop's need_evidence instruction (previous: 03300eac..., 2026-10-03)
+  sha: 36210f27c8ca9feaa430cad3b78c9f04e902a716b8b815319d10c02b106cdf66
+  pinned: "2026-10-10"  # G9-C: richer typed facts in the rendered evidence (G9-B: e0f6ecb0...; before it 03300eac...)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):
 #   model                escalated  acted right  escalated a right fix  escalated rightly  stopped wrong  acted wrongly
@@ -49,9 +49,10 @@ slo:
   max_escalated: 25
   acted_wrongly: 0
 qualified:
-  # Claude Sonnet 5 on the Claude API, on the G9-B prompt (2026-10-10, $0.55; McNemar against its 2026-10-09 run on the
-  # previous prompt - 20/30 - is one incident either way, chance). The cloud runtime's model.
-  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-09T22:46Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
+  # Claude Sonnet 5 on the Claude API, on the G9-C evidence (2026-10-10, $0.64 with one unanswered incident re-run):
+  # 21/30, every incident answered. Before: 19/30 on G9-B, 20/30 on the 2026-10-09 prompt - within chance of each
+  # other (McNemar). The cloud runtime's model.
+  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-09T23:08Z", "correct": 21, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
 # Measured on the PREVIOUS prompt (03300eac..., 2026-10-03) and so no longer qualified until measured again on this one
 # (the Claude Max CLI, the local development backend; free):
 #  {"provider": "claude_cli", "model": "claude-fable-5-1", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:16Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}
