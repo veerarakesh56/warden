@@ -71,24 +71,53 @@
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
       "Action": [
+        "acm:DescribeCertificate",
         "apigateway:GET",
         "application-autoscaling:DescribeScalableTargets",
+        "apprunner:ListServices",
+        "appsync:GetGraphqlApi",
+        "athena:GetWorkGroup",
+        "autoscaling:DescribeAutoScalingGroups",
         "cloudtrail:LookupEvents",
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
+        "cognito-idp:DescribeUserPool",
+        "ec2:DescribeInstanceStatus",
+        "ec2:DescribeNatGateways",
         "ec2:DescribeSecurityGroups",
+        "ec2:DescribeTransitGateways",
+        "ec2:DescribeVolumes",
         "ecs:DescribeTaskDefinition",
         "elasticache:DescribeCacheClusters",
         "elasticache:DescribeEvents",
+        "elasticache:DescribeServerlessCaches",
+        "elasticfilesystem:DescribeFileSystems",
+        "elasticloadbalancing:DescribeInstanceHealth",
+        "elasticloadbalancing:DescribeLoadBalancers",
         "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth",
+        "elasticmapreduce:DescribeCluster",
+        "es:DescribeDomain",
+        "firehose:DescribeDeliveryStream",
+        "fsx:DescribeFileSystems",
+        "glue:GetJobRuns",
+        "kafka:ListClustersV2",
+        "kinesis:DescribeStreamSummary",
+        "kms:DescribeKey",
         "lambda:GetAccountSettings",
         "lambda:ListEventSourceMappings",
         "logs:GetQueryResults",
         "logs:StopQuery",
+        "memorydb:DescribeClusters",
+        "mq:ListBrokers",
         "pi:GetResourceMetrics",
         "rds:DescribeEvents",
-        "sts:GetCallerIdentity"
+        "redshift:DescribeClusters",
+        "s3:GetBucketVersioning",
+        "scheduler:GetScheduleGroup",
+        "states:DescribeStateMachine",
+        "sts:GetCallerIdentity",
+        "synthetics:GetCanary"
       ],
       "Resource": "*",
       "Condition": {
@@ -96,6 +125,15 @@
           "aws:RequestedRegion": "ap-south-2"
         }
       }
+    },
+    {
+      "Sid": "GlobalServicesState",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:GetDistribution",
+        "route53:GetHealthCheckStatus"
+      ],
+      "Resource": "*"
     }
   ]
 }

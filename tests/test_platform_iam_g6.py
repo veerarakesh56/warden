@@ -73,8 +73,10 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
     reads each incident in this role, and it held no logs read at all (2026-10-09)."""
     reads, _, _ = _exercise()
     from test_aws_stack import _api_calls, _iam_action
+    from warden import aws_describe
 
-    evidence = {_iam_action(a, m) for a, m in _api_calls()}  # the evidence readers' (aws_stack + aws_backend, G9-A2b)
+    # The evidence readers' (aws_stack + aws_backend, G9-A2b) and the state table's (aws_describe, G9-A2c).
+    evidence = {_iam_action(a, m) for a, m in _api_calls()} | {d.action for d in aws_describe.TABLE.values()}
     assert reads <= _actions("platform-reader")
     assert _actions("platform-reader") - reads <= evidence, sorted(_actions("platform-reader") - reads - evidence)
 

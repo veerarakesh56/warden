@@ -30,7 +30,7 @@ UNTRUSTED_KINDS = frozenset("LEA")  # A: the alert rule's own summary (register 
 # untrusted by default. A log writer cannot forge one: every backend prefixes application text with
 # `LOG <tag>`, a lowercase pod/container name, or an engine name, so no such line starts with these.
 _CONFIG = re.compile(r"^(?:CONFIG|ESM|QUEUE|TABLE|REPLGROUP|SG|CLUSTER|TARGETGROUP|"
-                     r"TARGET|APPSG|TASKROLE|SECRET|POLICY|RULE|ROLLOUT|ALARM|CHANGE) ")
+                     r"TARGET|APPSG|TASKROLE|SECRET|POLICY|RULE|ROLLOUT|ALARM|CHANGE|STATE) ")
 # ⛔ Audit A-C-3: `LOG k8s/<anything> <KIND>` used to be trusted for every KIND, and `\S+` let a
 # CloudWatch stream named "k8s/x CONFIG ..." (spaces allowed, chosen by any task role) forge a C
 # item. The only trusted line aws_stack._read_k8s emits under that prefix is kubernetes_backend's
@@ -101,6 +101,14 @@ READ_OPERATIONS = frozenset({
     "ListEventSourceMappings", "ListSubscriptionsByTopic", "ListVersionsByFunction", "GetCallerIdentity",
     # The universal alarm reader (aws_stack._read_alarm, G9-A2a).
     "DescribeAlarms", "ListMetrics", "LookupEvents",
+    # The state table (aws_describe.py, G9-A2c): each method's own operation.
+    "DescribeServerlessCaches", "DescribeStreamSummary", "DescribeDeliveryStream", "ListClustersV2",
+    "DescribeStateMachine", "GetScheduleGroup", "ListBrokers", "GetApi", "GetRestApis", "GetGraphqlApi",
+    "DescribeLoadBalancers", "DescribeInstanceHealth", "GetDistribution", "GetHealthCheckStatus",
+    "GetBucketVersioning", "DescribeNatGateways", "DescribeTransitGateways", "DescribeInstanceStatus",
+    "DescribeAutoScalingGroups", "DescribeVolumes", "DescribeFileSystems", "DescribeDomain", "DescribeClusters",
+    "DescribeUserPool", "ListServices", "GetJobRuns", "GetWorkGroup", "DescribeKey",
+    "DescribeCertificate", "GetCanary",
 })
 # Steering words looked for with the separators removed: STEER needs a non-letter on each side, so
 # `ignoreallpreviousinstructions` passed it (review 2026-09-28).

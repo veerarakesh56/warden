@@ -116,6 +116,20 @@ def _in_environment(read: Any) -> Any:
     return wrapper
 
 
+class _LazyClients(dict):
+    """boto3 clients made when first used: the stack backend reads up to forty services, and an incident needs a few."""
+
+    def __init__(self, session: Any, cfg: Any, services: tuple[str, ...] = ()) -> None:
+        super().__init__()
+        self.session, self.cfg = session, cfg  # public names: the client-call scans read self._<client> as a call
+        for n in services:
+            self[n] = session.client(n, config=cfg)
+
+    def __missing__(self, name: str) -> Any:
+        self[name] = self.session.client(name, config=self.cfg)
+        return self[name]
+
+
 def _reader_clients(session: Any, cfg: Any, template: str,
                     services: tuple[str, ...] = ("logs", "cloudwatch", "ecs")) -> Any:
     """Per (environment, incident): `services`' clients in `warden-<env>-platform-reader`, assumed with the worker's
@@ -146,7 +160,7 @@ def _reader_clients(session: Any, cfg: Any, template: str,
         except Exception as exc:
             raise ToolError(f"could not read {env}: its reader role was refused ({_one_line(exc)})") from exc
         s = boto3.session.Session(**creds, region_name=session.region_name)
-        made = {n: s.client(n, config=cfg) for n in services}
+        made = _LazyClients(s, cfg, services)
         with lock:
             held[key] = (time.monotonic() + 600, made)
         return made

@@ -283,7 +283,8 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   `mcp_server.py`. CommonMark parsing for the outbound gate: `markdown-it-py` - `gate.py`.
 - AWS, Kubernetes and database reads: boto3, the Kubernetes client and the database drivers - `aws_backend.py`,
   `aws_stack.py`, `k8s_backend.py`, `database.py`, `tools.py`. What an alarm watches: CloudWatch's own documented
-  namespaces and dimensions, one table - `resources.py` (G9-A1; checked against AWS's metric pages 2026-10-10).
+  namespaces and dimensions, one table - `resources.py` (G9-A1; checked against AWS's metric pages 2026-10-10). The state of
+  each service's resource: one closed table of read calls and AWS's own structured fields - `aws_describe.py` (G9-A2c).
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.

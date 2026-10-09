@@ -317,7 +317,10 @@ class StackBackend:
             )
             region = region or os.environ.get("WARDEN_AWS_REGION") or None
             try:
+                from .aws_backend import _LazyClients
+
                 session = boto3.session.Session(region_name=region)
+                clients = _LazyClients(session, cfg) if own else clients
                 for n in missing:
                     clients[n] = session.client(n, config=cfg)
             except Exception as exc:
@@ -343,6 +346,8 @@ class StackBackend:
         self._eks = clients["eks"]
         self._pi = clients["pi"]
         self._ct = clients["cloudtrail"]
+        self._clients = clients  # every other service's client, made when an alarm names one (aws_describe.py)
+        self._account_id = ""
         self._sleep = time.sleep
         # AwsBackend over the SAME clients: its logs read also serves the Lambda log groups.
         self._aws = AwsBackend(logs=self._logs, cloudwatch=self._cw, ecs=self._ecs)
@@ -410,6 +415,11 @@ class StackBackend:
         # and the writes to the resource. The per-service readers below add each service's own state.
         if lab.get("alarm"):
             readers.append(("alarm", lambda out: self._read_alarm(out, alert, lab["alarm"])))
+        # The state of any other main service's resource the alarm names (G9-A2c): one closed table of reads.
+        from . import aws_describe
+
+        readers += [(key.replace("_", "-"), lambda out, key=key: self._read_state(out, key, lab[key]))
+                    for key in aws_describe.TABLE if lab.get(key)]
         readers += [(f"lambda/{f}", lambda out, f=f: self._read_lambda(out, alert, f, _suffix(f, len(fns) > 1))) for f in fns]
         readers += [(f"sqs/{q}", lambda out, q=q: self._read_sqs(out, alert, q, _suffix(q, len(queues) > 1))) for q in queues]
         if lab.get("dynamodb_table"):
@@ -546,6 +556,19 @@ class StackBackend:
                 others[f"{_key(ns.split('/')[-1])}_{_key(other)}"] = (ns, other, dims, "Maximum")
         out.metrics.update(self._cw_read(out, "alarm-siblings", alert, others))
         self._read_changes(out, alert, dims)
+
+    def _read_state(self, out: _Out, key: str, name: str) -> None:
+        from . import aws_describe
+
+        d = aws_describe.TABLE[key]
+        if d.service not in self._clients and not hasattr(self._clients, "__missing__"):
+            raise ToolError(f"no {d.service} client")
+        out.lines.append(aws_describe.read(key, name, self._clients[d.service], self._account, self._cw.meta.region_name))
+
+    def _account(self) -> str:
+        if not self._account_id:
+            self._account_id = str(self._sts.get_caller_identity()["Account"])
+        return self._account_id
 
     def _read_changes(self, out: _Out, alert: Alert, dims: dict[str, str]) -> None:
         """Writes to the alarm's resource in the RECENT_DEPLOY_WINDOW before the alert (CloudTrail management events;
