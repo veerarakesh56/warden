@@ -201,7 +201,10 @@ resource "aws_ecs_task_definition" "zone" {
       WARDEN_AUDIT_DSN             = local.audit_dsn
       WARDEN_AUDIT_IAM_AUTH        = "1"
       # The model, for the llm zone only (the only zone that calls one); never loaded from SSM (settings.py).
-      }, each.key == "llm" && var.model_provider != "" ? { WARDEN_PROVIDER = var.model_provider, WARDEN_MODEL = var.model } : {}) :
+      }, each.key == "llm" && var.model_provider != "" ? { WARDEN_PROVIDER = var.model_provider, WARDEN_MODEL = var.model } : {},
+      # The notify zone posts for real - the only zone that does. chatops.py is dry-run unless this is set, and it is
+      # never loaded from SSM; without it every report was dropped silently (2026-10-09).
+      each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {}) :
     { name = k, value = v }]
     logConfiguration = {
       logDriver = "awslogs"

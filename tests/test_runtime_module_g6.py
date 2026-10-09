@@ -360,3 +360,11 @@ def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_onl
     assert "security_groups = [aws_security_group.audit_db.id]" in sg and "ingress" not in sg
     module = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
     assert "aws_vpc_security_group_egress_rule" not in module
+
+
+def test_only_the_notify_zone_posts_for_real():
+    """chatops.py is dry-run unless WARDEN_CHATOPS_LIVE=1, which is never loaded from SSM: the runtime's first
+    incident ran end to end and its report was dropped silently (2026-10-09). The notify zone - and no other - has it."""
+    compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
+    assert compute.count("WARDEN_CHATOPS_LIVE") == 1
+    assert 'each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {}' in compute
