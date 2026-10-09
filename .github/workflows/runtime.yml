@@ -163,6 +163,12 @@ jobs:
       - name: the audit's schema and writer login
         if: env.ACTION == 'apply'
         run: |
+          # Paused (SSM tf/paused = true) there is no way out of the VPC - the Lambda cannot reach Secrets Manager -
+          # and nothing writes to the audit; the schema is checked at the next resume.
+          if [ "$(aws ssm get-parameter --name /warden/ops/tf/paused --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
+            echo "paused: the audit's schema is checked at the next resume"
+            exit 0
+          fi
           fn=$(terraform -chdir=terraform/runtime output -json runtime | jq -r .migrate_function)
           aws lambda invoke --function-name "$fn" --cli-binary-format raw-in-base64-out --payload '{}' \
             --query FunctionError --output text "$RUNNER_TEMP/migrate.json" > "$RUNNER_TEMP/migrate.err"

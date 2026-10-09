@@ -49,6 +49,8 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     # After an apply, the audit's schema and writer login, from inside the VPC; a failure fails the deploy.
     assert DEPLOY_JOB.index("apply -input=false") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert '!= "None" ]; then' in DEPLOY_JOB
+    # Paused there is no way out of the VPC: the migrate step is skipped, and only then (2026-10-10).
+    assert '--name /warden/ops/tf/paused' in DEPLOY_JOB and DEPLOY_JOB.index("tf/paused") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert DEPLOY_JOB.index("Runtime deploys run from main only") < DEPLOY_JOB.index("configure-aws-credentials")
 
 
