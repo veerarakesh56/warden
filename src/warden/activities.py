@@ -609,6 +609,9 @@ class EvidencePack(BaseModel):
     prompt: str
     masked: int
     steps: list[dict[str, Any]] = Field(default_factory=list)
+    # The evidence source the read side used. The report names it, and it is rendered in another zone, whose own
+    # WARDEN_BACKEND is unset: live reads were labelled "a recorded demo incident (fixture)" (2026-10-09).
+    backend: str = "fixture"
 
 
 class Diagnosed(BaseModel):
@@ -658,6 +661,7 @@ class IncidentActivities:
         prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
         self._record(alert.alert_id, steps)
         return EvidencePack(alert=state["alert"], context=state["context"], prompt=prompt,
+                            backend=str(getattr(self.backend, "name", None) or "fixture"),
                             redacted_logs=state.get("redacted_logs", []),
                             redacted_deploys=state.get("redacted_deploys", []),
                             masked=len(state.get("redaction_map", {})), steps=steps)
@@ -756,7 +760,8 @@ class IncidentActivities:
         self.audit.checkpoint()
         head = self.audit.head(alert_id)
         report = build_report(pack.alert, root_cause=diagnosed.root_cause, proposal=diagnosed.proposal,
-                              verdict=verified.verdict, context=pack.context, show_identifiers=False)
+                              verdict=verified.verdict, context=pack.context, show_identifiers=False,
+                              backend=pack.backend)
         footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it with "
                   f"`warden audit show {alert_id}`. WARDEN never asks for an approval in chat: approvals are signed "
                   "out of band.")

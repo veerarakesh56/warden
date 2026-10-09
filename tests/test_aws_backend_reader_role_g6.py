@@ -111,3 +111,37 @@ def test_every_read_binds_the_incident_first(monkeypatch):
     for name in ("logs", "metrics", "deploys"):
         with pytest.raises(_Bound):
             getattr(b, name)("the-alert")
+
+
+def test_the_report_names_the_source_the_read_side_used_not_the_rendering_zones():
+    """The report is rendered in the notify zone, which has no WARDEN_BACKEND: live reads were labelled "a recorded demo
+    incident (fixture)". The read side records its backend in the evidence pack, and notify passes it on."""
+    import inspect
+
+    from warden import activities
+
+    assert activities.EvidencePack.model_fields["backend"].default == "fixture"
+    prepare = inspect.getsource(activities.IncidentActivities.prepare)
+    notify = inspect.getsource(activities.IncidentActivities.notify)
+    assert 'backend=str(getattr(self.backend, "name", None) or "fixture")' in prepare
+    assert "backend=pack.backend)" in notify
+    from warden.models import Alert
+    from warden.reporting import _sources
+
+    alert = Alert(alert_id="a1", name="x", service="checkout", environment="dev", severity="high",
+                  started_at="2026-10-09T18:50:39Z", summary="s")
+    assert "fixture" not in " ".join(_sources(alert, "aws")).lower()
+
+
+def test_the_session_is_named_inc_alert_id_which_the_reader_roles_trust():
+    session = _Session()
+    aws_backend._reader_clients(session, None, TEMPLATE)("dev", "9ea51c0d74dcb9d6-20261009T185039Z")
+    (call,) = session.sts.calls
+    assert call["SourceIdentity"] == "inc-9ea51c0d74dcb9d6-20261009T185039Z"
+    import json
+
+    trust = json.loads((ROOT / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
+    import fnmatch
+
+    allowed = trust["Statement"][0]["Condition"]["StringLike"]["sts:SourceIdentity"]
+    assert any(fnmatch.fnmatchcase(call["SourceIdentity"], p) for p in allowed)

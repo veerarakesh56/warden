@@ -132,7 +132,9 @@ def _reader_clients(session: Any, cfg: Any, template: str) -> Any:
     def clients(env: str, incident: str) -> dict[str, Any]:
         if env not in known:
             raise ToolError(f"{env!r} is not a configured environment: nothing was read")
-        key = (env, incident[:64])
+        # The watched environments' reader roles trust SourceIdentity inc-* only (iam/templates/platform-reader-
+        # trust.json): the bare alert id was refused (2026-10-09). One correlation id, `inc-<alert id>`.
+        key = (env, (incident if incident.startswith("inc-") else f"inc-{incident}")[:64])
         with lock:
             hit = held.get(key)
             if hit and hit[0] > time.monotonic():
