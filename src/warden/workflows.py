@@ -20,7 +20,13 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError, is_cancelled_exception
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    WorkflowAlreadyStartedError,
+    is_cancelled_exception,
+)
+from temporalio.workflow import ParentClosePolicy
 
 with workflow.unsafe.imports_passed_through():
     from .activities import (
@@ -53,7 +59,8 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # the rest - the audit's own steps and the workflows - run on the main queue (the core zone). A workflow on the main
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
-ZONES = {"read": ("prepare", "investigate", "resolve_plan", "precheck", "check_success"), "llm": ("diagnose",),
+ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success"),
+         "llm": ("diagnose",),
          "notify": ("notify", "announce", "finish"), "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
@@ -367,6 +374,21 @@ class IncidentWorkflow:
                 await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify), args=[pack, diagnosed, verified], **NOTIFY)
             except ActivityError:
                 pass
+        # G9-D1: a proposal the verifier passed for a person opens its fix plan - a RemediationWorkflow that waits for
+        # a signed human approval, as one requested through MCP does. Its own workflow, abandoned by this one: the plan
+        # outlives the incident's run. Patched: histories recorded before it replay unchanged.
+        if workflow.patched("g9-plan-fix") and not diagnosed.model_unavailable and verified.verdict.status.value == "approved_for_human":
+            try:
+                req = await workflow.execute_activity_method(acts.plan_fix, **_zoned(acts.plan_fix),
+                                                             args=[pack, diagnosed, verified], **QUICK)
+            except ActivityError:
+                req = {}
+            if req:
+                wid = req.pop("workflow_id")
+                with contextlib.suppress(WorkflowAlreadyStartedError):  # one open plan per resource (C3)
+                    await workflow.start_child_workflow(
+                        RemediationWorkflow.run, FixRequest.model_validate(req), id=wid,
+                        task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
             # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).

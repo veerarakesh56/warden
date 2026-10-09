@@ -717,6 +717,35 @@ class IncidentActivities:
                          need_evidence=list(state.get("need_evidence") or []))
 
     @activity.defn
+    def plan_fix(self, pack: EvidencePack, diagnosed: Diagnosed, verified: Verified) -> dict[str, Any]:
+        """The fix plan request for a proposal the verifier passed for a person (G9-D1), or {} and why, audited. In
+        the read zone: the reference parameters come from the platform's live read, in the environment's reader role
+        (resolver.py). The RemediationWorkflow it opens still waits for a signed human approval."""
+        from . import resolver
+        from .models import VerdictStatus
+
+        alert_id = pack.alert.alert_id
+        why, req = "", None
+        if verified.verdict.status != VerdictStatus.approved_for_human:
+            why = f"the verdict is {verified.verdict.status.value}"
+        elif self.platform is None:
+            why = "this worker reads no platform"
+        else:
+            def live(entry: str, params: dict[str, Any]) -> dict[str, Any]:
+                return self.platform.live(entry, params, **_env(self.platform.live, pack.alert.environment))
+
+            try:
+                req, why = resolver.request_for(pack.alert, diagnosed.proposal, live)
+            except Exception as exc:  # noqa: BLE001 - a failed live read plans nothing; the person was told
+                req, why = None, f"the live read failed ({type(exc).__name__})"
+        if req:
+            req["workflow_id"] = resolver.workflow_id(req)
+        self.audit.append(alert_id, "incident.plan_fix", {
+            "run_id": _run_id(), "planned": bool(req), "why": why,
+            **({"entry": req["entry"], "params": req["params"], "workflow_id": req["workflow_id"]} if req else {})})
+        return req or {}
+
+    @activity.defn
     def investigate(self, pack: EvidencePack, requests: list[dict[str, str]]) -> EvidencePack:
         """The resources the model asked to read (G9-B), added to the alert's and read again as one evidence pack -
         one read, one redaction map. Only a name the alert's labels or a trusted, structured evidence item already
