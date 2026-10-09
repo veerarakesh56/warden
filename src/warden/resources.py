@@ -13,6 +13,7 @@ says what was not read.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 
 Labels = dict[str, str]
@@ -156,7 +157,7 @@ NAMESPACES: dict[str, Callable[[Mapping[str, str]], Labels]] = {
     "AWS/MemoryDB": _one("memorydb", "ClusterName"),
     "AWS/SQS": _one("sqs", "QueueName"),
     "AWS/SNS": _one("sns_topic", "TopicName"),
-    "AWS/AmazonMQ": _one("mq_broker", "Broker"),
+    "AWS/AmazonMQ": _one("mq_broker", "Broker", fn=lambda v: re.sub(r"-[12]$", "", v)),  # ActiveMQ: <broker>-1/-2
     "AWS/Events": _one("eventbridge_rule", "RuleName"),
     "AWS/Scheduler": _one("schedule_group", "ScheduleGroup"),
     "AWS/States": _one("state_machine", "StateMachineArn", fn=_arn_name),

@@ -34,7 +34,7 @@ class Describe:
     path: str                         # where the resource sits in the response (a dict, or a list to pick from)
     fields: tuple[str, ...]           # AWS's structured fields only, dotted
     match: str = ""                   # in a list: the field that must equal the label value (else the first item)
-
+    token: tuple[str, str] = ("", "")  # a paged list: (request parameter, response key) of the next page
 
 def _arg(name: str) -> Callable[[str, Callable[[], str], str], dict]:
     return lambda v, account, region: {name: v}
@@ -82,7 +82,7 @@ TABLE: dict[str, Describe] = {
                             "ClusterInfoList", ("State", "ClusterType", "CurrentVersion",
                                                 "Provisioned.NumberOfBrokerNodes",
                                                 "Provisioned.BrokerNodeGroupInfo.InstanceType"),
-                            match="ClusterName"),
+                            match="ClusterName", token=("NextToken", "NextToken")),
     "state_machine": Describe("stepfunctions", "describe_state_machine", "states:DescribeStateMachine",
                               lambda v, account, region: {
                                   "stateMachineArn": f"arn:aws:states:{region}:{account()}:stateMachine:{v}"},
@@ -90,12 +90,13 @@ TABLE: dict[str, Describe] = {
     "schedule_group": Describe("scheduler", "get_schedule_group", "scheduler:GetScheduleGroup", _arg("Name"), "",
                                ("State",)),
     "mq_broker": Describe("mq", "list_brokers", "mq:ListBrokers", _none, "BrokerSummaries",
-                          ("BrokerState", "DeploymentMode", "EngineType", "HostInstanceType"), match="BrokerName"),
+                          ("BrokerState", "DeploymentMode", "EngineType", "HostInstanceType"), match="BrokerName",
+                          token=("NextToken", "NextToken")),
     "apigw_id": Describe("apigatewayv2", "get_api", "apigateway:GET", _arg("ApiId"), "",
                          ("ProtocolType", "DisableExecuteApiEndpoint", "ApiGatewayManaged")),
     "apigw_rest": Describe("apigateway", "get_rest_apis", "apigateway:GET", _none, "items",
                            ("endpointConfiguration.types", "apiKeySource", "disableExecuteApiEndpoint"),
-                           match="name"),
+                           match="name", token=("position", "position")),
     "appsync": Describe("appsync", "get_graphql_api", "appsync:GetGraphqlApi", _arg("apiId"), "graphqlApi",
                         ("authenticationType", "xrayEnabled", "logConfig.fieldLogLevel", "apiType")),
     "load_balancer": Describe("elbv2", "describe_load_balancers", "elasticloadbalancing:DescribeLoadBalancers",
@@ -107,11 +108,6 @@ TABLE: dict[str, Describe] = {
                                   "HealthyThresholdCount", "UnhealthyThresholdCount", "LoadBalancerArns")),
     "clb": Describe("elb", "describe_instance_health", "elasticloadbalancing:DescribeInstanceHealth",
                     _arg("LoadBalancerName"), "", ("InstanceStates",)),
-    "cloudfront": Describe("cloudfront", "get_distribution", "cloudfront:GetDistribution", _arg("Id"), "Distribution",
-                           ("Status", "DistributionConfig.Enabled", "DistributionConfig.Origins.Quantity",
-                            "DistributionConfig.HttpVersion", "DistributionConfig.PriceClass", "LastModifiedTime")),
-    "route53_health_check": Describe("route53", "get_health_check_status", "route53:GetHealthCheckStatus",
-                                     _arg("HealthCheckId"), "", ("HealthCheckObservations",)),
     "s3_bucket": Describe("s3", "get_bucket_versioning", "s3:GetBucketVersioning", _arg("Bucket"), "",
                           ("Status", "MFADelete")),
     "nat_gateway": Describe("ec2", "describe_nat_gateways", "ec2:DescribeNatGateways", _list_arg("NatGatewayIds"),
@@ -130,8 +126,6 @@ TABLE: dict[str, Describe] = {
     "efs": Describe("efs", "describe_file_systems", "elasticfilesystem:DescribeFileSystems", _arg("FileSystemId"),
                     "FileSystems", ("LifeCycleState", "ThroughputMode", "PerformanceMode", "SizeInBytes.Value",
                                     "NumberOfMountTargets")),
-    "fsx": Describe("fsx", "describe_file_systems", "fsx:DescribeFileSystems", _list_arg("FileSystemIds"),
-                    "FileSystems", ("Lifecycle", "FileSystemType", "StorageCapacity", "StorageType")),
     "opensearch": Describe("opensearch", "describe_domain", "es:DescribeDomain", _arg("DomainName"), "DomainStatus",
                            ("Processing", "UpgradeProcessing", "EngineVersion", "ClusterConfig.InstanceType",
                             "ClusterConfig.InstanceCount", "ClusterConfig.DedicatedMasterEnabled",
@@ -143,7 +137,7 @@ TABLE: dict[str, Describe] = {
                                   _arg("UserPoolId"), "UserPool",
                                   ("Status", "EstimatedNumberOfUsers", "MfaConfiguration", "UserPoolTier")),
     "apprunner": Describe("apprunner", "list_services", "apprunner:ListServices", _none, "ServiceSummaryList",
-                          ("Status", "UpdatedAt"), match="ServiceName"),
+                          ("Status", "UpdatedAt"), match="ServiceName", token=("NextToken", "NextToken")),
     "glue_job": Describe("glue", "get_job_runs", "glue:GetJobRuns", lambda v, account, region: {"JobName": v,
                                                                                              "MaxResults": 10},
                          "", ("JobRuns",)),
@@ -192,7 +186,7 @@ def _value(v: Any) -> str:
             return "+".join(_safe(x) for x in v)
         return str(len(v))
     if isinstance(v, Mapping):
-        return "+".join(sorted(str(k) for k in v)) or "none"
+        return "+".join(sorted(_safe(k) for k in v)) or "none"
     return _safe(v)
 
 
@@ -215,4 +209,20 @@ def state_line(key: str, name: str, response: Mapping[str, Any]) -> str:
 def read(key: str, name: str, client: Any, account: Callable[[], str], region: str) -> str:
     """One resource's state line: the table's one read call, its allowlisted fields."""
     d = TABLE[key]
-    return state_line(key, name, getattr(client, d.method)(**d.params(name, account, region)))
+    params = d.params(name, account, region)
+    call = getattr(client, d.method)
+    if not d.token[0]:
+        return state_line(key, name, call(**params))
+    for _ in range(LIST_PAGES):  # a list that pages: until the resource is found (L6)
+        page = call(**params)
+        try:
+            return state_line(key, name, page)
+        except LookupError:
+            nxt = page.get(d.token[1])
+            if not nxt:
+                raise
+            params = {**params, d.token[0]: nxt}
+    raise LookupError(f"no {key} named in the first {LIST_PAGES} pages")
+
+
+LIST_PAGES = 10

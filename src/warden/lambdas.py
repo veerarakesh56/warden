@@ -26,7 +26,7 @@ from typing import Any
 
 from . import resources
 from .intake import AlarmEvent
-from .models import NAME_PATTERN, Alert, Severity
+from .models import NAME_PATTERN, RESOURCE_LABELS, Alert, Severity
 
 _CONFIGURED: set[str] = set()
 
@@ -74,7 +74,11 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
         source="alarm", rule=name, state=str(state.get("value")), transitioned_at=when,
         alert=Alert(alert_id="cw", name=name[:512], severity=Severity.high, service=service, environment=environment,
                     summary=str((detail.get("configuration") or {}).get("description") or "")[:4000],
-                    started_at=when.isoformat(), labels={"alarm": name, **dims, **resources.labels_for(metrics)}))
+                    started_at=when.isoformat(),
+                    # The alarm label last, and raw dimension names never a resource label: a dimension named
+                    # `alarm` or `log_group` chose what was read (independent review 2026-10-10, L4).
+                    labels={**{k: v for k, v in dims.items() if k not in RESOURCE_LABELS and k != "alarm"},
+                            **resources.labels_for(metrics), "alarm": name}))
 
 
 def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:

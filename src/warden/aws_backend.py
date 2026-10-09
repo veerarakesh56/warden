@@ -122,12 +122,15 @@ class _LazyClients(dict):
     def __init__(self, session: Any, cfg: Any, services: tuple[str, ...] = ()) -> None:
         super().__init__()
         self.session, self.cfg = session, cfg  # public names: the client-call scans read self._<client> as a call
+        self.lock = threading.Lock()  # readers run in parallel threads, and a boto3 session is not thread-safe
         for n in services:
             self[n] = session.client(n, config=cfg)
 
     def __missing__(self, name: str) -> Any:
-        self[name] = self.session.client(name, config=self.cfg)
-        return self[name]
+        with self.lock:
+            if name not in self:
+                self[name] = self.session.client(name, config=self.cfg)
+            return dict.__getitem__(self, name)
 
 
 def _reader_clients(session: Any, cfg: Any, template: str,
@@ -162,7 +165,10 @@ def _reader_clients(session: Any, cfg: Any, template: str,
         s = boto3.session.Session(**creds, region_name=session.region_name)
         made = _LazyClients(s, cfg, services)
         with lock:
-            held[key] = (time.monotonic() + 600, made)
+            now = time.monotonic()
+            for k in [k for k, (until, _) in held.items() if until <= now]:  # an expired session is let go (M7)
+                del held[k]
+            held[key] = (now + 600, made)
         return made
 
     return clients

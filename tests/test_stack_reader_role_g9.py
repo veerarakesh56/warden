@@ -66,3 +66,33 @@ def test_injected_clients_are_never_rebound_and_the_read_zone_runs_the_stack_bac
     assert b._per_env is None and b._incident(_alert()) is b
     compute = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert 'each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}' in compute
+
+
+def test_a_service_past_the_first_eighteen_gets_its_client_through_the_real_reader_role_path(monkeypatch):
+    """Independent review 2026-10-10, H1: the per-incident clients were copied into a plain dict, so every state-table
+    service past the eighteen made up front read "no client" in the cloud. Through the real path, end to end."""
+    import boto3
+
+    from warden import aws_backend, identity
+
+    made = []
+
+    class _Session:
+        region_name = "r1"
+
+        def __init__(self, **kw):
+            pass
+
+        def client(self, name, config=None):
+            made.append(name)
+            return type(name, (), {"meta": type("M", (), {"region_name": "r1"})()})()
+
+    monkeypatch.setattr(boto3.session, "Session", _Session)
+    monkeypatch.setattr(identity, "reader_session", lambda sts, **kw: {})
+    template = "arn:aws:iam::" + "0" * 12 + ":role/warden-{env}-{role}"
+    clients = aws_backend._reader_clients(_Session(), None, template, NEEDED)("dev", "a1")
+    b = StackBackend(clients=clients)
+    assert b._clients is clients  # kept as given, still making clients on first use
+    assert "kinesis" not in made
+    b._clients["kinesis"]
+    assert made.count("kinesis") == 1

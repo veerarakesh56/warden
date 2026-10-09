@@ -155,6 +155,44 @@ SIBLING_METRICS = int(os.environ.get("WARDEN_ALARM_SIBLING_METRICS", "12"))
 CHANGE_NAMES = 3
 CHANGE_MAX = 20
 _READ_VERBS = ("Describe", "Get", "List", "Lookup", "BatchGet", "Head", "Search", "Scan", "Query")
+CHANGE_PAGES = 5
+# Labels that qualify a resource rather than name one: never looked up as a CloudTrail resource name.
+_NOT_RESOURCES = frozenset({"lambda_qualifier", "apigw_stage", "namespace", "quota_service", "quota_resource"})
+
+
+def _a_write(e: dict) -> bool:
+    """A write that happened: read-only events and attempts that failed or were denied are not changes (an attempt
+    is anyone's to make - independent review 2026-10-10, M2)."""
+    try:
+        detail = json.loads(e.get("CloudTrailEvent") or "{}")
+    except ValueError:
+        detail = {}
+    if detail.get("errorCode"):
+        return False
+    ro = e.get("ReadOnly")
+    if ro is None:
+        ro = detail.get("readOnly")
+    if ro is None:
+        return not str(e.get("EventName", "")).startswith(_READ_VERBS)
+    return str(ro).lower() == "false"
+
+
+def _principal(e: dict) -> str:
+    """Who made a change, by KIND and an administrator-set name (a role's or an IAM user's), never the caller-chosen
+    session name or an SSO e-mail (independent review 2026-10-10, M1)."""
+    try:
+        who = json.loads(e.get("CloudTrailEvent") or "{}").get("userIdentity") or {}
+    except ValueError:
+        who = {}
+    kind = _safe(who.get("type") or "unknown")
+    if kind == "AssumedRole":
+        role = ((who.get("sessionContext") or {}).get("sessionIssuer") or {}).get("userName")
+        return f"role/{_safe(role)}" if role else "role"
+    if kind == "IAMUser":
+        return f"user/{_safe(who.get('userName'))}" if who.get("userName") else "user"
+    if kind == "AWSService":
+        return f"service/{_safe(who.get('invokedBy'))}" if who.get("invokedBy") else "service"
+    return kind
 
 
 def _safe(value) -> str:
@@ -298,7 +336,9 @@ class StackBackend:
                  download=None, region: str | None = None) -> None:
         # Injectable clients/factories so the unit tests need no AWS account, cluster or database.
         own = not clients  # nothing injected: this backend makes its clients (and, in the runtime, per incident)
-        clients = dict(clients or {})
+        # A mapping that makes clients on first use is kept as given: copied into a plain dict, every service past
+        # the first eighteen read "no client" in the cloud (independent review 2026-10-10, H1).
+        clients = clients if hasattr(clients, "__missing__") else dict(clients or {})
         needed = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds",
                   "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail")
         missing = [n for n in needed if n not in clients]
@@ -360,7 +400,7 @@ class StackBackend:
         # role, `warden-<env>-platform-reader`, under the incident's name - never the worker's own role (G9-A2b).
         template = os.environ.get("WARDEN_AWS_ROLE_ARN_TEMPLATE", "").strip()
         self._per_env = None
-        self._bound: dict[int, StackBackend] = {}
+        self._bound: dict[tuple[str, str], tuple[float, StackBackend]] = {}
         if template and own:
             from .aws_backend import _reader_clients
 
@@ -383,13 +423,17 @@ class StackBackend:
         if vars(self).get("_per_env") is None:
             return self
         clients = self._per_env(alert.environment, alert.alert_id)
+        key = (alert.environment, alert.alert_id)  # never id(): a recycled id would hand one incident another's
         with self._lock:
-            bound = self._bound.get(id(clients))
-            if bound is None:
-                bound = StackBackend(clients=clients, k8s_factory=self._k8s_factory, db_factory=self._db_factory,
-                                     download=self._download)
-                self._bound = {id(clients): bound}  # one incident's at a time; the session itself is held 10 min
-        return bound
+            now = time.monotonic()
+            for k in [k for k, (until, _) in self._bound.items() if until <= now]:
+                del self._bound[k]
+            hit = self._bound.get(key)
+            if hit is None or hit[1]._clients is not clients:  # a renewed session: a backend over the new clients
+                hit = (now + 600, StackBackend(clients=clients, k8s_factory=self._k8s_factory,
+                                               db_factory=self._db_factory, download=self._download))
+                self._bound[key] = hit
+        return hit[1]
 
     def _snapshot(self, alert: Alert) -> _Out:
         """Read everything once per alert; the three methods are views of it (note 2).
@@ -542,10 +586,18 @@ class StackBackend:
             out.lines.append(f"ALARM metric-math {threshold}")
             self._read_changes(out, alert, {})
             return
-        stat = a.get("Statistic") or "Maximum"  # an extended statistic (p99) is read as the maximum
-        out.lines.append(f"ALARM {_safe(ns)}/{_safe(metric)} {_dims(dims)} stat={_safe(a.get('Statistic') or a.get('ExtendedStatistic'))} "
+        stat = a.get("Statistic") or a.get("ExtendedStatistic") or "Maximum"
+        out.lines.append(f"ALARM {_safe(ns)}/{_safe(metric)} {_dims(dims)} stat={_safe(stat)} "
                          f"period={a.get('Period')}s {threshold}")
-        out.metrics.update(self._cw_read(out, "alarm", alert, {f"alarm_{_key(metric)}": (ns, metric, dims, stat)}))
+        # Metric KEYS are trusted evidence ids' names (M items): only AWS's own namespaces' metric names become keys.
+        # A custom namespace is the application's - anyone who can publish a metric, a log line in CloudWatch's
+        # embedded metric format included, names it (independent review 2026-10-10, H2).
+        aws_owned = str(ns).startswith("AWS/")
+        out.metrics.update(self._cw_read(out, "alarm", alert, {
+            (f"alarm_{_key(metric)}" if aws_owned else "alarm_value"): (ns, metric, dims, stat)}))
+        if not aws_owned:
+            self._read_changes(out, alert, dims)
+            return
         listed, _ = _pages(self._cw.list_metrics, "Metrics", token="NextToken", Namespace=ns,
                            Dimensions=[{"Name": k, "Value": v} for k, v in dims.items()], RecentlyActive="PT3H")
         others: dict[str, tuple] = {}
@@ -553,7 +605,7 @@ class StackBackend:
             other = str(m.get("MetricName") or "")
             same = {str(d.get("Name")): str(d.get("Value")) for d in m.get("Dimensions") or []} == dims
             if other and other != metric and same and len(others) < SIBLING_METRICS:
-                others[f"{_key(ns.split('/')[-1])}_{_key(other)}"] = (ns, other, dims, "Maximum")
+                others[f"alarm_sibling_{_key(ns.split('/')[-1])}_{_key(other)}"] = (ns, other, dims, "Maximum")
         out.metrics.update(self._cw_read(out, "alarm-siblings", alert, others))
         self._read_changes(out, alert, dims)
 
@@ -577,20 +629,37 @@ class StackBackend:
         from .resources import LABEL_KEYS
 
         started = AwsBackend._started_at(alert)
-        names = sorted({v for k, v in alert.labels.items() if k in LABEL_KEYS and v} | set(dims.values()))
-        for n in names[:CHANGE_NAMES]:
-            try:
-                events, _ = _pages(self._ct.lookup_events, "Events", token="NextToken",
-                                   LookupAttributes=[{"AttributeKey": "ResourceName", "AttributeValue": n}],
-                                   StartTime=started - RECENT_DEPLOY_WINDOW, EndTime=started + timedelta(minutes=5))
-            except Exception as exc:  # noqa: BLE001
-                out.lines.append(_partial("changes", exc))
-                continue
-            writes = [e for e in events if str(e.get("ReadOnly", "")).lower() == "false"
-                      or (e.get("ReadOnly") is None and not str(e.get("EventName", "")).startswith(_READ_VERBS))]
+        # The alarm's resources first (their labels), never generic dimension values (`default`, a stage name).
+        names = [v for k, v in sorted(alert.labels.items()) if k in LABEL_KEYS and k not in _NOT_RESOURCES and v]
+        names += [v for v in dims.values() if v not in names] if not names else []
+        for n in list(dict.fromkeys(names))[:CHANGE_NAMES]:
+            events, broke, truncated = [], None, False
+            kwargs = {"LookupAttributes": [{"AttributeKey": "ResourceName", "AttributeValue": n}],
+                      "StartTime": started - RECENT_DEPLOY_WINDOW, "EndTime": started + timedelta(minutes=5)}
+            for page in range(CHANGE_PAGES + 1):
+                if page == CHANGE_PAGES:
+                    truncated = True
+                    break
+                try:
+                    got = self._ct.lookup_events(**kwargs)
+                except Exception as exc:  # noqa: BLE001 - CloudTrail allows 2 lookups a second; keep what was read
+                    broke = exc
+                    break
+                events += got.get("Events") or []
+                if not got.get("NextToken"):
+                    break
+                kwargs["NextToken"] = got["NextToken"]
+            writes = [e for e in events if _a_write(e)]
             for e in writes[:CHANGE_MAX]:
                 out.lines.append(f"CHANGE {_z(e.get('EventTime'))} {_safe(e.get('EventSource'))} "
-                                 f"{_safe(e.get('EventName'))} on {_safe(n)} by {_safe(e.get('Username') or '?')}")
+                                 f"{_safe(e.get('EventName'))} on {_safe(n)} by {_principal(e)}")
+            if broke is not None:
+                out.lines.append(_partial("changes", broke))
+            elif truncated or len(writes) > CHANGE_MAX:
+                out.lines.append(_partial("changes", f"more writes to {_safe(n)} than were read"))
+            elif not writes:
+                out.lines.append(f"CHANGE none on {_safe(n)} in the {int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h "
+                                 "before the alert")
 
     def _served_before(self, fn: str, candidates: list[str], before: datetime) -> str:
         """The version that served the most `live` traffic in the SERVED_LOOKBACK before `before`

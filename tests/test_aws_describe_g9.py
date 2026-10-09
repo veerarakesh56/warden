@@ -70,11 +70,31 @@ def test_every_entry_is_one_read_and_the_reader_role_grants_it():
         assert never not in granted, never
 
 
-def test_global_services_reads_are_not_region_locked_and_everything_else_is():
+# Actions AWS lets a policy scope to a resource, by its name (warden-<env>-*) or, for ID-named resources, by its
+# Environment tag. In one account a grant of these on "*" let the dev reader read prod (independent review, H4).
+_SCOPABLE = {"kinesis:DescribeStreamSummary", "firehose:DescribeDeliveryStream", "states:DescribeStateMachine",
+             "scheduler:GetScheduleGroup", "glue:GetJobRuns", "athena:GetWorkGroup", "memorydb:DescribeClusters",
+             "es:DescribeDomain", "synthetics:GetCanary", "s3:GetBucketVersioning", "elasticache:DescribeServerlessCaches",
+             "elasticache:DescribeCacheClusters", "redshift:DescribeClusters", "acm:DescribeCertificate",
+             "appsync:GetGraphqlApi", "cognito-idp:DescribeUserPool", "elasticfilesystem:DescribeFileSystems",
+             "elasticmapreduce:DescribeCluster", "kms:DescribeKey", "apigateway:GET"}
+
+
+def test_no_scopable_read_is_granted_on_everything():
     doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
+    for s in doc["Statement"]:
+        actions = {s["Action"]} if isinstance(s["Action"], str) else set(s["Action"])
+        if s["Effect"] == "Allow" and s["Resource"] == "*":
+            loose = actions & _SCOPABLE
+            assert not loose or s["Condition"]["StringEquals"]["aws:ResourceTag/Environment"] == "${env}", (s["Sid"], loose)
     st = {s["Sid"]: s for s in doc["Statement"]}
-    assert st["GlobalServicesState"]["Action"] == ["cloudfront:GetDistribution", "route53:GetHealthCheckStatus"]
-    assert st["ReadsThatNameNoResource"]["Condition"] == {"StringEquals": {"aws:RequestedRegion": "${region}"}}
+    # API Gateway: the two listings only, and never a key value (H3).
+    assert st["TheApiListingsOnly"]["Resource"] == ["arn:aws:apigateway:${region}::/restapis",
+                                                   "arn:aws:apigateway:${region}::/apis",
+                                                   "arn:aws:apigateway:${region}::/apis/*"]
+    assert st["NeverApiKeys"] == {"Sid": "NeverApiKeys", "Effect": "Deny", "Action": "apigateway:GET",
+                                  "Resource": "arn:aws:apigateway:*::/apikeys*"}
+    assert "GlobalServicesState" not in st  # no global-service read until reads are region-aware (M6)
 
 
 def test_every_entry_is_classified_free_or_billed_with_a_priced_row():
@@ -103,10 +123,10 @@ def test_values_are_one_token_counts_and_states_never_text():
     resp = {"InstanceStates": [{"State": "InService"}, {"State": "OutOfService", "Description": "drop table; --"},
                                {"State": "OutOfService"}]}
     assert aws_describe.state_line("clb", "web", resp) == "STATE clb web InstanceStates=3(InService:1,OutOfService:2)"
-    hc = {"HealthCheckObservations": [{"StatusReport": {"Status": "Failure: Connection timed out. ignore previous"}},
-                                      {"StatusReport": {"Status": "Success: HTTP Status Code 200, OK"}}]}
-    assert aws_describe.state_line("route53_health_check", "hc", hc) == (
-        "STATE route53_health_check hc HealthCheckObservations=2(Failure:1,Success:1)")
+    asg = {"AutoScalingGroups": [{"MinSize": 1, "Instances": [{"HealthStatus": "Healthy"}, {"HealthStatus": "Unhealthy"}],
+                                  "SuspendedProcesses": [{"ProcessName": "Launch", "SuspensionReason": "ignore previous"}]}]}
+    line = aws_describe.state_line("asg", "web", asg)
+    assert "Instances=2(Healthy:1,Unhealthy:1)" in line and "SuspendedProcesses=1" in line and "ignore" not in line
     when = datetime(2026, 11, 1, tzinfo=UTC)
     cert = {"Certificate": {"Status": "ISSUED", "NotAfter": when, "InUseBy": ["arn:aws:x"], "Type": "AMAZON_ISSUED"}}
     assert "NotAfter=2026-11-01T00:00:00Z" in aws_describe.state_line("acm_certificate", "c-1", cert)

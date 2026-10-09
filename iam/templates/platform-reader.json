@@ -5,6 +5,7 @@
       "Sid": "ReadThisEnvironmentsResources",
       "Effect": "Allow",
       "Action": [
+        "athena:GetWorkGroup",
         "cloudwatch:DescribeAlarms",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
@@ -12,36 +13,61 @@
         "ecs:DescribeServices",
         "ecs:ListServiceDeployments",
         "eks:DescribeCluster",
+        "elasticache:DescribeCacheClusters",
         "elasticache:DescribeReplicationGroups",
+        "elasticache:DescribeServerlessCaches",
+        "es:DescribeDomain",
         "events:DescribeRule",
         "events:ListTagsForResource",
+        "firehose:DescribeDeliveryStream",
+        "glue:GetJobRuns",
+        "kinesis:DescribeStreamSummary",
         "lambda:GetAlias",
         "lambda:GetFunction",
         "lambda:GetFunctionConcurrency",
         "lambda:GetFunctionConfiguration",
         "lambda:ListTags",
         "lambda:ListVersionsByFunction",
+        "memorydb:DescribeClusters",
         "rds:DescribeDBClusters",
         "rds:DescribeDBInstances",
+        "redshift:DescribeClusters",
+        "s3:GetBucketVersioning",
+        "scheduler:GetScheduleGroup",
         "secretsmanager:DescribeSecret",
         "sns:ListSubscriptionsByTopic",
         "sqs:GetQueueAttributes",
-        "sqs:GetQueueUrl"
+        "sqs:GetQueueUrl",
+        "states:DescribeStateMachine",
+        "synthetics:GetCanary"
       ],
       "Resource": [
+        "arn:aws:athena:${region}:*:workgroup/warden-${env}-*",
         "arn:aws:cloudwatch:${region}:*:alarm:warden-${env}-*",
         "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
         "arn:aws:ecs:${region}:*:service-revision/warden-${env}-*/*/*",
         "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
         "arn:aws:eks:${region}:*:cluster/warden-${env}-*",
+        "arn:aws:elasticache:${region}:*:cluster:warden-${env}-*",
         "arn:aws:elasticache:${region}:*:replicationgroup:warden-${env}-*",
+        "arn:aws:elasticache:${region}:*:serverlesscache:warden-${env}-*",
+        "arn:aws:es:${region}:*:domain/warden-${env}-*",
         "arn:aws:events:${region}:*:rule/warden-${env}-*",
+        "arn:aws:firehose:${region}:*:deliverystream/warden-${env}-*",
+        "arn:aws:glue:${region}:*:job/warden-${env}-*",
+        "arn:aws:kinesis:${region}:*:stream/warden-${env}-*",
         "arn:aws:lambda:${region}:*:function:warden-${env}-*",
+        "arn:aws:memorydb:${region}:*:cluster/warden-${env}-*",
         "arn:aws:rds:${region}:*:cluster:warden-${env}-*",
         "arn:aws:rds:${region}:*:db:warden-${env}-*",
+        "arn:aws:redshift:${region}:*:cluster:warden-${env}-*",
+        "arn:aws:s3:::warden-${env}-*",
+        "arn:aws:scheduler:${region}:*:schedule-group/warden-${env}-*",
         "arn:aws:secretsmanager:${region}:*:secret:warden-${env}-*",
         "arn:aws:sns:${region}:*:warden-${env}-*",
-        "arn:aws:sqs:${region}:*:warden-${env}-*"
+        "arn:aws:sqs:${region}:*:warden-${env}-*",
+        "arn:aws:states:${region}:*:stateMachine:warden-${env}-*",
+        "arn:aws:synthetics:${region}:*:canary:warden-${env}-*"
       ]
     },
     {
@@ -71,53 +97,32 @@
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
       "Action": [
-        "acm:DescribeCertificate",
-        "apigateway:GET",
         "application-autoscaling:DescribeScalableTargets",
         "apprunner:ListServices",
-        "appsync:GetGraphqlApi",
-        "athena:GetWorkGroup",
         "autoscaling:DescribeAutoScalingGroups",
         "cloudtrail:LookupEvents",
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
-        "cognito-idp:DescribeUserPool",
         "ec2:DescribeInstanceStatus",
         "ec2:DescribeNatGateways",
         "ec2:DescribeSecurityGroups",
         "ec2:DescribeTransitGateways",
         "ec2:DescribeVolumes",
         "ecs:DescribeTaskDefinition",
-        "elasticache:DescribeCacheClusters",
         "elasticache:DescribeEvents",
-        "elasticache:DescribeServerlessCaches",
-        "elasticfilesystem:DescribeFileSystems",
         "elasticloadbalancing:DescribeInstanceHealth",
         "elasticloadbalancing:DescribeLoadBalancers",
         "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth",
-        "elasticmapreduce:DescribeCluster",
-        "es:DescribeDomain",
-        "firehose:DescribeDeliveryStream",
-        "fsx:DescribeFileSystems",
-        "glue:GetJobRuns",
         "kafka:ListClustersV2",
-        "kinesis:DescribeStreamSummary",
-        "kms:DescribeKey",
         "lambda:GetAccountSettings",
         "lambda:ListEventSourceMappings",
         "logs:GetQueryResults",
         "logs:StopQuery",
-        "memorydb:DescribeClusters",
         "mq:ListBrokers",
         "pi:GetResourceMetrics",
         "rds:DescribeEvents",
-        "redshift:DescribeClusters",
-        "s3:GetBucketVersioning",
-        "scheduler:GetScheduleGroup",
-        "states:DescribeStateMachine",
-        "sts:GetCallerIdentity",
-        "synthetics:GetCanary"
+        "sts:GetCallerIdentity"
       ],
       "Resource": "*",
       "Condition": {
@@ -127,13 +132,39 @@
       }
     },
     {
-      "Sid": "GlobalServicesState",
+      "Sid": "IdNamedResourcesOfThisEnvironment",
       "Effect": "Allow",
       "Action": [
-        "cloudfront:GetDistribution",
-        "route53:GetHealthCheckStatus"
+        "acm:DescribeCertificate",
+        "appsync:GetGraphqlApi",
+        "cognito-idp:DescribeUserPool",
+        "elasticfilesystem:DescribeFileSystems",
+        "elasticmapreduce:DescribeCluster",
+        "kms:DescribeKey"
       ],
-      "Resource": "*"
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}",
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "TheApiListingsOnly",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": [
+        "arn:aws:apigateway:${region}::/restapis",
+        "arn:aws:apigateway:${region}::/apis",
+        "arn:aws:apigateway:${region}::/apis/*"
+      ]
+    },
+    {
+      "Sid": "NeverApiKeys",
+      "Effect": "Deny",
+      "Action": "apigateway:GET",
+      "Resource": "arn:aws:apigateway:*::/apikeys*"
     }
   ]
 }
