@@ -92,11 +92,28 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
         assert line in db, line
     assert "master_password" not in db.replace("manage_master_user_password", "")
     variables = (MODULE / "variables.tf").read_text(encoding="utf-8")
-    assert "condition     = var.audit_db_backup_days >= 7" in variables
+    # 7 days or more; fewer (1 at least) only when the root says the account is on the AWS Free plan, which refuses
+    # longer retention (FreeTierRestrictionError, 2026-10-09). Never set in production.
+    assert ("condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"
+            in variables)
+    root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    assert 'aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"' in root
     net = (MODULE / "network.tf").read_text(encoding="utf-8")
     ingress = _block(net, "aws_vpc_security_group_ingress_rule", "audit_db_from_runtime")
     assert "referenced_security_group_id = aws_security_group.runtime.id" in ingress and "5432" in ingress
     assert "cidr_ipv4" not in net.split('resource "aws_security_group" "audit_db"')[1]  # no address range reaches it
+    # EC2 accepts only a-zA-Z0-9 and . _-:/()#,@[]+=&;{}!$* and space in a rule's description (the first apply, 2026-10-09).
+    for desc in re.findall(r'description\s*=\s*"([^"]*)"', net):
+        assert re.fullmatch(r"[A-Za-z0-9 ._\-:/()#,@\[\]+=&;{}!$*]*", desc.replace("${var.environment}", "ops")), desc
+
+
+def test_a_secret_the_owner_made_by_hand_is_adopted_not_created_again():
+    """The Slack webhook's slot was made in the console before the first apply, which then failed with
+    ResourceExistsException (2026-10-09). The root imports it - only an exact, single name match."""
+    root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
+    assert 'adopt = ["slack-webhook"]' in root
+    assert "to = module.runtime.aws_secretsmanager_secret.runtime[each.key]" in root
+    assert 'if data.aws_secretsmanager_secrets.adopt[n].names == toset(["warden/${local.env}/${n}"])' in root
 
 
 def _zones(iam: str) -> dict[str, dict]:

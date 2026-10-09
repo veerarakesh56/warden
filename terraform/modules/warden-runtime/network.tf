@@ -26,7 +26,7 @@ resource "aws_vpc_security_group_ingress_rule" "audit_db_from_runtime" {
   from_port                    = 5432
   to_port                      = 5432
   ip_protocol                  = "tcp"
-  description                  = "PostgreSQL from WARDEN's runtime only"
+  description                  = "PostgreSQL from the WARDEN runtime only"
 }
 
 resource "aws_vpc_security_group_egress_rule" "runtime_to_audit_db" {

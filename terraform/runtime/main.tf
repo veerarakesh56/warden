@@ -67,12 +67,36 @@ module "runtime" {
   bedrock_model_arns       = lookup(local.csv, "bedrock_model_arns", [])
   audit_db_instances       = tonumber(lookup(local.tf, "audit_db_instances", "2"))
   worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
+  worker_instance_type     = lookup(local.tf, "worker_instance_type", null) # the Free plan: a free-tier-eligible type
+  audit_db_backup_days     = try(tonumber(local.tf["audit_db_backup_days"]), null)
+  aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"
   permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
   # The model the llm zone calls (decision D12; the owner's 2026-10-04 window: gemini). Unqualified, it is refused
   # (register M20) and every incident is escalated on the rules alone.
   model_provider = lookup(local.tf, "model_provider", "")
   model          = lookup(local.tf, "model", "")
   depends_on     = [terraform_data.environment_is_known]
+}
+
+# A slot the owner made by hand before the first apply (the Slack webhook, moved off the laptop in W0-now) is adopted,
+# not created again: the first apply failed with ResourceExistsException (2026-10-09). Once in state, an import is a no-op.
+locals {
+  adopt = ["slack-webhook"]
+}
+
+data "aws_secretsmanager_secrets" "adopt" {
+  for_each = toset(local.adopt)
+  filter {
+    name   = "name"
+    values = ["warden/${local.env}/${each.key}"] # a prefix match: only an exact, single hit is adopted below
+  }
+}
+
+import {
+  for_each = { for n in local.adopt : n => one(data.aws_secretsmanager_secrets.adopt[n].arns)
+  if data.aws_secretsmanager_secrets.adopt[n].names == toset(["warden/${local.env}/${n}"]) }
+  to = module.runtime.aws_secretsmanager_secret.runtime[each.key]
+  id = each.value
 }
 
 output "runtime" {

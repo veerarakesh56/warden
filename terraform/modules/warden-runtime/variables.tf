@@ -70,10 +70,19 @@ variable "audit_db_backup_days" {
   description = "Automated backups and point-in-time recovery window, in days (register O4)."
   type        = number
   default     = 7
+  nullable    = false
   validation {
-    condition     = var.audit_db_backup_days >= 7
-    error_message = "keep at least 7 days of point-in-time recovery for the audit."
+    # The AWS Free plan refuses longer retention (FreeTierRestrictionError, 2026-10-09): a lab on it keeps 1 day.
+    condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)
+    error_message = "keep at least 7 days of point-in-time recovery for the audit (1 only on the AWS Free plan)."
   }
+}
+
+variable "aws_free_plan" {
+  description = "The account is on the AWS Free plan: its limits (backup retention, instance types) apply. Never in production."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 variable "watched_environments" {
@@ -138,6 +147,7 @@ variable "worker_instance_type" {
   description = "The EC2 instance type of the ECS capacity provider (x86_64: the runtime image is built for it). Each instance runs one task of every zone, so it must hold the sum of zone_sizes (t3.medium: 2 vCPU, 4 GiB)."
   type        = string
   default     = "t3.medium"
+  nullable    = false
 }
 
 variable "zone_sizes" {
