@@ -47,7 +47,7 @@ def test_only_the_runtime_pipeline_on_main_may_assume_the_deploy_role():
     assert st["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com")
     assert st["Condition"] == {"StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": f"repo:veerarakesh56/warden:environment:{RUNTIME}",
+        "token.actions.githubusercontent.com:sub": f"repo:veerarakesh56@171412850/warden@1341685493:environment:{RUNTIME}",
         "token.actions.githubusercontent.com:ref": "refs/heads/main",
         "token.actions.githubusercontent.com:job_workflow_ref":
             "veerarakesh56/warden/.github/workflows/runtime.yml@refs/heads/main"}}

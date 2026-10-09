@@ -132,10 +132,12 @@ def test_only_the_same_named_github_environment_may_assume(env):
     cond = gh["Condition"]
     assert list(cond) == ["StringEquals"], "exact match only - no StringLike, no wildcards"
     # aud and sub here; ref and job_workflow_ref in test_only_main_and_the_two_deploy_workflows_may_assume.
+    # The repository issues GitHub's immutable subject (owner and repository names each followed by their numeric id,
+    # gh api repos/<repo>/actions/oidc/customization/sub): the plain-name subject matched no token at all (2026-10-09).
     assert {k: v for k, v in cond["StringEquals"].items() if k.endswith((":aud", ":sub"))} == {
                                     "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                                     "token.actions.githubusercontent.com:sub":
-                                        f"repo:veerarakesh56/warden:environment:{env}"}
+                                        f"repo:veerarakesh56@171412850/warden@1341685493:environment:{env}"}
     assert gh["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com")
     assert "*" not in json.dumps(doc), "no wildcard anywhere in a trust policy"
 
