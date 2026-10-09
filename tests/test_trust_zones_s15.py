@@ -17,7 +17,7 @@ from warden.cli import _alert_from
 from warden.llm import LLMClient
 from warden.workflows import IncidentWorkflow
 
-EVERY = {"prepare", "diagnose", "verify", "notify", "resolve_plan", "gate", "announce", "check_approval",
+EVERY = {"prepare", "investigate", "diagnose", "verify", "notify", "resolve_plan", "gate", "announce", "check_approval",
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish"}
 
 
@@ -28,7 +28,8 @@ def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alon
     assert len(zoned) == len(set(zoned)) and set(zoned) <= EVERY
     assert workflows.ZONES["act"] == ("apply", "rollback")  # the only writes, with the only actor roles
     assert workflows.ZONES["llm"] == ("diagnose",)          # the only model call
-    assert set(workflows.ZONES["read"]) == {"prepare", "resolve_plan", "precheck", "check_success"}
+    # investigate reads more of what the alert names (G9-B): the read zone, with the reader roles.
+    assert set(workflows.ZONES["read"]) == {"prepare", "investigate", "resolve_plan", "precheck", "check_success"}
 
 
 def test_each_zones_worker_serves_only_that_zone():

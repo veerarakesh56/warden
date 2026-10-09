@@ -2578,7 +2578,7 @@
       "supplier": {
         "name": "Anthropic"
       },
-      "description": "qualified on WARDEN's replay set: 20 of 30 correct, 0 wrong and allowed (measured 2026-10-09T10:14Z)",
+      "description": "qualified on WARDEN's replay set: 19 of 30 correct, 0 wrong and allowed (measured 2026-10-09T22:46Z)",
       "properties": [
         {
           "name": "warden:provider",
@@ -2587,46 +2587,6 @@
         {
           "name": "warden:client",
           "value": "anthropic 1.11.0"
-        }
-      ]
-    },
-    {
-      "type": "machine-learning-model",
-      "bom-ref": "model:claude_cli/claude-fable-5",
-      "name": "claude-fable-5",
-      "version": "claude-fable-5",
-      "supplier": {
-        "name": "Anthropic"
-      },
-      "description": "qualified on WARDEN's replay set: 20 of 30 correct, 0 wrong and allowed (measured 2026-10-02T19:06Z)",
-      "properties": [
-        {
-          "name": "warden:provider",
-          "value": "claude_cli"
-        },
-        {
-          "name": "warden:client",
-          "value": "claude-cli 2.1.287"
-        }
-      ]
-    },
-    {
-      "type": "machine-learning-model",
-      "bom-ref": "model:claude_cli/claude-fable-5-1",
-      "name": "claude-fable-5-1",
-      "version": "claude-fable-5-1",
-      "supplier": {
-        "name": "Anthropic"
-      },
-      "description": "qualified on WARDEN's replay set: 20 of 30 correct, 0 wrong and allowed (measured 2026-10-02T19:16Z)",
-      "properties": [
-        {
-          "name": "warden:provider",
-          "value": "claude_cli"
-        },
-        {
-          "name": "warden:client",
-          "value": "claude-cli 2.1.287"
         }
       ]
     },

@@ -53,7 +53,7 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # the rest - the audit's own steps and the workflows - run on the main queue (the core zone). A workflow on the main
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
-ZONES = {"read": ("prepare", "resolve_plan", "precheck", "check_success"), "llm": ("diagnose",),
+ZONES = {"read": ("prepare", "investigate", "resolve_plan", "precheck", "check_success"), "llm": ("diagnose",),
          "notify": ("notify", "announce", "finish"), "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
@@ -69,6 +69,8 @@ def _zoned(activity: Any) -> dict[str, str]:
     if zone and workflow.info().task_queue == MAIN_QUEUE and workflow.patched("s15-zones"):
         return {"task_queue": zone_queue(zone)}
     return {}
+# G9-B: rounds of "read these related resources, then decide again" after the first diagnosis.
+INVESTIGATE_ROUNDS = 2
 CHECK_EVERY = timedelta(seconds=30)
 # Register C18a, false recovery: a service that died stops reporting errors, and one good reading is not recovery.
 # Recovered = this many healthy checks in a row; then re-checked this long after, the run open until the last.
@@ -344,6 +346,18 @@ class IncidentWorkflow:
         diagnosed = await workflow.execute_activity_method(
             acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only], start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=1))
+        # G9-B: the model may ask to read up to 3 related resources it saw named in trusted evidence, then decide
+        # again - at most INVESTIGATE_ROUNDS times; the llm zone's budget (6 calls, US$0.25 per incident, counted
+        # from the audit across rounds) stops it sooner. Patched: histories recorded before it replay unchanged.
+        if workflow.patched("g9-investigate"):
+            rounds = 0
+            while diagnosed.need_evidence and not diagnosed.model_unavailable and rounds < INVESTIGATE_ROUNDS:
+                rounds += 1
+                pack = await workflow.execute_activity_method(
+                    acts.investigate, **_zoned(acts.investigate), args=[pack, diagnosed.need_evidence], **PREPARE)
+                diagnosed = await workflow.execute_activity_method(
+                    acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only],
+                    start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
         verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
         if workflow.patched("s17-notify"):
             # Register S17: a person is told, with the incident id and the audit head to check the message against -

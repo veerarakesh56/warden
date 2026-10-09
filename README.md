@@ -580,7 +580,7 @@ flowchart TB
     MCP --> IW & RW
 
     subgraph INC[Incident activities - <i>activities.py</i>]
-        PREP[prepare: gather, redact, tripwire,<br/>evidence ids, quarantine to typed facts<br/><i>tools, redaction, tripwire, evidence, quarantine</i>]
+        PREP[prepare: gather, redact, tripwire,<br/>evidence ids, quarantine to typed facts;<br/>investigate: read more of what the alert names<br/><i>tools, redaction, tripwire, evidence, quarantine, investigation</i>]
         DIAG[diagnose: ONE model call<br/><i>llm.LLMClient</i> -> <i>providers.py</i><br/>Bedrock - Anthropic - claude_cli - others]
         VER[verify: P0-P24 enforced,<br/>P25-P28 observed only<br/><i>verifier, grounding, numbers, language, decide</i>]
         NOTE[notify: report through the outbound gate<br/><i>reporting, gate, chatops</i>]

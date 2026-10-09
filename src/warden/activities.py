@@ -615,6 +615,8 @@ class EvidencePack(BaseModel):
 
 
 class Diagnosed(BaseModel):
+    # The resources the model asked to read before deciding (G9-B); empty when it decided.
+    need_evidence: list[dict[str, str]] = Field(default_factory=list)
     root_cause: RootCause
     proposal: RemediationProposal
     cost: CostRecord
@@ -711,7 +713,23 @@ class IncidentActivities:
                 "output_tokens": now.output_tokens - before.output_tokens})
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
-                         model_unavailable=state.get("model_unavailable", ""))
+                         model_unavailable=state.get("model_unavailable", ""),
+                         need_evidence=list(state.get("need_evidence") or []))
+
+    @activity.defn
+    def investigate(self, pack: EvidencePack, requests: list[dict[str, str]]) -> EvidencePack:
+        """The resources the model asked to read (G9-B), added to the alert's and read again as one evidence pack -
+        one read, one redaction map. Only a name the alert's labels or a trusted, structured evidence item already
+        holds is read: a name from a log line, an event or the model's own words is refused and audited, so text an
+        application wrote cannot choose what WARDEN reads."""
+        from . import investigation
+
+        alert, accepted, refused = investigation.widen(pack.alert, pack.context, requests)
+        self.audit.append(pack.alert.alert_id, "incident.investigate", {
+            "run_id": _run_id(), "accepted": accepted, "refused": refused})
+        if not accepted:
+            return pack
+        return self.prepare(alert)
 
     def _spent_since(self, since: datetime) -> CostRecord:
         """What every incident spent on the model since `since`, reservations of unfinished calls included."""

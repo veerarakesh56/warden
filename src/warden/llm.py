@@ -88,7 +88,7 @@ class LLMClient:
         *,
         provider: Provider | None = None,
         max_usd: float | None = None,
-        max_calls: int = 8,
+        max_calls: int | None = None,
         mock: bool | None = None,
         call_timeout_s: float | None = None,
     ) -> None:
@@ -103,6 +103,10 @@ class LLMClient:
         for name, price in (("WARDEN_PRICE_IN", PRICE_PER_MTOK_IN), ("WARDEN_PRICE_OUT", PRICE_PER_MTOK_OUT)):
             if not math.isfinite(price) or price < 0:
                 raise ValueError(f"{name} must be a non-negative number of USD per 1M tokens, not {price!r}")
+        # Per incident: the explicit argument, else WARDEN_MAX_CALLS (the cloud llm zone: 6, owner 2026-10-10), else 8.
+        if max_calls is None:
+            raw = os.environ.get("WARDEN_MAX_CALLS", "8")
+            max_calls = int(raw) if raw.isdigit() else -1
         if isinstance(max_calls, bool) or not isinstance(max_calls, int) or max_calls < 1:
             raise ValueError(f"max_calls must be a positive whole number, not {max_calls!r}")
         self.max_calls = max_calls
