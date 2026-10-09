@@ -10,6 +10,14 @@ resource "aws_security_group" "runtime" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  # Temporal Cloud's endpoints listen on 7233 only: with 443 alone every worker timed out connecting (2026-10-09).
+  egress {
+    description = "Temporal Cloud gRPC"
+    from_port   = 7233
+    to_port     = 7233
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   tags = { Project = "warden", Environment = var.environment }
 }
 
