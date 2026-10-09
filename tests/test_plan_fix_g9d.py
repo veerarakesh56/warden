@@ -94,7 +94,8 @@ def test_an_approved_diagnosis_opens_its_plan_and_the_plan_waits_for_approval(tm
             return Verified(verdict=Verdict(status=VerdictStatus.approved_for_human, reasons=["test"]))
 
         @activity.defn(name="plan_fix")
-        def plan_fix(self, pack: EvidencePack, diagnosed: Diagnosed, verified: Verified) -> dict:
+        def plan_fix(self, alert: Alert, diagnosed: Diagnosed, verified: Verified) -> dict:
+            assert alert.alert_id == "inc-002"  # the alarm's own alert, never an investigation's widened one
             return dict(request)
 
     async def main():

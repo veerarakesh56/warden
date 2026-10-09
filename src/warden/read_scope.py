@@ -22,12 +22,16 @@ import pathlib
 import yaml
 
 from .models import Alert
+from .resources import LABEL_KEYS
 
 # Every label key a reader follows (aws_backend, aws_stack, k8s_backend).
 STEERING = frozenset({
     "alb_target_group", "apigw", "aurora_cluster", "cluster", "deployment", "dynamodb_table", "ecs_cluster",
     "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule", "lambda", "log_group", "log_stream_prefix",
-    "namespace", "region", "secret", "selector", "sns_topic", "sqs"})
+    "namespace", "region", "secret", "selector", "sns_topic", "sqs",
+    # Every resource label the alarm mapping can give, and the alarm itself (G9; independent review 2026-10-10, F1:
+    # a caller's `kms_key=` label survived the restriction and was re-read as a Lambda).
+    "alarm", *LABEL_KEYS})
 
 
 def load(path: str | None = None) -> dict[str, dict[str, set[str]]]:

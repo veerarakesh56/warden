@@ -331,6 +331,21 @@ class Diagnosis(BaseModel):
     proposal: RemediationProposal
     need_evidence: list[EvidenceRequest] = Field(default_factory=list, max_length=3)
 
+    @field_validator("need_evidence", mode="before")
+    @classmethod
+    def _lenient(cls, v: Any) -> list:
+        """A malformed or extra request is dropped, never the answer: one bad request cost paid retries, the
+        diagnosis and an escalation as "model unavailable" (independent review 2026-10-10, F3)."""
+        kept: list = []
+        for r in (v if isinstance(v, list) else [])[:9]:
+            try:
+                kept.append(EvidenceRequest.model_validate(r))
+            except ValueError:
+                continue
+            if len(kept) == 3:
+                break
+        return kept
+
 
 # --------------------------------------------------------------------------- nodes
 

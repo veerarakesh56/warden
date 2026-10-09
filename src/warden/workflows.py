@@ -356,15 +356,24 @@ class IncidentWorkflow:
         # G9-B: the model may ask to read up to 3 related resources it saw named in trusted evidence, then decide
         # again - at most INVESTIGATE_ROUNDS times; the llm zone's budget (6 calls, US$0.25 per incident, counted
         # from the audit across rounds) stops it sooner. Patched: histories recorded before it replay unchanged.
+        first = pack.alert  # what the alarm itself named: the only targets a fix plan may take (review F6)
         if workflow.patched("g9-investigate"):
             rounds = 0
             while diagnosed.need_evidence and not diagnosed.model_unavailable and rounds < INVESTIGATE_ROUNDS:
                 rounds += 1
-                pack = await workflow.execute_activity_method(
-                    acts.investigate, **_zoned(acts.investigate), args=[pack, diagnosed.need_evidence], **PREPARE)
-                diagnosed = await workflow.execute_activity_method(
-                    acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only],
-                    start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
+                try:
+                    wider = await workflow.execute_activity_method(
+                        acts.investigate, **_zoned(acts.investigate), args=[pack, diagnosed.need_evidence], **PREPARE)
+                    if wider.alert.labels == pack.alert.labels:
+                        break  # nothing accepted: no second answer on the same evidence (review F4)
+                    again = await workflow.execute_activity_method(
+                        acts.diagnose, **_zoned(acts.diagnose), args=[wider, escalate_only],
+                        start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
+                except ActivityError:
+                    break  # a failed read or call: the answer so far stands, and is verified and told (review F8)
+                if again.model_unavailable:
+                    break  # e.g. the budget is spent: the earlier answer, on its own evidence, stands (review F8)
+                pack, diagnosed = wider, again
         verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
         if workflow.patched("s17-notify"):
             # Register S17: a person is told, with the incident id and the audit head to check the message against -
@@ -380,7 +389,7 @@ class IncidentWorkflow:
         if workflow.patched("g9-plan-fix") and not diagnosed.model_unavailable and verified.verdict.status.value == "approved_for_human":
             try:
                 req = await workflow.execute_activity_method(acts.plan_fix, **_zoned(acts.plan_fix),
-                                                             args=[pack, diagnosed, verified], **QUICK)
+                                                             args=[first, diagnosed, verified], **QUICK)
             except ActivityError:
                 req = {}
             if req:

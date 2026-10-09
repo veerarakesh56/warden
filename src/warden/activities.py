@@ -717,14 +717,16 @@ class IncidentActivities:
                          need_evidence=list(state.get("need_evidence") or []))
 
     @activity.defn
-    def plan_fix(self, pack: EvidencePack, diagnosed: Diagnosed, verified: Verified) -> dict[str, Any]:
+    def plan_fix(self, alert: Alert, diagnosed: Diagnosed, verified: Verified) -> dict[str, Any]:
         """The fix plan request for a proposal the verifier passed for a person (G9-D1), or {} and why, audited. In
         the read zone: the reference parameters come from the platform's live read, in the environment's reader role
-        (resolver.py). The RemediationWorkflow it opens still waits for a signed human approval."""
+        (resolver.py). `alert` is the alarm's own, before any investigation widened it: a resource the model asked to
+        read never becomes a target (independent review 2026-10-10, F6). The plan still waits for a signed human
+        approval."""
         from . import resolver
         from .models import VerdictStatus
 
-        alert_id = pack.alert.alert_id
+        alert_id = alert.alert_id
         why, req = "", None
         if verified.verdict.status != VerdictStatus.approved_for_human:
             why = f"the verdict is {verified.verdict.status.value}"
@@ -732,10 +734,10 @@ class IncidentActivities:
             why = "this worker reads no platform"
         else:
             def live(entry: str, params: dict[str, Any]) -> dict[str, Any]:
-                return self.platform.live(entry, params, **_env(self.platform.live, pack.alert.environment))
+                return self.platform.live(entry, params, **_env(self.platform.live, alert.environment))
 
             try:
-                req, why = resolver.request_for(pack.alert, diagnosed.proposal, live)
+                req, why = resolver.request_for(alert, diagnosed.proposal, live)
             except Exception as exc:  # noqa: BLE001 - a failed live read plans nothing; the person was told
                 req, why = None, f"the live read failed ({type(exc).__name__})"
         if req:

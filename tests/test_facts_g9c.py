@@ -12,7 +12,7 @@ from warden import quarantine as q
 CASES = [
     (("ERROR botocore.exceptions.ClientError: An error occurred (KMSInvalidStateException) when calling the Decrypt "
       "operation: key is pending deletion"),
-     {"aws=KMSInvalidStateException", "op=Decrypt", 'phrase="pending deletion"', 'phrase="kms"'}),
+     {"aws=KMSInvalidStateException", "op=Decrypt", 'phrase="pending deletion"'}),  # "kms" only as a word
     ("ERROR SSL: certificate verify failed: unknown ca (_ssl.c:1006)",
      {'phrase="certificate verify failed"', 'phrase="unknown ca"'}),
     ("WARN S3 returned SlowDown, please reduce your request rate", {'phrase="slowdown"'}),
@@ -32,10 +32,16 @@ def test_new_failure_wording_yields_facts(line, want):
     assert want <= got, sorted(got)
 
 
-def test_a_template_keeps_only_the_closed_vocabulary():
-    assert q.template("ERROR KMS key is pending deletion") == "error_kms_key_is_pending_deletion"
-    shape = q.template("ERROR decrypting blob 91 for tenant acme-corp failed: key pending deletion")
-    assert shape.startswith("error_") and "acme" not in shape and "#" in shape and "~" in shape
+def test_short_phrases_match_whole_words_only():
+    """Independent review 2026-10-10, F7: `oom` matched oom_score_adj, `lag` lagos, `flag` flagship, `dns` dnsPolicy."""
+    got = q.facts("ERROR oom_score_adj=0 lagos flagship dnsPolicy deployment")
+    assert not any(f.startswith("phrase=") and f.split('"')[1] in {"oom", "lag", "flag", "dns", "deploy"} for f in got), got
+    assert {'phrase="oom"', 'phrase="lag"'} <= set(q.facts("ERROR OOM killed, replica lag 30s"))
+
+
+def test_no_template_fact_is_made():
+    """Review F5/F11: a template carried ordered claims and verbs ("toggle feature flag off") and split fact groups."""
+    assert not any(f.startswith("template=") for f in q.facts("ERROR toggle feature flag off and grow the pool now"))
 
 
 @pytest.mark.parametrize("line", [
@@ -52,6 +58,3 @@ def test_no_new_fact_carries_an_instruction(line):
         assert word not in text.replace('phrase="failover"', ""), (word, got)
 
 
-def test_a_template_appears_only_for_an_erring_line_and_not_on_its_own():
-    assert not any(f.startswith("template=") for f in q.facts("INFO the request for the table was read"))
-    assert q.template("ERROR ~ ~ ~") == ""
