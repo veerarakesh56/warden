@@ -143,11 +143,15 @@ variable "worker_instances" {
   }
 }
 
-variable "worker_instance_type" {
-  description = "The EC2 instance type of the ECS capacity provider (x86_64: the runtime image is built for it). Each instance runs one task of every zone, so it must hold the sum of zone_sizes (t3.medium: 2 vCPU, 4 GiB)."
-  type        = string
-  default     = "t3.medium"
+variable "worker_instance_types" {
+  description = "The EC2 instance types of the ECS capacity provider, tried in this order when one has no capacity (x86_64: the runtime image is built for it). The capacity provider places the zone tasks (zone_sizes) on as many as they need (t3.medium: 2 vCPU, 4 GiB)."
+  type        = list(string)
+  default     = ["t3.medium"]
   nullable    = false
+  validation {
+    condition     = length(var.worker_instance_types) > 0
+    error_message = "name at least one instance type."
+  }
 }
 
 variable "zone_sizes" {

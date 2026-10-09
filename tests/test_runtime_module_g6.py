@@ -308,11 +308,41 @@ def test_the_audit_is_reached_as_its_writer_with_an_iam_token_and_only_migrate_r
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
     assert f'audit_writer = "{lambdas.AUDIT_WRITER}"' in mig
     assert "postgresql://${local.audit_writer}@" in mig and "sslmode=require" in mig and ":${" not in mig.split("postgresql://")[1].split("@")[0]
-    assert 'Resource = aws_rds_cluster.audit.master_user_secret[0].secret_arn' in mig
+    assert 'Resource = local.audit_db.master_secret' in mig
     assert 'command     = ["warden.lambdas.migrate"]' in mig
     module = _module_text()
     assert module.count("master_user_secret[0].secret_arn") == 2  # the migrate role's grant and its environment
-    assert '"rds-db:connect"' in iam and "dbuser:${aws_rds_cluster.audit.cluster_resource_id}/${local.audit_writer}" in iam
+    assert '"rds-db:connect"' in iam and "dbuser:${local.audit_db.resource_id}/${local.audit_writer}" in iam
     for tf in ("compute.tf", "frontdoor.tf"):
         text = (MODULE / tf).read_text(encoding="utf-8")
         assert re.search(r'WARDEN_AUDIT_IAM_AUTH\s+= "1"', text) and re.search(r"WARDEN_AUDIT_DSN\s+= local.audit_dsn", text), tf
+
+
+def test_on_the_aws_free_plan_the_audit_is_one_private_rds_instance_with_the_same_protections():
+    """The Free plan creates Aurora only in express configuration (no VPC, an internet gateway, not settable from the
+    AWS provider; FreeTierRestrictionError, 2026-10-09). A lab on it gets one RDS PostgreSQL instance of a Free plan
+    class instead - in the same private subnets and security group, never public, with register O4's protections - and
+    everything else reads the database through local.audit_db, whichever exists."""
+    aurora = (MODULE / "aurora.tf").read_text(encoding="utf-8")
+    assert "count                               = var.aws_free_plan ? 0 : 1" in _block(aurora, "aws_rds_cluster", "audit")
+    db = _block(aurora, "aws_db_instance", "audit")
+    for line in ("count                               = var.aws_free_plan ? 1 : 0", 'instance_class                      = "db.t4g.micro"',
+                 "manage_master_user_password         = true", "iam_database_authentication_enabled = true",
+                 "storage_encrypted                   = true", "deletion_protection                 = true",
+                 "skip_final_snapshot                 = false", "publicly_accessible                 = false",
+                 "backup_retention_period             = var.audit_db_backup_days",
+                 "db_subnet_group_name                = aws_db_subnet_group.audit.name",
+                 "vpc_security_group_ids              = [aws_security_group.audit_db.id]"):
+        assert line in db, line
+    assert "master_password" not in db.replace("manage_master_user_password", "")
+    others = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf") if f.name != "aurora.tf")
+    assert "aws_rds_cluster.audit" not in others and "aws_db_instance.audit" not in others
+
+
+def test_instances_fall_back_through_a_list_of_types_on_demand_only():
+    """One type's capacity ran out in one AZ (c7i-flex.large, ap-south-2b, 2026-10-09): the group tries the listed
+    types in order, on demand only."""
+    asg = _block((MODULE / "compute.tf").read_text(encoding="utf-8"), "aws_autoscaling_group", "instances")
+    assert 'on_demand_allocation_strategy            = "prioritized"' in asg
+    assert "on_demand_percentage_above_base_capacity = 100" in asg
+    assert "for_each = var.worker_instance_types" in asg and "launch_template_id = aws_launch_template.instances.id" in asg

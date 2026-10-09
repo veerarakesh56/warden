@@ -63,7 +63,7 @@ resource "aws_security_group" "instances" {
 resource "aws_launch_template" "instances" {
   name_prefix            = "warden-${var.environment}-"
   image_id               = data.aws_ssm_parameter.ecs_ami.value
-  instance_type          = var.worker_instance_type
+  instance_type          = var.worker_instance_types[0]
   vpc_security_group_ids = [aws_security_group.instances.id]
   iam_instance_profile {
     arn = aws_iam_instance_profile.instance.arn
@@ -103,9 +103,24 @@ resource "aws_autoscaling_group" "instances" {
   max_size              = var.worker_instances + 1
   desired_capacity      = var.worker_instances
   protect_from_scale_in = true
-  launch_template {
-    id      = aws_launch_template.instances.id
-    version = "$Latest"
+  mixed_instances_policy {
+    instances_distribution {
+      on_demand_allocation_strategy            = "prioritized" # the list's order
+      on_demand_base_capacity                  = 0
+      on_demand_percentage_above_base_capacity = 100 # on-demand only (the boundary denies spot)
+    }
+    launch_template {
+      launch_template_specification {
+        launch_template_id = aws_launch_template.instances.id
+        version            = "$Latest"
+      }
+      dynamic "override" {
+        for_each = var.worker_instance_types
+        content {
+          instance_type = override.value
+        }
+      }
+    }
   }
   tag {
     key                 = "AmazonECSManaged"

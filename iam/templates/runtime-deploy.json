@@ -102,6 +102,7 @@
         "arn:aws:rds:${region}:*:subgrp:warden-${env}-*",
         "arn:aws:rds:${region}:*:cluster-pg:default.*",
         "arn:aws:rds:${region}:*:pg:default.*",
+        "arn:aws:rds:${region}:*:og:default:*",
         "arn:aws:ecs:${region}:*:cluster/warden-${env}-*",
         "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
         "arn:aws:ecs:${region}:*:capacity-provider/warden-${env}-*",

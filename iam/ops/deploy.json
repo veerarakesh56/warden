@@ -102,6 +102,7 @@
         "arn:aws:rds:ap-south-2:*:subgrp:warden-ops-*",
         "arn:aws:rds:ap-south-2:*:cluster-pg:default.*",
         "arn:aws:rds:ap-south-2:*:pg:default.*",
+        "arn:aws:rds:ap-south-2:*:og:default:*",
         "arn:aws:ecs:ap-south-2:*:cluster/warden-ops-*",
         "arn:aws:ecs:ap-south-2:*:service/warden-ops-*/*",
         "arn:aws:ecs:ap-south-2:*:capacity-provider/warden-ops-*",

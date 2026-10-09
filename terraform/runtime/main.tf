@@ -67,7 +67,7 @@ module "runtime" {
   bedrock_model_arns       = lookup(local.csv, "bedrock_model_arns", [])
   audit_db_instances       = tonumber(lookup(local.tf, "audit_db_instances", "2"))
   worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
-  worker_instance_type     = lookup(local.tf, "worker_instance_type", null) # the Free plan: a free-tier-eligible type
+  worker_instance_types    = lookup(local.csv, "worker_instance_types", null) # the Free plan: free-tier-eligible types
   audit_db_backup_days     = try(tonumber(local.tf["audit_db_backup_days"]), null)
   aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"
   permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"

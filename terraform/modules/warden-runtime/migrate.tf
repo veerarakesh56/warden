@@ -5,7 +5,7 @@
 locals {
   audit_writer = "warden_audit_writer"
   # No password: _pg_connect signs in with an IAM token when WARDEN_AUDIT_IAM_AUTH=1.
-  audit_dsn = "postgresql://${local.audit_writer}@${aws_rds_cluster.audit.endpoint}:5432/${aws_rds_cluster.audit.database_name}?sslmode=require"
+  audit_dsn = "postgresql://${local.audit_writer}@${local.audit_db.host}:5432/${local.audit_db.database}?sslmode=require"
 }
 
 resource "aws_iam_role" "migrate" {
@@ -23,7 +23,7 @@ resource "aws_iam_role_policy" "migrate" {
     Sid      = "TheAuditClustersMasterSecretOnly"
     Effect   = "Allow"
     Action   = ["secretsmanager:GetSecretValue"]
-    Resource = aws_rds_cluster.audit.master_user_secret[0].secret_arn
+    Resource = local.audit_db.master_secret
   }] })
 }
 
@@ -56,9 +56,9 @@ resource "aws_lambda_function" "migrate" {
   environment {
     variables = {
       WARDEN_ENV                 = var.environment
-      WARDEN_AUDIT_MASTER_SECRET = aws_rds_cluster.audit.master_user_secret[0].secret_arn
-      WARDEN_AUDIT_HOST          = aws_rds_cluster.audit.endpoint
-      WARDEN_AUDIT_DB            = aws_rds_cluster.audit.database_name
+      WARDEN_AUDIT_MASTER_SECRET = local.audit_db.master_secret
+      WARDEN_AUDIT_HOST          = local.audit_db.host
+      WARDEN_AUDIT_DB            = local.audit_db.database
     }
   }
   tags       = { Project = "warden", Environment = var.environment }

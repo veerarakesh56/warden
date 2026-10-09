@@ -46,7 +46,7 @@ locals {
       Sid      = "ConnectAsTheAuditWriter"
       Effect   = "Allow"
       Action   = ["rds-db:connect"]
-      Resource = "arn:aws:rds-db:${local.region}:${local.account}:dbuser:${aws_rds_cluster.audit.cluster_resource_id}/${local.audit_writer}"
+      Resource = "arn:aws:rds-db:${local.region}:${local.account}:dbuser:${local.audit_db.resource_id}/${local.audit_writer}"
     },
     {
       Sid      = "AnchorCheckpoints"

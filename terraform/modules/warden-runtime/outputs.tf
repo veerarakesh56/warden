@@ -10,7 +10,7 @@ output "anchor_bucket" {
 
 output "audit_db_endpoint" {
   description = "The audit database's writer endpoint: WARDEN_AUDIT_DSN points here (a Secrets Manager secret)."
-  value       = aws_rds_cluster.audit.endpoint
+  value       = local.audit_db.host
 }
 
 output "runtime_security_group_id" {
