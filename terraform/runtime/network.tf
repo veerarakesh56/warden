@@ -56,13 +56,13 @@ resource "aws_internet_gateway" "runtime" {
 }
 
 resource "aws_eip" "nat" {
-  count  = var.nat_gateways
+  count  = local.paused ? 0 : var.nat_gateways # paused: no egress, no NAT to pay for
   domain = "vpc"
   tags   = { Name = "warden-${local.env}-nat-${count.index}" }
 }
 
 resource "aws_nat_gateway" "runtime" {
-  count         = var.nat_gateways
+  count         = local.paused ? 0 : var.nat_gateways
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
   tags          = { Name = "warden-${local.env}-nat-${count.index}" }
@@ -93,7 +93,7 @@ resource "aws_route_table" "private" {
 }
 
 resource "aws_route" "private_out" {
-  count                  = 2
+  count                  = local.paused ? 0 : 2
   route_table_id         = aws_route_table.private[count.index].id
   destination_cidr_block = "0.0.0.0/0"
   nat_gateway_id         = aws_nat_gateway.runtime[min(count.index, var.nat_gateways - 1)].id

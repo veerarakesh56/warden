@@ -375,4 +375,23 @@ def test_the_group_can_grow_to_hold_every_zones_tasks_and_a_rolling_deployment()
     max = workers + 1 the read zone's task waited for a place (2026-10-09). The maximum follows from the tasks."""
     asg = _block((MODULE / "compute.tf").read_text(encoding="utf-8"), "aws_autoscaling_group", "instances")
     assert "max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1" in asg
-    assert "min_size              = var.worker_instances" in asg
+    assert "min_size              = var.paused ? 0 : var.worker_instances" in asg
+
+
+def test_paused_the_runtime_keeps_its_audit_and_stops_its_spend():
+    """Between test windows (owner, 2026-10-10): no worker task or instance, no NAT gateway, no alarm intake and no
+    self-page for the silent workers; the audit, its key, the secrets, the witness and the anchors are untouched."""
+    compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
+    assert "min_size              = var.paused ? 0 : var.worker_instances" in compute
+    assert "desired_count   = var.paused ? 0 : var.worker_instances" in compute
+    front = (MODULE / "frontdoor.tf").read_text(encoding="utf-8")
+    assert 'state       = var.paused ? "DISABLED" : "ENABLED"' in _block(front, "aws_cloudwatch_event_rule", "alarms")
+    beat = (MODULE / "heartbeat.tf").read_text(encoding="utf-8")
+    assert beat.count("actions_enabled     = !var.paused") == 2
+    net = (ROOT / "terraform" / "runtime" / "network.tf").read_text(encoding="utf-8")
+    assert "count  = local.paused ? 0 : var.nat_gateways" in net and "count         = local.paused ? 0 : var.nat_gateways" in net
+    assert "count                  = local.paused ? 0 : 2" in net
+    # Nothing that holds the audit or a key changes with it.
+    others = "\n".join((MODULE / f).read_text(encoding="utf-8") for f in ("aurora.tf", "kms.tf", "anchors.tf",
+                                                                           "witness.tf", "secrets.tf"))
+    assert "paused" not in others

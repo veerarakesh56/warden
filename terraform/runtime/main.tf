@@ -26,6 +26,8 @@ locals {
   tf = { for i, name in data.aws_ssm_parameters_by_path.tf.names :
   trimprefix(name, "/warden/${local.env}/tf/") => nonsensitive(data.aws_ssm_parameters_by_path.tf.values[i]) }
   csv = { for k, v in local.tf : k => [for x in split(",", v) : trimspace(x) if trimspace(x) != ""] }
+  # Between test windows (SSM /warden/<env>/tf/paused = true): compute, NAT and alarm intake off; see the module.
+  paused = lookup(local.tf, "paused", "false") == "true"
 }
 
 provider "aws" {
@@ -71,6 +73,7 @@ module "runtime" {
   worker_instance_types     = lookup(local.csv, "worker_instance_types", null) # the Free plan: free-tier-eligible types
   audit_db_backup_days      = try(tonumber(local.tf["audit_db_backup_days"]), null)
   aws_free_plan             = lookup(local.tf, "aws_free_plan", "false") == "true"
+  paused                    = local.paused
   permissions_boundary_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
   # The model the llm zone calls (decision D12; the owner's 2026-10-04 window: gemini). Unqualified, it is refused
   # (register M20) and every incident is escalated on the rules alone.

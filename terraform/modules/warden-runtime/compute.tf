@@ -102,7 +102,7 @@ resource "aws_autoscaling_group" "instances" {
   # Each task has its own network interface (awsvpc), so an instance holds only worker_tasks_per_instance tasks (2 on a
   # large type without ENI trunking): enough instances for every zone's tasks, plus one for a rolling deployment. The
   # capacity provider scales between min and max (2026-10-09: max = workers + 1 left a zone's task pending).
-  min_size              = var.worker_instances
+  min_size              = var.paused ? 0 : var.worker_instances # paused: the capacity provider scales in to none
   max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1
   desired_capacity      = var.worker_instances
   protect_from_scale_in = true
@@ -228,7 +228,7 @@ resource "aws_ecs_service" "zone" {
   name            = "warden-${var.environment}-${each.key}"
   cluster         = aws_ecs_cluster.runtime.id
   task_definition = aws_ecs_task_definition.zone[each.key].arn
-  desired_count   = var.worker_instances
+  desired_count   = var.paused ? 0 : var.worker_instances
   capacity_provider_strategy {
     capacity_provider = aws_ecs_capacity_provider.instances.name
     weight            = 1

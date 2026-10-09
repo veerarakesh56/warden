@@ -4,6 +4,7 @@
 # so a dead worker, a dead Temporal connection and a dead clock all page - silence is the failure.
 resource "aws_cloudwatch_metric_alarm" "heartbeat" {
   alarm_name          = "warden-${var.environment}-heartbeat-missing"
+  actions_enabled     = !var.paused # paused: no worker beats on purpose, so nobody is paged for it
   alarm_description   = "WARDEN's workers have not completed a round trip through Temporal. WARDEN may be down: follow docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "Heartbeat"
@@ -25,6 +26,7 @@ resource "aws_cloudwatch_metric_alarm" "heartbeat" {
 # pipeline broken - page a person; missing data is BREACHING.
 resource "aws_cloudwatch_metric_alarm" "synthetic" {
   alarm_name          = "warden-${var.environment}-synthetic-missing"
+  actions_enabled     = !var.paused # paused: no worker beats on purpose, so nobody is paged for it
   alarm_description   = "WARDEN's daily synthetic incident has not passed for a day: the model or the diagnosis pipeline may be broken. Follow docs/RUNBOOK-WARDEN-INCIDENT.md."
   namespace           = "WARDEN/${var.environment}"
   metric_name         = "Synthetic"

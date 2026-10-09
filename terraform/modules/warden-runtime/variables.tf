@@ -143,6 +143,13 @@ variable "worker_instances" {
   }
 }
 
+variable "paused" {
+  description = "Between test windows: no worker task, no instance, no alarm intake, no self-pages for a silent worker. The audit, its keys, the secrets and the witness stay; set false and apply to resume."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "worker_tasks_per_instance" {
   description = "How many awsvpc tasks one instance holds: 2 for a large type, more with ECS ENI trunking (AWS's table of supported instances)."
   type        = number

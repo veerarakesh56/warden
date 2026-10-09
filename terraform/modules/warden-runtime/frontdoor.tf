@@ -57,6 +57,7 @@ resource "aws_lambda_function" "front_door" {
 
 resource "aws_cloudwatch_event_rule" "alarms" {
   name        = "warden-${var.environment}-alarm-changes"
+  state       = var.paused ? "DISABLED" : "ENABLED" # paused: no alarm starts an incident nobody would serve
   description = "WARDEN ${var.environment}: the watched environments' alarm state changes, to intake"
   event_pattern = jsonencode({
     source        = ["aws.cloudwatch"]
