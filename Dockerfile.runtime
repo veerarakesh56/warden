@@ -19,8 +19,9 @@ COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 
 # Only what uv.lock lists, every hash verified (audit A-I-9): the runtime extra (the Lambda runtime interface client,
-# AWS, the PostgreSQL audit, passkeys), Kubernetes for the k8s platform, Temporal is a core dependency.
-RUN uv sync --locked --no-editable --extra runtime --extra k8s
+# AWS, the PostgreSQL audit, passkeys), Kubernetes for the k8s platform, the Anthropic SDK for the llm zone's model
+# (the Claude API; Bedrock goes through boto3), Temporal is a core dependency.
+RUN uv sync --locked --no-editable --extra runtime --extra k8s --extra anthropic
 # Only the shipped kinds of file (registers R8-O4, R9-O1).
 COPY scripts/check_package.py ./
 RUN /opt/warden/bin/python check_package.py "$(/opt/warden/bin/python -c 'import os, warden; print(os.path.dirname(warden.__file__))')"

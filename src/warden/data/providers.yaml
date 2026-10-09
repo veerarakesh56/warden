@@ -15,6 +15,12 @@
 #   claude-sonnet-5-5  16 correct, 0 wrong and allowed                       -> NOT qualified
 #   claude-opus-5      15 correct, 0 wrong and allowed (1 before Q1: ecs-13)  -> NOT qualified
 #   claude-opus-5-5    10 correct, 0 wrong and allowed (escalated 26 of 30)  -> NOT qualified
+# Measured 2026-10-09 on the Claude API (the owner's API credits), the same 30 incidents and the same pinned prompt,
+# every one of the 30 diagnoses made by claude-sonnet-5 (checked in the stored provenance), twice:
+#   anthropic SDK 1.11.0 (uv.lock, what the runtime image ships)  20 correct, 0 wrong and allowed, 0 unanswered,
+#                                                                  2 NO-EVIDENCE fixes -> qualified ($0.48)
+#   anthropic SDK 1.4.0 (an older local environment)               18 correct, 0 wrong and allowed, 0 unanswered ($0.52)
+# Two runs of the same model differ by 2 correct: the replay is a sample, and the bar holds in both.
 # claude-mythos-5 and -5-1: not available to this Claude Max account (the CLI refuses the model).
 # The CLI's `sonnet` alias had moved to claude-sonnet-5-5: the drift registers M15 and M20 exist for.
 # claude-sonnet-5 is Active, retiring not sooner than 2027-06-30 (Claude model deprecations page, read 2026-10-02).
@@ -45,4 +51,5 @@ slo:
 qualified:
   - {"provider": "claude_cli", "model": "claude-fable-5-1", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:16Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}
   - {"provider": "claude_cli", "model": "claude-fable-5", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:06Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
+  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-09T10:14Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
   - {"provider": "claude_cli", "model": "claude-sonnet-5", "version": "claude-cli 2.1.287", "measured": "2026-10-02T18:26Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0}

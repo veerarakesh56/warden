@@ -229,7 +229,10 @@ bump may carry a breaking change.
 - **The cloud audit has no password**: a migrate Lambda, the only reader of the cluster's master secret, creates the
   schema and an IAM-token writer login after each deploy; every zone and Lambda connects as that writer.
 - **The runtime builds its own network** (a VPC in two zones, private subnets, a NAT gateway, an S3 endpoint), and the
-  deploy sets the llm zone's model (Gemini for the first window).
+  deploy sets the llm zone's model.
+- **Claude Sonnet 5 qualified on the Claude API** (20 of 30 correct, none wrong and allowed, $0.48, on the SDK the
+  runtime image ships): the cloud window's model, from the owner's API credits. The runtime image now carries the
+  Anthropic SDK.
 - **The breaker counts only failures after its last reset** (audit A-B-L1). Before, one new failure after a reset
   re-tripped it on the strength of the failures the reset was for.
 

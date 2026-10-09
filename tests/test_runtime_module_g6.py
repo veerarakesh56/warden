@@ -244,6 +244,12 @@ def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_ex
     assert "check_package.py" in text
     py = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'^runtime = \["awslambdaric>=4\.1"', py, re.MULTILINE)
+    # The SDK of every model provider the deploy may pick for the llm zone (qualified in data/providers.yaml).
+    from warden.providers import load_qualified
+
+    sync = re.search(r"uv sync --locked --no-editable(.*)", text).group(1)
+    for provider in {e["provider"] for e in load_qualified()["qualified"]} - {"claude_cli", "bedrock"}:
+        assert f"--extra {provider}" in sync, provider
 
 
 def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only():

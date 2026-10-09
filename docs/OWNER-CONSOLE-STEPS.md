@@ -529,8 +529,8 @@ The runtime's network is Terraform's (`terraform/runtime/network.tf`: a VPC in t
 subnets, one NAT gateway for a lab window). Cost while up, AWS price list for Hyderabad read 2026-10-04: about
 **$0.25 an hour** (two t3.medium $0.0448/h each, the NAT gateway $0.056/h plus $0.056 per GB, Aurora Serverless v2
 $0.18 per ACU-hour at about half an ACU) - a one-to-two-day window is about $6-12 - plus about **$12 a month** for
-what stays (about 27 secret slots at $0.40, one KMS key at $1). The model, Gemini on Google AI Studio's free tier
-(owner, 2026-10-04), costs nothing.
+what stays (about 27 secret slots at $0.40, one KMS key at $1). The model, Claude Sonnet 5 on the Claude API (owner,
+2026-10-09), is about 2 cents an incident from the owner's API credits.
 
 1. **Policies.** IAM → **Policies** → **Create policy** → **JSON** → **Ctrl+A**, **Delete**, paste → **Next** →
    name → tags `Project` = `warden`, `Environment` = `ops` → **Create policy**. Three times:
@@ -593,8 +593,8 @@ what stays (about 27 secret slots at $0.40, one KMS key at $1). The model, Gemin
    put() { aws ssm put-parameter --region "$REGION" --name "$1" --value "$2" --type String --overwrite >/dev/null; }
    put /warden/ops/tf/page_topic_arn "$TOPIC"
    put /warden/ops/tf/watched_environments dev
-   put /warden/ops/tf/model_provider gemini
-   put /warden/ops/tf/model gemini-3.8-flash
+   put /warden/ops/tf/model_provider anthropic
+   put /warden/ops/tf/model claude-sonnet-5
    put /warden/ops/tf/audit_db_instances 1
    put /warden/ops/tf/worker_instances 1
    put /warden/ops/env/WARDEN_TEMPORAL_NAMESPACE "$NS"
@@ -602,8 +602,8 @@ what stays (about 27 secret slots at $0.40, one KMS key at $1). The model, Gemin
    echo "done: confirm the subscription e-mail AWS just sent to $EMAIL"
    ```
 
-   Confirm the subscription in that e-mail. (`model` is the one Claude qualifies first; if another Gemini model
-   passes instead, Claude gives you the one-line change.)
+   Confirm the subscription in that e-mail. (`claude-sonnet-5` is the model WARDEN qualified on the Claude API on
+   2026-10-09.)
 6. **GitHub.** Repository → **Settings** → **Environments** → **New environment** `ops`:
    - **Required reviewers**: yourself. **Deployment branches**: **Selected branches**, rule `main`.
    - **Environment variables**: `AWS_ROLE_ARN` (step 2), `AWS_REGION` = `ap-south-2`, `TF_STATE_BUCKET` (step 3),
@@ -612,8 +612,9 @@ what stays (about 27 secret slots at $0.40, one KMS key at $1). The model, Gemin
    before anything is applied.
 8. **After the first apply: the secret values.** Terraform made the slots; the values are yours, set in the console,
    never in a chat or a file:
-   - `warden/ops/gemini-api-key`: Secrets Manager -> the secret -> **Retrieve secret value** -> **Set secret value**
-     -> **Plaintext** -> the Google AI Studio key -> **Save**.
+   - `warden/ops/anthropic-api-key`: a separate Claude Console key for the runtime (Settings -> API keys, linked to a
+     service account, the default workspace, 30 days), then Secrets Manager -> that secret -> **Retrieve secret
+     value** -> **Set secret value** -> **Plaintext** -> the key -> **Save**. Only the llm zone can read it.
    - `warden/ops/temporal-key`, the payload encryption key - CloudShell, which makes it and stores it without showing
      it: `aws secretsmanager put-secret-value --region ap-south-2 --secret-id warden/ops/temporal-key
      --secret-string "$(head -c 32 /dev/urandom | base64)"`.

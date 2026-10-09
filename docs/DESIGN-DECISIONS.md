@@ -220,7 +220,11 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
   plan as session tags, a session policy naming the plan's exact resources, and AWS's own record of each session held
   to the audit (actor_use.py) - comes from STS and CloudTrail, free and in the account. A company that runs Teleport
   can add it as an adapter; nothing in WARDEN requires it.
-- **Gemini on Google AI Studio's free tier for the first cloud window** (owner, 2026-10-04), while Bedrock access waits
+- **Claude Sonnet 5 on the Claude API for the cloud window** (owner, 2026-10-09: the owner's API credits; replaces the
+  Gemini choice below). Qualified on the API the same day with the SDK the runtime image ships - 20 of 30 correct,
+  none wrong and allowed, every incident answered, $0.48; an earlier run on an older SDK scored 18 (both pass;
+  src/warden/data/providers.yaml). Sonnet 5, not the newer Sonnet 5.5, which failed the same bar.
+- *(Superseded 2026-10-09)* **Gemini on Google AI Studio's free tier for the first cloud window** (owner, 2026-10-04), while Bedrock access waits
   on AWS Support. Accepted with its costs stated: Google may use free-tier prompts to improve its products (WARDEN sends
   only redacted prompts - typed facts, never raw logs), and the free quota is small (on 2026-10-03 it answered 4 of 30
   incidents in a day), so the qualification (M20) runs in daily batches (`qualify_provider.py --resume`) and the model
