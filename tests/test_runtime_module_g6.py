@@ -97,7 +97,7 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     assert ("condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"
             in variables)
     root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
-    assert 'aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"' in root
+    assert 'aws_free_plan             = lookup(local.tf, "aws_free_plan", "false") == "true"' in root
     net = (MODULE / "network.tf").read_text(encoding="utf-8")
     ingress = _block(net, "aws_vpc_security_group_ingress_rule", "audit_db_from_runtime")
     assert "referenced_security_group_id = aws_security_group.runtime.id" in ingress and "5432" in ingress
@@ -368,3 +368,11 @@ def test_only_the_notify_zone_posts_for_real():
     compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
     assert compute.count("WARDEN_CHATOPS_LIVE") == 1
     assert 'each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {}' in compute
+
+
+def test_the_group_can_grow_to_hold_every_zones_tasks_and_a_rolling_deployment():
+    """Each awsvpc task has its own network interface, so a large instance holds 2 tasks without ENI trunking: with
+    max = workers + 1 the read zone's task waited for a place (2026-10-09). The maximum follows from the tasks."""
+    asg = _block((MODULE / "compute.tf").read_text(encoding="utf-8"), "aws_autoscaling_group", "instances")
+    assert "max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1" in asg
+    assert "min_size              = var.worker_instances" in asg

@@ -134,12 +134,23 @@ variable "api_burst_limit" {
 }
 
 variable "worker_instances" {
-  description = "Workers (one ECS task per EC2 instance), spread over the private subnets' zones."
+  description = "Tasks of each zone's service, and the fewest instances, spread over the private subnets' zones."
   type        = number
   default     = 2
   validation {
     condition     = var.worker_instances >= 1
     error_message = "run at least one worker."
+  }
+}
+
+variable "worker_tasks_per_instance" {
+  description = "How many awsvpc tasks one instance holds: 2 for a large type, more with ECS ENI trunking (AWS's table of supported instances)."
+  type        = number
+  default     = 2
+  nullable    = false
+  validation {
+    condition     = var.worker_tasks_per_instance >= 1
+    error_message = "an instance holds at least one task."
   }
 }
 

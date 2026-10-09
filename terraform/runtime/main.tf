@@ -55,22 +55,23 @@ resource "terraform_data" "environment_is_known" {
 }
 
 module "runtime" {
-  source                   = "../modules/warden-runtime"
-  environment              = local.env
-  runtime_image            = var.runtime_image
-  vpc_id                   = aws_vpc.runtime.id # network.tf
-  private_subnet_ids       = aws_subnet.private[*].id
-  page_topic_arn           = lookup(local.tf, "page_topic_arn", "")
-  watched_environments     = lookup(local.csv, "watched_environments", [])
-  approval_domain          = lookup(local.tf, "approval_domain", "")
-  approval_certificate_arn = lookup(local.tf, "approval_certificate_arn", "")
-  bedrock_model_arns       = lookup(local.csv, "bedrock_model_arns", [])
-  audit_db_instances       = tonumber(lookup(local.tf, "audit_db_instances", "2"))
-  worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
-  worker_instance_types    = lookup(local.csv, "worker_instance_types", null) # the Free plan: free-tier-eligible types
-  audit_db_backup_days     = try(tonumber(local.tf["audit_db_backup_days"]), null)
-  aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"
-  permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
+  source                    = "../modules/warden-runtime"
+  environment               = local.env
+  runtime_image             = var.runtime_image
+  vpc_id                    = aws_vpc.runtime.id # network.tf
+  private_subnet_ids        = aws_subnet.private[*].id
+  page_topic_arn            = lookup(local.tf, "page_topic_arn", "")
+  watched_environments      = lookup(local.csv, "watched_environments", [])
+  approval_domain           = lookup(local.tf, "approval_domain", "")
+  approval_certificate_arn  = lookup(local.tf, "approval_certificate_arn", "")
+  bedrock_model_arns        = lookup(local.csv, "bedrock_model_arns", [])
+  audit_db_instances        = tonumber(lookup(local.tf, "audit_db_instances", "2"))
+  worker_instances          = tonumber(lookup(local.tf, "worker_instances", "2"))
+  worker_tasks_per_instance = try(tonumber(local.tf["worker_tasks_per_instance"]), null)
+  worker_instance_types     = lookup(local.csv, "worker_instance_types", null) # the Free plan: free-tier-eligible types
+  audit_db_backup_days      = try(tonumber(local.tf["audit_db_backup_days"]), null)
+  aws_free_plan             = lookup(local.tf, "aws_free_plan", "false") == "true"
+  permissions_boundary_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
   # The model the llm zone calls (decision D12; the owner's 2026-10-04 window: gemini). Unqualified, it is refused
   # (register M20) and every incident is escalated on the rules alone.
   model_provider = lookup(local.tf, "model_provider", "")

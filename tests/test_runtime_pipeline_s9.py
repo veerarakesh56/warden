@@ -72,7 +72,7 @@ def test_restart_redeploys_the_zone_services_without_an_image_or_a_plan():
 
 def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     tf = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
-    assert 'source                   = "../modules/warden-runtime"' in tf
+    assert 'source                    = "../modules/warden-runtime"' in tf
     assert 'path = "/warden/${local.env}/tf"' in tf and re.search(r"\n  env\s+= terraform\.workspace\n", tf)
     assert re.search(r"condition\s+= local\.env == local\.runtime\n", tf)  # WARDEN's own environment, nothing else
     assert re.search(r"\n  runtime\s+= local\.config\.runtime\n", tf)

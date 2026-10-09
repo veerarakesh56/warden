@@ -97,10 +97,13 @@ resource "aws_launch_template" "instances" {
 }
 
 resource "aws_autoscaling_group" "instances" {
-  name_prefix           = "warden-${var.environment}-"
-  vpc_zone_identifier   = var.private_subnet_ids
+  name_prefix         = "warden-${var.environment}-"
+  vpc_zone_identifier = var.private_subnet_ids
+  # Each task has its own network interface (awsvpc), so an instance holds only worker_tasks_per_instance tasks (2 on a
+  # large type without ENI trunking): enough instances for every zone's tasks, plus one for a rolling deployment. The
+  # capacity provider scales between min and max (2026-10-09: max = workers + 1 left a zone's task pending).
   min_size              = var.worker_instances
-  max_size              = var.worker_instances + 1
+  max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1
   desired_capacity      = var.worker_instances
   protect_from_scale_in = true
   mixed_instances_policy {
