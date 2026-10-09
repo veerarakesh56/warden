@@ -71,9 +71,13 @@ Mapping from an alert to a workload:
 
 from __future__ import annotations
 
+import functools
 import os
 import re
+import threading
+import time
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .models import Alert
 from .tools import PARTIAL_PREFIX, Metrics, ToolError, alert_time, deploy_in_window, failure
@@ -102,6 +106,51 @@ _ERRORISH = re.compile(r"(?i)error|exception|traceback|denied|not authorized|fai
 METRIC_PERIOD_S = int(os.environ.get("WARDEN_AWS_METRIC_PERIOD_S", "60"))
 
 
+
+def _in_environment(read: Any) -> Any:
+    """A read of one incident, in its environment's reader role when the runtime names one (AwsBackend._bind)."""
+    @functools.wraps(read)
+    def wrapper(self: AwsBackend, alert: Alert, *args: Any, **kwargs: Any) -> Any:
+        self._bind(alert)
+        return read(self, alert, *args, **kwargs)
+    return wrapper
+
+
+def _reader_clients(session: Any, cfg: Any, template: str) -> Any:
+    """Per (environment, incident): logs, CloudWatch and ECS clients in `warden-<env>-platform-reader`, assumed with the
+    worker's own credentials and the incident as SourceIdentity; kept 10 minutes of the 15-minute session."""
+    import boto3
+
+    from . import identity
+    from .environments import default_environment_policies
+
+    known = set(default_environment_policies().known_environments)
+    sts = session.client("sts", config=cfg)
+    held: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+    lock = threading.Lock()
+
+    def clients(env: str, incident: str) -> dict[str, Any]:
+        if env not in known:
+            raise ToolError(f"{env!r} is not a configured environment: nothing was read")
+        key = (env, incident[:64])
+        with lock:
+            hit = held.get(key)
+            if hit and hit[0] > time.monotonic():
+                return hit[1]
+        try:
+            creds = identity.reader_session(sts, role_arn=template.format(env=env, role="platform-reader"),
+                                            incident=key[1])
+        except Exception as exc:
+            raise ToolError(f"could not read {env}: its reader role was refused ({_one_line(exc)})") from exc
+        s = boto3.session.Session(**creds, region_name=session.region_name)
+        made = {n: s.client(n, config=cfg) for n in ("logs", "cloudwatch", "ecs")}
+        with lock:
+            held[key] = (time.monotonic() + 600, made)
+        return made
+
+    return clients
+
+
 class AwsBackend:
     """Reads logs, metrics and rollout history for the ECS service an alert points at."""
     reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
@@ -110,6 +159,7 @@ class AwsBackend:
     name = "aws"
 
     def __init__(self, *, logs=None, cloudwatch=None, ecs=None, region: str | None = None) -> None:
+        own = logs is None and cloudwatch is None and ecs is None  # nothing injected: this backend makes its clients
         # Injectable clients so the unit tests can stub the API without an AWS account.
         if logs is None or cloudwatch is None or ecs is None:
             try:
@@ -139,9 +189,30 @@ class AwsBackend:
                     "WARDEN_BACKEND=aws but no usable AWS credentials or region were found "
                     f"(task role, profile or environment): {_one_line(exc)}"
                 ) from exc
-        self._logs = logs
-        self._cw = cloudwatch
-        self._ecs = ecs
+        self._base = {"logs": logs, "cloudwatch": cloudwatch, "ecs": ecs}
+        self._bound = threading.local()  # the incident's own clients, per worker thread (_bind)
+        template = os.environ.get("WARDEN_AWS_ROLE_ARN_TEMPLATE", "").strip()
+        self._per_env = _reader_clients(session, cfg, template) if template and own else None
+
+    def _client(self, name: str) -> Any:
+        """The clients of the incident being read (_bind), else the ones this backend was made with or given."""
+        bound = vars(self).get("_bound")
+        return ((vars(bound).get("clients") if bound is not None else None) or vars(self).setdefault("_base", {}))[name]
+
+    def _give(self, name: str, client: Any) -> None:
+        vars(self).setdefault("_base", {})[name] = client
+
+    _logs = property(lambda self: self._client("logs"), lambda self, c: self._give("logs", c))
+    _cw = property(lambda self: self._client("cloudwatch"), lambda self, c: self._give("cloudwatch", c))
+    _ecs = property(lambda self: self._client("ecs"), lambda self, c: self._give("ecs", c))
+
+    def _bind(self, alert: Alert) -> None:
+        """In the cloud runtime (WARDEN_AWS_ROLE_ARN_TEMPLATE) every read of an incident runs in its own environment's
+        reader role, `warden-<env>-platform-reader`, under the incident's name (SourceIdentity) - never the worker's
+        own role, which may read no watched environment (2026-10-09: the evidence reader used the worker's
+        credentials). An environment the policy does not know is refused before any call."""
+        if vars(self).get("_per_env") is not None:
+            self._bound.clients = self._per_env(alert.environment, alert.alert_id)
 
     # ------------------------------------------------------------------ alert -> workload
 
@@ -199,6 +270,7 @@ class AwsBackend:
 
     # ------------------------------------------------------------------ the three tools
 
+    @_in_environment
     def logs(self, alert: Alert) -> list[str]:
         """Recent log events for this service's log group, newest window first."""
         group = self._log_group(alert)
@@ -259,6 +331,7 @@ class AwsBackend:
                            "(raise WARDEN_AWS_LOG_MAX_LINES to see more)")
         return lines + partial
 
+    @_in_environment
     def metrics(self, alert: Alert) -> dict[str, float]:
         """Task counts from ECS (exact) and utilisation from CloudWatch (sampled).
 
@@ -350,6 +423,7 @@ class AwsBackend:
                 out[key] = float(max(values))
         return out, partial
 
+    @_in_environment
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
         """A recent TASK DEFINITION IMAGE CHANGE for this service, or nothing.
 

@@ -207,7 +207,9 @@ resource "aws_ecs_task_definition" "zone" {
       }, each.key == "llm" && var.model_provider != "" ? { WARDEN_PROVIDER = var.model_provider, WARDEN_MODEL = var.model } : {},
       # The notify zone posts for real - the only zone that does. chatops.py is dry-run unless this is set, and it is
       # never loaded from SSM; without it every report was dropped silently (2026-10-09).
-      each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {}) :
+      each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {},
+      # The read zone gathers the evidence: live AWS, through each watched environment's reader role (aws_backend.py).
+      each.key == "read" ? { WARDEN_BACKEND = "aws" } : {}) :
     { name = k, value = v }]
     logConfiguration = {
       logDriver = "awslogs"
