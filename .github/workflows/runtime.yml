@@ -34,7 +34,9 @@ jobs:
       id-token: write      # AWS (OIDC) and cosign's keyless signature
       attestations: write  # the build provenance
     outputs:
-      image: ${{ steps.push.outputs.image }}
+      # The digest alone: the repository's address holds the account id, which the job masks, and GitHub drops an output
+      # holding a masked value - the deploy job rebuilt nothing from an empty image (2026-10-09).
+      digest: ${{ steps.push.outputs.digest }}
     env:
       REPOSITORY: ${{ vars.RUNTIME_ECR_REPOSITORY }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -94,7 +96,7 @@ jobs:
       id-token: write
     env:
       ACTION: ${{ inputs.action }}
-      IMAGE: ${{ needs.image.outputs.image }}
+      IMAGE: ${{ vars.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}
       BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       # The identity that signed it: this workflow, on main, in this repository - nothing else is deployed.

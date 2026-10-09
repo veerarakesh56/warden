@@ -19,6 +19,10 @@ def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     assert IMAGE_JOB.index("docker build") < IMAGE_JOB.index("configure-aws-credentials")
     assert "-f Dockerfile.runtime" in IMAGE_JOB and 'docker push "$REPOSITORY:$GITHUB_SHA"' in IMAGE_JOB
     assert 'echo "image=$REPOSITORY@$digest"' in IMAGE_JOB  # everything after works on the digest, never a tag
+    # Only the digest crosses jobs: an output holding the repository's address (the masked account id) is dropped by
+    # GitHub, and the deploy job verified an empty image (2026-10-09).
+    assert "digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB and "needs.image.outputs.image" not in FLOW
+    assert "IMAGE: ${{ vars.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}" in DEPLOY_JOB
 
 
 def test_the_digest_is_signed_and_given_provenance():
