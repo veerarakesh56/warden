@@ -69,6 +69,14 @@ RESOURCE_LABELS = frozenset({
     "dynamodb_table", "ecs_cluster", "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule",
     "instance_id", "lambda", "log_group", "log_stream_prefix", "namespace", "region", "secret", "selector",
     "sns_topic", "sqs",
+    # What an alarm watches, for every main AWS service (resources.py, G9-A1 2026-10-10).
+    "lambda_qualifier", "k8s_service", "canary", "docdb_cluster", "docdb_instance", "mq_broker",
+    "elasticache_serverless", "appsync_events", "asg", "ebs_volume", "efs", "fsx", "rds_instance", "elasticache_node", "memorydb",
+    "schedule_group", "state_machine", "kinesis_stream", "firehose", "msk_cluster", "apigw_id", "apigw_rest",
+    "apigw_stage", "appsync", "nlb_target_group", "load_balancer", "clb", "cloudfront", "route53_health_check",
+    "s3_bucket", "nat_gateway", "transit_gateway", "opensearch", "redshift", "cognito_user_pool", "apprunner",
+    "glue_job", "athena_workgroup", "emr_cluster", "waf_web_acl", "kms_key", "acm_certificate", "quota_service",
+    "quota_resource",
 })
 
 

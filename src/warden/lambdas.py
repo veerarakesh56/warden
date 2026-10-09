@@ -20,11 +20,13 @@ import asyncio
 import base64
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any
 
+from . import resources
 from .intake import AlarmEvent
-from .models import Alert, Severity
+from .models import NAME_PATTERN, Alert, Severity
 
 _CONFIGURED: set[str] = set()
 
@@ -54,9 +56,17 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
     state = (detail.get("state") or {})
     when = datetime.fromisoformat(str(state.get("timestamp") or event.get("time")))
     dims: dict[str, str] = {}
+    metrics: list[tuple[str, dict[str, str]]] = []
     for m in (detail.get("configuration") or {}).get("metrics") or []:
-        dims.update({str(k): str(v) for k, v in ((m.get("metricStat") or {}).get("metric") or {}).get("dimensions", {}).items()})
-    service = next((dims[k] for k in _SERVICE_DIMENSIONS if dims.get(k)), name)
+        metric = (m.get("metricStat") or {}).get("metric") or {}
+        these = {str(k): str(v) for k, v in (metric.get("dimensions") or {}).items()}
+        metrics.append((str(metric.get("namespace") or ""), these))
+        dims.update(these)
+    # Only a value that is a plain name: a hostile dimension value made the Alert invalid and the Lambda crash, losing
+    # the incident (G9-A1, 2026-10-10). Its label is still dropped and reported by the Alert's own check.
+    named = re.compile(NAME_PATTERN)
+    service = next((dims[k] for k in _SERVICE_DIMENSIONS if dims.get(k) and named.match(dims[k])),
+                   name if named.match(name) else "unknown")
     from .environments import env_of_name
 
     environment = env_of_name(service) or env_of_name(name) or default_environment
@@ -64,7 +74,7 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
         source="alarm", rule=name, state=str(state.get("value")), transitioned_at=when,
         alert=Alert(alert_id="cw", name=name[:512], severity=Severity.high, service=service, environment=environment,
                     summary=str((detail.get("configuration") or {}).get("description") or "")[:4000],
-                    started_at=when.isoformat(), labels={"alarm": name, **dims}))
+                    started_at=when.isoformat(), labels={"alarm": name, **dims, **resources.labels_for(metrics)}))
 
 
 def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:
