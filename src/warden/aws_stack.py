@@ -198,7 +198,7 @@ _CAPACITY_CHANGE = re.compile(r"capacity from (\d{1,6}) to (\d{1,6})", re.IGNORE
 # AWS's own stoppedReason and container reasons, classified - first match wins. The order matters: a secret that does
 # not exist before a denied one, both before the network (a pull that timed out), the network before an image.
 _STOP_CAUSES = (
-    ("secret_missing", re.compile(r"ResourceNotFoundException|ParameterNotFound|secret[^.]{0,80}(?:not found|does not exist)",
+    ("secret_missing", re.compile(r"ResourceNotFoundException|ParameterNotFound|secret[^.]{0,80}(?:not found|does not exist|marked for deletion)",
                                   re.IGNORECASE)),
     ("permission", re.compile(r"AccessDenied|not authorized|UnauthorizedOperation|is not permitted", re.IGNORECASE)),
     ("network", re.compile(r"i/o timeout|dial tcp|context deadline exceeded|network is unreachable|no route to host|"
@@ -1428,6 +1428,11 @@ class StackBackend:
     def _read_secret(self, out: _Out, alert: Alert, name: str) -> None:
         meta = self._sm.describe_secret(SecretId=name)  # metadata only - never the value
         changed = _aware(meta.get("LastChangedDate"))
+        # A secret scheduled for deletion fails every read of its value (G10 held-out set, 2026-10-10: the model was
+        # never told, and RestoreSecret can bring it back inside the recovery window).
+        deleted = _aware(meta.get("DeletedDate"))
+        if deleted is not None:
+            out.lines.append(f"SECRET {name} scheduled for deletion {_z(deleted)} (metadata only)")
         if changed is None:
             return
         out.lines.append(f"SECRET {name} changed {_z(changed)} (metadata only)")
@@ -1457,11 +1462,16 @@ class StackBackend:
         }))
 
     def _read_rule(self, out: _Out, alert: Alert, rule: str, sfx: str) -> None:
-        r = self._events.describe_rule(Name=rule)
-        out.lines.append(f"RULE {rule} State={r.get('State')} schedule={r.get('ScheduleExpression', '-')}")
+        # A rule on a custom bus is found only on that bus (G10 review, 2026-10-10: DescribeRule looked on the default
+        # bus and failed): the alarm's EventBusName dimension names it.
+        bus = (_names(alert, "event_bus") or [""])[0]
+        on_bus = {"EventBusName": bus} if bus else {}
+        r = self._events.describe_rule(Name=rule, **on_bus)
+        out.lines.append(f"RULE {rule} State={r.get('State')} schedule={r.get('ScheduleExpression', '-')}"
+                         + (f" bus={_safe(bus)}" if bus else ""))
         out.metrics[f"rule_enabled{sfx}"] = float(r.get("State") == "ENABLED")
         out.metrics.update(self._cw_read(out, f"eventbridge/{rule}", alert, {
-            f"rule_invocations{sfx}": ("AWS/Events", "Invocations", {"RuleName": rule}, "Sum"),
+            f"rule_invocations{sfx}": ("AWS/Events", "Invocations", {**on_bus, "RuleName": rule}, "Sum"),
         }))
 
 

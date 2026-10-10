@@ -48,6 +48,9 @@ def test_the_reason_text_reaches_the_model_only_through_the_quarantine():
 @pytest.mark.parametrize("code, reason, exits, cause", [
     ("TaskFailedToStart", ("ResourceInitializationError: unable to pull secrets or registry auth: "
      "ResourceNotFoundException: Secrets Manager can't find the specified secret."), [], "secret_missing"),
+    # A secret scheduled for deletion (G10 held-out set, 2026-10-10): AWS's own wording of the refusal.
+    ("TaskFailedToStart", ("ResourceInitializationError: unable to pull secrets or registry auth: InvalidRequestException: "
+     "You can't perform this operation on the secret because it was marked for deletion."), [], "secret_missing"),
     ("TaskFailedToStart", ("ResourceInitializationError: unable to pull secrets: AccessDeniedException: "
      "User is not authorized to perform secretsmanager:GetSecretValue"), [], "permission"),
     ("TaskFailedToStart", ("CannotPullContainerError: pull image manifest has been retried 5 time(s): failed to "

@@ -110,7 +110,10 @@ class Fake:
         return {"MetricDataResults": out}
 
     # --- events
-    def describe_rule(self, Name):
+    def describe_rule(self, Name, EventBusName="default"):
+        # Found only on its own bus, as EventBridge does (a rule on a custom bus is not on the default one).
+        if Name != self.rule["Name"] or EventBusName != self.rule.get("EventBusName", "default"):
+            raise LookupError(f"ResourceNotFoundException: rule {Name} does not exist on EventBus {EventBusName}")
         return {**self.rule}
 
     def list_tags_for_resource(self, ResourceARN):
@@ -262,6 +265,21 @@ def test_a_rule_is_enabled_and_its_rollback_disables_it(aws):
     f.rule["State"] = "ENABLED"
     p.rollback("events_enable_rule", {"rule": f.rule["Name"]}, live["state"], who=WHO)
     assert f.writes[-1] == ("disable_rule", {"Name": f.rule["Name"]}) and f.sessions[-1]["actions"] == ["events:DisableRule"]
+
+
+def test_a_custom_bus_rule_is_read_enabled_and_checked_on_its_own_bus(aws):
+    """G10 review (2026-10-10): the rule was looked up on the default bus only, so a disabled rule on a custom bus
+    could never be enabled. The resolver writes `bus/rule`; every read and the write name the bus."""
+    f, p = aws
+    f.rule["EventBusName"] = "orders-bus"
+    ref = f"orders-bus/{f.rule['Name']}"
+    assert not p.live("events_enable_rule", {"rule": f.rule["Name"]}).get("rule")  # not on the default bus
+    live = p.live("events_enable_rule", {"rule": ref})
+    assert live["rule"] == {ref}
+    p.apply("events_enable_rule", {"rule": ref}, snapshot=live["state"], who=WHO)
+    assert f.writes == [("enable_rule", {"Name": f.rule["Name"], "EventBusName": "orders-bus"})]
+    f.rule["State"] = "ENABLED"
+    assert p._rule_healthy(ref, {"rule": ref})
 
 
 def test_table_write_capacity_at_most_doubles_and_an_autoscaled_table_is_left_alone(aws):

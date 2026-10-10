@@ -247,6 +247,13 @@ def _last(value: Any) -> str:
 
 
 
+
+def _rule_on_bus(ref: str) -> dict[str, str]:
+    """`rule` or `bus/rule` (the resolver's form for a custom bus's rule) as DescribeRule/EnableRule arguments. Rule
+    names hold no `/`; bus names may (a partner bus), so the bus is everything before the last one."""
+    bus, _, name = ref.rpartition("/")
+    return {"Name": name, **({"EventBusName": bus} if bus else {})}
+
 class AwsPlatformError(RuntimeError):
     pass
 
@@ -725,13 +732,13 @@ class AwsPlatform:
         name = params.get("rule")
         if not isinstance(name, str):
             return {}
-        rule = self._read("events").describe_rule(Name=name)
+        rule = self._read("events").describe_rule(**_rule_on_bus(name))
         state = rule.get("State")
         # A pause only for a scheduled rule (it misses ticks); an event-pattern rule would drop the events it matches.
         # Only the plain ENABLED state: a rule on all CloudTrail management events may not come back the same way.
         can = state == "ENABLED" and bool(rule.get("ScheduleExpression")) and not rule.get("EventPattern") \
             if pause else state == "DISABLED"
-        return {"rule": {rule["Name"]} if can else set(),
+        return {"rule": {name} if can and rule["Name"] == _rule_on_bus(name)["Name"] else set(),
                 "environment": self._tags("events", rule["Arn"]).get(ENV_TAG),
                 "state": {"rule": rule["Name"], "arn": rule["Arn"], "enabled": state == "ENABLED",
                           "where": self._where(rule["Arn"])}}
@@ -750,14 +757,14 @@ class AwsPlatform:
                                      "nothing was changed")
         action = "events:DisableRule" if back else "events:EnableRule"
         ev = self._actor(who, [action], [now["arn"]], None)("events")
-        (ev.disable_rule if back else ev.enable_rule)(Name=p["rule"])
+        (ev.disable_rule if back else ev.enable_rule)(**_rule_on_bus(p["rule"]))
         return f"{'disabled' if back else 'enabled'} rule {p['rule']}"
 
     def _rule_healthy(self, name: str, params: dict[str, Any]) -> bool:
-        return self._read("events").describe_rule(Name=name).get("State") == "ENABLED"
+        return self._read("events").describe_rule(**_rule_on_bus(name)).get("State") == "ENABLED"
 
     def _rule_paused(self, name: str, params: dict[str, Any]) -> bool:
-        return self._read("events").describe_rule(Name=name).get("State") == "DISABLED"
+        return self._read("events").describe_rule(**_rule_on_bus(name)).get("State") == "DISABLED"
 
     # ------------------------------------------------------------------ dynamodb: raise write capacity
 

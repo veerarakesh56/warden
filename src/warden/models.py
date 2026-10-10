@@ -66,7 +66,7 @@ NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,252}$"
 # and masking it also masked the resource in WARDEN's own config lines (second review, 2026-09-30).
 RESOURCE_LABELS = frozenset({
     "alb_target_group", "apigw", "app", "aurora_cluster", "cluster", "database", "db_instance", "deployment",
-    "dynamodb_table", "ecs_cluster", "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule",
+    "dynamodb_table", "ecs_cluster", "ecs_service", "eks_cluster", "elasticache", "eventbridge_rule", "event_bus",
     "instance_id", "lambda", "log_group", "log_stream_prefix", "namespace", "region", "secret", "selector",
     "sns_topic", "sqs",
     # What an alarm watches, for every main AWS service (resources.py, G9-A1 2026-10-10).

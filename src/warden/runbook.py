@@ -544,7 +544,8 @@ def _reads_only(rb: Runbook, alert: Alert, platform: str, action: ActionKind) ->
         "sqs": [f"aws sqs get-queue-attributes --queue-url \"$(aws sqs get-queue-url --queue-name {q} --query QueueUrl "
                 "--output text)\" --attribute-names All" for q in names.get("sqs", [])],
         "sns": [f"aws sns list-topics --query \"Topics[?ends_with(TopicArn, ':{t}')]\"" for t in names.get("sns_topic", [])],
-        "eventbridge": [f"aws events describe-rule --name {r}" for r in names.get("eventbridge_rule", [])],
+        "eventbridge": [f"aws events describe-rule --name {r}" + "".join(f" --event-bus-name {b}" for b in names.get("event_bus", [])[:1])
+                        for r in names.get("eventbridge_rule", [])],
         "alb": [f"aws elbv2 describe-target-health --target-group-arn \"$(aws elbv2 describe-target-groups --names {t} "
                 "--query 'TargetGroups[0].TargetGroupArn' --output text)\"" for t in names.get("alb_target_group", [])],
         "apigw": [f"aws apigatewayv2 get-apis --query \"Items[?Name=='{a}']\"" for a in names.get("apigw", [])],

@@ -60,7 +60,11 @@ def _platform(alert: Alert, target: str) -> tuple[str, dict[str, str]] | None:
     for platform, labels in _PLATFORM_LABELS.items():
         values = [alert.labels.get(label, "") for label, _ in labels]
         if all(values) and "," not in "".join(values) and values[-1] == target:
-            return platform, {param: alert.labels[label] for label, param in labels}
+            params = {param: alert.labels[label] for label, param in labels}
+            bus = alert.labels.get("event_bus", "")
+            if platform == "events" and bus and "," not in bus:
+                params["rule"] = f"{bus}/{params['rule']}"  # a custom bus's rule: the platform splits it (no / in names)
+            return platform, params
     return None
 
 

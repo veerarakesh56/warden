@@ -130,6 +130,15 @@ def _ec2(d: Mapping[str, str]) -> Labels:
     return out
 
 
+def _events(d: Mapping[str, str]) -> Labels:
+    """AWS/Events: a rule, and its bus when it is not the default one (metrics with both EventBusName and RuleName are a
+    custom bus's rule - EventBridge user guide, read 2026-10-10)."""
+    out = {"eventbridge_rule": d["RuleName"]} if d.get("RuleName") else {}
+    if out and d.get("EventBusName") and d["EventBusName"] != "default":
+        out["event_bus"] = d["EventBusName"]
+    return out
+
+
 def _usage(d: Mapping[str, str]) -> Labels:
     """AWS/Usage: a service quota's usage (Service, Type, Resource, Class)."""
     if not d.get("Service"):
@@ -158,7 +167,7 @@ NAMESPACES: dict[str, Callable[[Mapping[str, str]], Labels]] = {
     "AWS/SQS": _one("sqs", "QueueName"),
     "AWS/SNS": _one("sns_topic", "TopicName"),
     "AWS/AmazonMQ": _one("mq_broker", "Broker", fn=lambda v: re.sub(r"-[12]$", "", v)),  # ActiveMQ: <broker>-1/-2
-    "AWS/Events": _one("eventbridge_rule", "RuleName"),
+    "AWS/Events": _events,
     "AWS/Scheduler": _one("schedule_group", "ScheduleGroup"),
     "AWS/States": _one("state_machine", "StateMachineArn", fn=_arn_name),
     "AWS/Kinesis": _one("kinesis_stream", "StreamName"),
@@ -208,7 +217,7 @@ LABEL_KEYS = frozenset({
     "k8s_service", "log_group", "canary", "docdb_cluster", "docdb_instance", "mq_broker", "elasticache_serverless",
     "appsync_events",
     "instance_id", "asg", "ebs_volume", "efs", "fsx", "aurora_cluster", "rds_instance", "dynamodb_table",
-    "elasticache_node", "memorydb", "sqs", "sns_topic", "eventbridge_rule", "schedule_group",
+    "elasticache_node", "memorydb", "sqs", "sns_topic", "eventbridge_rule", "event_bus", "schedule_group",
     "state_machine", "kinesis_stream", "firehose", "msk_cluster", "apigw_id", "apigw_rest", "apigw_stage", "appsync",
     "alb_target_group", "nlb_target_group", "load_balancer", "clb", "cloudfront", "route53_health_check", "s3_bucket",
     "nat_gateway", "transit_gateway", "opensearch", "redshift", "cognito_user_pool", "apprunner", "glue_job",

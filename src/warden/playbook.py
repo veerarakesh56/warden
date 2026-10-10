@@ -43,6 +43,12 @@ class Pattern:
     fix: list[str] = field(default_factory=list)
 
 
+def _on_bus(alert: Alert) -> str:
+    """` --event-bus-name <bus>` for a rule on a custom bus (the alarm's EventBusName dimension), else nothing."""
+    bus = (alert.labels.get("event_bus") or "").split(",")[0].strip()
+    return f" --event-bus-name {bus}" if bus else ""
+
+
 def _has(ctx: ContextBundle, *needles: str) -> str | None:
     """The first evidence line containing any needle, trimmed - so the report can quote it."""
     for line in ctx.logs:
@@ -1082,7 +1088,7 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
         name = rule.split()[1] if rule else _named(alert, "eventbridge_rule", off[0])
         add("schedule_off", "Scheduled rule disabled", rule or "rule_enabled = 0",
             "The EventBridge rule is disabled, so its target is never invoked.",
-            [regioned(f"aws events enable-rule --name {name}")] if name else [],
+            [regioned(f"aws events enable-rule --name {name}" + _on_bus(alert))] if name else [],
             "" if name else "No command: the disabled rule is not named in the evidence.",
             platform=["Alarm on the target's Invocations dropping to zero for scheduled work."])
 

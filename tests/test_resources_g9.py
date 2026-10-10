@@ -42,6 +42,10 @@ CASES = [
     ("AWS/SQS", {"QueueName": "jobs"}, {"sqs": "jobs"}),
     ("AWS/SNS", {"TopicName": "alerts"}, {"sns_topic": "alerts"}),
     ("AWS/Events", {"RuleName": "nightly"}, {"eventbridge_rule": "nightly"}),
+    # A custom bus's rule carries EventBusName too; the default bus names no bus.
+    ("AWS/Events", {"EventBusName": "orders-bus", "RuleName": "created"}, {"eventbridge_rule": "created", "event_bus": "orders-bus"}),
+    ("AWS/Events", {"EventBusName": "default", "RuleName": "nightly"}, {"eventbridge_rule": "nightly"}),
+    ("AWS/Events", {"EventBusName": "orders-bus"}, {}),
     ("AWS/Scheduler", {"ScheduleGroup": "default"}, {"schedule_group": "default"}),
     ("AWS/States", {"StateMachineArn": f"arn:aws:states:r:{ACCT}:stateMachine:checkout"}, {"state_machine": "checkout"}),
     ("AWS/Kinesis", {"StreamName": "clicks"}, {"kinesis_stream": "clicks"}),

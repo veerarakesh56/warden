@@ -525,6 +525,17 @@ def test_secret_is_read_as_metadata_only():
     assert not any("never-shown" in x for x in lines)
 
 
+def test_a_secret_scheduled_for_deletion_is_said():
+    """G10 held-out set (2026-10-10): DescribeSecret's DeletedDate was dropped, so the model never learnt that every read
+    of the secret now fails - and that RestoreSecret can bring it back inside the recovery window."""
+    sm = Fake(describe_secret={"LastChangedDate": NOW, "DeletedDate": NOW - timedelta(minutes=5)})
+    lines = _backend(_clients(secretsmanager=sm)).logs(_alert(secret=f"{P}db-app"))
+    when = (NOW - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert f"SECRET {P}db-app scheduled for deletion {when} (metadata only)" in lines
+    live = _backend(_clients(secretsmanager=Fake(describe_secret={"LastChangedDate": NOW}))).logs(_alert(secret=f"{P}db-app"))
+    assert not any("scheduled for deletion" in x for x in live)
+
+
 # --------------------------------------------------------------------------- code-level evidence
 
 
@@ -993,3 +1004,19 @@ def test_an_albs_zones_its_zonal_shift_setting_and_its_hosts_per_zone_are_read()
     m = b.metrics(alert)
     assert m["alb_healthy_hosts_test-region-1a"] == 0 and m["alb_unhealthy_hosts_test-region-1a"] == 2
     assert m["alb_healthy_hosts_test-region-1b"] == 2 and m["alb_unhealthy_hosts_test-region-1b"] == 0
+
+
+def test_a_rule_on_a_custom_bus_is_read_on_that_bus():
+    """G10 review (2026-10-10): DescribeRule looked on the default bus only, so a rule on a custom bus read as a failed
+    read. The alarm's EventBusName dimension (label `event_bus`) names the bus for the describe and the metrics."""
+    events = Fake(describe_rule={"State": "DISABLED", "ScheduleExpression": "-"})
+    cw = Fake(get_metric_data={"MetricDataResults": []})
+    lines = _backend(_clients(events=events, cloudwatch=cw)).logs(
+        _alert(eventbridge_rule=f"{P}created", event_bus=f"{P}orders-bus"))
+    assert ("describe_rule", {"Name": f"{P}created", "EventBusName": f"{P}orders-bus"}) in events.calls
+    assert f"RULE {P}created State=DISABLED schedule=- bus={P}orders-bus" in lines
+    dims = [q["MetricStat"]["Metric"]["Dimensions"] for _, kw in cw.calls for q in kw["MetricDataQueries"]]
+    assert {"Name": "EventBusName", "Value": f"{P}orders-bus"} in dims[0]
+    default = Fake(describe_rule={"State": "ENABLED"})
+    _backend(_clients(events=default)).logs(_alert(eventbridge_rule=f"{P}nightly"))
+    assert ("describe_rule", {"Name": f"{P}nightly"}) in default.calls
