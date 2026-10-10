@@ -71,10 +71,16 @@ qualified:
   # G10-D3b (revert_change's meaning names the families an entry carries out; $0.55): 22/30, every incident answered,
   # 0 wrong-and-allowed, escalated 23. Within the run-to-run band of 18-22 seen in G10 - not shown to be a gain.
   # Before (prompt 9c2e187d, G10-D1): {"measured": "2026-10-10T08:57Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0}
-  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-10T09:29Z", "correct": 22, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0}
+  # G10 readers, trust and grounding fixes (code 397346f, same prompt; $0.53): 21/30, every incident answered, 0
+  # wrong-and-allowed, escalated 22 - within the 18-22 band. The 30 recordings predate the readers, so the gains
+  # show on the held-out set (docs/bench/heldout-g10-2026-10-10), not here.
+  # Before (code of 2026-10-10 09:29Z): {"measured": "2026-10-10T09:29Z", "correct": 22, "runs": 30, "wrong_and_allowed": 0}
+  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.4.0", "measured": "2026-10-10T12:51Z", "correct": 21, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
 # Measured on the PREVIOUS prompt (03300eac..., 2026-10-03) and so no longer qualified until measured again on this one
 # (the Claude Max CLI, the local development backend; free):
 #  {"provider": "claude_cli", "model": "claude-fable-5-1", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:16Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}
 #  {"provider": "claude_cli", "model": "claude-fable-5", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:06Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
 #  {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-09T10:14Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
-  - {"provider": "claude_cli", "model": "claude-sonnet-5", "version": "claude-cli 2.1.287", "measured": "2026-10-02T18:26Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0}
+  # The Claude Max CLI (the local development backend) on this prompt and code 397346f (free; one run of 30, every
+  # incident answered): 18/30, 0 wrong-and-allowed. Before (prompt of 2026-10-02): 19/30.
+  - {"provider": "claude_cli", "model": "claude-sonnet-5", "version": "claude-cli 2.1.296", "measured": "2026-10-10T12:55Z", "correct": 18, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0}

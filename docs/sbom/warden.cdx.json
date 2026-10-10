@@ -2578,7 +2578,7 @@
       "supplier": {
         "name": "Anthropic"
       },
-      "description": "qualified on WARDEN's replay set: 22 of 30 correct, 0 wrong and allowed (measured 2026-10-10T09:29Z)",
+      "description": "qualified on WARDEN's replay set: 21 of 30 correct, 0 wrong and allowed (measured 2026-10-10T12:51Z)",
       "properties": [
         {
           "name": "warden:provider",
@@ -2586,7 +2586,7 @@
         },
         {
           "name": "warden:client",
-          "value": "anthropic 1.11.0"
+          "value": "anthropic 1.4.0"
         }
       ]
     },
@@ -2598,7 +2598,7 @@
       "supplier": {
         "name": "Anthropic"
       },
-      "description": "qualified on WARDEN's replay set: 19 of 30 correct, 0 wrong and allowed (measured 2026-10-02T18:26Z)",
+      "description": "qualified on WARDEN's replay set: 18 of 30 correct, 0 wrong and allowed (measured 2026-10-10T12:55Z)",
       "properties": [
         {
           "name": "warden:provider",
@@ -2606,7 +2606,7 @@
         },
         {
           "name": "warden:client",
-          "value": "claude-cli 2.1.287"
+          "value": "claude-cli 2.1.296"
         }
       ]
     }
