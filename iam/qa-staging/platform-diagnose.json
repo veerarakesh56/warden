@@ -87,6 +87,23 @@
           "aws:RequestedRegion": "us-east-1"
         }
       }
+    },
+    {
+      "Sid": "GlobalServicesDistributionsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "cloudfront:GetDistribution",
+      "Resource": "arn:aws:cloudfront::*:distribution/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "qa-staging"
+        }
+      }
+    },
+    {
+      "Sid": "GlobalServicesHealthCheckStatus",
+      "Effect": "Allow",
+      "Action": "route53:GetHealthCheckStatus",
+      "Resource": "arn:aws:route53:::healthcheck/*"
     }
   ]
 }

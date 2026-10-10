@@ -108,6 +108,13 @@ TABLE: dict[str, Describe] = {
                                   "HealthyThresholdCount", "UnhealthyThresholdCount", "LoadBalancerArns")),
     "clb": Describe("elb", "describe_instance_health", "elasticloadbalancing:DescribeInstanceHealth",
                     _arg("LoadBalancerName"), "", ("InstanceStates",)),
+    # The global services (G10, 2026-10-10): read in AWS's global-services Region, where their alarms live and the
+    # reader runs for them (alarm_region, G10-F1). Route 53: the checkers' reports, counted by Success/Failure.
+    "cloudfront": Describe("cloudfront", "get_distribution", "cloudfront:GetDistribution", _arg("Id"), "Distribution",
+                           ("Status", "DistributionConfig.Enabled", "DistributionConfig.Origins.Quantity",
+                            "DistributionConfig.HttpVersion", "DistributionConfig.PriceClass", "LastModifiedTime")),
+    "route53_health_check": Describe("route53", "get_health_check_status", "route53:GetHealthCheckStatus",
+                                     _arg("HealthCheckId"), "", ("HealthCheckObservations",)),
     "s3_bucket": Describe("s3", "get_bucket_versioning", "s3:GetBucketVersioning", _arg("Bucket"), "",
                           ("Status", "MFADelete")),
     "nat_gateway": Describe("ec2", "describe_nat_gateways", "ec2:DescribeNatGateways", _list_arg("NatGatewayIds"),

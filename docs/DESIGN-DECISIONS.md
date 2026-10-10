@@ -292,6 +292,13 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - AWS knowledge for an error code the model may not know: the AWS Knowledge MCP server (AWS's documentation and
   Knowledge Center, free, no sign-in), called with a closed code and a service word only; its answer is reference,
   never evidence - `aws_docs.py` (G10-C6, owner decision 2026-10-10).
+- The global services' state (G10, 2026-10-10): a CloudFront distribution and a Route 53 health check are read in
+  AWS's global-services Region, where their alarms live (G10-F1). A distribution is granted by its Environment tag. A
+  health check has an ID for a name and no condition key (AWS service reference, read 2026-10-10), so the reader may
+  read any health check's checker status in the account - the one account-wide read, its status only, never its
+  configuration. Not read, for the same reason with no narrower status call: FSx file systems (DescribeFileSystems
+  takes no resource) and WAF web ACLs (GetWebACL needs an ID only an unscoped list gives); their alarms, metrics and
+  CloudTrail changes are still read.
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.

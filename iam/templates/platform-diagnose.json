@@ -87,6 +87,23 @@
           "aws:RequestedRegion": "${global_region}"
         }
       }
+    },
+    {
+      "Sid": "GlobalServicesDistributionsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "cloudfront:GetDistribution",
+      "Resource": "arn:aws:cloudfront::*:distribution/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        }
+      }
+    },
+    {
+      "Sid": "GlobalServicesHealthCheckStatus",
+      "Effect": "Allow",
+      "Action": "route53:GetHealthCheckStatus",
+      "Resource": "arn:aws:route53:::healthcheck/*"
     }
   ]
 }

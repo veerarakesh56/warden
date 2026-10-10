@@ -77,7 +77,7 @@ _SCOPABLE = {"kinesis:DescribeStreamSummary", "firehose:DescribeDeliveryStream",
              "es:DescribeDomain", "synthetics:GetCanary", "s3:GetBucketVersioning", "elasticache:DescribeServerlessCaches",
              "elasticache:DescribeCacheClusters", "redshift:DescribeClusters", "acm:DescribeCertificate",
              "appsync:GetGraphqlApi", "cognito-idp:DescribeUserPool", "elasticfilesystem:DescribeFileSystems",
-             "elasticmapreduce:DescribeCluster", "kms:DescribeKey", "apigateway:GET"}
+             "elasticmapreduce:DescribeCluster", "kms:DescribeKey", "apigateway:GET", "cloudfront:GetDistribution"}
 
 
 def test_no_scopable_read_is_granted_on_everything():
@@ -96,7 +96,15 @@ def test_no_scopable_read_is_granted_on_everything():
                                                    "arn:aws:apigateway:${region}::/apis/*"]
     assert st["NeverApiKeys"] == {"Sid": "NeverApiKeys", "Effect": "Deny", "Action": "apigateway:GET",
                                   "Resource": "arn:aws:apigateway:*::/apikeys*"}
-    assert "GlobalServicesState" not in st  # no global-service read until reads are region-aware (M6)
+    # The global services, now that reads are region-aware (G10-F1): a distribution by its Environment tag; a Route 53
+    # health check has no condition key and an ID for a name (AWS service reference, read 2026-10-10), so its
+    # checkers' status - never its configuration - is the one read granted account-wide (docs/DESIGN-DECISIONS.md).
+    assert st["GlobalServicesDistributionsOfThisEnvironment"]["Condition"] == {
+        "StringEquals": {"aws:ResourceTag/Environment": "${env}"}}
+    assert st["GlobalServicesHealthCheckStatus"] == {"Sid": "GlobalServicesHealthCheckStatus", "Effect": "Allow",
+                                                     "Action": "route53:GetHealthCheckStatus",
+                                                     "Resource": "arn:aws:route53:::healthcheck/*"}
+    assert "route53:GetHealthCheck" not in reader_iam.granted()  # the configuration is never read
 
 
 def test_every_entry_is_classified_free_or_billed_with_a_priced_row():
@@ -164,3 +172,28 @@ def test_the_stack_backend_reads_the_state_of_the_resource_an_alarm_names():
     lines = b.logs(alert)
     assert "STATE rds_instance warden-dev-db DBInstanceStatus=storage-full AllocatedStorage=20 MaxAllocatedStorage=20" in lines
     assert rds.calls == [{"DBInstanceIdentifier": "warden-dev-db"}]
+
+
+# Resource labels with no state read of their own, each with the reason (G10, 2026-10-10). Every other resource label
+# the alarm mapping gives has a reader: the state table, or one of the stack backend's own readers.
+NOT_READ = {
+    "fsx": "DescribeFileSystems takes no resource: it cannot be scoped to one environment",
+    "waf_web_acl": "GetWebACL needs an ID only an unscoped ListWebACLs gives",
+    "appsync_events": "an AppSync Events API has no status call; its metrics and changes are read",
+    "quota_service": "a quota is read as its usage metric (AWS/Usage); there is no resource",
+    "quota_resource": "a quota is read as its usage metric (AWS/Usage); there is no resource",
+    # Qualifiers of another resource, read with it.
+    "lambda_qualifier": "read with its function", "apigw_stage": "read with its API",
+    "ecs_cluster": "read with its service", "ecs_service": "read by the ECS reader", "namespace": "read with its deployment",
+    "k8s_service": "read with its deployment", "log_group": "read as the logs", "event_bus": "read with its rule",
+}
+
+
+def test_every_resource_label_has_a_reader_or_a_reason_it_has_none():
+    import re
+
+    src = (ROOT / "src" / "warden" / "aws_stack.py").read_text(encoding="utf-8")
+    direct = set(re.findall(r'lab\["(\w+)"\]', src)) | {"lambda", "sqs", "eventbridge_rule", "deployment"}
+    missing = sorted(k for k in resources.LABEL_KEYS if k not in aws_describe.TABLE and k not in direct and k not in NOT_READ)
+    assert missing == []
+    assert {"cloudfront", "route53_health_check"} <= set(aws_describe.TABLE)
