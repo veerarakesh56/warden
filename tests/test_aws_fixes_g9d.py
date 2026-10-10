@@ -6,6 +6,8 @@ an ECS restart pulling a mutable tag, a manual count an autoscaler would undo.""
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from test_aws_platform_g6 import ACCT, FN, FN_ARN, NOW, WHO, Fake
@@ -354,3 +356,84 @@ def test_no_shift_without_exactly_one_impaired_zone_the_balancers_consent_or_wit
     assert any("P21" in x for x in catalog.validate("arc_zonal_shift",
                                                     {**base, "away_from": "tr1-aza", "minutes": 60}, live))
     assert p.live("arc_zonal_shift", {"load_balancer": "app/warden-dev-shop/other-id"}) == {}
+
+
+ALARM = "warden-dev-checkout-5xx"
+ALARM_ARN = f"arn:aws:cloudwatch:test-region-1:{ACCT}:alarm:{ALARM}"
+
+
+class Config(Zones):
+    def __init__(self):
+        super().__init__()
+        self.monitors = [{"AlarmArn": ALARM_ARN}]
+        self.deployment = {"DeploymentNumber": 7, "State": "COMPLETE", "CompletedAt": NOW - timedelta(hours=1),
+                           "VersionLabel": "v42"}
+        self.config_tags = {"Environment": "dev"}
+
+    def describe_alarms(self, AlarmNames, AlarmTypes):
+        return {"MetricAlarms": [{"AlarmName": ALARM, "AlarmArn": ALARM_ARN}]}
+
+    def list_applications(self, MaxResults, **kw):
+        return {"Items": [{"Id": "app1", "Name": "warden-dev-flags"}, {"Id": "app2", "Name": "warden-prod-flags"}]}
+
+    def list_environments(self, ApplicationId, MaxResults):
+        if ApplicationId == "app2":
+            raise PermissionError("AccessDenied: another environment's application")
+        return {"Items": [{"Id": "env1", "Name": "live", "Monitors": list(self.monitors)},
+                          {"Id": "env2", "Name": "canary", "Monitors": []}]}
+
+    def list_deployments(self, ApplicationId, EnvironmentId, MaxResults):
+        return {"Items": [{"DeploymentNumber": 6, "State": "COMPLETE"}, dict(self.deployment)]}
+
+    def list_tags_for_resource(self, ResourceARN=None, ResourceArn=None):
+        if ResourceArn:  # AppConfig's spelling
+            return {"Tags": dict(self.config_tags)}
+        return super().list_tags_for_resource(ResourceARN)
+
+
+@pytest.fixture
+def config():
+    f = Config()
+    return f, AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: NOW, sleep=lambda s: None)
+
+
+def _revert(target):
+    from warden.models import ActionKind, Alert, RemediationProposal, Severity
+
+    return (Alert(alert_id="a1", name="n", service="checkout", environment="dev", severity=Severity.high, summary="",
+                  started_at="2026-10-10T00:00:00+00:00", labels={"alarm": ALARM}),
+            RemediationProposal(action=ActionKind.revert_config, target=target, reasoning="r", expected_effect="e",
+                                blast_radius="single_service", reversible=True))
+
+
+def test_the_configuration_the_alarm_guards_is_reverted_through_its_own_deployment(config):
+    from warden import resolver
+
+    f, p = config
+    alert, prop = _revert("warden-dev-flags")
+    req, why = resolver.request_for(alert, prop, p.live)
+    assert why == "" and req["entry"] == "appconfig_revert" and req["service"] == "live"
+    assert req["params"] == {"alarm": ALARM, "application": "warden-dev-flags", "config_env": "live", "deployment": "7"}
+    snap = p.live("appconfig_revert", req["params"])["state"]
+    p.apply("appconfig_revert", req["params"], snapshot=snap, who=WHO)
+    assert f.writes[-1] == ("stop_deployment", {"ApplicationId": "app1", "EnvironmentId": "env1", "DeploymentNumber": 7,
+                                                "AllowRevert": True})
+    app = f"arn:aws:appconfig:test-region-1:{ACCT}:application/app1"
+    assert f.sessions[-1]["resources"] == [app, f"{app}/environment/env1", f"{app}/environment/env1/deployment/7"]
+    assert p.rollback("appconfig_revert", req["params"], snap, who=WHO).startswith("nothing to roll back")
+    f.deployment["State"] = "REVERTED"
+    assert p.healthy("live", entry="appconfig_revert", params=req["params"])
+
+
+def test_no_revert_past_the_window_untagged_unguarded_or_of_another_configuration(config):
+    from warden import resolver
+
+    f, p = config
+    _, wrong = _revert("warden-dev-other")
+    assert "not the configuration this alarm guards" in resolver.request_for(_revert("x")[0], wrong, p.live)[1]
+    f.deployment["CompletedAt"] = NOW - timedelta(hours=71)  # AWS reverts for 72 hours; WARDEN keeps a margin
+    assert p.live("appconfig_revert", {"alarm": ALARM})["deployment"] == set()
+    f.deployment["CompletedAt"], f.config_tags = NOW - timedelta(hours=1), {}
+    assert p.live("appconfig_revert", {"alarm": ALARM})["deployment"] == set()
+    f.config_tags, f.monitors = {"Environment": "dev"}, []
+    assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()

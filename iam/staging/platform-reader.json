@@ -104,6 +104,7 @@
       "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
       "Action": [
+        "appconfig:ListApplications",
         "application-autoscaling:DescribeScalableTargets",
         "apprunner:ListServices",
         "autoscaling:DescribeAutoScalingGroups",
@@ -146,6 +147,9 @@
       "Effect": "Allow",
       "Action": [
         "acm:DescribeCertificate",
+        "appconfig:ListDeployments",
+        "appconfig:ListEnvironments",
+        "appconfig:ListTagsForResource",
         "appsync:GetGraphqlApi",
         "cognito-idp:DescribeUserPool",
         "elasticfilesystem:DescribeFileSystems",

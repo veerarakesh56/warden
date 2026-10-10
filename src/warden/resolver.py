@@ -89,10 +89,33 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
     return params
 
 
+def _configuration(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
+    """revert_config: the AppConfig environment whose monitors name the alarm (AWS's own link), its latest deployment
+    - and the proposal must name that configuration."""
+    alarm = alert.labels.get("alarm", "")
+    if not alarm or "," in alarm:
+        return None, "the alert names no single alarm, so no configuration it guards can be found"
+    entry = catalog.CATALOG["appconfig_revert"]
+    state = live(entry.name, {"alarm": alarm})
+    one = {k: state.get(k) for k in ("application", "config_env", "deployment")}
+    if not all(isinstance(v, set | frozenset) and len(v) == 1 for v in one.values()):
+        return None, "no single AppConfig deployment WARDEN may revert is guarded by this alarm"
+    params = {"alarm": alarm, **{k: next(iter(v)) for k, v in one.items()}}
+    if proposal.target not in (params["application"], f"{params['application']}/{params['config_env']}"):
+        return None, "the proposal's target is not the configuration this alarm guards"
+    problems = catalog.validate(entry.name, params, state)
+    if problems:
+        return None, "; ".join(problems)
+    return {"entry": entry.name, "params": params, "service": params[entry.target_param],
+            "environment": alert.environment, "incident_id": alert.alert_id}, ""
+
+
 def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
     """A FixRequest's fields for this proposal, or None and why. `live(entry, params)` is the platform's live read."""
     if proposal.action in (ActionKind.no_action, ActionKind.escalate_to_human):
         return None, "the proposal is to hand the incident to a person"
+    if proposal.action is ActionKind.revert_config:
+        return _configuration(alert, proposal, live)
     found = _platform(alert, proposal.target)
     if found is None:
         return None, "the proposal's target is not a resource the alert's labels name"

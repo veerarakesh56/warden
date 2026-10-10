@@ -29,7 +29,10 @@ Scaling), sqs_redrive_dlq (to the dead-letter queue's one source queue, at most 
 queue's own actions only), athena_stop_query (the one query running past RUNAWAY_QUERY) and apigw_raise_stage_throttle
 (an existing all-methods throttle, at most double, within the account's), and arc_zonal_shift (ARC moves a
 load balancer's traffic away from its ONE impaired zone - no healthy host while another zone serves - for 30 to
-180 minutes, only where the balancer allows zonal shifts; the rollback cancels WARDEN's own shift only).
+180 minutes, only where the balancer allows zonal shifts; the rollback cancels WARDEN's own shift only), and
+appconfig_revert (stop and revert the latest deployment of the ONE AppConfig environment whose monitors name the
+firing alarm - AWS's own link - within 70 of AWS's 72 hours, its application, environment and deployment tagged
+with one Environment; re-deploying is a new decision, so there is nothing to roll back).
 """
 
 from __future__ import annotations
@@ -50,6 +53,8 @@ HEALTH_WINDOW = timedelta(minutes=5)
 # merely older. A version that served for a minute before being replaced is no fallback.
 KNOWN_GOOD = timedelta(minutes=30)
 _PERIOD = 300  # CloudWatch's period for the served-version reads, seconds
+# G9-D: AppConfig reverts a COMPLETED deployment for 72 hours (AWS, read 2026-10-10); WARDEN keeps a margin.
+APPCONFIG_REVERT = timedelta(hours=70)
 # G9-D: an Athena query running longer than this is a runaway a person may cancel.
 RUNAWAY_QUERY = timedelta(minutes=15)
 # Register C17: a Lambda alias moves through a canary - this share of its traffic to the version first, for this long,
@@ -61,7 +66,8 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "lambda_disable_esm": "lambda", "events_enable_rule": "events", "events_disable_rule": "events",
           "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs", "ecs_restart_service": "ecs",
           "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
-          "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "aurora_failover": "rds"}
+          "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
+          "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
 Clients = Callable[[str], Any]
@@ -133,6 +139,7 @@ class AwsPlatform:
                 "ecs_restart_service": self._live_ecs_tasks, "ecs_scale_service": self._live_ecs_tasks,
                 "sqs_redrive_dlq": self._live_dlq, "athena_stop_query": self._live_query,
                 "apigw_raise_stage_throttle": self._live_stage, "arc_zonal_shift": self._live_zones,
+                "appconfig_revert": self._live_appconfig,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -173,6 +180,7 @@ class AwsPlatform:
                  "ecs_restart_service": self._ecs_healthy, "ecs_scale_service": self._ecs_healthy,
                  "sqs_redrive_dlq": self._redrive_done, "athena_stop_query": self._query_cancelled,
                  "apigw_raise_stage_throttle": self._stage_healthy, "arc_zonal_shift": self._shift_holds,
+                 "appconfig_revert": self._appconfig_reverted,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -196,6 +204,9 @@ class AwsPlatform:
             raise AwsPlatformError(f"{entry} is not something the AWS platform does")
         if entry == "athena_stop_query":
             return "nothing to roll back: a cancelled query is not resumed; it can be run again"
+        if entry == "appconfig_revert":
+            return ("nothing to roll back: deploying the reverted configuration again is a new deployment a person "
+                    "starts")
         if entry == "ecs_restart_service":
             # The same task definition runs again: there is nothing to return to.
             return "nothing to roll back: a restart replaced tasks with the same task definition"
@@ -218,6 +229,7 @@ class AwsPlatform:
                  "ecs_restart_service": self._ecs_restart, "ecs_scale_service": self._ecs_scale,
                  "sqs_redrive_dlq": self._redrive, "athena_stop_query": self._stop_query,
                  "apigw_raise_stage_throttle": self._stage_throttle, "arc_zonal_shift": self._zonal_shift,
+                 "appconfig_revert": self._appconfig_revert,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -996,6 +1008,63 @@ class AwsPlatform:
         now = self._live_zones({"load_balancer": lb}).get("state") or {}
         managed = self._read("arc-zonal-shift").get_managed_resource(resourceIdentifier=now.get("arn", ""))
         return (managed.get("appliedWeights") or {}).get(params.get("away_from")) == 0 and bool(now.get("serving"))
+
+    # ------------------------------------------------------------------ appconfig: revert a deployment (G9-D)
+
+    def _live_appconfig(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The AppConfig environment whose monitors name the alarm, its latest deployment, and whether that one can be
+        reverted: in progress, or completed within APPCONFIG_REVERT, with the application, the environment and the
+        deployment all tagged with one Environment (what the actor's IAM grant is held to)."""
+        from .. import aws_describe
+
+        alarm = params.get("alarm")
+        if not isinstance(alarm, str):
+            return {}
+        found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
+            "MetricAlarms") or []
+        if not found:
+            return {}
+        ac = self._read("appconfig")
+        pairs = aws_describe.appconfig_for_alarm(ac, str(found[0].get("AlarmArn") or ""))
+        if len(pairs) != 1:
+            return {"alarm": {alarm}, "application": set(), "config_env": set(), "deployment": set()}
+        app, env = pairs[0]
+        d = aws_describe.latest_deployment(ac, app["Id"], env["Id"]) or {}
+        n = d.get("DeploymentNumber")
+        app_arn = f"arn:aws:appconfig:{ac.meta.region_name}:{self._account()}:application/{app['Id']}"
+        env_arn = f"{app_arn}/environment/{env['Id']}"
+        dep_arn = f"{env_arn}/deployment/{n}"
+        tagged = {(ac.list_tags_for_resource(ResourceArn=a).get("Tags") or {}).get(ENV_TAG)
+                  for a in (app_arn, env_arn, dep_arn)} if n else {None}
+        done = _when(d.get("CompletedAt"))
+        can = bool(n) and len(tagged) == 1 and None not in tagged and (
+            d.get("State") in ("DEPLOYING", "BAKING")
+            or (d.get("State") == "COMPLETE" and done is not None and self._now() - done < APPCONFIG_REVERT))
+        return {"alarm": {alarm}, "application": {app["Name"]} if can else set(),
+                "config_env": {env["Name"]} if can else set(), "deployment": {str(n)} if can else set(),
+                "environment": next(iter(tagged)) if len(tagged) == 1 else None,
+                "state": {"alarm": alarm, "application": app["Name"], "app_id": app["Id"], "config_env": env["Name"],
+                          "env_id": env["Id"], "deployment": n, "deploy_state": d.get("State"),
+                          "version": d.get("VersionLabel") or d.get("ConfigurationVersion"),
+                          "app_arn": app_arn, "env_arn": env_arn, "dep_arn": dep_arn, "where": self._where(app_arn)}}
+
+    def _appconfig_revert(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("application", "app_id", "config_env", "env_id", "deployment"),
+                     f"configuration {p['application']}/{p['config_env']}")
+        if p["deployment"] not in self.live("appconfig_revert", p).get("deployment", set()):
+            raise AwsPlatformRefused(f"deployment {p['deployment']} of {p['application']} can no longer be reverted "
+                                     "(finished over 70 hours ago, superseded, or untagged); nothing was changed")
+        ac = self._actor(who, ["appconfig:StopDeployment"], [now["app_arn"], now["env_arn"], now["dep_arn"]],
+                         None)("appconfig")
+        ac.stop_deployment(ApplicationId=now["app_id"], EnvironmentId=now["env_id"],
+                           DeploymentNumber=int(p["deployment"]), AllowRevert=True)
+        return f"stopped and reverted deployment {p['deployment']} of {p['application']}/{p['config_env']}"
+
+    def _appconfig_reverted(self, config_env: str, params: dict[str, Any]) -> bool:
+        """That deployment now reads REVERTED or ROLLED_BACK - a positive signal."""
+        st = self._live_appconfig(params).get("state") or {}
+        return str(st.get("deployment")) == str(params.get("deployment")) and st.get("deploy_state") in (
+            "REVERTED", "ROLLED_BACK")
 
     def _live_cluster(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("cluster")

@@ -10,7 +10,7 @@ import pathlib
 
 import boto3
 
-from test_aws_fixes_g9d import DLQ, LB, Zones
+from test_aws_fixes_g9d import ALARM, DLQ, LB, Config
 from test_aws_platform_g6 import FN, NOW, WHO
 from warden import catalog
 from warden.platforms.aws import AwsPlatform
@@ -19,7 +19,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs": "ecs",
           "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds",
           "sqs": "sqs", "athena": "athena", "apigateway": "apigateway", "sts": "sts", "elbv2": "elasticloadbalancing",
-          "ec2": "ec2", "arc-zonal-shift": "arc-zonal-shift"}
+          "ec2": "ec2", "arc-zonal-shift": "arc-zonal-shift", "appconfig": "appconfig"}
 # Actions AWS authorizes for a call besides the call's own (Service Authorization Reference, read 2026-10-10): the
 # session asks for them, the code never calls them.
 IMPLICIT = {"sqs:StartMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
@@ -47,7 +47,7 @@ class _Recording:
 
 def _exercise() -> tuple[set[str], set[str], set[str]]:
     reads, writes, granted = set(), set(), set()
-    f = Zones()
+    f = Config()
     f.esm["State"], f.rule["State"] = "Disabled", "DISABLED"
 
     def actor(who, actions, resources, condition, also=()):
@@ -71,7 +71,9 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
              "athena_stop_query": {"workgroup": "warden-dev-bi", "query": "q-1"},
              "apigw_raise_stage_throttle": {"api": "warden-dev-shop", "stage": "prod", "rate_limit": 200,
                                             "burst_limit": 100},
-             "arc_zonal_shift": {"load_balancer": LB, "away_from": "tr1-aza", "minutes": 60}}
+             "arc_zonal_shift": {"load_balancer": LB, "away_from": "tr1-aza", "minutes": 60},
+             "appconfig_revert": {"alarm": ALARM, "application": "warden-dev-flags", "config_env": "live",
+                                  "deployment": "7"}}
     for entry, params in plans.items():
         snap = p.live(entry, params)["state"]
         p.apply(entry, params, snapshot=snap, who=WHO)

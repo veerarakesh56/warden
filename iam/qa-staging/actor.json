@@ -37,6 +37,20 @@
       }
     },
     {
+      "Sid": "ConfigurationDeploymentsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "appconfig:StopDeployment",
+      "Resource": "arn:aws:appconfig:ap-south-2:*:application/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "qa-staging"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
       "Sid": "ZonalShiftsOfThisEnvironmentsLoadBalancers",
       "Effect": "Allow",
       "Action": [

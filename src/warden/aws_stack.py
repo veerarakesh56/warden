@@ -577,6 +577,7 @@ class StackBackend:
         if not found:
             raise ToolError("no metric alarm by that name (a composite alarm is read through the alarms it names)")
         a = found[0]
+        self._read_appconfig(out, str(a.get("AlarmArn") or ""))
         ns, metric = a.get("Namespace"), a.get("MetricName")
         dims = {str(d.get("Name")): str(d.get("Value")) for d in a.get("Dimensions") or []}
         threshold = (f"threshold {_safe(a.get('ComparisonOperator'))} {a.get('Threshold')} "
@@ -608,6 +609,27 @@ class StackBackend:
                 others[f"alarm_sibling_{_key(ns.split('/')[-1])}_{_key(other)}"] = (ns, other, dims, "Maximum")
         out.metrics.update(self._cw_read(out, "alarm-siblings", alert, others))
         self._read_changes(out, alert, dims)
+
+    def _read_appconfig(self, out: _Out, alarm_arn: str) -> None:
+        """G9-D: the AppConfig configuration this alarm guards (its environment's monitors name the alarm) and that
+        environment's latest deployment - what revert_config would stop and revert."""
+        from . import aws_describe
+
+        if not alarm_arn or ("appconfig" not in self._clients and not hasattr(self._clients, "__missing__")):
+            return
+        try:
+            client = self._clients["appconfig"]
+            for app, env in aws_describe.appconfig_for_alarm(client, alarm_arn)[:3]:
+                d = aws_describe.latest_deployment(client, app["Id"], env["Id"])
+                if d:
+                    done = d.get("CompletedAt")
+                    out.lines.append(
+                        f"CONFIG appconfig {_safe(app.get('Name'))}/{_safe(env.get('Name'))} monitors this alarm: "
+                        f"deployment={d.get('DeploymentNumber')} state={_safe(d.get('State'))} "
+                        f"version={_safe(d.get('VersionLabel') or d.get('ConfigurationVersion'))} completed="
+                        f"{done.strftime('%Y-%m-%dT%H:%M:%SZ') if hasattr(done, 'strftime') else 'not yet'}")
+        except Exception as exc:  # noqa: BLE001 - the alarm's own evidence stands without it
+            out.lines.append(_partial("appconfig", exc))
 
     def _read_state(self, out: _Out, key: str, name: str) -> None:
         from . import aws_describe

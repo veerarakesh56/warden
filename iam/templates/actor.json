@@ -33,6 +33,16 @@
       "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
     },
     {
+      "Sid": "ConfigurationDeploymentsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "appconfig:StopDeployment",
+      "Resource": "arn:aws:appconfig:${region}:*:application/*",
+      "Condition": {
+        "StringEquals": {"aws:ResourceTag/Environment": "${env}"},
+        "StringLike": {"aws:SourceIdentity": "inc-*"}
+      }
+    },
+    {
       "Sid": "ZonalShiftsOfThisEnvironmentsLoadBalancers",
       "Effect": "Allow",
       "Action": ["arc-zonal-shift:CancelZonalShift", "arc-zonal-shift:StartZonalShift"],

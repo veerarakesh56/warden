@@ -68,7 +68,7 @@ class Entry:
 # must be the last, or the success check would judge another object than the one changed (sixth review,
 # 2026-10-01); all of them key the bounds and the per-target mutex (target_key).
 TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",), "athena": ("workgroup",),
-                 "elb": ("load_balancer",),
+                 "elb": ("load_balancer",), "appconfig": ("application", "config_env"),
                  "apigw": ("stage", "api"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
                  "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",)}
 
@@ -159,6 +159,11 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     # rollback cancels it). Only where the load balancer allows zonal shifts, one shift at a time.
     Entry("arc_zonal_shift", "T2", "elb", "n/a (ends at its expiry, or cancelled)",
           {**_ref("load_balancer", "away_from"), "minutes": Param("int", 30, 180)}),
+    # G9-D: stop the deployment of the AppConfig environment whose monitors name the firing alarm, reverting it to the
+    # configuration before it (AllowRevert: up to 72 hours after it completed - AWS, read 2026-10-10). `config_env`,
+    # not "environment": that word is the resource's own Environment tag everywhere WARDEN reads (P18).
+    Entry("appconfig_revert", "T2", "appconfig", "the configuration deployed before it",
+          _ref("alarm", "application", "config_env", "deployment"), target=("application", "config_env")),
     Entry("dynamodb_raise_capacity", "T1", "dynamodb", "n/a (bounded increase)",
           {**_ref("table"), "capacity": Param("int", 1, 40000)}, _at_most_double),
     Entry("ecs_rollback_service", "T2", "ecs", "the service's previous steady task definition",
@@ -198,6 +203,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle"},
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
     ActionKind.shift_traffic: {"elb": "arc_zonal_shift"},
+    ActionKind.revert_config: {"appconfig": "appconfig_revert"},
     ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
 }
 
@@ -240,6 +246,9 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "arc_zonal_shift": lambda p, s: [(f"load balancer {p['load_balancer']}: traffic shifted away from zone "
                                       f"{p['away_from']} ({s.get('impaired_name')}) for {p['minutes']} minutes; "
                                       f"the zones left serve it all: {', '.join(s.get('serving') or []) or 'unknown'}")],
+    "appconfig_revert": lambda p, s: [(f"configuration {p['application']}/{p['config_env']}: deployment "
+                                       f"{p['deployment']} (version {s.get('version')}, {s.get('deploy_state')}) is "
+                                       "stopped and reverted to the configuration deployed before it")],
     "aurora_failover": lambda p, s: [_arrow(f"writer of cluster {p['cluster']}", s.get("writer"),
                                             p["target_instance"]) + " (not undone automatically)"],
 }

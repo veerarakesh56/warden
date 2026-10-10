@@ -133,3 +133,19 @@ def test_a_missing_alarm_is_a_failed_read_that_costs_no_other_reader():
     b, _, _ = _backend(None)
     out = b._read_all(_alert())
     assert any(ln.startswith("TOOL-PARTIAL alarm: ") for ln in out.lines)
+
+
+def test_the_configuration_an_alarm_guards_and_its_latest_deployment_are_read():
+    """G9-D: an AppConfig environment's monitors name the alarm (AWS's own link) - the evidence revert_config needs."""
+    arn = "arn:aws:cloudwatch:r:0:alarm:warden-dev-q-depth"
+    b, _, _ = _backend(_alarm(AlarmArn=arn))
+    b._clients["appconfig"] = _Fake(
+        list_applications={"Items": [{"Id": "a1", "Name": "warden-dev-flags"}]},
+        list_environments={"Items": [{"Id": "e1", "Name": "live", "Monitors": [{"AlarmArn": arn}]},
+                                     {"Id": "e2", "Name": "other", "Monitors": [{"AlarmArn": arn + "-not"}]}]},
+        list_deployments={"Items": [{"DeploymentNumber": 7, "State": "COMPLETE", "VersionLabel": "v42",
+                                     "CompletedAt": WHEN}]})
+    lines = [ln for ln in b._read_all(_alert(sqs="")).lines if ln.startswith("CONFIG appconfig")]
+    assert lines == [("CONFIG appconfig warden-dev-flags/live monitors this alarm: deployment=7 state=COMPLETE "
+                      "version=v42 completed=2026-10-10T12:00:00Z")]
+    assert evidence._kind(lines[0]) == "C"

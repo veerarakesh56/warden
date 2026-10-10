@@ -159,6 +159,36 @@ TABLE: dict[str, Describe] = {
 }
 
 
+# G9-D: AppConfig environments name the alarms that guard their deployments (Monitors): AWS's own link from an alarm to
+# the configuration it watches - the one AppConfig itself rolls back on. At most this many applications are read.
+APPCONFIG_APPS = 20
+
+
+def appconfig_for_alarm(client: Any, alarm_arn: str) -> list[tuple[dict, dict]]:
+    """The (application, environment) pairs whose monitors name this alarm. An application the reader may not read
+    (another environment's, by tag) is skipped."""
+    apps, token = [], None
+    for _ in range(3):
+        page = client.list_applications(MaxResults=50, **({"NextToken": token} if token else {}))
+        apps += page.get("Items") or []
+        token = page.get("NextToken")
+        if not token:
+            break
+    out = []
+    for app in apps[:APPCONFIG_APPS]:
+        try:
+            envs = client.list_environments(ApplicationId=app["Id"], MaxResults=50).get("Items") or []
+        except Exception:  # noqa: BLE001, S112 - not readable here: another environment's application
+            continue
+        out += [(app, e) for e in envs if any(m.get("AlarmArn") == alarm_arn for m in e.get("Monitors") or [])]
+    return out
+
+
+def latest_deployment(client: Any, app_id: str, env_id: str) -> dict | None:
+    items = client.list_deployments(ApplicationId=app_id, EnvironmentId=env_id, MaxResults=10).get("Items") or []
+    return max(items, key=lambda d: int(d.get("DeploymentNumber") or 0)) if items else None
+
+
 def _get(item: Any, dotted: str) -> Any:
     for part in dotted.split("."):
         if not isinstance(item, Mapping):
