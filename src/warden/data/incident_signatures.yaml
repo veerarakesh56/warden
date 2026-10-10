@@ -49,7 +49,7 @@ signatures:
     detect:
       event_reason: [OOMKilled]
       log_contains: ["out of memory", "oom-kill", "killed process", "cgroup out of memory"]
-      metric_gte: {oom_killed_count: 1}
+      metric_gte: {oom_killed_count: 1, oom_killed_containers: 1}
       name_matches: "(?i)oom|out.?of.?memory|memory"
     root_cause: >
       A container used more memory than its cgroup limit and the kernel OOM-killer
@@ -74,7 +74,7 @@ signatures:
     detect:
       event_reason: [BackOff, CrashLoopBackOff]
       log_contains: ["crashloopbackoff", "back-off restarting failed container"]
-      metric_gte: {crashloop_count: 1, restart_count: 5}
+      metric_gte: {crashloop_count: 1, crashloop_containers: 1, restart_count: 5}
       name_matches: "(?i)crash|restart"
     root_cause: >
       A container starts, exits non-zero, and Kubernetes restarts it with growing
@@ -177,7 +177,7 @@ signatures:
     title: Sustained high CPU / CFS throttling
     detect:
       log_contains: ["throttl", "cpu pressure"]
-      metric_gte: {cpu_utilisation: 0.9, cpu_throttled_ratio: 0.25}
+      metric_gte: {cpu_utilisation: 0.9, cpu_utilization_pct: 90, cpu_throttled_ratio: 0.25}
       name_matches: "(?i)cpu|throttl"
     root_cause: >
       Pods are pinned at their CPU limit and being throttled by the CFS scheduler,
@@ -260,7 +260,7 @@ signatures:
     title: Memory leak (slow growth toward OOM)
     detect:
       log_contains: ["memory grow", "heap", "gc pressure", "rss increasing"]
-      metric_gte: {memory_growth_rate: 0.0, oom_killed_count: 1}
+      metric_gte: {memory_growth_rate: 0.0, oom_killed_count: 1, oom_killed_containers: 1}
       name_matches: "(?i)leak|memory.?grow|heap"
     root_cause: >
       Memory rises monotonically between restarts rather than plateauing — a leak
@@ -346,7 +346,7 @@ signatures:
     title: HPA pinned at max replicas, still saturated
     detect:
       log_contains: ["desiredreplicas", "at max replicas", "hpa", "scalinglimited"]
-      metric_gte: {replicas_ratio: 1.0, cpu_utilisation: 0.85}
+      metric_gte: {replicas_ratio: 1.0, cpu_utilisation: 0.85, cpu_utilization_pct: 85}
       name_matches: "(?i)hpa|autoscal|max.?replica|saturat"
     root_cause: >
       The Horizontal Pod Autoscaler is at maxReplicas and the metric is still above

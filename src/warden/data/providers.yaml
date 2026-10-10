@@ -55,7 +55,10 @@ qualified:
   # config change lowered a memory limit, allowed - fixed by the meanings, the gate's OOM rule and P15's keys. Two
   # incidents went unanswered because an answer was cut off at 1500 output tokens: now 4096, and said plainly.
   # Before: 19/30 on G9-C, 21/30 with its templates, 20/30 on 2026-10-09 - within chance of each other (McNemar).
-  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-10T00:20Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
+  # Measured again after G9-E remapped signature metrics to the names backends emit (3 recorded incidents now match
+  # the OOM or CPU signatures they show; same prompt, $0.50): 19/30, every incident answered, 0 wrong-and-allowed,
+  # 8 acted right (7 before).
+  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-10T01:52Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
 # Measured on the PREVIOUS prompt (03300eac..., 2026-10-03) and so no longer qualified until measured again on this one
 # (the Claude Max CLI, the local development backend; free):
 #  {"provider": "claude_cli", "model": "claude-fable-5-1", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:16Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}

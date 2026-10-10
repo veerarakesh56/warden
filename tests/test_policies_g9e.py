@@ -54,3 +54,35 @@ def test_p29_is_observed_only_p8_still_escalates():
     assert any(pid == "P29-P8-BENIGN-PARTIALS" for pid, _ in verifier.OBSERVED)
     v = verifier.verify(ALERT, ContextBundle(tool_errors=[BENIGN[0]], metrics={"x": 1.0}), ROOT, PROPOSAL)
     assert "P8-PARTIAL-CONTEXT" in v.policy_ids and any(o.startswith("P29") for o in v.observed)
+
+
+# Signature metric keys no WARDEN backend emits (audit F1, 2026-10-10): a signature carrying only these matches on
+# logs, events and names alone. Named, so a new dead key is a decision - remap it to what a backend reads, or say here
+# why it stays (an operator's own exporter, a bundled fixture).
+DEAD_SIGNATURE_METRICS = {
+    "cache_miss_ratio", "cert_days_remaining", "cpu_steal", "cpu_throttled_ratio", "db_pool_wait", "db_query_p99_ms",
+    "io_wait", "latency_p99_ms", "memory_growth_rate", "queue_lag", "replicas_ratio", "retry_ratio",
+    "upstream_429_rate",
+    # Kept beside the emitted names (oom_killed_containers, crashloop_containers, cpu_utilization_pct): the bundled
+    # fixtures spell them so, and the qualified prompt is rendered from those fixtures.
+    "oom_killed_count", "crashloop_count", "cpu_utilisation",
+    # The bundled fixtures' only: no live backend computes a rate (a 5xx COUNT is not one, so none is remapped here).
+    "error_rate",
+}
+
+
+def test_every_signature_metric_is_emitted_by_a_backend_or_named_dead():
+    import pathlib
+    import re
+
+    import yaml
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden"
+    doc = yaml.safe_load((root / "data" / "incident_signatures.yaml").read_text(encoding="utf-8"))
+    keys = {k for s in doc["signatures"] for c in ("metric_gte", "metric_lte")
+            for k in ((s.get("detect") or {}).get(c) or {})}
+    backends = " ".join((root / f).read_text(encoding="utf-8") for f in (
+        "aws_backend.py", "aws_stack.py", "k8s_backend.py", "database.py", "tools.py"))
+    emitted = {k for k in keys if re.search(r"[\"']" + re.escape(k) + r"[\"'{]", backends)}
+    assert keys - emitted == DEAD_SIGNATURE_METRICS
+    assert {"oom_killed_containers", "crashloop_containers", "cpu_utilization_pct"} <= emitted
