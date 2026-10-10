@@ -46,8 +46,9 @@ def _backend(alarm, events=()):
                get_metric_data=lambda **kw: {"MetricDataResults": [
                    {"Id": q["Id"], "StatusCode": "Complete", "Values": [420.0, 12.0]} for q in kw["MetricDataQueries"]]})
     ct = _Fake(lookup_events={"Events": list(events)})
-    clients = {n: _Fake() for n in ("lambda", "logs", "ecs", "sqs", "dynamodb", "elasticache", "rds", "elbv2",
-                                    "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi")}
+    from warden.aws_stack import NEEDED_CLIENTS
+
+    clients = {n: _Fake() for n in NEEDED_CLIENTS}
     clients.update(cloudwatch=cw, cloudtrail=ct)
     return StackBackend(clients=clients), cw, ct
 

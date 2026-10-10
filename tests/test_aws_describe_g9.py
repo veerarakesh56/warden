@@ -154,8 +154,9 @@ class _Rds:
 
 def test_the_stack_backend_reads_the_state_of_the_resource_an_alarm_names():
     rds = _Rds()
-    needed = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "elbv2", "apigatewayv2",
-              "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail")
+    from warden.aws_stack import NEEDED_CLIENTS
+
+    needed = [n for n in NEEDED_CLIENTS if n != "rds"]
     cw = type("Cw", (), {"meta": type("Meta", (), {"region_name": "r1"})()})()  # a real client's meta.region_name
     b = StackBackend(clients={**{n: object() for n in needed}, "rds": rds, "cloudwatch": cw})
     alert = Alert(alert_id="a1", name="n", service="db", environment="dev", severity=Severity.high, summary="",

@@ -40,6 +40,7 @@ FREE = {
     # read 2026-10-10, bills only state transitions and Express requests and duration).
     ("_eks", "list_nodegroups"), ("_eks", "describe_nodegroup"), ("_asg", "describe_scaling_activities"),
     ("_sfn", "list_executions"), ("_sfn", "describe_execution"),
+    ("_ec2", "describe_subnets"), ("_ec2", "describe_route_tables"), ("_ec2", "describe_network_acls"),  # G10-C4
 }
 
 

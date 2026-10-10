@@ -32,9 +32,14 @@
       ]
     },
     {
-      "Sid": "ScalingActivitiesNameNoResource",
+      "Sid": "ReadsThatNameNoResource",
       "Effect": "Allow",
-      "Action": "autoscaling:DescribeScalingActivities",
+      "Action": [
+        "autoscaling:DescribeScalingActivities",
+        "ec2:DescribeNetworkAcls",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeSubnets"
+      ],
       "Resource": "*",
       "Condition": {
         "StringEquals": {

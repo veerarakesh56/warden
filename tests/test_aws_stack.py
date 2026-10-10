@@ -747,11 +747,9 @@ def test_no_account_id_or_email_in_the_owned_files():
 
 def test_no_real_client_is_ever_built():
     """_clients() must fake every client StackBackend needs, or a unit test reaches real AWS."""
-    import inspect
-
     from warden import aws_stack
-    src = inspect.getsource(aws_stack.StackBackend.__init__)
-    needed = set(re.findall(r'"([a-z0-9]+)"', src[src.index("needed = ("):src.index(")", src.index("needed = ("))]))
+
+    needed = set(aws_stack.NEEDED_CLIENTS)
     assert needed and needed <= set(_clients()), f"not faked: {sorted(needed - set(_clients()))}"
 
 
@@ -828,7 +826,9 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         # An ALB's zones and zonal-shift setting (G9-D): no resource type (AWS's service reference JSON, 2026-10-10).
         "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes",
         # A group's scaling activities (G10-C2): no resource type, no condition key (service reference, 2026-10-10).
-        "autoscaling:DescribeScalingActivities"}
+        "autoscaling:DescribeScalingActivities",
+        # A workload's subnets, their route tables and network ACLs (G10-C4): EC2 describes take no resource.
+        "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls"}
 
 
 # The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).

@@ -7,13 +7,12 @@ import pathlib
 
 import pytest
 
-from warden.aws_stack import StackBackend
+from warden.aws_stack import NEEDED_CLIENTS, StackBackend
 from warden.models import Alert, Severity
 from warden.tools import ToolError
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-NEEDED = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds", "elbv2", "apigatewayv2",
-          "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail")
+NEEDED = NEEDED_CLIENTS
 
 
 class _Cw:

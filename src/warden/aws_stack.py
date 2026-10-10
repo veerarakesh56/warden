@@ -150,6 +150,10 @@ def _retag_aws_line(tag: str, line: str) -> str:
     return f"LOG {tag} {_z(_parse_time(stamp))} {message}"
 
 
+# The clients every StackBackend holds; a test fakes each (a missing one is built for real - G10-C2 was red in CI).
+NEEDED_CLIENTS = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds", "elbv2",
+                  "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail",
+                  "autoscaling", "stepfunctions")
 # G10-C1: an ECS service's last stopped tasks, its events in the hour before the alert, and how each is classified.
 STOPPED_TASKS = 10
 ECS_EVENT_WINDOW = timedelta(hours=1)
@@ -161,6 +165,22 @@ _ECS_EVENT_KINDS = (
     ("started_tasks", re.compile(r"has started \d+ tasks", re.IGNORECASE)),
     ("stopped_tasks", re.compile(r"has stopped \d+ running tasks", re.IGNORECASE)),
 )
+# G10-C4: the writes that cut a workload off the network, and the request keys that name what they wrote to.
+_NETWORK_EVENTS = ("RevokeSecurityGroupEgress", "RevokeSecurityGroupIngress", "ModifySecurityGroupRules",
+                   "DeleteRoute", "ReplaceRoute", "ReplaceRouteTableAssociation", "DisassociateRouteTable",
+                   "DeleteNetworkAclEntry", "ReplaceNetworkAclEntry", "ReplaceNetworkAclAssociation")
+_NETWORK_ID_KEYS = frozenset({"groupid", "routetableid", "associationid", "networkaclid"})
+
+
+def _request_ids(request: dict) -> list[str]:
+    """The ids an EC2 write's request names: `groupId` at the top (RevokeSecurityGroupEgress), or `GroupId` one level
+    down in the newer APIs' request wrapper (ModifySecurityGroupRules)."""
+    found = [v for k, v in request.items() if k.lower() in _NETWORK_ID_KEYS and isinstance(v, str)]
+    for inner in (v for v in request.values() if isinstance(v, dict)):
+        found += [v for k, v in inner.items() if k.lower() in _NETWORK_ID_KEYS and isinstance(v, str)]
+    return found
+_NETWORK_SYMPTOM = re.compile(r"i/o timeout|dial tcp|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ECONNREFUSED|network is "
+                              r"unreachable|no route to host|context deadline exceeded|cause=network", re.IGNORECASE)
 # G10-C2: node groups, scaling activities and failed executions read per incident.
 NODEGROUPS = 10
 ASG_ACTIVITIES = 20
@@ -399,10 +419,7 @@ class StackBackend:
         # A mapping that makes clients on first use is kept as given: copied into a plain dict, every service past
         # the first eighteen read "no client" in the cloud (independent review 2026-10-10, H1).
         clients = clients if hasattr(clients, "__missing__") else dict(clients or {})
-        needed = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds",
-                  "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail",
-                  "autoscaling", "stepfunctions")
-        missing = [n for n in needed if n not in clients]
+        missing = [n for n in NEEDED_CLIENTS if n not in clients]
         if missing:
             try:
                 import boto3
@@ -467,7 +484,7 @@ class StackBackend:
         if template and own:
             from .aws_backend import _reader_clients
 
-            self._per_env = _reader_clients(session, cfg, template, needed)
+            self._per_env = _reader_clients(session, cfg, template, NEEDED_CLIENTS)
 
     # ------------------------------------------------------------------ the contract
 
@@ -826,6 +843,8 @@ class StackBackend:
             f"reserved_concurrency={'none' if conc is None else conc} env=[{','.join(env)}] "
             f"{sg_part}version={latest} alias_live={live or '-'}"
         )
+        if sgs:
+            self._read_network_changes(out, alert, sgs, (cfg.get("VpcConfig") or {}).get("SubnetIds") or [])
 
         esms, _ = _pages(self._lambda.list_event_source_mappings, "EventSourceMappings", next_token="NextMarker",
                          FunctionName=fn)
@@ -1227,6 +1246,62 @@ class StackBackend:
                                     # a config-only revision: the setting NAMES it changed (G10: dropped here before)
                                     **({"changed": d["changed"]} if d.get("changed") else {})})
         self._read_ecs_tasks(out, alert.labels["ecs_cluster"], service, svc, alert)
+        net = (svc.get("networkConfiguration") or {}).get("awsvpcConfiguration") or {}
+        if net.get("securityGroups"):
+            self._read_network_changes(out, alert, net["securityGroups"], net.get("subnets") or [])
+
+    def _read_network_changes(self, out: _Out, alert: Alert, sgs: list[str], subnets: list[str]) -> None:
+        """G10-C4: writes to the network a workload depends on - its security groups, its subnets' route tables and
+        network ACLs - in the RECENT_DEPLOY_WINDOW before the alert (recorded ecs-12 and ecs-13: a revoked egress rule,
+        a deleted route, answered "no action" and "roll back"). Only on a network symptom in what was read: CloudTrail
+        allows two lookups a second. Looked up by event NAME - the attribute AWS documents - and kept only when the
+        event's own request names one of this workload's ids."""
+        if not (out.metrics.get("ecs_stopped_network") or any(_NETWORK_SYMPTOM.search(x) for x in out.lines)):
+            return
+        ids = dict.fromkeys(sgs, "security group")
+        try:
+            if subnets:
+                vpcs = {s.get("VpcId") for s in self._ec2.describe_subnets(SubnetIds=subnets).get("Subnets") or []}
+                tables = self._ec2.describe_route_tables(
+                    Filters=[{"Name": "association.subnet-id", "Values": subnets}]).get("RouteTables") or []
+                if len(tables) < len(subnets):  # a subnet with no table of its own uses its VPC's main table
+                    tables += self._ec2.describe_route_tables(Filters=[{"Name": "vpc-id", "Values": sorted(vpcs)},
+                                                                       {"Name": "association.main", "Values": ["true"]}]
+                                                              ).get("RouteTables") or []
+                ids.update(dict.fromkeys((t["RouteTableId"] for t in tables), "route table"))
+                ids.update(dict.fromkeys((a["RouteTableAssociationId"] for t in tables
+                                          for a in t.get("Associations") or [] if a.get("SubnetId") in subnets),
+                                         "route table association"))
+                acls = self._ec2.describe_network_acls(
+                    Filters=[{"Name": "association.subnet-id", "Values": subnets}]).get("NetworkAcls") or []
+                ids.update(dict.fromkeys((a["NetworkAclId"] for a in acls), "network ACL"))
+        except Exception as exc:  # noqa: BLE001 - the security groups are still looked up
+            out.lines.append(_partial("network of the workload", exc))
+        started = AwsBackend._started_at(alert)
+        found = 0
+        for name in _NETWORK_EVENTS:
+            try:
+                got = self._ct.lookup_events(LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}],
+                                             StartTime=started - RECENT_DEPLOY_WINDOW,
+                                             EndTime=started + timedelta(minutes=5), MaxResults=50)
+            except Exception as exc:  # noqa: BLE001 - CloudTrail allows 2 lookups a second; keep what was read
+                out.lines.append(_partial("network changes", exc))
+                break
+            if got.get("NextToken"):
+                out.lines.append(_partial("network changes", f"more {name} events than one page in the window"))
+            for e in got.get("Events") or []:
+                if not _a_write(e):
+                    continue
+                try:
+                    request = json.loads(e.get("CloudTrailEvent") or "{}").get("requestParameters") or {}
+                except ValueError:
+                    request = {}
+                hit = next((v for v in _request_ids(request) if v in ids), None)
+                if hit:
+                    found += 1
+                    out.lines.append(f"CHANGE {_z(e.get('EventTime'))} ec2.amazonaws.com {_safe(name)} on {_safe(hit)} "
+                                     f"(this workload's {ids[hit]}) by {_principal(e)}")
+        out.metrics["network_changes_before_alert"] = float(found)
 
     def _read_ecs_tasks(self, out: _Out, cluster: str, service: str, svc: dict, alert: Alert) -> None:
         """G10-C1: what the console shows first and the evidence lacked (miss analysis 2026-10-10: ecs-06, -07, -12,
