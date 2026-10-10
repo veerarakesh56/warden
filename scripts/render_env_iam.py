@@ -45,7 +45,8 @@ def render(env: str, account: str = "<ACCOUNT_ID>", cluster: str = "<CLUSTER_RES
         text = string.Template((TEMPLATES / f"{kind}.json").read_text(encoding="utf-8"))
         # env_sql: the environment as a database user name has it - `_` for `-` (audit A-I-1/A-I-2).
         rendered = json.loads(text.substitute(env=env, env_sql=env.replace("-", "_"), account=account,
-                                              cluster_resource_id=cluster, region=names(env).region))
+                                              cluster_resource_id=cluster, region=names(env).region,
+                                              global_region=EnvironmentPolicies.load().aws_global_region))
         out[kind] = json.dumps(rendered, indent=2) + "\n"
     return out
 

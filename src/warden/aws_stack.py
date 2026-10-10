@@ -502,8 +502,12 @@ class StackBackend:
         the policy does not know, or a refused role, is a ToolError: a failed read, never a read as the worker."""
         if vars(self).get("_per_env") is None:
             return self
-        clients = self._per_env(alert.environment, alert.alert_id)
-        key = (alert.environment, alert.alert_id)  # never id(): a recycled id would hand one incident another's
+        # G10-F1: an alarm from another Region (AWS's global-services one, for CloudFront and Route 53) is read there -
+        # its alarm, its metrics, the writes CloudTrail recorded - in the same environment's reader role.
+        region = alert.labels.get("alarm_region", "")
+        clients = self._per_env(alert.environment, alert.alert_id, region) if region else \
+            self._per_env(alert.environment, alert.alert_id)
+        key = (alert.environment, alert.alert_id, region)  # never id(): a recycled id would hand one incident another's
         with self._lock:
             now = time.monotonic()
             for k in [k for k, (until, _) in self._bound.items() if until <= now]:

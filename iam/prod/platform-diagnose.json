@@ -66,6 +66,27 @@
           "aws:ResourceTag/Environment": "prod"
         }
       }
+    },
+    {
+      "Sid": "GlobalServicesAlarmsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "cloudwatch:DescribeAlarms",
+      "Resource": "arn:aws:cloudwatch:us-east-1:*:alarm:warden-prod-*"
+    },
+    {
+      "Sid": "GlobalServicesMetricsAndChanges",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:LookupEvents",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
     }
   ]
 }

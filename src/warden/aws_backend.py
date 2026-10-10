@@ -133,6 +133,9 @@ class _LazyClients(dict):
             return dict.__getitem__(self, name)
 
 
+_REGION_NAME = re.compile(r"[a-z]{2}(?:-[a-z]+)+-\d{1,2}")
+
+
 def _reader_clients(session: Any, cfg: Any, template: str,
                     services: tuple[str, ...] = ("logs", "cloudwatch", "ecs")) -> Any:
     """Per (environment, incident): `services`' clients in `warden-<env>-platform-reader`, assumed with the worker's
@@ -147,12 +150,16 @@ def _reader_clients(session: Any, cfg: Any, template: str,
     held: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
     lock = threading.Lock()
 
-    def clients(env: str, incident: str) -> dict[str, Any]:
+    def clients(env: str, incident: str, region: str = "") -> dict[str, Any]:
+        """`region`: an alarm's own Region when it is not this one (G10-F1: CloudFront and Route 53 alarms live only
+        in AWS's global-services Region) - the same reader role, its clients there."""
         if env not in known:
             raise ToolError(f"{env!r} is not a configured environment: nothing was read")
+        if region and not _REGION_NAME.fullmatch(region):
+            raise ToolError(f"{region!r} is not a Region name: nothing was read")
         # The watched environments' reader roles trust SourceIdentity inc-* only (iam/templates/platform-reader-
         # trust.json): the bare alert id was refused (2026-10-09). One correlation id, `inc-<alert id>`.
-        key = (env, (incident if incident.startswith("inc-") else f"inc-{incident}")[:64])
+        key = (env, (incident if incident.startswith("inc-") else f"inc-{incident}")[:64], region)
         with lock:
             hit = held.get(key)
             if hit and hit[0] > time.monotonic():
@@ -162,7 +169,7 @@ def _reader_clients(session: Any, cfg: Any, template: str,
                                             incident=key[1])
         except Exception as exc:
             raise ToolError(f"could not read {env}: its reader role was refused ({_one_line(exc)})") from exc
-        s = boto3.session.Session(**creds, region_name=session.region_name)
+        s = boto3.session.Session(**creds, region_name=region or session.region_name)
         made = _LazyClients(s, cfg, services)
         with lock:
             now = time.monotonic()

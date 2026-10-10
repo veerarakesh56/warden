@@ -659,6 +659,14 @@ that one resource. Both are in `iam/<env>/` (dev shown), and a test holds them t
 Undo: delete the roles `warden-dev-actor` and `warden-dev-platform-reader`, then the policies
 `WardenActor-dev`, `WardenPlatformReader-dev` and `WardenPlatformDiagnose-dev`.
 
+### Alarms that live only in AWS's global-services Region (in the window; G10-F1)
+
+CloudFront and Route 53 health-check alarms exist only in the Region `aws_global_region` names (environments.yaml).
+One EventBridge rule there forwards the watched environments' alarm changes to WARDEN's runtime Region. No clicks:
+Claude runs `python scripts/forward_global_alarms.py` (a dry run that prints every name and document), shows it to
+you, then runs it again with `--apply` in the setup role. Cost: about $1 per million forwarded events.
+Undo: `python scripts/forward_global_alarms.py --undo` removes exactly the rule, its target and the role it made.
+
 ### AWS Config, so WARDEN can undo a recorded change (in the window; owner decision 2026-10-10)
 
 `revert_change` sets a value back to what AWS Config recorded just before the change - an ECS service's desired

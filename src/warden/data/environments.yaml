@@ -50,6 +50,10 @@ version: 1
 # (owner requirement R4). WARDEN_DISPLAY_ZONE overrides it per install.
 display_zone: Asia/Kolkata
 aws_region: ap-south-2
+# AWS's own Region for its global services' alarms - CloudFront and Route 53 health checks publish their metrics,
+# and so their alarms live, only there (G10-F1). AWS's fixed choice, named here once; WARDEN reads an alarm there
+# only when the alarm's event came from there.
+aws_global_region: us-east-1
 
 # WARDEN's OWN environment: the runtime (runtime.yml in G6; names warden-ops-*, parameters under
 # /warden/ops/, secrets in Secrets Manager under warden/ops/ - the W0-now Slack webhook is

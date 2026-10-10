@@ -88,9 +88,11 @@ class EnvPolicy:
 
 class EnvironmentPolicies:
     def __init__(self, default: EnvPolicy, environments: dict[str, EnvPolicy], runtime: str | None = None,
-                 aws_region: str | None = None, display_zone: str | None = None) -> None:
+                 aws_region: str | None = None, display_zone: str | None = None,
+                 aws_global_region: str | None = None) -> None:
         self.runtime_environment = runtime
         self.aws_region = aws_region
+        self.aws_global_region = aws_global_region
         self.display_zone = display_zone
         self._default = default
         self._envs = environments
@@ -148,7 +150,10 @@ class EnvironmentPolicies:
         zone = doc.get("display_zone")
         if zone is not None and not _is_zone(zone):
             raise EnvironmentPolicyError(f"`display_zone` is not an IANA time zone: {zone!r}")
-        return cls(default, envs, runtime, region, zone)
+        global_region = doc.get("aws_global_region")
+        if global_region is not None and not (isinstance(global_region, str) and _REGION.fullmatch(global_region)):
+            raise EnvironmentPolicyError(f"`aws_global_region` is not a region name: {global_region!r}")
+        return cls(default, envs, runtime, region, zone, global_region)
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:

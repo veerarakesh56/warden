@@ -68,8 +68,13 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
     service = next((dims[k] for k in _SERVICE_DIMENSIONS if dims.get(k) and named.match(dims[k])),
                    name if named.match(name) else "unknown")
     from .environments import env_of_name
+    from .environments import region as runtime_region
 
     environment = env_of_name(service) or env_of_name(name) or default_environment
+    # G10-F1: an alarm forwarded from another Region keeps its own `region` (EventBridge delivers it unchanged); its
+    # resources are read there. Only a Region-shaped value - the label is checked as every label is.
+    where = str(event.get("region") or "")
+    elsewhere = {"alarm_region": where} if where and where != runtime_region() else {}
     return AlarmEvent(
         source="alarm", rule=name, state=str(state.get("value")), transitioned_at=when,
         alert=Alert(alert_id="cw", name=name[:512], severity=Severity.high, service=service, environment=environment,
@@ -77,8 +82,12 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
                     started_at=when.isoformat(),
                     # The alarm label last, and raw dimension names never a resource label: a dimension named
                     # `alarm` or `log_group` chose what was read (independent review 2026-10-10, L4).
-                    labels={**{k: v for k, v in dims.items() if k not in RESOURCE_LABELS and k != "alarm"},
-                            **resources.labels_for(metrics), "alarm": name}))
+                    labels={**{k: v for k, v in dims.items() if k not in RESOURCE_LABELS and k not in _OWN_LABELS},
+                            **resources.labels_for(metrics), **elsewhere, "alarm": name}))
+
+
+# Labels intake writes itself; a dimension of the same name never stands in for them (L4, G10-F1).
+_OWN_LABELS = ("alarm", "alarm_region")
 
 
 def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:
