@@ -131,6 +131,8 @@ def _env(method: Any, environment: str) -> dict[str, str]:
 
 
 def plan_hash(entry: str, params: dict[str, Any], snapshot: dict[str, Any], basis: dict[str, str] | None = None) -> str:
+    # A value that moves on its own (a dead-letter queue's depth) is shown, not hashed: else every precheck drifts.
+    snapshot = {k: v for k, v in snapshot.items() if k not in catalog.VOLATILE.get(entry, ())}
     material = json.dumps([entry, params, snapshot, *([basis] if basis else [])], sort_keys=True,
                           separators=(",", ":"), default=str)
     return hashlib.sha256(material.encode()).hexdigest()
@@ -156,7 +158,7 @@ def _environment_problems(env: str, entry: catalog.Entry, params: dict[str, Any]
     own = live.get("environment")
     if own != env:
         problems.append(f"P18 ENV-MISMATCH: the target's own environment is {own!r}, not the incident's {env!r}")
-    for p in entry.target_params:
+    for p in dict.fromkeys([*entry.target_params, *(k for k, v in entry.params.items() if v.kind == "ref")]):
         named = environments.env_of_name(str(params.get(p, "")))
         if named and named != env:
             problems.append(f"P18 ENV-MISMATCH: {p} {params.get(p)!r} is named for {named!r}, not {env!r}")

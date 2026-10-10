@@ -275,12 +275,12 @@ ACTION_FACTS: dict[ActionKind, tuple[bool, str]] = {
     # A zonal shift ends by itself at its expiry and can be cancelled. multi_service: everything behind the load
     # balancer loses that zone's capacity while it lasts.
     ActionKind.shift_traffic: (True, "multi_service"),
-    # Cancelling the move stops it, but moved messages are NOT moved back (AWS, read 2026-10-10); one that fails
-    # again returns to the dead-letter queue by the source queue's own redrive policy, and one processed successfully
-    # stays processed - as after any fix that lets traffic flow again. The plan shows how many messages wait.
-    ActionKind.redrive_messages: (True, "single_service"),
-    # The query is lost and can be run again; its session, its data and the engine are untouched.
-    ActionKind.cancel_query: (True, "single_service"),
+    # ⛔ NOT reversible (independent review 2026-10-10, M4): cancelling a move stops it, but moved messages are not
+    # moved back and are processed (AWS, read 2026-10-10). P2 therefore keeps it a person's in production.
+    ActionKind.redrive_messages: (False, "single_service"),
+    # ⛔ NOT reversible: a cancelled query is lost (it can be run again, which is a new decision). Only a SELECT is
+    # cancelled (a cancelled INSERT INTO or CTAS can leave partial data - Athena docs, read 2026-10-10).
+    ActionKind.cancel_query: (False, "single_service"),
     # Undone by setting the previous value back; bounded by the account's own limit (catalogue).
     ActionKind.raise_limit: (True, "single_service"),
     # Re-enabling the transition is the undo; nothing already deployed changes.

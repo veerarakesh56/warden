@@ -90,6 +90,7 @@ class Completion:
     text: str
     input_tokens: int
     output_tokens: int
+    cut_off: bool = False  # the answer reached the output cap: charged, never retried (review 2026-10-10, M7)
 
 
 class Provider(Protocol):
@@ -191,11 +192,11 @@ class AnthropicProvider:
             messages=[{"role": "user", "content": user}],
         )
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-        if getattr(resp, "stop_reason", None) == "max_tokens":
-            # Said plainly: a cut-off answer read as "invalid JSON" three times, and the incident went to a person as
-            # "model unavailable" (qualification 2026-10-10, ecs-07, at 1500 tokens).
-            raise ProviderError(f"the answer was cut off at {MAX_OUTPUT_TOKENS} output tokens")
-        return Completion(text, resp.usage.input_tokens, resp.usage.output_tokens)
+        # A cut-off answer read as "invalid JSON" three times, and the incident went to a person as "model
+        # unavailable" (qualification 2026-10-10, ecs-07, at 1500 tokens). Returned flagged: the client charges it and
+        # says so, never asking again for the same cut-off.
+        return Completion(text, resp.usage.input_tokens, resp.usage.output_tokens,
+                          cut_off=getattr(resp, "stop_reason", None) == "max_tokens")
 
 
 # --------------------------------------------------------------------------- gemini

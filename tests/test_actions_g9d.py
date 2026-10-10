@@ -34,8 +34,10 @@ def test_no_evidence_word_is_a_trusted_lines_own_first_word():
         assert not (set(keys) & prefixes) - allowed.get(action, set()), action
 
 
-def test_the_new_classes_are_reversible_and_a_zonal_shift_is_never_narrow():
-    assert all(ACTION_FACTS[a][0] for a in NEW)
+def test_what_cannot_be_undone_is_not_called_reversible_and_a_zonal_shift_is_never_narrow():
+    """Independent review 2026-10-10, M4: a redrive's moved messages and a cancelled query are not undone - P2 keeps
+    both a person's in production."""
+    assert {a for a in NEW if not ACTION_FACTS[a][0]} == {ActionKind.redrive_messages, ActionKind.cancel_query}
     assert ACTION_FACTS[ActionKind.shift_traffic][1] == "multi_service"
 
 
@@ -58,7 +60,10 @@ def test_a_disabled_rule_is_resumed_through_its_entry():
                             expected_effect="e", blast_radius="single_service", reversible=True),
         lambda e, p: {"rule": {"warden-dev-nightly"}})
     assert why == "" and req["entry"] == "events_enable_rule" and req["params"] == {"rule": "warden-dev-nightly"}
-    assert catalog.for_action(ActionKind.raise_limit, "lambda").name == "lambda_set_reserved_concurrency"
+    # Review H1: a Lambda's reserved concurrency is scale_up's only - raise_limit reached it with weaker evidence.
+    assert catalog.for_action(ActionKind.raise_limit, "lambda") is None
+    assert catalog.for_action(ActionKind.scale_up, "lambda").name == "lambda_set_reserved_concurrency"
+    assert catalog.for_action(ActionKind.raise_limit, "apigw").name == "apigw_raise_stage_throttle"
 
 
 def test_raise_limit_is_never_a_memory_limit():
@@ -78,19 +83,28 @@ def test_raise_limit_is_never_a_memory_limit():
     assert "limit" not in ACTION_EVIDENCE[ActionKind.raise_limit]
 
 
-def test_an_answer_cut_off_at_the_output_cap_is_said_plainly(monkeypatch):
-    """Qualification 2026-10-10: an answer cut off at 1500 output tokens read as "invalid JSON" three times."""
+def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_asked_again():
+    """Qualification 2026-10-10: an answer cut off at 1500 output tokens read as "invalid JSON" three times. Review M7:
+    raised inside the provider it was billed but counted as $0, and still retried."""
     import types
 
     import pytest
 
     from warden import providers
+    from warden.graph import Diagnosis
+    from warden.llm import LLMClient, ModelRefused
 
     p = providers.AnthropicProvider.__new__(providers.AnthropicProvider)
-    p.model = "claude-sonnet-5"
+    p.model, p.name, p.version = "claude-sonnet-5", "anthropic", "test"
+    sent = []
     resp = types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text='{"root_cause": {')],
-                                 stop_reason="max_tokens", usage=types.SimpleNamespace(input_tokens=1, output_tokens=4096))
-    p._client = types.SimpleNamespace(messages=types.SimpleNamespace(create=lambda **kw: resp))
-    with pytest.raises(providers.ProviderError, match="cut off at 4096"):
-        p.complete(system="s", user="u")
-    assert providers.MAX_OUTPUT_TOKENS >= 4096
+                                 stop_reason="max_tokens", usage=types.SimpleNamespace(input_tokens=1000,
+                                                                                       output_tokens=4096))
+    p._client = types.SimpleNamespace(messages=types.SimpleNamespace(create=lambda **kw: sent.append(kw) or resp))
+    assert p.complete(system="s", user="u").cut_off is True
+    sent.clear()
+    client = LLMClient(provider=p, mock=False)
+    with pytest.raises(ModelRefused, match="cut off"):
+        client.structured(system="s", user="u", schema=Diagnosis)
+    assert len(sent) == 1 and client.cost.usd > 0  # asked once, and charged
+    assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 4096

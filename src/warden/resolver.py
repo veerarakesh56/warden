@@ -28,7 +28,7 @@ _PLATFORM_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
     "events": (("eventbridge_rule", "rule"),),
     "sqs": (("sqs", "queue"),),
     "athena": (("athena_workgroup", "workgroup"),),
-    "apigw": (("apigw_rest", "api"), ("apigw_stage", "stage")),
+    "apigw": (("apigw_stage", "stage"), ("apigw_rest", "api")),  # the API is what a person names
     "ecs": (("ecs_cluster", "cluster"), ("ecs_service", "service")),
     "dynamodb": (("dynamodb_table", "table"),),
     "k8s": (("namespace", "namespace"), ("deployment", "deployment")),
@@ -62,7 +62,14 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
             return "the current capacity was not read"
         return {**params, "capacity": 2 * cur}
     if "per_second" in entry.params:
-        return {**params, "per_second": 10}  # a fifth of the catalogue's cap, so the consumer is not flooded
+        # Slow enough not to flood the consumer, fast enough to finish inside the verify window (review H3).
+        waiting = live.get("waiting")
+        if not isinstance(waiting, int):
+            return "the dead-letter queue's depth was not read"
+        rate = max(1, -(-waiting // catalog.REDRIVE_SECONDS))
+        if rate > 50:
+            return f"{waiting} messages cannot move inside the verify window at 50 a second; a person runs it"
+        return {**params, "per_second": rate}
     if "rate_limit" in entry.params:
         out = dict(params)
         for key in ("rate_limit", "burst_limit"):

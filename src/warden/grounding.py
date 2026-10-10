@@ -69,15 +69,20 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     # support the action. CHANGE is kept for the two actions about changes: a change line does bear on them.
     ActionKind.revert_config: ("flag", "feature", "appconfig", "parameter", "setting", "toggle", "change", "updated",
                                "modified", "revert", "version"),
-    ActionKind.pause_flow: ("poison", "loop", "recurs", "storm", "runaway", "flood", "redeliver", "receive count",
+    # Not "loop" (CrashLoopBackOff), not "stopped" (an ECS task stopped): neither says a flow is the harm or is off
+    # (independent review 2026-10-10, H1).
+    ActionKind.pause_flow: ("poison", "recurs", "storm", "runaway", "flood", "redeliver", "receive count",
                             "dead-letter", "dlq", "duplicat", "cascad", "overload"),
-    ActionKind.resume_flow: ("disabled", "paused", "stopped", "inactive", "suspended", "not enabled"),
+    ActionKind.resume_flow: ("disabled", "paused", "inactive", "suspended", "not enabled"),
     ActionKind.shift_traffic: ("zone", "zonal", "az", "impair", "unhealthy host", "unhealthyhost", "outage"),
     ActionKind.redrive_messages: ("dlq", "dead-letter", "deadletter", "redriv", "maxreceive", "receive count"),
-    ActionKind.cancel_query: ("query", "statement", "long_running", "long-running", "scan", "queued", "workgroup"),
-    # Not "limit": a container's "memory limit" and a database's "connection limit" are not throttles (qualification
-    # 2026-10-10: raise_limit for an OOM, allowed).
-    ActionKind.raise_limit: ("throttl", "quota", "429", "too many", "exceeded", "concurrency", "burst", "rate"),
+    # Not "query" or "statement" alone: a DynamoDB Query line is no runaway (review H1).
+    ActionKind.cancel_query: ("long_running", "long-running", "runaway", "running for", "queued", "workgroup", "athena",
+                              "scanned"),
+    # Not "limit" (a container's memory limit, a database's connection limit), not "rate" (it matched inside
+    # error_rate), "exceeded" or "too many" ("too many connections"): none of them is a request throttle (qualification
+    # 2026-10-10 and review H1).
+    ActionKind.raise_limit: ("throttl", "quota", "429", "burst"),
     ActionKind.freeze_changes: ("deploy", "release", "pipeline", "commit", "change", "rollout"),
 }
 

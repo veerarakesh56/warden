@@ -22,7 +22,8 @@ PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs":
 # Actions AWS authorizes for a call besides the call's own (Service Authorization Reference, read 2026-10-10): the
 # session asks for them, the code never calls them.
 IMPLICIT = {"sqs:StartMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
-                                         "sqs:SendMessage"}}
+                                         "sqs:SendMessage"},
+            "sqs:CancelMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"}}
 
 
 def _action(service: str, method: str) -> str:

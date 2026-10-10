@@ -39,6 +39,7 @@ with workflow.unsafe.imports_passed_through():
         RemediationActivities,
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
+    from .catalog import MITIGATES
     from .models import Alert, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -85,6 +86,7 @@ CONSECUTIVE_HEALTHY = 3
 RECHECK_AFTER = (timedelta(minutes=15), timedelta(minutes=60))
 # Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
 END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_apply", "apply_failed", "recovered",
+                        "mitigated",
                         "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
                         "failed", "failed_after_apply", "relapsed", "denied"})
 
@@ -261,6 +263,10 @@ class RemediationWorkflow:
                      and recorded.run_id == workflow.info().run_id)
         if recovered:
             done["verified"] = True
+            if workflow.patched("g9-mitigated") and plan.entry in MITIGATES:
+                # A pause holds the harm and fixes nothing (review H2): the page stays open, a person resumes it.
+                return await end("mitigated", [(f"{req.service} is paused, not fixed: it stays paused until a "
+                                                "person resumes it")])
             if workflow.patched("c18a-rechecks"):
                 # Durable re-checks (register C18a): a fix that holds for minutes and fails within the hour is not a
                 # recovery. A relapse is recorded as a failed result (the breaker counts it) and goes to a person:

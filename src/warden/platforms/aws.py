@@ -193,13 +193,13 @@ class AwsPlatform:
         if entry not in _KINDS:
             raise AwsPlatformError(f"{entry} is not something the AWS platform does")
         if entry == "athena_stop_query":
-            return "nothing rolled back: a cancelled query is not resumed; it can be run again"
+            return "nothing to roll back: a cancelled query is not resumed; it can be run again"
         if entry == "ecs_restart_service":
             # The same task definition runs again: there is nothing to return to.
-            return "nothing rolled back: a restart replaced tasks with the same task definition"
+            return "nothing to roll back: a restart replaced tasks with the same task definition"
         if entry == "aurora_failover":
             # Irreversible (the catalogue's T3): failing back is another failover, a new decision for a person.
-            return "nothing rolled back: a failover is not undone automatically; a person decides whether to fail back"
+            return "nothing to roll back: a failover is not undone automatically; a person decides whether to fail back"
         if not who or not who.get("approvers"):
             raise AwsPlatformError("no approvers were handed to the AWS platform for the rollback")
         return self._change(entry, params, snapshot, who, back=True)
@@ -454,9 +454,10 @@ class AwsPlatform:
                     break
         mine = [m for m in mappings if _unqualified(str(m.get("FunctionArn", ""))) == fn_arn]
         want = "Enabled" if pause else "Disabled"
-        # A pause only for a queue: its messages wait. A stream's records expire while a mapping is paused.
+        # A pause only for a queue that keeps its messages a day or more: they wait there. A stream's records expire
+        # while a mapping is paused, and so do a short-retention queue's (review H2).
         allowed = {m["UUID"] for m in mine if m.get("State") == want
-                   and (not pause or str(m.get("EventSourceArn", "")).startswith("arn:aws:sqs:"))}
+                   and (not pause or self._keeps(str(m.get("EventSourceArn", ""))))}
         out = {"function": {name}, "mapping": allowed, "environment": self._tags("lambda", fn_arn).get(ENV_TAG)}
         if isinstance(uuid, str) and mine:
             m = mine[0]
@@ -464,7 +465,23 @@ class AwsPlatform:
             out["rollout"] = "progressing" if state in ("Enabling", "Disabling", "Updating", "Creating") else "complete"
             out["state"] = {"mapping": uuid, "function": fn_arn, "enabled": state == "Enabled",
                             "source": m.get("EventSourceArn"), "where": self._where(fn_arn)}
+            if pause:  # in the plan the approver signs: how long the waiting messages are kept
+                out["state"]["retention_s"] = self._retention(str(m.get("EventSourceArn", "")))
         return out
+
+    def _retention(self, queue_arn: str) -> int | None:
+        """How long an SQS queue keeps a message, in seconds; None when it is not a queue or cannot be read."""
+        if not queue_arn.startswith("arn:aws:sqs:"):
+            return None
+        sqs = self._read("sqs")
+        url = sqs.get_queue_url(QueueName=queue_arn.rsplit(":", 1)[-1])["QueueUrl"]
+        got = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["MessageRetentionPeriod"])["Attributes"]
+        value = str(got.get("MessageRetentionPeriod", ""))
+        return int(value) if value.isdigit() else None
+
+    def _keeps(self, source_arn: str) -> bool:
+        retention = self._retention(source_arn)
+        return retention is not None and retention >= catalog.MIN_PAUSE_RETENTION_S
 
     def _live_esm_pause(self, params: dict[str, Any]) -> dict[str, Any]:
         return self._live_esm(params, pause=True)
@@ -724,9 +741,19 @@ class AwsPlatform:
         running = [t for t in sqs.list_message_move_tasks(SourceArn=arn, MaxResults=10).get("Results") or []
                    if t.get("Status") == "RUNNING"]
         waiting = attrs.get("ApproximateNumberOfMessages")
+        env = self._tags("sqs", url).get(ENV_TAG)
         ok = not attrs.get("KmsMasterKeyId")  # SSE-KMS needs key permissions the actor does not hold
-        return {"queue": {name} if ok else set(), "to_queue": set(sources) if ok else set(),
-                "environment": self._tags("sqs", url).get(ENV_TAG),
+        # The destination: the dead-letter queue's ONLY source (with several, a move would hand one queue's messages
+        # to another's consumer - review M3), of the same environment (M2) and not KMS-encrypted either (L7).
+        dest = sources[0] if len(sources) == 1 else ""
+        if dest:
+            durl = sqs.get_queue_url(QueueName=dest)["QueueUrl"]
+            dattrs = sqs.get_queue_attributes(QueueUrl=durl, AttributeNames=["KmsMasterKeyId"])["Attributes"]
+            if dattrs.get("KmsMasterKeyId") or self._tags("sqs", durl).get(ENV_TAG) != env:
+                dest = ""
+        return {"queue": {name} if ok else set(), "to_queue": {dest} if ok and dest else set(),
+                "waiting": int(waiting) if str(waiting).isdigit() else None,
+                "environment": env,
                 "rollout": "progressing" if running else "complete",
                 # In the plan the approver signs: how many messages would move, and from where to where.
                 "state": {"queue": name, "arn": arn, "url": url, "sources": sorted(sources),
@@ -734,16 +761,20 @@ class AwsPlatform:
 
     def _redrive(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("queue", "arn", "sources"), f"queue {p['queue']}")
-        if p["to_queue"] not in (now.get("sources") or []):
-            raise AwsPlatformRefused(f"{p['to_queue']} is not a source of {p['queue']} now; nothing was changed")
+        if p["to_queue"] not in self.live("sqs_redrive_dlq", p).get("to_queue", set()):
+            raise AwsPlatformRefused(f"{p['to_queue']} is not the one same-environment source of {p['queue']} now; "
+                                     "nothing was changed")
         dlq, dest = now["arn"], now["arn"].rsplit(":", 1)[0] + ":" + p["to_queue"]
         sqs_read = self._read("sqs")
         if back:
             running = [t for t in sqs_read.list_message_move_tasks(SourceArn=dlq, MaxResults=10).get("Results") or []
                        if t.get("Status") == "RUNNING"]
             if not running:
-                return f"nothing rolled back: the move from {p['queue']} finished; moved messages stay in {p['to_queue']}"
-            sqs = self._actor(who, ["sqs:CancelMessageMoveTask"], [dlq], None)("sqs")
+                return f"nothing to roll back: the move from {p['queue']} finished; moved messages stay in {p['to_queue']}"
+            # AWS checks receive, delete and read-attributes on the dead-letter queue for a cancel too (Service
+            # Authorization Reference, read 2026-10-10; review H3).
+            sqs = self._actor(who, ["sqs:CancelMessageMoveTask", "sqs:ReceiveMessage", "sqs:DeleteMessage",
+                                    "sqs:GetQueueAttributes"], [dlq], None)("sqs")
             sqs.cancel_message_move_task(TaskHandle=running[0]["TaskHandle"])
             return f"cancelled the move from {p['queue']}; messages already moved stay in {p['to_queue']}"
         if not isinstance(p["per_second"], int) or not 1 <= p["per_second"] <= 50:
@@ -786,8 +817,11 @@ class AwsPlatform:
                 continue
             st = q.get("Status") or {}
             mine[q["QueryExecutionId"]] = st.get("State")
-            since = _when(st.get("SubmissionDateTime"))
-            if st.get("State") == "RUNNING" and since and self._now() - since >= RUNAWAY_QUERY:
+            ran = ((q.get("Statistics") or {}).get("EngineExecutionTimeInMillis") or 0) / 1000
+            # Only a SELECT: a cancelled INSERT INTO or CTAS can leave partial data (review M4). Its engine time, not
+            # its time queued (L8).
+            if st.get("State") == "RUNNING" and q.get("SubstatementType") == "SELECT" \
+                    and ran >= RUNAWAY_QUERY.total_seconds():
                 runaway.add(q["QueryExecutionId"])
         out = {"workgroup": {wg} if state == "ENABLED" else set(), "query": runaway,
                "environment": self._tags("athena", arn).get(ENV_TAG)}
@@ -811,22 +845,22 @@ class AwsPlatform:
 
     # ------------------------------------------------------------------ api gateway: raise a stage throttle (G9-D)
 
-    def _rest_api(self, name: str) -> str:
-        """The REST API's id from its name (the metric dimension is the name); exactly one, or none."""
+    def _rest_api(self, name: str) -> tuple[str, dict[str, str]]:
+        """The REST API's id and tags from its name (the metric dimension is the name); exactly one, or none."""
         apigw, found, pos = self._read("apigateway"), [], None
         for _ in range(5):
             page = apigw.get_rest_apis(limit=500, **({"position": pos} if pos else {}))
-            found += [a["id"] for a in page.get("items") or [] if a.get("name") == name]
+            found += [(a["id"], a.get("tags") or {}) for a in page.get("items") or [] if a.get("name") == name]
             pos = page.get("position")
             if not pos:
                 break
-        return found[0] if len(found) == 1 else ""
+        return found[0] if len(found) == 1 else ("", {})
 
     def _live_stage(self, params: dict[str, Any]) -> dict[str, Any]:
         name, stage = params.get("api"), params.get("stage")
         if not isinstance(name, str) or not isinstance(stage, str):
             return {}
-        api_id = self._rest_api(name)
+        api_id, api_tags = self._rest_api(name)
         if not api_id:
             return {}
         apigw = self._read("apigateway")
@@ -837,7 +871,8 @@ class AwsPlatform:
         arn = f"arn:aws:apigateway:{apigw.meta.region_name}::/restapis/{api_id}/stages/{stage}"
         whole = lambda v: int(v) if isinstance(v, int | float) and v >= 1 and float(v).is_integer() else None
         return {"api": {name}, "stage": {stage} if whole(rate) and whole(burst) else set(),
-                "environment": (st.get("tags") or {}).get(ENV_TAG),
+                # A stage inherits its API's tags (review L6): its own, else the API's.
+                "environment": (st.get("tags") or {}).get(ENV_TAG) or api_tags.get(ENV_TAG),
                 "current_rate_limit": whole(rate), "current_burst_limit": whole(burst),
                 "account_rate_limit": whole(acct.get("rateLimit")), "account_burst_limit": whole(acct.get("burstLimit")),
                 "state": {"api": name, "api_id": api_id, "stage": stage, "arn": arn, "rate_limit": whole(rate),
@@ -867,11 +902,11 @@ class AwsPlatform:
         return (f"set stage {p['stage']} of {p['api']} throttle from {now.get('rate_limit')}/{now.get('burst_limit')} "
                 f"to {rate}/{burst} (rate/burst)")
 
-    def _stage_healthy(self, stage: str, params: dict[str, Any]) -> bool:
+    def _stage_healthy(self, api: str, params: dict[str, Any]) -> bool:
         """The throttle WARDEN set holds and the stage serves requests - a positive signal."""
         now = self._live_stage(params).get("state") or {}
-        sums = self._metric_sums("AWS/ApiGateway", [{"Name": "ApiName", "Value": params.get("api", "")},
-                                                    {"Name": "Stage", "Value": stage}], ("Count",))
+        sums = self._metric_sums("AWS/ApiGateway", [{"Name": "ApiName", "Value": api},
+                                                    {"Name": "Stage", "Value": params.get("stage", "")}], ("Count",))
         return now.get("rate_limit") == params.get("rate_limit") and sums is not None and sums["Count"] > 0
 
     def _live_cluster(self, params: dict[str, Any]) -> dict[str, Any]:

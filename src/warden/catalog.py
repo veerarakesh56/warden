@@ -68,7 +68,7 @@ class Entry:
 # must be the last, or the success check would judge another object than the one changed (sixth review,
 # 2026-10-01); all of them key the bounds and the per-target mutex (target_key).
 TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",), "athena": ("workgroup",),
-                 "apigw": ("api", "stage"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
+                 "apigw": ("stage", "api"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
                  "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",)}
 
 
@@ -106,6 +106,16 @@ def _raise_throttle(p: dict, live: dict) -> list[str]:
     return out
 
 
+def _redrive_in_time(p: dict, live: dict) -> list[str]:
+    """The move finishes inside the verify window, or the run would always roll back (review H3)."""
+    waiting = live.get("waiting")
+    if not isinstance(waiting, int):
+        return ["the dead-letter queue's depth was not read"]
+    if waiting > p["per_second"] * REDRIVE_SECONDS:
+        return [f"{waiting} messages at {p['per_second']} a second do not move inside {REDRIVE_SECONDS} s"]
+    return []
+
+
 def _scale_up_by_two(p: dict, live: dict) -> list[str]:
     cur = live.get("current_replicas")
     if not isinstance(cur, int) or cur < 1:
@@ -135,7 +145,7 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     # messages are not moved back; cancelling stops the rest, and one that fails again returns by the source queue's
     # own redrive policy. A KMS-encrypted queue is refused: the actor holds no key permissions.
     Entry("sqs_redrive_dlq", "T2", "sqs", "n/a (cancelling stops the move; moved messages stay)",
-          {**_ref("queue", "to_queue"), "per_second": Param("int", 1, 50)}),
+          {**_ref("queue", "to_queue"), "per_second": Param("int", 1, 50)}, _redrive_in_time),
     # G9-D: the one query running longer than the runaway bound in the workgroup; the query is lost, the session and
     # the data are untouched, and it can be run again.
     Entry("athena_stop_query", "T1", "athena", "n/a (the query can be run again)", _ref("workgroup", "query")),
@@ -178,7 +188,9 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     # G9-D: the generic classes, as far as an entry carries them out today.
     ActionKind.pause_flow: {"lambda": "lambda_disable_esm", "events": "events_disable_rule"},
     ActionKind.resume_flow: {"lambda": "lambda_enable_esm", "events": "events_enable_rule"},
-    ActionKind.raise_limit: {"lambda": "lambda_set_reserved_concurrency", "apigw": "apigw_raise_stage_throttle"},
+    # Only the stage throttle: a Lambda's reserved concurrency is scale_up's, under scale_up's evidence and allowlist
+    # (independent review 2026-10-10, H1: the same write reached through raise_limit escaped both).
+    ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle"},
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
     ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
 }
@@ -198,7 +210,8 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                             s.get("reserved"), p["concurrency"])],
     "lambda_enable_esm": lambda p, s: [_arrow(f"event source mapping {p['mapping']}", "disabled", "enabled")],
     "lambda_disable_esm": lambda p, s: [_arrow(f"event source mapping {p['mapping']} (reads {s.get('source')})",
-                                               "enabled", "disabled; its messages wait in the queue")],
+                                               "enabled", f"disabled; its messages wait in the queue, kept "
+                                               f"{s.get('retention_s')} s; it stays paused until a person resumes it")],
     "events_enable_rule": lambda p, s: [_arrow(f"rule {p['rule']}", "disabled", "enabled")],
     "events_disable_rule": lambda p, s: [_arrow(f"scheduled rule {p['rule']}", "enabled",
                                                 "disabled; it misses its runs while disabled")],
@@ -207,7 +220,7 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "ecs_rollback_service": lambda p, s: [_arrow(f"task definition of service {p['service']}",
                                                  s.get("task_definition"), p["to_task_definition"])],
     "ecs_restart_service": lambda p, s: [(f"service {p['service']}: every task replaced by a new one of the same "
-                                          f"task definition {s.get('task_definition')}")],
+                                          f"task definition {s.get('task_definition')} (its secrets are read again)")],
     "ecs_scale_service": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired"),
                                               p["replicas"])],
     "sqs_redrive_dlq": lambda p, s: [(f"{'unknown' if s.get('waiting') is None else s['waiting']} messages move "
@@ -256,7 +269,16 @@ def for_action(action: ActionKind, platform: str) -> Entry | None:
     return CATALOG[name] if name else None
 
 
-ROLLS_PODS = frozenset({"k8s_restart", "ecs_restart_service"})  # entries that replace a workload's pods through its own rollout (C10)
+ROLLS_PODS = frozenset({"k8s_restart", "ecs_restart_service"})
+# A pause holds the harm, it fixes nothing (independent review 2026-10-10, H2): its run ends "mitigated" - the page is
+# not resolved and a person resumes the flow.
+MITIGATES = frozenset({"lambda_disable_esm", "events_disable_rule"})
+# Snapshot values that move on their own while a plan waits: shown to the approver, left out of the drift hash (M6).
+VOLATILE = {"sqs_redrive_dlq": ("waiting",)}
+# A queue a paused mapping reads must keep its messages at least this long (H2: a 60 s retention expires them).
+MIN_PAUSE_RETENTION_S = 86400
+# A redrive must finish inside the default verify window (H3): at most this many seconds of moving.
+REDRIVE_SECONDS = 240  # entries that replace a workload's pods through its own rollout (C10)
 # Entries an autoscaler would undo (register C4): a HorizontalPodAutoscaler, or Application Auto Scaling on a table.
 SCALES = frozenset({"k8s_scale", "dynamodb_raise_capacity", "ecs_scale_service"})
 

@@ -317,6 +317,11 @@ def _install_log_gate() -> None:
     install_log_gate(logging.INFO)
 
 
+# Every catalogue platform the AWS platform carries out (review 2026-10-10, M1: sqs, athena and apigw were missing, so
+# their plans could never be made). tests/test_actions_g9d.py holds it to the AWS platform's own entries.
+AWS_PLATFORMS = ("lambda", "events", "dynamodb", "ecs", "rds", "sqs", "athena", "apigw")
+
+
 def _platform(choice: str):
     """The platforms a worker connects (decision D16). Building one reads its credentials now, so a worker
     that cannot reach what it was told to change fails at start, not in the middle of an approved fix."""
@@ -337,7 +342,7 @@ def _platform(choice: str):
         from .platforms.aws import from_environment
 
         aws = from_environment()
-        platforms.update({"lambda": aws, "events": aws, "dynamodb": aws, "ecs": aws, "rds": aws})
+        platforms.update({p: aws for p in AWS_PLATFORMS})
     return RoutedPlatform(**platforms)
 
 

@@ -6,8 +6,6 @@ an ECS restart pulling a mutable tag, a manual count an autoscaler would undo.""
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
 
 from test_aws_platform_g6 import ACCT, FN, FN_ARN, NOW, WHO, Fake
@@ -37,6 +35,14 @@ class More(Fake):
     def describe_task_definition(self, taskDefinition):
         return {"taskDefinition": {"containerDefinitions": [{"image": self.image}]}}
 
+    retention = "345600"  # four days, SQS's default
+
+    def get_queue_url(self, QueueName):
+        return {"QueueUrl": f"https://sqs.test-region-1.amazonaws.com/{ACCT}/{QueueName}"}
+
+    def get_queue_attributes(self, QueueUrl, AttributeNames):
+        return {"Attributes": {"MessageRetentionPeriod": self.retention}}
+
 
 @pytest.fixture
 def aws():
@@ -55,10 +61,13 @@ def test_only_a_queue_mapping_is_ever_paused_and_the_rollback_resumes_it(aws):
     p.apply("lambda_disable_esm", params, snapshot=snap, who=WHO)
     assert f.writes[-1] == ("update_event_source_mapping", {"UUID": "u-1", "Enabled": False})
     assert f.sessions[-1]["actions"] == ["lambda:UpdateEventSourceMapping"]
+    assert snap["retention_s"] == 345600  # in the plan: how long the waiting messages are kept
     f.esm["State"] = "Disabled"
     assert p.healthy("u-1", entry="lambda_disable_esm", params=params)
     p.rollback("lambda_disable_esm", params, snap, who=WHO)
     assert f.writes[-1] == ("update_event_source_mapping", {"UUID": "u-1", "Enabled": True})
+    f.esm["State"], f.retention = "Enabled", "60"  # review H2: a queue that keeps a message a minute is never paused
+    assert p.live("lambda_disable_esm", {"function": FN})["mapping"] == set()
 
 
 def test_a_mapping_of_another_function_is_never_allowed(aws):
@@ -88,7 +97,8 @@ def test_an_ecs_restart_needs_digest_pinned_images_and_keeps_most_tasks_serving(
     assert catalog.validate("ecs_restart_service", params, live) == []
     p.apply("ecs_restart_service", params, snapshot=live["state"], who=WHO)
     assert f.writes[-1] == ("update_service", {"cluster": "c1", "service": "orders", "forceNewDeployment": True})
-    assert "nothing rolled back" in p.rollback("ecs_restart_service", params, live["state"], who=WHO)
+    # The workflow's own wording (review M5): it ends not_recovered, never rolled_back.
+    assert p.rollback("ecs_restart_service", params, live["state"], who=WHO).startswith("nothing to roll back")
     f.image = "registry.example/orders:latest"
     live = p.live("ecs_restart_service", params)
     assert catalog.validate("ecs_restart_service", params, live)  # a tag could pull new code
@@ -127,10 +137,13 @@ class Queues(More):
         self.dlq_attrs = {"QueueArn": DLQ_ARN, "ApproximateNumberOfMessages": "42"}
         self.sources = [SRC_URL]
         self.moves = []
-        self.queries = {"q-1": {"QueryExecutionId": "q-1", "WorkGroup": "warden-dev-bi",
-                                "Status": {"State": "RUNNING", "SubmissionDateTime": NOW - timedelta(minutes=40)}},
-                        "q-2": {"QueryExecutionId": "q-2", "WorkGroup": "warden-dev-bi",
-                                "Status": {"State": "RUNNING", "SubmissionDateTime": NOW - timedelta(minutes=2)}}}
+        minutes = lambda m: {"EngineExecutionTimeInMillis": m * 60000}
+        self.queries = {"q-1": {"QueryExecutionId": "q-1", "WorkGroup": "warden-dev-bi", "SubstatementType": "SELECT",
+                                "Status": {"State": "RUNNING"}, "Statistics": minutes(40)},
+                        "q-2": {"QueryExecutionId": "q-2", "WorkGroup": "warden-dev-bi", "SubstatementType": "SELECT",
+                                "Status": {"State": "RUNNING"}, "Statistics": minutes(2)},
+                        "q-3": {"QueryExecutionId": "q-3", "WorkGroup": "warden-dev-bi", "SubstatementType": "INSERT",
+                                "Status": {"State": "RUNNING"}, "Statistics": minutes(40)}}
         self.stage = {"methodSettings": {"*/*": {"throttlingRateLimit": 100.0, "throttlingBurstLimit": 50}},
                       "tags": {"Environment": "dev"}}
         self.meta = type("Meta", (), {"region_name": "test-region-1"})()
@@ -215,13 +228,13 @@ def test_no_redrive_to_a_queue_that_is_not_its_source_or_of_an_encrypted_queue(m
 def test_only_the_runaway_query_is_cancelled(more):
     f, p = more
     live = p.live("athena_stop_query", {"workgroup": "warden-dev-bi"})
-    assert live["query"] == {"q-1"}  # q-2 has run two minutes
+    assert live["query"] == {"q-1"}  # q-2 has run two minutes; q-3 is an INSERT (review M4: partial data)
     params = {"workgroup": "warden-dev-bi", "query": "q-1"}
     snap = p.live("athena_stop_query", params)["state"]
     p.apply("athena_stop_query", params, snapshot=snap, who=WHO)
     assert f.writes[-1] == ("stop_query_execution", {"QueryExecutionId": "q-1"})
     assert f.sessions[-1]["resources"] == [f"arn:aws:athena:test-region-1:{ACCT}:workgroup/warden-dev-bi"]
-    f.queries["q-1"]["Status"] = {"State": "SUCCEEDED", "SubmissionDateTime": NOW - timedelta(minutes=40)}
+    f.queries["q-1"]["Status"] = {"State": "SUCCEEDED"}
     with pytest.raises(AwsPlatformRefused, match="no longer a runaway"):
         p.apply("athena_stop_query", params, snapshot={**snap, "query_state": "SUCCEEDED"}, who=WHO)
 

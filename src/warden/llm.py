@@ -82,6 +82,10 @@ class ModelRefused(RuntimeError):
     """The model did not return something matching the contract, after retries."""
 
 
+class ModelCutOff(ModelRefused):
+    """The answer reached the output cap: it was charged, and the same prompt would be cut off again."""
+
+
 class LLMClient:
     def __init__(
         self,
@@ -217,6 +221,8 @@ class LLMClient:
                 # Charged BEFORE validation: a malformed response still costs money, and a budget
                 # that only counts successful calls can be exhausted by a model that keeps failing.
                 self._charge(completion.input_tokens, completion.output_tokens)
+                if getattr(completion, "cut_off", False):
+                    raise ModelCutOff("the answer was cut off at the output cap; asking again would cut it off again")
                 return schema.model_validate_json(extract_json(completion.text))
             except ModelCallTimeout:
                 # Fatal by design: a hung call must stop the run, not be retried into three hangs. It was sent
@@ -224,6 +230,9 @@ class LLMClient:
                 # nowhere, so restarts of a hanging model were never bounded).
                 self.cost.add(0, 0, 0.0)
                 raise
+            except ModelCutOff as exc:
+                last = exc  # charged above; the same prompt would be cut off the same way
+                break
             except (BudgetExceeded, ProviderExhausted):
                 # Fatal by design: a blown budget must stop the run immediately, not be retried into an
                 # overspend. An exhausted provider likewise: it has no error code, so _is_transient() would
