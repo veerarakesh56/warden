@@ -311,3 +311,97 @@ def test_a_stage_change_that_did_more_or_a_deployment_that_is_gone_is_refused(op
         f.deployments.discard("dep-old")
     live = _p(f).live("apigw_restore_stage", STAGE)
     assert live["event"] == set() and why in live["refused"], live.get("refused")
+
+
+# ---------------------------------------------------------------- D4: a function's timeout, memory or ephemeral storage
+
+class Settings(Fake):
+    """A function whose timeout was cut from 30 s to 3 s by one recorded UpdateFunctionConfiguration (held-out
+    g10-data-28: an un-aliased function - no version to roll back to)."""
+
+    def __init__(self, request=None, before=None, related=("f-1",)):
+        super().__init__()
+        self.timeout, self.memory = 3, 256
+        self.events = [_trail("UpdateFunctionConfiguration20150331v2",
+                              request or {"functionName": FN, "timeout": 3}, eid="f-1", source="lambda.amazonaws.com")]
+        self.history["AWS::Lambda::Function"] = [
+            _ci(600, before or {"timeout": 30, "memorySize": 256, "ephemeralStorage": {"size": 512}}),
+            _ci(59, {"timeout": 3, "memorySize": 256, "ephemeralStorage": {"size": 512}}, related=list(related))]
+
+    def get_function_configuration(self, FunctionName):
+        return {"FunctionName": FN, "FunctionArn": FN_ARN, "Timeout": self.timeout, "MemorySize": self.memory,
+                "EphemeralStorage": {"Size": 512}, "RevisionId": "rev-7", "LastUpdateStatus": "Successful"}
+
+
+SETTINGS = {**LAM, "event": "f-1", "settings": "timeout=30"}
+
+
+def test_a_timeout_cut_is_set_back_to_what_config_recorded_under_the_revision_the_plan_saw():
+    f = Settings()
+    p = _p(f)
+    live = p.live("lambda_restore_settings", LAM)
+    assert live["event"] == {"f-1"} and live["settings"] == {"timeout=30"}, live.get("refused")
+    p.apply("lambda_restore_settings", SETTINGS, snapshot=live["state"], who=WHO)
+    assert f.sessions[-1] == {"actions": ["lambda:UpdateFunctionConfiguration"], "resources": [FN_ARN]}
+    assert f.writes[-1] == ("update_function_configuration", {"FunctionName": FN, "RevisionId": "rev-7", "Timeout": 30})
+    f.timeout = 30
+    assert p.healthy(FN, entry="lambda_restore_settings", params=SETTINGS) is False  # the alarm still reads ALARM
+    f.alarm_state = "OK"
+    assert p.healthy(FN, entry="lambda_restore_settings", params=SETTINGS) is True
+    p.rollback("lambda_restore_settings", SETTINGS, live["state"], who=WHO)
+    assert f.writes[-1] == ("update_function_configuration", {"FunctionName": FN, "RevisionId": "rev-7", "Timeout": 3})
+
+
+@pytest.mark.parametrize("fake, why", [
+    (Settings(request={"functionName": FN, "timeout": 3, "environment": "HIDDEN_DUE_TO_SECURITY_REASONS"}),
+     "also set environment"),
+    (Settings(request={"functionName": FN, "timeout": 3, "role": "arn:role/x"}), "also set role"),
+    (Settings(request={"functionName": FN, "handler": "app.other"}), "also set handler"),
+    (Settings(request={"functionName": FN, "description": "x"}), "also set description"),
+    (Settings(before={"timeout": 1000}), "outside what Lambda allows"),
+    (Settings(before={"memorySize": 256}), "no value before"),
+])
+def test_a_settings_change_wardens_restore_may_not_undo_is_refused(fake, why):
+    live = _p(fake).live("lambda_restore_settings", LAM)
+    assert live["settings"] == set() and why in live["refused"], live.get("refused")
+
+
+def test_a_settings_restore_is_refused_when_the_function_moved_since():
+    f = Settings()
+    p = _p(f)
+    snap = p.live("lambda_restore_settings", LAM)["state"]
+    f.timeout = 10
+    with pytest.raises(AwsPlatformRefused):
+        p.apply("lambda_restore_settings", SETTINGS, snapshot=snap, who=WHO)
+    assert f.writes == []
+
+
+def test_the_resolver_uses_the_lambda_revert_that_found_the_recorded_change_and_never_chooses_between_two():
+    alert = Alert(alert_id="a1", name="n", service=FN, environment="dev", severity=Severity.high, summary="",
+                  started_at="2026-10-10T00:00:00+00:00", labels={"alarm": ALARM, "lambda": FN})
+    proposal = RemediationProposal(action=ActionKind.revert_change, target=FN, reasoning="r", expected_effect="e",
+                                   blast_radius="single_service", reversible=True)
+    f = Settings()
+    req, why = resolver.request_for(alert, proposal, lambda e, params: _p(f).live(e, params))
+    assert why == "" and req["entry"] == "lambda_restore_settings" and req["params"] == SETTINGS
+    g = _lambda_fake()
+    req, why = resolver.request_for(alert, proposal, lambda e, params: _p(g).live(e, params))
+    assert why == "" and req["entry"] == "lambda_restore_concurrency"
+    both = Settings()
+    both.reserved = 0
+    both.events += _lambda_fake().events
+    both.history["AWS::Lambda::Function"][0]["supplementaryConfiguration"] = {
+        "Concurrency": json.dumps({"reservedConcurrentExecutions": 50})}
+    req, why = resolver.request_for(alert, proposal, lambda e, params: _p(both).live(e, params))
+    assert req is None and "more than one kind of recorded change" in why
+    none = Settings()
+    none.events = []
+    req, why = resolver.request_for(alert, proposal, lambda e, params: _p(none).live(e, params))
+    assert req is None and "no change WARDEN may undo: no recorded" in why
+
+
+def test_a_function_whose_setting_moved_before_the_plan_is_refused():
+    f = Settings()
+    f.timeout = 10  # neither what the change set (3) nor what it was (30): someone changed it again
+    live = _p(f).live("lambda_restore_settings", LAM)
+    assert live["settings"] == set() and "moved since" in live["refused"]

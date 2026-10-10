@@ -96,8 +96,10 @@ def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
 
 
 def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
-    """The catalogue's bounded numbers, conservatively, from the live value."""
-    if "concurrency" in entry.params:
+    """The catalogue's bounded numbers, conservatively, from the live value. Only a number the catalogue bounds: a
+    restore's `concurrency` is the value Config recorded (a ref), not a raise (G10-D4: planning one always failed)."""
+    ints = {k for k, spec in entry.params.items() if spec.kind == "int"}
+    if "concurrency" in ints:
         cur, free = live.get("current_concurrency"), live.get("unreserved_account_concurrency")
         if not isinstance(cur, int) or not isinstance(free, int):
             return "the current concurrency was not read"
@@ -106,14 +108,14 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
         if step < 1:
             return "the account has no room for more concurrency"
         return {**params, "concurrency": cur + step}
-    if "capacity" in entry.params:
+    if "capacity" in ints:
         cur = live.get("current_capacity")
         if not isinstance(cur, int) or cur < 1:
             return "the current capacity was not read"
         return {**params, "capacity": 2 * cur}
-    if "minutes" in entry.params:
+    if "minutes" in ints:
         return {**params, "minutes": 60}  # an hour, then ARC ends it by itself
-    if "per_second" in entry.params:
+    if "per_second" in ints:
         # Slow enough not to flood the consumer, fast enough to finish inside the verify window (review H3).
         waiting = live.get("waiting")
         if not isinstance(waiting, int):
@@ -122,7 +124,7 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
         if rate > 50:
             return f"{waiting} messages cannot move inside the verify window at 50 a second; a person runs it"
         return {**params, "per_second": rate}
-    if "rate_limit" in entry.params:
+    if "rate_limit" in ints:
         out = dict(params)
         for key in ("rate_limit", "burst_limit"):
             cur, cap = live.get(f"current_{key}"), live.get(f"account_{key}")
@@ -130,7 +132,7 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
                 return f"the stage's {key} or the account's room for it was not read"
             out[key] = min(2 * cur, cap)
         return out
-    if "replicas" in entry.params:
+    if "replicas" in ints:
         cur = live.get("current_replicas")
         if not isinstance(cur, int) or cur < 1:
             return "the current replica count was not read"
@@ -289,11 +291,17 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
             return None, "the alarm names no Lambda alias to move"
         params["alias"] = alias
     state = live(entry.name, params)
+    if proposal.action is ActionKind.revert_change and platform in catalog.REVERT_ALSO:
+        entry, state = _the_recorded_change(entry, params, state, platform, live)
+        if entry is None:
+            return None, state
     for name, spec in entry.params.items():
         if name in params or spec.kind != "ref":
             continue
         allowed = state.get(name)
         if not isinstance(allowed, (set, frozenset, list, tuple)) or len(allowed) != 1:
+            if state.get("refused"):  # the platform's own reason, not a generic one (G10, 2026-10-10)
+                return None, f"no change WARDEN may undo: {state['refused']}"
             return None, f"no single known-good {name} was read (WARDEN does not choose one)"
         params[name] = next(iter(allowed))
     params = _bounded(entry, params, state)
@@ -304,6 +312,18 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
         return None, "; ".join(problems)
     return {"entry": entry.name, "params": params, "service": params[entry.target_param],
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
+
+
+def _the_recorded_change(entry: catalog.Entry, params: dict[str, Any], state: dict[str, Any], platform: str,
+                         live: Any) -> tuple[Any, Any]:
+    """Of a platform's revert entries, the one whose live read found the recorded change - the first entry when none
+    did, so its own reason is shown. Two that found one: (None, why) - WARDEN does not choose between two changes."""
+    tried = [(entry, state)] + [(catalog.CATALOG[n], live(n, params)) for n in catalog.REVERT_ALSO[platform]]
+    found = [(e, s) for e, s in tried if not str(s.get("refused") or "").startswith("no recorded")]
+    if len(found) > 1:
+        return None, ("more than one kind of recorded change to this resource ("
+                      + ", ".join(e.name for e, _ in found) + "): WARDEN does not choose between them")
+    return found[0] if found else tried[0]
 
 
 def workflow_id(request: dict[str, Any]) -> str:

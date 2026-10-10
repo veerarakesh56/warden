@@ -88,7 +88,8 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     # G10-D: the recorded write itself - a CHANGE line's event name. Never "change": every CHANGE line begins with it.
     ActionKind.revert_change: ("revoke", "authorize", "disable", "modifysecuritygrouprules", "deleteroute",
                                "replaceroute", "updateservice", "putfunctionconcurrency", "deletefunctionconcurrency",
-                               "setdesiredcapacity", "updateautoscalinggroup", "updatestage", "deregistertargets"),
+                               "setdesiredcapacity", "updateautoscalinggroup", "updatestage", "deregistertargets",
+                               "updatefunctionconfiguration"),
 }
 
 

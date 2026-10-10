@@ -81,7 +81,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
           "codepipeline_freeze": "codepipeline", "ec2_revert_sg_change": "ec2",
-          "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda", "asg_restore_capacity": "asg",
+          "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda", "lambda_restore_settings": "lambda", "asg_restore_capacity": "asg",
           "apigw_restore_stage": "apigw", "elb_reregister_targets": "elb", "kms_cancel_key_deletion": "kms",
           "secrets_restore_secret": "secretsmanager",
           "aurora_failover": "rds"}
@@ -241,6 +241,55 @@ def _who_refusal(e: dict[str, Any], onset: datetime) -> str:
     return ""
 
 
+# G10-D4: the settings a configuration revert may write, Lambda's bounds for each, and AWS Config's field for each
+# (awslabs/aws-config-resource-schema AWS::Lambda::Function, read 2026-10-10: configuration.timeout, .memorySize,
+# .ephemeralStorage.size).
+_SETTINGS = {"timeout": (1, 900), "memory": (128, 10240), "storage": (512, 10240)}
+_SETTINGS_REQUEST_KEYS = frozenset({"functionname", "timeout", "memorysize", "ephemeralstorage", "revisionid"})
+
+
+def _setting_in_request(r: dict[str, Any], key: str) -> Any:
+    if key == "timeout":
+        return _get(r, "timeout")
+    if key == "memory":
+        return _get(r, "memorySize")
+    storage = _get(r, "ephemeralStorage")
+    return _get(storage, "size") if isinstance(storage, dict) else None
+
+
+def _lambda_settings(conf: dict[str, Any], keys: list[str] | None = None) -> dict[str, Any]:
+    """The function's timeout, memory and ephemeral storage, from GetFunctionConfiguration or a Config item."""
+    storage = _get(conf, "ephemeralStorage")
+    out = {"timeout": _get(conf, "timeout"), "memory": _get(conf, "memorySize"),
+           "storage": _get(storage, "size") if isinstance(storage, dict) else None}
+    return {k: v for k, v in out.items() if keys is None or k in keys}
+
+
+def _settings_text(values: dict[str, Any]) -> str:
+    return ",".join(f"{k}={values[k]}" for k in sorted(values))
+
+
+def _settings_parse(text: str) -> dict[str, int]:
+    out = {}
+    for part in text.split(","):
+        k, _, v = part.partition("=")
+        if k not in _SETTINGS or not v.isdigit():
+            return {}
+        out[k] = int(v)
+    return out
+
+
+def _settings_call(values: dict[str, int]) -> dict[str, Any]:
+    call: dict[str, Any] = {}
+    if "timeout" in values:
+        call["Timeout"] = values["timeout"]
+    if "memory" in values:
+        call["MemorySize"] = values["memory"]
+    if "storage" in values:
+        call["EphemeralStorage"] = {"Size": values["storage"]}
+    return call
+
+
 def _last(value: Any) -> str:
     """A name from a name or an ARN: `orders` from `arn:...:service/c1/orders` or `arn:...:function:orders`."""
     return str(value or "").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
@@ -324,6 +373,7 @@ class AwsPlatform:
                 "appconfig_revert": self._live_appconfig, "codepipeline_freeze": self._live_pipeline,
                 "ec2_revert_sg_change": self._live_sg_change, "ecs_restore_desired": self._live_ecs_desired,
                 "lambda_restore_concurrency": self._live_lambda_restore,
+                "lambda_restore_settings": self._live_lambda_settings,
                 "asg_restore_capacity": self._live_asg_restore, "apigw_restore_stage": self._live_stage_restore,
                 "elb_reregister_targets": self._live_targets, "kms_cancel_key_deletion": self._live_key_deletion,
                 "secrets_restore_secret": self._live_secret_deletion,
@@ -370,6 +420,7 @@ class AwsPlatform:
                  "appconfig_revert": self._appconfig_reverted, "codepipeline_freeze": self._frozen,
                  "ec2_revert_sg_change": self._sg_alarm_ok, "ecs_restore_desired": self._ecs_restored,
                  "lambda_restore_concurrency": self._lambda_restored,
+                 "lambda_restore_settings": self._lambda_settings_restored,
                  "asg_restore_capacity": self._asg_restored, "apigw_restore_stage": self._stage_restored,
                  "elb_reregister_targets": self._targets_healthy, "kms_cancel_key_deletion": self._key_kept,
                  "secrets_restore_secret": self._secret_restored,
@@ -429,6 +480,7 @@ class AwsPlatform:
                  "appconfig_revert": self._appconfig_revert, "codepipeline_freeze": self._freeze,
                  "ec2_revert_sg_change": self._sg_revert, "ecs_restore_desired": self._ecs_restore,
                  "lambda_restore_concurrency": self._lambda_restore,
+                 "lambda_restore_settings": self._lambda_settings_restore,
                  "asg_restore_capacity": self._asg_restore, "apigw_restore_stage": self._stage_restore,
                  "elb_reregister_targets": self._targets, "kms_cancel_key_deletion": self._key_cancel,
                  "secrets_restore_secret": self._secret_restore,
@@ -1641,6 +1693,82 @@ class AwsPlatform:
         want = None if params.get("concurrency") == "none" else int(params.get("concurrency", -1))
         got = self._read("lambda").get_function_concurrency(FunctionName=function).get("ReservedConcurrentExecutions")
         return got == want and self._alarm_ok(str(params.get("alarm", "")))
+
+    def _live_lambda_settings(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded UpdateFunctionConfiguration on this function in the hours before its alarm that set only its
+        timeout, memory or ephemeral storage, and those values as AWS Config recorded them before it. A change that also
+        set the role, environment, handler, runtime, layers or network is a person's to undo (G10-D4)."""
+        fn, alarm = params.get("function"), params.get("alarm")
+        if not isinstance(fn, str) or not isinstance(alarm, str):
+            return {}
+        conf = self._read("lambda").get_function_configuration(FunctionName=fn)
+        arn, name = conf["FunctionArn"], conf["FunctionName"]
+        now_values = _lambda_settings(conf)
+        state: dict[str, Any] = {"function": name, "arn": arn, "now": now_values, "revision": conf.get("RevisionId"),
+                                 "where": self._where(arn)}
+        live = {"function": {name}, "alarm": {alarm}, "event": set(), "settings": set(),
+                "environment": self._tags("lambda", arn).get(ENV_TAG)}
+        onset = self._alarm_onset(alarm)
+        named = params.get("event")
+        if onset is None and not isinstance(named, str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+
+        def on_this(e: dict[str, Any]) -> bool:
+            return e["event_name"].startswith("UpdateFunctionConfiguration") and \
+                _last((e["request"] or {}).get("functionName")) == name
+
+        writes = self._trail_writes("EventSource", "lambda.amazonaws.com", since, self._now(), on_this)
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} configuration "
+                    f"change(s) to {name} since {since:%Y-%m-%dT%H:%MZ}"}
+        e = writes[0]
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        other = sorted(k for k in (e["request"] or {}) if k.lower() not in _SETTINGS_REQUEST_KEYS)
+        if not why and other:
+            why = f"the change also set {', '.join(other)}: a person undoes it"
+        changed = sorted(k for k in _SETTINGS if _setting_in_request(e["request"] or {}, k) is not None)
+        if not why and not changed:
+            why = "the change set none of timeout, memory or ephemeral storage"
+        before = after = None
+        if not why or onset is None:
+            before, after, bracket = self._config_bracket(
+                "AWS::Lambda::Function", name, e, lambda i: _lambda_settings(_json(i.get("configuration")), changed))
+            why = why or bracket
+        state.update(before=before, after=after)
+        if not why and (not isinstance(before, dict) or any(not isinstance(v, int) for v in before.values())):
+            why = "AWS Config recorded no value before the change"
+        if not why and {k: now_values.get(k) for k in changed} != after:
+            why = "the function's settings are not what the change set: they moved since"
+        if not why and any(not _SETTINGS[k][0] <= v <= _SETTINGS[k][1] for k, v in before.items()):
+            why = "the value before the change is outside what Lambda allows"
+        return {**live, "event": set() if why else {e["event"]},
+                "settings": set() if why else {_settings_text(before)}, "refused": why, "state": state}
+
+    def _lambda_settings_restore(self, p, snapshot, now, who, back) -> str:
+        """The settings back to what Config recorded before the change (back: what the change set), only while the
+        function's revision is the one the plan saw."""
+        self._expect(now, snapshot, ("function", "arn", "event", "before", "after"), f"lambda {p['function']}")
+        before = _settings_parse(p["settings"])
+        after = snapshot.get("after") or {}
+        want_now, to = (after, before) if not back else (before, after)
+        if {k: (now.get("now") or {}).get(k) for k in to} != want_now or not to:
+            raise AwsPlatformRefused(f"lambda {p['function']} settings are {now.get('now')}, not {want_now}; "
+                                     "nothing was changed")
+        lam = self._actor(who, ["lambda:UpdateFunctionConfiguration"], [now["arn"]], None)("lambda")
+        lam.update_function_configuration(FunctionName=p["function"], RevisionId=now.get("revision"),
+                                          **_settings_call(to))
+        return f"set lambda {p['function']} {_settings_text(want_now)} -> {_settings_text(to)}"
+
+    def _lambda_settings_restored(self, function: str, params: dict[str, Any]) -> bool:
+        conf = self._read("lambda").get_function_configuration(FunctionName=function)
+        want = _settings_parse(str(params.get("settings", "")))
+        return (bool(want) and conf.get("LastUpdateStatus") in (None, "Successful")
+                and {k: _lambda_settings(conf).get(k) for k in want} == want
+                and self._alarm_ok(str(params.get("alarm", ""))))
 
     def _live_asg_restore(self, params: dict[str, Any]) -> dict[str, Any]:
         """The ONE recorded SetDesiredCapacity / UpdateAutoScalingGroup that set this group's desired capacity in the

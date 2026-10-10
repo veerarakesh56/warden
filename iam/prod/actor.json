@@ -13,6 +13,7 @@
         "lambda:DeleteFunctionConcurrency",
         "lambda:PutFunctionConcurrency",
         "lambda:UpdateAlias",
+        "lambda:UpdateFunctionConfiguration",
         "rds:FailoverDBCluster",
         "sqs:CancelMessageMoveTask",
         "sqs:DeleteMessage",

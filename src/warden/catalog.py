@@ -202,6 +202,10 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("alarm", "cluster", "service", "event", "desired")),
     Entry("lambda_restore_concurrency", "T2", "lambda", "the reserved concurrency AWS Config recorded before the change",
           _ref("alarm", "function", "event", "concurrency")),
+    # G10-D4: a function's timeout, memory or ephemeral storage, never its role, environment, code or network.
+    Entry("lambda_restore_settings", "T2", "lambda",
+          "the timeout, memory and ephemeral storage AWS Config recorded before the change",
+          _ref("alarm", "function", "event", "settings")),
     Entry("asg_restore_capacity", "T2", "asg", "the desired capacity AWS Config recorded before the change",
           _ref("alarm", "asg", "event", "desired")),
     # A stage moved to another deployment: back to the one before, which must still exist - a "stage rollback".
@@ -284,6 +288,10 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "ecs_restore_desired": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired_now"),
                                                 f"{p['desired']} (what AWS Config recorded before {s.get('event_name')} "
                                                 f"at {s.get('event_time')} by {s.get('actor')})")],
+    "lambda_restore_settings": lambda p, s: [_arrow(f"settings of {p['function']}", s.get("after"),
+                                                    f"{p['settings']} (what AWS Config recorded before "
+                                                    f"{s.get('event_name')} at {s.get('event_time')} by "
+                                                    f"{s.get('actor')})")],
     "lambda_restore_concurrency": lambda p, s: [_arrow(f"reserved concurrency of {p['function']}", s.get("reserved"),
                                                        f"{p['concurrency']} (what AWS Config recorded before "
                                                        f"{s.get('event_name')} at {s.get('event_time')} by "
@@ -353,6 +361,11 @@ def fingerprint() -> str:
                  sorted([k, p.kind, p.lo, p.hi] for k, p in e.params.items())]
                 for e in sorted(CATALOG.values(), key=lambda e: e.name)]
     return hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
+
+
+# A platform with more than one kind of recorded change to undo: the resolver uses the entry that found the change,
+# and refuses when more than one did (WARDEN does not choose between two changes).
+REVERT_ALSO = {"lambda": ("lambda_restore_settings",)}
 
 
 def for_action(action: ActionKind, platform: str) -> Entry | None:

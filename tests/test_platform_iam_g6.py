@@ -121,7 +121,16 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     p.apply("ec2_revert_sg_change", sg, snapshot=p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
     p.rollback("ec2_revert_sg_change", sg, p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
     # G10-D3: values back to what AWS Config recorded before the change - applied, judged, rolled back.
-    from test_revert_config_history_g10d3 import ASG, ECS, LAM, STAGE, _lambda_fake, _trail
+    from test_revert_config_history_g10d3 import (
+        ASG,
+        ECS,
+        LAM,
+        SETTINGS,
+        STAGE,
+        Settings,
+        _lambda_fake,
+        _trail,
+    )
     from test_revert_config_history_g10d3 import Fake as History
     from test_revert_config_history_g10d3 import Groups as Scaled
     from test_revert_events_g10d2 import KEY_ID, SECRET, TG, Reverts
@@ -138,6 +147,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
              ("reserved", 50)),
             (_lambda_fake(None), "lambda_restore_concurrency", {**LAM, "event": "l-1", "concurrency": "none"},
              ("reserved", None)),
+            (Settings(), "lambda_restore_settings", SETTINGS, ("timeout", 30)),
             (Scaled(), "asg_restore_capacity", {**ASG, "event": "a-1", "desired": "6"}, ("capacity", 6)),
             (_staged(), "apigw_restore_stage", {**STAGE, "event": "s-1", "deployment": "dep-old"},
              ("deployment", "dep-old")),
