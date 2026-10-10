@@ -1,0 +1,34 @@
+{
+  "id": "memorydb-service-update",
+  "alert": {
+    "alert_id": "g9h-28",
+    "name": "warden-dev-ratelimit-connections-low",
+    "service": "ratelimit",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "Client connections on the rate-limit cluster node below 10",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "memorydb": "warden-dev-ratelimit",
+      "alarm": "warden-dev-ratelimit-connections-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/MemoryDB/CurrConnections ClusterName=warden-dev-ratelimit,NodeName=warden-dev-ratelimit-0001-001 stat=Minimum period=60s threshold LessThanThreshold 10.0 datapoints=1/1 missing=breaching state=ALARM",
+      "STATE memorydb warden-dev-ratelimit Status=updating NodeType=db.r7g.large NumberOfShards=1 EngineVersion=7.1 AvailabilityMode=MultiAZ",
+      "CHANGE 2026-10-10T07:30:05Z memorydb.amazonaws.com BatchUpdateCluster on warden-dev-ratelimit by role/warden-dev-platform-ops"
+    ],
+    "metrics": {
+      "alarm_currconnections": 212,
+      "alarm_sibling_memorydb_isprimary": 1,
+      "alarm_sibling_memorydb_enginecpuutilization": 12.3,
+      "alarm_sibling_memorydb_newconnections": 240,
+      "alarm_sibling_memorydb_replicationlag": 0.4,
+      "alarm_sibling_memorydb_databasememoryusagepercentage": 23.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

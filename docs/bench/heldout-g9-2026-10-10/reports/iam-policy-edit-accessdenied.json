@@ -1,0 +1,181 @@
+{
+  "alert": {
+    "alert_id": "g9h-10",
+    "name": "warden-dev-orders-writer-errors",
+    "severity": "critical",
+    "service": "orders-writer",
+    "environment": "dev",
+    "summary": "Errors on the orders writer function above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-orders-writer",
+      "alarm": "warden-dev-orders-writer-errors"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 7,
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-orders-writer stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=2/2 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-orders-writer in the 6 h before the alert",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:50:41Z {\"level\":\"INFO\",\"location\":\"handler:91\",\"message\":\"order persisted\",\"order_id\":\"o-88213\",\"service\":\"orders-writer\"}",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:50:41Z REPORT RequestId: <UUID_1>\tDuration: 48.12 ms\tBilled Duration: 49 ms\tMemory Size: 256 MB\tMax Memory Used: 98 MB",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:51:58Z {\"level\":\"INFO\",\"location\":\"handler:91\",\"message\":\"order persisted\",\"order_id\":\"o-88240\",\"service\":\"orders-writer\"}",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:51:58Z REPORT RequestId: <UUID_2>\tDuration: 51.70 ms\tBilled Duration: 52 ms\tMemory Size: 256 MB\tMax Memory Used: 98 MB",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:52:44Z [ERROR] ClientError: An error occurred (AccessDeniedException) when calling the PutItem operation: User: <ARN_1> is not authorized to perform: dynamodb:PutItem on resource: <ARN_2> because no identity-based policy allows the dynamodb:PutItem action",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:52:44Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:52:44Z   File \"/var/task/handler.py\", line 88, in handler",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:52:44Z     table.put_item(Item=order.to_item())",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:52:44Z   File \"/var/lang/lib/python3.12/site-packages/botocore/client.py\", line 1023, in _make_api_call",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:52:44Z     raise error_class(parsed_response, operation_name)",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:52:44Z REPORT RequestId: <UUID_3>\tDuration: 112.33 ms\tBilled Duration: 113 ms\tMemory Size: 256 MB\tMax Memory Used: 99 MB",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z {\"level\":\"INFO\",\"location\":\"handler:60\",\"message\":\"validating order\",\"order_id\":\"o-88301\",\"service\":\"orders-writer\"}",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z [ERROR] ClientError: An error occurred (AccessDeniedException) when calling the PutItem operation: User: <ARN_1> is not authorized to perform: dynamodb:PutItem on resource: <ARN_2> because no identity-based policy allows the dynamodb:PutItem action",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z   File \"/var/task/handler.py\", line 88, in handler",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z     table.put_item(Item=order.to_item())",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z   File \"/var/lang/lib/python3.12/site-packages/botocore/client.py\", line 1023, in _make_api_call",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z     raise error_class(parsed_response, operation_name)",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:55:03Z REPORT RequestId: <UUID_4>\tDuration: 98.05 ms\tBilled Duration: 99 ms\tMemory Size: 256 MB\tMax Memory Used: 99 MB",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:59:17Z [ERROR] ClientError: An error occurred (AccessDeniedException) when calling the PutItem operation: User: <ARN_1> is not authorized to perform: dynamodb:PutItem on resource: <ARN_2> because no identity-based policy allows the dynamodb:PutItem action",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:59:17Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:59:17Z   File \"/var/task/handler.py\", line 88, in handler",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:59:17Z     table.put_item(Item=order.to_item())",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:59:17Z   File \"/var/lang/lib/python3.12/site-packages/botocore/client.py\", line 1023, in _make_api_call",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:59:17Z     raise error_class(parsed_response, operation_name)",
+      "LOG lambda/warden-dev-orders-writer 2026-10-10T07:59:17Z REPORT RequestId: <UUID_5>\tDuration: 104.88 ms\tBilled Duration: 105 ms\tMemory Size: 256 MB\tMax Memory Used: 99 MB",
+      "CODE warden-dev-orders-writer handler.py:88 in handler: ClientError: An error occurred (AccessDeniedException) when calling the PutItem operation: User: <ARN_1> is not authorized to perform: dynamodb:PutItem on resource: <ARN_2> because no identity-based policy allows the dynamodb:PutItem action",
+      "SOURCE warden-dev-orders-writer handler.py:85 |     order = Order.parse(event[\"body\"])",
+      "SOURCE warden-dev-orders-writer handler.py:86 |     order.validate()",
+      "SOURCE warden-dev-orders-writer handler.py:87 |     log.info(\"persisting\", order_id=order.id)",
+      "SOURCE warden-dev-orders-writer handler.py:88 >|     table.put_item(Item=order.to_item())",
+      "SOURCE warden-dev-orders-writer handler.py:89 |     publish_created(order)",
+      "SOURCE warden-dev-orders-writer handler.py:90 |     metrics.add_metric(\"OrderPersisted\", 1)",
+      "SOURCE warden-dev-orders-writer handler.py:91 |     log.info(\"order persisted\", order_id=order.id)",
+      "CONFIG lambda warden-dev-orders-writer timeout=15s memory=256MB reserved_concurrency=none env=[LOG_LEVEL=INFO,ORDERS_TABLE=warden-dev-orders,POWERTOOLS_SERVICE_NAME=orders-writer] version=19 alias_live=19"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 15.0,
+      "lambda_memory_mb": 256.0,
+      "lambda_errors": 412.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 590.0,
+      "lambda_duration_max_ms": 342.1,
+      "lambda_concurrent_executions": 7.0,
+      "log_error_lines": 1236.0,
+      "log_errors_peak_per_min": 61.0,
+      "alarm_errors": 412.0,
+      "alarm_sibling_lambda_invocations": 62.0,
+      "alarm_sibling_lambda_duration": 342.1
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Errors on the orders writer function above 20 per minute",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The orders-writer Lambda is failing on DynamoDB PutItem calls due to an AccessDeniedException - the execution role (or the target table's resource policy) lacks sufficient permission to write to the orders table, causing the error-rate alarm to fire. This is not a resource exhaustion, timeout, or throttling issue (duration/memory are nominal and throttles are zero).",
+    "confidence": 0.72,
+    "evidence": [
+      "F3: AccessDeniedException on PutItem, 'not authorized'",
+      "F6: repeat AccessDeniedException on PutItem",
+      "M4: throttles=0 rules out concurrency/throttle cause",
+      "M6: duration_max_ms=342.1 rules out timeout (C1 timeout=15s)",
+      "C2: no deploy/change in 6h, so this is likely a pre-existing or externally-changed permission, not a recent code regression"
+    ],
+    "ruled_out": [
+      "Timeout exhaustion - duration (342ms max) is far below 15s timeout",
+      "Throttling - lambda_throttles=0",
+      "Memory exhaustion - max_memory_used ~98-99MB vs 256MB allocated",
+      "Recent deploy causing regression - C2 shows no change in 6h"
+    ],
+    "citations": [
+      {
+        "id": "F3",
+        "quote": "aws=AccessDeniedException; code=AccessDeniedException; code=ClientError; level=ERROR; op=PutItem; phrase=\"not authorized\""
+      },
+      {
+        "id": "F6",
+        "quote": "aws=AccessDeniedException; code=AccessDeniedException; code=ClientError; op=PutItem; phrase=\"not authorized\""
+      },
+      {
+        "id": "M4",
+        "quote": "lambda_throttles=0"
+      },
+      {
+        "id": "M6",
+        "quote": "lambda_duration_max_ms=342.1"
+      },
+      {
+        "id": "C2",
+        "quote": "none on warden-dev-orders-writer in the 6 h before the alert"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "lambda:warden-dev-orders-writer",
+    "reasoning": "The failures are AccessDeniedException errors on DynamoDB PutItem calls, indicating an IAM permission problem (execution role policy or table resource policy) rather than a scaling, timeout, or deploy issue. None of the available automated remediations (restart, scale, rollback, revert_config, etc.) can safely fix an IAM permission gap without risking further misconfiguration, and no config change was recorded in the last 6h to revert to. A human needs to review and correct the IAM policy for the Lambda's execution role against the warden-dev-orders table.",
+    "expected_effect": "A human investigates and corrects the IAM permissions (role policy or table policy) enabling PutItem access, resolving the AccessDeniedException errors and clearing the alarm.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false,
+    "observed": [
+      "P26-LOW-DECIDER-P: the calibrated decider puts this proposal at p=0.09 of being right"
+    ]
+  },
+  "cost": {
+    "input_tokens": 3574,
+    "output_tokens": 1929,
+    "usd": 0.026437999999999996,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 7,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.72,
+      "hypothesis": "The orders-writer Lambda is failing on DynamoDB PutItem calls due to an AccessDeniedException - the execution role (or the target table's resource policy) lacks sufficient permission to write to the orders table, causing the error-rate alarm to fire. This is not a resource exhaustion, timeout, or throttling issue (duration/memory are nominal and throttles are zero).",
+      "action": "escalate_to_human",
+      "target": "lambda:warden-dev-orders-writer",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "c0022b5eb76c08c483f323288a3c9e68da13a2ad51457cf007a58ccff54c5845",
+        "response_sha256": "4116c504756066250af7a2accfbd69131c54ca75b6ed24cac3945bf803b64b43",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

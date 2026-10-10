@@ -1,0 +1,134 @@
+{
+  "alert": {
+    "alert_id": "g9h-29",
+    "name": "warden-dev-media-4xx",
+    "severity": "high",
+    "service": "media",
+    "environment": "dev",
+    "summary": "4xx errors on the media bucket above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "s3_bucket": "warden-dev-media",
+      "alarm": "warden-dev-media-4xx"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/S3/4xxErrors BucketName=warden-dev-media,FilterId=EntireBucket stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "STATE s3_bucket warden-dev-media Status=Enabled",
+      "CHANGE 2026-10-10T07:51:37Z s3.amazonaws.com PutBucketPolicy on warden-dev-media by role/warden-dev-security-baseline"
+    ],
+    "metrics": {
+      "alarm_4xxerrors": 21880.0,
+      "alarm_sibling_s3_allrequests": 1.0,
+      "alarm_sibling_s3_getrequests": 1.0,
+      "alarm_sibling_s3_firstbytelatency": 38.0,
+      "alarm_sibling_s3_totalrequestlatency": 61.0,
+      "alarm_sibling_s3_bytesdownloaded": 5242880.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "4xx errors on the media bucket above 100 per minute",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "A PutBucketPolicy change applied to warden-dev-media just before the alarm fired likely tightened access (e.g. added explicit denies or restricted principals), causing a spike in S3 4xx (403/404) errors seen in the alarm metric, while actual successful request volume (GetRequests/AllRequests) stayed low.",
+    "confidence": 0.65,
+    "evidence": [
+      "C3 shows a PutBucketPolicy change on the bucket shortly before the alarm window",
+      "M1 shows a large 4xxErrors count (21880) far above the 100 threshold in C1",
+      "M2/M3 show AllRequests and GetRequests at only 1, suggesting most requests are being rejected rather than succeeding, consistent with a policy-driven access denial"
+    ],
+    "ruled_out": [
+      "High legitimate traffic causing natural 4xx (rate limiting) - unlikely since AllRequests/GetRequests are near zero, not high"
+    ],
+    "citations": [
+      {
+        "id": "C3",
+        "quote": "PutBucketPolicy on warden-dev-media by role/warden-dev-security-baseline"
+      },
+      {
+        "id": "M1",
+        "quote": "alarm_4xxerrors=21880"
+      },
+      {
+        "id": "C1",
+        "quote": "GreaterThanThreshold 100.0"
+      },
+      {
+        "id": "M2",
+        "quote": "alarm_sibling_s3_allrequests=1"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "revert_config",
+    "target": "warden-dev-media",
+    "reasoning": "A bucket policy change (PutBucketPolicy) occurred right before the 4xxErrors alarm began firing at a very high rate, while actual successful request counts are near zero, indicating the new policy is likely blocking legitimate access. Reverting the bucket policy to its prior state should restore access and resolve the 4xx spike.",
+    "expected_effect": "S3 4xxErrors count drops back below the 100/period threshold and AllRequests/GetRequests return to normal levels, indicating restored access.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "none of the cited evidence bears on revert_config (it names none of: appconfig, feature flag, feature-flag, configuration profile, toggle...)."
+    ],
+    "policy_ids": [
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3134,
+    "output_tokens": 1171,
+    "usd": 0.017978,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.65,
+      "hypothesis": "A PutBucketPolicy change applied to warden-dev-media just before the alarm fired likely tightened access (e.g. added explicit denies or restricted principals), causing a spike in S3 4xx (403/404) errors seen in the alarm metric, while actual successful request volume (GetRequests/AllRequests) stayed low.",
+      "action": "revert_config",
+      "target": "warden-dev-media",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "3dc8495d68f035f2620903652f83478e190e389ca822ed2b3bfd489eed82d882",
+        "response_sha256": "eea75434dedc35cd51e0657731df18f6a90adf24d7276f096fbf9a239b75fe72",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

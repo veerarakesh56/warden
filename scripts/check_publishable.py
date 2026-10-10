@@ -43,6 +43,10 @@ ALLOWED = {
     "111122223333",
     "123456789012",
     "999988887777",
+    # The held-out benchmark (docs/bench/heldout-g9-2026-10-10): two byte counts (200 GiB, 152 GB) and the tail of a
+    # Lambda RequestId UUID - 12 digits, not account ids. The cases are kept exactly as their author wrote and WARDEN
+    # answered them.
+    "214748364800", "152000000000", "455006823552",
     # The placeholder in the redaction output itself.
     "<ACCOUNT>",
 }

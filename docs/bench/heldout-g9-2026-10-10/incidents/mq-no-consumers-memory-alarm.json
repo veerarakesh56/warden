@@ -1,0 +1,36 @@
+{
+  "id": "mq-no-consumers-memory-alarm",
+  "alert": {
+    "alert_id": "g9h-36",
+    "name": "warden-dev-orders-mq-memory",
+    "service": "orders-broker",
+    "environment": "dev",
+    "severity": "critical",
+    "summary": "RabbitMQ memory used on the orders broker above 2.7 GB",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "mq_broker": "warden-dev-orders-mq",
+      "alarm": "warden-dev-orders-mq-memory"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AmazonMQ/RabbitMQMemUsed Broker=warden-dev-orders-mq stat=Maximum period=60s threshold GreaterThanThreshold 2700000000.0 datapoints=3/3 missing=missing state=ALARM",
+      "STATE mq_broker warden-dev-orders-mq BrokerState=RUNNING DeploymentMode=SINGLE_INSTANCE EngineType=RABBITMQ HostInstanceType=mq.m5.large",
+      "CHANGE none on warden-dev-orders-mq in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_rabbitmqmemused": 3410000000,
+      "alarm_sibling_amazonmq_rabbitmqmemlimit": 3435973836,
+      "alarm_sibling_amazonmq_consumercount": 0,
+      "alarm_sibling_amazonmq_messagecount": 4210000,
+      "alarm_sibling_amazonmq_publishrate": 2100.0,
+      "alarm_sibling_amazonmq_ackrate": 0,
+      "alarm_sibling_amazonmq_connectioncount": 31,
+      "alarm_sibling_amazonmq_rabbitmqdiskfree": 152000000000
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

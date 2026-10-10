@@ -1,0 +1,69 @@
+{
+  "id": "codepipeline-redeploy-loop-ecs",
+  "alert": {
+    "alert_id": "g9h-09",
+    "name": "warden-dev-api-deployments",
+    "service": "api",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "More than one deployment in progress on the API service for 15 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "warden-dev-apps",
+      "ecs_service": "warden-dev-api",
+      "alarm": "warden-dev-api-deployments"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/DeploymentCount ClusterName=warden-dev-apps,ServiceName=warden-dev-api stat=Maximum period=300s threshold GreaterThanThreshold 1.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-apps in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:58:31Z ecs.amazonaws.com UpdateService on warden-dev-api by role/warden-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:58:02Z ecs.amazonaws.com RegisterTaskDefinition on warden-dev-api by role/warden-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:31:05Z ecs.amazonaws.com UpdateService on warden-dev-api by role/warden-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:30:41Z ecs.amazonaws.com RegisterTaskDefinition on warden-dev-api by role/warden-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:04:22Z ecs.amazonaws.com UpdateService on warden-dev-api by role/warden-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:03:59Z ecs.amazonaws.com RegisterTaskDefinition on warden-dev-api by role/warden-dev-codepipeline-deploy",
+      "LOG ecs/warden-dev-api 2026-10-10T07:46:12Z {\"level\":\"info\",\"msg\":\"GET /v1/items 200\",\"ms\":14,\"version\":\"7.2.4\"}",
+      "LOG ecs/warden-dev-api 2026-10-10T07:59:02Z {\"level\":\"info\",\"msg\":\"api 7.3.0 starting\",\"pid\":1}",
+      "LOG ecs/warden-dev-api 2026-10-10T07:59:02Z {\"level\":\"fatal\",\"msg\":\"config error: env API_SIGNING_KEY_ARN is required\",\"version\":\"7.3.0\"}",
+      "LOG ecs/warden-dev-api 2026-10-10T07:59:20Z {\"level\":\"info\",\"msg\":\"api 7.3.0 starting\",\"pid\":1}",
+      "LOG ecs/warden-dev-api 2026-10-10T07:59:20Z {\"level\":\"fatal\",\"msg\":\"config error: env API_SIGNING_KEY_ARN is required\",\"version\":\"7.3.0\"}",
+      "LOG ecs/warden-dev-api 2026-10-10T07:59:31Z {\"level\":\"info\",\"msg\":\"GET /v1/items 200\",\"ms\":12,\"version\":\"7.2.4\"}",
+      "LOG ecs/warden-dev-api 2026-10-10T07:59:41Z {\"level\":\"info\",\"msg\":\"api 7.3.0 starting\",\"pid\":1}",
+      "LOG ecs/warden-dev-api 2026-10-10T07:59:41Z {\"level\":\"fatal\",\"msg\":\"config error: env API_SIGNING_KEY_ARN is required\",\"version\":\"7.3.0\"}",
+      "LOG ecs/warden-dev-api 2026-10-10T08:00:12Z {\"level\":\"info\",\"msg\":\"GET /v1/items/88 200\",\"ms\":9,\"version\":\"7.2.4\"}",
+      "LOG ecs/warden-dev-api 2026-10-10T08:00:40Z {\"level\":\"warn\",\"msg\":\"slow query items_by_tag\",\"ms\":412,\"version\":\"7.2.4\"}",
+      "APPSG ecs/warden-dev-api sgs=[sg-0d4e5f6a7b8c9d0e1]",
+      "TASKROLE ecs/warden-dev-api role=warden-dev-api-task"
+    ],
+    "metrics": {
+      "tasks_running": 4,
+      "tasks_desired": 4,
+      "tasks_pending": 0,
+      "deployments_in_flight": 2,
+      "deployments_failed": 1,
+      "deployment_failed_tasks": 6,
+      "cpu_utilization_pct": 38.0,
+      "memory_utilization_pct": 52.5,
+      "log_error_lines": 18,
+      "log_errors_peak_per_min": 6,
+      "alarm_value": 2
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "warden-dev-api",
+        "at": "2026-10-10T07:59:50Z",
+        "version": "warden-dev-api:41",
+        "previous": "",
+        "image": "111122223333.dkr.ecr.ap-south-1.amazonaws.com/api:7.2.4",
+        "previous_image": "111122223333.dkr.ecr.ap-south-1.amazonaws.com/api:7.3.0",
+        "revision": "41",
+        "rolled_back_from": "warden-dev-api:44"
+      }
+    ],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

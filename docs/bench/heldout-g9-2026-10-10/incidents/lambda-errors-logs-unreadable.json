@@ -1,0 +1,42 @@
+{
+  "id": "lambda-errors-logs-unreadable",
+  "alert": {
+    "alert_id": "g9h-03",
+    "name": "warden-dev-invoice-render-errors",
+    "service": "invoice-render",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "Errors on the invoice render function above 5 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-invoice-render",
+      "alarm": "warden-dev-invoice-render-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-invoice-render stat=Sum period=300s threshold GreaterThanThreshold 5.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-invoice-render in the 6 h before the alert",
+      "CONFIG lambda warden-dev-invoice-render timeout=60s memory=2048MB reserved_concurrency=none env=[INVOICE_BUCKET=warden-dev-invoices,LOG_LEVEL=INFO,RENDER_MODE=pdf] version=12 alias_live=12"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 60,
+      "lambda_memory_mb": 2048,
+      "lambda_errors": 37,
+      "lambda_throttles": 0,
+      "lambda_invocations": 52,
+      "lambda_duration_max_ms": 60000,
+      "lambda_concurrent_executions": 9,
+      "alarm_errors": 37,
+      "alarm_sibling_lambda_duration": 60000,
+      "alarm_sibling_lambda_invocations": 14,
+      "alarm_sibling_lambda_concurrentexecutions": 9
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/warden-dev-invoice-render logs: logs: /aws/lambda/warden-dev-invoice-render: [access denied on FilterLogEvents] An error occurred (AccessDeniedException) when calling the FilterLogEvents operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-g9h-03 is not authorized to perform: l",
+      "logs: lambda/warden-dev-invoice-render metrics: [access denied on StartQuery] An error occurred (AccessDeniedException) when calling the StartQuery operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-g9h-03 is not authorized to perform: logs:S"
+    ],
+    "empty_reads": []
+  }
+}

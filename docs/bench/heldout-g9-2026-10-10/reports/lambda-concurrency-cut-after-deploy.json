@@ -1,0 +1,174 @@
+{
+  "alert": {
+    "alert_id": "g9h-01",
+    "name": "warden-dev-checkout-api-throttles",
+    "severity": "high",
+    "service": "checkout-api",
+    "environment": "dev",
+    "summary": "Throttles on the checkout API function above 10 per minute for 3 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-checkout-api",
+      "alarm": "warden-dev-checkout-api-throttles"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 4,
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Throttles FunctionName=warden-dev-checkout-api stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:47:55Z lambda.amazonaws.com PutFunctionConcurrency20171031 on warden-dev-checkout-api by role/warden-dev-platform-ops",
+      "CHANGE 2026-10-10T07:41:12Z lambda.amazonaws.com UpdateAlias20150331 on warden-dev-checkout-api by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:41:09Z lambda.amazonaws.com PublishVersion20150331 on warden-dev-checkout-api by role/warden-dev-deployer",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:45:02Z INIT_START Runtime Version: python:3.12.v41\tRuntime Version ARN: arn:aws:lambda:ap-south-1::runtime:5c0d8f1e2a7b",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:45:03Z {\"level\":\"INFO\",\"location\":\"app:startup:31\",\"message\":\"pricing cache warmed\",\"items\":4120,\"version\":\"58\",\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:46:11Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771203\",\"ms\":143,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:46:11Z REPORT RequestId: <UUID_1>\tDuration: 182.41 ms\tBilled Duration: 183 ms\tMemory Size: 1024 MB\tMax Memory Used: 211 MB",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:49:30Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771251\",\"ms\":151,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:49:30Z REPORT RequestId: <UUID_2>\tDuration: 190.07 ms\tBilled Duration: 191 ms\tMemory Size: 1024 MB\tMax Memory Used: 214 MB",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:53:02Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771288\",\"ms\":139,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:53:02Z REPORT RequestId: <UUID_3>\tDuration: 171.88 ms\tBilled Duration: 172 ms\tMemory Size: 1024 MB\tMax Memory Used: 214 MB",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:58:44Z {\"level\":\"WARNING\",\"location\":\"pricing:refresh:57\",\"message\":\"price feed slow\",\"ms\":802,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:58:45Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771340\",\"ms\":912,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:58:45Z REPORT RequestId: <UUID_4>\tDuration: 912.40 ms\tBilled Duration: 913 ms\tMemory Size: 1024 MB\tMax Memory Used: 219 MB",
+      "CONFIG lambda warden-dev-checkout-api timeout=10s memory=1024MB reserved_concurrency=5 env=[LOG_LEVEL=INFO,ORDERS_TABLE=warden-dev-orders,PAYMENTS_QUEUE=warden-dev-payments,POWERTOOLS_SERVICE_NAME=checkout] version=58 alias_live=58"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 10.0,
+      "lambda_memory_mb": 1024.0,
+      "lambda_reserved_concurrency": 5.0,
+      "lambda_errors": 0.0,
+      "lambda_throttles": 4812.0,
+      "lambda_invocations": 1630.0,
+      "lambda_duration_max_ms": 912.4,
+      "lambda_concurrent_executions": 5.0,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "alarm_throttles": 4812.0,
+      "alarm_sibling_lambda_invocations": 188.0,
+      "alarm_sibling_lambda_errors": 0.0,
+      "alarm_sibling_lambda_duration": 912.4,
+      "alarm_sibling_lambda_concurrentexecutions": 5.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "lambda",
+        "service": "warden-dev-checkout-api",
+        "at": "2026-10-10T07:41:09Z",
+        "version": "58",
+        "previous": "57",
+        "previous_basis": "served live traffic before this version"
+      }
+    ],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Throttles on the checkout API function above 10 per minute for 3 minutes",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The function's reserved concurrency is capped at 5 (C5, M3), and concurrent executions are pinned at that ceiling (M8) while invocations (1630) far exceed capacity, so Lambda throttles the excess - consistent with near-zero errors/log issues (M4, M9) indicating the function itself runs fine but can't get enough concurrency slots.",
+    "confidence": 0.75,
+    "evidence": [
+      "C5 reserved_concurrency=5",
+      "M3 lambda_reserved_concurrency=5",
+      "M8 lambda_concurrent_executions=5",
+      "M5 lambda_throttles=4812",
+      "M6 lambda_invocations=1630",
+      "C2 PutFunctionConcurrency change just before alarm",
+      "M4 lambda_errors=0 rules out code-level failures"
+    ],
+    "ruled_out": [
+      "Code/runtime errors causing throttles (M4 errors=0, M9 log_error_lines=0)",
+      "Deploy of new version causing regression (D1 shows version 58 deployed but duration/memory metrics look normal per F3)"
+    ],
+    "citations": [
+      {
+        "id": "C5",
+        "quote": "reserved_concurrency=5"
+      },
+      {
+        "id": "M3",
+        "quote": "lambda_reserved_concurrency=5"
+      },
+      {
+        "id": "M8",
+        "quote": "lambda_concurrent_executions=5"
+      },
+      {
+        "id": "M5",
+        "quote": "lambda_throttles=4812"
+      },
+      {
+        "id": "M6",
+        "quote": "lambda_invocations=1630"
+      },
+      {
+        "id": "C2",
+        "quote": "PutFunctionConcurrency20171031 on warden-dev-checkout-api"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "raise_limit",
+    "target": "lambda:warden-dev-checkout-api",
+    "reasoning": "Throttles (4812) correlate directly with concurrent executions being capped at the reserved concurrency limit of 5 (M3, M8), while invocation volume (1630) and healthy duration/memory metrics (F3) show the function itself is performing normally. Raising the reserved concurrency limit removes the artificial ceiling causing requests to be throttled.",
+    "expected_effect": "Lambda will be able to scale concurrent executions beyond 5, reducing or eliminating throttles for warden-dev-checkout-api while leaving code and other config unchanged.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3796,
+    "output_tokens": 1059,
+    "usd": 0.018182,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 4,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.75,
+      "hypothesis": "The function's reserved concurrency is capped at 5 (C5, M3), and concurrent executions are pinned at that ceiling (M8) while invocations (1630) far exceed capacity, so Lambda throttles the excess - consistent with near-zero errors/log issues (M4, M9) indicating the function itself runs fine but can't get enough concurrency slots.",
+      "action": "raise_limit",
+      "target": "lambda:warden-dev-checkout-api",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "65ae8d5bd856bddb2e61c03dd532408ff2d694374cab379c754db1fc965c4803",
+        "response_sha256": "9caf2a86fff8e5829c0417e869935ca29ce1590efa75c8a9667ce3296f6f4a83",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

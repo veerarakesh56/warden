@@ -1,0 +1,143 @@
+{
+  "alert": {
+    "alert_id": "g9h-12",
+    "name": "warden-dev-billing-db-free-storage",
+    "severity": "critical",
+    "service": "billing-db",
+    "environment": "dev",
+    "summary": "Free storage space of the billing database below 2 GiB",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "rds_instance": "warden-dev-billing-db",
+      "alarm": "warden-dev-billing-db-free-storage"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/FreeStorageSpace DBInstanceIdentifier=warden-dev-billing-db stat=Minimum period=300s threshold LessThanThreshold 2147483648.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T05:02:17Z rds.amazonaws.com ModifyDBInstance on warden-dev-billing-db by role/warden-dev-terraform",
+      "STATE rds_instance warden-dev-billing-db DBInstanceStatus=storage-full DBInstanceClass=db.t4g.medium Engine=postgres EngineVersion=16.4 MultiAZ=false AllocatedStorage=100 StorageType=gp3 Iops=3000 BackupRetentionPeriod=7 PendingModifiedValues=none CACertificateIdentifier=rds-ca-rsa2048-g1"
+    ],
+    "metrics": {
+      "alarm_freestoragespace": 1073741824.0,
+      "alarm_sibling_rds_writeiops": 2950.4,
+      "alarm_sibling_rds_writelatency": 0.0212,
+      "alarm_sibling_rds_databaseconnections": 84.0,
+      "alarm_sibling_rds_cpuutilization": 38.1,
+      "alarm_sibling_rds_transactionlogsdiskusage": 61210000000.0,
+      "alarm_sibling_rds_replicationslotdiskusage": 61203283968.0,
+      "alarm_sibling_rds_oldestreplicationslotlag": 61203283968.0,
+      "alarm_sibling_rds_transactionlogsgeneration": 2381.6,
+      "alarm_sibling_rds_freeablememory": 1288490188.0,
+      "alarm_sibling_rds_readiops": 412.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Free storage space of the billing database below 2 GiB",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The instance has hit storage-full because WAL/transaction logs are not being recycled, most likely due to a stalled or inactive logical replication slot retaining log segments at the same volume as the transaction logs themselves.",
+    "confidence": 0.65,
+    "evidence": [
+      "C3: DBInstanceStatus=storage-full confirms disk exhaustion",
+      "M6/M7 show transaction log usage and replication slot usage at nearly identical magnitude (~61GB), consistent with WAL retention by an unconsumed slot",
+      "M8 oldest replication slot lag is extremely high, matching the disk usage value, suggesting the slot has not advanced and is blocking WAL cleanup"
+    ],
+    "ruled_out": [
+      "High write IOPS/connections (M2, M4) are within normal dev-scale ranges and don't by themselves explain storage exhaustion",
+      "CPU/memory (M5, M10) are not abnormal, so this isn't a compute-driven incident"
+    ],
+    "citations": [
+      {
+        "id": "C3",
+        "quote": "DBInstanceStatus=storage-full"
+      },
+      {
+        "id": "M6",
+        "quote": "alarm_sibling_rds_transactionlogsdiskusage=6.121e+10"
+      },
+      {
+        "id": "M7",
+        "quote": "alarm_sibling_rds_replicationslotdiskusage=6.12033e+10"
+      },
+      {
+        "id": "M8",
+        "quote": "alarm_sibling_rds_oldestreplicationslotlag=6.12033e+10"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "warden-dev-billing-db",
+    "reasoning": "The database is in storage-full state (C3) with free storage below the 2GiB alarm threshold (C1, M1). Immediate relief requires increasing allocated storage to restore write availability while the underlying replication-slot/WAL retention issue is investigated and resolved out-of-band (e.g., dropping a stale slot).",
+    "expected_effect": "Increases AllocatedStorage on warden-dev-billing-db, moving FreeStorageSpace back above the alarm threshold and clearing the storage-full condition so writes can resume.",
+    "blast_radius": "single_service",
+    "reversible": false,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": true
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "The proposal claims scale_up is irreversible; WARDEN's action table classifies it reversible. A human should reconcile that before anything runs.",
+      "none of the cited evidence bears on scale_up (it names none of: memory, oom, throttl, cpu, concurrency, pool...)."
+    ],
+    "policy_ids": [
+      "P10-CLAIM-CONTRADICTS-TABLE",
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3438,
+    "output_tokens": 1737,
+    "usd": 0.024246,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.65,
+      "hypothesis": "The instance has hit storage-full because WAL/transaction logs are not being recycled, most likely due to a stalled or inactive logical replication slot retaining log segments at the same volume as the transaction logs themselves.",
+      "action": "scale_up",
+      "target": "warden-dev-billing-db",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "69b8f1ccd86e3c954eae30b9cc35ea06d41d5c1fb3495eef88a23e2acfb74246",
+        "response_sha256": "076a74e9e0f8223895e045a942ad1e991da958e8dabeead36e72d2f52135692a",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P10-CLAIM-CONTRADICTS-TABLE",
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

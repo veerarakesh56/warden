@@ -1,0 +1,29 @@
+{
+  "id": "acm-imported-cert-expiring",
+  "alert": {
+    "alert_id": "g9h-41",
+    "name": "warden-dev-partner-mtls-cert-expiry",
+    "service": "partner-gateway",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Days to expiry of the partner gateway certificate below 14",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "acm_certificate": "9b8c7d6e-5f4a-4b3c-9d2e-1f0a9b8c7d6e",
+      "alarm": "warden-dev-partner-mtls-cert-expiry"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/CertificateManager/DaysToExpiry CertificateArn=arn:aws:acm:ap-south-1:111122223333:certificate/9b8c7d6e-5f4a-4b3c-9d2e-1f0a9b8c7d6e stat=Minimum period=86400s threshold LessThanThreshold 14.0 datapoints=1/1 missing=missing state=ALARM",
+      "STATE acm_certificate 9b8c7d6e-5f4a-4b3c-9d2e-1f0a9b8c7d6e Status=ISSUED Type=IMPORTED NotAfter=2026-10-16T23:59:59Z RenewalEligibility=INELIGIBLE InUseBy=2",
+      "CHANGE none on 9b8c7d6e-5f4a-4b3c-9d2e-1f0a9b8c7d6e in the 6 h before the alert"
+    ],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [
+      "metrics"
+    ]
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "id": "eks-crashloop-surge-pending",
+  "alert": {
+    "alert_id": "g9h-11",
+    "name": "warden-dev-cart-restarts",
+    "service": "cart",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Container restarts of the cart pods above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "warden-dev-eks",
+      "namespace": "shop",
+      "deployment": "warden-dev-cart",
+      "alarm": "warden-dev-cart-restarts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_number_of_container_restarts ClusterName=warden-dev-eks,Namespace=shop,PodName=warden-dev-cart stat=Maximum period=60s threshold GreaterThanThreshold 3.0 datapoints=2/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-cart in the 6 h before the alert",
+      "CHANGE none on warden-dev-eks in the 6 h before the alert",
+      "LOG k8s/shop/warden-dev-cart EVENT ScalingReplicaSet Deployment/warden-dev-cart: Scaled up replica set warden-dev-cart-7d9f8b6c5d from 0 to 1",
+      "LOG k8s/shop/warden-dev-cart EVENT ScalingReplicaSet Deployment/warden-dev-cart: Scaled up replica set warden-dev-cart-7d9f8b6c5d from 1 to 2",
+      "LOG k8s/shop/warden-dev-cart EVENT FailedScheduling Pod/warden-dev-cart-7d9f8b6c5d-x2kqp: 0/3 nodes are available: 3 Insufficient cpu. preemption: 0/3 nodes are available: 3 No preemption victims found for incoming pod.",
+      "LOG k8s/shop/warden-dev-cart EVENT BackOff Pod/warden-dev-cart-7d9f8b6c5d-p8vzt: Back-off restarting failed container cart in pod warden-dev-cart-7d9f8b6c5d-p8vzt_shop(5e1f0a2b-77c4-4d8e-9a10-3b2c1d0e9f8a)",
+      "LOG k8s/shop/warden-dev-cart EVENT BackOff Pod/warden-dev-cart-7d9f8b6c5d-r4mfn: Back-off restarting failed container cart in pod warden-dev-cart-7d9f8b6c5d-r4mfn_shop(a8b7c6d5-e4f3-4a2b-8c1d-0e9f8a7b6c5d)",
+      "LOG k8s/shop/warden-dev-cart STATUS warden-dev-cart-7d9f8b6c5d-p8vzt/cart: restarts 7; last exit: Error (code 2) at 2026-10-10T07:58:44Z; now waiting: CrashLoopBackOff - back-off 5m0s restarting failed container=cart pod=warden-dev-cart-7d9f8b6c5d-p8vzt_shop(5e1f0a2b-77c4-4d8e-9a10-3b2c1d0e9f8a)",
+      "LOG k8s/shop/warden-dev-cart STATUS warden-dev-cart-7d9f8b6c5d-r4mfn/cart: restarts 6; last exit: Error (code 2) at 2026-10-10T07:57:02Z; now waiting: CrashLoopBackOff - back-off 2m40s restarting failed container=cart pod=warden-dev-cart-7d9f8b6c5d-r4mfn_shop(a8b7c6d5-e4f3-4a2b-8c1d-0e9f8a7b6c5d)",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-7d9f8b6c5d-p8vzt/cart (previous) 2026-10-10T07:58:43.902114551Z time=2026-10-10T07:58:43Z level=INFO msg=\"cart 3.1.0 starting\"",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-7d9f8b6c5d-p8vzt/cart (previous) 2026-10-10T07:58:43.912345678Z panic: config: required key CART_REDIS_ADDR missing value",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-7d9f8b6c5d-p8vzt/cart (previous) 2026-10-10T07:58:43.912401223Z goroutine 1 [running]:",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-7d9f8b6c5d-p8vzt/cart (previous) 2026-10-10T07:58:43.912420907Z main.main()",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-7d9f8b6c5d-r4mfn/cart (previous) 2026-10-10T07:57:01.551820113Z panic: config: required key CART_REDIS_ADDR missing value",
+      "LOG k8s/shop/warden-dev-cart ROLLOUT revision 9 (current): 111122223333.dkr.ecr.ap-south-1.amazonaws.com/cart:3.1.0 created 2026-10-10T07:46:12Z",
+      "LOG k8s/shop/warden-dev-cart ROLLOUT revision 8: 111122223333.dkr.ecr.ap-south-1.amazonaws.com/cart:3.0.7 created 2026-10-06T10:12:55Z",
+      "LOG k8s/shop/warden-dev-cart ROLLOUT revision 7: 111122223333.dkr.ecr.ap-south-1.amazonaws.com/cart:3.0.6 created 2026-09-29T14:40:31Z",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-5b7c9d8e4f-hq2mn/cart 2026-10-10T07:59:12.104882113Z time=2026-10-10T07:59:12Z level=INFO msg=\"GET /cart 200\" dur=12ms",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-5b7c9d8e4f-hq2mn/cart 2026-10-10T07:59:40.553100918Z time=2026-10-10T07:59:40Z level=WARN msg=\"redis latency high\" ms=48",
+      "LOG k8s/shop/warden-dev-cart warden-dev-cart-5b7c9d8e4f-hq2mn/cart 2026-10-10T08:00:02.009311472Z time=2026-10-10T08:00:02Z level=INFO msg=\"POST /cart/items 201\" dur=19ms",
+      "APPSG eks/warden-dev-eks sgs=[sg-0e5d4c3b2a1908f7e,sg-0f6e5d4c3b2a19087]"
+    ],
+    "metrics": {
+      "pods_total": 6,
+      "pods_ready": 3,
+      "restart_count": 13,
+      "oom_killed_containers": 0,
+      "crashloop_containers": 2,
+      "memory_limit_mib": 512,
+      "replicas_desired": 4,
+      "alarm_value": 7
+    },
+    "recent_deploys": [
+      {
+        "kind": "k8s",
+        "service": "warden-dev-cart",
+        "at": "2026-10-10T07:46:12Z",
+        "image": "111122223333.dkr.ecr.ap-south-1.amazonaws.com/cart:3.1.0",
+        "previous": "111122223333.dkr.ecr.ap-south-1.amazonaws.com/cart:3.0.7",
+        "revision": "9"
+      }
+    ],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

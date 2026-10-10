@@ -1,0 +1,59 @@
+{
+  "id": "ecs-ec2-clock-skew-sigv4",
+  "alert": {
+    "alert_id": "g9h-07",
+    "name": "warden-dev-inventory-running-tasks",
+    "service": "inventory",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Running task count of the inventory service below 4",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "warden-dev-ec2-apps",
+      "ecs_service": "warden-dev-inventory",
+      "alarm": "warden-dev-inventory-running-tasks"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=warden-dev-ec2-apps,ServiceName=warden-dev-inventory stat=Minimum period=60s threshold LessThanThreshold 4.0 datapoints=3/5 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-ec2-apps in the 6 h before the alert",
+      "CHANGE none on warden-dev-inventory in the 6 h before the alert",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:45:58Z {\"lvl\":\"info\",\"host\":\"ip-10-0-21-77\",\"task\":\"2d8e4b61\",\"msg\":\"inventory 5.2.3 listening on :8080\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:46:20Z {\"lvl\":\"error\",\"host\":\"ip-10-0-21-77\",\"task\":\"2d8e4b61\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T074620Z is now earlier than 20261010T074719Z (20261010T075219Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:46:51Z {\"lvl\":\"error\",\"host\":\"ip-10-0-21-77\",\"task\":\"2d8e4b61\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T074651Z is now earlier than 20261010T074750Z (20261010T075250Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:46:52Z {\"lvl\":\"warn\",\"host\":\"ip-10-0-21-77\",\"task\":\"2d8e4b61\",\"msg\":\"readiness /ready failing: dynamodb ping error\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:47:31Z {\"lvl\":\"info\",\"host\":\"ip-10-0-21-77\",\"task\":\"2d8e4b61\",\"msg\":\"SIGTERM received, draining\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:49:41Z {\"lvl\":\"info\",\"host\":\"ip-10-0-21-77\",\"task\":\"77ac0f35\",\"msg\":\"inventory 5.2.3 listening on :8080\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:50:03Z {\"lvl\":\"error\",\"host\":\"ip-10-0-21-77\",\"task\":\"77ac0f35\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T075003Z is now earlier than 20261010T075102Z (20261010T075602Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:50:04Z {\"lvl\":\"warn\",\"host\":\"ip-10-0-21-77\",\"task\":\"77ac0f35\",\"msg\":\"readiness /ready failing: dynamodb ping error\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:51:02Z {\"lvl\":\"info\",\"host\":\"ip-10-0-22-14\",\"task\":\"c41e09d2\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":6}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:51:30Z {\"lvl\":\"info\",\"host\":\"ip-10-0-21-77\",\"task\":\"77ac0f35\",\"msg\":\"SIGTERM received, draining\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:53:31Z {\"lvl\":\"info\",\"host\":\"ip-10-0-22-14\",\"task\":\"c41e09d2\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":7}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:53:40Z {\"lvl\":\"info\",\"host\":\"ip-10-0-21-77\",\"task\":\"5f19c2aa\",\"msg\":\"inventory 5.2.3 listening on :8080\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:54:02Z {\"lvl\":\"error\",\"host\":\"ip-10-0-21-77\",\"task\":\"5f19c2aa\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T075402Z is now earlier than 20261010T075501Z (20261010T080001Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:54:03Z {\"lvl\":\"warn\",\"host\":\"ip-10-0-21-77\",\"task\":\"5f19c2aa\",\"msg\":\"readiness /ready failing: dynamodb ping error\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:55:12Z {\"lvl\":\"info\",\"host\":\"ip-10-0-22-14\",\"task\":\"f02a6d19\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":5}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:58:40Z {\"lvl\":\"info\",\"host\":\"ip-10-0-22-14\",\"task\":\"c41e09d2\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":6}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T08:00:05Z {\"lvl\":\"info\",\"host\":\"ip-10-0-22-14\",\"task\":\"f02a6d19\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":8}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T08:01:12Z {\"lvl\":\"info\",\"host\":\"ip-10-0-22-14\",\"task\":\"f02a6d19\",\"msg\":\"GET /v1/stock/SKU-88120 200\",\"ms\":11}",
+      "TASKROLE ecs/warden-dev-inventory role=warden-dev-inventory-task"
+    ],
+    "metrics": {
+      "tasks_running": 2,
+      "tasks_desired": 4,
+      "tasks_pending": 0,
+      "deployments_in_flight": 1,
+      "deployments_failed": 0,
+      "deployment_failed_tasks": 0,
+      "cpu_utilization_pct": 22.4,
+      "memory_utilization_pct": 41.0,
+      "log_error_lines": 96,
+      "log_errors_peak_per_min": 11,
+      "alarm_value": 2
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

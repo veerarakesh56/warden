@@ -1,0 +1,145 @@
+{
+  "alert": {
+    "alert_id": "g9h-22",
+    "name": "warden-dev-clickstream-write-throttled",
+    "severity": "high",
+    "service": "clickstream",
+    "environment": "dev",
+    "summary": "Write provisioned throughput exceeded on the clickstream stream above 1000 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "kinesis_stream": "warden-dev-clickstream",
+      "alarm": "warden-dev-clickstream-write-throttled"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/Kinesis/WriteProvisionedThroughputExceeded StreamName=warden-dev-clickstream stat=Sum period=60s threshold GreaterThanThreshold 1000.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "STATE kinesis_stream warden-dev-clickstream StreamStatus=ACTIVE StreamMode=PROVISIONED OpenShardCount=2 RetentionPeriodHours=24 ConsumerCount=0 EncryptionType=KMS",
+      "CHANGE none on warden-dev-clickstream in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_writeprovisionedthroughputexceeded": 61240.0,
+      "alarm_sibling_kinesis_incomingrecords": 168000.0,
+      "alarm_sibling_kinesis_incomingbytes": 125829120.0,
+      "alarm_sibling_kinesis_putrecords_throttledrecords": 7120.0,
+      "alarm_sibling_kinesis_putrecords_failedrecords": 7120.0,
+      "alarm_sibling_kinesis_getrecords_iteratoragemilliseconds": 5400000.0,
+      "alarm_sibling_kinesis_readprovisionedthroughputexceeded": 8810.0,
+      "alarm_sibling_kinesis_getrecords_records": 9800.0,
+      "alarm_sibling_kinesis_putrecords_latency": 71.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Write provisioned throughput exceeded on the clickstream stream above 1000 per minute",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "Write traffic to the warden-dev-clickstream Kinesis stream (2 provisioned shards) exceeds the stream's write capacity, causing WriteProvisionedThroughputExceeded and throttled/failed PutRecords calls. No configuration change occurred in the prior 6h, so this is a capacity/traffic mismatch rather than a misconfiguration or deploy regression.",
+    "confidence": 0.75,
+    "evidence": [
+      "C1 shows the WriteProvisionedThroughputExceeded alarm firing 3/3 periods above threshold",
+      "C2 shows only 2 open shards (PROVISIONED mode), which caps write throughput at 2MB/s and 2000 records/s",
+      "M1 shows a very high sum of throughput-exceeded events (61240)",
+      "M3 shows ~125MB of incoming bytes in the period, consistent with exceeding 2-shard capacity",
+      "M4/M5 show matching throttled and failed PutRecords counts, confirming writes are being rejected at the shard level",
+      "C3 shows no recent change to the stream config, ruling out a recent misconfiguration or shard-count reduction as the trigger"
+    ],
+    "ruled_out": [
+      "Recent deploy or config change causing throttling (C3 shows none in 6h)",
+      "Consumer-side read throughput issue as root cause of write throttling (ConsumerCount=0 per C2, and read-side alarms are separate/sibling metrics)"
+    ],
+    "citations": [
+      {
+        "id": "C1",
+        "quote": "GreaterThanThreshold 1000.0"
+      },
+      {
+        "id": "C2",
+        "quote": "OpenShardCount=2"
+      },
+      {
+        "id": "C3",
+        "quote": "none on warden-dev-clickstream in the 6 h before the alert"
+      },
+      {
+        "id": "M1",
+        "quote": "61240"
+      },
+      {
+        "id": "M4",
+        "quote": "7120"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "warden-dev-clickstream",
+    "reasoning": "The stream is provisioned with only 2 shards, and incoming write volume (bytes and throttled/failed record counts) indicates sustained traffic above the 2-shard write capacity limit (2MB/s, 2000 records/s). No recent config change explains this, pointing to organic traffic growth outpacing provisioned capacity. Increasing shard count (or switching to on-demand) directly raises the write throughput ceiling.",
+    "expected_effect": "Increased shard count raises the stream's write throughput capacity, reducing or eliminating WriteProvisionedThroughputExceeded errors and PutRecords throttling/failures.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "none of the cited evidence bears on scale_up (it names none of: memory, oom, throttl, cpu, concurrency, pool...)."
+    ],
+    "policy_ids": [
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3332,
+    "output_tokens": 1362,
+    "usd": 0.020284,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.75,
+      "hypothesis": "Write traffic to the warden-dev-clickstream Kinesis stream (2 provisioned shards) exceeds the stream's write capacity, causing WriteProvisionedThroughputExceeded and throttled/failed PutRecords calls. No configuration change occurred in the prior 6h, so this is a capacity/traffic mismatch rather than a misconfiguration or deploy regression.",
+      "action": "scale_up",
+      "target": "warden-dev-clickstream",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "85ef1bb3aabc57b688bfda2cf4337441df24f8ee6ad17e9e3b56e824733d1ab1",
+        "response_sha256": "3f32792201736349dd8dd54e88c989783ba669164943d6de6bd261720e16882a",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

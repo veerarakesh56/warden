@@ -1,0 +1,133 @@
+{
+  "alert": {
+    "alert_id": "g9h-46",
+    "name": "warden-dev-nat-a-port-allocation",
+    "severity": "high",
+    "service": "egress",
+    "environment": "dev",
+    "summary": "Port allocation errors on the zone A NAT gateway above 0",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "nat_gateway": "nat-0a1b2c3d4e5f60718",
+      "alarm": "warden-dev-nat-a-port-allocation"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/NATGateway/ErrorPortAllocation NatGatewayId=nat-0a1b2c3d4e5f60718 stat=Sum period=60s threshold GreaterThanThreshold 0.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "STATE nat_gateway nat-0a1b2c3d4e5f60718 State=available ConnectivityType=public",
+      "CHANGE none on nat-0a1b2c3d4e5f60718 in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_errorportallocation": 41230.0,
+      "alarm_sibling_natgateway_activeconnectioncount": 55012.0,
+      "alarm_sibling_natgateway_connectionattemptcount": 61200.0,
+      "alarm_sibling_natgateway_connectionestablishedcount": 9800.0,
+      "alarm_sibling_natgateway_packetsdropcount": 0.0,
+      "alarm_sibling_natgateway_idletimeoutcount": 120.0,
+      "alarm_sibling_natgateway_bytesouttodestination": 210000000.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Port allocation errors on the zone A NAT gateway above 0",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The NAT gateway (nat-0a1b2c3d4e5f60718) is experiencing SNAT port exhaustion: a very high volume of outbound connection attempts (far exceeding successfully established connections) is consuming all available ephemeral ports per destination IP, causing ErrorPortAllocation errors. No configuration or deploy change preceded this, so the cause is traffic volume/pattern, not a recent change.",
+    "confidence": 0.62,
+    "evidence": [
+      "C1: ALARM state with ErrorPortAllocation sum > 0 for 3/3 periods indicates active port allocation failures",
+      "M1: alarm_errorportallocation=41230 shows a large number of failed allocations",
+      "M3 vs M4: 61200 connection attempts against only 9800 established connections suggests many connections are failing to allocate a port",
+      "C3: no change in the preceding 6h rules out a config/deploy regression as the trigger"
+    ],
+    "ruled_out": [
+      "Recent configuration change or deploy (C3 shows none in 6h window)",
+      "NAT gateway unavailability (C2 shows State=available)"
+    ],
+    "citations": [
+      {
+        "id": "C1",
+        "quote": "ALARM AWS/NATGateway/ErrorPortAllocation NatGatewayId=nat-0a1b2c3d4e5f60718 stat=Sum period=60s threshold GreaterThanThreshold 0.0 datapoints=3/3 missing=notBreaching state=ALARM"
+      },
+      {
+        "id": "M1",
+        "quote": "alarm_errorportallocation=41230"
+      },
+      {
+        "id": "M3",
+        "quote": "alarm_sibling_natgateway_connectionattemptcount=61200"
+      },
+      {
+        "id": "C3",
+        "quote": "CHANGE none on nat-0a1b2c3d4e5f60718 in the 6 h before the alert"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "nat-0a1b2c3d4e5f60718",
+    "reasoning": "Port allocation errors with a high ratio of connection attempts to established connections indicate the NAT gateway has exhausted its per-destination port pool. Scaling up (e.g., adding additional NAT gateway capacity/EIPs or distributing egress traffic across more NAT gateways) increases available SNAT ports and relieves exhaustion without requiring a config rollback, since no recent change was found.",
+    "expected_effect": "Increased available SNAT port capacity reduces ErrorPortAllocation count and restores successful outbound connection establishment for traffic routed through this NAT gateway.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3205,
+    "output_tokens": 1284,
+    "usd": 0.01925,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.62,
+      "hypothesis": "The NAT gateway (nat-0a1b2c3d4e5f60718) is experiencing SNAT port exhaustion: a very high volume of outbound connection attempts (far exceeding successfully established connections) is consuming all available ephemeral ports per destination IP, causing ErrorPortAllocation errors. No configuration or deploy change preceded this, so the cause is traffic volume/pattern, not a recent change.",
+      "action": "scale_up",
+      "target": "nat-0a1b2c3d4e5f60718",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "3343953908461dd253ac845085ac4fadd98406ac30b44a7300b0389809f889dd",
+        "response_sha256": "c05612e02eb42e06f2998ae1446395754a274aa57e1317f10f1c8b16e8438ed3",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

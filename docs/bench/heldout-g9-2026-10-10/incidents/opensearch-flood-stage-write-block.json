@@ -1,0 +1,37 @@
+{
+  "id": "opensearch-flood-stage-write-block",
+  "alert": {
+    "alert_id": "g9h-34",
+    "name": "warden-dev-search-writes-blocked",
+    "service": "search",
+    "environment": "dev",
+    "severity": "critical",
+    "summary": "Index writes blocked on the search domain",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "opensearch": "warden-dev-search",
+      "alarm": "warden-dev-search-writes-blocked"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ES/ClusterIndexWritesBlocked ClientId=111122223333,DomainName=warden-dev-search stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=1/1 missing=missing state=ALARM",
+      "STATE opensearch warden-dev-search Processing=false UpgradeProcessing=false EngineVersion=OpenSearch_2.13 InstanceType=r6g.large.search InstanceCount=3 DedicatedMasterEnabled=false VolumeSize=100",
+      "CHANGE none on warden-dev-search in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_clusterindexwritesblocked": 1,
+      "alarm_sibling_es_freestoragespace": 4310,
+      "alarm_sibling_es_clusterstatus_yellow": 1,
+      "alarm_sibling_es_clusterstatus_red": 0,
+      "alarm_sibling_es_jvmmemorypressure": 71.0,
+      "alarm_sibling_es_cpuutilization": 34.0,
+      "alarm_sibling_es_nodes": 3,
+      "alarm_sibling_es_2xx": 1,
+      "alarm_sibling_es_indexingrate": 0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

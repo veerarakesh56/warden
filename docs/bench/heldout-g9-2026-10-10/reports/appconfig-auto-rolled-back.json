@@ -1,0 +1,182 @@
+{
+  "alert": {
+    "alert_id": "g9h-43",
+    "name": "warden-dev-search-api-errors",
+    "severity": "high",
+    "service": "search-api",
+    "environment": "dev",
+    "summary": "Errors on the search API function above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-search-api",
+      "alarm": "warden-dev-search-api-errors"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 5,
+  "context": {
+    "logs": [
+      "CONFIG appconfig warden-dev-search/dev monitors this alarm: deployment=9 state=ROLLED_BACK version=12 completed=not yet",
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-search-api stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=3/5 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-search-api in the 6 h before the alert",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:52:40Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:12Z {\"level\":\"INFO\",\"location\":\"search.flags:refresh:22\",\"message\":\"feature flags refreshed\",\"flags\":{\"ranking_v3\":true},\"config_version\":\"12\",\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z [ERROR] IndexError: list index out of range",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z   File \"/var/task/search/handler.py\", line 58, in handler",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z     ranked = ranker.rank(hits)",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z   File \"/var/task/search/ranking_v3.py\", line 74, in rank",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z     boost = weights[hit.position]",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z REPORT RequestId: <UUID_1>\tDuration: 31.07 ms\tBilled Duration: 32 ms\tMemory Size: 1024 MB\tMax Memory Used: 201 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z [ERROR] IndexError: list index out of range",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z   File \"/var/task/search/handler.py\", line 58, in handler",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z     ranked = ranker.rank(hits)",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z   File \"/var/task/search/ranking_v3.py\", line 74, in rank",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z     boost = weights[hit.position]",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z REPORT RequestId: <UUID_2>\tDuration: 29.84 ms\tBilled Duration: 30 ms\tMemory Size: 1024 MB\tMax Memory Used: 201 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:01:05Z {\"level\":\"INFO\",\"location\":\"search.flags:refresh:22\",\"message\":\"feature flags refreshed\",\"flags\":{\"ranking_v3\":false},\"config_version\":\"11\",\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:01:20Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:01:20Z REPORT RequestId: <UUID_3>\tDuration: 44.18 ms\tBilled Duration: 45 ms\tMemory Size: 1024 MB\tMax Memory Used: 203 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:03:02Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:03:02Z REPORT RequestId: <UUID_4>\tDuration: 41.50 ms\tBilled Duration: 42 ms\tMemory Size: 1024 MB\tMax Memory Used: 203 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:06:47Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:06:47Z REPORT RequestId: <UUID_5>\tDuration: 39.91 ms\tBilled Duration: 40 ms\tMemory Size: 1024 MB\tMax Memory Used: 203 MB",
+      "CODE warden-dev-search-api search/ranking_v3.py:74 in rank: IndexError: list index out of range",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:71 |     def rank(self, hits):",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:72 |         weights = self.weights_for(len(hits))",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:73 |         for hit in hits:",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:74 >|             boost = weights[hit.position]",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:75 |             hit.score *= boost",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:76 |         return sorted(hits, key=score_key)",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:77 | ",
+      "CONFIG lambda warden-dev-search-api timeout=6s memory=1024MB reserved_concurrency=none env=[APPCONFIG_APPLICATION,APPCONFIG_ENVIRONMENT=dev,LOG_LEVEL=INFO,SEARCH_DOMAIN_ENDPOINT=vpc-warden-dev-search-x1y2z3.ap-south-1.es.amazonaws.com] version=61 alias_live=61"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 6.0,
+      "lambda_memory_mb": 1024.0,
+      "lambda_errors": 212.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 2610.0,
+      "lambda_duration_max_ms": 140.3,
+      "lambda_concurrent_executions": 9.0,
+      "log_error_lines": 636.0,
+      "log_errors_peak_per_min": 71.0,
+      "alarm_errors": 212.0,
+      "alarm_sibling_lambda_invocations": 140.0,
+      "alarm_sibling_lambda_duration": 140.3
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Errors on the search API function above 20 per minute",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "An AppConfig deployment (deployment=9, version=12) to warden-dev-search/dev was rolled back, but the rollback has not completed, so the search-api lambda is still exercising the bad config values that trigger an IndexError in ranking_v3.py (around the score_key lookup), causing a spike in Errors without any change in invocation volume, duration, memory, or throttling.",
+    "confidence": 0.55,
+    "evidence": [
+      "C1: appconfig rollback state=ROLLED_BACK but completed=not yet on version 12",
+      "F5/F6/F7: repeated IndexError at ranking_v3.py lines 71-77 tied to key=score_key",
+      "M4/M6/M7: throttles=0, duration well under timeout, low concurrency rule out resource exhaustion",
+      "C3: no infra/code deploy in the 6h window, pointing away from a code deploy and toward the config change"
+    ],
+    "ruled_out": [
+      "Lambda resource starvation (memory/timeout) - M6 duration max 140ms vs 6s timeout, M2 memory 1024MB, no OOM signals",
+      "Throttling - M4 lambda_throttles=0",
+      "A code deploy - C3 explicitly shows no change on the lambda in the window"
+    ],
+    "citations": [
+      {
+        "id": "C1",
+        "quote": "state=ROLLED_BACK version=12 completed=not yet"
+      },
+      {
+        "id": "F5",
+        "quote": "code=IndexError; image=search/ranking_v3.py:74"
+      },
+      {
+        "id": "F7",
+        "quote": "key=score_key"
+      },
+      {
+        "id": "M4",
+        "quote": "lambda_throttles=0"
+      },
+      {
+        "id": "M6",
+        "quote": "lambda_duration_max_ms=140.3"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "revert_config",
+    "target": "appconfig:warden-dev-search/dev",
+    "reasoning": "The AppConfig deployment to warden-dev-search/dev shows a rollback that has not completed, and the application is throwing IndexError exceptions consistent with bad config-driven indexing (score_key) rather than a resource or infra problem. Forcing/completing the revert to the prior stable AppConfig version should remove the bad values causing the IndexError spike.",
+    "expected_effect": "search-api lambda resumes using the last known-good AppConfig version, eliminating the IndexError traceback pattern and bringing lambda_errors back under the alarm threshold.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "rejected",
+    "reasons": [
+      "none of the cited evidence bears on revert_config (it names none of: appconfig, feature flag, feature-flag, configuration profile, toggle...).",
+      "target 'appconfig:warden-dev-search/dev' is a pattern or a list, not one resource."
+    ],
+    "policy_ids": [
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION",
+      "P14-TARGET-NOT-IN-EVIDENCE"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3670,
+    "output_tokens": 1916,
+    "usd": 0.0265,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 5,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.55,
+      "hypothesis": "An AppConfig deployment (deployment=9, version=12) to warden-dev-search/dev was rolled back, but the rollback has not completed, so the search-api lambda is still exercising the bad config values that trigger an IndexError in ranking_v3.py (around the score_key lookup), causing a spike in Errors without any change in invocation volume, duration, memory, or throttling.",
+      "action": "revert_config",
+      "target": "appconfig:warden-dev-search/dev",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "751e99a7ffc9a610670d491e5ab504033d064112f0afe60a034bbd098ee8941a",
+        "response_sha256": "56da5d28d5174e9cb7e66c669bd8525228fb153a001c3f0b88c42d5ce6ec20fc",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "rejected",
+      "policies": [
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION",
+        "P14-TARGET-NOT-IN-EVIDENCE"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

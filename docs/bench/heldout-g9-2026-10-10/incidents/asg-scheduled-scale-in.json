@@ -1,0 +1,35 @@
+{
+  "id": "asg-scheduled-scale-in",
+  "alert": {
+    "alert_id": "g9h-32",
+    "name": "warden-dev-web-asg-in-service",
+    "service": "web",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "In-service instances of the web Auto Scaling group below 4",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "asg": "warden-dev-web-asg",
+      "alarm": "warden-dev-web-asg-in-service"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AutoScaling/GroupInServiceInstances AutoScalingGroupName=warden-dev-web-asg stat=Minimum period=60s threshold LessThanThreshold 4.0 datapoints=2/2 missing=missing state=ALARM",
+      "STATE asg warden-dev-web-asg MinSize=3 MaxSize=12 DesiredCapacity=3 Instances=3(Healthy:3) SuspendedProcesses=0",
+      "CHANGE 2026-10-10T05:10:22Z autoscaling.amazonaws.com PutScheduledUpdateGroupAction on warden-dev-web-asg by role/warden-dev-terraform"
+    ],
+    "metrics": {
+      "alarm_groupinserviceinstances": 6,
+      "alarm_sibling_autoscaling_groupdesiredcapacity": 6,
+      "alarm_sibling_autoscaling_groupminsize": 3,
+      "alarm_sibling_autoscaling_groupmaxsize": 12,
+      "alarm_sibling_autoscaling_groupterminatinginstances": 3,
+      "alarm_sibling_autoscaling_grouppendinginstances": 0,
+      "alarm_sibling_autoscaling_grouptotalinstances": 6
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

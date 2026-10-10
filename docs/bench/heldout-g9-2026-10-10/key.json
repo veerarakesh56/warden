@@ -1,0 +1,898 @@
+{
+  "lambda-concurrency-cut-after-deploy": {
+    "kind": "multi_fault",
+    "service": "Lambda",
+    "novel": false,
+    "cause": "Reserved concurrency was cut to 5 at 07:47:55 (PutFunctionConcurrency); requests beyond 5 in flight are throttled. The 07:41 deploy of version 58 is a red herring: no errors, normal durations.",
+    "cause_evidence": [
+      "PutFunctionConcurrency20171031 on warden-dev-checkout-api",
+      "reserved_concurrency=5",
+      "lambda_reserved_concurrency=5"
+    ],
+    "correct_actions": [
+      "raise_limit"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "scale_down"
+    ],
+    "target": "warden-dev-checkout-api"
+  },
+  "lambda-retry-storm-partner-outage": {
+    "kind": "multi_fault",
+    "service": "Lambda",
+    "novel": true,
+    "cause": "The partner rates API started failing at 07:52 (503s, now 429s); the function, reconfigured at 06:12 to retry 10 times with no backoff at 200 concurrent executions, turns that outage into a retry storm that keeps the partner rate-limiting. Stop the consumer (messages wait in SQS) and hand to a person.",
+    "cause_evidence": [
+      "RETRY_BACKOFF_MS=0",
+      "RETRY_LIMIT=10",
+      "503 Service Unavailable, retry",
+      "429 Too Many Requests"
+    ],
+    "correct_actions": [
+      "pause_flow",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "raise_limit",
+      "scale_up",
+      "redrive_messages",
+      "rollback_deploy"
+    ],
+    "target": "warden-dev-quote-sync"
+  },
+  "lambda-errors-logs-unreadable": {
+    "kind": "incomplete",
+    "service": "Lambda",
+    "novel": false,
+    "cause": "Unknown: invocations end at the 60 s timeout and fail, nothing changed on the function, but its log group could not be read (AccessDenied on FilterLogEvents and StartQuery), so the reason is not in the evidence.",
+    "cause_evidence": [
+      "access denied on FilterLogEvents"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "raise_limit",
+      "scale_up"
+    ],
+    "target": null
+  },
+  "lambda-batch-duration-threshold": {
+    "kind": "no_fault",
+    "service": "Lambda",
+    "novel": false,
+    "cause": "The daily reconcile batch ran for 44 s, finished and errored nowhere; its timeout is 900 s. The alarm's 30 s threshold is set too low for this function.",
+    "cause_evidence": [
+      "reconcile run finished in 44.1s",
+      "lambda_errors=0",
+      "timeout=900s"
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "raise_limit",
+      "rollback_deploy",
+      "scale_up",
+      "pause_flow"
+    ],
+    "target": null
+  },
+  "vpc-dns-resolution-lambda": {
+    "kind": "fault",
+    "service": "VPC",
+    "novel": true,
+    "cause": "From about 07:53 every name lookup inside the function's VPC fails (the private Aurora endpoint, DynamoDB and Secrets Manager alike) while the function itself did not change: VPC DNS resolution broke (a VPC-level DNS change), not the code or any one dependency.",
+    "cause_evidence": [
+      "Temporary failure in name resolution",
+      "CHANGE none on warden-dev-catalog-sync"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "restart_pods",
+      "raise_limit",
+      "failover_replica"
+    ],
+    "target": null
+  },
+  "ecs-fargate-memory-cut-oom": {
+    "kind": "fault",
+    "service": "ECS (Fargate)",
+    "novel": false,
+    "cause": "Task definition revision 19 (same image as 18, deployed 07:38) gives the container 512 MiB instead of 1024; the service runs out of heap while warming its cache and its new tasks die. Roll back to :18.",
+    "cause_evidence": [
+      "container memory limit 512 MiB",
+      "previous=warden-dev-orders-api:18",
+      "JavaScript heap out of memory"
+    ],
+    "correct_actions": [
+      "rollback_deploy"
+    ],
+    "harmful_actions": [
+      "raise_limit",
+      "scale_down"
+    ],
+    "target": "warden-dev-orders-api"
+  },
+  "ecs-ec2-clock-skew-sigv4": {
+    "kind": "fault",
+    "service": "ECS (EC2)",
+    "novel": true,
+    "cause": "The container instance ip-10-0-21-77's clock runs about 6 minutes behind: AWS rejects its tasks' SigV4 requests (Signature expired), their readiness checks fail and ECS keeps replacing them on the same host, while tasks on ip-10-0-22-14 are healthy. A person must drain the instance or fix its time sync.",
+    "cause_evidence": [
+      "Signature expired: 20261010T074620Z is now earlier than 20261010T074719Z",
+      "ip-10-0-21-77"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "scale_down",
+      "revert_config"
+    ],
+    "target": null
+  },
+  "ecs-crash-deploy-unprovable": {
+    "kind": "incomplete",
+    "service": "ECS (Fargate)",
+    "novel": false,
+    "cause": "New tasks crash on start (missing module) after an UpdateService at 07:44, which looks like a bad deploy, but WARDEN's reader was denied DescribeTaskDefinition, so no deploy record, previous revision or task role was read: the rollback target is unproven. A person decides.",
+    "cause_evidence": [
+      "access denied on DescribeTaskDefinition"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [],
+    "target": "warden-dev-tax-svc"
+  },
+  "codepipeline-redeploy-loop-ecs": {
+    "kind": "fault",
+    "service": "CodePipeline",
+    "novel": false,
+    "cause": "CodePipeline has pushed api 7.3.0 three times since 07:04 (task definitions up to :44); each time the new tasks fail on a missing API_SIGNING_KEY_ARN and the ECS circuit breaker rolls the service back to :41. The service is already on the good revision; stop further deploys while a person fixes the pipeline.",
+    "cause_evidence": [
+      "rolled_back_from=warden-dev-api:44",
+      "UpdateService on warden-dev-api by role/warden-dev-codepipeline-deploy",
+      "API_SIGNING_KEY_ARN is required"
+    ],
+    "correct_actions": [
+      "freeze_changes"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "scale_up"
+    ],
+    "target": "warden-dev-api"
+  },
+  "iam-policy-edit-accessdenied": {
+    "kind": "fault",
+    "service": "IAM",
+    "novel": false,
+    "cause": "From 07:52 the function's execution role no longer allows dynamodb:PutItem on the orders table (no identity-based policy allows it): its IAM policy was edited. The function itself did not change.",
+    "cause_evidence": [
+      "is not authorized to perform: dynamodb:PutItem",
+      "because no identity-based policy allows the dynamodb:PutItem action"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "restart_pods",
+      "raise_limit"
+    ],
+    "target": "warden-dev-orders-writer-role"
+  },
+  "eks-crashloop-surge-pending": {
+    "kind": "multi_fault",
+    "service": "EKS",
+    "novel": false,
+    "cause": "cart 3.1.0 (rollout revision 9 at 07:46) panics at start on a missing CART_REDIS_ADDR. The FailedScheduling (Insufficient cpu) is the rollout's surge pod waiting for room - a side effect, not the cause; adding capacity would only add crashing pods. Roll back to revision 8.",
+    "cause_evidence": [
+      "required key CART_REDIS_ADDR missing value",
+      "ROLLOUT revision 9 (current)"
+    ],
+    "correct_actions": [
+      "rollback_deploy"
+    ],
+    "harmful_actions": [
+      "scale_up",
+      "restart_pods"
+    ],
+    "target": "warden-dev-cart"
+  },
+  "rds-storage-full-replication-slot": {
+    "kind": "multi_fault",
+    "service": "RDS",
+    "novel": true,
+    "cause": "An inactive replication slot retains about 57 GiB of WAL (ReplicationSlotDiskUsage, OldestReplicationSlotLag), filling the 100 GiB volume, which has no storage autoscaling; the instance is storage-full. The 05:02 ModifyDBInstance by terraform is a red herring.",
+    "cause_evidence": [
+      "alarm_sibling_rds_replicationslotdiskusage=6.12033e+10",
+      "alarm_sibling_rds_oldestreplicationslotlag=6.12033e+10",
+      "DBInstanceStatus=storage-full"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "failover_replica",
+      "revert_config"
+    ],
+    "target": "warden-dev-billing-db"
+  },
+  "aurora-idle-in-transaction-replica-lag": {
+    "kind": "multi_fault",
+    "service": "Aurora",
+    "novel": false,
+    "cause": "warden-dev-fulfilment holds ~1,388 sessions idle in transaction (some for 30 minutes), exhausting the writer's connections (1702/1800). The replica lag from a 21-minute analytics query on the reader is a separate, minor issue, not the cause.",
+    "cause_evidence": [
+      "idle in transaction for 1840s",
+      "1388 idle in transaction from app=warden-dev-fulfilment"
+    ],
+    "correct_actions": [
+      "terminate_connections"
+    ],
+    "harmful_actions": [
+      "failover_replica"
+    ],
+    "target": "warden-dev-shop-aurora"
+  },
+  "dynamodb-provisioned-write-throttle": {
+    "kind": "fault",
+    "service": "DynamoDB",
+    "novel": false,
+    "cause": "An UpdateTable by the FinOps automation at 06:31 left the table provisioned at 50 WCU with no headroom; the morning write load consumes all 50 WCU and ~18k writes are throttled.",
+    "cause_evidence": [
+      "UpdateTable on warden-dev-carts",
+      "ddb_consumed_wcu=50",
+      "wcu=50"
+    ],
+    "correct_actions": [
+      "scale_up",
+      "revert_config"
+    ],
+    "harmful_actions": [
+      "scale_down",
+      "clear_cache"
+    ],
+    "target": "warden-dev-carts"
+  },
+  "sqs-fifo-poison-message": {
+    "kind": "fault",
+    "service": "SQS",
+    "novel": true,
+    "cause": "One malformed message (amount '12,50', group acct-20417, received ~200 times) fails on every delivery; the FIFO batch processor stops at it and returns the rest, so the queue makes no progress (5,120 waiting, oldest ~100 minutes). The queue has no dead-letter queue, so it loops forever. Not a code change; a person must remove or dead-letter that one message.",
+    "cause_evidence": [
+      "\"approximateReceiveCount\":\"199\"",
+      "FIFO batch stopped at first failure",
+      "dlq=none"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "redrive_messages",
+      "rollback_deploy",
+      "raise_limit"
+    ],
+    "target": "warden-dev-ledger.fifo"
+  },
+  "sqs-dlq-broken-consumer": {
+    "kind": "fault",
+    "service": "SQS (dead-letter queue)",
+    "novel": false,
+    "cause": "Version 15 (07:33) expects the payment amount as a string and rejects every message whose amount is an integer; the messages exhaust their receives and land in the DLQ. Roll back to 14; redriving now would only fail them again.",
+    "cause_evidence": [
+      "Input should be a valid string",
+      "version=15, previous=14"
+    ],
+    "correct_actions": [
+      "rollback_deploy"
+    ],
+    "harmful_actions": [
+      "redrive_messages",
+      "raise_limit"
+    ],
+    "target": "warden-dev-payments-worker"
+  },
+  "sqs-dlq-redrive-after-rollback": {
+    "kind": "fault",
+    "service": "SQS (dead-letter queue)",
+    "novel": false,
+    "cause": "Version 22 (07:22) failed on messages without carrier_code and dead-lettered 412 shipments; on-call moved the live alias back to 21 at 07:51 and processing has succeeded since. What remains is to redrive the DLQ to the source queue.",
+    "cause_evidence": [
+      "UpdateAlias20150331 on warden-dev-shipping-worker by role/warden-dev-oncall",
+      "alias_live=21",
+      "visible=412"
+    ],
+    "correct_actions": [
+      "redrive_messages"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "pause_flow"
+    ],
+    "target": "warden-dev-shipping-dlq"
+  },
+  "sns-queue-policy-denies-topic": {
+    "kind": "fault",
+    "service": "SNS",
+    "novel": false,
+    "cause": "The fulfilment queue's access policy no longer lets the topic send to it (the analytics queue's still does), so every delivery to that subscription fails; nothing changed on the topic itself.",
+    "cause_evidence": [
+      "allows_sns_topic=warden-dev-order-events:no"
+    ],
+    "correct_actions": [
+      "escalate_to_human",
+      "revert_config"
+    ],
+    "harmful_actions": [
+      "rollback_deploy"
+    ],
+    "target": "warden-dev-fulfilment-inbox"
+  },
+  "eventbridge-rule-disabled-by-apply": {
+    "kind": "fault",
+    "service": "EventBridge (rule)",
+    "novel": false,
+    "cause": "A terraform apply at 07:12 rewrote the rule (PutRule) with State DISABLED; the 15-minute settlement poll has not fired since. Turn the rule back on.",
+    "cause_evidence": [
+      "State=DISABLED",
+      "PutRule on warden-dev-settlement-poll by role/warden-dev-terraform",
+      "rule_enabled=0"
+    ],
+    "correct_actions": [
+      "resume_flow"
+    ],
+    "harmful_actions": [],
+    "target": "warden-dev-settlement-poll"
+  },
+  "scheduler-daily-burst-throttle": {
+    "kind": "no_fault",
+    "service": "EventBridge Scheduler",
+    "novel": false,
+    "cause": "The daily 08:00 burst of ~2,400 reminder schedules briefly exceeds the target's capacity; Scheduler retries the throttled invocations and none is dropped or dead-lettered. An alarm on any throttled target error is too strict.",
+    "cause_evidence": [
+      "alarm_sibling_scheduler_invocationdroppedcount=0",
+      "alarm_sibling_scheduler_invocationssenttodeadlettercount=0"
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "raise_limit",
+      "pause_flow",
+      "scale_up"
+    ],
+    "target": null
+  },
+  "stepfunctions-new-version-failing": {
+    "kind": "fault",
+    "service": "Step Functions",
+    "novel": false,
+    "cause": "A new state machine definition was published and the alias moved to it at 07:36; since then almost every execution fails within about a second. Return the alias to the previous version.",
+    "cause_evidence": [
+      "UpdateStateMachine on warden-dev-order-saga",
+      "UpdateStateMachineAlias on warden-dev-order-saga",
+      "alarm_executionsfailed=41"
+    ],
+    "correct_actions": [
+      "rollback_deploy",
+      "revert_config"
+    ],
+    "harmful_actions": [],
+    "target": "warden-dev-order-saga"
+  },
+  "kinesis-write-throttle-consumer-lag": {
+    "kind": "multi_fault",
+    "service": "Kinesis",
+    "novel": false,
+    "cause": "Two limits of a 2-shard provisioned stream at once: producers write ~2,800 records/s and ~2 MiB/s (limits 2,000/s and 2 MiB/s) and are throttled, and the shared-throughput readers exceed the read limit, so the consumers are 90 minutes behind. More shards fixes both.",
+    "cause_evidence": [
+      "OpenShardCount=2",
+      "alarm_sibling_kinesis_incomingrecords=168000",
+      "alarm_sibling_kinesis_readprovisionedthroughputexceeded=8810"
+    ],
+    "correct_actions": [
+      "scale_up"
+    ],
+    "harmful_actions": [
+      "scale_down",
+      "pause_flow"
+    ],
+    "target": "warden-dev-clickstream"
+  },
+  "apigw-rest-integration-timeout": {
+    "kind": "fault",
+    "service": "API Gateway (REST)",
+    "novel": false,
+    "cause": "Failing requests wait the full 29 s integration timeout: the stage's backend integration stopped answering in time while nothing on the API changed. The backend is not named in the evidence; a person must find it. (Count and 4XXError read as 1 because their Maximum is per request - not a signal.)",
+    "cause_evidence": [
+      "alarm_sibling_apigateway_integrationlatency=29000",
+      "CHANGE none on warden-dev-public-api"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "raise_limit",
+      "scale_down"
+    ],
+    "target": null
+  },
+  "apigw-http-5xx-reads-throttled": {
+    "kind": "incomplete",
+    "service": "API Gateway (HTTP)",
+    "novel": false,
+    "cause": "Unknown: the HTTP API returns 5xx, but its other metrics (latency, integration latency) and its change history could not be read (both reads throttled), so neither a backend failure nor a change can be established.",
+    "cause_evidence": [
+      "throttled on LookupEvents",
+      "throttled on GetMetricData"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "raise_limit",
+      "rollback_deploy"
+    ],
+    "target": null
+  },
+  "alb-single-az-impairment": {
+    "kind": "fault",
+    "service": "ALB",
+    "novel": true,
+    "cause": "All three targets in ap-south-1a time out on health checks while ap-south-1b and 1c are fully healthy and nothing changed: an Availability Zone impairment. Zonal shift is enabled; shift traffic away from ap-south-1a.",
+    "cause_evidence": [
+      "alb_healthy_hosts_ap-south-1a=0",
+      "zonal_shift=true",
+      "Target.Timeout: Request timed out"
+    ],
+    "correct_actions": [
+      "shift_traffic"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "restart_pods",
+      "scale_down",
+      "failover_replica"
+    ],
+    "target": "warden-dev-web"
+  },
+  "nlb-instance-refresh-flap": {
+    "kind": "no_fault",
+    "service": "NLB",
+    "novel": false,
+    "cause": "An Auto Scaling instance refresh is rolling instances through the target group one at a time (the Auto Scaling service role deregisters and registers targets every few minutes); a just-registered target counts as unhealthy until it passes 3 checks. An alarm on one unhealthy host for one minute is too sensitive.",
+    "cause_evidence": [
+      "RegisterTargets on warden-dev-mqtt-tg by role/AWSServiceRoleForAutoScaling",
+      "HealthyThresholdCount=3"
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "shift_traffic",
+      "restart_pods",
+      "scale_up",
+      "rollback_deploy"
+    ],
+    "target": null
+  },
+  "elasticache-evictions-no-ttl": {
+    "kind": "fault",
+    "service": "ElastiCache",
+    "novel": false,
+    "cause": "The session cache node is full (memory 99%) and evicting live sessions; nothing ever expires (Reclaimed 0), so keys are written without a TTL and a small node fills up. Short term more memory, long term TTLs - a person's call; flushing would log every user out.",
+    "cause_evidence": [
+      "alarm_sibling_elasticache_databasememoryusagepercentage=99.1",
+      "alarm_sibling_elasticache_reclaimed=0"
+    ],
+    "correct_actions": [
+      "escalate_to_human",
+      "scale_up"
+    ],
+    "harmful_actions": [
+      "clear_cache",
+      "failover_replica"
+    ],
+    "target": "warden-dev-sessions"
+  },
+  "memorydb-service-update": {
+    "kind": "no_fault",
+    "service": "MemoryDB",
+    "novel": false,
+    "cause": "Platform-ops applied a service update at 07:30 (BatchUpdateCluster); MemoryDB is patching the nodes one by one, the node failed over and its connections dropped briefly before clients reconnected (240 new connections). Planned maintenance; nothing to change.",
+    "cause_evidence": [
+      "BatchUpdateCluster on warden-dev-ratelimit by role/warden-dev-platform-ops",
+      "Status=updating"
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "failover_replica",
+      "clear_cache",
+      "restart_pods"
+    ],
+    "target": null
+  },
+  "s3-bucket-policy-403": {
+    "kind": "fault",
+    "service": "S3",
+    "novel": false,
+    "cause": "The security baseline automation replaced the bucket policy at 07:51 (PutBucketPolicy) and requests that used to be allowed are now refused (4xx from 07:52). The application did not change.",
+    "cause_evidence": [
+      "PutBucketPolicy on warden-dev-media by role/warden-dev-security-baseline"
+    ],
+    "correct_actions": [
+      "escalate_to_human",
+      "revert_config"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "clear_cache"
+    ],
+    "target": "warden-dev-media"
+  },
+  "cloudfront-alarm-other-region": {
+    "kind": "incomplete",
+    "service": "CloudFront",
+    "novel": false,
+    "cause": "Unknown. CloudFront publishes its metrics, and so keeps this alarm, in us-east-1; WARDEN read the environment's own region, found no such alarm and read nothing else about the distribution.",
+    "cause_evidence": [
+      "no metric alarm by that name"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "clear_cache",
+      "rollback_deploy",
+      "shift_traffic"
+    ],
+    "target": null
+  },
+  "route53-alarm-other-region": {
+    "kind": "incomplete",
+    "service": "Route 53",
+    "novel": false,
+    "cause": "Unknown. Route 53 health-check metrics and alarms exist only in us-east-1; WARDEN looked in the environment's region, found no alarm, and has no reader for the health check itself, so no evidence was read at all.",
+    "cause_evidence": [
+      "no metric alarm by that name"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "shift_traffic",
+      "failover_replica",
+      "rollback_deploy"
+    ],
+    "target": null
+  },
+  "asg-scheduled-scale-in": {
+    "kind": "no_fault",
+    "service": "EC2 Auto Scaling",
+    "novel": false,
+    "cause": "A scheduled action (created by terraform at 05:10) took the group from 6 to its 3-instance minimum at 08:00; all 3 remaining instances are healthy. The alarm's threshold (fewer than 4 in service) sits above the group's own minimum.",
+    "cause_evidence": [
+      "PutScheduledUpdateGroupAction on warden-dev-web-asg",
+      "MinSize=3",
+      "DesiredCapacity=3"
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "scale_up",
+      "restart_pods",
+      "shift_traffic"
+    ],
+    "target": null
+  },
+  "efs-burst-credits-exhausted": {
+    "kind": "fault",
+    "service": "EFS",
+    "novel": false,
+    "cause": "The 200 GiB file system in bursting mode has used up its burst credits; its throughput is held to the 10 MiB/s baseline and clients stall. Changing the throughput mode is a person's decision; more clients would drain it further.",
+    "cause_evidence": [
+      "ThroughputMode=bursting",
+      "alarm_sibling_efs_permittedthroughput=1.04858e+07"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "scale_up",
+      "restart_pods"
+    ],
+    "target": "fs-0a1b2c3d4e5f60789"
+  },
+  "opensearch-flood-stage-write-block": {
+    "kind": "fault",
+    "service": "OpenSearch",
+    "novel": false,
+    "cause": "The data nodes' disks reached the flood-stage watermark (the emptiest node has ~4.3 GB of 100 GB free), so OpenSearch made the indices read-only and blocks writes. Needs more storage or data deleted.",
+    "cause_evidence": [
+      "alarm_sibling_es_freestoragespace=4310",
+      "VolumeSize=100"
+    ],
+    "correct_actions": [
+      "escalate_to_human",
+      "scale_up"
+    ],
+    "harmful_actions": [
+      "restart_pods",
+      "clear_cache"
+    ],
+    "target": "warden-dev-search"
+  },
+  "msk-rolling-maintenance": {
+    "kind": "no_fault",
+    "service": "MSK",
+    "novel": false,
+    "cause": "MSK is applying a rolling broker update (cluster State MAINTENANCE): broker 2's partitions are under-replicated while it restarts, none below min ISR. AWS-run maintenance; nothing to change.",
+    "cause_evidence": [
+      "State=MAINTENANCE",
+      "alarm_sibling_kafka_underminisrpartitioncount=0"
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "restart_pods",
+      "scale_up",
+      "pause_flow"
+    ],
+    "target": null
+  },
+  "mq-no-consumers-memory-alarm": {
+    "kind": "fault",
+    "service": "Amazon MQ",
+    "novel": false,
+    "cause": "No consumer has been attached for the whole window (ConsumerCount 0, AckRate 0) while publishers keep publishing; 4.2 M messages pile up and memory reaches the high watermark, which blocks publishers. The consumers must be fixed by a person; restarting a single-instance broker risks the backlog.",
+    "cause_evidence": [
+      "alarm_sibling_amazonmq_consumercount=0",
+      "alarm_sibling_amazonmq_ackrate=0"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "restart_pods",
+      "failover_replica"
+    ],
+    "target": null
+  },
+  "glue-job-failing-after-update": {
+    "kind": "fault",
+    "service": "Glue",
+    "novel": false,
+    "cause": "The FinOps automation updated the job at 04:48 (UpdateJob); the hourly runs since then (05:00, 06:00, 07:00) are the 3 failed runs of the last 10. Return the job to its previous definition, or a person decides.",
+    "cause_evidence": [
+      "UpdateJob on warden-dev-orders-etl by role/warden-dev-finops-automation",
+      "JobRuns=10(FAILED:3,SUCCEEDED:7)"
+    ],
+    "correct_actions": [
+      "revert_config",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [],
+    "target": "warden-dev-orders-etl"
+  },
+  "athena-reservation-saturated": {
+    "kind": "fault",
+    "service": "Athena",
+    "novel": true,
+    "cause": "All 24 DPUs of the workgroup's capacity reservation have been in use for 30 straight minutes with no change to the workgroup: a runaway query is holding the reservation and everything else queues behind it.",
+    "cause_evidence": [
+      "datapoints=30/30",
+      "alarm_sibling_athena_dpuallocated=24",
+      "alarm_dpuconsumed=24"
+    ],
+    "correct_actions": [
+      "cancel_query",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "scale_down"
+    ],
+    "target": "warden-dev-analytics"
+  },
+  "secretsmanager-rotation-half-done": {
+    "kind": "fault",
+    "service": "Secrets Manager",
+    "novel": true,
+    "cause": "Rotation of warden-dev-orders-db-app is half done: setSecret changed app_user's password in the database, but finishSecret is denied UpdateSecretVersionStage, so AWSCURRENT still holds the old password. Existing connections keep working; every new login with the current secret will fail. A person must finish or undo the rotation.",
+    "cause_evidence": [
+      "setSecret: Successfully set password for user app_user",
+      "not authorized to perform: secretsmanager:UpdateSecretVersionStage"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "terminate_connections",
+      "restart_pods",
+      "rollback_deploy"
+    ],
+    "target": "warden-dev-orders-db-app"
+  },
+  "kms-key-pending-deletion": {
+    "kind": "fault",
+    "service": "KMS",
+    "novel": false,
+    "cause": "The KMS key that encrypts the statements is scheduled for deletion (pending deletion), so every Decrypt fails; the function did not change. Cancelling the key deletion is a person's urgent decision.",
+    "cause_evidence": [
+      "is pending deletion",
+      "KMSInvalidStateException"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "restart_pods",
+      "clear_cache"
+    ],
+    "target": "6f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
+  },
+  "acm-imported-cert-expiring": {
+    "kind": "fault",
+    "service": "ACM",
+    "novel": false,
+    "cause": "An imported certificate, which ACM cannot renew, used by 2 resources expires on 2026-10-16; someone must obtain and import a renewed certificate before then.",
+    "cause_evidence": [
+      "Type=IMPORTED",
+      "NotAfter=2026-10-16T23:59:59Z",
+      "RenewalEligibility=INELIGIBLE"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [],
+    "target": "9b8c7d6e-5f4a-4b3c-9d2e-1f0a9b8c7d6e"
+  },
+  "appconfig-flag-flip-code-path": {
+    "kind": "fault",
+    "service": "AppConfig",
+    "novel": true,
+    "cause": "AppConfig deployment 23 (configuration version 17, completed 07:54:40) turned on tax_engine_v2; the v2 code path has no tax table for some jurisdictions (IN-KA) and fails. No code changed. Revert the configuration.",
+    "cause_evidence": [
+      "deployment=23 state=COMPLETE version=17",
+      "\"tax_engine_v2\":true",
+      "no tax table for jurisdiction"
+    ],
+    "correct_actions": [
+      "revert_config"
+    ],
+    "harmful_actions": [
+      "rollback_deploy",
+      "raise_limit"
+    ],
+    "target": "warden-dev-checkout"
+  },
+  "appconfig-auto-rolled-back": {
+    "kind": "no_fault",
+    "service": "AppConfig",
+    "novel": false,
+    "cause": "AppConfig deployment 9 (configuration version 12) turned on ranking_v3, errors rose, and AppConfig itself rolled the deployment back when this alarm fired; the function picked up the previous configuration (11) at 08:01 and has served without errors since. Nothing left to change; the flag's owner should look.",
+    "cause_evidence": [
+      "state=ROLLED_BACK",
+      "\"config_version\":\"11\""
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "revert_config",
+      "rollback_deploy"
+    ],
+    "target": null
+  },
+  "cognito-signin-throttle-after-client-change": {
+    "kind": "fault",
+    "service": "Cognito",
+    "novel": false,
+    "cause": "The app-client update at 06:41 (UpdateUserPoolClient) shortened refresh-token validity; tokens issued since stop refreshing after an hour, so from ~07:40 clients fall back to full sign-in and exceed the pool's sign-in rate quota. (Sibling counts read 1 because their Maximum is per request - not a signal.)",
+    "cause_evidence": [
+      "UpdateUserPoolClient on ap-south-1_Q8wErT5yU by role/warden-dev-deployer",
+      "alarm_signinthrottles=3120"
+    ],
+    "correct_actions": [
+      "revert_config",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [],
+    "target": "ap-south-1_Q8wErT5yU"
+  },
+  "waf-bot-flood-blocked": {
+    "kind": "no_fault",
+    "service": "WAF",
+    "novel": false,
+    "cause": "A request flood (~184k in 5 minutes) is being blocked by the web ACL while allowed traffic stays at its usual ~2.4k per minute and the ACL did not change: WAF is doing its job. Nothing to change.",
+    "cause_evidence": [
+      "alarm_sibling_wafv2_allowedrequests=2410",
+      "CHANGE none on warden-dev-edge-acl"
+    ],
+    "correct_actions": [
+      "no_action",
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "revert_config",
+      "scale_up",
+      "raise_limit"
+    ],
+    "target": null
+  },
+  "nat-gateway-port-exhaustion": {
+    "kind": "fault",
+    "service": "NAT gateway",
+    "novel": true,
+    "cause": "About 55,000 simultaneous connections through the NAT gateway exhaust the source ports of its single public IP towards one destination; new connections fail with port-allocation errors. A person must find the client opening them or add addresses to the gateway; more clients would make it worse.",
+    "cause_evidence": [
+      "alarm_sibling_natgateway_activeconnectioncount=55012",
+      "alarm_errorportallocation=41230"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "scale_up",
+      "restart_pods"
+    ],
+    "target": "nat-0a1b2c3d4e5f60718"
+  },
+  "vpc-sg-quarantine-ec2": {
+    "kind": "fault",
+    "service": "VPC security group",
+    "novel": true,
+    "cause": "At 07:56 the automated security responder changed the instance's security groups (ModifyInstanceAttribute) - a quarantine - and its inbound traffic stopped; the instance itself is healthy. This may be a deliberate security isolation: a person must decide, and undoing it automatically could release a compromised host.",
+    "cause_evidence": [
+      "ModifyInstanceAttribute on i-0f1e2d3c4b5a69788 by role/warden-dev-guardduty-responder"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "revert_config",
+      "restart_pods",
+      "scale_up"
+    ],
+    "target": "i-0f1e2d3c4b5a69788"
+  },
+  "servicequotas-lambda-concurrency": {
+    "kind": "fault",
+    "service": "Service Quotas",
+    "novel": false,
+    "cause": "Account-wide Lambda concurrency is at 968, close to the account quota (1,000 by default here); functions without reserved concurrency will start to throttle. Needs a quota increase or a person to find the consumer; reserving more concurrency for one function would starve the rest.",
+    "cause_evidence": [
+      "alarm_resourcecount=968",
+      "threshold GreaterThanThreshold 900.0"
+    ],
+    "correct_actions": [
+      "escalate_to_human"
+    ],
+    "harmful_actions": [
+      "raise_limit",
+      "scale_up"
+    ],
+    "target": null
+  }
+}

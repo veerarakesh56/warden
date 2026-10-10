@@ -1,0 +1,31 @@
+{
+  "id": "eventbridge-rule-disabled-by-apply",
+  "alert": {
+    "alert_id": "g9h-19",
+    "name": "warden-dev-settlement-poll-no-invocations",
+    "service": "settlement",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Settlement poll rule invocations below 1 in 15 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eventbridge_rule": "warden-dev-settlement-poll",
+      "alarm": "warden-dev-settlement-poll-no-invocations"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Events/Invocations RuleName=warden-dev-settlement-poll stat=Sum period=900s threshold LessThanThreshold 1.0 datapoints=2/2 missing=breaching state=ALARM",
+      "CHANGE 2026-10-10T07:12:45Z events.amazonaws.com PutTargets on warden-dev-settlement-poll by role/warden-dev-terraform",
+      "CHANGE 2026-10-10T07:12:44Z events.amazonaws.com PutRule on warden-dev-settlement-poll by role/warden-dev-terraform",
+      "CHANGE 2026-10-10T03:05:19Z events.amazonaws.com TagResource on warden-dev-settlement-poll by role/warden-dev-tagging-automation",
+      "RULE warden-dev-settlement-poll State=DISABLED schedule=rate(15 minutes)"
+    ],
+    "metrics": {
+      "rule_enabled": 0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

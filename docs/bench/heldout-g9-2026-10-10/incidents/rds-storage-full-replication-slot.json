@@ -1,0 +1,39 @@
+{
+  "id": "rds-storage-full-replication-slot",
+  "alert": {
+    "alert_id": "g9h-12",
+    "name": "warden-dev-billing-db-free-storage",
+    "service": "billing-db",
+    "environment": "dev",
+    "severity": "critical",
+    "summary": "Free storage space of the billing database below 2 GiB",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "rds_instance": "warden-dev-billing-db",
+      "alarm": "warden-dev-billing-db-free-storage"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/FreeStorageSpace DBInstanceIdentifier=warden-dev-billing-db stat=Minimum period=300s threshold LessThanThreshold 2147483648.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T05:02:17Z rds.amazonaws.com ModifyDBInstance on warden-dev-billing-db by role/warden-dev-terraform",
+      "STATE rds_instance warden-dev-billing-db DBInstanceStatus=storage-full DBInstanceClass=db.t4g.medium Engine=postgres EngineVersion=16.4 MultiAZ=false AllocatedStorage=100 StorageType=gp3 Iops=3000 BackupRetentionPeriod=7 PendingModifiedValues=none CACertificateIdentifier=rds-ca-rsa2048-g1"
+    ],
+    "metrics": {
+      "alarm_freestoragespace": 1073741824,
+      "alarm_sibling_rds_writeiops": 2950.4,
+      "alarm_sibling_rds_writelatency": 0.0212,
+      "alarm_sibling_rds_databaseconnections": 84,
+      "alarm_sibling_rds_cpuutilization": 38.1,
+      "alarm_sibling_rds_transactionlogsdiskusage": 61210000000,
+      "alarm_sibling_rds_replicationslotdiskusage": 61203283968,
+      "alarm_sibling_rds_oldestreplicationslotlag": 61203283968,
+      "alarm_sibling_rds_transactionlogsgeneration": 2381.6,
+      "alarm_sibling_rds_freeablememory": 1288490188,
+      "alarm_sibling_rds_readiops": 412.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

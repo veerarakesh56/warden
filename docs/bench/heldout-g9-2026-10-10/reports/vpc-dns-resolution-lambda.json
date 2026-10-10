@@ -1,0 +1,182 @@
+{
+  "alert": {
+    "alert_id": "g9h-05",
+    "name": "warden-dev-catalog-sync-errors",
+    "severity": "high",
+    "service": "catalog-sync",
+    "environment": "dev",
+    "summary": "Errors on the catalog sync function above 10 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-catalog-sync",
+      "alarm": "warden-dev-catalog-sync-errors"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 4,
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-catalog-sync stat=Sum period=300s threshold GreaterThanThreshold 10.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-catalog-sync in the 6 h before the alert",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:51:12Z [INFO]\t2026-10-10T07:51:12.044Z\t<UUID_1>\tsynced 120 items for shard 7",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:51:12Z REPORT RequestId: <UUID_1>\tDuration: 812.30 ms\tBilled Duration: 813 ms\tMemory Size: 512 MB\tMax Memory Used: 121 MB",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:53:40Z [WARNING]\t2026-10-10T07:53:40.512Z\t<UUID_2>\tdb connect failed: could not translate host name \"warden-dev-catalog.cluster-c9xk2mq1v8rd.ap-south-1.rds.amazonaws.com\" to address: Temporary failure in name resolution",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:53:40Z [WARNING]\t2026-10-10T07:53:40.514Z\t<UUID_2>\tretrying db connect in 2s (attempt 1/3)",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:53:51Z [ERROR] EndpointConnectionError: Could not connect to the endpoint URL: \"https://dynamodb.ap-south-1.amazonaws.com/\"",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:53:51Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:53:51Z   File \"/var/task/app.py\", line 61, in handler",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:53:51Z     items = table.query(KeyConditionExpression=Key('shard').eq(shard))",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:53:51Z REPORT RequestId: <UUID_2>\tDuration: 11203.44 ms\tBilled Duration: 11204 ms\tMemory Size: 512 MB\tMax Memory Used: 123 MB",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:57:02Z [WARNING]\t2026-10-10T07:57:02.117Z\t<UUID_3>\turllib3 connection pool: Failed to establish a new connection: [Errno -3] Temporary failure in name resolution (host=dynamodb.ap-south-1.amazonaws.com)",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:57:22Z [ERROR] EndpointConnectionError: Could not connect to the endpoint URL: \"https://dynamodb.ap-south-1.amazonaws.com/\"",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:57:22Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:57:22Z   File \"/var/task/app.py\", line 61, in handler",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:57:22Z     items = table.query(KeyConditionExpression=Key('shard').eq(shard))",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:57:22Z REPORT RequestId: <UUID_3>\tDuration: 20412.70 ms\tBilled Duration: 20413 ms\tMemory Size: 512 MB\tMax Memory Used: 124 MB",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:59:48Z [WARNING]\t2026-10-10T07:59:48.330Z\t<UUID_4>\tdb connect failed: could not translate host name \"warden-dev-catalog.cluster-c9xk2mq1v8rd.ap-south-1.rds.amazonaws.com\" to address: Temporary failure in name resolution",
+      "LOG lambda/warden-dev-catalog-sync 2026-10-10T07:59:49Z [WARNING]\t2026-10-10T07:59:49.002Z\t<UUID_4>\tsecrets cache refresh failed: Could not connect to the endpoint URL: \"https://secretsmanager.ap-south-1.amazonaws.com/\"",
+      "CODE warden-dev-catalog-sync app.py:61 in handler: EndpointConnectionError: Could not connect to the endpoint URL: \"https://dynamodb.ap-south-1.amazonaws.com/\"",
+      "SOURCE warden-dev-catalog-sync app.py:58 |     shard = event[\"shard\"]",
+      "SOURCE warden-dev-catalog-sync app.py:59 |     conn = db.connect()",
+      "SOURCE warden-dev-catalog-sync app.py:60 |     sync_rows(conn, shard)",
+      "SOURCE warden-dev-catalog-sync app.py:61 >| items = table.query(KeyConditionExpression=Key('shard').eq(shard))",
+      "SOURCE warden-dev-catalog-sync app.py:62 |     for item in items[\"Items\"]:",
+      "SOURCE warden-dev-catalog-sync app.py:63 |         publish(item)",
+      "SOURCE warden-dev-catalog-sync app.py:64 |     return {\"synced\": len(items[\"Items\"])}",
+      "CONFIG lambda warden-dev-catalog-sync timeout=30s memory=512MB reserved_concurrency=none env=[CATALOG_TABLE=warden-dev-catalog,DB_HOST=warden-dev-catalog.cluster-c9xk2mq1v8rd.ap-south-1.rds.amazonaws.com,LOG_LEVEL=INFO] sgs=[sg-0a4f3c2e9b1d7a655] version=31 alias_live=31"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_errors": 64.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 71.0,
+      "lambda_duration_max_ms": 20412.7,
+      "lambda_concurrent_executions": 4.0,
+      "log_error_lines": 212.0,
+      "log_errors_peak_per_min": 19.0,
+      "alarm_errors": 64.0,
+      "alarm_sibling_lambda_duration": 20412.7,
+      "alarm_sibling_lambda_invocations": 6.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Errors on the catalog sync function above 10 in 5 minutes",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The catalog-sync Lambda is failing (64 errors across 71 invocations) due to network-level failures reaching AWS service endpoints from inside its VPC: repeated DNS resolution failures and EndpointConnectionError when contacting DynamoDB (and likely RDS), not a code or deploy regression (no deploy occurred in the prior 6h).",
+    "confidence": 0.6,
+    "evidence": [
+      "C2 shows no deploy preceded the alert, ruling out a code/config regression as trigger",
+      "Multiple log lines show DNS and connection failures to the DynamoDB endpoint, consistent with a VPC networking/DNS issue (missing NAT or VPC endpoint, or SG blocking egress)",
+      "High error count with invocation durations reaching near the function timeout aligns with network calls hanging then failing"
+    ],
+    "ruled_out": [
+      "Code/deploy regression (C2: no change in prior 6h)",
+      "Throttling (M4 throttles=0)",
+      "Memory exhaustion (F2 max_memory_used well below memory_size)"
+    ],
+    "citations": [
+      {
+        "id": "C2",
+        "quote": "none on warden-dev-catalog-sync in the 6 h before the alert"
+      },
+      {
+        "id": "F3",
+        "quote": "temporary failure in name resolution"
+      },
+      {
+        "id": "F9",
+        "quote": "host=dynamodb.ap-south-1.amazonaws.com"
+      },
+      {
+        "id": "F5",
+        "quote": "code=EndpointConnectionError"
+      },
+      {
+        "id": "M3",
+        "quote": "lambda_errors=64"
+      },
+      {
+        "id": "M4",
+        "quote": "lambda_throttles=0"
+      },
+      {
+        "id": "C3",
+        "quote": "sgs=[sg-0a4f3c2e9b1d7a655]"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "lambda:warden-dev-catalog-sync",
+    "reasoning": "The failure pattern (DNS resolution failures and EndpointConnectionError to AWS service endpoints with no recent deploy) points to a VPC networking misconfiguration (missing/blocked VPC endpoint, NAT gateway, or security-group egress rule) rather than an application bug. None of the available automated remediation actions (restart, scale, rollback, config revert) address a network/DNS infrastructure issue, and changing security group or VPC routing is outside the safe automated action set, so a human should verify and fix the VPC/DNS/SG configuration for this Lambda.",
+    "expected_effect": "A human investigates and corrects the VPC networking (DNS resolution path, NAT gateway, or security group egress rules) so the Lambda can reach DynamoDB/RDS endpoints, resolving the error spike.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false,
+    "observed": [
+      "P26-LOW-DECIDER-P: the calibrated decider puts this proposal at p=0.06 of being right"
+    ]
+  },
+  "cost": {
+    "input_tokens": 3775,
+    "output_tokens": 1967,
+    "usd": 0.02722,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 4,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.6,
+      "hypothesis": "The catalog-sync Lambda is failing (64 errors across 71 invocations) due to network-level failures reaching AWS service endpoints from inside its VPC: repeated DNS resolution failures and EndpointConnectionError when contacting DynamoDB (and likely RDS), not a code or deploy regression (no deploy occurred in the prior 6h).",
+      "action": "escalate_to_human",
+      "target": "lambda:warden-dev-catalog-sync",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "f3219f2ae7e9c759d30f30d9f93f5b242670719ff4fc275bcd3f9c41f74642fb",
+        "response_sha256": "e8d3ca84cfe64adebdf7f27b0e13bc0d450f850c1fcd223018f67d9a2724be9a",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": [
+        {
+          "kind": "lambda",
+          "name": "warden-dev-catalog-sync"
+        }
+      ]
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

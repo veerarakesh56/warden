@@ -1,0 +1,198 @@
+{
+  "alert": {
+    "alert_id": "g9h-17",
+    "name": "warden-dev-shipping-dlq-not-empty",
+    "severity": "medium",
+    "service": "shipping-worker",
+    "environment": "dev",
+    "summary": "Shipping dead-letter queue holds messages",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-shipping-worker",
+      "sqs": "warden-dev-shipping-dlq",
+      "alarm": "warden-dev-shipping-dlq-not-empty"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 7,
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold GreaterThanThreshold 0.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:51:02Z lambda.amazonaws.com UpdateAlias20150331 on warden-dev-shipping-worker by role/warden-dev-oncall",
+      "CHANGE 2026-10-10T07:22:45Z lambda.amazonaws.com UpdateAlias20150331 on warden-dev-shipping-worker by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:22:43Z lambda.amazonaws.com PublishVersion20150331 on warden-dev-shipping-worker by role/warden-dev-deployer",
+      "CHANGE none on warden-dev-shipping-dlq in the 6 h before the alert",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:46:12Z [ERROR] KeyError: 'carrier_code'",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:46:12Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:46:12Z   File \"/var/task/shipping/handler.py\", line 63, in handler",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:46:12Z     carrier = CARRIERS[payload[\"carrier_code\"]]",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:46:12Z REPORT RequestId: <UUID_1>\tDuration: 22.10 ms\tBilled Duration: 23 ms\tMemory Size: 512 MB\tMax Memory Used: 96 MB",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:49:40Z [ERROR] KeyError: 'carrier_code'",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:49:40Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:49:40Z   File \"/var/task/shipping/handler.py\", line 63, in handler",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:49:40Z     carrier = CARRIERS[payload[\"carrier_code\"]]",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:49:40Z REPORT RequestId: <UUID_2>\tDuration: 19.84 ms\tBilled Duration: 20 ms\tMemory Size: 512 MB\tMax Memory Used: 96 MB",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:50:51Z [ERROR] KeyError: 'carrier_code'",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:50:51Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:50:51Z   File \"/var/task/shipping/handler.py\", line 63, in handler",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:50:51Z     carrier = CARRIERS[payload[\"carrier_code\"]]",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:50:51Z REPORT RequestId: <UUID_3>\tDuration: 20.33 ms\tBilled Duration: 21 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:51:31Z INIT_START Runtime Version: python:3.12.v41\tRuntime Version ARN: arn:aws:lambda:ap-south-1::runtime:5c0d8f1e2a7b",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:51:33Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"shipment label created\",\"shipment_id\":\"s-301877\",\"carrier\":\"DLV\",\"service\":\"shipping\"}",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:51:33Z REPORT RequestId: <UUID_4>\tDuration: 640.30 ms\tBilled Duration: 641 ms\tMemory Size: 512 MB\tMax Memory Used: 118 MB",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:55:20Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"shipment label created\",\"shipment_id\":\"s-301912\",\"carrier\":\"DLV\",\"service\":\"shipping\"}",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:55:20Z REPORT RequestId: <UUID_5>\tDuration: 212.71 ms\tBilled Duration: 213 ms\tMemory Size: 512 MB\tMax Memory Used: 119 MB",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:58:02Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"shipment label created\",\"shipment_id\":\"s-301940\",\"carrier\":\"DLV\",\"service\":\"shipping\"}",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T07:58:02Z REPORT RequestId: <UUID_6>\tDuration: 198.05 ms\tBilled Duration: 199 ms\tMemory Size: 512 MB\tMax Memory Used: 119 MB",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T08:01:47Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"shipment label created\",\"shipment_id\":\"s-301977\",\"carrier\":\"DLV\",\"service\":\"shipping\"}",
+      "LOG lambda/warden-dev-shipping-worker 2026-10-10T08:01:47Z REPORT RequestId: <UUID_7>\tDuration: 205.66 ms\tBilled Duration: 206 ms\tMemory Size: 512 MB\tMax Memory Used: 119 MB",
+      "CODE warden-dev-shipping-worker shipping/handler.py:63 in handler: KeyError: 'carrier_code'",
+      "SOURCE warden-dev-shipping-worker shipping/handler.py:60 |     payload = json.loads(record[\"body\"])",
+      "SOURCE warden-dev-shipping-worker shipping/handler.py:61 |     order_id = payload[\"order_id\"]",
+      "SOURCE warden-dev-shipping-worker shipping/handler.py:62 |     log.debug(\"label request\", order_id=order_id)",
+      "SOURCE warden-dev-shipping-worker shipping/handler.py:63 >|     carrier = CARRIERS[payload[\"carrier_code\"]]",
+      "SOURCE warden-dev-shipping-worker shipping/handler.py:64 |     label = carrier.create_label(order_id, payload[\"address\"])",
+      "SOURCE warden-dev-shipping-worker shipping/handler.py:65 |     save_label(order_id, label)",
+      "SOURCE warden-dev-shipping-worker shipping/handler.py:66 |     return label.id",
+      "CONFIG lambda warden-dev-shipping-worker timeout=30s memory=512MB reserved_concurrency=none env=[CARRIER_API_HOST=api.carrier.example,LOG_LEVEL=INFO,SHIPMENTS_TABLE=warden-dev-shipments] version=22 alias_live=21",
+      "ESM warden-dev-shipping-worker <- warden-dev-shipping State=Enabled BatchSize=10 LastProcessingResult=OK",
+      "QUEUE warden-dev-shipping-dlq visible=412 in_flight=0 dlq=none dlq_visible=- max_receive=-"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_esm_enabled": 1.0,
+      "lambda_errors": 9.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 1210.0,
+      "lambda_duration_max_ms": 640.3,
+      "lambda_concurrent_executions": 8.0,
+      "log_error_lines": 214.0,
+      "log_errors_peak_per_min": 31.0,
+      "sqs_visible": 412.0,
+      "sqs_in_flight": 0.0,
+      "sqs_visibility_timeout_s": 30.0,
+      "sqs_oldest_age_s": 2280.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Shipping dead-letter queue holds messages",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "A bad deploy (PublishVersion 22 at 07:22:43, alias flipped to it at 07:22:45) introduced a KeyError bug in the handler (shipping/handler.py:63) that caused repeated processing failures; messages exhausted their retries and landed in the DLQ. The on-call UpdateAlias at 07:51:02 appears to have rolled the alias back (alias_live now 21), but the already-failed messages remain stuck in the DLQ.",
+    "confidence": 0.68,
+    "evidence": [
+      "C4 PublishVersion20150331 at 07:22:43 by deployer",
+      "C3 UpdateAlias20150331 at 07:22:45 right after publish",
+      "C2 UpdateAlias20150331 at 07:51:02 by oncall (likely rollback)",
+      "C6 version=22 alias_live=21 shows alias no longer on the bad version",
+      "F5 KeyError at handler.py:63 matches the error code seen in M4/F1",
+      "C8 dlq visible=412 confirms messages are stuck, not draining",
+      "M14 sqs_oldest_age_s=2280 (~38min) roughly spans the bad-deploy window"
+    ],
+    "ruled_out": [
+      "DLQ misconfiguration: C5 shows no changes to the DLQ itself",
+      "Throttling: M5 lambda_throttles=0 rules out concurrency/throttle as cause",
+      "Timeout: M7 lambda_duration_max_ms=640.3 is far under the 30s timeout (M1/C6)"
+    ],
+    "citations": [
+      {
+        "id": "C4",
+        "quote": "PublishVersion20150331 on warden-dev-shipping-worker by role/warden-dev-deployer"
+      },
+      {
+        "id": "C3",
+        "quote": "UpdateAlias20150331 on warden-dev-shipping-worker by role/warden-dev-deployer"
+      },
+      {
+        "id": "C2",
+        "quote": "UpdateAlias20150331 on warden-dev-shipping-worker by role/warden-dev-oncall"
+      },
+      {
+        "id": "C6",
+        "quote": "version=22 alias_live=21"
+      },
+      {
+        "id": "F5",
+        "quote": "code=KeyError; image=shipping/handler.py:63"
+      },
+      {
+        "id": "C8",
+        "quote": "visible=412"
+      },
+      {
+        "id": "M14",
+        "quote": "sqs_oldest_age_s=2280"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "redrive_messages",
+    "target": "warden-dev-shipping-dlq",
+    "reasoning": "The alias has already been moved off the bad version (C2/C6), and the ESM is enabled and healthy (C7 LastProcessingResult=OK) with no further errors reported since the rollback. The 412 messages stuck in the DLQ (C8, M14) are a backlog from the brief bad-deploy window and should be safe to redrive back to the source queue now that the fix is live, so they can be reprocessed by the corrected code.",
+    "expected_effect": "DLQ messages are moved back to warden-dev-shipping queue and reprocessed successfully by the now-rolled-back (good) lambda version, draining the DLQ backlog and clearing the alarm.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": false,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "none of the cited evidence bears on redrive_messages (it names none of: dlq, dead-letter, deadletter, redriv, maxreceive, receive count...)."
+    ],
+    "policy_ids": [
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3903,
+    "output_tokens": 1768,
+    "usd": 0.025486,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 7,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.68,
+      "hypothesis": "A bad deploy (PublishVersion 22 at 07:22:43, alias flipped to it at 07:22:45) introduced a KeyError bug in the handler (shipping/handler.py:63) that caused repeated processing failures; messages exhausted their retries and landed in the DLQ. The on-call UpdateAlias at 07:51:02 appears to have rolled the alias back (alias_live now 21), but the already-failed messages remain stuck in the DLQ.",
+      "action": "redrive_messages",
+      "target": "warden-dev-shipping-dlq",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "3e742c4d40a1cca95803f4c96293114939d827ed266d29b5a843fcfcfdc518ea",
+        "response_sha256": "b3fb098f49bb0ba01f0a3f99b68bfa827e1ba7512c8d1dad6d95ce48ccc4755b",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

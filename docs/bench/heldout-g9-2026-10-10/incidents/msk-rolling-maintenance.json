@@ -1,0 +1,34 @@
+{
+  "id": "msk-rolling-maintenance",
+  "alert": {
+    "alert_id": "g9h-35",
+    "name": "warden-dev-events-under-replicated",
+    "service": "events",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "Under-replicated partitions on broker 2 of the events cluster above 0",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "msk_cluster": "warden-dev-events",
+      "alarm": "warden-dev-events-under-replicated"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Kafka/UnderReplicatedPartitions Broker_ID=2,Cluster_Name=warden-dev-events stat=Maximum period=60s threshold GreaterThanThreshold 0.0 datapoints=1/1 missing=missing state=ALARM",
+      "STATE msk_cluster warden-dev-events State=MAINTENANCE ClusterType=PROVISIONED CurrentVersion=K3P5ROKL5A1OLE NumberOfBrokerNodes=3 Provisioned_BrokerNodeGroupInfo_InstanceType=kafka.m7g.large",
+      "CHANGE none on warden-dev-events in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_underreplicatedpartitions": 42,
+      "alarm_sibling_kafka_underminisrpartitioncount": 0,
+      "alarm_sibling_kafka_cpuuser": 22.0,
+      "alarm_sibling_kafka_kafkadatalogsdiskused": 41.2,
+      "alarm_sibling_kafka_leadercount": 118,
+      "alarm_sibling_kafka_partitioncount": 360
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

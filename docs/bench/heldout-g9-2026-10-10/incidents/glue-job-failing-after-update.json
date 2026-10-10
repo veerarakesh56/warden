@@ -1,0 +1,35 @@
+{
+  "id": "glue-job-failing-after-update",
+  "alert": {
+    "alert_id": "g9h-37",
+    "name": "warden-dev-orders-etl-failed-tasks",
+    "service": "orders-etl",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "Failed tasks in the orders ETL job above 0",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "glue_job": "warden-dev-orders-etl",
+      "alarm": "warden-dev-orders-etl-failed-tasks"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM Glue/glue.driver.aggregate.numFailedTasks JobName=warden-dev-orders-etl,JobRunId=ALL,Type=count stat=Sum period=300s threshold GreaterThanThreshold 0.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "STATE glue_job warden-dev-orders-etl JobRuns=10(FAILED:3,SUCCEEDED:7)",
+      "CHANGE 2026-10-10T07:00:04Z glue.amazonaws.com StartJobRun on warden-dev-orders-etl by role/warden-dev-orders-etl-scheduler",
+      "CHANGE 2026-10-10T06:00:03Z glue.amazonaws.com StartJobRun on warden-dev-orders-etl by role/warden-dev-orders-etl-scheduler",
+      "CHANGE 2026-10-10T05:00:02Z glue.amazonaws.com StartJobRun on warden-dev-orders-etl by role/warden-dev-orders-etl-scheduler",
+      "CHANGE 2026-10-10T04:48:19Z glue.amazonaws.com UpdateJob on warden-dev-orders-etl by role/warden-dev-finops-automation",
+      "CHANGE 2026-10-10T04:00:03Z glue.amazonaws.com StartJobRun on warden-dev-orders-etl by role/warden-dev-orders-etl-scheduler",
+      "CHANGE 2026-10-10T03:00:02Z glue.amazonaws.com StartJobRun on warden-dev-orders-etl by role/warden-dev-orders-etl-scheduler",
+      "CHANGE 2026-10-10T02:00:04Z glue.amazonaws.com StartJobRun on warden-dev-orders-etl by role/warden-dev-orders-etl-scheduler"
+    ],
+    "metrics": {
+      "alarm_value": 37
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "vpc-sg-quarantine-ec2",
+  "alert": {
+    "alert_id": "g9h-47",
+    "name": "warden-dev-legacy-reports-packets-in",
+    "service": "legacy-reports",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Inbound packets on the legacy reports instance below 1000 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "instance_id": "i-0f1e2d3c4b5a69788",
+      "alarm": "warden-dev-legacy-reports-packets-in"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/EC2/NetworkPacketsIn InstanceId=i-0f1e2d3c4b5a69788 stat=Sum period=300s threshold LessThanThreshold 1000.0 datapoints=1/1 missing=missing state=ALARM",
+      "STATE instance_id i-0f1e2d3c4b5a69788 Name=running Status=ok Status=ok Events=0",
+      "CHANGE 2026-10-10T07:56:48Z ec2.amazonaws.com ModifyInstanceAttribute on i-0f1e2d3c4b5a69788 by role/warden-dev-guardduty-responder"
+    ],
+    "metrics": {
+      "alarm_networkpacketsin": 212,
+      "alarm_sibling_ec2_cpuutilization": 3.1,
+      "alarm_sibling_ec2_networkin": 18400,
+      "alarm_sibling_ec2_networkout": 9100,
+      "alarm_sibling_ec2_statuscheckfailed": 0,
+      "alarm_sibling_ec2_networkpacketsout": 140
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

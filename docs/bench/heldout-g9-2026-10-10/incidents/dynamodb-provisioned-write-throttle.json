@@ -1,0 +1,40 @@
+{
+  "id": "dynamodb-provisioned-write-throttle",
+  "alert": {
+    "alert_id": "g9h-14",
+    "name": "warden-dev-carts-write-throttles",
+    "service": "carts",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Write throttle events on the carts table above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "warden-dev-carts",
+      "alarm": "warden-dev-carts-write-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/WriteThrottleEvents TableName=warden-dev-carts stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T06:31:18Z dynamodb.amazonaws.com UpdateTable on warden-dev-carts by role/warden-dev-finops-automation",
+      "TABLE warden-dev-carts billing=PROVISIONED rcu=100 wcu=50 status=ACTIVE"
+    ],
+    "metrics": {
+      "ddb_provisioned_rcu": 100,
+      "ddb_provisioned_wcu": 50,
+      "ddb_consumed_rcu": 61.3,
+      "ddb_consumed_wcu": 50.0,
+      "ddb_read_throttle_events": 0,
+      "ddb_write_throttle_events": 18432,
+      "ddb_throttled_requests": 9120,
+      "alarm_writethrottleevents": 18432,
+      "alarm_sibling_dynamodb_provisionedwritecapacityunits": 50,
+      "alarm_sibling_dynamodb_provisionedreadcapacityunits": 100,
+      "alarm_sibling_dynamodb_consumedwritecapacityunits": 12.0,
+      "alarm_sibling_dynamodb_consumedreadcapacityunits": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

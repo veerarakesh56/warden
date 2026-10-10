@@ -1,0 +1,32 @@
+{
+  "id": "cognito-signin-throttle-after-client-change",
+  "alert": {
+    "alert_id": "g9h-44",
+    "name": "warden-dev-customers-signin-throttles",
+    "service": "customer-auth",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Sign-in throttles on the customer user pool above 0",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "cognito_user_pool": "ap-south-1_Q8wErT5yU",
+      "alarm": "warden-dev-customers-signin-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Cognito/SignInThrottles UserPool=ap-south-1_Q8wErT5yU,UserPoolClient=4f3e2d1c0b9a8f7e6d5c4b3a2 stat=Sum period=60s threshold GreaterThanThreshold 0.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "STATE cognito_user_pool ap-south-1_Q8wErT5yU EstimatedNumberOfUsers=48210 MfaConfiguration=OPTIONAL UserPoolTier=ESSENTIALS",
+      "CHANGE 2026-10-10T06:41:55Z cognito-idp.amazonaws.com UpdateUserPoolClient on ap-south-1_Q8wErT5yU by role/warden-dev-deployer"
+    ],
+    "metrics": {
+      "alarm_signinthrottles": 3120,
+      "alarm_sibling_cognito_signinsuccesses": 1,
+      "alarm_sibling_cognito_tokenrefreshsuccesses": 1,
+      "alarm_sibling_cognito_federationsuccesses": 1
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

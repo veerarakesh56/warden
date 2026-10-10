@@ -1,0 +1,34 @@
+{
+  "id": "scheduler-daily-burst-throttle",
+  "alert": {
+    "alert_id": "g9h-20",
+    "name": "warden-dev-reminders-target-throttled",
+    "service": "reminders",
+    "environment": "dev",
+    "severity": "low",
+    "summary": "Throttled target errors on the reminders schedule group above 0",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "schedule_group": "warden-dev-reminders",
+      "alarm": "warden-dev-reminders-target-throttled"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Scheduler/TargetErrorThrottledCount ScheduleGroup=warden-dev-reminders stat=Sum period=60s threshold GreaterThanThreshold 0.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "STATE schedule_group warden-dev-reminders State=ACTIVE",
+      "CHANGE none on warden-dev-reminders in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_targeterrorthrottledcount": 212,
+      "alarm_sibling_scheduler_invocationattemptcount": 2400,
+      "alarm_sibling_scheduler_targeterrorcount": 212,
+      "alarm_sibling_scheduler_invocationdroppedcount": 0,
+      "alarm_sibling_scheduler_invocationssenttodeadlettercount": 0,
+      "alarm_sibling_scheduler_invocationthrottlecount": 0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

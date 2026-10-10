@@ -1,0 +1,145 @@
+{
+  "alert": {
+    "alert_id": "g9h-21",
+    "name": "warden-dev-order-saga-failed",
+    "severity": "high",
+    "service": "order-saga",
+    "environment": "dev",
+    "summary": "Failed executions of the order saga state machine above 5 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "state_machine": "warden-dev-order-saga",
+      "alarm": "warden-dev-order-saga-failed"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "ALARM AWS/States/ExecutionsFailed StateMachineArn=<ARN_1> stat=Sum period=300s threshold GreaterThanThreshold 5.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "STATE state_machine warden-dev-order-saga status=ACTIVE type=STANDARD revisionId=<UUID_1>",
+      "CHANGE 2026-10-10T07:36:14Z states.amazonaws.com UpdateStateMachineAlias on warden-dev-order-saga by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:36:12Z states.amazonaws.com PublishStateMachineVersion on warden-dev-order-saga by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:36:10Z states.amazonaws.com UpdateStateMachine on warden-dev-order-saga by role/warden-dev-deployer"
+    ],
+    "metrics": {
+      "alarm_executionsfailed": 41.0,
+      "alarm_sibling_states_executionsstarted": 44.0,
+      "alarm_sibling_states_executionssucceeded": 3.0,
+      "alarm_sibling_states_executionstimedout": 0.0,
+      "alarm_sibling_states_executionthrottled": 0.0,
+      "alarm_sibling_states_executiontime": 1210.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Failed executions of the order saga state machine above 5 in 5 minutes",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "A state machine definition update (UpdateStateMachine -> PublishStateMachineVersion -> UpdateStateMachineAlias) deployed at 07:36:10-07:36:14Z introduced a breaking change to warden-dev-order-saga, causing nearly all new executions to fail (41 failed vs 3 succeeded out of 44 started) shortly after rollout.",
+    "confidence": 0.75,
+    "evidence": [
+      "C5: UpdateStateMachine change immediately precedes the failure spike",
+      "C4/C3: version publish and alias update complete the deploy sequence",
+      "M1-M3: failure ratio (41/44) vs success (3/44) indicates near-total breakage, not a transient blip"
+    ],
+    "ruled_out": [
+      "Throttling (M5=0) and timeouts (M4=0) are not contributing factors",
+      "Alarm missing-data is not the cause since datapoints=1/1 and state=ALARM, a real signal not a gap"
+    ],
+    "citations": [
+      {
+        "id": "C5",
+        "quote": "UpdateStateMachine on warden-dev-order-saga by role/warden-dev-deployer"
+      },
+      {
+        "id": "C4",
+        "quote": "PublishStateMachineVersion on warden-dev-order-saga"
+      },
+      {
+        "id": "C3",
+        "quote": "UpdateStateMachineAlias on warden-dev-order-saga"
+      },
+      {
+        "id": "M1",
+        "quote": "alarm_executionsfailed=41"
+      },
+      {
+        "id": "M2",
+        "quote": "alarm_sibling_states_executionsstarted=44"
+      },
+      {
+        "id": "M3",
+        "quote": "alarm_sibling_states_executionssucceeded=3"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "warden-dev-order-saga",
+    "reasoning": "The failure spike began immediately after the UpdateStateMachine/PublishStateMachineVersion/UpdateStateMachineAlias sequence, with 41 of 44 executions failing post-deploy. Rolling back the state machine alias/version to the prior revision should restore the pre-deploy success rate.",
+    "expected_effect": "New executions of warden-dev-order-saga route to the previous working state machine version/alias, restoring ExecutionsSucceeded rate and clearing the ExecutionsFailed alarm.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "rejected",
+    "reasons": [
+      "Rollback proposed but no recent deploy appears in the gathered context."
+    ],
+    "policy_ids": [
+      "P5-NO-DEPLOY-TO-ROLL-BACK"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3285,
+    "output_tokens": 1139,
+    "usd": 0.01796,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 2,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.75,
+      "hypothesis": "A state machine definition update (UpdateStateMachine -> PublishStateMachineVersion -> UpdateStateMachineAlias) deployed at 07:36:10-07:36:14Z introduced a breaking change to warden-dev-order-saga, causing nearly all new executions to fail (41 failed vs 3 succeeded out of 44 started) shortly after rollout.",
+      "action": "rollback_deploy",
+      "target": "warden-dev-order-saga",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "6fa6fdbb5dc25e9eeedb2549421df0b169cf39ad1a78e76fce548324fecd4609",
+        "response_sha256": "16b439fdcf17fffac43f56c7853be3e4b9d9fb5a82d18b14e8333d2238824e92",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "rejected",
+      "policies": [
+        "P5-NO-DEPLOY-TO-ROLL-BACK"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

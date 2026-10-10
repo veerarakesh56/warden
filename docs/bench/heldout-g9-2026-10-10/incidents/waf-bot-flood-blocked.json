@@ -1,0 +1,30 @@
+{
+  "id": "waf-bot-flood-blocked",
+  "alert": {
+    "alert_id": "g9h-45",
+    "name": "warden-dev-edge-acl-blocked",
+    "service": "edge",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "Blocked requests on the edge web ACL above 1000 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "waf_web_acl": "warden-dev-edge-acl",
+      "alarm": "warden-dev-edge-acl-blocked"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/WAFV2/BlockedRequests Region=ap-south-1,Rule=ALL,WebACL=warden-dev-edge-acl stat=Sum period=300s threshold GreaterThanThreshold 1000.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-edge-acl in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_blockedrequests": 184220,
+      "alarm_sibling_wafv2_allowedrequests": 2410,
+      "alarm_sibling_wafv2_countedrequests": 0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

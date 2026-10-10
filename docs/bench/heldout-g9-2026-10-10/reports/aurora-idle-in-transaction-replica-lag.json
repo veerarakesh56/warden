@@ -1,0 +1,180 @@
+{
+  "alert": {
+    "alert_id": "g9h-13",
+    "name": "warden-dev-shop-aurora-connections",
+    "severity": "critical",
+    "service": "shop-db",
+    "environment": "dev",
+    "summary": "Database connections on the shop Aurora cluster above 1500",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "warden-dev-shop-aurora",
+      "alarm": "warden-dev-shop-aurora-connections"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 5,
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/DatabaseConnections DBClusterIdentifier=warden-dev-shop-aurora stat=Maximum period=60s threshold GreaterThanThreshold 1500.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-shop-aurora in the 6 h before the alert",
+      "CLUSTER aurora warden-dev-shop-aurora writer=warden-dev-shop-aurora-1 readers=[warden-dev-shop-aurora-2] status=available",
+      "postgres stuck connection: pid=48211 idle in transaction for 1840s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48230 idle in transaction for 1822s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48302 idle in transaction for 1790s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48377 idle in transaction for 1755s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48409 idle in transaction for 1731s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres connections held: 1388 idle in transaction from app=warden-dev-fulfilment client=<IPV4_1> (1702/1800 in use)",
+      "postgres connections held: 211 active from app=warden-dev-shop-api client=<IPV4_2> (1702/1800 in use)",
+      "postgres connections held: 61 idle from app=warden-dev-shop-api client=<IPV4_3> (1702/1800 in use)",
+      "postgres connections held: 38 idle from app=warden-dev-search-indexer client=<IPV4_4> (1702/1800 in use)",
+      "[reader] postgres long-running query: pid=9921 running 1260s user=analytics app=metabase client=<IPV4_5>: SELECT date_trunc('day', o.created_at), count(*), sum(i.qty) FROM orders o JOIN order_items i ON i.order_id = o.id GR"
+    ],
+    "metrics": {
+      "aurora_members_available": 2.0,
+      "aurora_db_load": 3.2,
+      "aurora_db_load_cpu": 1.9,
+      "aurora_db_load_io": 0.8,
+      "aurora_db_load_lock": 0.5,
+      "aurora_connections": 1702.0,
+      "aurora_cpu_pct": 34.2,
+      "aurora_deadlocks": 0.0,
+      "aurora_replica_lag_ms": 4200.0,
+      "active_connections": 1702.0,
+      "idle_in_transaction": 1388.0,
+      "long_running_queries": 0.0,
+      "max_connections": 1800.0,
+      "locks_waiting": 3.0,
+      "connections_used_pct": 0.9456,
+      "reader_active_connections": 140.0,
+      "reader_idle_in_transaction": 0.0,
+      "reader_long_running_queries": 1.0,
+      "reader_max_connections": 1800.0,
+      "reader_locks_waiting": 0.0,
+      "reader_connections_used_pct": 0.0778,
+      "alarm_databaseconnections": 1702.0,
+      "alarm_sibling_rds_cpuutilization": 34.2,
+      "alarm_sibling_rds_aurorareplicalagmaximum": 4200.0,
+      "alarm_sibling_rds_commitlatency": 3.1,
+      "alarm_sibling_rds_freeablememory": 5100273664.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Database connections on the shop Aurora cluster above 1500",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The writer instance of warden-dev-shop-aurora is near its connection limit (94.56% used) because a large number of client sessions (from multiple apps per the log facts) are left 'idle in transaction' for 20-30+ minutes, consuming connection slots without doing work. This is a connection-pool/application-held-transaction leak, not a load, deploy, or lock-contention issue (CPU and db_load are low, no deadlocks, no deploy in the preceding 6h).",
+    "confidence": 0.72,
+    "evidence": [
+      "M10 active_connections=1702 matches M6 aurora_connections=1702 and is close to M13 max_connections=1800",
+      "M11 idle_in_transaction=1388 shows most connections are idle-in-transaction, not active work",
+      "M15 connections_used_pct=0.9456 shows near-saturation on the writer",
+      "Reader is healthy (M16 reader_active_connections=140, M17 reader_idle_in_transaction=0), isolating the problem to the writer",
+      "F1 shows 5 log lines with phrase=\"idle in transaction\" and durations of 1731-1840s, consistent with long-held idle transactions",
+      "F2-F5 show multiple distinct client applications holding idle-in-transaction sessions",
+      "C2 shows no change/deploy in the preceding 6h, ruling out a recent deploy as the trigger",
+      "M2 aurora_db_load=3.2 and M7 aurora_cpu_pct=34.2 show the instance is not under compute/IO/lock pressure (M3,M4,M5 all low), ruling out a load-driven cause"
+    ],
+    "ruled_out": [
+      "Recent deploy/config change (C2: no change on cluster in 6h)",
+      "Lock contention or deadlocks (M8 aurora_deadlocks=0, M5 aurora_db_load_lock=0.5, low)",
+      "Replica/reader connection exhaustion (M21 reader_connections_used_pct=0.0778, healthy)",
+      "High compute load causing connection buildup (M2, M3, M7 all moderate/low)"
+    ],
+    "citations": [
+      {
+        "id": "M10",
+        "quote": "active_connections=1702"
+      },
+      {
+        "id": "M11",
+        "quote": "idle_in_transaction=1388"
+      },
+      {
+        "id": "M15",
+        "quote": "connections_used_pct=0.9456"
+      },
+      {
+        "id": "C2",
+        "quote": "CHANGE none on warden-dev-shop-aurora in the 6 h before the alert"
+      },
+      {
+        "id": "F1",
+        "quote": "phrase=\"idle in transaction\""
+      },
+      {
+        "id": "M16",
+        "quote": "reader_active_connections=140"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "terminate_connections",
+    "target": "warden-dev-shop-aurora-1",
+    "reasoning": "The writer instance (warden-dev-shop-aurora-1 per C3) is at 94.56% of max_connections with 1388 of 1702 connections sitting idle-in-transaction for 20-30+ minutes across multiple client applications (F1-F5). Terminating these idle-in-transaction sessions will free connection slots and clear the alarm without touching the healthy reader or requiring a code/config rollback, since no recent deploy or config change (C2) explains the buildup.",
+    "expected_effect": "Idle-in-transaction connections on the writer are forcibly closed, aurora_connections drops well below the 1500 alarm threshold, and connections_used_pct returns to a normal range; active application traffic with open transactions will see those transactions rolled back and must reconnect/retry.",
+    "blast_radius": "multi_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "multi_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Blast radius 'multi_service' exceeds the unattended limit (WARDEN's floor for terminate_connections is 'single_service', the proposal claimed 'multi_service'; the wider of the two applies)."
+    ],
+    "policy_ids": [
+      "P6-BLAST-RADIUS"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3743,
+    "output_tokens": 1743,
+    "usd": 0.024916,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 5,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.72,
+      "hypothesis": "The writer instance of warden-dev-shop-aurora is near its connection limit (94.56% used) because a large number of client sessions (from multiple apps per the log facts) are left 'idle in transaction' for 20-30+ minutes, consuming connection slots without doing work. This is a connection-pool/application-held-transaction leak, not a load, deploy, or lock-contention issue (CPU and db_load are low, no deadlocks, no deploy in the preceding 6h).",
+      "action": "terminate_connections",
+      "target": "warden-dev-shop-aurora-1",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "725ce81e667ad3a45988daa38e67816095579c3cf2ead3a63e52e85dca8649cd",
+        "response_sha256": "5aa4cb8fa5703cb844c90047e24903f559bd1915ba52807b9bf4fb221d063850",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P6-BLAST-RADIUS"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

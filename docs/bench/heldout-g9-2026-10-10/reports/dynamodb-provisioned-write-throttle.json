@@ -1,0 +1,140 @@
+{
+  "alert": {
+    "alert_id": "g9h-14",
+    "name": "warden-dev-carts-write-throttles",
+    "severity": "high",
+    "service": "carts",
+    "environment": "dev",
+    "summary": "Write throttle events on the carts table above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "warden-dev-carts",
+      "alarm": "warden-dev-carts-write-throttles"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/WriteThrottleEvents TableName=warden-dev-carts stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T06:31:18Z dynamodb.amazonaws.com UpdateTable on warden-dev-carts by role/warden-dev-finops-automation",
+      "TABLE warden-dev-carts billing=PROVISIONED rcu=100 wcu=50 status=ACTIVE"
+    ],
+    "metrics": {
+      "ddb_provisioned_rcu": 100.0,
+      "ddb_provisioned_wcu": 50.0,
+      "ddb_consumed_rcu": 61.3,
+      "ddb_consumed_wcu": 50.0,
+      "ddb_read_throttle_events": 0.0,
+      "ddb_write_throttle_events": 18432.0,
+      "ddb_throttled_requests": 9120.0,
+      "alarm_writethrottleevents": 18432.0,
+      "alarm_sibling_dynamodb_provisionedwritecapacityunits": 50.0,
+      "alarm_sibling_dynamodb_provisionedreadcapacityunits": 100.0,
+      "alarm_sibling_dynamodb_consumedwritecapacityunits": 12.0,
+      "alarm_sibling_dynamodb_consumedreadcapacityunits": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Write throttle events on the carts table above 100 per minute",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The carts DynamoDB table's provisioned write capacity (50 WCU) is being fully consumed (consumed WCU equals provisioned WCU) while read capacity has ample headroom, causing sustained write throttling. A recent UpdateTable change by an automation role shortly before the alarm fired suggests capacity was recently adjusted (likely reduced or left too low) for current write demand.",
+    "confidence": 0.75,
+    "evidence": [
+      "Write throttle events are very high (18432) while read throttle events are zero, indicating a write-capacity-specific bottleneck.",
+      "Consumed WCU (50) exactly matches provisioned WCU (50), confirming the table is saturated on writes.",
+      "A table configuration change (UpdateTable) occurred ~minutes before the alarm state, suggesting the capacity change is linked to the throttling onset."
+    ],
+    "ruled_out": [
+      "Read-side throttling: read throttle events are 0 and consumed RCU (61.3) is well below provisioned RCU (100), so reads are not the issue."
+    ],
+    "citations": [
+      {
+        "id": "M6",
+        "quote": "ddb_write_throttle_events=18432"
+      },
+      {
+        "id": "M4",
+        "quote": "ddb_consumed_wcu=50"
+      },
+      {
+        "id": "M2",
+        "quote": "ddb_provisioned_wcu=50"
+      },
+      {
+        "id": "C1",
+        "quote": "WriteThrottleEvents TableName=warden-dev-carts stat=Sum period=60s threshold GreaterThanThreshold 100.0"
+      },
+      {
+        "id": "C2",
+        "quote": "UpdateTable on warden-dev-carts by role/warden-dev-finops-automation"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "warden-dev-carts",
+    "reasoning": "Consumed write capacity units equal the provisioned WCU (50), and write throttle events are extremely high (18432), indicating the table's provisioned write throughput is insufficient for current demand. A recent UpdateTable change by an automation role coincides with the onset of throttling, suggesting capacity was set too low. Increasing provisioned WCU (or enabling auto-scaling) on the warden-dev-carts table should relieve the throttling.",
+    "expected_effect": "Write throttle events on warden-dev-carts should drop toward zero as provisioned WCU is raised above sustained write demand.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3296,
+    "output_tokens": 1295,
+    "usd": 0.019542,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.75,
+      "hypothesis": "The carts DynamoDB table's provisioned write capacity (50 WCU) is being fully consumed (consumed WCU equals provisioned WCU) while read capacity has ample headroom, causing sustained write throttling. A recent UpdateTable change by an automation role shortly before the alarm fired suggests capacity was recently adjusted (likely reduced or left too low) for current write demand.",
+      "action": "scale_up",
+      "target": "warden-dev-carts",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "716a6f6082d98411326081024db75a158249d18ca4b468d8923dbb7ca03919fb",
+        "response_sha256": "11fe4d0706a9e2acf16a78b23bfb76c629d966bf5e9a0138b60db820a105ecbc",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

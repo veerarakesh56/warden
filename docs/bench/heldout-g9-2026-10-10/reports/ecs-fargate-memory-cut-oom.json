@@ -1,0 +1,179 @@
+{
+  "alert": {
+    "alert_id": "g9h-06",
+    "name": "warden-dev-orders-api-memory",
+    "severity": "high",
+    "service": "orders-api",
+    "environment": "dev",
+    "summary": "Memory utilisation of the orders API service above 90 percent",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "warden-dev-apps",
+      "ecs_service": "warden-dev-orders-api",
+      "alarm": "warden-dev-orders-api-memory"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 1,
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/MemoryUtilization ClusterName=warden-dev-apps,ServiceName=warden-dev-orders-api stat=Maximum period=60s threshold GreaterThanThreshold 90.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-apps in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:38:02Z ecs.amazonaws.com UpdateService on warden-dev-orders-api by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:37:51Z ecs.amazonaws.com RegisterTaskDefinition on warden-dev-orders-api by role/warden-dev-deployer",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:46:20Z {\"level\":\"info\",\"msg\":\"GET /v1/orders/o-55120 200\",\"ms\":31}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:02Z {\"level\":\"info\",\"msg\":\"orders-api 2.14.1 starting, container memory limit 512 MiB, NODE_OPTIONS=--max-old-space-size=384\"}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:04Z {\"level\":\"info\",\"msg\":\"warming product cache\",\"items\":41200}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:39Z <--- Last few GCs --->",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:39Z [1:0x6a3c2f0]    36712 ms: Mark-Compact 381.9 (391.2) -> 380.7 (392.0) MB, 611.20 / 0.00 ms  (average mu = 0.112, current mu = 0.031) allocation failure; scavenge might not succeed",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:39Z FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:51:30Z {\"level\":\"info\",\"msg\":\"GET /v1/orders/o-55188 200\",\"ms\":29}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:53:11Z {\"level\":\"info\",\"msg\":\"orders-api 2.14.1 starting, container memory limit 512 MiB, NODE_OPTIONS=--max-old-space-size=384\"}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:53:13Z {\"level\":\"info\",\"msg\":\"warming product cache\",\"items\":41200}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:53:50Z FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:56:02Z {\"level\":\"warn\",\"msg\":\"upstream warden-dev-inventory slow\",\"ms\":840}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:58:25Z {\"level\":\"info\",\"msg\":\"orders-api 2.14.1 starting, container memory limit 512 MiB, NODE_OPTIONS=--max-old-space-size=384\"}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:58:27Z {\"level\":\"info\",\"msg\":\"warming product cache\",\"items\":41200}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:59:05Z FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:59:40Z {\"level\":\"info\",\"msg\":\"GET /healthz 200\",\"ms\":2}",
+      "APPSG ecs/warden-dev-orders-api sgs=[sg-0c1d2e3f4a5b6c7d8]",
+      "TASKROLE ecs/warden-dev-orders-api role=warden-dev-orders-api-task"
+    ],
+    "metrics": {
+      "tasks_running": 1.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 2.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "deployment_failed_tasks": 9.0,
+      "cpu_utilization_pct": 61.2,
+      "memory_utilization_pct": 99.6,
+      "log_error_lines": 14.0,
+      "log_errors_peak_per_min": 4.0,
+      "alarm_memoryutilization": 99.6,
+      "alarm_sibling_ecs_cpuutilization": 61.2
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "warden-dev-orders-api",
+        "at": "2026-10-10T07:38:02Z",
+        "version": "warden-dev-orders-api:19",
+        "previous": "warden-dev-orders-api:18",
+        "image": "<ACCOUNTID_1>.dkr.ecr.ap-south-1.amazonaws.com/orders-api:2.14.1",
+        "previous_image": "<ACCOUNTID_1>.dkr.ecr.ap-south-1.amazonaws.com/orders-api:2.14.1",
+        "revision": "19"
+      }
+    ],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Memory utilisation of the orders API service above 90 percent",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The 07:38:02 deploy (task definition revision 19, replacing 18) changed the ECS task memory/Node.js heap settings such that the container's 512MiB memory limit is too close to the configured Node heap cap, causing the app to hit heap OOM under load. This drives memory utilization to the alarm threshold and causes the rolling deployment to fail tasks repeatedly (only 1/3 desired tasks running, 9 failed deployment tasks), while the container image itself is unchanged.",
+    "confidence": 0.68,
+    "evidence": [
+      "C3",
+      "C4",
+      "D1",
+      "M8",
+      "M6",
+      "F2",
+      "F4"
+    ],
+    "ruled_out": [
+      "No unrelated cluster-wide change: C2 shows no other change on the cluster in the prior 6h, so this is isolated to the orders-api deploy.",
+      "Not a code/image regression: D1 shows image and previous_image are identical (2.14.1), only the task definition revision changed."
+    ],
+    "citations": [
+      {
+        "id": "D1",
+        "quote": "version=warden-dev-orders-api:19, previous=warden-dev-orders-api:18"
+      },
+      {
+        "id": "C4",
+        "quote": "RegisterTaskDefinition on warden-dev-orders-api"
+      },
+      {
+        "id": "M8",
+        "quote": "memory_utilization_pct=99.6"
+      },
+      {
+        "id": "M6",
+        "quote": "deployment_failed_tasks=9"
+      },
+      {
+        "id": "F2",
+        "quote": "NODE_OPTIONS=--max-old-space-size=384; size=512MiB"
+      },
+      {
+        "id": "F4",
+        "quote": "phrase=\"out of memory\""
+      }
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "warden-dev-orders-api",
+    "reasoning": "The memory alarm and OOM heap errors correlate directly with the task definition change (revision 19) deployed just before the alert; the container image itself did not change, pointing to a task-def-level regression (e.g., memory/heap config) rather than application code. Rolling back to the prior task definition revision (18) that was stable removes the suspect change while a human investigates the NODE_OPTIONS/memory sizing.",
+    "expected_effect": "Service returns to the previously stable task definition (revision 18), memory utilization should drop below threshold, failed task launches should stop, and desired task count (3) should be reached.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "approved_for_human",
+    "reasons": [
+      "Passed all policies. Held for operator approval before execution."
+    ],
+    "policy_ids": [],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3725,
+    "output_tokens": 1327,
+    "usd": 0.020720000000000002,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.68,
+      "hypothesis": "The 07:38:02 deploy (task definition revision 19, replacing 18) changed the ECS task memory/Node.js heap settings such that the container's 512MiB memory limit is too close to the configured Node heap cap, causing the app to hit heap OOM under load. This drives memory utilization to the alarm threshold and causes the rolling deployment to fail tasks repeatedly (only 1/3 desired tasks running, 9 failed deployment tasks), while the container image itself is unchanged.",
+      "action": "rollback_deploy",
+      "target": "warden-dev-orders-api",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "afa8ba7ac8f15b960af1c8d72e65d7807121cf6a39fecf2b257276ff3d44f432",
+        "response_sha256": "092d16c8efa85f8a2832d4fd5fb03b43684a105273730e8aab3aada02b4dd546",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "approved_for_human",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

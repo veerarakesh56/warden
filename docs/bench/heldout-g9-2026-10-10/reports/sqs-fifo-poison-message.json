@@ -1,0 +1,180 @@
+{
+  "alert": {
+    "alert_id": "g9h-15",
+    "name": "warden-dev-ledger-consumer-stalled",
+    "severity": "high",
+    "service": "ledger-writer",
+    "environment": "dev",
+    "summary": "Ledger queue consumer stalled: oldest message age above 15 minutes while the consumer runs",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-ledger-writer",
+      "sqs": "warden-dev-ledger.fifo",
+      "alarm": "warden-dev-ledger-consumer-stalled"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 7,
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold GreaterThanThreshold 900.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-ledger-writer in the 6 h before the alert",
+      "CHANGE none on warden-dev-ledger.fifo in the 6 h before the alert",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:01Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"<UUID_1>\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"171\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:46:01.220Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:01Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:01Z REPORT RequestId: <UUID_2>\tDuration: 401.22 ms\tBilled Duration: 402 ms\tMemory Size: 512 MB\tMax Memory Used: 131 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:31Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"<UUID_1>\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"172\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:46:31.640Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:31Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:31Z REPORT RequestId: <UUID_3>\tDuration: 398.70 ms\tBilled Duration: 399 ms\tMemory Size: 512 MB\tMax Memory Used: 131 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:51:12Z {\"level\":\"DEBUG\",\"location\":\"ledger.client:refresh:22\",\"message\":\"table client refreshed\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:52:02Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"<UUID_1>\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"183\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:52:02.118Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:52:02Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:52:02Z REPORT RequestId: <UUID_4>\tDuration: 412.00 ms\tBilled Duration: 413 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:57:33Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"<UUID_1>\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"194\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:57:33.904Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:57:33Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:57:33Z REPORT RequestId: <UUID_5>\tDuration: 388.15 ms\tBilled Duration: 389 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:58:04Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"<UUID_1>\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"195\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:58:04.311Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:58:04Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:58:04Z REPORT RequestId: <UUID_6>\tDuration: 402.90 ms\tBilled Duration: 403 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T08:00:05Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"<UUID_1>\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"199\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T08:00:05.777Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T08:00:05Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T08:00:05Z REPORT RequestId: <UUID_7>\tDuration: 395.31 ms\tBilled Duration: 396 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "CONFIG lambda warden-dev-ledger-writer timeout=30s memory=512MB reserved_concurrency=none env=[LEDGER_TABLE=warden-dev-ledger,LOG_LEVEL=INFO,POWERTOOLS_SERVICE_NAME=ledger] version=9 alias_live=9",
+      "ESM warden-dev-ledger-writer <- warden-dev-ledger.fifo State=Enabled BatchSize=10 LastProcessingResult=OK",
+      "QUEUE warden-dev-ledger.fifo visible=5120 in_flight=10 dlq=none dlq_visible=- max_receive=-"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_esm_enabled": 1.0,
+      "lambda_errors": 0.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 41.0,
+      "lambda_duration_max_ms": 412.0,
+      "lambda_concurrent_executions": 1.0,
+      "log_error_lines": 41.0,
+      "log_errors_peak_per_min": 2.0,
+      "sqs_visible": 5120.0,
+      "sqs_in_flight": 10.0,
+      "sqs_visibility_timeout_s": 30.0,
+      "sqs_oldest_age_s": 5975.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Ledger queue consumer stalled: oldest message age above 15 minutes while the consumer runs",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The ledger-writer Lambda is repeatedly encountering invalid/unprocessable records in the FIFO queue (logged as ERROR 'invalid') without the Lambda runtime itself raising an error or throttle, so the per-message-group ordering of the FIFO queue stalls: only 1 concurrent execution is running, invocation volume is tiny relative to the 5120 visible messages, and the oldest message has sat unprocessed for ~100 minutes. With no DLQ configured, a poison message/group is not being drained automatically, causing the consumer-stalled alarm.",
+    "confidence": 0.5,
+    "evidence": [
+      "C6 visible=5120 with dlq=none means a stuck message cannot be auto-removed",
+      "M14 oldest_age_s=5975 shows messages aging far beyond normal processing time",
+      "M8 concurrent_executions=1 shows almost no parallelism despite a large backlog",
+      "F1 shows repeated ERROR 'invalid' log lines while M4 lambda_errors=0, suggesting swallowed/non-fatal errors on individual records",
+      "C5 LastProcessingResult=OK and C2/C3 show no recent deploy or config change, ruling out a deploy-induced regression"
+    ],
+    "ruled_out": [
+      "Recent deploy or config change (C2, C3 show none in 6h)",
+      "Lambda runtime errors/throttling as the direct cause (M4 errors=0, M5 throttles=0)",
+      "ESM itself being disabled or misconfigured (C5 State=Enabled, LastProcessingResult=OK)"
+    ],
+    "citations": [
+      {
+        "id": "C6",
+        "quote": "visible=5120 in_flight=10 dlq=none"
+      },
+      {
+        "id": "M14",
+        "quote": "sqs_oldest_age_s=5975"
+      },
+      {
+        "id": "M8",
+        "quote": "lambda_concurrent_executions=1"
+      },
+      {
+        "id": "F1",
+        "quote": "phrase=\"invalid\" (x6: L1, L4, L8, L11, L14 and 1 more)"
+      },
+      {
+        "id": "M4",
+        "quote": "lambda_errors=0"
+      },
+      {
+        "id": "C2",
+        "quote": "none on warden-dev-ledger-writer in the 6 h before the alert"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "pause_flow",
+    "target": "warden-dev-ledger-writer",
+    "reasoning": "Given repeated 'invalid' record errors with no function-level exceptions and a FIFO queue with no DLQ, the safest first step is to pause the Lambda's event source mapping to stop further (likely futile) processing attempts and prevent additional poison-message churn, while a human inspects and potentially redrives or purges the offending message(s).",
+    "expected_effect": "Consumption from warden-dev-ledger.fifo stops immediately, halting repeated failed processing attempts on the stuck message group and freezing the backlog for inspection without further growth from retries.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.50 is below the 0.55 threshold.",
+      "none of the cited evidence bears on pause_flow (it names none of: poison, recurs, storm, runaway, flood, redeliver...)."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE",
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3709,
+    "output_tokens": 3004,
+    "usd": 0.037458,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 7,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.5,
+      "hypothesis": "The ledger-writer Lambda is repeatedly encountering invalid/unprocessable records in the FIFO queue (logged as ERROR 'invalid') without the Lambda runtime itself raising an error or throttle, so the per-message-group ordering of the FIFO queue stalls: only 1 concurrent execution is running, invocation volume is tiny relative to the 5120 visible messages, and the oldest message has sat unprocessed for ~100 minutes. With no DLQ configured, a poison message/group is not being drained automatically, causing the consumer-stalled alarm.",
+      "action": "pause_flow",
+      "target": "warden-dev-ledger-writer",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "228294756e9ed0bbae18e01fb2b658f3b04b0fd85f4adee1590a86e07e5a85d5",
+        "response_sha256": "f03cda3306b3577914422478d3d8e66832682c468aff72d60f0371142c83dfff",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE",
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

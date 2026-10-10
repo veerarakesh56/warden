@@ -1,0 +1,159 @@
+{
+  "alert": {
+    "alert_id": "g9h-04",
+    "name": "warden-dev-ledger-reconcile-duration",
+    "severity": "medium",
+    "service": "ledger-reconcile",
+    "environment": "dev",
+    "summary": "Duration of the ledger reconcile function above 30 seconds",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-ledger-reconcile",
+      "alarm": "warden-dev-ledger-reconcile-duration"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 1,
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Duration FunctionName=warden-dev-ledger-reconcile stat=Maximum period=300s threshold GreaterThanThreshold 30000.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-ledger-reconcile in the 6 h before the alert",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:00Z INIT_START Runtime Version: python:3.12.v41\tRuntime Version ARN: arn:aws:lambda:ap-south-1::runtime:5c0d8f1e2a7b",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:01Z [INFO]\t2026-10-10T08:00:01.114Z\t<UUID_1>\treconcile run started run_id=rc-20261010-0800 trigger=warden-dev-reconcile-daily",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:09Z [INFO]\t2026-10-10T08:00:09.870Z\t<UUID_1>\tloaded 18442 ledger entries from warden-dev-ledger (3 pages)",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:31Z [INFO]\t2026-10-10T08:00:31.402Z\t<UUID_1>\tbank statement fetched: 18431 lines",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:44Z [INFO]\t2026-10-10T08:00:44.990Z\t<UUID_1>\tmatched 18431, 11 flagged for review -> warden-dev-ledger-review",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:45Z [INFO]\t2026-10-10T08:00:45.203Z\t<UUID_1>\treconcile run finished in 44.1s",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:45Z REPORT RequestId: <UUID_1>\tDuration: 44127.55 ms\tBilled Duration: 44128 ms\tMemory Size: 1024 MB\tMax Memory Used: 388 MB",
+      "CONFIG lambda warden-dev-ledger-reconcile timeout=900s memory=1024MB reserved_concurrency=1 env=[LEDGER_TABLE=warden-dev-ledger,LOG_LEVEL=INFO,REVIEW_QUEUE=warden-dev-ledger-review] version=7 alias_live=7"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 900.0,
+      "lambda_memory_mb": 1024.0,
+      "lambda_reserved_concurrency": 1.0,
+      "lambda_errors": 0.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 1.0,
+      "lambda_duration_max_ms": 44127.55,
+      "lambda_concurrent_executions": 1.0,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "alarm_duration": 44127.55,
+      "alarm_sibling_lambda_errors": 0.0,
+      "alarm_sibling_lambda_invocations": 1.0,
+      "alarm_sibling_lambda_concurrentexecutions": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Duration of the ledger reconcile function above 30 seconds",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "A single reconciliation invocation ran for ~44.1s, crossing the fixed 30s Duration alarm threshold, but the function completed successfully (no errors, no throttles, no resource exhaustion) and used only ~38% of allotted memory and ~5% of its 900s timeout. This looks like normal run-time variance for this job exceeding an alarm threshold set too tight for its actual workload, not an infrastructure or dependency failure.",
+    "confidence": 0.45,
+    "evidence": [
+      "M7",
+      "M4",
+      "M5",
+      "C1",
+      "F4"
+    ],
+    "ruled_out": [
+      "Deploy-induced regression (C2 shows no change in prior 6h)",
+      "Resource starvation (memory usage 388MB of 1024MB, no throttles)",
+      "Error-driven slowdown (0 error lines, 0 lambda_errors)"
+    ],
+    "citations": [
+      {
+        "id": "C1",
+        "quote": "threshold GreaterThanThreshold 30000.0"
+      },
+      {
+        "id": "M7",
+        "quote": "lambda_duration_max_ms=44127.6"
+      },
+      {
+        "id": "M4",
+        "quote": "lambda_errors=0"
+      },
+      {
+        "id": "M5",
+        "quote": "lambda_throttles=0"
+      },
+      {
+        "id": "F4",
+        "quote": "duration=44127.55ms .. duration=44128ms (2 values); max_memory_used=388MB; memory_size=1024MB"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "no_action",
+    "target": "lambda:warden-dev-ledger-reconcile",
+    "reasoning": "The single breaching datapoint reflects a successful invocation (0 errors, 0 throttles) that completed in 44.1s, well within the 900s timeout and using well under half of provisioned memory. There is no evidence of a deploy, config change, error pattern, or resource exhaustion causing this. The alarm appears to be a tight 30s static threshold being crossed by normal job variance rather than a fault requiring remediation.",
+    "expected_effect": "No change to the running system; incident is logged as a likely alarm-threshold/false-positive case for review rather than acted on.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Confidence 0.45 is below the 0.55 threshold."
+    ],
+    "policy_ids": [
+      "P4-LOW-CONFIDENCE"
+    ],
+    "requires_approval": true,
+    "observed": [
+      "P26-LOW-DECIDER-P: the calibrated decider puts this proposal at p=0.39 of being right"
+    ]
+  },
+  "cost": {
+    "input_tokens": 3491,
+    "output_tokens": 1545,
+    "usd": 0.022432,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.45,
+      "hypothesis": "A single reconciliation invocation ran for ~44.1s, crossing the fixed 30s Duration alarm threshold, but the function completed successfully (no errors, no throttles, no resource exhaustion) and used only ~38% of allotted memory and ~5% of its 900s timeout. This looks like normal run-time variance for this job exceeding an alarm threshold set too tight for its actual workload, not an infrastructure or dependency failure.",
+      "action": "no_action",
+      "target": "lambda:warden-dev-ledger-reconcile",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "04fa63825a6ef2691becff4db1600789ba6a92476b9849b4fc9fba44de09c484",
+        "response_sha256": "3ebd3aff1230a2e7427d7e7e389060c1b25cb14da20581a614e2d8283946080f",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P4-LOW-CONFIDENCE"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

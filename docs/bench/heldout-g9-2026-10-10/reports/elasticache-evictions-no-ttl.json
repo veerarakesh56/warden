@@ -1,0 +1,144 @@
+{
+  "alert": {
+    "alert_id": "g9h-27",
+    "name": "warden-dev-sessions-evictions",
+    "severity": "high",
+    "service": "sessions-cache",
+    "environment": "dev",
+    "summary": "Evictions on the sessions cache node above 1000 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "elasticache_node": "warden-dev-sessions-0001-001",
+      "alarm": "warden-dev-sessions-evictions"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/ElastiCache/Evictions CacheClusterId=warden-dev-sessions-0001-001 stat=Sum period=300s threshold GreaterThanThreshold 1000.0 datapoints=2/2 missing=notBreaching state=ALARM",
+      "STATE elasticache_node warden-dev-sessions-0001-001 CacheClusterStatus=available CacheNodeType=cache.t4g.small Engine=redis EngineVersion=7.1.0 ReplicationGroupId=warden-dev-sessions NumCacheNodes=1",
+      "CHANGE none on warden-dev-sessions-0001-001 in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_evictions": 48210.0,
+      "alarm_sibling_elasticache_databasememoryusagepercentage": 99.1,
+      "alarm_sibling_elasticache_curritems": 1920442.0,
+      "alarm_sibling_elasticache_currconnections": 412.0,
+      "alarm_sibling_elasticache_enginecpuutilization": 31.4,
+      "alarm_sibling_elasticache_bytesusedforcache": 1372110848.0,
+      "alarm_sibling_elasticache_cachehitrate": 61.2,
+      "alarm_sibling_elasticache_reclaimed": 0.0,
+      "alarm_sibling_elasticache_newconnections": 38.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Evictions on the sessions cache node above 1000 in 5 minutes",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The sessions-cache Redis node is undersized for its working set: DatabaseMemoryUsagePercentage is at 99.1% with ~1.92M items stored, causing Redis to aggressively evict keys (48,210 evictions in two 5-minute periods) under normal load. No deploy or config change occurred in the preceding 6 hours, ruling out a recent code/config regression as the trigger - this looks like organic growth outpacing the single cache.t4g.small node's memory capacity.",
+    "confidence": 0.72,
+    "evidence": [
+      "M1: alarm_evictions=48210 shows massive eviction volume",
+      "M2: memory usage at 99.1% indicates the node is nearly out of capacity",
+      "M3: curritems ~1.92M shows a large working set",
+      "C3: no change in the preceding 6 hours rules out a deploy-triggered regression",
+      "C2: single node (NumCacheNodes=1) of type cache.t4g.small, a small instance class"
+    ],
+    "ruled_out": [
+      "Recent deploy or config change as trigger (C3 shows none in 6h window)",
+      "CPU-bound cause (M5 enginecpuutilization=31.4 is moderate, not saturated)"
+    ],
+    "citations": [
+      {
+        "id": "M1",
+        "quote": "alarm_evictions=48210"
+      },
+      {
+        "id": "M2",
+        "quote": "alarm_sibling_elasticache_databasememoryusagepercentage=99.1"
+      },
+      {
+        "id": "M3",
+        "quote": "alarm_sibling_elasticache_curritems=1.92044e+06"
+      },
+      {
+        "id": "C3",
+        "quote": "CHANGE none on warden-dev-sessions-0001-001 in the 6 h before the alert"
+      },
+      {
+        "id": "C2",
+        "quote": "CacheNodeType=cache.t4g.small"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "scale_up",
+    "target": "warden-dev-sessions-0001-001",
+    "reasoning": "Memory usage is at 99.1% with a large item count, driving sustained high eviction rates. Increasing the cache node's memory capacity (scaling up the node type or adding nodes) directly addresses the root cause of insufficient memory headroom, rather than masking symptoms with a cache clear which would only provide temporary relief.",
+    "expected_effect": "Increased available memory reduces the memory pressure percentage, allowing more keys to be retained and evictions to drop back below the 1000/5min threshold.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "none of the cited evidence bears on scale_up (it names none of: memory, oom, throttl, cpu, concurrency, pool...)."
+    ],
+    "policy_ids": [
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3293,
+    "output_tokens": 1250,
+    "usd": 0.019086,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.72,
+      "hypothesis": "The sessions-cache Redis node is undersized for its working set: DatabaseMemoryUsagePercentage is at 99.1% with ~1.92M items stored, causing Redis to aggressively evict keys (48,210 evictions in two 5-minute periods) under normal load. No deploy or config change occurred in the preceding 6 hours, ruling out a recent code/config regression as the trigger - this looks like organic growth outpacing the single cache.t4g.small node's memory capacity.",
+      "action": "scale_up",
+      "target": "warden-dev-sessions-0001-001",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "c8c8c7bb7a9b894417f58eba51f92bedcdbfc73dde76043205e842e96359d47f",
+        "response_sha256": "4f4dc4a7be3b49acfe9fe65f1ccde719bf5a1d2b3580bb05144949f890faf699",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

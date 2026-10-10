@@ -1,0 +1,138 @@
+{
+  "alert": {
+    "alert_id": "g9h-47",
+    "name": "warden-dev-legacy-reports-packets-in",
+    "severity": "high",
+    "service": "legacy-reports",
+    "environment": "dev",
+    "summary": "Inbound packets on the legacy reports instance below 1000 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "instance_id": "i-0f1e2d3c4b5a69788",
+      "alarm": "warden-dev-legacy-reports-packets-in"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/EC2/NetworkPacketsIn InstanceId=i-0f1e2d3c4b5a69788 stat=Sum period=300s threshold LessThanThreshold 1000.0 datapoints=1/1 missing=missing state=ALARM",
+      "STATE instance_id i-0f1e2d3c4b5a69788 Name=running Status=ok Status=ok Events=0",
+      "CHANGE 2026-10-10T07:56:48Z ec2.amazonaws.com ModifyInstanceAttribute on i-0f1e2d3c4b5a69788 by role/warden-dev-guardduty-responder"
+    ],
+    "metrics": {
+      "alarm_networkpacketsin": 212.0,
+      "alarm_sibling_ec2_cpuutilization": 3.1,
+      "alarm_sibling_ec2_networkin": 18400.0,
+      "alarm_sibling_ec2_networkout": 9100.0,
+      "alarm_sibling_ec2_statuscheckfailed": 0.0,
+      "alarm_sibling_ec2_networkpacketsout": 140.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Inbound packets on the legacy reports instance below 1000 in 5 minutes",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "NetworkPacketsIn dropped below threshold because a GuardDuty automated responder role modified the instance's attributes (likely isolating it via security-group/network change) shortly before the alarm fired, cutting off normal network traffic rather than an application or infrastructure failure.",
+    "confidence": 0.55,
+    "evidence": [
+      "C1: packets-in alarm fired with real low value",
+      "C3: ModifyInstanceAttribute by guardduty-responder role shortly before alarm",
+      "M1: alarm_networkpacketsin=212 confirms near-zero traffic",
+      "C2: instance itself reports running/ok so it's not a crash"
+    ],
+    "ruled_out": [
+      "Instance crash or termination - C2 shows instance state running and status ok",
+      "Generic network outage affecting the whole host - sibling metrics (M2-M6) show normal activity"
+    ],
+    "citations": [
+      {
+        "id": "C1",
+        "quote": "ALARM AWS/EC2/NetworkPacketsIn InstanceId=i-0f1e2d3c4b5a69788 stat=Sum period=300s threshold LessThanThreshold 1000.0 datapoints=1/1 missing=missing state=ALARM"
+      },
+      {
+        "id": "C3",
+        "quote": "ModifyInstanceAttribute on i-0f1e2d3c4b5a69788 by role/warden-dev-guardduty-responder"
+      },
+      {
+        "id": "M1",
+        "quote": "alarm_networkpacketsin=212"
+      },
+      {
+        "id": "C2",
+        "quote": "Name=running Status=ok Status=ok Events=0"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "i-0f1e2d3c4b5a69788",
+    "reasoning": "The low packet count correlates with a ModifyInstanceAttribute call made by an automated GuardDuty remediation role, which strongly suggests the instance was deliberately isolated as part of a security response (e.g., security-group change) rather than an operational failure. Reversing or modifying this state could interfere with an active security containment action, so it requires human judgment rather than an automated remediation.",
+    "expected_effect": "A human responder reviews the GuardDuty finding and the instance's current security-group/network configuration to confirm whether isolation was intentional, then decides whether to restore connectivity or keep the instance quarantined.",
+    "blast_radius": "single_service",
+    "reversible": false,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": true
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "The proposal claims escalate_to_human is irreversible; WARDEN's action table classifies it reversible. A human should reconcile that before anything runs."
+    ],
+    "policy_ids": [
+      "P10-CLAIM-CONTRADICTS-TABLE"
+    ],
+    "requires_approval": true,
+    "observed": [
+      "P26-LOW-DECIDER-P: the calibrated decider puts this proposal at p=0.42 of being right"
+    ]
+  },
+  "cost": {
+    "input_tokens": 3195,
+    "output_tokens": 1224,
+    "usd": 0.01863,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.55,
+      "hypothesis": "NetworkPacketsIn dropped below threshold because a GuardDuty automated responder role modified the instance's attributes (likely isolating it via security-group/network change) shortly before the alarm fired, cutting off normal network traffic rather than an application or infrastructure failure.",
+      "action": "escalate_to_human",
+      "target": "i-0f1e2d3c4b5a69788",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "b96a72d6b4d741f12caefbad93619aeb8b065678a4414c39c19a6e9ef984bfad",
+        "response_sha256": "0ebd6ad8144c57f680f2bf57acd6116ab981aac21ef139ce0d3627199866e042",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P10-CLAIM-CONTRADICTS-TABLE"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

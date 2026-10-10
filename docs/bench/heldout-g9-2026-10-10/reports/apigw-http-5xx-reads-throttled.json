@@ -1,0 +1,129 @@
+{
+  "alert": {
+    "alert_id": "g9h-24",
+    "name": "warden-dev-mobile-http-api-5xx",
+    "severity": "high",
+    "service": "mobile-api",
+    "environment": "dev",
+    "summary": "5xx responses on the mobile HTTP API above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apigw_id": "k7x2m9q4ab",
+      "alarm": "warden-dev-mobile-http-api-5xx"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/ApiGateway/5xx ApiId=k7x2m9q4ab stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=2/3 missing=notBreaching state=ALARM",
+      "STATE apigw_id k7x2m9q4ab ProtocolType=HTTP DisableExecuteApiEndpoint=false"
+    ],
+    "metrics": {
+      "alarm_5xx": 388.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm-siblings metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded"
+    ],
+    "empty_reads": [],
+    "alert_text": "5xx responses on the mobile HTTP API above 20 per minute",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The API Gateway (k7x2m9q4ab) crossed its 5xx error threshold (388 sum vs 20 threshold), but the evidence needed to explain why (sibling alarm metrics and recent change/deploy history) could not be retrieved because GetMetricData and LookupEvents calls were throttled. Without visibility into recent deploys, config changes, or backend health, no specific root cause (bad deploy, backend outage, integration failure, throttling) can be established — only that a real 5xx spike occurred.",
+    "confidence": 0.25,
+    "evidence": [
+      "Confirmed 5xx threshold breach via C1/M1",
+      "Diagnostic reads for siblings and recent changes both failed (T1, T2), making the actual trigger unknown rather than ruled out"
+    ],
+    "ruled_out": [],
+    "citations": [
+      {
+        "id": "C1",
+        "quote": "ALARM AWS/ApiGateway/5xx ApiId=k7x2m9q4ab stat=Sum period=60s threshold GreaterThanThreshold 20.0"
+      },
+      {
+        "id": "M1",
+        "quote": "alarm_5xx=388"
+      },
+      {
+        "id": "T1",
+        "quote": "throttled on GetMetricData"
+      },
+      {
+        "id": "T2",
+        "quote": "throttled on LookupEvents"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "k7x2m9q4ab",
+    "reasoning": "A confirmed 5xx error spike exists on this API Gateway, but the two diagnostic reads needed to identify cause (metric siblings, recent change/deploy events) both failed due to throttling, leaving the trigger unknown. No deploy, config, or backend evidence is available to safely target an automated fix (e.g., rollback or scaling) without risking an uninformed action on a live API.",
+    "expected_effect": "A human investigates with full access to CloudTrail/CloudWatch (bypassing current throttling) to confirm whether this is a backend outage, bad deploy, or integration failure before any remediation is applied.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false,
+    "observed": [
+      "P26-LOW-DECIDER-P: the calibrated decider puts this proposal at p=0.26 of being right"
+    ]
+  },
+  "cost": {
+    "input_tokens": 2996,
+    "output_tokens": 1478,
+    "usd": 0.020772,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": [
+        "logs: alarm-siblings metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+        "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded"
+      ]
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.25,
+      "hypothesis": "The API Gateway (k7x2m9q4ab) crossed its 5xx error threshold (388 sum vs 20 threshold), but the evidence needed to explain why (sibling alarm metrics and recent change/deploy history) could not be retrieved because GetMetricData and LookupEvents calls were throttled. Without visibility into recent deploys, config changes, or backend health, no specific root cause (bad deploy, backend outage, integration failure, throttling) can be established — only that a real 5xx spike occurred.",
+      "action": "escalate_to_human",
+      "target": "k7x2m9q4ab",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "99dcd5b10b3be451e64f074da09a6862662e8e6f51caaa1859c1fd0ab8938d08",
+        "response_sha256": "d88645213fb6ccd6c5fb1efa985bc42dda9deb3f532d57951ec5dda4390c4195",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

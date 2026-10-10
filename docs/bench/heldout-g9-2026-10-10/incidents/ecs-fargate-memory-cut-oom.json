@@ -1,0 +1,70 @@
+{
+  "id": "ecs-fargate-memory-cut-oom",
+  "alert": {
+    "alert_id": "g9h-06",
+    "name": "warden-dev-orders-api-memory",
+    "service": "orders-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Memory utilisation of the orders API service above 90 percent",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "warden-dev-apps",
+      "ecs_service": "warden-dev-orders-api",
+      "alarm": "warden-dev-orders-api-memory"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/MemoryUtilization ClusterName=warden-dev-apps,ServiceName=warden-dev-orders-api stat=Maximum period=60s threshold GreaterThanThreshold 90.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-apps in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:38:02Z ecs.amazonaws.com UpdateService on warden-dev-orders-api by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:37:51Z ecs.amazonaws.com RegisterTaskDefinition on warden-dev-orders-api by role/warden-dev-deployer",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:46:20Z {\"level\":\"info\",\"msg\":\"GET /v1/orders/o-55120 200\",\"ms\":31}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:02Z {\"level\":\"info\",\"msg\":\"orders-api 2.14.1 starting, container memory limit 512 MiB, NODE_OPTIONS=--max-old-space-size=384\"}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:04Z {\"level\":\"info\",\"msg\":\"warming product cache\",\"items\":41200}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:39Z <--- Last few GCs --->",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:39Z [1:0x6a3c2f0]    36712 ms: Mark-Compact 381.9 (391.2) -> 380.7 (392.0) MB, 611.20 / 0.00 ms  (average mu = 0.112, current mu = 0.031) allocation failure; scavenge might not succeed",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:48:39Z FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:51:30Z {\"level\":\"info\",\"msg\":\"GET /v1/orders/o-55188 200\",\"ms\":29}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:53:11Z {\"level\":\"info\",\"msg\":\"orders-api 2.14.1 starting, container memory limit 512 MiB, NODE_OPTIONS=--max-old-space-size=384\"}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:53:13Z {\"level\":\"info\",\"msg\":\"warming product cache\",\"items\":41200}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:53:50Z FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:56:02Z {\"level\":\"warn\",\"msg\":\"upstream warden-dev-inventory slow\",\"ms\":840}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:58:25Z {\"level\":\"info\",\"msg\":\"orders-api 2.14.1 starting, container memory limit 512 MiB, NODE_OPTIONS=--max-old-space-size=384\"}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:58:27Z {\"level\":\"info\",\"msg\":\"warming product cache\",\"items\":41200}",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:59:05Z FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory",
+      "LOG ecs/warden-dev-orders-api 2026-10-10T07:59:40Z {\"level\":\"info\",\"msg\":\"GET /healthz 200\",\"ms\":2}",
+      "APPSG ecs/warden-dev-orders-api sgs=[sg-0c1d2e3f4a5b6c7d8]",
+      "TASKROLE ecs/warden-dev-orders-api role=warden-dev-orders-api-task"
+    ],
+    "metrics": {
+      "tasks_running": 1,
+      "tasks_desired": 3,
+      "tasks_pending": 2,
+      "deployments_in_flight": 2,
+      "deployments_failed": 0,
+      "deployment_failed_tasks": 9,
+      "cpu_utilization_pct": 61.2,
+      "memory_utilization_pct": 99.6,
+      "log_error_lines": 14,
+      "log_errors_peak_per_min": 4,
+      "alarm_memoryutilization": 99.6,
+      "alarm_sibling_ecs_cpuutilization": 61.2
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "warden-dev-orders-api",
+        "at": "2026-10-10T07:38:02Z",
+        "version": "warden-dev-orders-api:19",
+        "previous": "warden-dev-orders-api:18",
+        "image": "111122223333.dkr.ecr.ap-south-1.amazonaws.com/orders-api:2.14.1",
+        "previous_image": "111122223333.dkr.ecr.ap-south-1.amazonaws.com/orders-api:2.14.1",
+        "revision": "19"
+      }
+    ],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

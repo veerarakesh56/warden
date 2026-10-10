@@ -1,0 +1,65 @@
+{
+  "id": "lambda-retry-storm-partner-outage",
+  "alert": {
+    "alert_id": "g9h-02",
+    "name": "warden-dev-quote-sync-errors",
+    "service": "quote-sync",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors on the quote sync function above 50 per minute for 3 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-quote-sync",
+      "alarm": "warden-dev-quote-sync-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-quote-sync stat=Sum period=60s threshold GreaterThanThreshold 50.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T06:12:40Z lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 on warden-dev-quote-sync by role/warden-dev-deployer",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:49:58Z {\"level\":\"INFO\",\"location\":\"handler:40\",\"message\":\"quote synced\",\"sku\":\"SKU-44120\",\"ms\":212,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:49:58Z REPORT RequestId: 7a31b9e5-76af-e4b3-325b-ca3635c1415e\tDuration: 231.50 ms\tBilled Duration: 232 ms\tMemory Size: 512 MB\tMax Memory Used: 140 MB",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:52:03Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 503 Service Unavailable, retry 1/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:52:03Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 503 Service Unavailable, retry 2/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:52:03Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 503 Service Unavailable, retry 3/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:52:04Z {\"level\":\"INFO\",\"location\":\"handler:40\",\"message\":\"quote synced\",\"sku\":\"SKU-44188\",\"ms\":1840,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:54:40Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 503 Service Unavailable, retry 6/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:54:40Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 503 Service Unavailable, retry 7/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:54:41Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 503 Service Unavailable, retry 9/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:54:41Z {\"level\":\"ERROR\",\"location\":\"handler:52\",\"message\":\"giving up after 10 attempts: 503 Service Unavailable\",\"messageId\":\"8c822f49-e26a-d5ad-f2b8-7782b3e995d9\",\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:57:12Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 429 Too Many Requests, retry 3/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:57:12Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 429 Too Many Requests, retry 4/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:57:13Z {\"level\":\"WARNING\",\"location\":\"partner:call:79\",\"message\":\"partner responded 429 Too Many Requests\",\"retry_after\":\"60\",\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:59:31Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 429 Too Many Requests, retry 8/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:59:59Z 2026-10-10T07:59:59.871Z f19f95ee-bdb9-937c-aae7-cce090c97c40 Task timed out after 30.00 seconds",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T07:59:59Z REPORT RequestId: f19f95ee-bdb9-937c-aae7-cce090c97c40\tDuration: 30003.18 ms\tBilled Duration: 30004 ms\tMemory Size: 512 MB\tMax Memory Used: 162 MB",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T08:00:02Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 503 Service Unavailable, retry 2/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T08:00:02Z {\"level\":\"WARNING\",\"location\":\"partner:call:72\",\"message\":\"partner rates returned 429 Too Many Requests, retry 5/10\",\"upstream\":\"rates.partner.example\",\"backoff_ms\":0,\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T08:00:03Z {\"level\":\"ERROR\",\"location\":\"handler:52\",\"message\":\"giving up after 10 attempts: 429 Too Many Requests\",\"messageId\":\"bd7b1d4d-fb9c-a5f9-3f05-6c6e22ac621c\",\"service\":\"quote-sync\"}",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T08:00:31Z 2026-10-10T08:00:31.202Z 79c5e831-1b6b-b3ce-a0c3-76baa8b51ad2 Task timed out after 30.00 seconds",
+      "LOG lambda/warden-dev-quote-sync 2026-10-10T08:00:31Z REPORT RequestId: 79c5e831-1b6b-b3ce-a0c3-76baa8b51ad2\tDuration: 30001.96 ms\tBilled Duration: 30002 ms\tMemory Size: 512 MB\tMax Memory Used: 160 MB",
+      "CONFIG lambda warden-dev-quote-sync timeout=30s memory=512MB reserved_concurrency=200 env=[PARTNER_HOST=rates.partner.example,QUOTES_TABLE=warden-dev-quotes,RETRY_BACKOFF_MS=0,RETRY_LIMIT=10,TIMEOUT_SECONDS=5] version=23 alias_live=-",
+      "ESM warden-dev-quote-sync <- warden-dev-quote-requests State=Enabled BatchSize=10 LastProcessingResult=OK"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 30,
+      "lambda_memory_mb": 512,
+      "lambda_reserved_concurrency": 200,
+      "lambda_esm_enabled": 1,
+      "lambda_errors": 1840,
+      "lambda_throttles": 0,
+      "lambda_invocations": 2210,
+      "lambda_duration_max_ms": 30003.2,
+      "lambda_concurrent_executions": 200,
+      "log_error_lines": 23110,
+      "log_errors_peak_per_min": 2412,
+      "alarm_errors": 1840,
+      "alarm_sibling_lambda_concurrentexecutions": 200,
+      "alarm_sibling_lambda_duration": 30003.2,
+      "alarm_sibling_lambda_invocations": 241
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

@@ -1,0 +1,140 @@
+{
+  "alert": {
+    "alert_id": "g9h-23",
+    "name": "warden-dev-public-api-5xx",
+    "severity": "high",
+    "service": "public-api",
+    "environment": "dev",
+    "summary": "5XX errors on the public REST API stage v1 above 50 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apigw_rest": "warden-dev-public-api",
+      "apigw_stage": "v1",
+      "alarm": "warden-dev-public-api-5xx"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 1,
+  "context": {
+    "logs": [
+      "ALARM AWS/ApiGateway/5XXError ApiName=warden-dev-public-api,Stage=v1 stat=Sum period=60s threshold GreaterThanThreshold 50.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "STATE apigw_rest warden-dev-public-api types=REGIONAL apiKeySource=<SECRET_1> disableExecuteApiEndpoint=false",
+      "CHANGE none on warden-dev-public-api in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_5xxerror": 1460.0,
+      "alarm_sibling_apigateway_integrationlatency": 29000.0,
+      "alarm_sibling_apigateway_latency": 29012.0,
+      "alarm_sibling_apigateway_count": 1.0,
+      "alarm_sibling_apigateway_4xxerror": 1.0,
+      "alarm_sibling_apigateway_cachehitcount": 0.0,
+      "alarm_sibling_apigateway_cachemisscount": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "5XX errors on the public REST API stage v1 above 50 per minute",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The 5XX spike correlates with backend integration latency sitting near the API Gateway's ~29s hard integration timeout ceiling, suggesting the downstream integration (not the API Gateway or a recent deploy) is timing out and causing 504/5XX responses. No deploy or config change preceded the alert, ruling out a release-induced regression.",
+    "confidence": 0.55,
+    "evidence": [
+      "C1 shows the 5XXError sum crossed 50 for 3/3 datapoints",
+      "M1 shows 1460 5xx errors accumulated",
+      "M2 and M3 show integration latency and overall latency both near 29000ms, consistent with hitting the API Gateway integration timeout",
+      "C2 shows no change on the service in the preceding 6 hours, ruling out a deploy or config edit as the trigger"
+    ],
+    "ruled_out": [
+      "Recent deploy or config change causing the regression (C2 shows none in the 6h window)",
+      "Client-side 4xx driven throttling as primary cause (M5 shows only 1 4xx error)"
+    ],
+    "citations": [
+      {
+        "id": "C1",
+        "quote": "GreaterThanThreshold 50.0"
+      },
+      {
+        "id": "M1",
+        "quote": "alarm_5xxerror=1460"
+      },
+      {
+        "id": "M2",
+        "quote": "alarm_sibling_apigateway_integrationlatency=29000"
+      },
+      {
+        "id": "M3",
+        "quote": "alarm_sibling_apigateway_latency=29012"
+      },
+      {
+        "id": "C2",
+        "quote": "none on warden-dev-public-api in the 6 h before the alert"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "escalate_to_human",
+    "target": "warden-dev-public-api",
+    "reasoning": "Evidence points to a backend integration timeout (latency near the 29s ceiling) rather than a config or deploy issue on the API Gateway itself, but the actual backend integration (e.g., a Lambda or load balancer) is not identified in any evidence item or label, so no safe automated remediation target can be named. A human should identify and address the slow backend integration.",
+    "expected_effect": "A human investigates the backend integration behind warden-dev-public-api / v1 stage, identifies the source of the ~29s latency, and takes corrective action (e.g., scaling, timeout tuning, or rollback of the actual backend service).",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "auto_safe",
+    "reasons": [
+      "Action is inert or advisory; no approval required."
+    ],
+    "policy_ids": [],
+    "requires_approval": false,
+    "observed": [
+      "P26-LOW-DECIDER-P: the calibrated decider puts this proposal at p=0.18 of being right"
+    ]
+  },
+  "cost": {
+    "input_tokens": 3151,
+    "output_tokens": 2086,
+    "usd": 0.027162000000000006,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 1,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.55,
+      "hypothesis": "The 5XX spike correlates with backend integration latency sitting near the API Gateway's ~29s hard integration timeout ceiling, suggesting the downstream integration (not the API Gateway or a recent deploy) is timing out and causing 504/5XX responses. No deploy or config change preceded the alert, ruling out a release-induced regression.",
+      "action": "escalate_to_human",
+      "target": "warden-dev-public-api",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "e9b13437b39a6c002d60c9f7ab8287d512d814b390bf0417a5a9b4fc73e7f7e7",
+        "response_sha256": "9cfaea3372cd02db94735220bfd541c3fba5fa19b18952779294be4ea1552d1e",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "auto_safe",
+      "policies": []
+    }
+  ],
+  "halted_reason": null
+}

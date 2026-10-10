@@ -1,0 +1,36 @@
+{
+  "id": "stepfunctions-new-version-failing",
+  "alert": {
+    "alert_id": "g9h-21",
+    "name": "warden-dev-order-saga-failed",
+    "service": "order-saga",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Failed executions of the order saga state machine above 5 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "state_machine": "warden-dev-order-saga",
+      "alarm": "warden-dev-order-saga-failed"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/States/ExecutionsFailed StateMachineArn=arn:aws:states:ap-south-1:111122223333:stateMachine:warden-dev-order-saga stat=Sum period=300s threshold GreaterThanThreshold 5.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "STATE state_machine warden-dev-order-saga status=ACTIVE type=STANDARD revisionId=4f6c1e2a-9b3d-4e8f-a1c2-7d5e6f8a9b0c",
+      "CHANGE 2026-10-10T07:36:14Z states.amazonaws.com UpdateStateMachineAlias on warden-dev-order-saga by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:36:12Z states.amazonaws.com PublishStateMachineVersion on warden-dev-order-saga by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:36:10Z states.amazonaws.com UpdateStateMachine on warden-dev-order-saga by role/warden-dev-deployer"
+    ],
+    "metrics": {
+      "alarm_executionsfailed": 41,
+      "alarm_sibling_states_executionsstarted": 44,
+      "alarm_sibling_states_executionssucceeded": 3,
+      "alarm_sibling_states_executionstimedout": 0,
+      "alarm_sibling_states_executionthrottled": 0,
+      "alarm_sibling_states_executiontime": 1210
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

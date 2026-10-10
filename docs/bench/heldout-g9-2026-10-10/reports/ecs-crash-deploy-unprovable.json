@@ -1,0 +1,178 @@
+{
+  "alert": {
+    "alert_id": "g9h-08",
+    "name": "warden-dev-tax-svc-running-tasks",
+    "severity": "critical",
+    "service": "tax-svc",
+    "environment": "dev",
+    "summary": "Running task count of the tax service below 1",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "warden-dev-apps",
+      "ecs_service": "warden-dev-tax-svc",
+      "alarm": "warden-dev-tax-svc-running-tasks"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 1,
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=warden-dev-apps,ServiceName=warden-dev-tax-svc stat=Minimum period=60s threshold LessThanThreshold 1.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-apps in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:44:10Z ecs.amazonaws.com UpdateService on warden-dev-tax-svc by role/warden-dev-deployer",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:43:02Z {\"level\":\"info\",\"msg\":\"POST /v1/tax/quote 200\",\"ms\":18,\"version\":\"4.1.9\"}",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:45:31Z tax-svc 4.2.0 starting (node v20.17.0)",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:45:31Z node:internal/modules/cjs/loader:1228",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:45:31Z Error: Cannot find module './config/rates-2026.json'",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:45:31Z Require stack:",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:45:31Z - /app/dist/tax.js",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:45:31Z - /app/dist/server.js",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:48:02Z tax-svc 4.2.0 starting (node v20.17.0)",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:48:02Z node:internal/modules/cjs/loader:1228",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:48:02Z Error: Cannot find module './config/rates-2026.json'",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:48:02Z Require stack:",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:48:02Z - /app/dist/tax.js",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:48:02Z - /app/dist/server.js",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:52:44Z tax-svc 4.2.0 starting (node v20.17.0)",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:52:44Z node:internal/modules/cjs/loader:1228",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:52:44Z Error: Cannot find module './config/rates-2026.json'",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:52:44Z Require stack:",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:52:44Z - /app/dist/tax.js",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:52:44Z - /app/dist/server.js",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:58:19Z tax-svc 4.2.0 starting (node v20.17.0)",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:58:19Z node:internal/modules/cjs/loader:1228",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:58:19Z Error: Cannot find module './config/rates-2026.json'",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:58:19Z Require stack:",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:58:19Z - /app/dist/tax.js",
+      "LOG ecs/warden-dev-tax-svc 2026-10-10T07:58:19Z - /app/dist/server.js",
+      "APPSG ecs/warden-dev-tax-svc sgs=[sg-0b2c3d4e5f6a7b8c9]"
+    ],
+    "metrics": {
+      "tasks_running": 0.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 2.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "deployment_failed_tasks": 11.0,
+      "cpu_utilization_pct": 4.1,
+      "memory_utilization_pct": 12.3,
+      "log_error_lines": 44.0,
+      "log_errors_peak_per_min": 9.0,
+      "alarm_value": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: ecs: [access denied on DescribeTaskDefinition] An error occurred (AccessDeniedException) when calling the DescribeTaskDefinition operation: User: <ARN_1> is not authorized to per"
+    ],
+    "empty_reads": [],
+    "alert_text": "Running task count of the tax service below 1",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The UpdateService deploy at 07:44:10Z pushed a task definition/image that crashes on startup (Node.js 'cannot find module' errors referencing a config module), causing all new tasks to fail health checks repeatedly; with 0 running tasks and 11 failed deployment tasks, the service never stabilizes, tripping the RunningTaskCount alarm.",
+    "confidence": 0.72,
+    "evidence": [
+      "C3: recent UpdateService change aligns with the crash loop",
+      "M1/M6: tasks_running=0 with 11 failed deployment tasks indicates new tasks are crashing on launch, not just slow to start",
+      "F2/F3: log facts show a Node module loader error and 'cannot find module'/'config' phrases, consistent with a bad image or missing config in the new revision"
+    ],
+    "ruled_out": [
+      "Infra-level scaling or capacity issue: cpu/memory utilization are low (M7, M8), ruling out resource exhaustion as the cause",
+      "Security group misconfiguration: C4 shows an SG attached with no indication of recent change (C2: no infra change in 6h)"
+    ],
+    "citations": [
+      {
+        "id": "C3",
+        "quote": "UpdateService on warden-dev-tax-svc by role/warden-dev-deployer"
+      },
+      {
+        "id": "M1",
+        "quote": "tasks_running=0"
+      },
+      {
+        "id": "M6",
+        "quote": "deployment_failed_tasks=11"
+      },
+      {
+        "id": "F3",
+        "quote": "cannot find module"
+      },
+      {
+        "id": "F2",
+        "quote": "image=internal/modules/cjs/loader:1228"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "rollback_deploy",
+    "target": "tax-svc",
+    "reasoning": "The failing deployment (UpdateService) introduced a task definition/image that crashes immediately on start due to a missing module/config, driving tasks_running to 0 and tripping the RunningTaskCount alarm. Rolling back to the prior known-good revision should restore healthy task starts.",
+    "expected_effect": "New tasks launch successfully from the previous revision, tasks_running returns to desired count (2), and the RunningTaskCount alarm clears.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "rejected",
+    "reasons": [
+      "Rollback proposed but no recent deploy appears in the gathered context.",
+      "1 context tool(s) failed; evidence is incomplete."
+    ],
+    "policy_ids": [
+      "P5-NO-DEPLOY-TO-ROLL-BACK",
+      "P8-PARTIAL-CONTEXT"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3377,
+    "output_tokens": 1175,
+    "usd": 0.018504,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 1,
+      "tool_errors": [
+        "logs: ecs: [access denied on DescribeTaskDefinition] An error occurred (AccessDeniedException) when calling the DescribeTaskDefinition operation: User: <ARN_1> is not authorized to per"
+      ]
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.72,
+      "hypothesis": "The UpdateService deploy at 07:44:10Z pushed a task definition/image that crashes on startup (Node.js 'cannot find module' errors referencing a config module), causing all new tasks to fail health checks repeatedly; with 0 running tasks and 11 failed deployment tasks, the service never stabilizes, tripping the RunningTaskCount alarm.",
+      "action": "rollback_deploy",
+      "target": "tax-svc",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "b92e9d060f6a7556977f3bc3915615367e97af68423ea453613a27dcef469a7d",
+        "response_sha256": "c96b3745122d8beef33ad1befb45a3317acfeb490f1191f116c855bfa29796b4",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "rejected",
+      "policies": [
+        "P5-NO-DEPLOY-TO-ROLL-BACK",
+        "P8-PARTIAL-CONTEXT"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

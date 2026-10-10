@@ -1,0 +1,65 @@
+{
+  "id": "sqs-fifo-poison-message",
+  "alert": {
+    "alert_id": "g9h-15",
+    "name": "warden-dev-ledger-consumer-stalled",
+    "service": "ledger-writer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Ledger queue consumer stalled: oldest message age above 15 minutes while the consumer runs",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-ledger-writer",
+      "sqs": "warden-dev-ledger.fifo",
+      "alarm": "warden-dev-ledger-consumer-stalled"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold GreaterThanThreshold 900.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-ledger-writer in the 6 h before the alert",
+      "CHANGE none on warden-dev-ledger.fifo in the 6 h before the alert",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:01Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"7a3a867f-ed0c-dc9f-dd05-53ee9baba92b\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"171\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:46:01.220Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:01Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:01Z REPORT RequestId: 16ffe101-2d39-0b6a-6ce3-762c484bb767\tDuration: 401.22 ms\tBilled Duration: 402 ms\tMemory Size: 512 MB\tMax Memory Used: 131 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:31Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"7a3a867f-ed0c-dc9f-dd05-53ee9baba92b\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"172\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:46:31.640Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:31Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:46:31Z REPORT RequestId: 8d501acf-45a1-7771-119f-1ce8f3f9ecaf\tDuration: 398.70 ms\tBilled Duration: 399 ms\tMemory Size: 512 MB\tMax Memory Used: 131 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:51:12Z {\"level\":\"DEBUG\",\"location\":\"ledger.client:refresh:22\",\"message\":\"table client refreshed\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:52:02Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"7a3a867f-ed0c-dc9f-dd05-53ee9baba92b\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"183\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:52:02.118Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:52:02Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:52:02Z REPORT RequestId: 4c52f5a2-b255-35b0-1cfe-ba2fbbc5731b\tDuration: 412.00 ms\tBilled Duration: 413 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:57:33Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"7a3a867f-ed0c-dc9f-dd05-53ee9baba92b\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"194\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:57:33.904Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:57:33Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:57:33Z REPORT RequestId: 1fea043e-0df6-39cf-5a23-89628948d27d\tDuration: 388.15 ms\tBilled Duration: 389 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:58:04Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"7a3a867f-ed0c-dc9f-dd05-53ee9baba92b\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"195\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T07:58:04.311Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:58:04Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T07:58:04Z REPORT RequestId: 618a81b7-250e-792c-4b29-70e8d19045f6\tDuration: 402.90 ms\tBilled Duration: 403 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T08:00:05Z {\"level\":\"ERROR\",\"location\":\"ledger.batch:record_handler:41\",\"message\":\"record processing failed\",\"messageId\":\"7a3a867f-ed0c-dc9f-dd05-53ee9baba92b\",\"messageGroupId\":\"acct-20417\",\"approximateReceiveCount\":\"199\",\"error\":\"decimal.InvalidOperation: [<class 'decimal.ConversionSyntax'>]\",\"amount_raw\":\"12,50\",\"service\":\"ledger\",\"timestamp\":\"2026-10-10T08:00:05.777Z\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T08:00:05Z {\"level\":\"INFO\",\"location\":\"ledger.batch:process:77\",\"message\":\"FIFO batch stopped at first failure; 9 records returned unprocessed\",\"messageGroupId\":\"acct-20417\",\"service\":\"ledger\"}",
+      "LOG lambda/warden-dev-ledger-writer 2026-10-10T08:00:05Z REPORT RequestId: 9e06b07d-36a4-3d3b-6ca4-1bd221bc19fd\tDuration: 395.31 ms\tBilled Duration: 396 ms\tMemory Size: 512 MB\tMax Memory Used: 132 MB",
+      "CONFIG lambda warden-dev-ledger-writer timeout=30s memory=512MB reserved_concurrency=none env=[LEDGER_TABLE=warden-dev-ledger,LOG_LEVEL=INFO,POWERTOOLS_SERVICE_NAME=ledger] version=9 alias_live=9",
+      "ESM warden-dev-ledger-writer <- warden-dev-ledger.fifo State=Enabled BatchSize=10 LastProcessingResult=OK",
+      "QUEUE warden-dev-ledger.fifo visible=5120 in_flight=10 dlq=none dlq_visible=- max_receive=-"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 30,
+      "lambda_memory_mb": 512,
+      "lambda_esm_enabled": 1,
+      "lambda_errors": 0,
+      "lambda_throttles": 0,
+      "lambda_invocations": 41,
+      "lambda_duration_max_ms": 412.0,
+      "lambda_concurrent_executions": 1,
+      "log_error_lines": 41,
+      "log_errors_peak_per_min": 2,
+      "sqs_visible": 5120,
+      "sqs_in_flight": 10,
+      "sqs_visibility_timeout_s": 30,
+      "sqs_oldest_age_s": 5975
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

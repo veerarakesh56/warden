@@ -1,0 +1,72 @@
+{
+  "id": "kms-key-pending-deletion",
+  "alert": {
+    "alert_id": "g9h-40",
+    "name": "warden-dev-statements-api-errors",
+    "service": "statements-api",
+    "environment": "dev",
+    "severity": "critical",
+    "summary": "Errors on the statements API function above 10 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-statements-api",
+      "alarm": "warden-dev-statements-api-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-statements-api stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-statements-api in the 6 h before the alert",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z {\"level\":\"INFO\",\"location\":\"handler:40\",\"message\":\"statement requested\",\"account\":\"ac-11902\",\"month\":\"2026-09\",\"service\":\"statements\"}",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z [ERROR] KMSInvalidStateException: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:ap-south-1:111122223333:key/6f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9 is pending deletion.",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z   File \"/var/task/statements/handler.py\", line 52, in handler",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z     pdf = crypto.decrypt_blob(obj[\"Body\"].read())",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z   File \"/var/task/statements/crypto.py\", line 33, in decrypt_blob",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z     resp = kms.decrypt(CiphertextBlob=blob, EncryptionContext=CONTEXT)",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:47:30Z REPORT RequestId: 9d2874e6-48c4-8c41-632a-3fc164312154\tDuration: 212.30 ms\tBilled Duration: 213 ms\tMemory Size: 512 MB\tMax Memory Used: 141 MB",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z {\"level\":\"INFO\",\"location\":\"handler:40\",\"message\":\"statement requested\",\"account\":\"ac-30117\",\"month\":\"2026-08\",\"service\":\"statements\"}",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z [ERROR] KMSInvalidStateException: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:ap-south-1:111122223333:key/6f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9 is pending deletion.",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z   File \"/var/task/statements/handler.py\", line 52, in handler",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z     pdf = crypto.decrypt_blob(obj[\"Body\"].read())",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z   File \"/var/task/statements/crypto.py\", line 33, in decrypt_blob",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z     resp = kms.decrypt(CiphertextBlob=blob, EncryptionContext=CONTEXT)",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:52:12Z REPORT RequestId: 2c876184-6079-c2fe-d5f5-88b54b8726f6\tDuration: 198.84 ms\tBilled Duration: 199 ms\tMemory Size: 512 MB\tMax Memory Used: 141 MB",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:58:59Z {\"level\":\"WARNING\",\"location\":\"cache:get:18\",\"message\":\"statement cache miss\",\"account\":\"ac-40021\",\"service\":\"statements\"}",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:59:00Z [ERROR] KMSInvalidStateException: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:ap-south-1:111122223333:key/6f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9 is pending deletion.",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:59:00Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:59:00Z   File \"/var/task/statements/handler.py\", line 52, in handler",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:59:00Z     pdf = crypto.decrypt_blob(obj[\"Body\"].read())",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:59:00Z   File \"/var/task/statements/crypto.py\", line 33, in decrypt_blob",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:59:00Z     resp = kms.decrypt(CiphertextBlob=blob, EncryptionContext=CONTEXT)",
+      "LOG lambda/warden-dev-statements-api 2026-10-10T07:59:00Z REPORT RequestId: b43db4bf-e4bf-d1be-3e66-10e4c5483b7e\tDuration: 402.60 ms\tBilled Duration: 403 ms\tMemory Size: 512 MB\tMax Memory Used: 142 MB",
+      "CODE warden-dev-statements-api statements/crypto.py:33 in decrypt_blob: KMSInvalidStateException: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:ap-south-1:111122223333:key/6f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9 is pending deletion.",
+      "SOURCE warden-dev-statements-api statements/crypto.py:30 | def decrypt_blob(blob: bytes) -> bytes:",
+      "SOURCE warden-dev-statements-api statements/crypto.py:31 |     if not blob:",
+      "SOURCE warden-dev-statements-api statements/crypto.py:32 |         raise EmptyStatement()",
+      "SOURCE warden-dev-statements-api statements/crypto.py:33 >|     resp = kms.decrypt(CiphertextBlob=blob, EncryptionContext=CONTEXT)",
+      "SOURCE warden-dev-statements-api statements/crypto.py:34 |     return resp[\"Plaintext\"]",
+      "SOURCE warden-dev-statements-api statements/crypto.py:35 | ",
+      "SOURCE warden-dev-statements-api statements/crypto.py:36 | ",
+      "CONFIG lambda warden-dev-statements-api timeout=20s memory=512MB reserved_concurrency=none env=[KMS_KEY_ARN,LOG_LEVEL=INFO,STATEMENTS_BUCKET=warden-dev-statements] version=27 alias_live=27"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 20,
+      "lambda_memory_mb": 512,
+      "lambda_errors": 233,
+      "lambda_throttles": 0,
+      "lambda_invocations": 240,
+      "lambda_duration_max_ms": 402.6,
+      "lambda_concurrent_executions": 5,
+      "log_error_lines": 699,
+      "log_errors_peak_per_min": 31,
+      "alarm_errors": 233,
+      "alarm_sibling_lambda_invocations": 26,
+      "alarm_sibling_lambda_duration": 402.6
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

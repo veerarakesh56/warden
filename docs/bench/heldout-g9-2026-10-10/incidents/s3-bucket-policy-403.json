@@ -1,0 +1,34 @@
+{
+  "id": "s3-bucket-policy-403",
+  "alert": {
+    "alert_id": "g9h-29",
+    "name": "warden-dev-media-4xx",
+    "service": "media",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "4xx errors on the media bucket above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "s3_bucket": "warden-dev-media",
+      "alarm": "warden-dev-media-4xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/S3/4xxErrors BucketName=warden-dev-media,FilterId=EntireBucket stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "STATE s3_bucket warden-dev-media Status=Enabled",
+      "CHANGE 2026-10-10T07:51:37Z s3.amazonaws.com PutBucketPolicy on warden-dev-media by role/warden-dev-security-baseline"
+    ],
+    "metrics": {
+      "alarm_4xxerrors": 21880,
+      "alarm_sibling_s3_allrequests": 1,
+      "alarm_sibling_s3_getrequests": 1,
+      "alarm_sibling_s3_firstbytelatency": 38.0,
+      "alarm_sibling_s3_totalrequestlatency": 61.0,
+      "alarm_sibling_s3_bytesdownloaded": 5242880
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

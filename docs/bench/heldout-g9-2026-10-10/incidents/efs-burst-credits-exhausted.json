@@ -1,0 +1,35 @@
+{
+  "id": "efs-burst-credits-exhausted",
+  "alert": {
+    "alert_id": "g9h-33",
+    "name": "warden-dev-shared-efs-burst-credits",
+    "service": "shared-files",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Burst credit balance of the shared file system below 10 GB",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "efs": "fs-0a1b2c3d4e5f60789",
+      "alarm": "warden-dev-shared-efs-burst-credits"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/EFS/BurstCreditBalance FileSystemId=fs-0a1b2c3d4e5f60789 stat=Minimum period=300s threshold LessThanThreshold 10000000000.0 datapoints=1/1 missing=missing state=ALARM",
+      "STATE efs fs-0a1b2c3d4e5f60789 LifeCycleState=available ThroughputMode=bursting PerformanceMode=generalPurpose Value=214748364800 NumberOfMountTargets=3",
+      "CHANGE none on fs-0a1b2c3d4e5f60789 in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_burstcreditbalance": 2147483648,
+      "alarm_sibling_efs_permittedthroughput": 10485760,
+      "alarm_sibling_efs_percentiolimit": 38.0,
+      "alarm_sibling_efs_meterediobytes": 629145600,
+      "alarm_sibling_efs_totaliobytes": 629145600,
+      "alarm_sibling_efs_clientconnections": 14,
+      "alarm_sibling_efs_datareadiobytes": 524288000
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

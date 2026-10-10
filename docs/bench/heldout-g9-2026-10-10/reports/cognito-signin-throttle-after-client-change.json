@@ -1,0 +1,133 @@
+{
+  "alert": {
+    "alert_id": "g9h-44",
+    "name": "warden-dev-customers-signin-throttles",
+    "severity": "high",
+    "service": "customer-auth",
+    "environment": "dev",
+    "summary": "Sign-in throttles on the customer user pool above 0",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "cognito_user_pool": "ap-south-1_Q8wErT5yU",
+      "alarm": "warden-dev-customers-signin-throttles"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/Cognito/SignInThrottles UserPool=ap-south-1_Q8wErT5yU,UserPoolClient=4f3e2d1c0b9a8f7e6d5c4b3a2 stat=Sum period=60s threshold GreaterThanThreshold 0.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "STATE cognito_user_pool ap-south-1_Q8wErT5yU EstimatedNumberOfUsers=48210 MfaConfiguration=OPTIONAL UserPoolTier=ESSENTIALS",
+      "CHANGE 2026-10-10T06:41:55Z cognito-idp.amazonaws.com UpdateUserPoolClient on ap-south-1_Q8wErT5yU by role/warden-dev-deployer"
+    ],
+    "metrics": {
+      "alarm_signinthrottles": 3120.0,
+      "alarm_sibling_cognito_signinsuccesses": 1.0,
+      "alarm_sibling_cognito_tokenrefreshsuccesses": 1.0,
+      "alarm_sibling_cognito_federationsuccesses": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Sign-in throttles on the customer user pool above 0",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "A recent UpdateUserPoolClient change (C3) on the Cognito user pool altered client settings (e.g., auth flow or rate limits), causing sign-in requests to be throttled almost immediately afterward, while other auth paths (sign-in success, token refresh, federation) show near-zero successful completions, consistent with the client being blocked at a config level rather than genuine load-based throttling.",
+    "confidence": 0.6,
+    "evidence": [
+      "C3",
+      "C1",
+      "M1",
+      "F1"
+    ],
+    "ruled_out": [
+      "Organic traffic spike causing throttling - no metric evidence of high request volume accompanying the throttle sum, and sibling success metrics are also suppressed to near-zero, suggesting a config-level block rather than load-based throttling"
+    ],
+    "citations": [
+      {
+        "id": "C3",
+        "quote": "UpdateUserPoolClient on ap-south-1_Q8wErT5yU by role/warden-dev-deployer"
+      },
+      {
+        "id": "C1",
+        "quote": "AWS/Cognito/SignInThrottles UserPool=ap-south-1_Q8wErT5yU,UserPoolClient=4f3e2d1c0b9a8f7e6d5c4b3a2 stat=Sum period=60s threshold GreaterThanThreshold 0.0"
+      },
+      {
+        "id": "M1",
+        "quote": "alarm_signinthrottles=3120"
+      },
+      {
+        "id": "F1",
+        "quote": "phrase=\"throttl\""
+      }
+    ]
+  },
+  "proposal": {
+    "action": "revert_config",
+    "target": "ap-south-1_Q8wErT5yU",
+    "reasoning": "The UpdateUserPoolClient change (C3) immediately preceded the SignInThrottles alarm (C1) breaching to a sustained high value (M1), with correlated near-zero successes across sign-in, token refresh, and federation (M2-M4), pointing to a config change as the proximate cause. Reverting the user pool client configuration to its prior state is the most direct way to restore sign-in behavior.",
+    "expected_effect": "SignInThrottles metric returns to baseline (near zero) and sign-in/token-refresh/federation success counts resume normal rates for the affected user pool client.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "none of the cited evidence bears on revert_config (it names none of: appconfig, feature flag, feature-flag, configuration profile, toggle...)."
+    ],
+    "policy_ids": [
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3225,
+    "output_tokens": 1361,
+    "usd": 0.02006,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.6,
+      "hypothesis": "A recent UpdateUserPoolClient change (C3) on the Cognito user pool altered client settings (e.g., auth flow or rate limits), causing sign-in requests to be throttled almost immediately afterward, while other auth paths (sign-in success, token refresh, federation) show near-zero successful completions, consistent with the client being blocked at a config level rather than genuine load-based throttling.",
+      "action": "revert_config",
+      "target": "ap-south-1_Q8wErT5yU",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "ac3ce7790e9ed4104b0327744d4c3e25cf7a7aba58c632179bfac56d53344185",
+        "response_sha256": "0bf5cb101c1c6c2cef0813ca73688c359aeaaab9b47d91b23eeb4ba0c888db73",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

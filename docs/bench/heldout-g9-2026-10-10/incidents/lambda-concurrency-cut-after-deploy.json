@@ -1,0 +1,65 @@
+{
+  "id": "lambda-concurrency-cut-after-deploy",
+  "alert": {
+    "alert_id": "g9h-01",
+    "name": "warden-dev-checkout-api-throttles",
+    "service": "checkout-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Throttles on the checkout API function above 10 per minute for 3 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-checkout-api",
+      "alarm": "warden-dev-checkout-api-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Throttles FunctionName=warden-dev-checkout-api stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:47:55Z lambda.amazonaws.com PutFunctionConcurrency20171031 on warden-dev-checkout-api by role/warden-dev-platform-ops",
+      "CHANGE 2026-10-10T07:41:12Z lambda.amazonaws.com UpdateAlias20150331 on warden-dev-checkout-api by role/warden-dev-deployer",
+      "CHANGE 2026-10-10T07:41:09Z lambda.amazonaws.com PublishVersion20150331 on warden-dev-checkout-api by role/warden-dev-deployer",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:45:02Z INIT_START Runtime Version: python:3.12.v41\tRuntime Version ARN: arn:aws:lambda:ap-south-1::runtime:5c0d8f1e2a7b",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:45:03Z {\"level\":\"INFO\",\"location\":\"app:startup:31\",\"message\":\"pricing cache warmed\",\"items\":4120,\"version\":\"58\",\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:46:11Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771203\",\"ms\":143,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:46:11Z REPORT RequestId: 730d68dc-28e4-9462-e6b7-03ba05fd9277\tDuration: 182.41 ms\tBilled Duration: 183 ms\tMemory Size: 1024 MB\tMax Memory Used: 211 MB",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:49:30Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771251\",\"ms\":151,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:49:30Z REPORT RequestId: f1d7bfa8-69b0-1e57-d371-84d7926eca75\tDuration: 190.07 ms\tBilled Duration: 191 ms\tMemory Size: 1024 MB\tMax Memory Used: 214 MB",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:53:02Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771288\",\"ms\":139,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:53:02Z REPORT RequestId: 717e0304-65cb-80ee-0f6b-a45c48fda69a\tDuration: 171.88 ms\tBilled Duration: 172 ms\tMemory Size: 1024 MB\tMax Memory Used: 214 MB",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:58:44Z {\"level\":\"WARNING\",\"location\":\"pricing:refresh:57\",\"message\":\"price feed slow\",\"ms\":802,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:58:45Z {\"level\":\"INFO\",\"location\":\"handler:88\",\"message\":\"order accepted\",\"order_id\":\"o-771340\",\"ms\":912,\"service\":\"checkout\"}",
+      "LOG lambda/warden-dev-checkout-api 2026-10-10T07:58:45Z REPORT RequestId: 6369b68e-b15a-33c2-e9f2-3327dc970b17\tDuration: 912.40 ms\tBilled Duration: 913 ms\tMemory Size: 1024 MB\tMax Memory Used: 219 MB",
+      "CONFIG lambda warden-dev-checkout-api timeout=10s memory=1024MB reserved_concurrency=5 env=[LOG_LEVEL=INFO,ORDERS_TABLE=warden-dev-orders,PAYMENTS_QUEUE=warden-dev-payments,POWERTOOLS_SERVICE_NAME=checkout] version=58 alias_live=58"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 10,
+      "lambda_memory_mb": 1024,
+      "lambda_reserved_concurrency": 5,
+      "lambda_errors": 0,
+      "lambda_throttles": 4812,
+      "lambda_invocations": 1630,
+      "lambda_duration_max_ms": 912.4,
+      "lambda_concurrent_executions": 5,
+      "log_error_lines": 0,
+      "log_errors_peak_per_min": 0,
+      "alarm_throttles": 4812,
+      "alarm_sibling_lambda_invocations": 188,
+      "alarm_sibling_lambda_errors": 0,
+      "alarm_sibling_lambda_duration": 912.4,
+      "alarm_sibling_lambda_concurrentexecutions": 5
+    },
+    "recent_deploys": [
+      {
+        "kind": "lambda",
+        "service": "warden-dev-checkout-api",
+        "at": "2026-10-10T07:41:09Z",
+        "version": "58",
+        "previous": "57",
+        "previous_basis": "served live traffic before this version"
+      }
+    ],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

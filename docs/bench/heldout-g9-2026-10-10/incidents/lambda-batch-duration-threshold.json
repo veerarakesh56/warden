@@ -1,0 +1,49 @@
+{
+  "id": "lambda-batch-duration-threshold",
+  "alert": {
+    "alert_id": "g9h-04",
+    "name": "warden-dev-ledger-reconcile-duration",
+    "service": "ledger-reconcile",
+    "environment": "dev",
+    "severity": "medium",
+    "summary": "Duration of the ledger reconcile function above 30 seconds",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-ledger-reconcile",
+      "alarm": "warden-dev-ledger-reconcile-duration"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Duration FunctionName=warden-dev-ledger-reconcile stat=Maximum period=300s threshold GreaterThanThreshold 30000.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-ledger-reconcile in the 6 h before the alert",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:00Z INIT_START Runtime Version: python:3.12.v41\tRuntime Version ARN: arn:aws:lambda:ap-south-1::runtime:5c0d8f1e2a7b",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:01Z [INFO]\t2026-10-10T08:00:01.114Z\t6847acdb-5cbe-5c9a-9513-ca80c6e98fea\treconcile run started run_id=rc-20261010-0800 trigger=warden-dev-reconcile-daily",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:09Z [INFO]\t2026-10-10T08:00:09.870Z\t6847acdb-5cbe-5c9a-9513-ca80c6e98fea\tloaded 18442 ledger entries from warden-dev-ledger (3 pages)",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:31Z [INFO]\t2026-10-10T08:00:31.402Z\t6847acdb-5cbe-5c9a-9513-ca80c6e98fea\tbank statement fetched: 18431 lines",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:44Z [INFO]\t2026-10-10T08:00:44.990Z\t6847acdb-5cbe-5c9a-9513-ca80c6e98fea\tmatched 18431, 11 flagged for review -> warden-dev-ledger-review",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:45Z [INFO]\t2026-10-10T08:00:45.203Z\t6847acdb-5cbe-5c9a-9513-ca80c6e98fea\treconcile run finished in 44.1s",
+      "LOG lambda/warden-dev-ledger-reconcile 2026-10-10T08:00:45Z REPORT RequestId: 6847acdb-5cbe-5c9a-9513-ca80c6e98fea\tDuration: 44127.55 ms\tBilled Duration: 44128 ms\tMemory Size: 1024 MB\tMax Memory Used: 388 MB",
+      "CONFIG lambda warden-dev-ledger-reconcile timeout=900s memory=1024MB reserved_concurrency=1 env=[LEDGER_TABLE=warden-dev-ledger,LOG_LEVEL=INFO,REVIEW_QUEUE=warden-dev-ledger-review] version=7 alias_live=7"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 900,
+      "lambda_memory_mb": 1024,
+      "lambda_reserved_concurrency": 1,
+      "lambda_errors": 0,
+      "lambda_throttles": 0,
+      "lambda_invocations": 1,
+      "lambda_duration_max_ms": 44127.55,
+      "lambda_concurrent_executions": 1,
+      "log_error_lines": 0,
+      "log_errors_peak_per_min": 0,
+      "alarm_duration": 44127.55,
+      "alarm_sibling_lambda_errors": 0,
+      "alarm_sibling_lambda_invocations": 1,
+      "alarm_sibling_lambda_concurrentexecutions": 1
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

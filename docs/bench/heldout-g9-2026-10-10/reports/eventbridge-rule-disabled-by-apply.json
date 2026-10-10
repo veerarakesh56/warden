@@ -1,0 +1,133 @@
+{
+  "alert": {
+    "alert_id": "g9h-19",
+    "name": "warden-dev-settlement-poll-no-invocations",
+    "severity": "high",
+    "service": "settlement",
+    "environment": "dev",
+    "summary": "Settlement poll rule invocations below 1 in 15 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eventbridge_rule": "warden-dev-settlement-poll",
+      "alarm": "warden-dev-settlement-poll-no-invocations"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 0,
+  "context": {
+    "logs": [
+      "ALARM AWS/Events/Invocations RuleName=warden-dev-settlement-poll stat=Sum period=900s threshold LessThanThreshold 1.0 datapoints=2/2 missing=breaching state=ALARM",
+      "CHANGE 2026-10-10T07:12:45Z events.amazonaws.com PutTargets on warden-dev-settlement-poll by role/warden-dev-terraform",
+      "CHANGE 2026-10-10T07:12:44Z events.amazonaws.com PutRule on warden-dev-settlement-poll by role/warden-dev-terraform",
+      "CHANGE 2026-10-10T03:05:19Z events.amazonaws.com TagResource on warden-dev-settlement-poll by role/warden-dev-tagging-automation",
+      "RULE warden-dev-settlement-poll State=DISABLED schedule=rate(15 minutes)"
+    ],
+    "metrics": {
+      "rule_enabled": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Settlement poll rule invocations below 1 in 15 minutes",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "The EventBridge rule warden-dev-settlement-poll is in DISABLED state, so it is not emitting scheduled invocations, which the no-invocations alarm correctly detects. The PutRule/PutTargets change at 07:12:44-45Z by the terraform role appears to have (re)applied the rule in a disabled state.",
+    "confidence": 0.85,
+    "evidence": [
+      "C5 shows the rule is DISABLED",
+      "M1 confirms rule_enabled=0",
+      "C1 alarm fired on LessThanThreshold 1.0 with missing=breaching, consistent with zero invocations from a disabled rule",
+      "C3/C2 show a terraform-driven PutRule/PutTargets update immediately before the disabled state was observed, suggesting the change set the rule to disabled"
+    ],
+    "ruled_out": [
+      "Tagging event C4 at 03:05:19Z is unrelated to invocation pause since it occurred hours earlier and TagResource does not affect rule state",
+      "F1 duration=15minutes only confirms the schedule period, not a cause"
+    ],
+    "citations": [
+      {
+        "id": "C5",
+        "quote": "State=DISABLED"
+      },
+      {
+        "id": "M1",
+        "quote": "rule_enabled=0"
+      },
+      {
+        "id": "C1",
+        "quote": "LessThanThreshold 1.0"
+      },
+      {
+        "id": "C3",
+        "quote": "PutRule on warden-dev-settlement-poll by role/warden-dev-terraform"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "resume_flow",
+    "target": "warden-dev-settlement-poll",
+    "reasoning": "The EventBridge rule is confirmed DISABLED (C5, M1) and this directly explains the no-invocations alarm. Re-enabling the rule should restore scheduled polling without altering targets or code.",
+    "expected_effect": "The rule resumes emitting scheduled events every 15 minutes, invocations metric rises above threshold, alarm clears.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "Evidence is thin (5 log line(s), 1 metric(s), 0 deploy(s)); a human should look before acting."
+    ],
+    "policy_ids": [
+      "P9-THIN-EVIDENCE"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3150,
+    "output_tokens": 796,
+    "usd": 0.01426,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 0,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.85,
+      "hypothesis": "The EventBridge rule warden-dev-settlement-poll is in DISABLED state, so it is not emitting scheduled invocations, which the no-invocations alarm correctly detects. The PutRule/PutTargets change at 07:12:44-45Z by the terraform role appears to have (re)applied the rule in a disabled state.",
+      "action": "resume_flow",
+      "target": "warden-dev-settlement-poll",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "ab99a481340625eca3ece40c7ccfcdeaad6b583ad40edd06367bfa177e311c1b",
+        "response_sha256": "76efaa08f1c8b86c46f00723231ebaaaa34cb191867d2af52747a4eef1faa6ad",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P9-THIN-EVIDENCE"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

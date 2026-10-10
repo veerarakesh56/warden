@@ -1,0 +1,70 @@
+{
+  "id": "appconfig-flag-flip-code-path",
+  "alert": {
+    "alert_id": "g9h-42",
+    "name": "warden-dev-checkout-tax-errors",
+    "service": "checkout-tax",
+    "environment": "dev",
+    "severity": "critical",
+    "summary": "Errors on the checkout tax function above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-checkout-tax",
+      "alarm": "warden-dev-checkout-tax-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "CONFIG appconfig warden-dev-checkout/dev monitors this alarm: deployment=23 state=COMPLETE version=17 completed=2026-10-10T07:54:40Z",
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-checkout-tax stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-checkout-tax in the 6 h before the alert",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:51:20Z {\"level\":\"INFO\",\"location\":\"tax.handler:handler:35\",\"message\":\"tax computed\",\"engine\":\"v1\",\"jurisdiction\":\"IN-MH\",\"service\":\"checkout-tax\"}",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:51:20Z REPORT RequestId: c04d8a0e-a703-13dc-d722-1fd7a07d1f4d\tDuration: 41.20 ms\tBilled Duration: 42 ms\tMemory Size: 512 MB\tMax Memory Used: 120 MB",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:54:02Z {\"level\":\"INFO\",\"location\":\"tax.handler:handler:35\",\"message\":\"tax computed\",\"engine\":\"v1\",\"jurisdiction\":\"IN-MH\",\"service\":\"checkout-tax\"}",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:54:02Z REPORT RequestId: 9542edcd-8631-0a69-c7e9-bad587f0a91f\tDuration: 39.75 ms\tBilled Duration: 40 ms\tMemory Size: 512 MB\tMax Memory Used: 120 MB",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:31Z [appconfig agent] 2026/10/10 07:55:31 INFO retrieved data for 'warden-dev-checkout:dev:flags' (version 17)",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:32Z {\"level\":\"INFO\",\"location\":\"tax.flags:refresh:19\",\"message\":\"feature flags refreshed\",\"flags\":{\"tax_engine_v2\":true},\"config_version\":\"17\",\"service\":\"checkout-tax\"}",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:40Z [ERROR] TaxEngineError: no tax table for jurisdiction 'IN-KA'",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:40Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:40Z   File \"/var/task/tax/handler.py\", line 31, in handler",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:40Z     result = engine.compute(cart, ship_to)",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:40Z   File \"/var/task/tax/v2/engine.py\", line 112, in compute",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:40Z     table = self.tables[jurisdiction]",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:55:40Z REPORT RequestId: f1344968-8743-66d7-bc79-2ed7ee42dd8d\tDuration: 211.70 ms\tBilled Duration: 212 ms\tMemory Size: 512 MB\tMax Memory Used: 124 MB",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:57:02Z {\"level\":\"INFO\",\"location\":\"tax.handler:handler:35\",\"message\":\"tax computed\",\"engine\":\"v2\",\"jurisdiction\":\"IN-MH\",\"service\":\"checkout-tax\"}",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:58:13Z [ERROR] TaxEngineError: no tax table for jurisdiction 'IN-KA'",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:58:13Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:58:13Z   File \"/var/task/tax/handler.py\", line 31, in handler",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:58:13Z     result = engine.compute(cart, ship_to)",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:58:13Z   File \"/var/task/tax/v2/engine.py\", line 112, in compute",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:58:13Z     table = self.tables[jurisdiction]",
+      "LOG lambda/warden-dev-checkout-tax 2026-10-10T07:58:13Z REPORT RequestId: 27bfcc0b-d05c-bf17-79d1-abef1fa7a784\tDuration: 188.02 ms\tBilled Duration: 189 ms\tMemory Size: 512 MB\tMax Memory Used: 124 MB",
+      "CODE warden-dev-checkout-tax tax/v2/engine.py:112 in compute: TaxEngineError: no tax table for jurisdiction 'IN-KA'",
+      "SOURCE warden-dev-checkout-tax tax/v2/engine.py:109 |     def compute(self, cart, ship_to):",
+      "SOURCE warden-dev-checkout-tax tax/v2/engine.py:110 |         jurisdiction = resolve_jurisdiction(ship_to)",
+      "SOURCE warden-dev-checkout-tax tax/v2/engine.py:111 |         log.debug(\"v2 compute\", jurisdiction=jurisdiction)",
+      "SOURCE warden-dev-checkout-tax tax/v2/engine.py:112 >|         table = self.tables[jurisdiction]",
+      "SOURCE warden-dev-checkout-tax tax/v2/engine.py:113 |         lines = [self._line(i, table) for i in cart.items]",
+      "SOURCE warden-dev-checkout-tax tax/v2/engine.py:114 |         return TaxResult(lines=lines, engine=\"v2\")",
+      "SOURCE warden-dev-checkout-tax tax/v2/engine.py:115 | ",
+      "CONFIG lambda warden-dev-checkout-tax timeout=10s memory=512MB reserved_concurrency=none env=[APPCONFIG_APPLICATION,APPCONFIG_ENVIRONMENT=dev,AWS_APPCONFIG_EXTENSION_POLL_INTERVAL_SECONDS=45,LOG_LEVEL=INFO] version=44 alias_live=44"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 10,
+      "lambda_memory_mb": 512,
+      "lambda_errors": 342,
+      "lambda_throttles": 0,
+      "lambda_invocations": 1190,
+      "lambda_duration_max_ms": 211.7,
+      "lambda_concurrent_executions": 12,
+      "log_error_lines": 1026,
+      "log_errors_peak_per_min": 58,
+      "alarm_errors": 342,
+      "alarm_sibling_lambda_invocations": 121,
+      "alarm_sibling_lambda_duration": 211.7
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

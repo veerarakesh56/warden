@@ -1,0 +1,72 @@
+{
+  "id": "appconfig-auto-rolled-back",
+  "alert": {
+    "alert_id": "g9h-43",
+    "name": "warden-dev-search-api-errors",
+    "service": "search-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors on the search API function above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "warden-dev-search-api",
+      "alarm": "warden-dev-search-api-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "CONFIG appconfig warden-dev-search/dev monitors this alarm: deployment=9 state=ROLLED_BACK version=12 completed=not yet",
+      "ALARM AWS/Lambda/Errors FunctionName=warden-dev-search-api stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=3/5 missing=notBreaching state=ALARM",
+      "CHANGE none on warden-dev-search-api in the 6 h before the alert",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:52:40Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:12Z {\"level\":\"INFO\",\"location\":\"search.flags:refresh:22\",\"message\":\"feature flags refreshed\",\"flags\":{\"ranking_v3\":true},\"config_version\":\"12\",\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z [ERROR] IndexError: list index out of range",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z   File \"/var/task/search/handler.py\", line 58, in handler",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z     ranked = ranker.rank(hits)",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z   File \"/var/task/search/ranking_v3.py\", line 74, in rank",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z     boost = weights[hit.position]",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:56:30Z REPORT RequestId: a641ae71-c353-a53f-2227-b20837e24cef\tDuration: 31.07 ms\tBilled Duration: 32 ms\tMemory Size: 1024 MB\tMax Memory Used: 201 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z [ERROR] IndexError: list index out of range",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z Traceback (most recent call last):",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z   File \"/var/task/search/handler.py\", line 58, in handler",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z     ranked = ranker.rank(hits)",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z   File \"/var/task/search/ranking_v3.py\", line 74, in rank",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z     boost = weights[hit.position]",
+      "LOG lambda/warden-dev-search-api 2026-10-10T07:58:51Z REPORT RequestId: 4b4fb440-2471-cd1d-b3a6-f8d3717c4c9e\tDuration: 29.84 ms\tBilled Duration: 30 ms\tMemory Size: 1024 MB\tMax Memory Used: 201 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:01:05Z {\"level\":\"INFO\",\"location\":\"search.flags:refresh:22\",\"message\":\"feature flags refreshed\",\"flags\":{\"ranking_v3\":false},\"config_version\":\"11\",\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:01:20Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:01:20Z REPORT RequestId: 43bf760f-36fd-83b6-e543-1c528d208dfc\tDuration: 44.18 ms\tBilled Duration: 45 ms\tMemory Size: 1024 MB\tMax Memory Used: 203 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:03:02Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:03:02Z REPORT RequestId: fc5c25ee-9a6c-b500-ab5e-5ea5981dd971\tDuration: 41.50 ms\tBilled Duration: 42 ms\tMemory Size: 1024 MB\tMax Memory Used: 203 MB",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:06:47Z {\"level\":\"INFO\",\"location\":\"search.handler:handler:63\",\"message\":\"search served\",\"ranking\":\"v2\",\"hits\":20,\"service\":\"search\"}",
+      "LOG lambda/warden-dev-search-api 2026-10-10T08:06:47Z REPORT RequestId: e80073f2-3f2b-bcd3-dc06-c48915d93983\tDuration: 39.91 ms\tBilled Duration: 40 ms\tMemory Size: 1024 MB\tMax Memory Used: 203 MB",
+      "CODE warden-dev-search-api search/ranking_v3.py:74 in rank: IndexError: list index out of range",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:71 |     def rank(self, hits):",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:72 |         weights = self.weights_for(len(hits))",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:73 |         for hit in hits:",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:74 >|             boost = weights[hit.position]",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:75 |             hit.score *= boost",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:76 |         return sorted(hits, key=score_key)",
+      "SOURCE warden-dev-search-api search/ranking_v3.py:77 | ",
+      "CONFIG lambda warden-dev-search-api timeout=6s memory=1024MB reserved_concurrency=none env=[APPCONFIG_APPLICATION,APPCONFIG_ENVIRONMENT=dev,LOG_LEVEL=INFO,SEARCH_DOMAIN_ENDPOINT=vpc-warden-dev-search-x1y2z3.ap-south-1.es.amazonaws.com] version=61 alias_live=61"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 6,
+      "lambda_memory_mb": 1024,
+      "lambda_errors": 212,
+      "lambda_throttles": 0,
+      "lambda_invocations": 2610,
+      "lambda_duration_max_ms": 140.3,
+      "lambda_concurrent_executions": 9,
+      "log_error_lines": 636,
+      "log_errors_peak_per_min": 71,
+      "alarm_errors": 212,
+      "alarm_sibling_lambda_invocations": 140,
+      "alarm_sibling_lambda_duration": 140.3
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "alb-single-az-impairment",
+  "alert": {
+    "alert_id": "g9h-25",
+    "name": "warden-dev-web-tg-unhealthy-hosts",
+    "service": "web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Unhealthy hosts in the web target group above 1",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "alb_target_group": "warden-dev-web-tg",
+      "load_balancer": "app/warden-dev-web/5f3e9a1c2b7d4e60",
+      "alarm": "warden-dev-web-tg-unhealthy-hosts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApplicationELB/UnHealthyHostCount LoadBalancer=app/warden-dev-web/5f3e9a1c2b7d4e60,TargetGroup=targetgroup/warden-dev-web-tg/8a1b2c3d4e5f6071 stat=Maximum period=60s threshold GreaterThanThreshold 1.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-web-tg in the 6 h before the alert",
+      "CHANGE none on app/warden-dev-web/5f3e9a1c2b7d4e60 in the 6 h before the alert",
+      "STATE load_balancer app/warden-dev-web/5f3e9a1c2b7d4e60 Code=active Type=application Scheme=internet-facing IpAddressType=ipv4 AvailabilityZones=3",
+      "TARGETGROUP warden-dev-web-tg health_path=/healthz port=traffic-port matcher=200",
+      "TARGET warden-dev-web-tg 10.0.1.23:8080 unhealthy Target.Timeout: Request timed out",
+      "TARGET warden-dev-web-tg 10.0.1.57:8080 unhealthy Target.Timeout: Request timed out",
+      "TARGET warden-dev-web-tg 10.0.1.88:8080 unhealthy Target.FailedHealthChecks: Health checks failed",
+      "CONFIG alb warden-dev-web zones=ap-south-1a,ap-south-1b,ap-south-1c zonal_shift=true"
+    ],
+    "metrics": {
+      "alb_healthy_hosts": 6,
+      "alb_unhealthy_hosts": 3,
+      "alb_target_5xx": 14,
+      "alb_elb_5xx": 912,
+      "alb_target_response_time_s": 10.0,
+      "alb_healthy_hosts_ap-south-1a": 0,
+      "alb_unhealthy_hosts_ap-south-1a": 3,
+      "alb_healthy_hosts_ap-south-1b": 3,
+      "alb_unhealthy_hosts_ap-south-1b": 0,
+      "alb_healthy_hosts_ap-south-1c": 3,
+      "alb_unhealthy_hosts_ap-south-1c": 0,
+      "alarm_unhealthyhostcount": 3,
+      "alarm_sibling_applicationelb_healthyhostcount": 9,
+      "alarm_sibling_applicationelb_requestcountpertarget": 410,
+      "alarm_sibling_applicationelb_targetresponsetime": 10.0,
+      "alarm_sibling_applicationelb_httpcode_target_2xx_count": 3820
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

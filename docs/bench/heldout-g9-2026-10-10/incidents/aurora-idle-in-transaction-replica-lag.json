@@ -1,0 +1,64 @@
+{
+  "id": "aurora-idle-in-transaction-replica-lag",
+  "alert": {
+    "alert_id": "g9h-13",
+    "name": "warden-dev-shop-aurora-connections",
+    "service": "shop-db",
+    "environment": "dev",
+    "severity": "critical",
+    "summary": "Database connections on the shop Aurora cluster above 1500",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "warden-dev-shop-aurora",
+      "alarm": "warden-dev-shop-aurora-connections"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/DatabaseConnections DBClusterIdentifier=warden-dev-shop-aurora stat=Maximum period=60s threshold GreaterThanThreshold 1500.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-shop-aurora in the 6 h before the alert",
+      "CLUSTER aurora warden-dev-shop-aurora writer=warden-dev-shop-aurora-1 readers=[warden-dev-shop-aurora-2] status=available",
+      "postgres stuck connection: pid=48211 idle in transaction for 1840s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48230 idle in transaction for 1822s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48302 idle in transaction for 1790s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48377 idle in transaction for 1755s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres stuck connection: pid=48409 idle in transaction for 1731s: UPDATE inventory_reservations SET state = 'held', held_at = now() WHERE order_id = $1",
+      "postgres connections held: 1388 idle in transaction from app=warden-dev-fulfilment client=10.0.42.17 (1702/1800 in use)",
+      "postgres connections held: 211 active from app=warden-dev-shop-api client=10.0.41.9 (1702/1800 in use)",
+      "postgres connections held: 61 idle from app=warden-dev-shop-api client=10.0.41.22 (1702/1800 in use)",
+      "postgres connections held: 38 idle from app=warden-dev-search-indexer client=10.0.43.5 (1702/1800 in use)",
+      "[reader] postgres long-running query: pid=9921 running 1260s user=analytics app=metabase client=10.0.51.4: SELECT date_trunc('day', o.created_at), count(*), sum(i.qty) FROM orders o JOIN order_items i ON i.order_id = o.id GR"
+    ],
+    "metrics": {
+      "aurora_members_available": 2,
+      "aurora_db_load": 3.2,
+      "aurora_db_load_cpu": 1.9,
+      "aurora_db_load_io": 0.8,
+      "aurora_db_load_lock": 0.5,
+      "aurora_connections": 1702,
+      "aurora_cpu_pct": 34.2,
+      "aurora_deadlocks": 0,
+      "aurora_replica_lag_ms": 4200,
+      "active_connections": 1702,
+      "idle_in_transaction": 1388,
+      "long_running_queries": 0,
+      "max_connections": 1800,
+      "locks_waiting": 3,
+      "connections_used_pct": 0.9456,
+      "reader_active_connections": 140,
+      "reader_idle_in_transaction": 0,
+      "reader_long_running_queries": 1,
+      "reader_max_connections": 1800,
+      "reader_locks_waiting": 0,
+      "reader_connections_used_pct": 0.0778,
+      "alarm_databaseconnections": 1702,
+      "alarm_sibling_rds_cpuutilization": 34.2,
+      "alarm_sibling_rds_aurorareplicalagmaximum": 4200,
+      "alarm_sibling_rds_commitlatency": 3.1,
+      "alarm_sibling_rds_freeablememory": 5100273664
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": []
+  }
+}

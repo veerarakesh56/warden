@@ -1,0 +1,166 @@
+{
+  "alert": {
+    "alert_id": "g9h-07",
+    "name": "warden-dev-inventory-running-tasks",
+    "severity": "high",
+    "service": "inventory",
+    "environment": "dev",
+    "summary": "Running task count of the inventory service below 4",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "warden-dev-ec2-apps",
+      "ecs_service": "warden-dev-inventory",
+      "alarm": "warden-dev-inventory-running-tasks"
+    },
+    "rejected_labels": []
+  },
+  "redaction_map_size": 2,
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=warden-dev-ec2-apps,ServiceName=warden-dev-inventory stat=Minimum period=60s threshold LessThanThreshold 4.0 datapoints=3/5 missing=missing state=ALARM",
+      "CHANGE none on warden-dev-ec2-apps in the 6 h before the alert",
+      "CHANGE none on warden-dev-inventory in the 6 h before the alert",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:45:58Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_1>\",\"task\":\"2d8e4b61\",\"msg\":\"inventory 5.2.3 listening on :8080\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:46:20Z {\"lvl\":\"error\",\"host\":\"ip-<IPV4_1>\",\"task\":\"2d8e4b61\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T074620Z is now earlier than 20261010T074719Z (20261010T075219Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:46:51Z {\"lvl\":\"error\",\"host\":\"ip-<IPV4_1>\",\"task\":\"2d8e4b61\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T074651Z is now earlier than 20261010T074750Z (20261010T075250Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:46:52Z {\"lvl\":\"warn\",\"host\":\"ip-<IPV4_1>\",\"task\":\"2d8e4b61\",\"msg\":\"readiness /ready failing: dynamodb ping error\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:47:31Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_1>\",\"task\":\"2d8e4b61\",\"msg\":\"SIGTERM received, draining\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:49:41Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_1>\",\"task\":\"77ac0f35\",\"msg\":\"inventory 5.2.3 listening on :8080\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:50:03Z {\"lvl\":\"error\",\"host\":\"ip-<IPV4_1>\",\"task\":\"77ac0f35\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T075003Z is now earlier than 20261010T075102Z (20261010T075602Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:50:04Z {\"lvl\":\"warn\",\"host\":\"ip-<IPV4_1>\",\"task\":\"77ac0f35\",\"msg\":\"readiness /ready failing: dynamodb ping error\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:51:02Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_2>\",\"task\":\"c41e09d2\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":6}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:51:30Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_1>\",\"task\":\"77ac0f35\",\"msg\":\"SIGTERM received, draining\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:53:31Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_2>\",\"task\":\"c41e09d2\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":7}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:53:40Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_1>\",\"task\":\"5f19c2aa\",\"msg\":\"inventory 5.2.3 listening on :8080\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:54:02Z {\"lvl\":\"error\",\"host\":\"ip-<IPV4_1>\",\"task\":\"5f19c2aa\",\"msg\":\"dynamodb GetItem failed\",\"err\":\"InvalidSignatureException: Signature expired: 20261010T075402Z is now earlier than 20261010T075501Z (20261010T080001Z - 5 min.)\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:54:03Z {\"lvl\":\"warn\",\"host\":\"ip-<IPV4_1>\",\"task\":\"5f19c2aa\",\"msg\":\"readiness /ready failing: dynamodb ping error\"}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:55:12Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_2>\",\"task\":\"f02a6d19\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":5}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T07:58:40Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_2>\",\"task\":\"c41e09d2\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":6}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T08:00:05Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_2>\",\"task\":\"f02a6d19\",\"msg\":\"GetItem ok\",\"table\":\"warden-dev-stock\",\"ms\":8}",
+      "LOG ecs/warden-dev-inventory 2026-10-10T08:01:12Z {\"lvl\":\"info\",\"host\":\"ip-<IPV4_2>\",\"task\":\"f02a6d19\",\"msg\":\"GET /v1/stock/SKU-88120 200\",\"ms\":11}",
+      "TASKROLE ecs/warden-dev-inventory role=warden-dev-inventory-task"
+    ],
+    "metrics": {
+      "tasks_running": 2.0,
+      "tasks_desired": 4.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployments_failed": 0.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 22.4,
+      "memory_utilization_pct": 41.0,
+      "log_error_lines": 96.0,
+      "log_errors_peak_per_min": 11.0,
+      "alarm_value": 2.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [],
+    "alert_text": "Running task count of the inventory service below 4",
+    "tripwire": "off",
+    "suspected": {}
+  },
+  "root_cause": {
+    "hypothesis": "Running ECS tasks for warden-dev-inventory are being terminated (SIGTERM) after hitting InvalidSignatureException/'signature expired' errors, likely from expired or clock-skewed AWS request signing (e.g., STS/task-role credentials), causing the task count to drop below desired and trip the running-task-count alarm. No deploy or config change preceded this, ruling out a bad release.",
+    "confidence": 0.55,
+    "evidence": [
+      "F2: InvalidSignatureException + signature expired across 4 log lines",
+      "F4: SIGTERM across 2 log lines",
+      "M1/M2: running 2 vs desired 4",
+      "C2/C3: no deploy change in prior 6h"
+    ],
+    "ruled_out": [
+      "Bad deploy causing crash loop (no deploy change recorded in C2/C3)",
+      "Resource exhaustion (CPU 22.4%, memory 41% are both low per M7/M8)",
+      "Pending/stuck deployment causing task shortfall (deployments_failed=0, deployment_failed_tasks=0 per M5/M6)"
+    ],
+    "citations": [
+      {
+        "id": "F2",
+        "quote": "phrase=\"signature expired\""
+      },
+      {
+        "id": "F4",
+        "quote": "code=SIGTERM"
+      },
+      {
+        "id": "M1",
+        "quote": "tasks_running=2"
+      },
+      {
+        "id": "M2",
+        "quote": "tasks_desired=4"
+      },
+      {
+        "id": "C3",
+        "quote": "CHANGE none on warden-dev-inventory in the 6 h before the alert"
+      }
+    ]
+  },
+  "proposal": {
+    "action": "restart_pods",
+    "target": "warden-dev-inventory",
+    "reasoning": "Tasks are exiting on SIGTERM after InvalidSignatureException/signature-expired errors, consistent with stale or clock-skewed request-signing credentials (e.g., task role STS tokens). Restarting the service's tasks forces fresh credential acquisition and new container instances without changing the deployed version, which should restore running task count to desired if the cause is transient credential/clock skew.",
+    "expected_effect": "New tasks start with freshly issued signing credentials, running_task_count returns to desired (4) and the alarm clears; if the signature errors recur immediately, it points to a persistent clock-skew or IAM policy issue requiring escalation.",
+    "blast_radius": "single_service",
+    "reversible": true,
+    "table_reversible": true,
+    "effective_blast_radius": "single_service",
+    "claim_contradicts_table": false
+  },
+  "verdict": {
+    "status": "escalated",
+    "reasons": [
+      "none of the cited evidence bears on restart_pods (it names none of: restart, crash, backoff, back-off, oom, killed...)."
+    ],
+    "policy_ids": [
+      "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+    ],
+    "requires_approval": true,
+    "observed": []
+  },
+  "cost": {
+    "input_tokens": 3355,
+    "output_tokens": 1388,
+    "usd": 0.02059,
+    "calls": 1
+  },
+  "audit": [
+    {
+      "node": "redact",
+      "identifiers_masked": 2,
+      "tool_errors": []
+    },
+    {
+      "node": "tripwire",
+      "status": "off",
+      "flagged": []
+    },
+    {
+      "node": "diagnose",
+      "confidence": 0.55,
+      "hypothesis": "Running ECS tasks for warden-dev-inventory are being terminated (SIGTERM) after hitting InvalidSignatureException/'signature expired' errors, likely from expired or clock-skewed AWS request signing (e.g., STS/task-role credentials), causing the task count to drop below desired and trip the running-task-count alarm. No deploy or config change preceded this, ruling out a bad release.",
+      "action": "restart_pods",
+      "target": "warden-dev-inventory",
+      "provenance": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-5",
+        "version": "anthropic 1.4.0",
+        "processed_in": "set by the provider, outside WARDEN's configuration",
+        "system_sha256": "342b78bfed29b6f09d6992c1bdf42605590713b547bddf2917a159e203767a54",
+        "prompt_sha256": "7f0813308b2a234882bb9a9e08247f1b0ecaf80e320b3598522d0b1a3459d2ff",
+        "response_sha256": "05b2d8709ae3c0d748fd7dc4ed2968e2f16d11b02bc3a2609ae67de171b6c405",
+        "code": "4c4553f68a0d0697a847019fce557e40fee4d9e91f7c0cb87f1393efffd86e85"
+      },
+      "need_evidence": []
+    },
+    {
+      "node": "verify",
+      "status": "escalated",
+      "policies": [
+        "P15-CITATIONS-DO-NOT-SUPPORT-ACTION"
+      ]
+    }
+  ],
+  "halted_reason": null
+}

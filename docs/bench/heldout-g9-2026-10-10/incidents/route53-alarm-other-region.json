@@ -1,0 +1,28 @@
+{
+  "id": "route53-alarm-other-region",
+  "alert": {
+    "alert_id": "g9h-31",
+    "name": "warden-dev-api-health-check-failed",
+    "service": "api-dns",
+    "environment": "dev",
+    "severity": "critical",
+    "summary": "Route 53 health check for the public API endpoint reports unhealthy",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "route53_health_check": "3f1a2b4c-5d6e-4f70-8a91-b2c3d4e5f607",
+      "alarm": "warden-dev-api-health-check-failed"
+    }
+  },
+  "context": {
+    "logs": [],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [failed (unclassified)] no metric alarm by that name (a composite alarm is read through the alarms it names)"
+    ],
+    "empty_reads": [
+      "logs",
+      "metrics"
+    ]
+  }
+}

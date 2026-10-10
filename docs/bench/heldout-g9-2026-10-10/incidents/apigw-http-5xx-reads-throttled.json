@@ -1,0 +1,31 @@
+{
+  "id": "apigw-http-5xx-reads-throttled",
+  "alert": {
+    "alert_id": "g9h-24",
+    "name": "warden-dev-mobile-http-api-5xx",
+    "service": "mobile-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "5xx responses on the mobile HTTP API above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apigw_id": "k7x2m9q4ab",
+      "alarm": "warden-dev-mobile-http-api-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApiGateway/5xx ApiId=k7x2m9q4ab stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=2/3 missing=notBreaching state=ALARM",
+      "STATE apigw_id k7x2m9q4ab ProtocolType=HTTP DisableExecuteApiEndpoint=false"
+    ],
+    "metrics": {
+      "alarm_5xx": 388
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm-siblings metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded"
+    ],
+    "empty_reads": []
+  }
+}
