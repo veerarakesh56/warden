@@ -33,8 +33,8 @@ bar:
 # used (19 correct), hashes to this same value. A prompt change fails tests/test_prompt_pin_e6.py until the model is
 # qualified again with it and this pin is updated in the same commit.
 prompt:
-  sha: 992fb387940494f1403856502d72513c3f5fde0df1af3dc9469a8624c15cc72a
-  pinned: "2026-10-10"  # G9-D2a: the generic fix classes and what each action means (fea65f30, 36210f27, e0f6ecb0 before)
+  sha: 89276fcdabd7cda4b3637cdb7c8f25c724662b2d982cdd6f0a7977edba952072
+  pinned: "2026-10-10"  # G10-A: the alert's time, when each fact group was seen, numbers kept as facts (992fb387 before)
 # Register N6: escalating everything is safe and useless, so it is measured. "Escalated" = the gate refused, or the
 # model itself proposed escalate_to_human. Measured 2026-10-03 (scenarios/score.py act_abstain, stored answers):
 #   model                escalated  acted right  escalated a right fix  escalated rightly  stopped wrong  acted wrongly
@@ -58,7 +58,14 @@ qualified:
   # Measured again after G9-E remapped signature metrics to the names backends emit (3 recorded incidents now match
   # the OOM or CPU signatures they show; same prompt, $0.50): 19/30, every incident answered, 0 wrong-and-allowed,
   # 8 acted right (7 before).
-  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-10T01:52Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
+  # G10-A (the alert's time in the prompt, when each fact group was logged, counts/ratios/scale-downs/exit codes/JSON
+  # fields kept as facts; $0.56): 18/30, every incident answered, 0 wrong-and-allowed - within chance of 19 (two runs
+  # of one prompt differ by 2). P4 fired more often (escalated 23, was 20): the model reported lower confidence with
+  # the same diagnoses. The 30 recordings predate the reader fixes, so they cannot show those. On the 48 held-out
+  # cases (docs/bench/heldout-g9-2026-10-10) the same prompt scored 35/48 (was 34), cited the cause 41 (39), novel
+  # kinds 6/11 (4/11), and no wrong answer reached a person (1 before); no-fault controls 4/8 (5/8).
+  # Before (prompt 992fb387): {"measured": "2026-10-10T01:52Z", "correct": 19, "runs": 30, "wrong_and_allowed": 0}
+  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-10T06:59Z", "correct": 18, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
 # Measured on the PREVIOUS prompt (03300eac..., 2026-10-03) and so no longer qualified until measured again on this one
 # (the Claude Max CLI, the local development backend; free):
 #  {"provider": "claude_cli", "model": "claude-fable-5-1", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:16Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}

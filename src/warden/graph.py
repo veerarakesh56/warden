@@ -519,11 +519,23 @@ def _prompt_parts(state: WardenState, *, facts: bool = True) -> list[tuple[str, 
     rule = name if _PLAIN_RULE.fullmatch(name) else "(withheld: not a plain rule id)"
     return [
         ("ALERT RULE: ", False), (rule, True),
+        # G10 (miss analysis, 2026-10-10): without the time the alert fired, "a deploy 5 minutes before" and "errors
+        # stopped after the revert" could not be read. WARDEN's own words: a parsed time, re-written in UTC.
+        ("\nALERT FIRED: ", False), (_fired(alert.started_at), False),
         ("\nSERVICE: ", False), (service, True), (" ENV: ", False),
         (env, True), ("\nLABELS: ", False), (str(labels), True),
         ("\nEVIDENCE:\n", False), (ev, True) if ev else ("(none gathered)", False),
         (_knowledge_block(state), False),
     ]
+
+
+def _fired(started_at: str) -> str:
+    """The alert's start in UTC (`2026-09-25T04:41:00Z`), or `unknown`. Alert validates the value is a zoned time."""
+    if not started_at:
+        return "unknown"
+    from datetime import UTC, datetime
+
+    return datetime.fromisoformat(started_at).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # An alert rule's id as monitoring systems name them: `HighErrorRate`, `checkout-5xx`, `KubePodCrashLooping`.

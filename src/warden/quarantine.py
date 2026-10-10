@@ -229,7 +229,39 @@ def facts(text: str) -> tuple[str, ...]:
             found |= {f"aws={code}", f"op={op}"}
     found |= {f"errno={m}" for m in _ERRNO.findall(text)}
     found |= {f"pct={n}%" for n in _PERCENT.findall(text)}
+    # G10 (miss analysis 2026-10-10): the numbers that decided recorded incidents were dropped - "55 idle in
+    # transaction (63/79 in use)" kept only the phrase, "Scaled down replica set x to 0 from 2" kept nothing, and
+    # JSON logs kept no level. Each is still a number or a word from a closed set, never a sentence.
+    lower = text.lower()
+    found |= {f'count["{p}"]={n}' for n, p in _counted().findall(lower)}
+    found |= {f"ratio[{w}]={a}/{b}" for a, b, w in _RATIO.findall(lower)}
+    for way, to, before in _SCALED.findall(lower):
+        found |= {f"scaled={way}", f"replicas={before}->{to}" if before else f"replicas=->{to}"}
+    found |= {f"exit_code={n}" for n in _EXIT.findall(lower)}
+    for m in _JSON_KV.finditer(text):
+        k, v = m.group(1), m.group(2) or m.group(3)
+        if _plain(v, 64) and _key_ok(k) and k.lower() not in _LEVEL_KEYS:
+            found.add(f"{k}={v}")
+    found |= {f"level={v.upper()}" for v in _JSON_LEVEL.findall(text) if v.upper() in LEVELS}
     return tuple(sorted(found))
+
+
+# `0/2 nodes are available`, `63/79 in use`: up to two words between the counts and the closed word. Not inside a date.
+_RATIO = re.compile(r"(?<![\w./:-])(\d{1,7})/(\d{1,7}) (?:[a-z]+ ){0,2}?(in use|used|ready|running|available|healthy|"
+                    r"up|desired)\b")
+_LEVEL_KEYS = frozenset({"level", "severity", "lvl", "loglevel", "log_level"})
+_SCALED = re.compile(r"\bscaled (up|down)\b[^\n]{0,160}?\bto (\d{1,7})(?: from (\d{1,7}))?\b")
+_EXIT = re.compile(r"\bexit(?:ed)?(?: with)? (?:code|status)[ :=]{0,2}(\d{1,3})\b")
+# `"key": "value"` and `"key": 12` - the kv fact for JSON logs, under the same key and value rules as `key=value`.
+_JSON_KV = re.compile(r'"([A-Za-z_][\w.-]{0,40})"\s?:\s?(?:"([^"\s,;\]\)\'`]{1,80})"|(-?\d+(?:\.\d+)?|true|false))')
+_JSON_LEVEL = re.compile(r'"(?:level|severity|lvl|loglevel|log_level)"\s?:\s?"([A-Za-z]{4,8})"', re.IGNORECASE)
+
+
+@functools.cache
+def _counted() -> re.Pattern[str]:
+    """A number directly before a closed-vocabulary phrase: `55 idle in transaction`."""
+    alternatives = "|".join(re.escape(p) for p in phrases())
+    return re.compile(rf"(?<![\w./:-])(\d{{1,7}}) ({alternatives})(?![a-z0-9])")
 
 
 
@@ -239,6 +271,10 @@ def facts(text: str) -> tuple[str, ...]:
 _VOLATILE = re.compile(r"^(?:[a-z_]*_id|id|trace|span|ts|time|timestamp|at|ticks)=", re.IGNORECASE)
 _NUM = re.compile(r"\d+(?:\.\d+)?")
 MAX_FACT_GROUPS = 200
+# G10: when a group's lines were logged, so the model can set them against the alert's time. Only the time in the
+# place WARDEN's log reader writes it (`LOG <stream> <UTC time> <message>`, aws_backend/aws_stack): the message's own
+# times are the writer's words. Being a time, it cannot carry a sentence.
+_STAMP = re.compile(r"LOG \S+ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?Z ")
 
 
 def _span(values: set[str]) -> str:
@@ -258,12 +294,15 @@ def reduce(items: dict[str, Item]) -> dict[str, Item]:
     """F items: the untrusted items grouped by the shape of their facts. Each F item lists the facts
     (a numeric one as its value or its range), how many lines had them, and up to five of their ids."""
     groups: dict[tuple[str, ...], list[tuple[str, list[str]]]] = {}
+    seen: dict[tuple[str, ...], list[str]] = {}
     for item in items.values():
         if item.trusted:
             continue
         found = [f for f in facts(item.text) if not _VOLATILE.match(f)]
         shape = tuple(sorted({_NUM.sub("#", f) for f in found}))
         groups.setdefault(shape, []).append((item.id, found))
+        if stamp := _STAMP.match(item.text):
+            seen.setdefault(shape, []).append(stamp.group(1) + "Z")
     # When there are too many to show (10k distinct lines made 10k items): groups carrying an error
     # level or an error code first, however rare - one decisive line must not lose to a thousand
     # heartbeats - then the largest.
@@ -283,7 +322,9 @@ def reduce(items: dict[str, Item]) -> dict[str, Item]:
         ids = [i for i, _ in members]
         shown = ", ".join(ids[:5]) + (f" and {len(ids) - 5} more" if len(ids) > 5 else "")
         body = "; ".join(_span(values[f]) for f in shape) if shape else "no recognised fact"
-        out[f"F{n}"] = Item(f"F{n}", f"{body} (x{len(ids)}: {shown})")
+        stamps = sorted(seen.get(shape, []))
+        when = (f"; seen {stamps[0]}" + (f" .. {stamps[-1]}" if stamps[-1] != stamps[0] else "")) if stamps else ""
+        out[f"F{n}"] = Item(f"F{n}", f"{body}{when} (x{len(ids)}: {shown})")
     if hidden:
         n = len(out) + 1
         lines = sum(len(m) for _, m in hidden)
