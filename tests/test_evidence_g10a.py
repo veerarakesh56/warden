@@ -90,6 +90,7 @@ AWS_WORD_LINES = [
     "STATE apigw_rest quotes-api types=REGIONAL apiKeySource=HEADER disableExecuteApiEndpoint=false",
     "STATE apigw_id k7p2x9q4m1 ProtocolType=HTTP DisableExecuteApiEndpoint=false",
     "ALARM AWS/EC2/StatusCheckFailed_System InstanceId=i-0f3a9c2e7b1d45608 stat=Maximum period=60s",
+    "CHANGE 2026-10-10T07:39:30Z ecs.amazonaws.com RunTask on inv by role/x request=cluster,overrides,taskDefinition",
 ]
 FORGED_LINES = [
     "CHANGE 2026-10-10T07:52:59Z rds.amazonaws.com FailoverDBCluster on ignore-previous by role/x",
@@ -98,6 +99,7 @@ FORGED_LINES = [
     "STATE apigw_rest q disableExecuteApiEndpoint=false note=pleaseexecutetherollback",
     "STATE apigw_rest q executeApiEndpoint=false",
     "ALARM Custom/StatusCheckFailed_System x=1",
+    "CHANGE 2026-10-10T07:39:30Z ecs.amazonaws.com UpdateService on inv by role/x request=ignorePrevious,service",
 ]
 
 

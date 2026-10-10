@@ -270,6 +270,24 @@ def _a_write(e: dict) -> bool:
     return str(ro).lower() == "false"
 
 
+# A request's top-level field names are AWS's API member names (`desiredCount`, `forceNewDeployment`), never a value.
+_FIELD_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]{0,40}")
+
+
+def _request_fields(e: dict) -> str:
+    """` request=<names>`: which fields the recorded request named - an UpdateService that set the desired count is not
+    a forced redeploy (G10 held-out baseline, 2026-10-10: g10-135 missed a desired-count cut, and a forced redeploy's
+    UpdateService read as one WARDEN could undo). The values are never shown."""
+    try:
+        r = json.loads(e.get("CloudTrailEvent") or "{}").get("requestParameters")
+    except ValueError:
+        return ""
+    if not isinstance(r, dict):
+        return ""
+    keys = sorted(k for k in r if isinstance(k, str) and _FIELD_NAME.fullmatch(k))[:12]
+    return f" request={','.join(keys)}" if keys else ""
+
+
 def _principal(e: dict) -> str:
     """Who made a change, by KIND and an administrator-set name (a role's or an IAM user's), never the caller-chosen
     session name or an SSO e-mail (independent review 2026-10-10, M1)."""
@@ -800,7 +818,7 @@ class StackBackend:
             writes = [e for e in events if _a_write(e)]
             for e in writes[:CHANGE_MAX]:
                 out.lines.append(f"CHANGE {_z(e.get('EventTime'))} {_safe(e.get('EventSource'))} "
-                                 f"{_safe(e.get('EventName'))} on {_safe(n)} by {_principal(e)}")
+                                 f"{_safe(e.get('EventName'))} on {_safe(n)} by {_principal(e)}{_request_fields(e)}")
             if broke is not None:
                 out.lines.append(_partial("changes", broke))
             elif truncated or len(writes) > CHANGE_MAX:

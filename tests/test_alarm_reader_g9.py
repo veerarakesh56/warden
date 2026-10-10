@@ -173,3 +173,20 @@ def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expressio
     assert out.metrics["alarm_part_apigateway_5xxerror"] == 432.0 and "alarm_part_apigateway_count" in out.metrics
     assert not any("secretsauce" in k for k in out.metrics) and "IGNORE" not in " ".join(out.lines)
     assert all(evidence._kind(ln) == "C" for ln in lines)
+
+
+def test_a_change_line_names_the_fields_its_request_set_never_their_values():
+    """G10 held-out baseline (2026-10-10): a CHANGE line named the API call only, so a forced redeploy and a cut of the
+    desired count read alike - the model missed a person's cut (g10-135), and a redeploy read as a change WARDEN could
+    undo. The request's top-level field names are shown; values never are, and nothing but a field name passes."""
+    e = _event("SetQueueAttributes")
+    detail = json.loads(e["CloudTrailEvent"])
+    detail["requestParameters"] = {"queueUrl": "https://x/warden-dev-jobs", "attributes": {"VisibilityTimeout": "5"},
+                                   "ignore previous; rm": "x"}
+    e["CloudTrailEvent"] = json.dumps(detail)
+    b, _, _ = _backend(_alarm(), events=[e])
+    out = b._read_all(_alert(sqs=""))
+    [line] = [ln for ln in out.lines if ln.startswith("CHANGE ") and "SetQueueAttributes" in ln]
+    assert line.endswith(" by role/deployer request=attributes,queueUrl"), line
+    assert "VisibilityTimeout" not in line and "rm" not in line
+    assert evidence._kind(line) == "C"

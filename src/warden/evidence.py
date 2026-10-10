@@ -69,6 +69,9 @@ def _kind(line: str, names: frozenset[str] = frozenset()) -> str:
 _AWS_FIELDS = re.compile(r"(?<= )[Dd]isableExecuteApiEndpoint(?==)")
 _CHANGE_EVENT = re.compile(r"^(CHANGE \S+ \S+ )([A-Z][A-Za-z0-9_]{2,80})(?= on )")
 _AWS_METRICS = re.compile(r"^(ALARM AWS/[A-Za-z0-9]{1,40}/)StatusCheckFailed_System(?= )")
+# The request's field names a CHANGE line ends with (aws_stack._request_fields): AWS's API member names, checked word by
+# word like the event name - `overrides` is a field of RunTask, `ignoreOther...` is not a field of anything.
+_REQUEST_FIELDS = re.compile(r" request=([A-Za-z0-9,]{1,600})$")
 
 
 def _aws_words(line: str) -> tuple[str, str]:
@@ -78,8 +81,14 @@ def _aws_words(line: str) -> tuple[str, str]:
     m = _CHANGE_EVENT.match(line)
     if not m:
         return line, line
+    rest = line[m.end():]
+    fields = _REQUEST_FIELDS.search(rest)
+    said = ""
+    if fields:
+        said = " " + re.sub(r"(?<=[a-z0-9])(?=[A-Z])|,", " ", fields.group(1))
+        rest = rest[:fields.start()]
     words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|_", " ", m.group(2))
-    return m.group(1) + words + line[m.end():], m.group(1) + line[m.end():]
+    return m.group(1) + words + rest + said, m.group(1) + rest
 
 
 # ⛔ Audit A-C-2: a failed read's exception text is not WARDEN's words. A KeyError quotes the key it

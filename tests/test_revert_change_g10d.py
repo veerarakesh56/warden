@@ -206,3 +206,26 @@ def test_a_revert_is_supported_by_the_event_name_it_undoes(quote, supported):
     proposal = RemediationProposal(action=ActionKind.revert_change, target="x", reasoning="r", expected_effect="e",
                                    blast_radius="single_service", reversible=True)
     assert (grounding.action_support_problem(rc, proposal, {"C1": Item("C1", quote)}) is None) is supported
+
+
+@pytest.mark.parametrize("line, supported", [
+    ("CHANGE t ecs.amazonaws.com UpdateService on inv by role/x request=cluster,forceNewDeployment,service", False),
+    ("CHANGE t ecs.amazonaws.com UpdateService on inv by role/x request=cluster,desiredCount,service", True),
+    ("CHANGE t ecs.amazonaws.com UpdateService on inv by role/x", True),  # a line without the fields: as before
+    ("CHANGE t lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 on fn by user/x request=functionName,handler",
+     False),
+    ("CHANGE t lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 on fn by user/x request=functionName,timeout",
+     True),
+    ("CHANGE t ec2.amazonaws.com RevokeSecurityGroupEgress on sg-1 by role/x request=groupId,ipPermissions", True)])
+def test_a_revert_is_supported_only_when_the_request_set_what_the_family_undoes(line, supported):
+    """G10 held-out (2026-10-10, g10-085): the model proposed undoing a forced redeploy's UpdateService; only the live
+    read refused it. The CHANGE line now names the request's fields, and the revert needs one its family undoes."""
+    from warden import grounding
+    from warden.evidence import Item
+    from warden.models import Citation, RootCause
+
+    quote = line.split(" ", 3)[3].split(" on ")[0]
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote=quote)])
+    proposal = RemediationProposal(action=ActionKind.revert_change, target="x", reasoning="r", expected_effect="e",
+                                   blast_radius="single_service", reversible=True)
+    assert (grounding.action_support_problem(rc, proposal, {"C1": Item("C1", line)}) is None) is supported

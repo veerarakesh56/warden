@@ -217,6 +217,13 @@ def _supports(quote: str, key: str, shortage: bool = True, idle_short: bool = Fa
 
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+# The fields a revert family undoes, for the events whose request may set others: a CHANGE line names the request's
+# fields (aws_stack._request_fields), and a revert is supported only when one of these is among them.
+REVERT_FIELDS = {"updateservice": ("desiredcount",), "setdesiredcapacity": ("desiredcapacity",),
+                 "updateautoscalinggroup": ("desiredcapacity", "minsize", "maxsize"),
+                 "updatefunctionconfiguration": ("timeout", "memorysize", "ephemeralstorage"),
+                 "putfunctionconcurrency": ("reservedconcurrentexecutions",), "setqueueattributes": ("attributes",)}
+_REQUEST_NAMED = re.compile(r" request=([A-Za-z0-9,]{1,600})$")
 # A CloudTrail event name as a CHANGE line writes it: CamelCase words, and the API version Lambda and CloudFront append.
 _EVENT_NAME = re.compile(r"(?<![A-Za-z0-9])(?:[A-Z][a-z]+){2,}[A-Za-z0-9_]*(?![A-Za-z0-9])")
 
@@ -237,8 +244,20 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
         # An API's name, never a measure (G10 held-out baseline, 2026-10-10: the keys are run-together event names, but
         # quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero - P15 held back every
         # revert WARDEN can carry out). A CamelCase word in the quote holding a family's key supports it.
-        events = [w.lower() for q in cited for w in _EVENT_NAME.findall(q)]
-        return None if any(k in w for w in events for k in keys) else (
+        ok = []
+        for c in root_cause.citations:
+            item = items.get(c.id.strip().strip("[]"))
+            if item is None or c.id.strip().strip("[]").startswith("T"):
+                continue
+            named = _REQUEST_NAMED.search(item.text)
+            fields = set(named.group(1).lower().split(",")) if named else None
+            for w in (w.lower() for w in _EVENT_NAME.findall(c.quote)):
+                key = next((k for k in keys if k in w), None)
+                # The request's fields, when the line holds them, must include one the family undoes: a forced
+                # redeploy's UpdateService names no desiredCount (G10 held-out, 2026-10-10).
+                if key and (fields is None or key not in REVERT_FIELDS or fields & set(REVERT_FIELDS[key])):
+                    ok.append(w)
+        return None if ok else (
             f"none of the cited evidence names a write revert_change undoes (none of: {', '.join(keys[:6])}...)")
     quotes = [_CAMEL.sub(" ", q).lower() for q in cited]
     shortage = proposal.action is not ActionKind.scale_down
