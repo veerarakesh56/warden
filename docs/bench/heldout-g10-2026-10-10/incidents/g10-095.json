@@ -1,0 +1,72 @@
+{
+  "id": "g10-095",
+  "alert": {
+    "alert_id": "g10-095",
+    "name": "search-indexer tasks pending",
+    "service": "search-indexer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "PendingTaskCount > 0 for 10 consecutive minutes (search-indexer, shop-dev)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "search-indexer",
+      "alarm": "search-indexer-pending-tasks"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/PendingTaskCount ClusterName=shop-dev,ServiceName=search-indexer stat=Maximum period=60s threshold GreaterThanThreshold 0.0 datapoints=10/10 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:47:41Z ecs.amazonaws.com UpdateService on search-indexer by role/shop-dev-codepipeline-deploy",
+      "LOG ecs/search-indexer 2026-10-10T07:45:30Z {\"level\":\"info\",\"msg\":\"indexed batch\",\"docs\":500,\"rev\":\"18\"}",
+      "LOG ecs/search-indexer 2026-10-10T07:46:31Z {\"level\":\"info\",\"msg\":\"indexed batch\",\"docs\":500,\"rev\":\"18\"}",
+      "LOG ecs/search-indexer 2026-10-10T07:47:02Z {\"level\":\"error\",\"msg\":\"feed poll failed\",\"rev\":\"18\",\"err\":\"fetch https://index-feed.partner.example/v2/changes: Get \\\"https://index-feed.partner.example/v2/changes\\\": context deadline exceeded\"}",
+      "LOG ecs/search-indexer 2026-10-10T07:50:02Z {\"level\":\"error\",\"msg\":\"feed poll failed\",\"rev\":\"18\",\"err\":\"fetch https://index-feed.partner.example/v2/changes: Get \\\"https://index-feed.partner.example/v2/changes\\\": context deadline exceeded\"}",
+      "LOG ecs/search-indexer 2026-10-10T07:53:02Z {\"level\":\"error\",\"msg\":\"feed poll failed\",\"rev\":\"18\",\"err\":\"fetch https://index-feed.partner.example/v2/changes: Get \\\"https://index-feed.partner.example/v2/changes\\\": context deadline exceeded\"}",
+      "LOG ecs/search-indexer 2026-10-10T07:56:02Z {\"level\":\"error\",\"msg\":\"feed poll failed\",\"rev\":\"18\",\"err\":\"fetch https://index-feed.partner.example/v2/changes: Get \\\"https://index-feed.partner.example/v2/changes\\\": context deadline exceeded\"}",
+      "LOG ecs/search-indexer 2026-10-10T07:59:02Z {\"level\":\"error\",\"msg\":\"feed poll failed\",\"rev\":\"18\",\"err\":\"fetch https://index-feed.partner.example/v2/changes: Get \\\"https://index-feed.partner.example/v2/changes\\\": context deadline exceeded\"}",
+      "APPSG ecs/search-indexer sgs=[sg-0d3e4f5a6b7c8d9e0]",
+      "TASKROLE ecs/search-indexer role=search-indexer-task-role",
+      "STATE ecs/search-indexer deployment PRIMARY rollout=IN_PROGRESS revision=search-indexer:19 desired=2 running=0 pending=2 failed=3 at=2026-10-10T07:47:41Z",
+      "STATE ecs/search-indexer deployment ACTIVE rollout=COMPLETED revision=search-indexer:18 desired=2 running=2 pending=0 failed=0 at=2026-10-09T16:20:05Z",
+      "STATE ecs/search-indexer service events in the hour before the alert: started_tasks=3",
+      "STATE ecs/search-indexer stopped task 9fcc1102 at=2026-10-10T07:58:40Z revision=search-indexer:19 stop=TaskFailedToStart cause=network",
+      "EVENT ecs/search-indexer stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve ecr registry auth: service call has been retried 3 time(s): RequestError: send request failed caused by: Post \"https://api.ecr.eu-west-1.amazonaws.com/\": dial tcp 52.95.120.34:443: i/o timeout",
+      "STATE ecs/search-indexer stopped task 6adbe093 at=2026-10-10T07:53:15Z revision=search-indexer:19 stop=TaskFailedToStart cause=network",
+      "EVENT ecs/search-indexer stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve ecr registry auth: service call has been retried 3 time(s): RequestError: send request failed caused by: Post \"https://api.ecr.eu-west-1.amazonaws.com/\": dial tcp 52.95.120.34:443: i/o timeout",
+      "STATE ecs/search-indexer stopped task 0e259783 at=2026-10-10T07:49:50Z revision=search-indexer:19 stop=TaskFailedToStart cause=network",
+      "EVENT ecs/search-indexer stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve ecr registry auth: service call has been retried 3 time(s): RequestError: send request failed caused by: Post \"https://api.ecr.eu-west-1.amazonaws.com/\": dial tcp 52.95.120.34:443: i/o timeout",
+      "CHANGE 2026-10-10T07:44:58Z ec2.amazonaws.com ReplaceRouteTableAssociation on rtb-0e9d8c7b6a5f43210 (this workload's route table) by role/netops-terraform-apply"
+    ],
+    "metrics": {
+      "alarm_value": 2.0,
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 2.0,
+      "deployments_in_flight": 2.0,
+      "deployment_failed_tasks": 3.0,
+      "cpu_utilization_pct": 3.2,
+      "memory_utilization_pct": 27.5,
+      "log_error_lines": 5.0,
+      "log_errors_peak_per_min": 1.0,
+      "ecs_stopped_tasks": 3.0,
+      "ecs_tasks_failed_to_start": 3.0,
+      "ecs_stopped_network": 3.0,
+      "network_changes_before_alert": 1.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "search-indexer",
+        "at": "2026-10-10T07:47:41Z",
+        "version": "search-indexer:19",
+        "previous": "search-indexer:18",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/search-indexer:7c1e0b4",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/search-indexer:a93f2d1",
+        "revision": "19"
+      }
+    ],
+    "tool_errors": []
+  }
+}

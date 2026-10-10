@@ -1,0 +1,35 @@
+{
+  "id": "g10-100",
+  "alert": {
+    "alert_id": "g10-100",
+    "name": "crm-mysql-free-storage-low",
+    "service": "crm-mysql",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "crm-mysql FreeStorageSpace below 25 GB",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "rds_instance": "crm-mysql",
+      "alarm": "crm-mysql-free-storage-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/FreeStorageSpace DBInstanceIdentifier=crm-mysql stat=Minimum period=300s threshold LessThanThreshold 25000000000.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on crm-mysql in the 6 h before the alert",
+      "STATE rds_instance crm-mysql DBInstanceStatus=available DBInstanceClass=db.m6g.xlarge Engine=mysql EngineVersion=8.0.39 MultiAZ=true AllocatedStorage=500 StorageType=gp3 Iops=12000 BackupRetentionPeriod=7 PendingModifiedValues=none CACertificateIdentifier=rds-ca-rsa2048-g1"
+    ],
+    "metrics": {
+      "alarm_freestoragespace": 9610000000.0,
+      "alarm_sibling_rds_binlogdiskusage": 3100000000.0,
+      "alarm_sibling_rds_cpuutilization": 22.4,
+      "alarm_sibling_rds_databaseconnections": 210.0,
+      "alarm_sibling_rds_writeiops": 1810.0,
+      "alarm_sibling_rds_readiops": 950.0,
+      "alarm_sibling_rds_freeablememory": 4200000000.0,
+      "alarm_sibling_rds_writelatency": 0.0011
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "g10-123",
+  "alert": {
+    "alert_id": "g10-123",
+    "name": "notify-dispatch errors",
+    "service": "notify-dispatch",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for notify-dispatch",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "notify-dispatch",
+      "alarm": "notify-dispatch-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=notify-dispatch stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on notify-dispatch in the 6 h before the alert",
+      "LOG lambda/notify-dispatch 2026-10-10T07:46:21Z [INFO]\t2026-10-10T07:46:21.003Z\te22fa630-e1eb-5916-866a-c1f0c62679d2\tdispatching 25 notifications channel=email",
+      "LOG lambda/notify-dispatch 2026-10-10T07:50:04Z [ERROR]\t2026-10-10T07:50:04.210Z\td435daca-3fe6-52df-8958-b1a56e938074\tdispatch failed: An error occurred (AccessDenied) when calling the SendMessage operation: User: arn:aws:sts::111122223333:assumed-role/notify-dispatch-role/notify-dispatch is not authorized to perform: sqs:sendmessage on resource: arn:aws:sqs:eu-west-1:111122223333:notify-outbound-dev because no permissions boundary allows the sqs:sendmessage action",
+      "LOG lambda/notify-dispatch 2026-10-10T07:53:44Z [ERROR]\t2026-10-10T07:53:44.077Z\t2f1d2f98-da08-5cef-bd43-b967a88865b3\tdispatch failed: An error occurred (AccessDenied) when calling the SendMessage operation: User: arn:aws:sts::111122223333:assumed-role/notify-dispatch-role/notify-dispatch is not authorized to perform: sqs:sendmessage on resource: arn:aws:sqs:eu-west-1:111122223333:notify-outbound-dev because no permissions boundary allows the sqs:sendmessage action",
+      "LOG lambda/notify-dispatch 2026-10-10T07:56:15Z [ERROR]\t2026-10-10T07:56:15.013Z\tfa6a6ec7-76d8-54f9-a2b0-d66e9176794a\tdispatch failed: An error occurred (AccessDenied) when calling the SendMessage operation: User: arn:aws:sts::111122223333:assumed-role/notify-dispatch-role/notify-dispatch is not authorized to perform: sqs:sendmessage on resource: arn:aws:sqs:eu-west-1:111122223333:notify-outbound-dev because no permissions boundary allows the sqs:sendmessage action",
+      "LOG lambda/notify-dispatch 2026-10-10T08:00:52Z [ERROR]\t2026-10-10T08:00:52.600Z\t400fad8a-8a92-5a83-8648-f6ef7c4ec618\tdispatch failed: An error occurred (AccessDenied) when calling the SendMessage operation: User: arn:aws:sts::111122223333:assumed-role/notify-dispatch-role/notify-dispatch is not authorized to perform: sqs:sendmessage on resource: arn:aws:sqs:eu-west-1:111122223333:notify-outbound-dev because no permissions boundary allows the sqs:sendmessage action",
+      "CONFIG lambda notify-dispatch timeout=30s memory=256MB reserved_concurrency=none env=[OUTBOUND_QUEUE=notify-outbound-dev] version=31 alias_live=31",
+      "ESM notify-dispatch <- notify-requests-dev State=Enabled BatchSize=25 LastProcessingResult=OK"
+    ],
+    "metrics": {
+      "alarm_errors": 318.0,
+      "alarm_sibling_lambda_invocations": 320.0,
+      "alarm_sibling_lambda_duration": 151.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_concurrentexecutions": 11.0,
+      "log_error_lines": 318.0,
+      "log_errors_peak_per_min": 36.0,
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 256.0,
+      "lambda_esm_enabled": 1.0,
+      "lambda_errors": 318.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 320.0,
+      "lambda_duration_max_ms": 151.0,
+      "lambda_concurrent_executions": 11.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/notify-dispatch logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 1130 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

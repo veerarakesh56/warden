@@ -1,0 +1,57 @@
+{
+  "id": "g10-089",
+  "alert": {
+    "alert_id": "g10-089",
+    "name": "ledger-api running tasks below desired",
+    "service": "ledger-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "RunningTaskCount < 3 for 5 consecutive minutes (ledger-api, shop-dev)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "ledger-api",
+      "alarm": "ledger-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=ledger-api stat=Minimum period=60s threshold LessThanThreshold 3.0 datapoints=5/5 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:44:04Z ecs.amazonaws.com UpdateService on ledger-api by role/AWSServiceRoleForApplicationAutoScaling_ECSService",
+      "LOG ecs/ledger-api 2026-10-10T07:46:10Z {\"level\":\"info\",\"msg\":\"POST /ledger/entries 201\",\"dur_ms\":23}",
+      "LOG ecs/ledger-api 2026-10-10T07:49:00Z {\"level\":\"warn\",\"msg\":\"secret cache refresh failed, keeping cached value\",\"err\":\"InvalidRequestException: You can't perform this operation on the secret because it was marked for deletion.\"}",
+      "LOG ecs/ledger-api 2026-10-10T07:51:33Z {\"level\":\"info\",\"msg\":\"POST /ledger/entries 201\",\"dur_ms\":19}",
+      "LOG ecs/ledger-api 2026-10-10T07:56:02Z {\"level\":\"info\",\"msg\":\"GET /ledger/balance/4471 200\",\"dur_ms\":8}",
+      "APPSG ecs/ledger-api sgs=[sg-0aa1bb2cc3dd4ee5f]",
+      "TASKROLE ecs/ledger-api role=ledger-api-task-role",
+      "STATE ecs/ledger-api deployment PRIMARY rollout=COMPLETED revision=ledger-api:12 desired=3 running=2 pending=1 failed=4 at=2026-10-06T10:02:51Z",
+      "STATE ecs/ledger-api service events in the hour before the alert: started_tasks=5",
+      "STATE ecs/ledger-api stopped task 997dac41 at=2026-10-10T07:56:30Z revision=ledger-api:12 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/ledger-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:ledger/dev/db-credentials-Xy12Ab from secrets manager: InvalidRequestException: You can't perform this operation on the secret because it wa",
+      "STATE ecs/ledger-api stopped task 994f7d6e at=2026-10-10T07:52:44Z revision=ledger-api:12 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/ledger-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:ledger/dev/db-credentials-Xy12Ab from secrets manager: InvalidRequestException: You can't perform this operation on the secret because it wa",
+      "STATE ecs/ledger-api stopped task ba505418 at=2026-10-10T07:48:02Z revision=ledger-api:12 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/ledger-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:ledger/dev/db-credentials-Xy12Ab from secrets manager: InvalidRequestException: You can't perform this operation on the secret because it wa",
+      "STATE ecs/ledger-api stopped task 0a78d5ab at=2026-10-10T07:45:21Z revision=ledger-api:12 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/ledger-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:ledger/dev/db-credentials-Xy12Ab from secrets manager: InvalidRequestException: You can't perform this operation on the secret because it wa"
+    ],
+    "metrics": {
+      "alarm_value": 2.0,
+      "tasks_running": 2.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 4.0,
+      "cpu_utilization_pct": 18.0,
+      "memory_utilization_pct": 35.6,
+      "log_error_lines": 1.0,
+      "log_errors_peak_per_min": 1.0,
+      "ecs_stopped_tasks": 4.0,
+      "ecs_tasks_failed_to_start": 4.0,
+      "ecs_stopped_failed_to_start": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

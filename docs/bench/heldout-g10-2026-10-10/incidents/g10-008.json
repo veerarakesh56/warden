@@ -1,0 +1,33 @@
+{
+  "id": "g10-008",
+  "alert": {
+    "alert_id": "g10-008",
+    "name": "wiki-legacy system status check failed",
+    "service": "wiki-legacy",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "StatusCheckFailed_System >= 1 for 2 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "instance_id": "i-0f3a9c2e7b1d45608",
+      "alarm": "wiki-legacy-system-check"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/EC2/StatusCheckFailed_System InstanceId=i-0f3a9c2e7b1d45608 stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on i-0f3a9c2e7b1d45608 in the 6 h before the alert",
+      "STATE instance_id i-0f3a9c2e7b1d45608 Name=running Status=impaired Status=ok Events=1"
+    ],
+    "metrics": {
+      "alarm_statuscheckfailed_system": 1.0,
+      "alarm_sibling_ec2_statuscheckfailed": 1.0,
+      "alarm_sibling_ec2_statuscheckfailed_instance": 0.0,
+      "alarm_sibling_ec2_cpuutilization": 0.4,
+      "alarm_sibling_ec2_networkin": 1204.0,
+      "alarm_sibling_ec2_networkout": 980.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "id": "g10-080",
+  "alert": {
+    "alert_id": "g10-080",
+    "name": "fx-rates-sync-errors",
+    "service": "fx-rates-sync",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "fx-rates-sync Errors above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "fx-rates-sync",
+      "alarm": "fx-rates-sync-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=fx-rates-sync stat=Sum period=60s threshold GreaterThanThreshold 3.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:32:53Z lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 on fx-rates-sync by user/dev-amehta",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:47:40Z 2026-10-10T07:47:40.410Z\t7b75b3ea-67a3-42e0-8841-9fa935c5c5d9\tINFO\tfetching rates base=EUR provider=api.fx-provider.example.com",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:47:40Z 2026-10-10T07:47:40.911Z\t7b75b3ea-67a3-42e0-8841-9fa935c5c5d9\tERROR\tError: connect ETIMEDOUT 203.0.113.40:443",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:47:40Z 2026-10-10T07:47:40.997Z\t7b75b3ea-67a3-42e0-8841-9fa935c5c5d9 Task timed out after 5.00 seconds",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:47:40Z REPORT RequestId: 7b75b3ea-67a3-42e0-8841-9fa935c5c5d9\tDuration: 5000.00 ms\tBilled Duration: 5001 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:49:40Z 2026-10-10T07:49:40.410Z\te2831107-1583-4ea0-84b9-104de3fe09b2\tINFO\tfetching rates base=EUR provider=api.fx-provider.example.com",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:49:40Z 2026-10-10T07:49:40.911Z\te2831107-1583-4ea0-84b9-104de3fe09b2\tERROR\tError: connect ETIMEDOUT 203.0.113.40:443",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:49:40Z 2026-10-10T07:49:40.997Z\te2831107-1583-4ea0-84b9-104de3fe09b2 Task timed out after 5.00 seconds",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:49:40Z REPORT RequestId: e2831107-1583-4ea0-84b9-104de3fe09b2\tDuration: 5000.00 ms\tBilled Duration: 5001 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:51:40Z 2026-10-10T07:51:40.410Z\t010809d1-51a6-4546-982b-02b9b997432a\tINFO\tfetching rates base=EUR provider=api.fx-provider.example.com",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:51:40Z 2026-10-10T07:51:40.911Z\t010809d1-51a6-4546-982b-02b9b997432a\tERROR\tError: connect ETIMEDOUT 203.0.113.40:443",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:51:40Z 2026-10-10T07:51:40.997Z\t010809d1-51a6-4546-982b-02b9b997432a Task timed out after 5.00 seconds",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:51:40Z REPORT RequestId: 010809d1-51a6-4546-982b-02b9b997432a\tDuration: 5000.00 ms\tBilled Duration: 5001 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:53:40Z 2026-10-10T07:53:40.410Z\tb449094d-024e-4a07-87a8-dca5ec8f34dc\tINFO\tfetching rates base=EUR provider=api.fx-provider.example.com",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:53:40Z 2026-10-10T07:53:40.911Z\tb449094d-024e-4a07-87a8-dca5ec8f34dc\tERROR\tError: connect ETIMEDOUT 203.0.113.40:443",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:53:40Z 2026-10-10T07:53:40.997Z\tb449094d-024e-4a07-87a8-dca5ec8f34dc Task timed out after 5.00 seconds",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:53:40Z REPORT RequestId: b449094d-024e-4a07-87a8-dca5ec8f34dc\tDuration: 5000.00 ms\tBilled Duration: 5001 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:55:40Z 2026-10-10T07:55:40.410Z\t6d9e1d54-4a5d-4693-af7b-97e3e168eb60\tINFO\tfetching rates base=EUR provider=api.fx-provider.example.com",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:55:40Z 2026-10-10T07:55:40.911Z\t6d9e1d54-4a5d-4693-af7b-97e3e168eb60\tERROR\tError: connect ETIMEDOUT 203.0.113.40:443",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:55:40Z 2026-10-10T07:55:40.997Z\t6d9e1d54-4a5d-4693-af7b-97e3e168eb60 Task timed out after 5.00 seconds",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:55:40Z REPORT RequestId: 6d9e1d54-4a5d-4693-af7b-97e3e168eb60\tDuration: 5000.00 ms\tBilled Duration: 5001 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:57:40Z 2026-10-10T07:57:40.410Z\td2f14cb9-fb2c-4bc1-ac43-4e034b1ae9e1\tINFO\tfetching rates base=EUR provider=api.fx-provider.example.com",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:57:40Z 2026-10-10T07:57:40.911Z\td2f14cb9-fb2c-4bc1-ac43-4e034b1ae9e1\tERROR\tError: connect ETIMEDOUT 203.0.113.40:443",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:57:40Z 2026-10-10T07:57:40.997Z\td2f14cb9-fb2c-4bc1-ac43-4e034b1ae9e1 Task timed out after 5.00 seconds",
+      "LOG lambda/fx-rates-sync 2026-10-10T07:57:40Z REPORT RequestId: d2f14cb9-fb2c-4bc1-ac43-4e034b1ae9e1\tDuration: 5000.00 ms\tBilled Duration: 5001 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "CONFIG lambda fx-rates-sync timeout=5s memory=512MB reserved_concurrency=none env=[PROVIDER_HOST=api.fx-provider.example.com,RATES_TABLE=fx-rates-dev] sgs=[sg-0f1e2d3c4b5a69788] version=9 alias_live=9",
+      "CHANGE 2026-10-10T07:40:09Z ec2.amazonaws.com ReplaceRoute on rtb-0e4c2a9b7d1f63a58 (this workload's route table) by role/network-terraform"
+    ],
+    "metrics": {
+      "alarm_errors": 4.0,
+      "alarm_sibling_lambda_invocations": 1.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_duration": 5000.0,
+      "log_error_lines": 12.0,
+      "log_errors_peak_per_min": 2.0,
+      "lambda_timeout_s": 5.0,
+      "lambda_memory_mb": 512.0,
+      "network_changes_before_alert": 1.0,
+      "lambda_errors": 4.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 4.0,
+      "lambda_duration_max_ms": 5000.0,
+      "lambda_concurrent_executions": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "id": "g10-005",
+  "alert": {
+    "alert_id": "g10-005",
+    "name": "ledger-nlb-throughput-collapse",
+    "service": "ledger",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ledger NLB processed bytes below 25% of baseline",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "load_balancer": "net/ledger-nlb/9a7b6c5d4e3f2a10",
+      "nlb_target_group": "ledger-tcp-tg",
+      "alarm": "ledger-nlb-throughput-collapse"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold LessThanThreshold 0.25 datapoints=3/3 missing=breaching state=ALARM",
+      "CHANGE none on net/ledger-nlb/9a7b6c5d4e3f2a10 in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:47:55Z elasticloadbalancing.amazonaws.com ModifyTargetGroupAttributes on ledger-tcp-tg by role/AWSReservedSSO_PowerUserAccess_9f8e7d6c5b4a3f21",
+      "STATE load_balancer net/ledger-nlb/9a7b6c5d4e3f2a10 Code=active Type=network Scheme=internal IpAddressType=ipv4 AvailabilityZones=3",
+      "STATE nlb_target_group ledger-tcp-tg Protocol=TCP Port=7443 TargetType=ip HealthCheckProtocol=TCP HealthCheckPort=traffic-port HealthyThresholdCount=3 UnhealthyThresholdCount=3 LoadBalancerArns=1"
+    ],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [],
+    "empty_reads": [
+      "metrics"
+    ]
+  }
+}

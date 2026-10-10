@@ -1,0 +1,25 @@
+{
+  "id": "g10-156",
+  "alert": {
+    "alert_id": "g10-156",
+    "name": "reconcile failures",
+    "service": "payments-reconcile",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ReconcileFailures > 10 in 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "alarm": "payments-reconcile-failures"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM Payments/ReconcileFailures - stat=Sum period=300s threshold GreaterThanThreshold 10.0 datapoints=1/1 missing=notBreaching state=ALARM"
+    ],
+    "metrics": {
+      "alarm_value": 41.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

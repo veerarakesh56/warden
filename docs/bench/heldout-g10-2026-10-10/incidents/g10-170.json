@@ -1,0 +1,50 @@
+{
+  "id": "g10-170",
+  "alert": {
+    "alert_id": "g10-170",
+    "name": "invoice-signer errors",
+    "service": "invoice-signer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 3 in 3 of 3 minutes for invoice-signer",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "invoice-signer",
+      "alarm": "invoice-signer-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=invoice-signer stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 3.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on invoice-signer in the 6 h before the alert",
+      "LOG lambda/invoice-signer 2026-10-10T07:47:11Z [INFO]\t2026-10-10T07:47:11.402Z\t63226314-73e1-58c8-89e4-af97532cbb54\tsigning invoice INV-2026-104417",
+      "LOG lambda/invoice-signer 2026-10-10T07:47:11Z REPORT RequestId: 63226314-73e1-58c8-89e4-af97532cbb54\tDuration: 388.10 ms\tBilled Duration: 389 ms\tMemory Size: 512 MB\tMax Memory Used: 118 MB",
+      "LOG lambda/invoice-signer 2026-10-10T07:51:55Z [ERROR]\t2026-10-10T07:51:55.013Z\t5fe90b95-1dbe-57a3-b5d1-e3bfc77bf3bb\tdecrypt data key failed: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:eu-west-1:111122223333:key/8f2d6c1e-4b7a-4c93-9e1f-2a6b5d0c7e31 is pending deletion.",
+      "LOG lambda/invoice-signer 2026-10-10T07:51:55Z REPORT RequestId: 5fe90b95-1dbe-57a3-b5d1-e3bfc77bf3bb\tDuration: 210.90 ms\tBilled Duration: 211 ms\tMemory Size: 512 MB\tMax Memory Used: 118 MB",
+      "LOG lambda/invoice-signer 2026-10-10T07:53:02Z [ERROR]\t2026-10-10T07:53:02.671Z\t930cc024-5af5-5fa1-be3f-27b1348f702d\tdecrypt data key failed: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:eu-west-1:111122223333:key/8f2d6c1e-4b7a-4c93-9e1f-2a6b5d0c7e31 is pending deletion.",
+      "LOG lambda/invoice-signer 2026-10-10T07:56:40Z [ERROR]\t2026-10-10T07:56:40.098Z\t2c23285e-d710-51e7-9abd-5181b305acf7\tdecrypt data key failed: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:eu-west-1:111122223333:key/8f2d6c1e-4b7a-4c93-9e1f-2a6b5d0c7e31 is pending deletion.",
+      "LOG lambda/invoice-signer 2026-10-10T07:59:18Z [ERROR]\t2026-10-10T07:59:18.250Z\t428879d3-a2c6-54ee-84c3-dce15efbfdc9\tdecrypt data key failed: An error occurred (KMSInvalidStateException) when calling the Decrypt operation: arn:aws:kms:eu-west-1:111122223333:key/8f2d6c1e-4b7a-4c93-9e1f-2a6b5d0c7e31 is pending deletion.",
+      "CONFIG lambda invoice-signer timeout=30s memory=512MB reserved_concurrency=none env=[INVOICE_BUCKET=acme-invoices-dev,LOG_LEVEL=INFO,SIGNING_KEY_ARN] version=42 alias_live=42"
+    ],
+    "metrics": {
+      "alarm_errors": 96.0,
+      "alarm_sibling_lambda_invocations": 97.0,
+      "alarm_sibling_lambda_duration": 412.7,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_concurrentexecutions": 4.0,
+      "log_error_lines": 96.0,
+      "log_errors_peak_per_min": 11.0,
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_errors": 96.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 97.0,
+      "lambda_duration_max_ms": 412.7,
+      "lambda_concurrent_executions": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/invoice-signer logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 238 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

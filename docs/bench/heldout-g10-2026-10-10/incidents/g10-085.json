@@ -1,0 +1,69 @@
+{
+  "id": "g10-085",
+  "alert": {
+    "alert_id": "g10-085",
+    "name": "inventory-sync running tasks below desired",
+    "service": "inventory-sync",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "RunningTaskCount < 2 for 5 consecutive minutes (inventory-sync, shop-dev)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "inventory-sync",
+      "alarm": "inventory-sync-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=inventory-sync stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=5/5 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:39:30Z ecs.amazonaws.com UpdateService on inventory-sync by role/platform-weekly-restart",
+      "LOG ecs/inventory-sync 2026-10-10T07:45:04Z INFO  InventorySync - starting, profile=dev",
+      "LOG ecs/inventory-sync 2026-10-10T07:45:05Z Exception in thread \"main\" software.amazon.awssdk.services.ssm.model.SsmException: User: arn:aws:sts::111122223333:assumed-role/inventory-sync-task-role/9e111be0061755999a4a4679d21ef62d is not authorized to perform: ssm:GetParameter on resource: arn:aws:ssm:eu-west-1:111122223333:parameter/inventory/dev/feed-url with an explicit deny in a service control policy (Service: Ssm, Status Code: 400, Request ID: fa4ef7a3-89c3-50e3-a75f-faffc34fdf4e)",
+      "LOG ecs/inventory-sync 2026-10-10T07:46:30Z INFO  InventorySync - synced 1200 sku deltas in 8.1 s",
+      "LOG ecs/inventory-sync 2026-10-10T07:49:40Z INFO  InventorySync - starting, profile=dev",
+      "LOG ecs/inventory-sync 2026-10-10T07:49:41Z Exception in thread \"main\" software.amazon.awssdk.services.ssm.model.SsmException: User: arn:aws:sts::111122223333:assumed-role/inventory-sync-task-role/35dbaf1519ca5284b69e30b854c7c861 is not authorized to perform: ssm:GetParameter on resource: arn:aws:ssm:eu-west-1:111122223333:parameter/inventory/dev/feed-url with an explicit deny in a service control policy (Service: Ssm, Status Code: 400, Request ID: bc221ddf-689d-5e76-aa6f-791077bf7f89)",
+      "LOG ecs/inventory-sync 2026-10-10T07:52:02Z INFO  InventorySync - starting, profile=dev",
+      "LOG ecs/inventory-sync 2026-10-10T07:52:03Z Exception in thread \"main\" software.amazon.awssdk.services.ssm.model.SsmException: User: arn:aws:sts::111122223333:assumed-role/inventory-sync-task-role/cfb7b3071b6d52c4a9a209b32097573d is not authorized to perform: ssm:GetParameter on resource: arn:aws:ssm:eu-west-1:111122223333:parameter/inventory/dev/feed-url with an explicit deny in a service control policy (Service: Ssm, Status Code: 400, Request ID: 1fbc2ccf-a820-5fc0-96a2-d9663656423c)",
+      "LOG ecs/inventory-sync 2026-10-10T07:56:31Z INFO  InventorySync - starting, profile=dev",
+      "LOG ecs/inventory-sync 2026-10-10T07:56:32Z Exception in thread \"main\" software.amazon.awssdk.services.ssm.model.SsmException: User: arn:aws:sts::111122223333:assumed-role/inventory-sync-task-role/5339266ae828573e89983b7494471a05 is not authorized to perform: ssm:GetParameter on resource: arn:aws:ssm:eu-west-1:111122223333:parameter/inventory/dev/feed-url with an explicit deny in a service control policy (Service: Ssm, Status Code: 400, Request ID: 4c0a763f-196f-538e-a1b0-53a9862fd759)",
+      "LOG ecs/inventory-sync 2026-10-10T07:57:30Z INFO  InventorySync - synced 1187 sku deltas in 7.9 s",
+      "APPSG ecs/inventory-sync sgs=[sg-0123abcd4567ef890]",
+      "TASKROLE ecs/inventory-sync role=inventory-sync-task-role",
+      "STATE ecs/inventory-sync deployment PRIMARY rollout=IN_PROGRESS revision=inventory-sync:12 desired=2 running=0 pending=1 failed=5 at=2026-10-10T07:39:30Z",
+      "STATE ecs/inventory-sync deployment ACTIVE rollout=COMPLETED revision=inventory-sync:12 desired=1 running=1 pending=0 failed=0 at=2026-10-02T11:15:00Z",
+      "STATE ecs/inventory-sync service events in the hour before the alert: started_tasks=6 stopped_tasks=1",
+      "STATE ecs/inventory-sync stopped task cc53d0e7 at=2026-10-10T07:56:33Z revision=inventory-sync:12 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/inventory-sync stopped task: Essential container in task exited",
+      "STATE ecs/inventory-sync stopped task e5b4247d at=2026-10-10T07:52:04Z revision=inventory-sync:12 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/inventory-sync stopped task: Essential container in task exited",
+      "STATE ecs/inventory-sync stopped task dc9e02e1 at=2026-10-10T07:49:42Z revision=inventory-sync:12 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/inventory-sync stopped task: Essential container in task exited",
+      "STATE ecs/inventory-sync stopped task d069ca00 at=2026-10-10T07:45:06Z revision=inventory-sync:12 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/inventory-sync stopped task: Essential container in task exited",
+      "STATE ecs/inventory-sync stopped task df55618a at=2026-10-10T07:42:20Z revision=inventory-sync:12 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/inventory-sync stopped task: Essential container in task exited",
+      "STATE ecs/inventory-sync stopped task 86bdb565 at=2026-10-10T07:40:31Z revision=inventory-sync:12 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/inventory-sync stopped task: Scaling activity initiated by (deployment ecs-svc/4417712238099012345)"
+    ],
+    "metrics": {
+      "alarm_value": 1.0,
+      "tasks_running": 1.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployment_failed_tasks": 5.0,
+      "cpu_utilization_pct": 12.0,
+      "memory_utilization_pct": 30.4,
+      "log_error_lines": 4.0,
+      "log_errors_peak_per_min": 1.0,
+      "ecs_stopped_tasks": 6.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_exit": 5.0,
+      "ecs_stopped_scheduler": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

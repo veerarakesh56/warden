@@ -1,0 +1,30 @@
+{
+  "id": "g10-006",
+  "alert": {
+    "alert_id": "g10-006",
+    "name": "imported key material expiring",
+    "service": "shop-dev-keys",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "SecondsUntilKeyMaterialExpiration < 604800",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "kms_key": "2b4d6f8a-0c1e-4a3b-9d5f-7e9a1c3b5d7f",
+      "alarm": "kms-key-material-expiring"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/KMS/SecondsUntilKeyMaterialExpiration KeyId=2b4d6f8a-0c1e-4a3b-9d5f-7e9a1c3b5d7f stat=Minimum period=300s threshold LessThanThreshold 604800.0 datapoints=1/1 missing=missing state=ALARM"
+    ],
+    "metrics": {
+      "alarm_secondsuntilkeymaterialexpiration": 518400.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: alarm_secondsuntilkeymaterialexpiration PartialData (the series may be incomplete)",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: kms-key: [access denied on DescribeKey] An error occurred (AccessDeniedException) when calling the DescribeKey operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-7340 is not authorized to perform: kms:Des"
+    ]
+  }
+}

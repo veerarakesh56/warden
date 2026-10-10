@@ -1,0 +1,33 @@
+{
+  "id": "g10-145",
+  "alert": {
+    "alert_id": "g10-145",
+    "name": "recommendations-not-ready",
+    "service": "recommendations",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "recommendations has no ready pods",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "shop",
+      "deployment": "recommendations",
+      "alarm": "recommendations-not-ready"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_status_ready ClusterName=shop-dev-eks,Namespace=shop,PodName=recommendations stat=Minimum period=60s threshold LessThanThreshold 1.0 datapoints=2/2 missing=breaching state=ALARM",
+      "CHANGE none on recommendations in the 6 h before the alert",
+      "APPSG eks/shop-dev-eks sgs=[sg-03a5c7e9b1d2f4a68,sg-0e1d2c3b4a5968778]"
+    ],
+    "metrics": {
+      "alarm_value": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: k8s/recommendations: [no live pods] no live pods match 'app=recommendations' in namespace 'shop' (0 matched in total, 0 dead)"
+    ]
+  }
+}

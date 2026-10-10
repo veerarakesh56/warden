@@ -1,0 +1,36 @@
+{
+  "id": "g10-166",
+  "alert": {
+    "alert_id": "g10-166",
+    "name": "clickstream-iterator-age",
+    "service": "analytics",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "clickstream consumer iterator age above 23 h",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "kinesis_stream": "clickstream",
+      "alarm": "clickstream-iterator-age"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Kinesis/GetRecords.IteratorAgeMilliseconds StreamName=clickstream stat=Maximum period=300s threshold GreaterThanThreshold 82800000.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:30:05Z kinesis.amazonaws.com DecreaseStreamRetentionPeriod on clickstream by role/AWSReservedSSO_AdministratorAccess_4c1d9e7f2a6b8e30",
+      "STATE kinesis_stream clickstream StreamStatus=ACTIVE StreamMode=PROVISIONED OpenShardCount=8 RetentionPeriodHours=24 ConsumerCount=0 EncryptionType=KMS"
+    ],
+    "metrics": {
+      "alarm_getrecords_iteratoragemilliseconds": 82950000.0,
+      "alarm_sibling_kinesis_getrecords_bytes": 5200000.0,
+      "alarm_sibling_kinesis_getrecords_latency": 21.0,
+      "alarm_sibling_kinesis_getrecords_records": 10000.0,
+      "alarm_sibling_kinesis_getrecords_success": 1.0,
+      "alarm_sibling_kinesis_incomingbytes": 9800000.0,
+      "alarm_sibling_kinesis_incomingrecords": 91800.0,
+      "alarm_sibling_kinesis_readprovisionedthroughputexceeded": 0.0,
+      "alarm_sibling_kinesis_writeprovisionedthroughputexceeded": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

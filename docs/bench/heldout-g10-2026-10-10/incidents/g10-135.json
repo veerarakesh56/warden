@@ -1,0 +1,73 @@
+{
+  "id": "g10-135",
+  "alert": {
+    "alert_id": "g10-135",
+    "name": "pricing-api-memory-high",
+    "service": "pricing-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "pricing-api MemoryUtilization above 90%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "pricing-api",
+      "alarm": "pricing-api-memory-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/MemoryUtilization ClusterName=shop-dev,ServiceName=pricing-api stat=Maximum period=60s threshold GreaterThanThreshold 90.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:49:46Z ecs.amazonaws.com UpdateService on pricing-api by user/dev-ssingh",
+      "LOG ecs/pricing-api 2026-10-10T07:46:05Z INFO quote served sku-batch=20 cache_entries=412000 p95_ms=140",
+      "LOG ecs/pricing-api 2026-10-10T07:47:05Z INFO quote served sku-batch=21 cache_entries=421000 p95_ms=170",
+      "LOG ecs/pricing-api 2026-10-10T07:48:05Z INFO quote served sku-batch=22 cache_entries=430000 p95_ms=200",
+      "LOG ecs/pricing-api 2026-10-10T07:48:40Z WARN GC overhead 38% heap_used=1870MiB heap_max=1920MiB",
+      "LOG ecs/pricing-api 2026-10-10T07:49:05Z INFO quote served sku-batch=23 cache_entries=439000 p95_ms=230",
+      "LOG ecs/pricing-api 2026-10-10T07:50:05Z INFO quote served sku-batch=24 cache_entries=448000 p95_ms=260",
+      "LOG ecs/pricing-api 2026-10-10T07:51:05Z INFO quote served sku-batch=25 cache_entries=457000 p95_ms=290",
+      "LOG ecs/pricing-api 2026-10-10T07:52:05Z INFO quote served sku-batch=26 cache_entries=466000 p95_ms=320",
+      "LOG ecs/pricing-api 2026-10-10T07:53:05Z INFO quote served sku-batch=27 cache_entries=475000 p95_ms=350",
+      "LOG ecs/pricing-api 2026-10-10T07:54:05Z INFO quote served sku-batch=28 cache_entries=484000 p95_ms=380",
+      "LOG ecs/pricing-api 2026-10-10T07:55:05Z INFO quote served sku-batch=29 cache_entries=493000 p95_ms=410",
+      "LOG ecs/pricing-api 2026-10-10T07:57:02Z WARN upstream queue wait 2.8s; 2 workers busy",
+      "APPSG ecs/pricing-api sgs=[sg-0a2b4c6d8e0f13579]",
+      "TASKROLE ecs/pricing-api role=pricing-api-task",
+      "STATE ecs/pricing-api deployment PRIMARY rollout=COMPLETED revision=pricing-api:77 desired=2 running=2 pending=0 failed=3 at=2026-10-01T08:00:00Z",
+      "STATE ecs/pricing-api service events in the hour before the alert: started_tasks=3 steady_state=1 stopped_tasks=4",
+      "STATE ecs/pricing-api stopped task 3cf33b9b at=2026-10-10T07:55:22Z revision=pricing-api:77 stop=EssentialContainerExited cause=oom exit=137",
+      "EVENT ecs/pricing-api stopped task: Essential container in task exited OutOfMemoryError: Container killed due to memory usage",
+      "STATE ecs/pricing-api stopped task 4d69e9df at=2026-10-10T07:51:43Z revision=pricing-api:77 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/pricing-api stopped task: Scaling activity initiated by (deployment ecs-svc/1880264519034471277)",
+      "STATE ecs/pricing-api stopped task f64a96e5 at=2026-10-10T07:51:42Z revision=pricing-api:77 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/pricing-api stopped task: Scaling activity initiated by (deployment ecs-svc/1880264519034471277)",
+      "STATE ecs/pricing-api stopped task 9526d0ea at=2026-10-10T07:51:41Z revision=pricing-api:77 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/pricing-api stopped task: Scaling activity initiated by (deployment ecs-svc/1880264519034471277)",
+      "STATE ecs/pricing-api stopped task 674cb082 at=2026-10-10T07:51:40Z revision=pricing-api:77 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/pricing-api stopped task: Scaling activity initiated by (deployment ecs-svc/1880264519034471277)",
+      "STATE ecs/pricing-api stopped task 4f0bf158 at=2026-10-10T07:51:22Z revision=pricing-api:77 stop=EssentialContainerExited cause=oom exit=137",
+      "EVENT ecs/pricing-api stopped task: Essential container in task exited OutOfMemoryError: Container killed due to memory usage",
+      "STATE ecs/pricing-api stopped task 5ad86613 at=2026-10-10T07:47:22Z revision=pricing-api:77 stop=EssentialContainerExited cause=oom exit=137",
+      "EVENT ecs/pricing-api stopped task: Essential container in task exited OutOfMemoryError: Container killed due to memory usage"
+    ],
+    "metrics": {
+      "alarm_memoryutilization": 99.6,
+      "alarm_sibling_ecs_cpuutilization": 83.1,
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 3.0,
+      "cpu_utilization_pct": 83.1,
+      "memory_utilization_pct": 99.6,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 7.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_oom": 3.0,
+      "ecs_stopped_scheduler": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

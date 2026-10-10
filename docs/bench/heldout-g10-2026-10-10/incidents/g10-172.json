@@ -1,0 +1,35 @@
+{
+  "id": "g10-172",
+  "alert": {
+    "alert_id": "g10-172",
+    "name": "orders-api-prod-5xx",
+    "service": "orders",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "orders-api prod 5XX errors above 25 a minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apigw_rest": "orders-api",
+      "apigw_stage": "prod",
+      "alarm": "orders-api-prod-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApiGateway/5XXError ApiName=orders-api,Stage=prod stat=Sum period=60s threshold GreaterThanThreshold 25.0 datapoints=2/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:46:04Z apigateway.amazonaws.com UpdateStage on orders-api by role/ci-deployer",
+      "CHANGE 2026-10-10T07:46:02Z apigateway.amazonaws.com CreateDeployment on orders-api by role/ci-deployer",
+      "CHANGE 2026-10-10T07:44:50Z apigateway.amazonaws.com PutIntegration on orders-api by role/ci-deployer",
+      "STATE apigw_rest orders-api types=REGIONAL apiKeySource=HEADER disableExecuteApiEndpoint=false"
+    ],
+    "metrics": {
+      "alarm_5xxerror": 3180.0,
+      "alarm_sibling_apigateway_4xxerror": 12.0,
+      "alarm_sibling_apigateway_count": 402.0,
+      "alarm_sibling_apigateway_integrationlatency": 31.0,
+      "alarm_sibling_apigateway_latency": 48.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

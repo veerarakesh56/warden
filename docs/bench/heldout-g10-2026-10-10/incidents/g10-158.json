@@ -1,0 +1,41 @@
+{
+  "id": "g10-158",
+  "alert": {
+    "alert_id": "g10-158",
+    "name": "nightly-export-depth",
+    "service": "reporting",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "nightly-export visible messages above 5000",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sqs": "nightly-export",
+      "alarm": "nightly-export-depth"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/SQS/ApproximateNumberOfMessagesVisible QueueName=nightly-export stat=Maximum period=60s threshold GreaterThanThreshold 5000.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:20:44Z sqs.amazonaws.com SetQueueAttributes on nightly-export by role/terraform-apply",
+      "QUEUE nightly-export visible=6120 in_flight=1000 dlq=nightly-export-dlq dlq_visible=0 max_receive=5"
+    ],
+    "metrics": {
+      "alarm_approximatenumberofmessagesvisible": 21480.0,
+      "alarm_sibling_sqs_approximateageofoldestmessage": 41.0,
+      "alarm_sibling_sqs_approximatenumberofmessagesnotvisible": 1000.0,
+      "alarm_sibling_sqs_numberofemptyreceives": 0.0,
+      "alarm_sibling_sqs_numberofmessagesdeleted": 20400.0,
+      "alarm_sibling_sqs_numberofmessagesreceived": 20410.0,
+      "alarm_sibling_sqs_numberofmessagessent": 21000.0,
+      "alarm_sibling_sqs_sentmessagesize": 980.0,
+      "sqs_visible": 6120.0,
+      "sqs_in_flight": 1000.0,
+      "sqs_visibility_timeout_s": 120.0,
+      "sqs_max_receive_count": 5.0,
+      "dlq_visible": 0.0,
+      "sqs_oldest_age_s": 41.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

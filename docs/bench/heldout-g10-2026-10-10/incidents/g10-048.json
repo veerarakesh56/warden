@@ -1,0 +1,45 @@
+{
+  "id": "g10-048",
+  "alert": {
+    "alert_id": "g10-048",
+    "name": "orders-api 5xx",
+    "service": "orders-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Target 5XX > 10 per minute for 3 minutes (orders-api)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "orders-api",
+      "alarm": "orders-api-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/HTTPCode_Target_5XX_Count ClusterName=shop-dev,DiscoveryName=orders-api,ServiceName=orders-api stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE none on orders-api in the 6 h before the alert",
+      "APPSG ecs/orders-api sgs=[sg-0c4f1a2b3d4e5f601]",
+      "TASKROLE ecs/orders-api role=orders-api-task-role",
+      "STATE ecs/orders-api deployment PRIMARY rollout=COMPLETED revision=orders-api:31 desired=3 running=3 pending=0 failed=0 at=2026-10-08T14:12:09Z"
+    ],
+    "metrics": {
+      "alarm_httpcode_target_5xx_count": 412.0,
+      "alarm_sibling_ecs_requestcount": 1980.0,
+      "alarm_sibling_ecs_targetresponsetime": 2100.0,
+      "tasks_running": 3.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 38.0,
+      "memory_utilization_pct": 52.5
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: ecs logs: logs: /ecs/orders-api: [not found on FilterLogEvents] An error occurred (ResourceNotFoundException) when calling the FilterLogEvents operation: The specified log group does not exist.",
+      "logs: ecs/orders-api metrics: [not found on StartQuery] An error occurred (ResourceNotFoundException) when calling the StartQuery operation: Log group '/ecs/orders-api' does not exist for account ID '111122223333'",
+      "logs: ecs stopped tasks: [access denied on ListTasks] An error occurred (AccessDeniedException) when calling the ListTasks operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-6012 is not authorized to perform: ecs:ListT"
+    ]
+  }
+}

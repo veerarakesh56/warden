@@ -1,0 +1,69 @@
+{
+  "id": "g10-071",
+  "alert": {
+    "alert_id": "g10-071",
+    "name": "cart-api-running-tasks-low",
+    "service": "cart-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "cart-api RunningTaskCount < 1 for 2 consecutive minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "cart-api",
+      "alarm": "cart-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=cart-api stat=Minimum period=60s threshold LessThanThreshold 1.0 datapoints=2/2 missing=breaching state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:46:31Z ecs.amazonaws.com UpdateService on cart-api by user/dev-mkumar",
+      "CHANGE 2026-10-10T03:11:09Z ecs.amazonaws.com UpdateService on cart-api by role/github-actions-deploy",
+      "LOG ecs/cart-api 2026-10-10T07:45:20Z {\"level\":\"info\",\"msg\":\"request\",\"method\":\"GET\",\"path\":\"/cart\",\"status\":200,\"ms\":38}",
+      "LOG ecs/cart-api 2026-10-10T07:45:48Z {\"level\":\"info\",\"msg\":\"request\",\"method\":\"POST\",\"path\":\"/cart/items\",\"status\":201,\"ms\":64}",
+      "LOG ecs/cart-api 2026-10-10T07:46:39Z {\"level\":\"info\",\"msg\":\"SIGTERM received, draining in-flight requests\",\"inflight\":14}",
+      "LOG ecs/cart-api 2026-10-10T07:46:40Z {\"level\":\"info\",\"msg\":\"SIGTERM received, draining in-flight requests\",\"inflight\":9}",
+      "LOG ecs/cart-api 2026-10-10T07:46:41Z {\"level\":\"info\",\"msg\":\"SIGTERM received, draining in-flight requests\",\"inflight\":11}",
+      "LOG ecs/cart-api 2026-10-10T07:46:54Z {\"level\":\"info\",\"msg\":\"http server closed\"}",
+      "LOG ecs/cart-api 2026-10-10T07:46:56Z {\"level\":\"info\",\"msg\":\"http server closed\"}",
+      "LOG ecs/cart-api 2026-10-10T07:46:57Z {\"level\":\"info\",\"msg\":\"http server closed\"}",
+      "APPSG ecs/cart-api sgs=[sg-0c2e4a6b8d0f13579]",
+      "TASKROLE ecs/cart-api role=cart-api-task",
+      "STATE ecs/cart-api deployment PRIMARY rollout=COMPLETED revision=cart-api:57 desired=0 running=0 pending=0 failed=0 at=2026-10-10T03:12:40Z",
+      "STATE ecs/cart-api service events in the hour before the alert: steady_state=1 stopped_tasks=1",
+      "STATE ecs/cart-api stopped task afb1a5e3 at=2026-10-10T07:47:00Z revision=cart-api:57 stop=ServiceSchedulerInitiated cause=scheduler exit=0",
+      "EVENT ecs/cart-api stopped task: Scaling activity initiated by (deployment ecs-svc/4729163001582337920)",
+      "STATE ecs/cart-api stopped task c51f8c8f at=2026-10-10T07:46:59Z revision=cart-api:57 stop=ServiceSchedulerInitiated cause=scheduler exit=0",
+      "EVENT ecs/cart-api stopped task: Scaling activity initiated by (deployment ecs-svc/4729163001582337920)",
+      "STATE ecs/cart-api stopped task ecd5ed1b at=2026-10-10T07:46:58Z revision=cart-api:57 stop=ServiceSchedulerInitiated cause=scheduler exit=0",
+      "EVENT ecs/cart-api stopped task: Scaling activity initiated by (deployment ecs-svc/4729163001582337920)"
+    ],
+    "metrics": {
+      "alarm_value": 0.0,
+      "tasks_running": 0.0,
+      "tasks_desired": 0.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 3.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_scheduler": 3.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "cart-api",
+        "at": "2026-10-10T03:12:40Z",
+        "version": "cart-api:57",
+        "previous": "cart-api:56",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/cart-api:2026.10.10-1",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/cart-api:2026.10.09-4",
+        "revision": "57"
+      }
+    ],
+    "tool_errors": []
+  }
+}

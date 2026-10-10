@@ -44,3 +44,14 @@ def test_a_cause_is_cited_by_its_span_or_by_the_item_holding_it():
     assert hb.score(_report("pause_flow", citations=[(item.id, "ReceiveCount=50")]), KEY)["cited_cause"]
     assert hb.score(_report("pause_flow", citations=[(item.id, "failed again")]), KEY)["cited_cause"]
     assert not hb.score(_report("pause_flow", citations=[("M1", "error_rate=0.4")]), KEY)["cited_cause"]
+
+
+def test_a_fix_is_counted_apart_from_a_safe_escalation_and_the_always_escalate_floor_is_reported():
+    key = {**KEY, "correct_actions": ["pause_flow", "escalate_to_human"]}
+    fix, esc = hb.score(_report("pause_flow"), key), hb.score(_report("escalate_to_human", "escalated"), key)
+    assert fix["grade"] == esc["grade"] == "CORRECT"
+    assert fix["fixed"] and not esc["fixed"] and fix["fixable"]
+    s = hb.summarise({"a": fix, "b": esc})
+    assert (s["fixable"], s["fixed"], s["escalated_a_fixable"]) == (2, 1, 1)
+    floor = hb.always_escalate({"a": key, "b": {**KEY, "correct_actions": ["pause_flow"]}})
+    assert floor == {"cases": 2, "correct": 1, "fixed": 0}

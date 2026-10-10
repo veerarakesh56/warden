@@ -1,0 +1,55 @@
+{
+  "id": "g10-015",
+  "alert": {
+    "alert_id": "g10-015",
+    "name": "checkout-api errors",
+    "service": "checkout-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 10 in 3 of 3 minutes for checkout-api",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "checkout-api",
+      "alarm": "checkout-api-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "CONFIG appconfig checkout/dev monitors this alarm: deployment=22 state=COMPLETE version=15 completed=2026-10-10T07:44:02Z",
+      "ALARM AWS/Lambda/Errors FunctionName=checkout-api stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on checkout-api in the 6 h before the alert",
+      "LOG lambda/checkout-api 2026-10-10T07:45:01Z 2026-10-10T07:45:01.005Z\t3ad417d1-e52f-5cd3-a5fb-6af0338329f7\tINFO\torder placed id=o-551023 total=88.10",
+      "LOG lambda/checkout-api 2026-10-10T07:46:40Z 2026-10-10T07:46:40.077Z\t107d46a1-9e4e-55b9-90f5-98135bb83db8\tINFO\tflags refreshed promo_engine_v2=true (configuration version 15)",
+      "LOG lambda/checkout-api 2026-10-10T07:47:02Z 2026-10-10T07:47:02.640Z\td709860a-8e20-50c9-a113-ec7402bde4d5\tERROR\tInvoke Error \t{\"errorType\":\"PromoEngineError\",\"errorMessage\":\"promo_engine_v2: unknown discount type BUNDLE_3_FOR_2\",\"stack\":[\"PromoEngineError: promo_engine_v2: unknown discount type BUNDLE_3_FOR_2\"]}",
+      "LOG lambda/checkout-api 2026-10-10T07:49:40Z 2026-10-10T07:49:40.013Z\t4b5ff1a0-4b0b-5361-8f84-b5828cdc2fc1\tERROR\tInvoke Error \t{\"errorType\":\"PromoEngineError\",\"errorMessage\":\"promo_engine_v2: unknown discount type BUNDLE_3_FOR_2\",\"stack\":[\"PromoEngineError: promo_engine_v2: unknown discount type BUNDLE_3_FOR_2\"]}",
+      "LOG lambda/checkout-api 2026-10-10T07:52:51Z 2026-10-10T07:52:51.222Z\t5b2149bc-ebc7-536a-a7ea-05bce9ba4938\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 10.20.5.17:5432\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 10.20.5.17:5432\"]}",
+      "LOG lambda/checkout-api 2026-10-10T07:54:03Z 2026-10-10T07:54:03.009Z\t7c84b634-10c6-5ecf-88a6-ddb6758e0531\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 10.20.5.17:5432\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 10.20.5.17:5432\"]}",
+      "LOG lambda/checkout-api 2026-10-10T07:55:30Z 2026-10-10T07:55:30.401Z\td036bcfa-adfd-5b6c-b0e0-93b4d5a9f276\tERROR\tInvoke Error \t{\"errorType\":\"PromoEngineError\",\"errorMessage\":\"promo_engine_v2: unknown discount type BUNDLE_3_FOR_2\",\"stack\":[\"PromoEngineError: promo_engine_v2: unknown discount type BUNDLE_3_FOR_2\"]}",
+      "LOG lambda/checkout-api 2026-10-10T07:58:19Z 2026-10-10T07:58:19.700Z\t32d1ec1e-a8de-5092-8ae8-eb2acd73b7d8\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 10.20.5.17:5432\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 10.20.5.17:5432\"]}",
+      "CONFIG lambda checkout-api timeout=6s memory=1024MB reserved_concurrency=none env=[APPCONFIG_APPLICATION,DB_HOST=checkout-db.cluster-cx9a8b7c6d5e.eu-west-1.rds.amazonaws.com] sgs=[sg-0d4c3b2a1f0e9d8c7] version=203 alias_live=203",
+      "CHANGE 2026-10-10T07:51:38Z ec2.amazonaws.com RevokeSecurityGroupEgress on sg-0d4c3b2a1f0e9d8c7 (this workload's security group) by role/AWSReservedSSO_NetworkAdmin_5a1b2c3d4e5f6a7b"
+    ],
+    "metrics": {
+      "alarm_errors": 902.0,
+      "alarm_sibling_lambda_invocations": 1530.0,
+      "alarm_sibling_lambda_duration": 6001.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_concurrentexecutions": 88.0,
+      "log_error_lines": 902.0,
+      "log_errors_peak_per_min": 121.0,
+      "lambda_timeout_s": 6.0,
+      "lambda_memory_mb": 1024.0,
+      "network_changes_before_alert": 1.0,
+      "lambda_errors": 902.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 1530.0,
+      "lambda_duration_max_ms": 6001.0,
+      "lambda_concurrent_executions": 88.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/checkout-api logs: logs: [output truncated] stopped after 10 pages, the alert-time lines read first (raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)",
+      "logs: lambda/checkout-api logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 1850 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

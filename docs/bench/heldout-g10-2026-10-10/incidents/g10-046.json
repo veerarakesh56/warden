@@ -1,0 +1,53 @@
+{
+  "id": "g10-046",
+  "alert": {
+    "alert_id": "g10-046",
+    "name": "ledger-sync 5xx",
+    "service": "ledger-sync",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Target 5XX > 5 per minute for 3 minutes (ledger-sync)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "ledger-sync",
+      "alarm": "ledger-sync-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/HTTPCode_Target_5XX_Count ClusterName=shop-dev,DiscoveryName=ledger-sync,ServiceName=ledger-sync stat=Sum period=60s threshold GreaterThanThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE none on ledger-sync in the 6 h before the alert",
+      "LOG ecs/ledger-sync 2026-10-10T07:47:00Z {\"level\":\"info\",\"msg\":\"put object\",\"bucket\":\"acme-ledger-sync-dev\",\"status\":200}",
+      "LOG ecs/ledger-sync 2026-10-10T07:48:20Z {\"level\":\"error\",\"msg\":\"POST /sync 502\",\"err\":\"Post \\\"https://ledger.corp.internal/api/v1/batches\\\": dial tcp: lookup ledger.corp.internal on 10.20.0.2:53: no such host\"}",
+      "LOG ecs/ledger-sync 2026-10-10T07:51:02Z {\"level\":\"info\",\"msg\":\"dynamodb PutItem ok\",\"table\":\"ledger-sync-state-dev\"}",
+      "LOG ecs/ledger-sync 2026-10-10T07:53:41Z {\"level\":\"error\",\"msg\":\"POST /sync 502\",\"err\":\"Post \\\"https://ledger.corp.internal/api/v1/batches\\\": dial tcp: lookup ledger.corp.internal on 10.20.0.2:53: no such host\"}",
+      "LOG ecs/ledger-sync 2026-10-10T07:58:05Z {\"level\":\"error\",\"msg\":\"POST /sync 502\",\"err\":\"Post \\\"https://ledger.corp.internal/api/v1/batches\\\": dial tcp: lookup ledger.corp.internal on 10.20.0.2:53: no such host\"}",
+      "APPSG ecs/ledger-sync sgs=[sg-0f9e8d7c6b5a43210]",
+      "TASKROLE ecs/ledger-sync role=ledger-sync-task-role",
+      "STATE ecs/ledger-sync deployment PRIMARY rollout=COMPLETED revision=ledger-sync:8 desired=2 running=2 pending=0 failed=0 at=2026-10-01T08:45:10Z"
+    ],
+    "metrics": {
+      "alarm_httpcode_target_5xx_count": 96.0,
+      "alarm_sibling_ecs_requestcount": 101.0,
+      "alarm_sibling_ecs_targetresponsetime": 18.0,
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 5.0,
+      "memory_utilization_pct": 17.3,
+      "log_error_lines": 96.0,
+      "log_errors_peak_per_min": 9.0,
+      "ecs_stopped_tasks": 0.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "network_changes_before_alert": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: ecs logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 72 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

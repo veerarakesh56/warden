@@ -1,0 +1,29 @@
+{
+  "id": "g10-134",
+  "alert": {
+    "alert_id": "g10-134",
+    "name": "refund-requests-age",
+    "service": "payments",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "refund-requests oldest message age above 15 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sqs": "refund-requests",
+      "alarm": "refund-requests-age"
+    }
+  },
+  "context": {
+    "logs": [],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [access denied on DescribeAlarms] An error occurred (AccessDenied) when calling the DescribeAlarms operation: User is not authorized to perform: cloudwatch:DescribeAlarms",
+      "logs: sqs/refund-requests: [access denied on GetQueueUrl] An error occurred (AccessDenied) when calling the GetQueueUrl operation: Access to the resource is denied."
+    ],
+    "empty_reads": [
+      "logs",
+      "metrics"
+    ]
+  }
+}

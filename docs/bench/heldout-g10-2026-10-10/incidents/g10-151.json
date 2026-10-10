@@ -1,0 +1,54 @@
+{
+  "id": "g10-151",
+  "alert": {
+    "alert_id": "g10-151",
+    "name": "catalog-api-ready-low",
+    "service": "catalog-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "catalog-api ready pods below 4",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "catalog",
+      "deployment": "catalog-api",
+      "alarm": "catalog-api-ready-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_status_ready ClusterName=shop-dev-eks,Namespace=catalog,PodName=catalog-api stat=Minimum period=60s threshold LessThanThreshold 4.0 datapoints=1/1 missing=missing state=OK",
+      "CHANGE none on catalog-api in the 6 h before the alert",
+      "CHANGE none on shop-dev-eks in the 6 h before the alert",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled up replica set catalog-api-84c6d9b7f to 1 from 0",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled down replica set catalog-api-6f9b8c7d5 to 3 from 4",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled up replica set catalog-api-84c6d9b7f to 2 from 1",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled down replica set catalog-api-6f9b8c7d5 to 2 from 3",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled up replica set catalog-api-84c6d9b7f to 3 from 2",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled down replica set catalog-api-6f9b8c7d5 to 1 from 2",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled up replica set catalog-api-84c6d9b7f to 4 from 3",
+      "LOG k8s/catalog/catalog-api EVENT ScalingReplicaSet Deployment/catalog-api: Scaled down replica set catalog-api-6f9b8c7d5 to 0 from 1",
+      "LOG k8s/catalog/catalog-api ROLLOUT revision 19 (current): 111122223333.dkr.ecr.eu-west-1.amazonaws.com/catalog-api:7.4.2 created 2026-10-10T07:57:46Z",
+      "LOG k8s/catalog/catalog-api ROLLOUT revision 18: 111122223333.dkr.ecr.eu-west-1.amazonaws.com/catalog-api:7.4.2 created 2026-10-07T14:40:00Z",
+      "LOG k8s/catalog/catalog-api catalog-api-84c6d9b7f-wh5q9/catalog-api 2026-10-10T07:58:02.000001000Z catalog-api 7.4.2 ready in 6.2s",
+      "LOG k8s/catalog/catalog-api catalog-api-84c6d9b7f-rljwr/catalog-api 2026-10-10T07:58:42.000001001Z catalog-api 7.4.2 ready in 6.2s",
+      "LOG k8s/catalog/catalog-api catalog-api-84c6d9b7f-bh6pd/catalog-api 2026-10-10T07:59:22.000001002Z catalog-api 7.4.2 ready in 6.2s",
+      "LOG k8s/catalog/catalog-api catalog-api-84c6d9b7f-bqbgz/catalog-api 2026-10-10T08:00:02.000001003Z catalog-api 7.4.2 ready in 6.2s",
+      "LOG k8s/catalog/catalog-api catalog-api-84c6d9b7f-wh5q9/catalog-api 2026-10-10T08:01:02.000077001Z GET /v1/items/8812 200 9ms",
+      "LOG k8s/catalog/catalog-api catalog-api-84c6d9b7f-bqbgz/catalog-api 2026-10-10T08:01:12.000077991Z GET /v1/items?cat=shoes 200 22ms",
+      "APPSG eks/shop-dev-eks sgs=[sg-03a5c7e9b1d2f4a68,sg-0e1d2c3b4a5968778]"
+    ],
+    "metrics": {
+      "alarm_value": 3.0,
+      "pods_total": 4.0,
+      "pods_ready": 4.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 1024.0,
+      "replicas_desired": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

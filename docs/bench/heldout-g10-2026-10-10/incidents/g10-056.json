@@ -1,0 +1,67 @@
+{
+  "id": "g10-056",
+  "alert": {
+    "alert_id": "g10-056",
+    "name": "order-events-errors",
+    "service": "order-events",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "order-events Errors above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "order-events",
+      "alarm": "order-events-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=order-events stat=Sum period=60s threshold GreaterThanThreshold 3.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:51:40Z lambda.amazonaws.com PutFunctionConcurrency20171031 on order-events by user/ops-dlee",
+      "CHANGE 2026-10-10T07:40:29Z lambda.amazonaws.com UpdateAlias20150331 on order-events by role/github-actions-deploy",
+      "CHANGE 2026-10-10T07:40:20Z lambda.amazonaws.com PublishVersion20150331 on order-events by role/github-actions-deploy",
+      "LOG lambda/order-events 2026-10-10T07:46:03Z 2026-10-10T07:46:03.077Z\t7a3d5f38-fa02-429c-affd-1fd69fe54163\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'sku')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'sku')\",\"    at mapLine (/var/task/src/map.js:41:22)\",\"    at Array.map (<anonymous>)\",\"    at Runtime.handler (/var/task/src/index.js:18:31)\"]}",
+      "LOG lambda/order-events 2026-10-10T07:46:03Z REPORT RequestId: 7a3d5f38-fa02-429c-affd-1fd69fe54163\tDuration: 22.60 ms\tBilled Duration: 23 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/order-events 2026-10-10T07:48:03Z 2026-10-10T07:48:03.077Z\t1a1d3e3d-8a7a-4694-a926-f4ab912762f6\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'sku')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'sku')\",\"    at mapLine (/var/task/src/map.js:41:22)\",\"    at Array.map (<anonymous>)\",\"    at Runtime.handler (/var/task/src/index.js:18:31)\"]}",
+      "LOG lambda/order-events 2026-10-10T07:48:03Z REPORT RequestId: 1a1d3e3d-8a7a-4694-a926-f4ab912762f6\tDuration: 23.60 ms\tBilled Duration: 24 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/order-events 2026-10-10T07:50:03Z 2026-10-10T07:50:03.077Z\td078ada0-e1b7-4425-a340-66d48bcf2b08\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'sku')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'sku')\",\"    at mapLine (/var/task/src/map.js:41:22)\",\"    at Array.map (<anonymous>)\",\"    at Runtime.handler (/var/task/src/index.js:18:31)\"]}",
+      "LOG lambda/order-events 2026-10-10T07:50:03Z REPORT RequestId: d078ada0-e1b7-4425-a340-66d48bcf2b08\tDuration: 24.60 ms\tBilled Duration: 25 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/order-events 2026-10-10T07:52:03Z 2026-10-10T07:52:03.077Z\tbc722c85-50f8-4d0f-b1ce-75c486bdd085\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'sku')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'sku')\",\"    at mapLine (/var/task/src/map.js:41:22)\",\"    at Array.map (<anonymous>)\",\"    at Runtime.handler (/var/task/src/index.js:18:31)\"]}",
+      "LOG lambda/order-events 2026-10-10T07:52:03Z REPORT RequestId: bc722c85-50f8-4d0f-b1ce-75c486bdd085\tDuration: 25.60 ms\tBilled Duration: 26 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/order-events 2026-10-10T07:54:03Z 2026-10-10T07:54:03.077Z\t886e3222-d870-4744-bcff-4a58e8bdf4a5\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'sku')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'sku')\",\"    at mapLine (/var/task/src/map.js:41:22)\",\"    at Array.map (<anonymous>)\",\"    at Runtime.handler (/var/task/src/index.js:18:31)\"]}",
+      "LOG lambda/order-events 2026-10-10T07:54:03Z REPORT RequestId: 886e3222-d870-4744-bcff-4a58e8bdf4a5\tDuration: 26.60 ms\tBilled Duration: 27 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/order-events 2026-10-10T07:56:03Z 2026-10-10T07:56:03.077Z\t95738d12-cb5c-46e8-b3aa-9fe05a1b4e41\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'sku')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'sku')\",\"    at mapLine (/var/task/src/map.js:41:22)\",\"    at Array.map (<anonymous>)\",\"    at Runtime.handler (/var/task/src/index.js:18:31)\"]}",
+      "LOG lambda/order-events 2026-10-10T07:56:03Z REPORT RequestId: 95738d12-cb5c-46e8-b3aa-9fe05a1b4e41\tDuration: 27.60 ms\tBilled Duration: 28 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/order-events 2026-10-10T07:58:03Z 2026-10-10T07:58:03.077Z\t20058400-a165-4674-a51b-9e81cda0fa53\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'sku')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'sku')\",\"    at mapLine (/var/task/src/map.js:41:22)\",\"    at Array.map (<anonymous>)\",\"    at Runtime.handler (/var/task/src/index.js:18:31)\"]}",
+      "LOG lambda/order-events 2026-10-10T07:58:03Z REPORT RequestId: 20058400-a165-4674-a51b-9e81cda0fa53\tDuration: 28.60 ms\tBilled Duration: 29 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "CONFIG lambda order-events timeout=10s memory=256MB reserved_concurrency=1 env=[EVENTS_TOPIC=order-events-dev,NODE_ENV=production] version=31 alias_live=31"
+    ],
+    "metrics": {
+      "alarm_errors": 5.0,
+      "alarm_sibling_lambda_invocations": 1.0,
+      "alarm_sibling_lambda_errors": 1.0,
+      "alarm_sibling_lambda_throttles": 1.0,
+      "alarm_sibling_lambda_concurrentexecutions": 1.0,
+      "log_error_lines": 7.0,
+      "log_errors_peak_per_min": 1.0,
+      "lambda_timeout_s": 10.0,
+      "lambda_memory_mb": 256.0,
+      "lambda_reserved_concurrency": 1.0,
+      "lambda_errors": 5.0,
+      "lambda_throttles": 2210.0,
+      "lambda_invocations": 5.0,
+      "lambda_duration_max_ms": 31.4,
+      "lambda_concurrent_executions": 1.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "lambda",
+        "service": "order-events",
+        "at": "2026-10-10T07:40:20Z",
+        "version": "31",
+        "previous": "30",
+        "previous_basis": "served live traffic before this version"
+      }
+    ],
+    "tool_errors": []
+  }
+}

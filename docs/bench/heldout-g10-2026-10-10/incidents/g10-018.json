@@ -1,0 +1,58 @@
+{
+  "id": "g10-018",
+  "alert": {
+    "alert_id": "g10-018",
+    "name": "ledger-aurora-acu-high",
+    "service": "ledger-aurora",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ledger-aurora ACUUtilization at or above 95% for 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "ledger-aurora",
+      "alarm": "ledger-aurora-acu-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/ACUUtilization DBClusterIdentifier=ledger-aurora stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 95.0 datapoints=5/5 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T06:04:51Z rds.amazonaws.com ModifyDBCluster on ledger-aurora by role/platform-terraform-apply",
+      "CLUSTER aurora ledger-aurora writer=ledger-aurora-1 readers=[ledger-aurora-2] status=available",
+      "postgres long-running query: pid=5512 running 74s user=ledger_app app=ledger-api client=10.50.1.22: SELECT account_id, sum(amount) FROM postings WHERE booked_at >= $1 GROUP BY account_id",
+      "postgres long-running query: pid=5530 running 66s user=ledger_app app=ledger-api client=10.50.1.40: SELECT account_id, sum(amount) FROM postings WHERE booked_at >= $1 GROUP BY account_id"
+    ],
+    "metrics": {
+      "alarm_acuutilization": 100.0,
+      "alarm_sibling_rds_serverlessdatabasecapacity": 8.0,
+      "alarm_sibling_rds_cpuutilization": 99.1,
+      "alarm_sibling_rds_databaseconnections": 310.0,
+      "alarm_sibling_rds_commitlatency": 48.2,
+      "alarm_sibling_rds_freeablememory": 640000000.0,
+      "alarm_sibling_rds_deadlocks": 0.0,
+      "aurora_members_available": 2.0,
+      "aurora_db_load": 31.5,
+      "aurora_db_load_cpu": 27.9,
+      "aurora_db_load_io": 2.2,
+      "aurora_db_load_lwlock": 1.1,
+      "aurora_connections": 310.0,
+      "aurora_acu_utilization_pct": 100.0,
+      "aurora_cpu_pct": 99.1,
+      "aurora_deadlocks": 0.0,
+      "aurora_replica_lag_ms": 41.2,
+      "active_connections": 312.0,
+      "idle_in_transaction": 0.0,
+      "long_running_queries": 2.0,
+      "max_connections": 1000.0,
+      "locks_waiting": 0.0,
+      "connections_used_pct": 0.312,
+      "reader_active_connections": 88.0,
+      "reader_idle_in_transaction": 0.0,
+      "reader_long_running_queries": 0.0,
+      "reader_max_connections": 1000.0,
+      "reader_locks_waiting": 0.0,
+      "reader_connections_used_pct": 0.088
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

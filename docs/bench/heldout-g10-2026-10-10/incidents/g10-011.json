@@ -1,0 +1,42 @@
+{
+  "id": "g10-011",
+  "alert": {
+    "alert_id": "g10-011",
+    "name": "shipment-events-stalled",
+    "service": "logistics",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "shipment-events backlog ageing",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sqs": "shipment-events",
+      "lambda": "shipment-tracker",
+      "alarm": "shipment-events-stalled"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold GreaterThanThreshold 900.0 datapoints=3/3 missing=breaching state=ALARM",
+      "CHANGE none on shipment-tracker in the 6 h before the alert",
+      "CHANGE none on shipment-events in the 6 h before the alert",
+      "CONFIG lambda shipment-tracker timeout=60s memory=512MB reserved_concurrency=none env=[CARRIER_ENDPOINT=carrier-gw.internal,LOG_LEVEL=INFO,TRACKING_TABLE=shipments] version=21 alias_live=21",
+      "ESM shipment-tracker <- shipment-events State=Disabled BatchSize=10 LastProcessingResult=None",
+      "QUEUE shipment-events visible=18422 in_flight=0 dlq=shipment-events-dlq dlq_visible=0 max_receive=5"
+    ],
+    "metrics": {
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "lambda_timeout_s": 60.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_esm_enabled": 0.0,
+      "sqs_visible": 18422.0,
+      "sqs_in_flight": 0.0,
+      "sqs_visibility_timeout_s": 360.0,
+      "sqs_max_receive_count": 5.0,
+      "dlq_visible": 0.0,
+      "sqs_oldest_age_s": 4210.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

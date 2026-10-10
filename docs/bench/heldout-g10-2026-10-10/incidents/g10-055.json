@@ -1,0 +1,42 @@
+{
+  "id": "g10-055",
+  "alert": {
+    "alert_id": "g10-055",
+    "name": "payouts-fifo-deduplicated-sends",
+    "service": "payouts",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "payouts.fifo deduplicated sends above 50",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sqs": "payouts.fifo",
+      "alarm": "payouts-fifo-deduplicated-sends"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/SQS/NumberOfDeduplicatedSentMessages QueueName=payouts.fifo stat=Sum period=300s threshold GreaterThanThreshold 50.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on payouts.fifo in the 6 h before the alert",
+      "QUEUE payouts.fifo visible=2 in_flight=0 dlq=payouts-dlq.fifo dlq_visible=0 max_receive=3"
+    ],
+    "metrics": {
+      "alarm_numberofdeduplicatedsentmessages": 1874.0,
+      "alarm_sibling_sqs_approximateageofoldestmessage": 3.0,
+      "alarm_sibling_sqs_approximatenumberofmessagesnotvisible": 1.0,
+      "alarm_sibling_sqs_approximatenumberofmessagesvisible": 4.0,
+      "alarm_sibling_sqs_numberofemptyreceives": 118.0,
+      "alarm_sibling_sqs_numberofmessagesdeleted": 96.0,
+      "alarm_sibling_sqs_numberofmessagesreceived": 96.0,
+      "alarm_sibling_sqs_numberofmessagessent": 96.0,
+      "alarm_sibling_sqs_sentmessagesize": 412.0,
+      "sqs_visible": 2.0,
+      "sqs_in_flight": 0.0,
+      "sqs_visibility_timeout_s": 120.0,
+      "sqs_max_receive_count": 3.0,
+      "dlq_visible": 0.0,
+      "sqs_oldest_age_s": 3.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

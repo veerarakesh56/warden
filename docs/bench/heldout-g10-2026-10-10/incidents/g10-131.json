@@ -1,0 +1,71 @@
+{
+  "id": "g10-131",
+  "alert": {
+    "alert_id": "g10-131",
+    "name": "billing-pg-writer-connections",
+    "service": "billing-pg",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "billing-pg writer connections above 400",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "billing-pg",
+      "alarm": "billing-pg-writer-connections"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/DatabaseConnections DBClusterIdentifier=billing-pg,Role=WRITER stat=Maximum period=60s threshold GreaterThanThreshold 400.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on billing-pg in the 6 h before the alert",
+      "CLUSTER aurora billing-pg writer=billing-pg-1 readers=[billing-pg-2] status=available",
+      "postgres stuck connection: pid=11402 idle in transaction for 1622s: SELECT id, status, total FROM invoices WHERE account_id = $1",
+      "postgres blocked session: pid=11950 waiting 914s on pid(s) 11402: ALTER TABLE invoices ADD COLUMN tax_region text",
+      "postgres blocked session: pid=12001 waiting 902s on pid(s) 11950: SELECT * FROM invoices WHERE id = $1",
+      "postgres blocked session: pid=12008 waiting 899s on pid(s) 11950: UPDATE invoices SET status = $1 WHERE id = $2",
+      "postgres blocked session: pid=12030 waiting 887s on pid(s) 11950: SELECT * FROM invoices WHERE id = $1",
+      "postgres blocked session: pid=12044 waiting 880s on pid(s) 11950: INSERT INTO invoices (account_id, total, currency) VALUES ($1, $2, $3)",
+      "postgres blocked session: pid=12051 waiting 874s on pid(s) 11950: SELECT * FROM invoices WHERE id = $1",
+      "postgres blocked session: pid=12090 waiting 861s on pid(s) 11950: SELECT * FROM invoices WHERE id = $1",
+      "postgres blocked session: pid=12117 waiting 848s on pid(s) 11950: UPDATE invoices SET status = $1 WHERE id = $2",
+      "postgres blocked session: pid=12133 waiting 840s on pid(s) 11950: SELECT * FROM invoices WHERE id = $1",
+      "postgres blocked session: pid=12160 waiting 826s on pid(s) 11950: SELECT * FROM invoices WHERE id = $1",
+      "postgres connections held: 221 idle from app=billing-api client=10.30.2.14 (468/600 in use)",
+      "postgres connections held: 126 active from app=billing-api client=10.30.2.14 (468/600 in use)",
+      "postgres connections held: 110 active from app=billing-api client=10.30.2.88 (468/600 in use)",
+      "postgres connections held: 6 idle from app=(none) client=local (468/600 in use)",
+      "postgres connections held: 1 idle in transaction from app=psql client=10.30.8.15 (468/600 in use)"
+    ],
+    "metrics": {
+      "alarm_databaseconnections": 468.0,
+      "alarm_sibling_rds_cpuutilization": 11.3,
+      "alarm_sibling_rds_committhroughput": 2.1,
+      "alarm_sibling_rds_commitlatency": 3.9,
+      "alarm_sibling_rds_deadlocks": 0.0,
+      "alarm_sibling_rds_freeablememory": 11200000000.0,
+      "aurora_members_available": 2.0,
+      "aurora_db_load": 212.4,
+      "aurora_db_load_lock": 207.9,
+      "aurora_db_load_cpu": 1.9,
+      "aurora_db_load_client": 1.2,
+      "aurora_db_load_io": 0.4,
+      "aurora_connections": 468.0,
+      "aurora_cpu_pct": 11.3,
+      "aurora_deadlocks": 0.0,
+      "aurora_replica_lag_ms": 22.0,
+      "active_connections": 468.0,
+      "idle_in_transaction": 1.0,
+      "long_running_queries": 0.0,
+      "max_connections": 600.0,
+      "locks_waiting": 231.0,
+      "connections_used_pct": 0.78,
+      "reader_active_connections": 37.0,
+      "reader_idle_in_transaction": 0.0,
+      "reader_long_running_queries": 0.0,
+      "reader_max_connections": 600.0,
+      "reader_locks_waiting": 0.0,
+      "reader_connections_used_pct": 0.0617
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

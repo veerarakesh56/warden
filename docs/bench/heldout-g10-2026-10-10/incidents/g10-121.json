@@ -1,0 +1,52 @@
+{
+  "id": "g10-121",
+  "alert": {
+    "alert_id": "g10-121",
+    "name": "checkout-tg-unhealthy-hosts",
+    "service": "checkout",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "checkout-tg has unhealthy hosts",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "alb_target_group": "checkout-tg",
+      "load_balancer": "app/checkout-alb/3f8a1c0d9e2b4c71",
+      "alarm": "checkout-tg-unhealthy-hosts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApplicationELB/UnHealthyHostCount LoadBalancer=app/checkout-alb/3f8a1c0d9e2b4c71,TargetGroup=targetgroup/checkout-tg/0d4b7e9f1a2c3e58 stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on checkout-tg in the 6 h before the alert",
+      "CHANGE 2026-10-10T03:12:05Z elasticloadbalancing.amazonaws.com ModifyLoadBalancerAttributes on app/checkout-alb/3f8a1c0d9e2b4c71 by role/terraform-apply",
+      "STATE load_balancer app/checkout-alb/3f8a1c0d9e2b4c71 Code=active Type=application Scheme=internet-facing IpAddressType=ipv4 AvailabilityZones=3",
+      "TARGETGROUP checkout-tg health_path=/health port=traffic-port matcher=200",
+      "TARGET checkout-tg 10.0.21.14:8080 unhealthy Target.Timeout: Request timed out",
+      "TARGET checkout-tg 10.0.22.37:8080 unhealthy Target.Timeout: Request timed out",
+      "TARGET checkout-tg 10.0.23.105:8080 unhealthy Target.Timeout: Request timed out",
+      "CONFIG alb checkout-alb zones=ap-south-1a,ap-south-1b,ap-south-1c zonal_shift=true"
+    ],
+    "metrics": {
+      "alarm_unhealthyhostcount": 3.0,
+      "alarm_sibling_applicationelb_httpcode_target_2xx_count": 8840.0,
+      "alarm_sibling_applicationelb_httpcode_target_5xx_count": 4.0,
+      "alarm_sibling_applicationelb_healthyhostcount": 9.0,
+      "alarm_sibling_applicationelb_requestcount": 9310.0,
+      "alarm_sibling_applicationelb_targetconnectionerrorcount": 412.0,
+      "alarm_sibling_applicationelb_targetresponsetime": 0.34,
+      "alb_healthy_hosts": 6.0,
+      "alb_unhealthy_hosts": 3.0,
+      "alb_target_5xx": 4.0,
+      "alb_elb_5xx": 3810.0,
+      "alb_target_response_time_s": 0.34,
+      "alb_healthy_hosts_ap-south-1a": 3.0,
+      "alb_unhealthy_hosts_ap-south-1a": 0.0,
+      "alb_healthy_hosts_ap-south-1b": 0.0,
+      "alb_unhealthy_hosts_ap-south-1b": 3.0,
+      "alb_healthy_hosts_ap-south-1c": 3.0,
+      "alb_unhealthy_hosts_ap-south-1c": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "g10-003",
+  "alert": {
+    "alert_id": "g10-003",
+    "name": "events-fanout errors",
+    "service": "events-fanout",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for events-fanout",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "events-fanout",
+      "alarm": "events-fanout-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=events-fanout stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:35:11Z lambda.amazonaws.com PutFunctionConcurrency20171031 on events-fanout by user/ops-admin",
+      "LOG lambda/events-fanout 2026-10-10T07:47:03Z [ERROR]\t2026-10-10T07:47:03.007Z\t17342554-14dc-50cb-8040-a90f94f1a76e\tpublish failed: An error occurred (AuthorizationError) when calling the Publish operation: User: arn:aws:sts::111122223333:assumed-role/events-fanout-role/events-fanout is not authorized to perform: SNS:Publish on resource: arn:aws:sns:eu-west-1:111122223333:order-events-dev because no permissions boundary allows the SNS:Publish action",
+      "LOG lambda/events-fanout 2026-10-10T07:51:30Z [ERROR]\t2026-10-10T07:51:30.210Z\t431ce90f-f3c8-523d-a799-eb3fc570a908\tpublish failed: An error occurred (AuthorizationError) when calling the Publish operation: User: arn:aws:sts::111122223333:assumed-role/events-fanout-role/events-fanout is not authorized to perform: SNS:Publish on resource: arn:aws:sns:eu-west-1:111122223333:order-events-dev because no permissions boundary allows the SNS:Publish action",
+      "LOG lambda/events-fanout 2026-10-10T07:55:50Z [ERROR]\t2026-10-10T07:55:50.033Z\t46285294-9afb-5a97-bb77-c9b2665ea5df\tpublish failed: An error occurred (AuthorizationError) when calling the Publish operation: User: arn:aws:sts::111122223333:assumed-role/events-fanout-role/events-fanout is not authorized to perform: SNS:Publish on resource: arn:aws:sns:eu-west-1:111122223333:order-events-dev because no permissions boundary allows the SNS:Publish action",
+      "LOG lambda/events-fanout 2026-10-10T07:59:02Z [ERROR]\t2026-10-10T07:59:02.640Z\t00b415b8-a184-59eb-8180-9ba4da1968eb\tpublish failed: An error occurred (AuthorizationError) when calling the Publish operation: User: arn:aws:sts::111122223333:assumed-role/events-fanout-role/events-fanout is not authorized to perform: SNS:Publish on resource: arn:aws:sns:eu-west-1:111122223333:order-events-dev because no permissions boundary allows the SNS:Publish action",
+      "CONFIG lambda events-fanout timeout=30s memory=256MB reserved_concurrency=2 env=[TOPIC_NAME=order-events-dev] version=12 alias_live=12",
+      "ESM events-fanout <- order-stream-dev State=Enabled BatchSize=100 LastProcessingResult=PROBLEM: Function call failed"
+    ],
+    "metrics": {
+      "alarm_errors": 96.0,
+      "alarm_sibling_lambda_invocations": 101.0,
+      "alarm_sibling_lambda_throttles": 2210.0,
+      "alarm_sibling_lambda_concurrentexecutions": 2.0,
+      "alarm_sibling_lambda_duration": 120.0,
+      "log_error_lines": 96.0,
+      "log_errors_peak_per_min": 9.0,
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 256.0,
+      "lambda_reserved_concurrency": 2.0,
+      "lambda_esm_enabled": 1.0,
+      "lambda_errors": 96.0,
+      "lambda_throttles": 2210.0,
+      "lambda_invocations": 101.0,
+      "lambda_duration_max_ms": 120.0,
+      "lambda_concurrent_executions": 2.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/events-fanout logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 254 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

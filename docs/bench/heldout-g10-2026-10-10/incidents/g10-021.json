@@ -1,0 +1,36 @@
+{
+  "id": "g10-021",
+  "alert": {
+    "alert_id": "g10-021",
+    "name": "orders-msk-broker-cpu",
+    "service": "orders",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "orders-msk broker CPU (user) above 80%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "msk_cluster": "orders-msk",
+      "alarm": "orders-msk-broker-cpu"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Kafka/CpuUser Broker_ID=2,Cluster_Name=orders-msk stat=Average period=300s threshold GreaterThanThreshold 80.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T06:40:12Z kafka.amazonaws.com RebootBroker on orders-msk by role/platform-ops",
+      "STATE msk_cluster orders-msk State=ACTIVE ClusterType=PROVISIONED CurrentVersion=K3P5ROKL5A1OLE NumberOfBrokerNodes=3 Provisioned_BrokerNodeGroupInfo_InstanceType=kafka.m7g.large"
+    ],
+    "metrics": {
+      "alarm_cpuuser": 91.4,
+      "alarm_sibling_kafka_bytesinpersec": 41000000.0,
+      "alarm_sibling_kafka_bytesoutpersec": 122000000.0,
+      "alarm_sibling_kafka_cpuidle": 2.4,
+      "alarm_sibling_kafka_cpusystem": 6.2,
+      "alarm_sibling_kafka_leadercount": 398.0,
+      "alarm_sibling_kafka_memoryused": 6900000000.0,
+      "alarm_sibling_kafka_partitioncount": 600.0,
+      "alarm_sibling_kafka_producetotaltimemsmean": 48.3
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

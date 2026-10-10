@@ -1,0 +1,32 @@
+{
+  "id": "g10-162",
+  "alert": {
+    "alert_id": "g10-162",
+    "name": "pricing-sync errors",
+    "service": "pricing-sync",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for pricing-sync",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "pricing-sync",
+      "alarm": "pricing-sync-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "CONFIG lambda pricing-sync timeout=60s memory=512MB reserved_concurrency=none env=[PRICE_TABLE=prices-dev] version=44 alias_live=44"
+    ],
+    "metrics": {
+      "lambda_timeout_s": 60.0,
+      "lambda_memory_mb": 512.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [access denied on DescribeAlarms] An error occurred (AccessDenied) when calling the DescribeAlarms operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-5521 is not authorized to perform: cloudwatch:De",
+      "logs: lambda/pricing-sync logs: logs: /aws/lambda/pricing-sync: [timed out] Read timeout on endpoint URL: \"https://logs.eu-west-1.amazonaws.com/\"",
+      "logs: lambda/pricing-sync metrics: the Logs Insights query did not finish in 10s",
+      "logs: lambda/pricing-sync metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded"
+    ]
+  }
+}

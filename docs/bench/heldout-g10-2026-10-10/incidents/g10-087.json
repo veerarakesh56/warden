@@ -1,0 +1,33 @@
+{
+  "id": "g10-087",
+  "alert": {
+    "alert_id": "g10-087",
+    "name": "NAT gateway active connections high",
+    "service": "shop-dev-egress",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ActiveConnectionCount > 40000 on nat-0a1b2c3d4e5f60718",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "nat_gateway": "nat-0a1b2c3d4e5f60718",
+      "alarm": "shop-dev-nat-b-connections-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/NATGateway/ActiveConnectionCount NatGatewayId=nat-0a1b2c3d4e5f60718 stat=Maximum period=60s threshold GreaterThanThreshold 40000.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on nat-0a1b2c3d4e5f60718 in the 6 h before the alert",
+      "STATE nat_gateway nat-0a1b2c3d4e5f60718 State=available ConnectivityType=public"
+    ],
+    "metrics": {
+      "alarm_activeconnectioncount": 41230.0,
+      "alarm_sibling_natgateway_errorportallocation": 0.0,
+      "alarm_sibling_natgateway_packetsdropcount": 0.0,
+      "alarm_sibling_natgateway_connectionattemptcount": 210400.0,
+      "alarm_sibling_natgateway_connectionestablishedcount": 210388.0,
+      "alarm_sibling_natgateway_idletimeoutcount": 902.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

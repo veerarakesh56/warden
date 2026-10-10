@@ -1,0 +1,28 @@
+{
+  "id": "g10-069",
+  "alert": {
+    "alert_id": "g10-069",
+    "name": "certificate expiring",
+    "service": "shop-dev-certs",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "DaysToExpiry < 45",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "acm_certificate": "0c7e2b4a-91d3-4f6e-8a5b-3d2c1e0f9a8b",
+      "alarm": "acm-days-to-expiry-0c7e2b4a"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/CertificateManager/DaysToExpiry CertificateArn=arn:aws:acm:eu-west-1:111122223333:certificate/0c7e2b4a-91d3-4f6e-8a5b-3d2c1e0f9a8b stat=Minimum period=86400s threshold LessThanThreshold 45.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on 0c7e2b4a-91d3-4f6e-8a5b-3d2c1e0f9a8b in the 6 h before the alert",
+      "STATE acm_certificate 0c7e2b4a-91d3-4f6e-8a5b-3d2c1e0f9a8b Status=ISSUED Type=AMAZON_ISSUED NotAfter=2026-11-23T00:00:00Z RenewalEligibility=INELIGIBLE InUseBy=0"
+    ],
+    "metrics": {
+      "alarm_daystoexpiry": 44.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

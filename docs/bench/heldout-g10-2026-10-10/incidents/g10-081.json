@@ -1,0 +1,81 @@
+{
+  "id": "g10-081",
+  "alert": {
+    "alert_id": "g10-081",
+    "name": "render-worker-running-tasks-low",
+    "service": "render-worker",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "render-worker RunningTaskCount below 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "render-worker",
+      "alarm": "render-worker-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=render-worker stat=Minimum period=60s threshold LessThanThreshold 3.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:07:51Z ecs.amazonaws.com UpdateService on render-worker by role/platform-terraform",
+      "LOG ecs/render-worker 2026-10-10T07:46:00Z job=r-9002 frames=1200 res=3840x2160 started",
+      "LOG ecs/render-worker 2026-10-10T07:48:41Z Traceback (most recent call last):",
+      "LOG ecs/render-worker 2026-10-10T07:48:41Z   File \"/app/render/writer.py\", line 57, in write_frame",
+      "LOG ecs/render-worker 2026-10-10T07:48:41Z OSError: [Errno 28] No space left on device: '/scratch/r-9002/frames/0611.png'",
+      "LOG ecs/render-worker 2026-10-10T07:49:00Z job=r-9012 frames=1200 res=3840x2160 started",
+      "LOG ecs/render-worker 2026-10-10T07:51:41Z Traceback (most recent call last):",
+      "LOG ecs/render-worker 2026-10-10T07:51:41Z   File \"/app/render/writer.py\", line 57, in write_frame",
+      "LOG ecs/render-worker 2026-10-10T07:51:41Z OSError: [Errno 28] No space left on device: '/scratch/r-9012/frames/0612.png'",
+      "LOG ecs/render-worker 2026-10-10T07:52:00Z job=r-9022 frames=1200 res=3840x2160 started",
+      "LOG ecs/render-worker 2026-10-10T07:54:41Z Traceback (most recent call last):",
+      "LOG ecs/render-worker 2026-10-10T07:54:41Z   File \"/app/render/writer.py\", line 57, in write_frame",
+      "LOG ecs/render-worker 2026-10-10T07:54:41Z OSError: [Errno 28] No space left on device: '/scratch/r-9022/frames/0613.png'",
+      "LOG ecs/render-worker 2026-10-10T07:55:00Z job=r-9032 frames=1200 res=3840x2160 started",
+      "LOG ecs/render-worker 2026-10-10T07:57:41Z Traceback (most recent call last):",
+      "LOG ecs/render-worker 2026-10-10T07:57:41Z   File \"/app/render/writer.py\", line 57, in write_frame",
+      "LOG ecs/render-worker 2026-10-10T07:57:41Z OSError: [Errno 28] No space left on device: '/scratch/r-9032/frames/0614.png'",
+      "APPSG ecs/render-worker sgs=[sg-0f3e5d7c9b1a24680]",
+      "TASKROLE ecs/render-worker role=render-worker-task",
+      "STATE ecs/render-worker deployment PRIMARY rollout=COMPLETED revision=render-worker:19 desired=3 running=2 pending=1 failed=4 at=2026-10-10T07:08:20Z",
+      "STATE ecs/render-worker service events in the hour before the alert: started_tasks=4 stopped_tasks=4",
+      "STATE ecs/render-worker stopped task 90fb553a at=2026-10-10T07:57:44Z revision=render-worker:19 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/render-worker stopped task: Essential container in task exited",
+      "STATE ecs/render-worker stopped task 1bfd56d1 at=2026-10-10T07:54:44Z revision=render-worker:19 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/render-worker stopped task: Essential container in task exited",
+      "STATE ecs/render-worker stopped task 42bf4de6 at=2026-10-10T07:51:44Z revision=render-worker:19 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/render-worker stopped task: Essential container in task exited",
+      "STATE ecs/render-worker stopped task 48246f60 at=2026-10-10T07:48:44Z revision=render-worker:19 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/render-worker stopped task: Essential container in task exited"
+    ],
+    "metrics": {
+      "alarm_value": 2.0,
+      "tasks_running": 2.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 4.0,
+      "cpu_utilization_pct": 88.0,
+      "memory_utilization_pct": 52.4,
+      "log_error_lines": 4.0,
+      "log_errors_peak_per_min": 1.0,
+      "ecs_stopped_tasks": 4.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_exit": 4.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "render-worker",
+        "at": "2026-10-10T07:08:20Z",
+        "version": "render-worker:19",
+        "previous": "render-worker:18",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/render-worker:1.12.0",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/render-worker:1.12.0",
+        "revision": "19",
+        "changed": "ephemeralStorage"
+      }
+    ],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "id": "g10-038",
+  "alert": {
+    "alert_id": "g10-038",
+    "name": "fulfilment-api running tasks below desired",
+    "service": "fulfilment-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "RunningTaskCount < 2 for 5 consecutive minutes (fulfilment-api, shop-dev)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "fulfilment-api",
+      "alarm": "fulfilment-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=fulfilment-api stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=5/5 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:42:54Z ecs.amazonaws.com UpdateService on fulfilment-api by role/shop-dev-codepipeline-deploy",
+      "LOG ecs/fulfilment-api 2026-10-10T07:45:00Z {\"level\":\"info\",\"msg\":\"GET /shipments/55120 200\",\"rev\":\"22\",\"dur_ms\":17}",
+      "LOG ecs/fulfilment-api 2026-10-10T07:46:31Z {\"level\":\"error\",\"msg\":\"db connect failed\",\"rev\":\"23\",\"err\":\"dial tcp: lookup fulfilment-db-v2.cluster-cx9a8b7c6d5e.eu-west-1.rds.amazonaws.com on 10.20.0.2:53: no such host\"}",
+      "LOG ecs/fulfilment-api 2026-10-10T07:46:33Z {\"level\":\"warn\",\"msg\":\"GET /health 503\",\"rev\":\"23\",\"dur_ms\":2}",
+      "LOG ecs/fulfilment-api 2026-10-10T07:49:02Z {\"level\":\"error\",\"msg\":\"db connect failed\",\"rev\":\"23\",\"err\":\"dial tcp: lookup fulfilment-db-v2.cluster-cx9a8b7c6d5e.eu-west-1.rds.amazonaws.com on 10.20.0.2:53: no such host\"}",
+      "LOG ecs/fulfilment-api 2026-10-10T07:51:44Z {\"level\":\"info\",\"msg\":\"POST /shipments 201\",\"rev\":\"22\",\"dur_ms\":40}",
+      "LOG ecs/fulfilment-api 2026-10-10T07:55:12Z {\"level\":\"error\",\"msg\":\"db connect failed\",\"rev\":\"23\",\"err\":\"dial tcp: lookup fulfilment-db-v2.cluster-cx9a8b7c6d5e.eu-west-1.rds.amazonaws.com on 10.20.0.2:53: no such host\"}",
+      "LOG ecs/fulfilment-api 2026-10-10T07:55:13Z {\"level\":\"warn\",\"msg\":\"GET /health 503\",\"rev\":\"23\",\"dur_ms\":1}",
+      "APPSG ecs/fulfilment-api sgs=[sg-0f1e2d3c4b5a69788]",
+      "TASKROLE ecs/fulfilment-api role=fulfilment-api-task-role",
+      "STATE ecs/fulfilment-api deployment PRIMARY rollout=IN_PROGRESS revision=fulfilment-api:23 desired=2 running=0 pending=1 failed=5 at=2026-10-10T07:42:54Z",
+      "STATE ecs/fulfilment-api deployment ACTIVE rollout=COMPLETED revision=fulfilment-api:22 desired=1 running=1 pending=0 failed=0 at=2026-10-07T09:30:44Z",
+      "STATE ecs/fulfilment-api service events in the hour before the alert: health_check_failed=5 started_tasks=6 stopped_tasks=6",
+      "STATE ecs/fulfilment-api stopped task cd73b32d at=2026-10-10T07:58:48Z revision=fulfilment-api:23 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/fulfilment-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/fulfilment-api-tg/1a2b3c4d5e6f7081)",
+      "STATE ecs/fulfilment-api stopped task 068dd9b3 at=2026-10-10T07:54:02Z revision=fulfilment-api:23 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/fulfilment-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/fulfilment-api-tg/1a2b3c4d5e6f7081)",
+      "STATE ecs/fulfilment-api stopped task 641cd8d0 at=2026-10-10T07:51:10Z revision=fulfilment-api:23 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/fulfilment-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/fulfilment-api-tg/1a2b3c4d5e6f7081)",
+      "STATE ecs/fulfilment-api stopped task 9ebc1590 at=2026-10-10T07:48:25Z revision=fulfilment-api:23 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/fulfilment-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/fulfilment-api-tg/1a2b3c4d5e6f7081)",
+      "STATE ecs/fulfilment-api stopped task 460e6c3b at=2026-10-10T07:45:40Z revision=fulfilment-api:23 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/fulfilment-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/fulfilment-api-tg/1a2b3c4d5e6f7081)",
+      "STATE ecs/fulfilment-api stopped task 26d59f95 at=2026-10-10T07:43:30Z revision=fulfilment-api:22 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/fulfilment-api stopped task: Scaling activity initiated by (deployment ecs-svc/5520918834471200917)",
+      "CHANGE 2026-10-10T07:22:12Z ec2.amazonaws.com RevokeSecurityGroupIngress on sg-0f1e2d3c4b5a69788 (this workload's security group) by role/secops-guardrail-autoremediate"
+    ],
+    "metrics": {
+      "alarm_value": 1.0,
+      "tasks_running": 1.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployment_failed_tasks": 5.0,
+      "cpu_utilization_pct": 4.1,
+      "memory_utilization_pct": 19.9,
+      "log_error_lines": 212.0,
+      "log_errors_peak_per_min": 19.0,
+      "ecs_stopped_tasks": 6.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_health_check": 5.0,
+      "ecs_stopped_scheduler": 1.0,
+      "network_changes_before_alert": 1.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "fulfilment-api",
+        "at": "2026-10-10T07:42:54Z",
+        "version": "fulfilment-api:23",
+        "previous": "fulfilment-api:22",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/fulfilment-api:3e8d0c2",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/fulfilment-api:3e8d0c2",
+        "revision": "23",
+        "changed": "fulfilment-api.environment:DB_HOST"
+      }
+    ],
+    "tool_errors": [
+      "logs: ecs logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 304 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

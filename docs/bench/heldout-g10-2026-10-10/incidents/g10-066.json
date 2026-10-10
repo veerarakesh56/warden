@@ -1,0 +1,75 @@
+{
+  "id": "g10-066",
+  "alert": {
+    "alert_id": "g10-066",
+    "name": "catalog-api-tasks-failing",
+    "service": "catalog-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "catalog-api running task count below desired",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "catalog-api",
+      "alarm": "catalog-api-tasks-failing"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=catalog-api stat=Minimum period=60s threshold LessThanThreshold 4.0 datapoints=2/3 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:42:20Z ecs.amazonaws.com UpdateService on catalog-api by role/github-actions-deploy",
+      "LOG ecs/catalog-api 2026-10-10T07:48:00Z GET /v2/products?page=3 200 18ms",
+      "LOG ecs/catalog-api 2026-10-10T07:48:30Z GET /v2/products?page=3 200 18ms",
+      "LOG ecs/catalog-api 2026-10-10T07:49:00Z GET /v2/products?page=3 200 18ms",
+      "LOG ecs/catalog-api 2026-10-10T07:49:30Z GET /v2/products?page=3 200 18ms",
+      "LOG ecs/catalog-api 2026-10-10T07:50:00Z GET /v2/products?page=3 200 18ms",
+      "LOG ecs/catalog-api 2026-10-10T07:50:30Z GET /v2/products?page=3 200 18ms",
+      "APPSG ecs/catalog-api sgs=[sg-07d1f3b5a9c2e4680]",
+      "TASKROLE ecs/catalog-api role=catalog-api-task",
+      "STATE ecs/catalog-api deployment PRIMARY rollout=IN_PROGRESS revision=catalog-api:31 desired=4 running=0 pending=1 failed=6 at=2026-10-10T07:42:31Z",
+      "STATE ecs/catalog-api deployment ACTIVE rollout=COMPLETED revision=catalog-api:30 desired=3 running=3 pending=0 failed=0 at=2026-10-07T08:00:00Z",
+      "STATE ecs/catalog-api service events in the hour before the alert: started_tasks=7 stopped_tasks=6",
+      "STATE ecs/catalog-api stopped task 644ca60a at=2026-10-10T07:55:20Z revision=catalog-api:31 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/catalog-api stopped task: CannotStartContainerError: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: exec: \"/usr/local/bin/docker-entrypoint.sh\": exec format error: unknown",
+      "STATE ecs/catalog-api stopped task b4da565e at=2026-10-10T07:53:20Z revision=catalog-api:31 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/catalog-api stopped task: CannotStartContainerError: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: exec: \"/usr/local/bin/docker-entrypoint.sh\": exec format error: unknown",
+      "STATE ecs/catalog-api stopped task 0117f60d at=2026-10-10T07:51:20Z revision=catalog-api:31 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/catalog-api stopped task: CannotStartContainerError: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: exec: \"/usr/local/bin/docker-entrypoint.sh\": exec format error: unknown",
+      "STATE ecs/catalog-api stopped task 61f0ed1d at=2026-10-10T07:49:20Z revision=catalog-api:31 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/catalog-api stopped task: CannotStartContainerError: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: exec: \"/usr/local/bin/docker-entrypoint.sh\": exec format error: unknown",
+      "STATE ecs/catalog-api stopped task c2f184e1 at=2026-10-10T07:47:20Z revision=catalog-api:31 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/catalog-api stopped task: CannotStartContainerError: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: exec: \"/usr/local/bin/docker-entrypoint.sh\": exec format error: unknown",
+      "STATE ecs/catalog-api stopped task 387321d2 at=2026-10-10T07:45:20Z revision=catalog-api:31 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/catalog-api stopped task: CannotStartContainerError: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: exec: \"/usr/local/bin/docker-entrypoint.sh\": exec format error: unknown"
+    ],
+    "metrics": {
+      "alarm_value": 3.0,
+      "tasks_running": 3.0,
+      "tasks_desired": 4.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployment_failed_tasks": 6.0,
+      "cpu_utilization_pct": 58.3,
+      "memory_utilization_pct": 40.9,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 6.0,
+      "ecs_tasks_failed_to_start": 6.0,
+      "ecs_stopped_failed_to_start": 6.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "catalog-api",
+        "at": "2026-10-10T07:42:31Z",
+        "version": "catalog-api:31",
+        "previous": "catalog-api:30",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/catalog-api:3.4.0",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/catalog-api:3.3.2",
+        "revision": "31"
+      }
+    ],
+    "tool_errors": []
+  }
+}

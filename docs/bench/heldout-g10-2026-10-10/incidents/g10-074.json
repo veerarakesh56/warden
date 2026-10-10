@@ -1,0 +1,30 @@
+{
+  "id": "g10-074",
+  "alert": {
+    "alert_id": "g10-074",
+    "name": "media-alb-elb-5xx",
+    "service": "media",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "media ALB ELB 5XX above 100",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "load_balancer": "app/media-alb/8f7e6d5c4b3a2910",
+      "alarm": "media-alb-elb-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApplicationELB/HTTPCode_ELB_5XX_Count LoadBalancer=app/media-alb/8f7e6d5c4b3a2910 stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=2/3 missing=missing state=ALARM"
+    ],
+    "metrics": {
+      "alarm_httpcode_elb_5xx_count": 1730.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [output truncated on GetMetricData] alarm_httpcode_elb_5xx_count PartialData (the series may be incomplete)",
+      "logs: alarm: [throttled on ListMetrics] An error occurred (Throttling) when calling the ListMetrics operation (reached max retries: 0): Rate exceeded",
+      "logs: load-balancer: [throttled on DescribeLoadBalancers] An error occurred (Throttling) when calling the DescribeLoadBalancers operation (reached max retries: 0): Rate exceeded"
+    ]
+  }
+}

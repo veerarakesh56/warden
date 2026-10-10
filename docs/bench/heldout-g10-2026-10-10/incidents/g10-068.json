@@ -1,0 +1,58 @@
+{
+  "id": "g10-068",
+  "alert": {
+    "alert_id": "g10-068",
+    "name": "order-router-pods-pending",
+    "service": "order-router",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "order-router pods pending above 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "orders",
+      "deployment": "order-router",
+      "alarm": "order-router-pods-pending"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_status_pending ClusterName=shop-dev-eks,Namespace=orders,PodName=order-router stat=Maximum period=60s threshold GreaterThanThreshold 2.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on order-router in the 6 h before the alert",
+      "CHANGE none on shop-dev-eks in the 6 h before the alert",
+      "LOG k8s/orders/order-router EVENT ScalingReplicaSet Deployment/order-router: Scaled up replica set order-router-7f6d5c4b8 to 18 from 9",
+      "LOG k8s/orders/order-router EVENT FailedScheduling Pod/order-router-7f6d5c4b8-snzp2: 0/6 nodes are available: 6 Too many pods. preemption: 0/6 nodes are available: 6 No preemption victims found for incoming pod.",
+      "LOG k8s/orders/order-router EVENT FailedScheduling Pod/order-router-7f6d5c4b8-cqwn2: 0/6 nodes are available: 6 Too many pods. preemption: 0/6 nodes are available: 6 No preemption victims found for incoming pod.",
+      "LOG k8s/orders/order-router EVENT FailedScheduling Pod/order-router-7f6d5c4b8-69vwj: 0/6 nodes are available: 6 Too many pods. preemption: 0/6 nodes are available: 6 No preemption victims found for incoming pod.",
+      "LOG k8s/orders/order-router EVENT FailedScheduling Pod/order-router-7f6d5c4b8-5hv4r: 0/6 nodes are available: 6 Too many pods. preemption: 0/6 nodes are available: 6 No preemption victims found for incoming pod.",
+      "LOG k8s/orders/order-router ROLLOUT revision 14 (current): 111122223333.dkr.ecr.eu-west-1.amazonaws.com/order-router:1.22.0 created 2026-10-05T08:00:00Z",
+      "LOG k8s/orders/order-router ROLLOUT revision 13: 111122223333.dkr.ecr.eu-west-1.amazonaws.com/order-router:1.21.3 created 2026-09-28T08:00:00Z",
+      "LOG k8s/orders/order-router order-router-7f6d5c4b8-j8w7q/order-router 2026-10-10T07:58:55.330110292Z level=info route=/orders/submit status=200 latency_ms=412 inflight=88",
+      "LOG k8s/orders/order-router order-router-7f6d5c4b8-j8w7q/order-router 2026-10-10T07:59:20.330110292Z level=warn msg=\"queueing requests\" inflight=131 limit=128",
+      "APPSG eks/shop-dev-eks sgs=[sg-03a5c7e9b1d2f4a68,sg-0e1d2c3b4a5968778]",
+      "STATE eks/shop-dev-eks nodegroup ng-apps status=DEGRADED issues=[InsufficientFreeAddresses]",
+      "EVENT eks/shop-dev-eks nodegroup issue: One or more of the subnets associated with your managed node group does not have enough available IP addresses for new nodes."
+    ],
+    "metrics": {
+      "alarm_value": 9.0,
+      "pods_total": 18.0,
+      "pods_ready": 9.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 512.0,
+      "replicas_desired": 18.0,
+      "hpa_min_replicas": 6.0,
+      "hpa_max_replicas": 30.0,
+      "hpa_current_replicas": 18.0,
+      "hpa_desired_replicas": 18.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: k8s/order-router: order-router-7f6d5c4b8-snzp2/order-router: [rejected as a bad request] (400) pod order-router-7f6d5c4b8-snzp2 does not have a host assigned",
+      "logs: k8s/order-router: order-router-7f6d5c4b8-cqwn2/order-router: [rejected as a bad request] (400) pod order-router-7f6d5c4b8-cqwn2 does not have a host assigned",
+      "logs: k8s/order-router: order-router-7f6d5c4b8-69vwj/order-router: [rejected as a bad request] (400) pod order-router-7f6d5c4b8-69vwj does not have a host assigned",
+      "logs: k8s/order-router: order-router-7f6d5c4b8-5hv4r/order-router: [rejected as a bad request] (400) pod order-router-7f6d5c4b8-5hv4r does not have a host assigned"
+    ]
+  }
+}

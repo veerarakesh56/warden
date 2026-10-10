@@ -1,0 +1,39 @@
+{
+  "id": "g10-073",
+  "alert": {
+    "alert_id": "g10-073",
+    "name": "ledger-sync-no-invocations",
+    "service": "ledger-sync",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ledger-sync Invocations below 1 for 10 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "ledger-sync",
+      "alarm": "ledger-sync-no-invocations"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Invocations FunctionName=ledger-sync stat=Sum period=60s threshold LessThanThreshold 1.0 datapoints=10/10 missing=breaching state=ALARM",
+      "CHANGE 2026-10-10T07:49:27Z lambda.amazonaws.com UpdateEventSourceMapping20150331 on ledger-sync by user/dev-okafor",
+      "LOG lambda/ledger-sync 2026-10-10T07:47:05Z [INFO]\t2026-10-10T07:47:05.210Z\t382cc3fa-89cd-4fd4-a0fb-2b115bb6ddfb\tsynced 10 ledger events through seq=8812181",
+      "LOG lambda/ledger-sync 2026-10-10T07:47:05Z REPORT RequestId: 382cc3fa-89cd-4fd4-a0fb-2b115bb6ddfb\tDuration: 233.10 ms\tBilled Duration: 234 ms\tMemory Size: 512 MB\tMax Memory Used: 96 MB",
+      "LOG lambda/ledger-sync 2026-10-10T07:48:05Z [INFO]\t2026-10-10T07:48:05.210Z\t2588c1f0-a403-4c9f-a2bf-dafa0b339b76\tsynced 10 ledger events through seq=8812191",
+      "LOG lambda/ledger-sync 2026-10-10T07:48:05Z REPORT RequestId: 2588c1f0-a403-4c9f-a2bf-dafa0b339b76\tDuration: 234.10 ms\tBilled Duration: 235 ms\tMemory Size: 512 MB\tMax Memory Used: 96 MB",
+      "LOG lambda/ledger-sync 2026-10-10T07:49:05Z [INFO]\t2026-10-10T07:49:05.210Z\t2f24d11d-6ba3-4a72-befa-b65e4f919c2c\tsynced 10 ledger events through seq=8812201",
+      "LOG lambda/ledger-sync 2026-10-10T07:49:05Z REPORT RequestId: 2f24d11d-6ba3-4a72-befa-b65e4f919c2c\tDuration: 235.10 ms\tBilled Duration: 236 ms\tMemory Size: 512 MB\tMax Memory Used: 96 MB",
+      "CONFIG lambda ledger-sync timeout=60s memory=512MB reserved_concurrency=none env=[LEDGER_TABLE=ledger-dev,LOG_LEVEL=INFO] version=12 alias_live=12",
+      "ESM ledger-sync <- ledger-events State=Disabled BatchSize=10 LastProcessingResult=OK"
+    ],
+    "metrics": {
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "lambda_timeout_s": 60.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_esm_enabled": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

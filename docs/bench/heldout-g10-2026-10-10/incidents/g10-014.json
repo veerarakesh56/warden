@@ -1,0 +1,62 @@
+{
+  "id": "g10-014",
+  "alert": {
+    "alert_id": "g10-014",
+    "name": "export-api-cpu-anomaly",
+    "service": "export-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "export-api CPUUtilization below 10%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "batch-dev-ec2",
+      "ecs_service": "export-api",
+      "alarm": "export-api-cpu-anomaly"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/CPUUtilization ClusterName=batch-dev-ec2,ServiceName=export-api stat=Average period=60s threshold LessThanThreshold 10.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on batch-dev-ec2 in the 6 h before the alert",
+      "CHANGE none on export-api in the 6 h before the alert",
+      "LOG ecs/export-api 2026-10-10T07:47:02Z INFO  export job e-5520 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:48:02Z INFO  export job e-5521 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:49:02Z INFO  export job e-5522 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:50:02Z INFO  export job e-5523 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:51:02Z INFO  export job e-5524 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:52:02Z INFO  export job e-5525 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:53:02Z INFO  export job e-5526 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:54:02Z INFO  export job e-5527 host=i-0d4b8f2a6c1e39a57 wrote 1840 rows to s3",
+      "LOG ecs/export-api 2026-10-10T07:59:12Z ERROR export job e-7720 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:00:12Z ERROR export job e-7721 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:01:12Z ERROR export job e-7722 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:02:12Z ERROR export job e-7723 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:03:12Z ERROR export job e-7724 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:04:12Z ERROR export job e-7725 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:05:12Z ERROR export job e-7726 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:06:12Z ERROR export job e-7727 host=i-03c9e1a7b5f2d4c68 failed: botocore.exceptions.ClientError: An error occurred (RequestTimeTooSkewed) when calling the PutObject operation: The difference between the request time and the current time is too large.",
+      "LOG ecs/export-api 2026-10-10T08:06:33Z WARN  host=i-03c9e1a7b5f2d4c68 request signing rejected 8 times in 8 min",
+      "LOG ecs/export-api 2026-10-10T08:12:53Z ERROR dynamodb PutItem host=i-03c9e1a7b5f2d4c68: An error occurred (InvalidSignatureException) when calling the PutItem operation: Signature not yet current: 20261010T081253Z is still later than 20261010T080001Z (20261010T075501Z + 5 min.)",
+      "TASKROLE ecs/export-api role=export-api-task",
+      "STATE ecs/export-api deployment PRIMARY rollout=COMPLETED revision=export-api:41 desired=6 running=6 pending=0 failed=0 at=2026-10-06T08:00:00Z",
+      "STATE ecs/export-api service events in the hour before the alert: steady_state=2"
+    ],
+    "metrics": {
+      "alarm_cpuutilization": 7.9,
+      "alarm_sibling_ecs_memoryutilization": 39.0,
+      "tasks_running": 6.0,
+      "tasks_desired": 6.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 7.9,
+      "memory_utilization_pct": 39.0,
+      "log_error_lines": 9.0,
+      "log_errors_peak_per_min": 1.0,
+      "ecs_stopped_tasks": 0.0,
+      "ecs_tasks_failed_to_start": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "id": "g10-027",
+  "alert": {
+    "alert_id": "g10-027",
+    "name": "media-uploader 5xx",
+    "service": "media-uploader",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Target 5XX > 10 per minute for 3 minutes (media-uploader)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "media-uploader",
+      "alarm": "media-uploader-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/HTTPCode_Target_5XX_Count ClusterName=shop-dev,DiscoveryName=media-uploader,ServiceName=media-uploader stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE none on media-uploader in the 6 h before the alert",
+      "LOG ecs/media-uploader 2026-10-10T07:46:10Z {\"level\":\"INFO\",\"host\":\"ip-10-20-4-18.eu-west-1.compute.internal\",\"msg\":\"POST /uploads 201\",\"ms\":212}",
+      "LOG ecs/media-uploader 2026-10-10T07:51:02Z {\"level\":\"ERROR\",\"host\":\"ip-10-20-9-73.eu-west-1.compute.internal\",\"client\":\"aws4-signer\",\"msg\":\"POST /uploads 500\",\"err\":\"dynamodb PutItem failed: 400 InvalidSignatureException: Signature expired: 20261010T075102Z is now earlier than 20261010T075402Z (20261010T075902Z - 5 min.) x-amzn-RequestId=9E33D2BFEF6A5E85A5C87D2864B2E175\"}",
+      "LOG ecs/media-uploader 2026-10-10T07:52:40Z {\"level\":\"INFO\",\"host\":\"ip-10-20-6-201.eu-west-1.compute.internal\",\"msg\":\"POST /uploads 201\",\"ms\":198}",
+      "LOG ecs/media-uploader 2026-10-10T07:54:15Z {\"level\":\"ERROR\",\"host\":\"ip-10-20-9-73.eu-west-1.compute.internal\",\"client\":\"aws4-signer\",\"msg\":\"POST /uploads 500\",\"err\":\"dynamodb PutItem failed: 400 InvalidSignatureException: Signature expired: 20261010T075415Z is now earlier than 20261010T075715Z (20261010T080215Z - 5 min.) x-amzn-RequestId=B02F31A842F05A2ABDFB8E93AE869A99\"}",
+      "LOG ecs/media-uploader 2026-10-10T07:56:50Z {\"level\":\"INFO\",\"host\":\"ip-10-20-4-18.eu-west-1.compute.internal\",\"msg\":\"POST /uploads 201\",\"ms\":230}",
+      "LOG ecs/media-uploader 2026-10-10T07:57:31Z {\"level\":\"ERROR\",\"host\":\"ip-10-20-9-73.eu-west-1.compute.internal\",\"client\":\"aws4-signer\",\"msg\":\"POST /uploads 500\",\"err\":\"dynamodb PutItem failed: 400 InvalidSignatureException: Signature expired: 20261010T075731Z is now earlier than 20261010T080031Z (20261010T080531Z - 5 min.) x-amzn-RequestId=2E6307C62C975088852523D642E0206D\"}",
+      "TASKROLE ecs/media-uploader role=media-uploader-task-role",
+      "STATE ecs/media-uploader deployment PRIMARY rollout=COMPLETED revision=media-uploader:44 desired=3 running=3 pending=0 failed=0 at=2026-10-05T12:00:41Z"
+    ],
+    "metrics": {
+      "alarm_httpcode_target_5xx_count": 403.0,
+      "alarm_sibling_ecs_requestcount": 1240.0,
+      "alarm_sibling_ecs_httpcode_target_4xx_count": 6.0,
+      "alarm_sibling_ecs_targetresponsetime": 412.0,
+      "alarm_sibling_ecs_activeconnectioncount": 88.0,
+      "tasks_running": 3.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 22.0,
+      "memory_utilization_pct": 48.1,
+      "log_error_lines": 403.0,
+      "log_errors_peak_per_min": 47.0,
+      "ecs_stopped_tasks": 0.0,
+      "ecs_tasks_failed_to_start": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: ecs logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 686 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

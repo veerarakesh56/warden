@@ -1,0 +1,35 @@
+{
+  "id": "g10-110",
+  "alert": {
+    "alert_id": "g10-110",
+    "name": "storefront-web-5xx",
+    "service": "storefront-web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "storefront-web 5xx responses above 50 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apprunner": "storefront-web",
+      "alarm": "storefront-web-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AppRunner/5xxStatusResponses ServiceID=8f1c2e3d4a5b46c7d8e9f0a1b2c3d4e5,ServiceName=storefront-web stat=Sum period=60s threshold GreaterThanThreshold 50.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:43:20Z apprunner.amazonaws.com UpdateService on storefront-web by user/dev-pgarcia",
+      "STATE apprunner storefront-web Status=RUNNING UpdatedAt=2026-10-10T07:47:02Z"
+    ],
+    "metrics": {
+      "alarm_5xxstatusresponses": 22488.0,
+      "alarm_sibling_apprunner_requests": 2210.0,
+      "alarm_sibling_apprunner_2xxstatusresponses": 300.0,
+      "alarm_sibling_apprunner_4xxstatusresponses": 36.0,
+      "alarm_sibling_apprunner_requestlatency": 29870.0,
+      "alarm_sibling_apprunner_activeinstances": 4.0,
+      "alarm_sibling_apprunner_cpuutilization": 9.2,
+      "alarm_sibling_apprunner_memoryutilization": 31.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

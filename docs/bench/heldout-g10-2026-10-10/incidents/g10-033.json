@@ -1,0 +1,33 @@
+{
+  "id": "g10-033",
+  "alert": {
+    "alert_id": "g10-033",
+    "name": "cart-svc-restarts",
+    "service": "cart-svc",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "cart-svc container restarts above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "shop",
+      "deployment": "cart-svc",
+      "alarm": "cart-svc-restarts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_number_of_container_restarts ClusterName=shop-dev-eks,Namespace=shop,PodName=cart-svc stat=Maximum period=60s threshold GreaterThanThreshold 3.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on cart-svc in the 6 h before the alert",
+      "CHANGE none on shop-dev-eks in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_value": 5.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: k8s/cart-svc: [credentials rejected or missing] (401)",
+      "logs: eks: [access denied on DescribeCluster] An error occurred (AccessDeniedException) when calling the DescribeCluster operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-1786 is not authorized to perform: eks:DescribeCluster on resource: arn:aws:eks:eu-west-1:111122223333:cluster/shop-dev-eks because no identity-based policy allows the eks:DescribeCluster action"
+    ]
+  }
+}

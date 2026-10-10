@@ -1,0 +1,51 @@
+{
+  "id": "g10-047",
+  "alert": {
+    "alert_id": "g10-047",
+    "name": "render-asg-inservice-low",
+    "service": "render-farm",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "render-asg in-service instances below 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "asg": "render-asg",
+      "alarm": "render-asg-inservice-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AutoScaling/GroupInServiceInstances AutoScalingGroupName=render-asg stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:11:58Z autoscaling.amazonaws.com PutScheduledUpdateGroupAction on render-asg by user/dev-hwang",
+      "STATE asg render-asg MinSize=0 MaxSize=10 DesiredCapacity=2 Instances=1(Healthy:1) SuspendedProcesses=0",
+      "STATE asg render-asg activity at=2026-10-10T07:58:40Z status=Failed cause=other capacity=1->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:58:40Z an instance was started in response to a difference between desired and actual capacity, increasing the capacity from 1 to 2.",
+      "STATE asg render-asg activity at=2026-10-10T07:57:22Z status=Failed cause=other capacity=1->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:57:22Z an instance was started in response to a difference between desired and actual capacity, increasing the capacity from 1 to 2.",
+      "STATE asg render-asg activity at=2026-10-10T07:57:10Z status=Successful cause=spot",
+      "EVENT asg render-asg activity: At 2026-10-10T07:57:10Z an instance was taken out of service in response to an EC2 Spot Instance interruption notice.",
+      "STATE asg render-asg activity at=2026-10-10T07:30:19Z status=Successful cause=scheduled capacity=8->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:30:00Z a scheduled action update of AutoScalingGroup constraints to min: 0, max: 10, desired: 2 changing the desired capacity from 8 to 2.  At 2026-10-10T07:30:19Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the cap",
+      "STATE asg render-asg activity at=2026-10-10T07:30:18Z status=Successful cause=scheduled capacity=8->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:30:00Z a scheduled action update of AutoScalingGroup constraints to min: 0, max: 10, desired: 2 changing the desired capacity from 8 to 2.  At 2026-10-10T07:30:18Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the cap",
+      "STATE asg render-asg activity at=2026-10-10T07:30:17Z status=Successful cause=scheduled capacity=8->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:30:00Z a scheduled action update of AutoScalingGroup constraints to min: 0, max: 10, desired: 2 changing the desired capacity from 8 to 2.  At 2026-10-10T07:30:17Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the cap",
+      "STATE asg render-asg activity at=2026-10-10T07:30:16Z status=Successful cause=scheduled capacity=8->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:30:00Z a scheduled action update of AutoScalingGroup constraints to min: 0, max: 10, desired: 2 changing the desired capacity from 8 to 2.  At 2026-10-10T07:30:16Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the cap",
+      "STATE asg render-asg activity at=2026-10-10T07:30:15Z status=Successful cause=scheduled capacity=8->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:30:00Z a scheduled action update of AutoScalingGroup constraints to min: 0, max: 10, desired: 2 changing the desired capacity from 8 to 2.  At 2026-10-10T07:30:15Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the cap",
+      "STATE asg render-asg activity at=2026-10-10T07:30:14Z status=Successful cause=scheduled capacity=8->2",
+      "EVENT asg render-asg activity: At 2026-10-10T07:30:00Z a scheduled action update of AutoScalingGroup constraints to min: 0, max: 10, desired: 2 changing the desired capacity from 8 to 2.  At 2026-10-10T07:30:14Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the cap"
+    ],
+    "metrics": {
+      "alarm_groupinserviceinstances": 1.0,
+      "alarm_sibling_autoscaling_groupdesiredcapacity": 2.0,
+      "alarm_sibling_autoscaling_groupminsize": 0.0,
+      "alarm_sibling_autoscaling_groupmaxsize": 10.0,
+      "alarm_sibling_autoscaling_grouptotalinstances": 1.0,
+      "alarm_sibling_autoscaling_grouppendinginstances": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

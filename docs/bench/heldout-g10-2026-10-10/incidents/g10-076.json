@@ -1,0 +1,37 @@
+{
+  "id": "g10-076",
+  "alert": {
+    "alert_id": "g10-076",
+    "name": "report-builder schedule failing",
+    "service": "vpc-report-builder",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "FailedInvocations / Invocations > 0.5 for 2 periods (report-builder schedule; m3 = AWS/Lambda Invocations FunctionName=vpc-report-builder, ReturnData=false)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eventbridge_rule": "report-builder-every-15m",
+      "lambda": "vpc-report-builder",
+      "alarm": "report-builder-schedule-failing"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold GreaterThanThreshold 0.5 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on report-builder-every-15m in the 6 h before the alert",
+      "CHANGE none on vpc-report-builder in the 6 h before the alert",
+      "STATE lambda vpc-report-builder state=Failed reason=EniLimitExceeded last_update=Successful update_reason=-",
+      "CONFIG lambda vpc-report-builder timeout=300s memory=1024MB reserved_concurrency=none env=[REPORT_TABLE=reports-dev] sgs=[sg-0aa9bb8cc7dd6ee5f] version=5 alias_live=5",
+      "RULE report-builder-every-15m State=ENABLED schedule=rate(15 minutes)"
+    ],
+    "metrics": {
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "lambda_timeout_s": 300.0,
+      "lambda_memory_mb": 1024.0,
+      "rule_enabled": 1.0,
+      "rule_invocations": 2.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

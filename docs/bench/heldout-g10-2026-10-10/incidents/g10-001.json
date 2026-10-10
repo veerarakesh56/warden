@@ -1,0 +1,34 @@
+{
+  "id": "g10-001",
+  "alert": {
+    "alert_id": "g10-001",
+    "name": "finance-rs-cpu",
+    "service": "finance-rs",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "finance-rs CPUUtilization above 85%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "redshift": "finance-rs",
+      "alarm": "finance-rs-cpu"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Redshift/CPUUtilization ClusterIdentifier=finance-rs stat=Average period=300s threshold GreaterThanThreshold 85.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on finance-rs in the 6 h before the alert",
+      "STATE redshift finance-rs ClusterStatus=available ClusterAvailabilityStatus=Available NodeType=ra3.4xlarge NumberOfNodes=2 PendingModifiedValues=none"
+    ],
+    "metrics": {
+      "alarm_cpuutilization": 87.2,
+      "alarm_sibling_redshift_percentagediskspaceused": 41.3,
+      "alarm_sibling_redshift_healthstatus": 1.0,
+      "alarm_sibling_redshift_maintenancemode": 0.0,
+      "alarm_sibling_redshift_databaseconnections": 18.0,
+      "alarm_sibling_redshift_readiops": 1240.0,
+      "alarm_sibling_redshift_writeiops": 830.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

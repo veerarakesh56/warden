@@ -1,0 +1,52 @@
+{
+  "id": "g10-139",
+  "alert": {
+    "alert_id": "g10-139",
+    "name": "orders-web 5xx",
+    "service": "orders-web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Target 5XX > 5 per minute (orders-web)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "orders-web",
+      "alarm": "orders-web-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/HTTPCode_Target_5XX_Count ClusterName=shop-dev,DiscoveryName=orders-web,ServiceName=orders-web stat=Sum period=60s threshold GreaterThanThreshold 5.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:48:30Z ecs.amazonaws.com UpdateService on orders-web by role/AWSServiceRoleForApplicationAutoScaling_ECSService",
+      "LOG ecs/orders-web 2026-10-10T07:46:01Z {\"level\":\"info\",\"msg\":\"GET /cart 200\",\"dur_ms\":14}",
+      "LOG ecs/orders-web 2026-10-10T07:49:02Z {\"level\":\"info\",\"msg\":\"POST /checkout 201\",\"dur_ms\":88}",
+      "LOG ecs/orders-web 2026-10-10T07:54:40Z {\"level\":\"warn\",\"msg\":\"POST /checkout 500\",\"err\":\"context canceled\",\"client\":\"mobile-ios\"}",
+      "LOG ecs/orders-web 2026-10-10T07:54:41Z {\"level\":\"info\",\"msg\":\"GET /cart 200\",\"dur_ms\":11}",
+      "LOG ecs/orders-web 2026-10-10T07:58:02Z {\"level\":\"info\",\"msg\":\"GET /products/1182 200\",\"dur_ms\":9}",
+      "APPSG ecs/orders-web sgs=[sg-0aa2bb3cc4dd5ee6f]",
+      "TASKROLE ecs/orders-web role=orders-web-task-role",
+      "STATE ecs/orders-web deployment PRIMARY rollout=COMPLETED revision=orders-web:66 desired=4 running=4 pending=0 failed=0 at=2026-10-08T10:30:00Z",
+      "STATE ecs/orders-web service events in the hour before the alert: started_tasks=1 steady_state=1"
+    ],
+    "metrics": {
+      "alarm_httpcode_target_5xx_count": 6.0,
+      "alarm_sibling_ecs_requestcount": 48210.0,
+      "alarm_sibling_ecs_targetresponsetime": 61.0,
+      "alarm_sibling_ecs_httpcode_target_4xx_count": 140.0,
+      "tasks_running": 4.0,
+      "tasks_desired": 4.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 61.0,
+      "memory_utilization_pct": 40.2,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 0.0,
+      "ecs_tasks_failed_to_start": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

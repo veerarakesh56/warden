@@ -1,0 +1,30 @@
+{
+  "id": "g10-040",
+  "alert": {
+    "alert_id": "g10-040",
+    "name": "sign-in successes low",
+    "service": "shop-dev-auth",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "SignInSuccesses < 50 in 2 consecutive 5-minute periods",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "cognito_user_pool": "eu-west-1_Lm4NpQ8rS",
+      "alarm": "shop-dev-b2b-signin-success-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Cognito/SignInSuccesses UserPool=eu-west-1_Lm4NpQ8rS,UserPoolClient=7h2j4k6m8n0p2r4t6v8x0z2b4d stat=Sum period=300s threshold LessThanThreshold 50.0 datapoints=2/2 missing=breaching state=ALARM",
+      "CHANGE none on eu-west-1_Lm4NpQ8rS in the 6 h before the alert",
+      "STATE cognito_user_pool eu-west-1_Lm4NpQ8rS EstimatedNumberOfUsers=2210 MfaConfiguration=ON UserPoolTier=ESSENTIALS"
+    ],
+    "metrics": {
+      "alarm_signinsuccesses": 41.0,
+      "alarm_sibling_cognito_signinthrottles": 0.0,
+      "alarm_sibling_cognito_tokenrefreshsuccesses": 380.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "g10-124",
+  "alert": {
+    "alert_id": "g10-124",
+    "name": "catalog-cache-engine-cpu",
+    "service": "catalog-cache",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "catalog-cache EngineCPUUtilization above 70%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "elasticache_node": "catalog-cache-0001-001",
+      "alarm": "catalog-cache-engine-cpu"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ElastiCache/EngineCPUUtilization CacheClusterId=catalog-cache-0001-001 stat=Average period=300s threshold GreaterThanThreshold 70.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:09:49Z elasticache.amazonaws.com AddTagsToResource on catalog-cache-0001-001 by role/platform-tagging-bot",
+      "STATE elasticache_node catalog-cache-0001-001 CacheClusterStatus=available CacheNodeType=cache.r7g.large Engine=redis EngineVersion=7.1.0 ReplicationGroupId=catalog-cache NumCacheNodes=1"
+    ],
+    "metrics": {
+      "alarm_enginecpuutilization": 72.4,
+      "alarm_sibling_elasticache_databasememoryusagepercentage": 48.3,
+      "alarm_sibling_elasticache_evictions": 0.0,
+      "alarm_sibling_elasticache_currconnections": 410.0,
+      "alarm_sibling_elasticache_cachehitrate": 96.8,
+      "alarm_sibling_elasticache_swapusage": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

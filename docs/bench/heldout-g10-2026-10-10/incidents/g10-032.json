@@ -1,0 +1,31 @@
+{
+  "id": "g10-032",
+  "alert": {
+    "alert_id": "g10-032",
+    "name": "analytics-rs-wlm-queue",
+    "service": "analytics-rs",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "analytics-rs etl_queue WLMQueueLength above 20",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "redshift": "analytics-rs",
+      "alarm": "analytics-rs-wlm-queue"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Redshift/WLMQueueLength ClusterIdentifier=analytics-rs,QueueName=etl_queue stat=Maximum period=300s threshold GreaterThanThreshold 20.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on analytics-rs in the 6 h before the alert",
+      "STATE redshift analytics-rs ClusterStatus=available ClusterAvailabilityStatus=Available NodeType=ra3.xlplus NumberOfNodes=2 PendingModifiedValues=none"
+    ],
+    "metrics": {
+      "alarm_wlmqueuelength": 48.0,
+      "alarm_sibling_redshift_wlmqueuewaittime": 1860000000.0,
+      "alarm_sibling_redshift_wlmrunningqueries": 3.0,
+      "alarm_sibling_redshift_wlmqueriescompletedpersecond": 0.01
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

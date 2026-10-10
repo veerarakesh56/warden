@@ -1,0 +1,37 @@
+{
+  "id": "g10-024",
+  "alert": {
+    "alert_id": "g10-024",
+    "name": "sessions-v2-write-throttles",
+    "service": "sessions-v2",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "sessions-v2 WriteThrottleEvents above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "sessions-v2",
+      "alarm": "sessions-v2-write-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/WriteThrottleEvents TableName=sessions-v2 stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=2/2 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:38:55Z dynamodb.amazonaws.com UpdateTable on sessions-v2 by role/platform-terraform-apply",
+      "TABLE sessions-v2 billing=PAY_PER_REQUEST rcu=0 wcu=0 status=ACTIVE"
+    ],
+    "metrics": {
+      "alarm_writethrottleevents": 15240.0,
+      "alarm_sibling_dynamodb_writemaxondemandthroughputthrottleevents": 15240.0,
+      "alarm_sibling_dynamodb_consumedwritecapacityunits": 2.0,
+      "alarm_sibling_dynamodb_consumedreadcapacityunits": 1.0,
+      "alarm_sibling_dynamodb_readthrottleevents": 0.0,
+      "ddb_consumed_rcu": 64.0,
+      "ddb_consumed_wcu": 100.4,
+      "ddb_read_throttle_events": 0.0,
+      "ddb_write_throttle_events": 15240.0,
+      "ddb_throttled_requests": 15011.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

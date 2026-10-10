@@ -1,0 +1,35 @@
+{
+  "id": "g10-063",
+  "alert": {
+    "alert_id": "g10-063",
+    "name": "pricing-cache-throttled-cmds",
+    "service": "pricing-cache",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "pricing-cache ThrottledCmds above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "elasticache_serverless": "pricing-cache",
+      "alarm": "pricing-cache-throttled-cmds"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ElastiCache/ThrottledCmds clusterId=pricing-cache stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=2/2 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:22:47Z elasticache.amazonaws.com ModifyServerlessCache on pricing-cache by role/platform-terraform-apply",
+      "STATE elasticache_serverless pricing-cache Status=available Engine=valkey MajorEngineVersion=8 CacheUsageLimits_DataStorage_Maximum=10 CacheUsageLimits_ECPUPerSecond_Maximum=5000"
+    ],
+    "metrics": {
+      "alarm_throttledcmds": 48210.0,
+      "alarm_sibling_elasticache_elasticacheprocessingunits": 299870.0,
+      "alarm_sibling_elasticache_cachehitrate": 97.2,
+      "alarm_sibling_elasticache_bytesusedforcache": 2300000000.0,
+      "alarm_sibling_elasticache_currconnections": 920.0,
+      "alarm_sibling_elasticache_successfulreadrequestlatency": 410.0,
+      "alarm_sibling_elasticache_successfulwriterequestlatency": 520.0,
+      "alarm_sibling_elasticache_networkbytesin": 340000000.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

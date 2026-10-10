@@ -1,0 +1,35 @@
+{
+  "id": "g10-057",
+  "alert": {
+    "alert_id": "g10-057",
+    "name": "orders-mysql-cpu",
+    "service": "orders-mysql",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "orders-mysql CPUUtilization above 90%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "orders-mysql",
+      "alarm": "orders-mysql-cpu"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/CPUUtilization DBClusterIdentifier=orders-mysql stat=Maximum period=60s threshold GreaterThanThreshold 90.0 datapoints=3/3 missing=missing state=ALARM",
+      "CLUSTER aurora orders-mysql writer=orders-mysql-1 readers=[orders-mysql-2] status=available"
+    ],
+    "metrics": {
+      "aurora_members_available": 2.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: alarm: [throttled on ListMetrics] An error occurred (Throttling) when calling the ListMetrics operation (reached max retries: 0): Rate exceeded",
+      "logs: aurora metrics: Performance Insights is off on orders-mysql-1",
+      "logs: aurora metrics: Performance Insights is off on orders-mysql-2",
+      "logs: aurora metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: aurora-db-writer: [failed (unclassified)] WARDEN_STACK_DB_WRITER_DSN is not set; the writer sessions were not read",
+      "logs: aurora-db-reader: [failed (unclassified)] WARDEN_STACK_DB_READER_DSN is not set; the reader sessions were not read"
+    ]
+  }
+}

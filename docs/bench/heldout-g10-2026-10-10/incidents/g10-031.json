@@ -1,0 +1,60 @@
+{
+  "id": "g10-031",
+  "alert": {
+    "alert_id": "g10-031",
+    "name": "report-exporter-restarts",
+    "service": "report-exporter",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "report-exporter container restarts above 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "reports",
+      "deployment": "report-exporter",
+      "alarm": "report-exporter-restarts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_number_of_container_restarts ClusterName=shop-dev-eks,Namespace=reports,PodName=report-exporter stat=Maximum period=60s threshold GreaterThanThreshold 2.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on report-exporter in the 6 h before the alert",
+      "CHANGE none on shop-dev-eks in the 6 h before the alert",
+      "LOG k8s/reports/report-exporter EVENT ScalingReplicaSet Deployment/report-exporter: Scaled up replica set report-exporter-84b7c9d6f to 2 from 0",
+      "LOG k8s/reports/report-exporter EVENT ScalingReplicaSet Deployment/report-exporter: Scaled down replica set report-exporter-6k5f4w2d2 to 0 from 2",
+      "LOG k8s/reports/report-exporter EVENT BackOff Pod/report-exporter-84b7c9d6f-5vvf7: Back-off restarting failed container report-exporter in pod report-exporter-84b7c9d6f-5vvf7_reports(950bfae0-1bca-423b-a1a1-43752d810aaf)",
+      "LOG k8s/reports/report-exporter STATUS report-exporter-84b7c9d6f-5vvf7/report-exporter: restarts 3; last exit: Error (code 1) at 2026-10-10T07:56:30Z; now waiting: CrashLoopBackOff - back-off 40s restarting failed container=report-exporter pod=report-exporter-84b7c9d6f-5vvf7_reports(950bfae0-1bca-423b-a1a1-43752d810aaf)",
+      "LOG k8s/reports/report-exporter STATUS report-exporter-84b7c9d6f-8wk77/report-exporter: restarts 3; last exit: Error (code 1) at 2026-10-10T07:57:30Z; now waiting: CrashLoopBackOff - back-off 40s restarting failed container=report-exporter pod=report-exporter-84b7c9d6f-8wk77_reports(b41ecb19-8fd3-4499-a43e-00fcba34c09d)",
+      "LOG k8s/reports/report-exporter report-exporter-84b7c9d6f-5vvf7/report-exporter (previous) 2026-10-10T07:56:19.000112033Z level=info msg=\"report-exporter 2.0.0 starting\" sdk=aws-sdk-go-v2/1.30.3 bucket=reports-dev-exports",
+      "LOG k8s/reports/report-exporter report-exporter-84b7c9d6f-5vvf7/report-exporter (previous) 2026-10-10T07:56:24.005520991Z level=error msg=\"upload failed\" err=\"operation error S3: PutObject, get identity: get credentials: failed to refresh cached credentials, no EC2 IMDS role found, operation error ec2imds: GetMetadata, canceled, context deadline exceeded\"",
+      "LOG k8s/reports/report-exporter report-exporter-84b7c9d6f-5vvf7/report-exporter (previous) 2026-10-10T07:56:29.006011873Z level=fatal msg=\"cannot obtain AWS credentials; exiting\"",
+      "LOG k8s/reports/report-exporter report-exporter-84b7c9d6f-8wk77/report-exporter (previous) 2026-10-10T07:57:19.000112034Z level=info msg=\"report-exporter 2.0.0 starting\" sdk=aws-sdk-go-v2/1.30.3 bucket=reports-dev-exports",
+      "LOG k8s/reports/report-exporter report-exporter-84b7c9d6f-8wk77/report-exporter (previous) 2026-10-10T07:57:24.005520992Z level=error msg=\"upload failed\" err=\"operation error S3: PutObject, get identity: get credentials: failed to refresh cached credentials, no EC2 IMDS role found, operation error ec2imds: GetMetadata, canceled, context deadline exceeded\"",
+      "LOG k8s/reports/report-exporter report-exporter-84b7c9d6f-8wk77/report-exporter (previous) 2026-10-10T07:57:29.006011874Z level=fatal msg=\"cannot obtain AWS credentials; exiting\"",
+      "LOG k8s/reports/report-exporter ROLLOUT revision 9 (current): 111122223333.dkr.ecr.eu-west-1.amazonaws.com/report-exporter:2.0.0 created 2026-10-10T07:45:10Z",
+      "LOG k8s/reports/report-exporter ROLLOUT revision 8: 111122223333.dkr.ecr.eu-west-1.amazonaws.com/report-exporter:1.14.3 created 2026-09-15T08:00:00Z",
+      "APPSG eks/shop-dev-eks sgs=[sg-03a5c7e9b1d2f4a68,sg-0e1d2c3b4a5968778]"
+    ],
+    "metrics": {
+      "alarm_value": 6.0,
+      "pods_total": 2.0,
+      "pods_ready": 0.0,
+      "restart_count": 6.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 2.0,
+      "memory_limit_mib": 256.0,
+      "replicas_desired": 2.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "k8s",
+        "service": "report-exporter",
+        "at": "2026-10-10T07:45:10Z",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/report-exporter:2.0.0",
+        "previous": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/report-exporter:1.14.3",
+        "revision": "9"
+      }
+    ],
+    "tool_errors": []
+  }
+}

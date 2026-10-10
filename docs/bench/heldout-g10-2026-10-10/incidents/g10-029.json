@@ -1,0 +1,49 @@
+{
+  "id": "g10-029",
+  "alert": {
+    "alert_id": "g10-029",
+    "name": "web-tg-healthy-hosts-low",
+    "service": "web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "web-tg healthy hosts below 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "alb_target_group": "web-tg",
+      "load_balancer": "app/web-alb/7c1e9a2b3d4f5a6b",
+      "alarm": "web-tg-healthy-hosts-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApplicationELB/HealthyHostCount LoadBalancer=app/web-alb/7c1e9a2b3d4f5a6b,TargetGroup=targetgroup/web-tg/73e2d6bc24d8a067 stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:53:40Z elasticloadbalancing.amazonaws.com DeregisterTargets on web-tg by role/AWSReservedSSO_AdministratorAccess_4c1d9e7f2a6b8e30",
+      "CHANGE none on app/web-alb/7c1e9a2b3d4f5a6b in the 6 h before the alert",
+      "STATE load_balancer app/web-alb/7c1e9a2b3d4f5a6b Code=active Type=application Scheme=internet-facing IpAddressType=ipv4 AvailabilityZones=3",
+      "TARGETGROUP web-tg health_path=/healthz port=traffic-port matcher=200",
+      "CONFIG alb web-alb zones=ap-south-1a,ap-south-1b,ap-south-1c zonal_shift=true"
+    ],
+    "metrics": {
+      "alarm_healthyhostcount": 4.0,
+      "alarm_sibling_applicationelb_httpcode_target_2xx_count": 5210.0,
+      "alarm_sibling_applicationelb_httpcode_target_5xx_count": 96.0,
+      "alarm_sibling_applicationelb_requestcount": 5420.0,
+      "alarm_sibling_applicationelb_requestcountpertarget": 5420.0,
+      "alarm_sibling_applicationelb_targetresponsetime": 1.84,
+      "alarm_sibling_applicationelb_unhealthyhostcount": 0.0,
+      "alb_healthy_hosts": 1.0,
+      "alb_unhealthy_hosts": 0.0,
+      "alb_target_5xx": 611.0,
+      "alb_elb_5xx": 148.0,
+      "alb_target_response_time_s": 1.84,
+      "alb_healthy_hosts_ap-south-1a": 1.0,
+      "alb_unhealthy_hosts_ap-south-1a": 0.0,
+      "alb_healthy_hosts_ap-south-1b": 0.0,
+      "alb_unhealthy_hosts_ap-south-1b": 0.0,
+      "alb_healthy_hosts_ap-south-1c": 0.0,
+      "alb_unhealthy_hosts_ap-south-1c": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

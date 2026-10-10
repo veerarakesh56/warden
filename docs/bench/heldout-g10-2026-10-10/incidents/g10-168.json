@@ -1,0 +1,35 @@
+{
+  "id": "g10-168",
+  "alert": {
+    "alert_id": "g10-168",
+    "name": "media-assets-4xx",
+    "service": "media-assets",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "media-assets 4xxErrors above 500 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "s3_bucket": "media-assets",
+      "alarm": "media-assets-4xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/S3/4xxErrors BucketName=media-assets,FilterId=EntireBucket stat=Sum period=60s threshold GreaterThanThreshold 500.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:52:06Z s3.amazonaws.com PutBucketPolicy on media-assets by user/a.romero",
+      "STATE s3_bucket media-assets Status=Enabled"
+    ],
+    "metrics": {
+      "alarm_4xxerrors": 58000.0,
+      "alarm_sibling_s3_allrequests": 3420.0,
+      "alarm_sibling_s3_getrequests": 3390.0,
+      "alarm_sibling_s3_headrequests": 22.0,
+      "alarm_sibling_s3_5xxerrors": 0.0,
+      "alarm_sibling_s3_firstbytelatency": 18.0,
+      "alarm_sibling_s3_totalrequestlatency": 24.0,
+      "alarm_sibling_s3_bytesdownloaded": 11000000.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

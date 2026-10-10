@@ -1,0 +1,54 @@
+{
+  "id": "g10-002",
+  "alert": {
+    "alert_id": "g10-002",
+    "name": "ledger-api-restarts",
+    "service": "ledger-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ledger-api container restarts above 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "ledger",
+      "deployment": "ledger-api",
+      "alarm": "ledger-api-restarts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_number_of_container_restarts ClusterName=shop-dev-eks,Namespace=ledger,PodName=ledger-api stat=Maximum period=60s threshold GreaterThanThreshold 2.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on ledger-api in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:21:40Z eks.amazonaws.com UpdateNodegroupVersion on shop-dev-eks by role/platform-terraform",
+      "LOG k8s/ledger/ledger-api EVENT BackOff Pod/ledger-api-59f8c6d7b-7zg9c: Back-off restarting failed container ledger-api in pod ledger-api-59f8c6d7b-7zg9c_ledger(bce72b36-d658-44cf-aa5d-a7205aed5c47)",
+      "LOG k8s/ledger/ledger-api EVENT BackOff Pod/ledger-api-59f8c6d7b-25nxj: Back-off restarting failed container ledger-api in pod ledger-api-59f8c6d7b-25nxj_ledger(810eaec4-1210-40cd-aadb-a610623a7684)",
+      "LOG k8s/ledger/ledger-api STATUS ledger-api-59f8c6d7b-9cp2p/ledger-api: restarts 1; last exit: OOMKilled (code 137) at 2026-10-10T07:50:55Z",
+      "LOG k8s/ledger/ledger-api STATUS ledger-api-59f8c6d7b-7zg9c/ledger-api: restarts 3; last exit: OOMKilled (code 137) at 2026-10-10T07:53:42Z; now waiting: CrashLoopBackOff - back-off 40s restarting failed container=ledger-api pod=ledger-api-59f8c6d7b-7zg9c_ledger(bce72b36-d658-44cf-aa5d-a7205aed5c47)",
+      "LOG k8s/ledger/ledger-api STATUS ledger-api-59f8c6d7b-25nxj/ledger-api: restarts 3; last exit: OOMKilled (code 137) at 2026-10-10T07:56:29Z; now waiting: CrashLoopBackOff - back-off 40s restarting failed container=ledger-api pod=ledger-api-59f8c6d7b-25nxj_ledger(810eaec4-1210-40cd-aadb-a610623a7684)",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-9cp2p/ledger-api (previous) 2026-10-10T07:50:15.001203440Z INFO  LedgerApi - starting: java.version=1.8.0_181 os=Linux 6.1.109-118.189.amzn2023.x86_64 Runtime.maxMemory()=3.47GiB cpus=4",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-9cp2p/ledger-api (previous) 2026-10-10T07:50:47.077810223Z INFO  SnapshotLoader - loading ledger snapshot into heap: 0.62GiB of 0.70GiB",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-7zg9c/ledger-api (previous) 2026-10-10T07:53:02.001203441Z INFO  LedgerApi - starting: java.version=1.8.0_181 os=Linux 6.1.109-118.189.amzn2023.x86_64 Runtime.maxMemory()=3.47GiB cpus=4",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-7zg9c/ledger-api (previous) 2026-10-10T07:53:34.077810224Z INFO  SnapshotLoader - loading ledger snapshot into heap: 0.62GiB of 0.70GiB",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-25nxj/ledger-api (previous) 2026-10-10T07:55:49.001203442Z INFO  LedgerApi - starting: java.version=1.8.0_181 os=Linux 6.1.109-118.189.amzn2023.x86_64 Runtime.maxMemory()=3.47GiB cpus=4",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-25nxj/ledger-api (previous) 2026-10-10T07:56:21.077810225Z INFO  SnapshotLoader - loading ledger snapshot into heap: 0.62GiB of 0.70GiB",
+      "LOG k8s/ledger/ledger-api ROLLOUT revision 12 (current): 111122223333.dkr.ecr.eu-west-1.amazonaws.com/ledger-api:1.9.2 created 2026-09-30T11:20:00Z",
+      "LOG k8s/ledger/ledger-api ROLLOUT revision 11: 111122223333.dkr.ecr.eu-west-1.amazonaws.com/ledger-api:1.9.1 created 2026-09-22T09:00:00Z",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-9cp2p/ledger-api 2026-10-10T07:58:48.005503100Z INFO  LedgerApi - starting: java.version=1.8.0_181 os=Linux 6.1.109-118.189.amzn2023.x86_64 Runtime.maxMemory()=3.47GiB cpus=4",
+      "LOG k8s/ledger/ledger-api ledger-api-59f8c6d7b-9cp2p/ledger-api 2026-10-10T07:59:40.061200817Z INFO  SnapshotLoader - loading ledger snapshot into heap: 0.31GiB of 0.70GiB",
+      "APPSG eks/shop-dev-eks sgs=[sg-03a5c7e9b1d2f4a68,sg-0e1d2c3b4a5968778]",
+      "STATE eks/shop-dev-eks nodegroup ng-general status=UPDATING issues=[]"
+    ],
+    "metrics": {
+      "alarm_value": 7.0,
+      "pods_total": 3.0,
+      "pods_ready": 1.0,
+      "restart_count": 7.0,
+      "oom_killed_containers": 3.0,
+      "crashloop_containers": 2.0,
+      "memory_limit_mib": 1024.0,
+      "replicas_desired": 3.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

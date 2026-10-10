@@ -1,0 +1,26 @@
+{
+  "id": "g10-104",
+  "alert": {
+    "alert_id": "g10-104",
+    "name": "checkout-asg-inservice-low",
+    "service": "checkout-edge",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "checkout-asg in-service instances below 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "asg": "checkout-asg",
+      "alarm": "checkout-asg-inservice-low"
+    }
+  },
+  "context": {
+    "logs": [],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [failed (unclassified)] no metric alarm by that name (a composite alarm is read through the alarms it names)",
+      "logs: asg: [throttled on DescribeAutoScalingGroups] An error occurred (Throttling) when calling the DescribeAutoScalingGroups operation (reached max retries: 0): Rate exceeded",
+      "logs: asg-activity: [throttled on DescribeScalingActivities] An error occurred (Throttling) when calling the DescribeScalingActivities operation (reached max retries: 0): Rate exceeded"
+    ]
+  }
+}

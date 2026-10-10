@@ -1,0 +1,29 @@
+{
+  "id": "g10-097",
+  "alert": {
+    "alert_id": "g10-097",
+    "name": "partner-portal-5xx",
+    "service": "partner-portal",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "partner-portal 5xx responses above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apprunner": "partner-portal",
+      "alarm": "partner-portal-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AppRunner/5xxStatusResponses ServiceID=3c4d5e6f7a8b49c0d1e2f3a4b5c6d7e8,ServiceName=partner-portal stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=2/2 missing=missing state=ALARM"
+    ],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [failed (unclassified) on GetMetricData] alarm_5xxstatusresponses InternalError (the series may be incomplete)",
+      "logs: alarm-siblings metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: apprunner: [failed (unclassified)] no apprunner named in the response"
+    ]
+  }
+}

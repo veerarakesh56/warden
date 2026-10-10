@@ -1,0 +1,58 @@
+{
+  "id": "g10-013",
+  "alert": {
+    "alert_id": "g10-013",
+    "name": "statement-generator errors",
+    "service": "statement-generator",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for statement-generator",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "statement-generator",
+      "alarm": "statement-generator-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=statement-generator stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:46:52Z lambda.amazonaws.com UpdateAlias20150331 on statement-generator by role/shop-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:46:50Z lambda.amazonaws.com PublishVersion20150331v2 on statement-generator by role/shop-dev-codepipeline-deploy",
+      "LOG lambda/statement-generator 2026-10-10T07:45:02Z 2026-10-10T07:45:02.000Z\tcbf5a423-dcf4-583b-a5f2-44ed864c2346\tINFO\tstatement acct=ac-1192 period=2026-09 pages=4",
+      "LOG lambda/statement-generator 2026-10-10T07:47:40Z 2026-10-10T07:47:40.033Z\tcb87970f-1478-567f-9077-d76c7321a064\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'currency')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'currency')\"]}",
+      "LOG lambda/statement-generator 2026-10-10T07:48:05Z 2026-10-10T07:48:05.501Z\tb7b5fb8c-72bf-56d8-b191-a991ccd44236\tERROR\tInvoke Error \t{\"errorType\":\"KMSInvalidStateException\",\"errorMessage\":\"An error occurred (KMSInvalidStateException) when calling the GenerateDataKey operation: arn:aws:kms:eu-west-1:111122223333:key/5e7a9c1b-2d4f-4a6c-8e0b-1c3d5e7f9a2b is pending deletion.\",\"stack\":[\"KMSInvalidStateException: An error occurred (KMSInvalidStateException) when calling the GenerateDataKey operation: arn:aws:kms:eu-west-1:111122223333:key/5e7a9c1b-2d4f-4a6c-8e0b-1c3d5e7f9a2b is pending deletion.\"]}",
+      "LOG lambda/statement-generator 2026-10-10T07:51:18Z 2026-10-10T07:51:18.001Z\t5c44cf91-e250-565b-8dd9-38025d5ce27e\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'currency')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'currency')\"]}",
+      "LOG lambda/statement-generator 2026-10-10T07:54:44Z 2026-10-10T07:54:44.220Z\t4ae1cb4b-5b84-5085-95b9-085e10d2f82b\tERROR\tInvoke Error \t{\"errorType\":\"KMSInvalidStateException\",\"errorMessage\":\"An error occurred (KMSInvalidStateException) when calling the GenerateDataKey operation: arn:aws:kms:eu-west-1:111122223333:key/5e7a9c1b-2d4f-4a6c-8e0b-1c3d5e7f9a2b is pending deletion.\",\"stack\":[\"KMSInvalidStateException: An error occurred (KMSInvalidStateException) when calling the GenerateDataKey operation: arn:aws:kms:eu-west-1:111122223333:key/5e7a9c1b-2d4f-4a6c-8e0b-1c3d5e7f9a2b is pending deletion.\"]}",
+      "LOG lambda/statement-generator 2026-10-10T07:57:09Z 2026-10-10T07:57:09.870Z\t1bc84521-252f-5c61-b3b1-2f3b8b1bc20d\tERROR\tInvoke Error \t{\"errorType\":\"TypeError\",\"errorMessage\":\"Cannot read properties of undefined (reading 'currency')\",\"stack\":[\"TypeError: Cannot read properties of undefined (reading 'currency')\"]}",
+      "CONFIG lambda statement-generator timeout=60s memory=1024MB reserved_concurrency=none env=[STATEMENT_BUCKET=acme-statements-dev] version=31 alias_live=31"
+    ],
+    "metrics": {
+      "alarm_errors": 164.0,
+      "alarm_sibling_lambda_invocations": 170.0,
+      "alarm_sibling_lambda_duration": 2210.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "log_error_lines": 164.0,
+      "log_errors_peak_per_min": 22.0,
+      "lambda_timeout_s": 60.0,
+      "lambda_memory_mb": 1024.0,
+      "lambda_errors": 164.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 170.0,
+      "lambda_duration_max_ms": 2210.0,
+      "lambda_concurrent_executions": 7.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "lambda",
+        "service": "statement-generator",
+        "at": "2026-10-10T07:46:50Z",
+        "version": "31",
+        "previous": "30",
+        "previous_basis": "served live traffic before this version"
+      }
+    ],
+    "tool_errors": [
+      "logs: lambda/statement-generator logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 530 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

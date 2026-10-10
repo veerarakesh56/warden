@@ -47,6 +47,11 @@ ALLOWED = {
     # Lambda RequestId UUID - 12 digits, not account ids. The cases are kept exactly as their author wrote and WARDEN
     # answered them.
     "214748364800", "152000000000", "455006823552",
+    # The G10 held-out set (docs/bench/heldout-g10-2026-10-10), each checked in context on 2026-10-10: the tails of
+    # Lambda RequestId UUIDs (six), two RDS byte counts (162.14 GB, 161.06 GB), Kinesis shard ids
+    # (shardId-000000000008/9) and a hex x-amzn-RequestId fragment - 12 digits, not account ids.
+    "707439788935", "770152377302", "287065300186", "401447169594", "549286324564", "629890871542",
+    "162140000000", "161060000000", "000000000008", "000000000009", "975088852523",
     # The placeholder in the redaction output itself.
     "<ACCOUNT>",
 }

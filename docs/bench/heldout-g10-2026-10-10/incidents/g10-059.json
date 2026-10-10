@@ -1,0 +1,55 @@
+{
+  "id": "g10-059",
+  "alert": {
+    "alert_id": "g10-059",
+    "name": "api-tg-unhealthy-hosts",
+    "service": "api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "api-tg has unhealthy hosts",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "alb_target_group": "api-tg",
+      "load_balancer": "app/api-alb/1d2e3f4a5b6c7d8e",
+      "alarm": "api-tg-unhealthy-hosts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApplicationELB/UnHealthyHostCount LoadBalancer=app/api-alb/1d2e3f4a5b6c7d8e,TargetGroup=targetgroup/api-tg/9e8d7c6b5a4f3e21 stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:49:31Z elasticloadbalancing.amazonaws.com ModifyTargetGroup on api-tg by role/AWSReservedSSO_PowerUserAccess_9f8e7d6c5b4a3f21",
+      "CHANGE none on app/api-alb/1d2e3f4a5b6c7d8e in the 6 h before the alert",
+      "STATE load_balancer app/api-alb/1d2e3f4a5b6c7d8e Code=active Type=application Scheme=internet-facing IpAddressType=ipv4 AvailabilityZones=3",
+      "TARGETGROUP api-tg health_path=/v2/health port=traffic-port matcher=200",
+      "TARGET api-tg 10.0.11.21:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed with these codes: [404]",
+      "TARGET api-tg 10.0.12.40:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed with these codes: [404]",
+      "TARGET api-tg 10.0.31.17:8080 unhealthy Target.Timeout: Request timed out",
+      "TARGET api-tg 10.0.32.58:8080 unhealthy Target.Timeout: Request timed out",
+      "TARGET api-tg 10.0.21.33:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed with these codes: [404]",
+      "TARGET api-tg 10.0.22.9:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed with these codes: [404]",
+      "CONFIG alb api-alb zones=ap-south-1a,ap-south-1b,ap-south-1c zonal_shift=true"
+    ],
+    "metrics": {
+      "alarm_unhealthyhostcount": 6.0,
+      "alarm_sibling_applicationelb_httpcode_target_2xx_count": 3920.0,
+      "alarm_sibling_applicationelb_httpcode_target_5xx_count": 12.0,
+      "alarm_sibling_applicationelb_healthyhostcount": 4.0,
+      "alarm_sibling_applicationelb_requestcount": 6210.0,
+      "alarm_sibling_applicationelb_targetconnectionerrorcount": 2280.0,
+      "alarm_sibling_applicationelb_targetresponsetime": 2.9,
+      "alb_healthy_hosts": 0.0,
+      "alb_unhealthy_hosts": 6.0,
+      "alb_target_5xx": 12.0,
+      "alb_elb_5xx": 21400.0,
+      "alb_target_response_time_s": 2.9,
+      "alb_healthy_hosts_ap-south-1a": 0.0,
+      "alb_unhealthy_hosts_ap-south-1a": 2.0,
+      "alb_healthy_hosts_ap-south-1b": 0.0,
+      "alb_unhealthy_hosts_ap-south-1b": 2.0,
+      "alb_healthy_hosts_ap-south-1c": 0.0,
+      "alb_unhealthy_hosts_ap-south-1c": 2.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

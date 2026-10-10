@@ -1,0 +1,29 @@
+{
+  "id": "g10-035",
+  "alert": {
+    "alert_id": "g10-035",
+    "name": "api-primary-health-check",
+    "service": "api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Route 53 health check for api primary is failing",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "route53_health_check": "6e1b9f3a-2c4d-4a8e-b7f0-91d3c5e2a804",
+      "alarm": "api-primary-health-check",
+      "alarm_region": "us-east-1"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Route53/HealthCheckStatus HealthCheckId=6e1b9f3a-2c4d-4a8e-b7f0-91d3c5e2a804 stat=Minimum period=60s threshold LessThanThreshold 1.0 datapoints=1/1 missing=breaching state=ALARM",
+      "CHANGE 2026-10-10T07:41:12Z route53.amazonaws.com UpdateHealthCheck on 6e1b9f3a-2c4d-4a8e-b7f0-91d3c5e2a804 by role/AWSReservedSSO_PowerUserAccess_9f8e7d6c5b4a3f21"
+    ],
+    "metrics": {
+      "alarm_healthcheckstatus": 0.0,
+      "alarm_sibling_route53_healthcheckpercentagehealthy": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "id": "g10-136",
+  "alert": {
+    "alert_id": "g10-136",
+    "name": "orders-stream-iterator-age",
+    "service": "orders",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "orders-stream iterator age above 5 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "kinesis_stream": "orders-stream",
+      "alarm": "orders-stream-iterator-age"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Kinesis/GetRecords.IteratorAgeMilliseconds StreamName=orders-stream stat=Maximum period=60s threshold GreaterThanThreshold 300000.0 datapoints=3/3 missing=missing state=ALARM"
+    ],
+    "metrics": {
+      "alarm_getrecords_iteratoragemilliseconds": 1284000.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [output truncated on GetMetricData] alarm_getrecords_iteratoragemilliseconds PartialData (the series may be incomplete)",
+      "logs: alarm-siblings metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: kinesis-stream: [access denied on DescribeStreamSummary] An error occurred (AccessDeniedException) when calling the DescribeStreamSummary operation: User is not authorized to perform: kinesis:DescribeStreamSummary"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "g10-165",
+  "alert": {
+    "alert_id": "g10-165",
+    "name": "audit-search-cluster-red",
+    "service": "audit-search",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "audit-search ClusterStatus.red",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "opensearch": "audit-search",
+      "alarm": "audit-search-cluster-red"
+    }
+  },
+  "context": {
+    "logs": [
+      "STATE opensearch audit-search Processing=false UpgradeProcessing=false EngineVersion=OpenSearch_2.13 InstanceType=m6g.large.search InstanceCount=2 DedicatedMasterEnabled=false VolumeSize=50"
+    ],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [access denied on DescribeAlarms] An error occurred (AccessDenied) when calling the DescribeAlarms operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-0001 is not authorized to perform: cloudwatch:DescribeAlarms on resource: arn:aws:cloudwatch:<region>:111122223333:alarm:audit-search-cluster-red because no identity-based policy allows the cloudwatch:DescribeAlarms action"
+    ],
+    "empty_reads": [
+      "metrics"
+    ]
+  }
+}

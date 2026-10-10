@@ -1,0 +1,33 @@
+{
+  "id": "g10-079",
+  "alert": {
+    "alert_id": "g10-079",
+    "name": "catalog-api-prod-4xx",
+    "service": "catalog",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "catalog-api prod 4XX errors above 500 a minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apigw_rest": "catalog-api",
+      "apigw_stage": "prod",
+      "alarm": "catalog-api-prod-4xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApiGateway/4XXError ApiName=catalog-api,Stage=prod stat=Sum period=60s threshold GreaterThanThreshold 500.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:51:30Z apigateway.amazonaws.com UpdateStage on catalog-api by role/AWSReservedSSO_PowerUserAccess_9f8e7d6c5b4a3f21",
+      "STATE apigw_rest catalog-api types=REGIONAL apiKeySource=HEADER disableExecuteApiEndpoint=false"
+    ],
+    "metrics": {
+      "alarm_4xxerror": 41870.0,
+      "alarm_sibling_apigateway_5xxerror": 2.0,
+      "alarm_sibling_apigateway_count": 6120.0,
+      "alarm_sibling_apigateway_integrationlatency": 188.0,
+      "alarm_sibling_apigateway_latency": 212.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

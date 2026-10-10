@@ -1,0 +1,39 @@
+{
+  "id": "g10-127",
+  "alert": {
+    "alert_id": "g10-127",
+    "name": "ticket-events-stalled",
+    "service": "support",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ticket-events backlog ageing",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sqs": "ticket-events",
+      "lambda": "ticket-indexer",
+      "alarm": "ticket-events-stalled"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold GreaterThanThreshold 900.0 datapoints=3/3 missing=missing state=ALARM",
+      "QUEUE ticket-events visible=26870 in_flight=40 dlq=ticket-events-dlq dlq_visible=0 max_receive=5"
+    ],
+    "metrics": {
+      "sqs_visible": 26870.0,
+      "sqs_in_flight": 40.0,
+      "sqs_visibility_timeout_s": 300.0,
+      "sqs_max_receive_count": 5.0,
+      "dlq_visible": 0.0,
+      "sqs_oldest_age_s": 2290.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: lambda/ticket-indexer logs: logs: /aws/lambda/ticket-indexer: [access denied on FilterLogEvents] An error occurred (AccessDeniedException) when calling the FilterLogEvents operation: User is not authorized to perform: logs:FilterLogEvents",
+      "logs: lambda/ticket-indexer metrics: [access denied on StartQuery] An error occurred (AccessDeniedException) when calling the StartQuery operation: User is not authorized to perform: logs:StartQuery",
+      "logs: lambda/ticket-indexer: [throttled on GetFunctionConfiguration] An error occurred (TooManyRequestsException) when calling the GetFunctionConfiguration operation (reached max retries: 0): Rate exceeded"
+    ]
+  }
+}

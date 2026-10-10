@@ -1,0 +1,55 @@
+{
+  "id": "g10-054",
+  "alert": {
+    "alert_id": "g10-054",
+    "name": "payment-webhook errors",
+    "service": "payment-webhook",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for payment-webhook",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "payment-webhook",
+      "alarm": "payment-webhook-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=payment-webhook stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on payment-webhook in the 6 h before the alert",
+      "LOG lambda/payment-webhook 2026-10-10T07:46:40Z 2026-10-10T07:46:40.210Z\t97019427-f571-5186-9b9a-4952f69ac289\tINFO\twebhook accepted id=evt_8813 type=charge.succeeded",
+      "LOG lambda/payment-webhook 2026-10-10T07:46:40Z REPORT RequestId: 97019427-f571-5186-9b9a-4952f69ac289\tDuration: 182.44 ms\tBilled Duration: 183 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/payment-webhook 2026-10-10T07:48:58Z 2026-10-10T07:48:58.003Z\t698e47b3-82d3-5a37-9295-ce491193c403\tINFO\twebhook accepted id=evt_8820 type=charge.refunded",
+      "LOG lambda/payment-webhook 2026-10-10T07:48:58Z REPORT RequestId: 698e47b3-82d3-5a37-9295-ce491193c403\tDuration: 175.02 ms\tBilled Duration: 176 ms\tMemory Size: 256 MB\tMax Memory Used: 91 MB",
+      "LOG lambda/payment-webhook 2026-10-10T07:49:02Z 2026-10-10T07:49:02.118Z\tc83275ce-8ed9-54c9-9bf1-29cfa285d58c\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 54.187.216.72:443\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 54.187.216.72:443\"]}",
+      "LOG lambda/payment-webhook 2026-10-10T07:49:02Z REPORT RequestId: c83275ce-8ed9-54c9-9bf1-29cfa285d58c\tDuration: 9412.55 ms\tBilled Duration: 9413 ms\tMemory Size: 256 MB\tMax Memory Used: 92 MB",
+      "LOG lambda/payment-webhook 2026-10-10T07:51:47Z 2026-10-10T07:51:47.512Z 4014560a-9a2b-51f7-a82d-2f7e0c6e1d3a Task timed out after 10.00 seconds",
+      "LOG lambda/payment-webhook 2026-10-10T07:51:47Z REPORT RequestId: 4014560a-9a2b-51f7-a82d-2f7e0c6e1d3a\tDuration: 10000.00 ms\tBilled Duration: 10001 ms\tMemory Size: 256 MB\tMax Memory Used: 92 MB",
+      "LOG lambda/payment-webhook 2026-10-10T07:54:03Z 2026-10-10T07:54:03.077Z\te60855fe-4ed2-5528-a366-2abfab23cff9\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 54.187.216.72:443\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 54.187.216.72:443\"]}",
+      "LOG lambda/payment-webhook 2026-10-10T07:58:31Z 2026-10-10T07:58:31.940Z\tcea5e5dc-0ef4-504a-a82c-387d38ef926a\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 54.187.216.72:443\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 54.187.216.72:443\"]}",
+      "CONFIG lambda payment-webhook timeout=10s memory=256MB reserved_concurrency=none env=[LOG_LEVEL=info,PAYMENT_API_HOST=api.payments-partner.example,WEBHOOK_SIGNING_SECRET_ARN] sgs=[sg-07a1b2c3d4e5f6a7b] version=17 alias_live=17",
+      "CHANGE 2026-10-10T07:43:09Z ec2.amazonaws.com DeleteRoute on rtb-0a7c3e9d1f2b4c5d6 (this workload's route table) by role/netops-terraform-apply"
+    ],
+    "metrics": {
+      "alarm_errors": 187.0,
+      "alarm_sibling_lambda_invocations": 190.0,
+      "alarm_sibling_lambda_duration": 10003.4,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_concurrentexecutions": 21.0,
+      "log_error_lines": 374.0,
+      "log_errors_peak_per_min": 31.0,
+      "lambda_timeout_s": 10.0,
+      "lambda_memory_mb": 256.0,
+      "network_changes_before_alert": 1.0,
+      "lambda_errors": 187.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 190.0,
+      "lambda_duration_max_ms": 10003.4,
+      "lambda_concurrent_executions": 21.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/payment-webhook logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 610 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

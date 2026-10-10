@@ -1,0 +1,26 @@
+{
+  "id": "g10-042",
+  "alert": {
+    "alert_id": "g10-042",
+    "name": "legacy-sftp-sync failures",
+    "service": "legacy-sftp-sync",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "SyncFailures >= 1 in a 5-minute period",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "alarm": "legacy-sftp-sync-failures"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM LegacyBatch/SyncFailures InstanceId=i-0b7d2e4f6a8c01357 stat=Sum period=300s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:38:41Z ec2.amazonaws.com ModifyInstanceMetadataOptions on i-0b7d2e4f6a8c01357 by role/secops-imds-hardening"
+    ],
+    "metrics": {
+      "alarm_value": 12.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

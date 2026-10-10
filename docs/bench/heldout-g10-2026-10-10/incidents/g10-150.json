@@ -1,0 +1,38 @@
+{
+  "id": "g10-150",
+  "alert": {
+    "alert_id": "g10-150",
+    "name": "events-pg-free-storage-low",
+    "service": "events-pg",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "events-pg FreeStorageSpace below 10 GiB",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "rds_instance": "events-pg",
+      "alarm": "events-pg-free-storage-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/FreeStorageSpace DBInstanceIdentifier=events-pg stat=Minimum period=300s threshold LessThanThreshold 10737418240.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on events-pg in the 6 h before the alert",
+      "STATE rds_instance events-pg DBInstanceStatus=available DBInstanceClass=db.m6g.large Engine=postgres EngineVersion=16.4 MultiAZ=true AllocatedStorage=200 StorageType=gp3 Iops=3000 BackupRetentionPeriod=7 PendingModifiedValues=none CACertificateIdentifier=rds-ca-rsa2048-g1"
+    ],
+    "metrics": {
+      "alarm_freestoragespace": 6080000000.0,
+      "alarm_sibling_rds_transactionlogsdiskusage": 162140000000.0,
+      "alarm_sibling_rds_oldestreplicationslotlag": 161060000000.0,
+      "alarm_sibling_rds_replicationslotdiskusage": 161060000000.0,
+      "alarm_sibling_rds_transactionlogsgeneration": 4310000.0,
+      "alarm_sibling_rds_cpuutilization": 18.2,
+      "alarm_sibling_rds_databaseconnections": 42.0,
+      "alarm_sibling_rds_writeiops": 640.0,
+      "alarm_sibling_rds_freeablememory": 5100000000.0,
+      "alarm_sibling_rds_maximumusedtransactionids": 210000000.0,
+      "alarm_sibling_rds_readiops": 120.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

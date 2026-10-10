@@ -1,0 +1,37 @@
+{
+  "id": "g10-065",
+  "alert": {
+    "alert_id": "g10-065",
+    "name": "refund-checks-executions-failed",
+    "service": "payments",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "refund-checks failed executions at or above 1",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "state_machine": "refund-checks",
+      "alarm": "refund-checks-executions-failed"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/States/ExecutionsFailed StateMachineArn=arn:aws:states:ap-south-1:111122223333:stateMachine:refund-checks stat=Sum period=300s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on refund-checks in the 6 h before the alert",
+      "STATE state_machine refund-checks status=ACTIVE type=STANDARD",
+      "STATE states refund-checks failed execution at=2026-10-10T07:58:31Z error=Refund.Rejected",
+      "EVENT states refund-checks failure: Refund rejected by policy check: amount exceeds the original capture",
+      "STATE states refund-checks failed execution at=2026-10-10T07:52:06Z error=Refund.Rejected",
+      "EVENT states refund-checks failure: Refund rejected by policy check: order already refunded",
+      "STATE states refund-checks failed execution at=2026-10-10T07:47:44Z error=Refund.Rejected",
+      "EVENT states refund-checks failure: Refund rejected by policy check: amount exceeds the original capture"
+    ],
+    "metrics": {
+      "alarm_executionsfailed": 3.0,
+      "alarm_sibling_states_executiontime": 1840.0,
+      "alarm_sibling_states_executionsstarted": 22.0,
+      "alarm_sibling_states_executionssucceeded": 21.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

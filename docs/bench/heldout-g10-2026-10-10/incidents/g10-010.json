@@ -1,0 +1,65 @@
+{
+  "id": "g10-010",
+  "alert": {
+    "alert_id": "g10-010",
+    "name": "search-web-cpu-high",
+    "service": "search-web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "search-web CPUUtilization above 75%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "search-web",
+      "alarm": "search-web-cpu-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/CPUUtilization ClusterName=shop-dev,ServiceName=search-web stat=Average period=60s threshold GreaterThanThreshold 75.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:56:20Z ecs.amazonaws.com UpdateService on search-web by role/AWSServiceRoleForApplicationAutoScaling_ECSService",
+      "LOG ecs/search-web 2026-10-10T07:46:00Z GET /search?q=boots 200 55ms hits=0",
+      "LOG ecs/search-web 2026-10-10T07:47:07Z GET /search?q=boots 200 62ms hits=13",
+      "LOG ecs/search-web 2026-10-10T07:48:14Z GET /search?q=boots 200 69ms hits=26",
+      "LOG ecs/search-web 2026-10-10T07:49:00Z GET /search?q=boots 200 76ms hits=39",
+      "LOG ecs/search-web 2026-10-10T07:50:07Z GET /search?q=boots 200 83ms hits=52",
+      "LOG ecs/search-web 2026-10-10T07:51:14Z GET /search?q=boots 200 90ms hits=65",
+      "LOG ecs/search-web 2026-10-10T07:52:00Z GET /search?q=boots 200 57ms hits=78",
+      "LOG ecs/search-web 2026-10-10T07:53:07Z GET /search?q=boots 200 64ms hits=1",
+      "LOG ecs/search-web 2026-10-10T07:54:14Z GET /search?q=boots 200 71ms hits=14",
+      "LOG ecs/search-web 2026-10-10T07:55:00Z GET /search?q=boots 200 78ms hits=27",
+      "LOG ecs/search-web 2026-10-10T07:56:07Z GET /search?q=boots 200 85ms hits=40",
+      "LOG ecs/search-web 2026-10-10T07:57:14Z GET /search?q=boots 200 92ms hits=53",
+      "LOG ecs/search-web 2026-10-10T07:58:00Z GET /search?q=boots 200 59ms hits=66",
+      "LOG ecs/search-web 2026-10-10T07:59:07Z GET /search?q=boots 200 66ms hits=79",
+      "LOG ecs/search-web 2026-10-10T08:00:14Z GET /search?q=boots 200 73ms hits=2",
+      "LOG ecs/search-web 2026-10-10T08:01:00Z GET /search?q=boots 200 80ms hits=15",
+      "LOG ecs/search-web 2026-10-10T08:02:07Z GET /search?q=boots 200 87ms hits=28",
+      "LOG ecs/search-web 2026-10-10T08:03:14Z GET /search?q=boots 200 94ms hits=41",
+      "LOG ecs/search-web 2026-10-10T08:04:00Z GET /search?q=boots 200 61ms hits=54",
+      "LOG ecs/search-web 2026-10-10T08:05:07Z GET /search?q=boots 200 68ms hits=67",
+      "APPSG ecs/search-web sgs=[sg-06e8a0c2e4f613579]",
+      "TASKROLE ecs/search-web role=search-web-task",
+      "STATE ecs/search-web deployment PRIMARY rollout=COMPLETED revision=search-web:90 desired=6 running=6 pending=0 failed=0 at=2026-10-07T07:19:00Z",
+      "STATE ecs/search-web service events in the hour before the alert: started_tasks=1 steady_state=2"
+    ],
+    "metrics": {
+      "alarm_cpuutilization": 78.4,
+      "alarm_sibling_ecs_memoryutilization": 41.2,
+      "tasks_running": 6.0,
+      "tasks_desired": 6.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 78.4,
+      "memory_utilization_pct": 41.2,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 0.0,
+      "ecs_tasks_failed_to_start": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "id": "g10-022",
+  "alert": {
+    "alert_id": "g10-022",
+    "name": "billing-reminders-target-throttled",
+    "service": "billing",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "billing-reminders schedules throttled by their target",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "schedule_group": "billing-reminders",
+      "alarm": "billing-reminders-target-throttled"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Scheduler/TargetErrorThrottledCount ScheduleGroup=billing-reminders stat=Sum period=60s threshold GreaterThanThreshold 50.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:31:59Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:57Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:55Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:53Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:51Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:49Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:47Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:45Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:43Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:41Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:39Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:37Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:35Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:33Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:31Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:29Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:27Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:25Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:23Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "CHANGE 2026-10-10T07:31:21Z scheduler.amazonaws.com UpdateSchedule on billing-reminders by role/terraform-apply",
+      "STATE schedule_group billing-reminders State=ACTIVE"
+    ],
+    "metrics": {
+      "alarm_targeterrorthrottledcount": 2614.0,
+      "alarm_sibling_scheduler_invocationattemptcount": 4180.0,
+      "alarm_sibling_scheduler_targeterrorcount": 2640.0,
+      "alarm_sibling_scheduler_invocationssenttodeadlettercount": 377.0,
+      "alarm_sibling_scheduler_invocationdroppedcount": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: changes: [output truncated on LookupEvents] more writes to billing-reminders than were read"
+    ]
+  }
+}

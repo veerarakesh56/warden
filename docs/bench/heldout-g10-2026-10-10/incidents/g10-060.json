@@ -1,0 +1,35 @@
+{
+  "id": "g10-060",
+  "alert": {
+    "alert_id": "g10-060",
+    "name": "NAT gateway port allocation errors",
+    "service": "shop-dev-egress",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ErrorPortAllocation > 0 for 3 minutes on nat-0e5b7c1d2a3f40918",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "nat_gateway": "nat-0e5b7c1d2a3f40918",
+      "alarm": "shop-dev-nat-a-port-allocation"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/NATGateway/ErrorPortAllocation NatGatewayId=nat-0e5b7c1d2a3f40918 stat=Sum period=60s threshold GreaterThanThreshold 0.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on nat-0e5b7c1d2a3f40918 in the 6 h before the alert",
+      "STATE nat_gateway nat-0e5b7c1d2a3f40918 State=available ConnectivityType=public"
+    ],
+    "metrics": {
+      "alarm_errorportallocation": 18452.0,
+      "alarm_sibling_natgateway_activeconnectioncount": 55012.0,
+      "alarm_sibling_natgateway_connectionattemptcount": 1843220.0,
+      "alarm_sibling_natgateway_connectionestablishedcount": 1824768.0,
+      "alarm_sibling_natgateway_packetsdropcount": 0.0,
+      "alarm_sibling_natgateway_idletimeoutcount": 4410.0,
+      "alarm_sibling_natgateway_bytesouttodestination": 9810000000.0,
+      "alarm_sibling_natgateway_bytesinfromsource": 9620000000.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

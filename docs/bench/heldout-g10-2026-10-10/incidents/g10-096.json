@@ -1,0 +1,54 @@
+{
+  "id": "g10-096",
+  "alert": {
+    "alert_id": "g10-096",
+    "name": "stock-updates-stalled",
+    "service": "inventory",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "stock-updates backlog ageing",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sqs": "stock-updates",
+      "lambda": "stock-sync",
+      "alarm": "stock-updates-stalled"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM metric-math threshold GreaterThanThreshold 900.0 datapoints=3/3 missing=breaching state=ALARM",
+      "CHANGE 2026-10-10T07:10:26Z lambda.amazonaws.com UpdateAlias20150331 on stock-sync by role/ci-deployer",
+      "CHANGE 2026-10-10T07:10:24Z lambda.amazonaws.com PublishVersion20150331 on stock-sync by role/ci-deployer",
+      "CHANGE 2026-10-10T07:10:03Z lambda.amazonaws.com UpdateFunctionCode20150331v2 on stock-sync by role/ci-deployer",
+      "CHANGE 2026-10-10T06:31:40Z lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 on stock-sync by role/AWSReservedSSO_AdministratorAccess_4c1d9e7f2a6b8e30",
+      "CHANGE none on stock-updates in the 6 h before the alert",
+      "CONFIG lambda stock-sync timeout=60s memory=512MB reserved_concurrency=none env=[INVENTORY_TABLE=inventory,LOG_LEVEL=DEBUG,POWERTOOLS_SERVICE_NAME=stock-sync] version=15 alias_live=15",
+      "ESM stock-sync <- stock-updates State=Disabled BatchSize=10 LastProcessingResult=None",
+      "QUEUE stock-updates visible=9310 in_flight=0 dlq=stock-updates-dlq dlq_visible=57 max_receive=3"
+    ],
+    "metrics": {
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "lambda_timeout_s": 60.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_esm_enabled": 0.0,
+      "sqs_visible": 9310.0,
+      "sqs_in_flight": 0.0,
+      "sqs_visibility_timeout_s": 360.0,
+      "sqs_max_receive_count": 3.0,
+      "dlq_visible": 57.0,
+      "sqs_oldest_age_s": 5160.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "lambda",
+        "service": "stock-sync",
+        "at": "2026-10-10T07:10:24Z",
+        "version": "15",
+        "previous": "14",
+        "previous_basis": "served live traffic before this version"
+      }
+    ],
+    "tool_errors": []
+  }
+}

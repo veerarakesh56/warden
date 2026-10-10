@@ -1,0 +1,26 @@
+{
+  "id": "g10-153",
+  "alert": {
+    "alert_id": "g10-153",
+    "name": "search-suggest errors",
+    "service": "search-suggest",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 20 in 3 of 3 minutes for search-suggest",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "search-suggest",
+      "alarm": "search-suggest-errors"
+    }
+  },
+  "context": {
+    "logs": [],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: [timed out] timed out after 5.0s",
+      "metrics: [timed out] timed out after 5.0s",
+      "recent_deploys: [timed out] timed out after 5.0s"
+    ]
+  }
+}

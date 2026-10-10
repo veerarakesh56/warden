@@ -1,0 +1,68 @@
+{
+  "id": "g10-155",
+  "alert": {
+    "alert_id": "g10-155",
+    "name": "accounts-api running tasks below desired",
+    "service": "accounts-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "RunningTaskCount < 3 for 3 consecutive minutes (accounts-api, shop-dev)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "accounts-api",
+      "alarm": "accounts-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=accounts-api stat=Minimum period=60s threshold LessThanThreshold 3.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE none on accounts-api in the 6 h before the alert",
+      "LOG ecs/accounts-api 2026-10-10T07:46:02Z {\"level\":\"info\",\"msg\":\"GET /accounts/1201 200\",\"dur_ms\":9}",
+      "LOG ecs/accounts-api 2026-10-10T07:48:30Z {\"level\":\"error\",\"msg\":\"db ping failed\",\"err\":\"dial tcp 10.20.14.9:5432: i/o timeout\"}",
+      "LOG ecs/accounts-api 2026-10-10T07:48:31Z {\"level\":\"warn\",\"msg\":\"GET /health 503\"}",
+      "LOG ecs/accounts-api 2026-10-10T07:50:04Z {\"level\":\"error\",\"msg\":\"db ping failed\",\"err\":\"dial tcp 10.20.14.9:5432: i/o timeout\"}",
+      "LOG ecs/accounts-api 2026-10-10T07:50:30Z {\"level\":\"warn\",\"msg\":\"secret cache refresh failed, keeping cached value\",\"err\":\"InvalidRequestException: You can't perform this operation on the secret because it was marked for deletion.\"}",
+      "LOG ecs/accounts-api 2026-10-10T07:51:59Z {\"level\":\"info\",\"msg\":\"shutting down: SIGTERM received\"}",
+      "APPSG ecs/accounts-api sgs=[sg-0e2d4c6b8a0f1e3d5]",
+      "TASKROLE ecs/accounts-api role=accounts-api-task-role",
+      "STATE ecs/accounts-api deployment PRIMARY rollout=COMPLETED revision=accounts-api:40 desired=3 running=0 pending=3 failed=6 at=2026-10-04T15:20:00Z",
+      "STATE ecs/accounts-api service events in the hour before the alert: health_check_failed=3 started_tasks=6 stopped_tasks=3",
+      "STATE ecs/accounts-api stopped task 06135a1a at=2026-10-10T07:59:03Z revision=accounts-api:40 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/accounts-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:accounts/dev/api-db-Qw34Er from secrets manager: InvalidRequestException: You can't perform this operation on the secret because it was mark",
+      "STATE ecs/accounts-api stopped task 46b4eabf at=2026-10-10T07:56:12Z revision=accounts-api:40 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/accounts-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:accounts/dev/api-db-Qw34Er from secrets manager: InvalidRequestException: You can't perform this operation on the secret because it was mark",
+      "STATE ecs/accounts-api stopped task 289b646e at=2026-10-10T07:53:40Z revision=accounts-api:40 stop=TaskFailedToStart cause=failed_to_start",
+      "EVENT ecs/accounts-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:accounts/dev/api-db-Qw34Er from secrets manager: InvalidRequestException: You can't perform this operation on the secret because it was mark",
+      "STATE ecs/accounts-api stopped task 54876120 at=2026-10-10T07:51:59Z revision=accounts-api:40 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/accounts-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/accounts-api-tg/77aa88bb99cc00dd)",
+      "STATE ecs/accounts-api stopped task 60d57e64 at=2026-10-10T07:51:01Z revision=accounts-api:40 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/accounts-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/accounts-api-tg/77aa88bb99cc00dd)",
+      "STATE ecs/accounts-api stopped task d2e57389 at=2026-10-10T07:49:20Z revision=accounts-api:40 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/accounts-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/accounts-api-tg/77aa88bb99cc00dd)",
+      "CHANGE 2026-10-10T07:47:47Z ec2.amazonaws.com ReplaceNetworkAclEntry on acl-0b1c2d3e4f5a6b7c8 (this workload's network ACL) by role/netops-terraform-apply"
+    ],
+    "metrics": {
+      "alarm_value": 0.0,
+      "tasks_running": 0.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 3.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 6.0,
+      "cpu_utilization_pct": 1.1,
+      "memory_utilization_pct": 9.0,
+      "log_error_lines": 140.0,
+      "log_errors_peak_per_min": 22.0,
+      "ecs_stopped_tasks": 6.0,
+      "ecs_tasks_failed_to_start": 3.0,
+      "ecs_stopped_failed_to_start": 3.0,
+      "ecs_stopped_health_check": 3.0,
+      "network_changes_before_alert": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: ecs logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 160 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

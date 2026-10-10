@@ -1,0 +1,40 @@
+{
+  "id": "g10-130",
+  "alert": {
+    "alert_id": "g10-130",
+    "name": "carts-write-throttles",
+    "service": "carts",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "carts table WriteThrottleEvents above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "carts",
+      "alarm": "carts-write-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/WriteThrottleEvents TableName=carts stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:31:18Z dynamodb.amazonaws.com UpdateTable on carts by user/j.mehta",
+      "TABLE carts billing=PROVISIONED rcu=100 wcu=50 status=ACTIVE"
+    ],
+    "metrics": {
+      "alarm_writethrottleevents": 9033.0,
+      "alarm_sibling_dynamodb_consumedwritecapacityunits": 3.0,
+      "alarm_sibling_dynamodb_consumedreadcapacityunits": 2.0,
+      "alarm_sibling_dynamodb_provisionedwritecapacityunits": 50.0,
+      "alarm_sibling_dynamodb_provisionedreadcapacityunits": 100.0,
+      "alarm_sibling_dynamodb_writeprovisionedthroughputthrottleevents": 9033.0,
+      "ddb_provisioned_rcu": 100.0,
+      "ddb_provisioned_wcu": 50.0,
+      "ddb_consumed_rcu": 38.1,
+      "ddb_consumed_wcu": 61.3,
+      "ddb_read_throttle_events": 0.0,
+      "ddb_write_throttle_events": 9033.0,
+      "ddb_throttled_requests": 8870.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

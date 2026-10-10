@@ -1,0 +1,36 @@
+{
+  "id": "g10-053",
+  "alert": {
+    "alert_id": "g10-053",
+    "name": "refund-events-delivery-failures",
+    "service": "payments",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "refund-events failed notifications above 10",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sns_topic": "refund-events",
+      "alarm": "refund-events-delivery-failures"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/SNS/NumberOfNotificationsFailed TopicName=refund-events stat=Sum period=300s threshold GreaterThanThreshold 10.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:40:33Z sns.amazonaws.com SetSubscriptionAttributes on refund-events by role/notify-deployer",
+      "POLICY sqs refunds-ledger allows_sns_topic=refund-events:no",
+      "POLICY sqs refunds-notify allows_sns_topic=refund-events:yes"
+    ],
+    "metrics": {
+      "alarm_numberofnotificationsfailed": 655.0,
+      "alarm_sibling_sns_numberofmessagespublished": 48.0,
+      "alarm_sibling_sns_numberofnotificationsdelivered": 3.0,
+      "alarm_sibling_sns_numberofnotificationsfilteredout": 45.0,
+      "alarm_sibling_sns_numberofnotificationsfilteredout_messagebody": 45.0,
+      "alarm_sibling_sns_publishsize": 1544.0,
+      "sns_notifications_failed": 655.0,
+      "sns_notifications_delivered": 41.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

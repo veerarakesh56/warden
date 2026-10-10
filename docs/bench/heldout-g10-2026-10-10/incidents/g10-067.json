@@ -1,0 +1,77 @@
+{
+  "id": "g10-067",
+  "alert": {
+    "alert_id": "g10-067",
+    "name": "media-api 5xx",
+    "service": "media-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Target 5XX > 10 per minute for 3 minutes (media-api)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "media-api",
+      "alarm": "media-api-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/HTTPCode_Target_5XX_Count ClusterName=shop-dev,DiscoveryName=media-api,ServiceName=media-api stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:54:12Z ecs.amazonaws.com UpdateService on media-api by role/shop-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:32:33Z ecs.amazonaws.com UpdateService on media-api by role/shop-dev-codepipeline-deploy",
+      "CHANGE 2026-10-10T07:13:05Z ecs.amazonaws.com UpdateService on media-api by role/shop-dev-codepipeline-deploy",
+      "LOG ecs/media-api 2026-10-10T07:47:00Z {\"level\":\"INFO\",\"host\":\"ip-10-20-4-18.eu-west-1.compute.internal\",\"rev\":\"70\",\"msg\":\"GET /media/88 200\"}",
+      "LOG ecs/media-api 2026-10-10T07:51:44Z {\"level\":\"ERROR\",\"host\":\"ip-10-20-9-73.eu-west-1.compute.internal\",\"client\":\"aws4-signer\",\"rev\":\"70\",\"msg\":\"POST /media 500\",\"err\":\"sqs SendMessage failed: 400 InvalidSignatureException: Signature expired: 20261010T075144Z is now earlier than 20261010T075344Z (20261010T075844Z - 5 min.) x-amzn-RequestId=eadfcb14-1b5b-57b3-8188-a7b48e92e5f9\"}",
+      "LOG ecs/media-api 2026-10-10T07:55:50Z Error: Cannot find module '/app/dist/server.js'",
+      "LOG ecs/media-api 2026-10-10T07:56:02Z {\"level\":\"ERROR\",\"host\":\"ip-10-20-9-73.eu-west-1.compute.internal\",\"client\":\"aws4-signer\",\"rev\":\"70\",\"msg\":\"POST /media 500\",\"err\":\"sqs SendMessage failed: 400 InvalidSignatureException: Signature expired: 20261010T075602Z is now earlier than 20261010T075802Z (20261010T080302Z - 5 min.) x-amzn-RequestId=5a85f2eb-3a0c-5727-b3b4-feb45689a576\"}",
+      "LOG ecs/media-api 2026-10-10T07:56:39Z Error: Cannot find module '/app/dist/server.js'",
+      "LOG ecs/media-api 2026-10-10T07:58:30Z {\"level\":\"INFO\",\"host\":\"ip-10-20-6-201.eu-west-1.compute.internal\",\"rev\":\"70\",\"msg\":\"GET /media/91 200\"}",
+      "TASKROLE ecs/media-api role=media-api-task-role",
+      "STATE ecs/media-api deployment PRIMARY rollout=IN_PROGRESS revision=media-api:71 desired=3 running=0 pending=1 failed=4 at=2026-10-10T07:54:12Z",
+      "STATE ecs/media-api deployment ACTIVE rollout=COMPLETED revision=media-api:70 desired=3 running=3 pending=0 failed=0 at=2026-10-10T07:40:15Z",
+      "STATE ecs/media-api service events in the hour before the alert: deployment_failed=2 started_tasks=7 steady_state=2 stopped_tasks=3",
+      "STATE ecs/media-api stopped task feceffb7 at=2026-10-10T07:57:30Z revision=media-api:71 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/media-api stopped task: Essential container in task exited",
+      "STATE ecs/media-api stopped task d27219b6 at=2026-10-10T07:56:40Z revision=media-api:71 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/media-api stopped task: Essential container in task exited",
+      "STATE ecs/media-api stopped task 10601a1e at=2026-10-10T07:55:51Z revision=media-api:71 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/media-api stopped task: Essential container in task exited",
+      "STATE ecs/media-api stopped task 27fb8335 at=2026-10-10T07:55:10Z revision=media-api:71 stop=EssentialContainerExited cause=exit exit=1",
+      "EVENT ecs/media-api stopped task: Essential container in task exited"
+    ],
+    "metrics": {
+      "alarm_httpcode_target_5xx_count": 288.0,
+      "alarm_sibling_ecs_requestcount": 905.0,
+      "alarm_sibling_ecs_targetresponsetime": 640.0,
+      "tasks_running": 3.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployments_failed": 0.0,
+      "deployment_failed_tasks": 4.0,
+      "cpu_utilization_pct": 40.2,
+      "memory_utilization_pct": 51.0,
+      "log_error_lines": 288.0,
+      "log_errors_peak_per_min": 33.0,
+      "ecs_stopped_tasks": 4.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_exit": 4.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "media-api",
+        "at": "2026-10-10T07:54:12Z",
+        "version": "media-api:71",
+        "previous": "media-api:70",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/media-api:e01b7f3",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/media-api:5ac92d0",
+        "revision": "71"
+      }
+    ],
+    "tool_errors": [
+      "logs: ecs logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 456 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

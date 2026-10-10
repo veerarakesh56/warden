@@ -1,0 +1,34 @@
+{
+  "id": "g10-020",
+  "alert": {
+    "alert_id": "g10-020",
+    "name": "invoice-events-delivery-failures",
+    "service": "billing",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "invoice-events failed notifications above 10",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sns_topic": "invoice-events",
+      "alarm": "invoice-events-delivery-failures"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/SNS/NumberOfNotificationsFailed TopicName=invoice-events stat=Sum period=300s threshold GreaterThanThreshold 10.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE none on invoice-events in the 6 h before the alert",
+      "POLICY sqs invoice-archive allows_sns_topic=invoice-events:no",
+      "POLICY sqs invoice-mailer allows_sns_topic=invoice-events:yes"
+    ],
+    "metrics": {
+      "alarm_numberofnotificationsfailed": 1408.0,
+      "alarm_sibling_sns_numberofmessagespublished": 72.0,
+      "alarm_sibling_sns_numberofnotificationsdelivered": 72.0,
+      "alarm_sibling_sns_publishsize": 1830.0,
+      "sns_notifications_failed": 1408.0,
+      "sns_notifications_delivered": 1440.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

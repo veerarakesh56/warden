@@ -1,0 +1,49 @@
+{
+  "id": "g10-025",
+  "alert": {
+    "alert_id": "g10-025",
+    "name": "export-worker errors",
+    "service": "export-worker",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 3 in 3 of 3 minutes for export-worker",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "export-worker",
+      "alarm": "export-worker-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=export-worker stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 3.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on export-worker in the 6 h before the alert",
+      "LOG lambda/export-worker 2026-10-10T07:46:05Z 2026-10-10T07:46:05.003Z\t15b3fa40-af15-5718-93f1-413d91e4c295\tINFO\texport batch=7781 rows=12044",
+      "LOG lambda/export-worker 2026-10-10T07:46:06Z 2026-10-10T07:46:06.110Z\t15b3fa40-af15-5718-93f1-413d91e4c295\tERROR\tInvoke Error \t{\"errorType\":\"AccessDenied\",\"errorMessage\":\"User: arn:aws:sts::111122223333:assumed-role/export-worker-role/export-worker is not authorized to perform: s3:PutObject on resource: \\\"arn:aws:s3:::acme-exports-dev/staging/batch-7781.parquet\\\" with an explicit deny in a VPC endpoint policy\",\"stack\":[\"AccessDenied: User: arn:aws:sts::111122223333:assumed-role/export-worker-role/export-worker is not authorized to perform: s3:PutObject on resource: \\\"arn:aws:s3:::acme-exports-dev/staging/batch-7781.parquet\\\" with an explicit deny in a VPC endpoint policy\"]}",
+      "LOG lambda/export-worker 2026-10-10T07:50:33Z 2026-10-10T07:50:33.002Z\t297247d0-e876-5761-95b9-8cd96722b640\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 198.51.100.24:443\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 198.51.100.24:443\"]}",
+      "LOG lambda/export-worker 2026-10-10T07:53:02Z 2026-10-10T07:53:02.900Z\tde44fa7d-5151-5a3b-bde2-6089aeeb438a\tERROR\tInvoke Error \t{\"errorType\":\"AccessDenied\",\"errorMessage\":\"User: arn:aws:sts::111122223333:assumed-role/export-worker-role/export-worker is not authorized to perform: s3:PutObject on resource: \\\"arn:aws:s3:::acme-exports-dev/staging/batch-7782.parquet\\\" with an explicit deny in a VPC endpoint policy\",\"stack\":[\"AccessDenied: User: arn:aws:sts::111122223333:assumed-role/export-worker-role/export-worker is not authorized to perform: s3:PutObject on resource: \\\"arn:aws:s3:::acme-exports-dev/staging/batch-7782.parquet\\\" with an explicit deny in a VPC endpoint policy\"]}",
+      "LOG lambda/export-worker 2026-10-10T07:57:40Z 2026-10-10T07:57:40.048Z\tbac7f9e2-7547-565a-b32a-bbec45a0430a\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"connect ETIMEDOUT 198.51.100.24:443\",\"code\":\"ETIMEDOUT\",\"stack\":[\"Error: connect ETIMEDOUT 198.51.100.24:443\"]}",
+      "CONFIG lambda export-worker timeout=30s memory=1024MB reserved_concurrency=none env=[EXPORT_BUCKET=acme-exports-dev] sgs=[sg-0a9b8c7d6e5f4a3b2] version=8 alias_live=8",
+      "CHANGE 2026-10-10T07:41:02Z ec2.amazonaws.com DeleteRoute on rtb-0f6e5d4c3b2a19087 (this workload's route table) by role/AWSReservedSSO_NetworkAdmin_5a1b2c3d4e5f6a7b"
+    ],
+    "metrics": {
+      "alarm_errors": 61.0,
+      "alarm_sibling_lambda_invocations": 64.0,
+      "alarm_sibling_lambda_duration": 21044.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "log_error_lines": 61.0,
+      "log_errors_peak_per_min": 7.0,
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 1024.0,
+      "network_changes_before_alert": 1.0,
+      "lambda_errors": 61.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 64.0,
+      "lambda_duration_max_ms": 21044.0,
+      "lambda_concurrent_executions": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/export-worker logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 106 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

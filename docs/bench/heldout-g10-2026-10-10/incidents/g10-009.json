@@ -1,0 +1,37 @@
+{
+  "id": "g10-009",
+  "alert": {
+    "alert_id": "g10-009",
+    "name": "search-cpu-high",
+    "service": "search-prod-like",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "search-prod-like CPUUtilization above 80%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "opensearch": "search-prod-like",
+      "alarm": "search-cpu-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ES/CPUUtilization ClientId=111122223333,DomainName=search-prod-like stat=Maximum period=300s threshold GreaterThanThreshold 80.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:40:58Z es.amazonaws.com UpdateDomainConfig on search-prod-like by role/platform-terraform-apply",
+      "STATE opensearch search-prod-like Processing=true UpgradeProcessing=false EngineVersion=OpenSearch_2.15 InstanceType=r6g.xlarge.search InstanceCount=3 DedicatedMasterEnabled=true VolumeSize=200"
+    ],
+    "metrics": {
+      "alarm_cpuutilization": 86.2,
+      "alarm_sibling_es_clusterstatus_green": 1.0,
+      "alarm_sibling_es_clusterstatus_yellow": 0.0,
+      "alarm_sibling_es_clusterstatus_red": 0.0,
+      "alarm_sibling_es_jvmmemorypressure": 58.4,
+      "alarm_sibling_es_nodes": 12.0,
+      "alarm_sibling_es_freestoragespace": 151200.0,
+      "alarm_sibling_es_5xx": 0.0,
+      "alarm_sibling_es_clusterindexwritesblocked": 0.0,
+      "alarm_sibling_es_searchlatency": 21.3
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

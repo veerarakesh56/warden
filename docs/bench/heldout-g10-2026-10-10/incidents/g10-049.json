@@ -1,0 +1,38 @@
+{
+  "id": "g10-049",
+  "alert": {
+    "alert_id": "g10-049",
+    "name": "sessions-cache-evictions",
+    "service": "sessions-cache",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "sessions-cache evictions above 1000 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "elasticache_node": "sessions-cache-0001-001",
+      "alarm": "sessions-cache-evictions"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ElastiCache/Evictions CacheClusterId=sessions-cache-0001-001 stat=Sum period=60s threshold GreaterThanThreshold 1000.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on sessions-cache-0001-001 in the 6 h before the alert",
+      "STATE elasticache_node sessions-cache-0001-001 CacheClusterStatus=available CacheNodeType=cache.r7g.large Engine=redis EngineVersion=7.1.0 ReplicationGroupId=sessions-cache NumCacheNodes=1"
+    ],
+    "metrics": {
+      "alarm_evictions": 184220.0,
+      "alarm_sibling_elasticache_databasememoryusagepercentage": 99.9,
+      "alarm_sibling_elasticache_bytesusedforcache": 10500000000.0,
+      "alarm_sibling_elasticache_curritems": 21400000.0,
+      "alarm_sibling_elasticache_currconnections": 1840.0,
+      "alarm_sibling_elasticache_enginecpuutilization": 38.4,
+      "alarm_sibling_elasticache_cachehitrate": 61.2,
+      "alarm_sibling_elasticache_freeablememory": 610000000.0,
+      "alarm_sibling_elasticache_newconnections": 212.0,
+      "alarm_sibling_elasticache_networkbytesout": 980000000.0,
+      "alarm_sibling_elasticache_swapusage": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

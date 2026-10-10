@@ -1,0 +1,31 @@
+{
+  "id": "g10-137",
+  "alert": {
+    "alert_id": "g10-137",
+    "name": "nightly-digest errors",
+    "service": "nightly-digest",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 1 in 1 of 1 periods for nightly-digest",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "nightly-digest",
+      "alarm": "nightly-digest-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=nightly-digest stat=Sum period=300s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=1/1 missing=breaching state=ALARM",
+      "CHANGE none on nightly-digest in the 6 h before the alert",
+      "CONFIG lambda nightly-digest timeout=900s memory=512MB reserved_concurrency=none env=[DIGEST_TABLE=digests-dev] version=7 alias_live=7"
+    ],
+    "metrics": {
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "lambda_timeout_s": 900.0,
+      "lambda_memory_mb": 512.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

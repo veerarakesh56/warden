@@ -1,0 +1,33 @@
+{
+  "id": "g10-149",
+  "alert": {
+    "alert_id": "g10-149",
+    "name": "quotes-api-prod-5xx",
+    "service": "quotes",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "quotes-api prod 5XX errors above 10 a minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apigw_rest": "quotes-api",
+      "apigw_stage": "prod",
+      "alarm": "quotes-api-prod-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApiGateway/5XXError ApiName=quotes-api,Stage=prod stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:55:02Z apigateway.amazonaws.com TagResource on quotes-api by role/finops-tagger",
+      "STATE apigw_rest quotes-api types=REGIONAL apiKeySource=HEADER disableExecuteApiEndpoint=false"
+    ],
+    "metrics": {
+      "alarm_5xxerror": 612.0,
+      "alarm_sibling_apigateway_4xxerror": 0.0,
+      "alarm_sibling_apigateway_count": 78.0,
+      "alarm_sibling_apigateway_integrationlatency": 29001.0,
+      "alarm_sibling_apigateway_latency": 29014.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

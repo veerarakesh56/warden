@@ -1,0 +1,29 @@
+{
+  "id": "g10-128",
+  "alert": {
+    "alert_id": "g10-128",
+    "name": "build-cache-efs-io",
+    "service": "fs-0d4e5f6a7b8c90123",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "build-cache EFS PercentIOLimit above 90%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "efs": "fs-0d4e5f6a7b8c90123",
+      "alarm": "build-cache-efs-io"
+    }
+  },
+  "context": {
+    "logs": [],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [failed (unclassified)] no metric alarm by that name (a composite alarm is read through the alarms it names)",
+      "logs: efs: [timed out] Read timeout on endpoint URL: \"https://elasticfilesystem.<region>.amazonaws.com/2015-02-01/file-systems?FileSystemId=fs-0d4e5f6a7b8c90123\""
+    ],
+    "empty_reads": [
+      "logs",
+      "metrics"
+    ]
+  }
+}

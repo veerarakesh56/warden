@@ -1,0 +1,52 @@
+{
+  "id": "g10-052",
+  "alert": {
+    "alert_id": "g10-052",
+    "name": "web-asg-inservice-low",
+    "service": "web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "web-asg in-service instances below 4",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "asg": "web-asg",
+      "alarm": "web-asg-inservice-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AutoScaling/GroupInServiceInstances AutoScalingGroupName=web-asg stat=Minimum period=60s threshold LessThanThreshold 4.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:51:03Z autoscaling.amazonaws.com CreateOrUpdateTags on web-asg by user/finops-bot",
+      "CHANGE 2026-10-10T07:23:31Z autoscaling.amazonaws.com StartInstanceRefresh on web-asg by role/platform-terraform",
+      "CHANGE 2026-10-10T07:23:10Z autoscaling.amazonaws.com UpdateAutoScalingGroup on web-asg by role/platform-terraform",
+      "STATE asg web-asg MinSize=4 MaxSize=8 DesiredCapacity=6 Instances=7(Healthy:4,Unhealthy:3) SuspendedProcesses=0",
+      "STATE asg web-asg activity at=2026-10-10T07:57:00Z status=InProgress cause=health_check",
+      "EVENT asg web-asg activity: At 2026-10-10T07:57:00Z an instance was taken out of service in response to an ELB system health check failure.",
+      "STATE asg web-asg activity at=2026-10-10T07:48:30Z status=Successful cause=other capacity=5->6",
+      "EVENT asg web-asg activity: At 2026-10-10T07:48:30Z an instance was started in response to a difference between desired and actual capacity, increasing the capacity from 5 to 6.",
+      "STATE asg web-asg activity at=2026-10-10T07:48:03Z status=Successful cause=health_check",
+      "EVENT asg web-asg activity: At 2026-10-10T07:48:03Z an instance was taken out of service in response to an ELB system health check failure.",
+      "STATE asg web-asg activity at=2026-10-10T07:40:55Z status=Successful cause=instance_refresh",
+      "EVENT asg web-asg activity: At 2026-10-10T07:40:55Z an instance was taken out of service in response to an instance refresh.  At 2026-10-10T07:40:56Z instance i-03b2c9e1a7b5f2d4c was selected for termination.",
+      "STATE asg web-asg activity at=2026-10-10T07:36:20Z status=Successful cause=other capacity=5->6",
+      "EVENT asg web-asg activity: At 2026-10-10T07:36:20Z an instance was started in response to a difference between desired and actual capacity, increasing the capacity from 5 to 6.",
+      "STATE asg web-asg activity at=2026-10-10T07:36:00Z status=Successful cause=health_check",
+      "EVENT asg web-asg activity: At 2026-10-10T07:36:00Z an instance was taken out of service in response to an ELB system health check failure.",
+      "STATE asg web-asg activity at=2026-10-10T07:24:50Z status=Successful cause=instance_refresh",
+      "EVENT asg web-asg activity: At 2026-10-10T07:24:50Z an instance was launched in response to an instance refresh.",
+      "STATE asg web-asg activity at=2026-10-10T07:24:30Z status=Successful cause=instance_refresh",
+      "EVENT asg web-asg activity: At 2026-10-10T07:24:30Z an instance was taken out of service in response to an instance refresh.  At 2026-10-10T07:24:31Z instance i-07a1c9e1a7b5f2d4c was selected for termination."
+    ],
+    "metrics": {
+      "alarm_groupinserviceinstances": 3.0,
+      "alarm_sibling_autoscaling_groupdesiredcapacity": 6.0,
+      "alarm_sibling_autoscaling_grouptotalinstances": 7.0,
+      "alarm_sibling_autoscaling_grouppendinginstances": 1.0,
+      "alarm_sibling_autoscaling_groupterminatinginstances": 1.0,
+      "alarm_sibling_autoscaling_groupminsize": 4.0,
+      "alarm_sibling_autoscaling_groupmaxsize": 8.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "g10-023",
+  "alert": {
+    "alert_id": "g10-023",
+    "name": "ledger-writer-memory-high",
+    "service": "ledger-writer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ledger-writer MemoryUtilization above 90%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "ledger-writer",
+      "alarm": "ledger-writer-memory-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/MemoryUtilization ClusterName=shop-dev,ServiceName=ledger-writer stat=Maximum period=60s threshold GreaterThanThreshold 90.0 datapoints=2/2 missing=missing state=ALARM"
+    ],
+    "metrics": {
+      "alarm_memoryutilization": 93.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm-siblings metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: ecs logs: logs: /ecs/ledger-writer: [access denied on FilterLogEvents] An error occurred (AccessDeniedException) when calling the FilterLogEvents operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-2291 is not authorized to perform: logs:FilterLogEvents on resource: arn:aws:logs:eu-west-1:111122223333:log-group:/ecs/ledger-writer because no identity-based policy allows the logs:FilterLogEvents action",
+      "logs: ecs: [access denied on DescribeServices] An error occurred (AccessDeniedException) when calling the DescribeServices operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-2291 is not authorized to perform: ecs:DescribeServices on resource: arn:aws:ecs:eu-west-1:111122223333:service/shop-dev/ledger-writer because no identity-based policy allows the ecs:DescribeServices action"
+    ]
+  }
+}

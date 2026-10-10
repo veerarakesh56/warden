@@ -1,0 +1,28 @@
+{
+  "id": "g10-106",
+  "alert": {
+    "alert_id": "g10-106",
+    "name": "ledger-close-not-triggered",
+    "service": "ledger",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "nightly-ledger-close did not invoke its target",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eventbridge_rule": "nightly-ledger-close",
+      "alarm": "ledger-close-not-triggered"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Events/Invocations RuleName=nightly-ledger-close stat=Sum period=300s threshold LessThanThreshold 1.0 datapoints=1/1 missing=breaching state=ALARM",
+      "CHANGE 2026-10-10T06:58:20Z events.amazonaws.com DisableRule on nightly-ledger-close by role/AWSReservedSSO_AdministratorAccess_4c1d9e7f2a6b8e30",
+      "RULE nightly-ledger-close State=DISABLED schedule=cron(55 7 * * ? *)"
+    ],
+    "metrics": {
+      "rule_enabled": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

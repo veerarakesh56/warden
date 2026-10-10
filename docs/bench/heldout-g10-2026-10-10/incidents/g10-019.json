@@ -1,0 +1,31 @@
+{
+  "id": "g10-019",
+  "alert": {
+    "alert_id": "g10-019",
+    "name": "www-health-check",
+    "service": "www",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Route 53 health check for www failed a datapoint",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "route53_health_check": "0b7d3e2f-9a1c-4f6e-8d24-c5a1b3e9f706",
+      "alarm": "www-health-check",
+      "alarm_region": "us-east-1"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Route53/HealthCheckStatus HealthCheckId=0b7d3e2f-9a1c-4f6e-8d24-c5a1b3e9f706 stat=Minimum period=60s threshold LessThanThreshold 1.0 datapoints=1/1 missing=missing state=OK",
+      "CHANGE none on 0b7d3e2f-9a1c-4f6e-8d24-c5a1b3e9f706 in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_healthcheckstatus": 1.0,
+      "alarm_sibling_route53_healthcheckpercentagehealthy": 100.0,
+      "alarm_sibling_route53_connectiontime": 41.0,
+      "alarm_sibling_route53_timetofirstbyte": 88.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

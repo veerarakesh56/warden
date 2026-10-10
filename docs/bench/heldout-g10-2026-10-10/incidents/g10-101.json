@@ -1,0 +1,34 @@
+{
+  "id": "g10-101",
+  "alert": {
+    "alert_id": "g10-101",
+    "name": "order-created-target-failures",
+    "service": "fulfilment",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "order-created-to-fulfilment failed invocations",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eventbridge_rule": "order-created-to-fulfilment",
+      "alarm": "order-created-target-failures"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Events/FailedInvocations EventBusName=orders-bus,RuleName=order-created-to-fulfilment stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=2/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:51:26Z events.amazonaws.com PutTargets on order-created-to-fulfilment by role/integration-deployer"
+    ],
+    "metrics": {
+      "alarm_failedinvocations": 318.0,
+      "alarm_sibling_events_invocations": 44.0,
+      "alarm_sibling_events_invocationattempts": 44.0,
+      "alarm_sibling_events_matchedevents": 44.0,
+      "alarm_sibling_events_triggeredrules": 44.0,
+      "alarm_sibling_events_successfulinvocationattempts": 41.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: eventbridge/order-created-to-fulfilment: [not found on DescribeRule] An error occurred (ResourceNotFoundException) when calling the DescribeRule operation: Rule order-created-to-fulfilment does not exist on EventBus default."
+    ]
+  }
+}

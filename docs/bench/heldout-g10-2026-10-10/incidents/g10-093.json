@@ -1,0 +1,51 @@
+{
+  "id": "g10-093",
+  "alert": {
+    "alert_id": "g10-093",
+    "name": "billing-ledger-writer errors",
+    "service": "billing-ledger-writer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for billing-ledger-writer",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "billing-ledger-writer",
+      "alarm": "billing-ledger-writer-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=billing-ledger-writer stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on billing-ledger-writer in the 6 h before the alert",
+      "LOG lambda/billing-ledger-writer 2026-10-10T07:46:50Z [INFO]\t2026-10-10T07:46:50.011Z\t225fe18f-4344-568c-b75f-a14c6ea212b6\tbatch size=10 source=billing-events-dev",
+      "LOG lambda/billing-ledger-writer 2026-10-10T07:46:51Z REPORT RequestId: 225fe18f-4344-568c-b75f-a14c6ea212b6\tDuration: 512.40 ms\tBilled Duration: 513 ms\tMemory Size: 256 MB\tMax Memory Used: 88 MB",
+      "LOG lambda/billing-ledger-writer 2026-10-10T07:49:09Z [ERROR]\t2026-10-10T07:49:09.330Z\t0fd35c90-89b8-5dca-bc4f-59f3ddaf68eb\tledger write failed: An error occurred (AccessDeniedException) when calling the PutItem operation: User: arn:aws:sts::111122223333:assumed-role/billing-ledger-writer-role/billing-ledger-writer is not authorized to perform: dynamodb:PutItem on resource: arn:aws:dynamodb:eu-west-1:111122223333:table/billing-ledger-dev because no identity-based policy allows the dynamodb:PutItem action",
+      "LOG lambda/billing-ledger-writer 2026-10-10T07:52:47Z [ERROR]\t2026-10-10T07:52:47.802Z\tdc3b02e6-1514-53ce-9285-8d03cf1eb34b\tledger write failed: An error occurred (AccessDeniedException) when calling the PutItem operation: User: arn:aws:sts::111122223333:assumed-role/billing-ledger-writer-role/billing-ledger-writer is not authorized to perform: dynamodb:PutItem on resource: arn:aws:dynamodb:eu-west-1:111122223333:table/billing-ledger-dev because no identity-based policy allows the dynamodb:PutItem action",
+      "LOG lambda/billing-ledger-writer 2026-10-10T07:55:01Z [ERROR]\t2026-10-10T07:55:01.064Z\t82926237-78cb-57e7-96b4-1b976693b96f\tledger write failed: An error occurred (AccessDeniedException) when calling the PutItem operation: User: arn:aws:sts::111122223333:assumed-role/billing-ledger-writer-role/billing-ledger-writer is not authorized to perform: dynamodb:PutItem on resource: arn:aws:dynamodb:eu-west-1:111122223333:table/billing-ledger-dev because no identity-based policy allows the dynamodb:PutItem action",
+      "LOG lambda/billing-ledger-writer 2026-10-10T07:58:26Z [ERROR]\t2026-10-10T07:58:26.917Z\t425c5096-3e21-556f-b255-40e325ef4570\tledger write failed: An error occurred (AccessDeniedException) when calling the PutItem operation: User: arn:aws:sts::111122223333:assumed-role/billing-ledger-writer-role/billing-ledger-writer is not authorized to perform: dynamodb:PutItem on resource: arn:aws:dynamodb:eu-west-1:111122223333:table/billing-ledger-dev because no identity-based policy allows the dynamodb:PutItem action",
+      "CONFIG lambda billing-ledger-writer timeout=60s memory=256MB reserved_concurrency=none env=[LEDGER_TABLE=billing-ledger-dev,LOG_LEVEL=INFO] version=23 alias_live=23",
+      "ESM billing-ledger-writer <- billing-events-dev State=Enabled BatchSize=10 LastProcessingResult=OK"
+    ],
+    "metrics": {
+      "alarm_errors": 233.0,
+      "alarm_sibling_lambda_invocations": 240.0,
+      "alarm_sibling_lambda_duration": 905.2,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_concurrentexecutions": 6.0,
+      "log_error_lines": 233.0,
+      "log_errors_peak_per_min": 27.0,
+      "lambda_timeout_s": 60.0,
+      "lambda_memory_mb": 256.0,
+      "lambda_esm_enabled": 1.0,
+      "lambda_errors": 233.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 240.0,
+      "lambda_duration_max_ms": 905.2,
+      "lambda_concurrent_executions": 6.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/billing-ledger-writer logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 810 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "id": "g10-028",
+  "alert": {
+    "alert_id": "g10-028",
+    "name": "report-export errors",
+    "service": "report-export",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 1 in 2 of 2 periods for report-export",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "report-export",
+      "alarm": "report-export-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=report-export stat=Sum period=300s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=2/2 missing=notBreaching state=ALARM",
+      "CHANGE none on report-export in the 6 h before the alert",
+      "LOG lambda/report-export 2026-10-10T07:48:00Z [INFO]\t2026-10-10T07:48:00.005Z\t0ec13347-746c-56b4-9f83-a22c18b55c85\texport started report=orders day=2026-10-10 rows=48211",
+      "LOG lambda/report-export 2026-10-10T07:48:03Z [ERROR]\t2026-10-10T07:48:03.110Z\t0ec13347-746c-56b4-9f83-a22c18b55c85\tupload failed: An error occurred (AccessDenied) when calling the PutObject operation: User: arn:aws:sts::111122223333:assumed-role/report-export-role/report-export is not authorized to perform: s3:PutObject on resource: \"arn:aws:s3:::acme-reports-dev/daily/2026-10-10/orders.csv\" because no VPC endpoint policy allows the s3:PutObject action",
+      "LOG lambda/report-export 2026-10-10T07:48:03Z REPORT RequestId: 0ec13347-746c-56b4-9f83-a22c18b55c85\tDuration: 3120.00 ms\tBilled Duration: 3121 ms\tMemory Size: 1024 MB\tMax Memory Used: 402 MB",
+      "LOG lambda/report-export 2026-10-10T07:53:00Z [INFO]\t2026-10-10T07:53:00.002Z\t2f6b8e3a-1061-5cf9-b443-1a87d6164e36\texport started report=refunds day=2026-10-10 rows=1290",
+      "LOG lambda/report-export 2026-10-10T07:53:03Z [ERROR]\t2026-10-10T07:53:03.070Z\t2f6b8e3a-1061-5cf9-b443-1a87d6164e36\tupload failed: An error occurred (AccessDenied) when calling the PutObject operation: User: arn:aws:sts::111122223333:assumed-role/report-export-role/report-export is not authorized to perform: s3:PutObject on resource: \"arn:aws:s3:::acme-reports-dev/daily/2026-10-10/refunds.csv\" because no VPC endpoint policy allows the s3:PutObject action",
+      "LOG lambda/report-export 2026-10-10T07:58:00Z [INFO]\t2026-10-10T07:58:00.009Z\t3e1f9019-6918-5be5-af78-016558be93e5\texport started report=payouts day=2026-10-10 rows=377",
+      "LOG lambda/report-export 2026-10-10T07:58:02Z [ERROR]\t2026-10-10T07:58:02.640Z\t3e1f9019-6918-5be5-af78-016558be93e5\tupload failed: An error occurred (AccessDenied) when calling the PutObject operation: User: arn:aws:sts::111122223333:assumed-role/report-export-role/report-export is not authorized to perform: s3:PutObject on resource: \"arn:aws:s3:::acme-reports-dev/daily/2026-10-10/payouts.csv\" because no VPC endpoint policy allows the s3:PutObject action",
+      "CONFIG lambda report-export timeout=120s memory=1024MB reserved_concurrency=none env=[REPORT_BUCKET=acme-reports-dev] sgs=[sg-0e1f2a3b4c5d6e7f8] version=14 alias_live=14"
+    ],
+    "metrics": {
+      "alarm_errors": 4.0,
+      "alarm_sibling_lambda_invocations": 4.0,
+      "alarm_sibling_lambda_duration": 3120.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "log_error_lines": 3.0,
+      "log_errors_peak_per_min": 1.0,
+      "lambda_timeout_s": 120.0,
+      "lambda_memory_mb": 1024.0,
+      "lambda_errors": 4.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 4.0,
+      "lambda_duration_max_ms": 3120.0,
+      "lambda_concurrent_executions": 2.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

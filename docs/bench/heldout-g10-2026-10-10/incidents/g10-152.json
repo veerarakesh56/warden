@@ -1,0 +1,28 @@
+{
+  "id": "g10-152",
+  "alert": {
+    "alert_id": "g10-152",
+    "name": "catalog-import-not-triggered",
+    "service": "catalog",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "daily-catalog-import invoked nothing in 1 h",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eventbridge_rule": "daily-catalog-import",
+      "alarm": "catalog-import-not-triggered"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Events/Invocations RuleName=daily-catalog-import stat=Sum period=3600s threshold LessThanThreshold 1.0 datapoints=1/1 missing=breaching state=ALARM",
+      "CHANGE none on daily-catalog-import in the 6 h before the alert",
+      "RULE daily-catalog-import State=ENABLED schedule=cron(0 2 * * ? *)"
+    ],
+    "metrics": {
+      "rule_enabled": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

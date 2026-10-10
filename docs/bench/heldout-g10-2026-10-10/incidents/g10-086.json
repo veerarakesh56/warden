@@ -1,0 +1,28 @@
+{
+  "id": "g10-086",
+  "alert": {
+    "alert_id": "g10-086",
+    "name": "media-cdn-5xx-rate",
+    "service": "media",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "media CDN 5xx error rate above 5%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "cloudfront": "E3V8K2N5P0QXTR",
+      "alarm": "media-cdn-5xx-rate"
+    }
+  },
+  "context": {
+    "logs": [],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [failed (unclassified)] no metric alarm by that name (a composite alarm is read through the alarms it names)"
+    ],
+    "empty_reads": [
+      "logs",
+      "metrics"
+    ]
+  }
+}

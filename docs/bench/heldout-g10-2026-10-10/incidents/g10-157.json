@@ -1,0 +1,35 @@
+{
+  "id": "g10-157",
+  "alert": {
+    "alert_id": "g10-157",
+    "name": "catalog-web-5xx",
+    "service": "catalog-web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "catalog-web 5xx responses above 20 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apprunner": "catalog-web",
+      "alarm": "catalog-web-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AppRunner/5xxStatusResponses ServiceID=1a2b3c4d5e6f47a8b9c0d1e2f3a4b5c6,ServiceName=catalog-web stat=Sum period=60s threshold GreaterThanThreshold 20.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:32:48Z apprunner.amazonaws.com StartDeployment on catalog-web by role/ecr-push-deployer",
+      "STATE apprunner catalog-web Status=RUNNING UpdatedAt=2026-10-10T07:36:08Z"
+    ],
+    "metrics": {
+      "alarm_5xxstatusresponses": 11280.0,
+      "alarm_sibling_apprunner_requests": 2050.0,
+      "alarm_sibling_apprunner_2xxstatusresponses": 1100.0,
+      "alarm_sibling_apprunner_4xxstatusresponses": 10.0,
+      "alarm_sibling_apprunner_requestlatency": 180.0,
+      "alarm_sibling_apprunner_activeinstances": 3.0,
+      "alarm_sibling_apprunner_cpuutilization": 22.4,
+      "alarm_sibling_apprunner_memoryutilization": 40.1
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

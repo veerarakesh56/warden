@@ -1,0 +1,40 @@
+{
+  "id": "g10-044",
+  "alert": {
+    "alert_id": "g10-044",
+    "name": "customers-gsi-by-email-throttles",
+    "service": "customers",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "customers GSI by-email WriteThrottleEvents above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "customers",
+      "alarm": "customers-gsi-by-email-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/WriteThrottleEvents GlobalSecondaryIndexName=by-email,TableName=customers stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on customers in the 6 h before the alert",
+      "TABLE customers billing=PROVISIONED rcu=300 wcu=400 status=ACTIVE"
+    ],
+    "metrics": {
+      "alarm_writethrottleevents": 7712.0,
+      "alarm_sibling_dynamodb_consumedwritecapacityunits": 1.0,
+      "alarm_sibling_dynamodb_provisionedwritecapacityunits": 25.0,
+      "alarm_sibling_dynamodb_consumedreadcapacityunits": 1.0,
+      "alarm_sibling_dynamodb_provisionedreadcapacityunits": 25.0,
+      "alarm_sibling_dynamodb_writeprovisionedthroughputthrottleevents": 7712.0,
+      "ddb_provisioned_rcu": 300.0,
+      "ddb_provisioned_wcu": 400.0,
+      "ddb_consumed_rcu": 88.4,
+      "ddb_consumed_wcu": 41.2,
+      "ddb_read_throttle_events": 0.0,
+      "ddb_write_throttle_events": 0.0,
+      "ddb_throttled_requests": 7790.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

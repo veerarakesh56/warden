@@ -1,0 +1,64 @@
+{
+  "id": "g10-129",
+  "alert": {
+    "alert_id": "g10-129",
+    "name": "checkout-pods-not-ready",
+    "service": "checkout",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "checkout has no ready pods",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "shop",
+      "deployment": "checkout",
+      "alarm": "checkout-pods-not-ready"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_status_ready ClusterName=shop-dev-eks,Namespace=shop,PodName=checkout stat=Minimum period=60s threshold LessThanThreshold 1.0 datapoints=2/2 missing=breaching state=ALARM",
+      "CHANGE none on checkout in the 6 h before the alert",
+      "CHANGE none on shop-dev-eks in the 6 h before the alert",
+      "LOG k8s/shop/checkout EVENT ScalingReplicaSet Deployment/checkout: Scaled down replica set checkout-5f7c8d9b6 to 0 from 4",
+      "LOG k8s/shop/checkout EVENT ScalingReplicaSet Deployment/checkout: Scaled up replica set checkout-6d4b7f8c5 to 4 from 0",
+      "LOG k8s/shop/checkout STATUS checkout-6d4b7f8c5-mdhmd/checkout: restarts 0; now waiting: PodInitializing",
+      "LOG k8s/shop/checkout STATUS checkout-6d4b7f8c5-5tg6c/checkout: restarts 0; now waiting: PodInitializing",
+      "LOG k8s/shop/checkout STATUS checkout-6d4b7f8c5-7mfkk/checkout: restarts 0; now waiting: PodInitializing",
+      "LOG k8s/shop/checkout STATUS checkout-6d4b7f8c5-g7m4p/checkout: restarts 0; now waiting: PodInitializing",
+      "LOG k8s/shop/checkout ROLLOUT revision 31 (current): 111122223333.dkr.ecr.eu-west-1.amazonaws.com/checkout:2.18.0,111122223333.dkr.ecr.eu-west-1.amazonaws.com/wait-for:1.3 created 2026-10-10T07:46:08Z",
+      "LOG k8s/shop/checkout ROLLOUT revision 30: 111122223333.dkr.ecr.eu-west-1.amazonaws.com/checkout:2.17.4 created 2026-10-02T13:00:00Z",
+      "LOG k8s/shop/checkout checkout-6d4b7f8c5-mdhmd/wait-for-ledger 2026-10-10T07:58:31.004512881Z wait-for: GET http://ledger-api.shop.svc.cluster.local:8080/ready -> 503 {\"status\":\"DOWN\",\"waitingOn\":\"checkout.shop.svc.cluster.local:8080\"} (attempt 401, retry in 2s)",
+      "LOG k8s/shop/checkout checkout-6d4b7f8c5-5tg6c/wait-for-ledger 2026-10-10T07:58:38.004512882Z wait-for: GET http://ledger-api.shop.svc.cluster.local:8080/ready -> 503 {\"status\":\"DOWN\",\"waitingOn\":\"checkout.shop.svc.cluster.local:8080\"} (attempt 402, retry in 2s)",
+      "LOG k8s/shop/checkout checkout-6d4b7f8c5-7mfkk/wait-for-ledger 2026-10-10T07:58:45.004512883Z wait-for: GET http://ledger-api.shop.svc.cluster.local:8080/ready -> 503 {\"status\":\"DOWN\",\"waitingOn\":\"checkout.shop.svc.cluster.local:8080\"} (attempt 403, retry in 2s)",
+      "LOG k8s/shop/checkout checkout-6d4b7f8c5-g7m4p/wait-for-ledger 2026-10-10T07:58:52.004512884Z wait-for: GET http://ledger-api.shop.svc.cluster.local:8080/ready -> 503 {\"status\":\"DOWN\",\"waitingOn\":\"checkout.shop.svc.cluster.local:8080\"} (attempt 404, retry in 2s)",
+      "APPSG eks/shop-dev-eks sgs=[sg-03a5c7e9b1d2f4a68,sg-0e1d2c3b4a5968778]"
+    ],
+    "metrics": {
+      "alarm_value": 0.0,
+      "pods_total": 4.0,
+      "pods_ready": 0.0,
+      "restart_count": 0.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 0.0,
+      "memory_limit_mib": 1024.0,
+      "replicas_desired": 4.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "k8s",
+        "service": "checkout",
+        "at": "2026-10-10T07:46:08Z",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/checkout:2.18.0,111122223333.dkr.ecr.eu-west-1.amazonaws.com/wait-for:1.3",
+        "previous": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/checkout:2.17.4",
+        "revision": "31"
+      }
+    ],
+    "tool_errors": [
+      "logs: k8s/checkout: checkout-6d4b7f8c5-mdhmd/checkout: [rejected as a bad request] (400) container \"checkout\" in pod \"checkout-6d4b7f8c5-mdhmd\" is waiting to start: PodInitializing",
+      "logs: k8s/checkout: checkout-6d4b7f8c5-5tg6c/checkout: [rejected as a bad request] (400) container \"checkout\" in pod \"checkout-6d4b7f8c5-5tg6c\" is waiting to start: PodInitializing",
+      "logs: k8s/checkout: checkout-6d4b7f8c5-7mfkk/checkout: [rejected as a bad request] (400) container \"checkout\" in pod \"checkout-6d4b7f8c5-7mfkk\" is waiting to start: PodInitializing",
+      "logs: k8s/checkout: checkout-6d4b7f8c5-g7m4p/checkout: [rejected as a bad request] (400) container \"checkout\" in pod \"checkout-6d4b7f8c5-g7m4p\" is waiting to start: PodInitializing"
+    ]
+  }
+}

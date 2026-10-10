@@ -1,0 +1,38 @@
+{
+  "id": "g10-072",
+  "alert": {
+    "alert_id": "g10-072",
+    "name": "order-fulfillment-executions-failed",
+    "service": "fulfilment",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "order-fulfillment failed executions at or above 5",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "state_machine": "order-fulfillment",
+      "alarm": "order-fulfillment-executions-failed"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/States/ExecutionsFailed StateMachineArn=arn:aws:states:ap-south-1:111122223333:stateMachine:order-fulfillment stat=Sum period=300s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:52:10Z states.amazonaws.com TagResource on order-fulfillment by role/finops-tagger",
+      "STATE state_machine order-fulfillment status=ACTIVE type=STANDARD",
+      "STATE states order-fulfillment failed execution at=2026-10-10T08:01:12Z error=States.DataLimitExceeded",
+      "EVENT states order-fulfillment failure: The state/task 'EnrichOrder' returned a result with a size exceeding the maximum number of bytes service limit.",
+      "STATE states order-fulfillment failed execution at=2026-10-10T08:01:04Z error=States.DataLimitExceeded",
+      "EVENT states order-fulfillment failure: The state/task 'EnrichOrder' returned a result with a size exceeding the maximum number of bytes service limit.",
+      "STATE states order-fulfillment failed execution at=2026-10-10T08:00:57Z error=States.DataLimitExceeded",
+      "EVENT states order-fulfillment failure: The state/task 'EnrichOrder' returned a result with a size exceeding the maximum number of bytes service limit."
+    ],
+    "metrics": {
+      "alarm_executionsfailed": 212.0,
+      "alarm_sibling_states_executionthrottled": 0.0,
+      "alarm_sibling_states_executiontime": 2140.0,
+      "alarm_sibling_states_executionsstarted": 31.0,
+      "alarm_sibling_states_executionssucceeded": 4.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

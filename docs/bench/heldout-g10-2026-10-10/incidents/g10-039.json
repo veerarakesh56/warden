@@ -1,0 +1,34 @@
+{
+  "id": "g10-039",
+  "alert": {
+    "alert_id": "g10-039",
+    "name": "audit-events-delivery-success",
+    "service": "audit",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "audit-events-to-s3 S3 delivery success below 100%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "firehose": "audit-events-to-s3",
+      "alarm": "audit-events-delivery-success"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Firehose/DeliveryToS3.Success DeliveryStreamName=audit-events-to-s3 stat=Average period=300s threshold LessThanThreshold 1.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:36:51Z firehose.amazonaws.com UpdateDestination on audit-events-to-s3 by role/data-platform-deployer",
+      "STATE firehose audit-events-to-s3 DeliveryStreamStatus=ACTIVE DeliveryStreamType=DirectPut"
+    ],
+    "metrics": {
+      "alarm_deliverytos3_success": 0.0,
+      "alarm_sibling_firehose_deliverytos3_datafreshness": 1460.0,
+      "alarm_sibling_firehose_deliverytos3_records": 0.0,
+      "alarm_sibling_firehose_incomingbytes": 4400000.0,
+      "alarm_sibling_firehose_incomingputrequests": 610.0,
+      "alarm_sibling_firehose_incomingrecords": 5210.0,
+      "alarm_sibling_firehose_throttledrecords": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

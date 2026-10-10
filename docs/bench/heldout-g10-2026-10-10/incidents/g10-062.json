@@ -1,0 +1,30 @@
+{
+  "id": "g10-062",
+  "alert": {
+    "alert_id": "g10-062",
+    "name": "settlement-batch-duration-high",
+    "service": "settlement-batch",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "settlement-batch maximum duration above 10 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "settlement-batch",
+      "alarm": "settlement-batch-duration-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Duration FunctionName=settlement-batch stat=Maximum period=60s threshold GreaterThanThreshold 600000.0 datapoints=1/1 missing=missing state=ALARM"
+    ],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: alarm: [throttled on ListMetrics] An error occurred (Throttling) when calling the ListMetrics operation (reached max retries: 0): Rate exceeded",
+      "logs: lambda/settlement-batch logs: logs: /aws/lambda/settlement-batch: [throttled on FilterLogEvents] An error occurred (ThrottlingException) when calling the FilterLogEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: lambda/settlement-batch metrics: [timed out on GetQueryResults] the Logs Insights query did not finish in 10s",
+      "logs: lambda/settlement-batch: [access denied on GetFunctionConfiguration] An error occurred (AccessDeniedException) when calling the GetFunctionConfiguration operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-3307 is not authorized to perform: lambda:GetFunctionConfiguration on resource: arn:aws:lambda:eu-west-1:111122223333:function:settlement-batch:live because no identity-based policy allows the lambda:GetFunctionConfiguration action"
+    ]
+  }
+}

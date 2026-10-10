@@ -1,0 +1,67 @@
+{
+  "id": "g10-140",
+  "alert": {
+    "alert_id": "g10-140",
+    "name": "orders-api running tasks below desired",
+    "service": "orders-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "RunningTaskCount < 3 for 3 consecutive minutes (orders-api, shop-dev)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "orders-api",
+      "alarm": "orders-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=orders-api stat=Minimum period=60s threshold LessThanThreshold 3.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE none on orders-api in the 6 h before the alert",
+      "LOG ecs/orders-api 2026-10-10T07:45:02Z {\"level\":\"info\",\"ts\":\"2026-10-10T07:45:02.118Z\",\"msg\":\"GET /orders/81723 200\",\"dur_ms\":41}",
+      "LOG ecs/orders-api 2026-10-10T07:47:40Z {\"level\":\"info\",\"ts\":\"2026-10-10T07:47:40.007Z\",\"msg\":\"GET /health 200\",\"dur_ms\":3}",
+      "LOG ecs/orders-api 2026-10-10T07:48:01Z {\"level\":\"error\",\"ts\":\"2026-10-10T07:48:01.552Z\",\"msg\":\"db ping failed\",\"err\":\"dial tcp 10.20.12.44:5432: i/o timeout\"}",
+      "LOG ecs/orders-api 2026-10-10T07:48:06Z {\"level\":\"warn\",\"ts\":\"2026-10-10T07:48:06.013Z\",\"msg\":\"GET /health 503\",\"dur_ms\":5002}",
+      "LOG ecs/orders-api 2026-10-10T07:50:31Z {\"level\":\"error\",\"ts\":\"2026-10-10T07:50:31.870Z\",\"msg\":\"query failed\",\"op\":\"ListOrders\",\"err\":\"dial tcp 10.20.12.44:5432: i/o timeout\"}",
+      "LOG ecs/orders-api 2026-10-10T07:52:12Z {\"level\":\"info\",\"ts\":\"2026-10-10T07:52:12.300Z\",\"msg\":\"shutting down: SIGTERM received\"}",
+      "LOG ecs/orders-api 2026-10-10T07:54:55Z {\"level\":\"error\",\"ts\":\"2026-10-10T07:54:55.041Z\",\"msg\":\"db ping failed\",\"err\":\"dial tcp 10.20.12.44:5432: i/o timeout\"}",
+      "LOG ecs/orders-api 2026-10-10T07:54:58Z {\"level\":\"warn\",\"ts\":\"2026-10-10T07:54:58.902Z\",\"msg\":\"GET /health 503\",\"dur_ms\":5001}",
+      "LOG ecs/orders-api 2026-10-10T07:57:20Z {\"level\":\"error\",\"ts\":\"2026-10-10T07:57:20.444Z\",\"msg\":\"query failed\",\"op\":\"GetOrder\",\"err\":\"dial tcp 10.20.12.44:5432: i/o timeout\"}",
+      "LOG ecs/orders-api 2026-10-10T07:59:09Z {\"level\":\"warn\",\"ts\":\"2026-10-10T07:59:09.017Z\",\"msg\":\"GET /health 503\",\"dur_ms\":5003}",
+      "APPSG ecs/orders-api sgs=[sg-0c4f1a2b3d4e5f601]",
+      "TASKROLE ecs/orders-api role=orders-api-task-role",
+      "STATE ecs/orders-api deployment PRIMARY rollout=COMPLETED revision=orders-api:31 desired=3 running=1 pending=2 failed=4 at=2026-10-08T14:12:09Z",
+      "STATE ecs/orders-api service events in the hour before the alert: health_check_failed=4 started_tasks=4 stopped_tasks=4",
+      "STATE ecs/orders-api stopped task c88aa035 at=2026-10-10T07:58:41Z revision=orders-api:31 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/orders-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/orders-api-tg/6d0ecf831eec9f09)",
+      "STATE ecs/orders-api stopped task 5227c2c4 at=2026-10-10T07:55:33Z revision=orders-api:31 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/orders-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/orders-api-tg/6d0ecf831eec9f09)",
+      "STATE ecs/orders-api stopped task 8f239632 at=2026-10-10T07:52:12Z revision=orders-api:31 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/orders-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/orders-api-tg/6d0ecf831eec9f09)",
+      "STATE ecs/orders-api stopped task a09451a1 at=2026-10-10T07:49:50Z revision=orders-api:31 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/orders-api stopped task: Task failed ELB health checks in (target-group arn:aws:elasticloadbalancing:eu-west-1:111122223333:targetgroup/orders-api-tg/6d0ecf831eec9f09)",
+      "CHANGE 2026-10-10T07:46:22Z ec2.amazonaws.com RevokeSecurityGroupEgress on sg-0c4f1a2b3d4e5f601 (this workload's security group) by role/AWSReservedSSO_NetworkAdmin_5a1b2c3d4e5f6a7b"
+    ],
+    "metrics": {
+      "alarm_value": 1.0,
+      "tasks_running": 1.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 2.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 4.0,
+      "cpu_utilization_pct": 7.4,
+      "memory_utilization_pct": 22.1,
+      "log_error_lines": 388.0,
+      "log_errors_peak_per_min": 41.0,
+      "ecs_stopped_tasks": 4.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_health_check": 4.0,
+      "network_changes_before_alert": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: ecs logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 656 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "id": "g10-083",
+  "alert": {
+    "alert_id": "g10-083",
+    "name": "partner-callback errors",
+    "service": "partner-callback",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for partner-callback",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "partner-callback",
+      "alarm": "partner-callback-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=partner-callback stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:40:13Z lambda.amazonaws.com TagResource20170331v2 on partner-callback by role/finops-tag-enforcer",
+      "LOG lambda/partner-callback 2026-10-10T07:46:02Z 2026-10-10T07:46:02.400Z\t38dcc1af-99b3-539b-b8f9-cb6f011da03a\tINFO\tsettle request ref=PX-55102 host=ledger.internal.acme-dev.example",
+      "LOG lambda/partner-callback 2026-10-10T07:46:02Z REPORT RequestId: 38dcc1af-99b3-539b-b8f9-cb6f011da03a\tDuration: 88.20 ms\tBilled Duration: 89 ms\tMemory Size: 256 MB\tMax Memory Used: 79 MB",
+      "LOG lambda/partner-callback 2026-10-10T07:51:51Z 2026-10-10T07:51:51.017Z\tf81925d3-4814-5445-acde-73a135e4de9c\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"certificate has expired\",\"code\":\"CERT_HAS_EXPIRED\",\"stack\":[\"Error: certificate has expired\",\"    at TLSSocket.onConnectSecure (node:_tls_wrap:1674:34)\",\"    at TLSSocket.emit (node:events:519:28)\"]}",
+      "LOG lambda/partner-callback 2026-10-10T07:54:30Z 2026-10-10T07:54:30.552Z\tba9b57ca-3bde-5d5b-8a88-fe2c4712a100\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"certificate has expired\",\"code\":\"CERT_HAS_EXPIRED\",\"stack\":[\"Error: certificate has expired\",\"    at TLSSocket.onConnectSecure (node:_tls_wrap:1674:34)\",\"    at TLSSocket.emit (node:events:519:28)\"]}",
+      "LOG lambda/partner-callback 2026-10-10T07:54:31Z 2026-10-10T07:54:31.003Z\tfea642c2-4a43-5068-b033-e9856257eb8c\tWARN\tretrying settle ref=PX-55133 attempt=2",
+      "LOG lambda/partner-callback 2026-10-10T07:58:12Z 2026-10-10T07:58:12.990Z\t6a3eaef7-eb36-58d7-9429-4a827fc5062e\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"certificate has expired\",\"code\":\"CERT_HAS_EXPIRED\",\"stack\":[\"Error: certificate has expired\",\"    at TLSSocket.onConnectSecure (node:_tls_wrap:1674:34)\",\"    at TLSSocket.emit (node:events:519:28)\"]}",
+      "CONFIG lambda partner-callback timeout=15s memory=256MB reserved_concurrency=none env=[LEDGER_HOST=ledger.internal.acme-dev.example,NODE_EXTRA_CA_CERTS] version=9 alias_live=9"
+    ],
+    "metrics": {
+      "alarm_errors": 142.0,
+      "alarm_sibling_lambda_invocations": 150.0,
+      "alarm_sibling_lambda_duration": 96.4,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_concurrentexecutions": 5.0,
+      "log_error_lines": 142.0,
+      "log_errors_peak_per_min": 19.0,
+      "lambda_timeout_s": 15.0,
+      "lambda_memory_mb": 256.0,
+      "lambda_errors": 142.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 150.0,
+      "lambda_duration_max_ms": 96.4,
+      "lambda_concurrent_executions": 5.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/partner-callback logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 450 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

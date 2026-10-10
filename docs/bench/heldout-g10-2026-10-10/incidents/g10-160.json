@@ -1,0 +1,53 @@
+{
+  "id": "g10-160",
+  "alert": {
+    "alert_id": "g10-160",
+    "name": "search-indexer-running-tasks-low",
+    "service": "search-indexer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "search-indexer RunningTaskCount < 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "search-indexer",
+      "alarm": "search-indexer-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=search-indexer stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=1/1 missing=missing state=OK",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE none on search-indexer in the 6 h before the alert",
+      "LOG ecs/search-indexer 2026-10-10T07:57:59Z level=info msg=\"received SIGTERM, committing offsets\" partition=3",
+      "LOG ecs/search-indexer 2026-10-10T07:58:00Z level=info msg=\"shutdown complete\"",
+      "LOG ecs/search-indexer 2026-10-10T07:59:21Z level=info msg=\"starting search-indexer\" build=2026.10.01-ci.351",
+      "LOG ecs/search-indexer 2026-10-10T07:59:30Z level=info msg=\"assigned partitions\" partitions=3",
+      "LOG ecs/search-indexer 2026-10-10T08:01:00Z level=info msg=\"indexed batch\" docs=500 lag=12",
+      "LOG ecs/search-indexer 2026-10-10T08:03:00Z level=info msg=\"indexed batch\" docs=500 lag=0",
+      "APPSG ecs/search-indexer sgs=[sg-0c1e3a5b7d9f24680]",
+      "TASKROLE ecs/search-indexer role=search-indexer-task",
+      "STATE ecs/search-indexer deployment PRIMARY rollout=COMPLETED revision=search-indexer:9 desired=2 running=2 pending=0 failed=0 at=2026-10-01T08:00:00Z",
+      "STATE ecs/search-indexer service events in the hour before the alert: started_tasks=1 steady_state=1",
+      "STATE ecs/search-indexer stopped task 53ecc845 at=2026-10-10T07:58:01Z revision=search-indexer:9 stop=TerminationNotice cause=spot exit=0",
+      "EVENT ecs/search-indexer stopped task: Task is retiring due to AWS Fargate platform maintenance (AWS_ECS_TASK_PATCHING_RETIREMENT)"
+    ],
+    "metrics": {
+      "alarm_value": 1.0,
+      "tasks_running": 2.0,
+      "tasks_desired": 2.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 22.0,
+      "memory_utilization_pct": 37.5,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 1.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_spot": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

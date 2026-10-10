@@ -1,0 +1,58 @@
+{
+  "id": "g10-061",
+  "alert": {
+    "alert_id": "g10-061",
+    "name": "report-builder-cpu-high",
+    "service": "report-builder",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "report-builder CPUUtilization above 85%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "batch-dev-ec2",
+      "ecs_service": "report-builder",
+      "alarm": "report-builder-cpu-high"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ECS/CPUUtilization ClusterName=batch-dev-ec2,ServiceName=report-builder stat=Average period=60s threshold GreaterThanThreshold 85.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on batch-dev-ec2 in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:39:58Z ecs.amazonaws.com UpdateService on report-builder by role/AWSServiceRoleForApplicationAutoScaling_ECSService",
+      "CHANGE 2026-10-10T07:31:44Z ecs.amazonaws.com UpdateService on report-builder by role/AWSServiceRoleForApplicationAutoScaling_ECSService",
+      "LOG ecs/report-builder 2026-10-10T07:46:09Z report r-4410 rendered pages=212 took=18.4s queue_depth=310",
+      "LOG ecs/report-builder 2026-10-10T07:47:09Z report r-4411 rendered pages=212 took=19.4s queue_depth=350",
+      "LOG ecs/report-builder 2026-10-10T07:48:09Z report r-4412 rendered pages=212 took=20.4s queue_depth=390",
+      "LOG ecs/report-builder 2026-10-10T07:49:09Z report r-4413 rendered pages=212 took=21.4s queue_depth=430",
+      "LOG ecs/report-builder 2026-10-10T07:50:09Z report r-4414 rendered pages=212 took=22.4s queue_depth=470",
+      "LOG ecs/report-builder 2026-10-10T07:51:09Z report r-4415 rendered pages=212 took=23.4s queue_depth=510",
+      "LOG ecs/report-builder 2026-10-10T07:52:09Z report r-4416 rendered pages=212 took=24.4s queue_depth=550",
+      "LOG ecs/report-builder 2026-10-10T07:53:09Z report r-4417 rendered pages=212 took=25.4s queue_depth=590",
+      "LOG ecs/report-builder 2026-10-10T07:54:09Z report r-4418 rendered pages=212 took=26.4s queue_depth=630",
+      "LOG ecs/report-builder 2026-10-10T07:55:09Z report r-4419 rendered pages=212 took=27.4s queue_depth=670",
+      "LOG ecs/report-builder 2026-10-10T07:56:09Z report r-4420 rendered pages=212 took=28.4s queue_depth=710",
+      "LOG ecs/report-builder 2026-10-10T07:57:09Z report r-4421 rendered pages=212 took=29.4s queue_depth=750",
+      "APPSG ecs/report-builder sgs=[sg-0e2c4a6f8b1d35791]",
+      "TASKROLE ecs/report-builder role=report-builder-task",
+      "STATE ecs/report-builder deployment PRIMARY rollout=COMPLETED revision=report-builder:23 desired=12 running=4 pending=0 failed=0 at=2026-10-04T08:00:00Z",
+      "STATE ecs/report-builder service events in the hour before the alert: unable_to_place=9"
+    ],
+    "metrics": {
+      "alarm_cpuutilization": 97.4,
+      "alarm_sibling_ecs_memoryutilization": 71.2,
+      "tasks_running": 4.0,
+      "tasks_desired": 12.0,
+      "tasks_pending": 0.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 0.0,
+      "cpu_utilization_pct": 97.4,
+      "memory_utilization_pct": 71.2,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 0.0,
+      "ecs_tasks_failed_to_start": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

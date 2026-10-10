@@ -1,0 +1,81 @@
+{
+  "id": "g10-030",
+  "alert": {
+    "alert_id": "g10-030",
+    "name": "orders-api-running-tasks-low",
+    "service": "orders-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "orders-api RunningTaskCount below 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "orders-api",
+      "alarm": "orders-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=orders-api stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:50:48Z ecs.amazonaws.com TagResource on orders-api by role/finops-tagger",
+      "CHANGE 2026-10-10T07:35:10Z ecs.amazonaws.com UpdateService on orders-api by role/github-actions-deploy",
+      "LOG ecs/orders-api 2026-10-10T07:46:03Z POST /orders 201 40ms order=o-88120",
+      "LOG ecs/orders-api 2026-10-10T07:48:03Z POST /orders 201 41ms order=o-88121",
+      "LOG ecs/orders-api 2026-10-10T07:50:03Z POST /orders 201 42ms order=o-88122",
+      "LOG ecs/orders-api 2026-10-10T07:52:03Z POST /orders 201 43ms order=o-88123",
+      "LOG ecs/orders-api 2026-10-10T07:54:03Z POST /orders 201 44ms order=o-88124",
+      "LOG ecs/orders-api 2026-10-10T07:56:03Z POST /orders 201 45ms order=o-88125",
+      "LOG ecs/orders-api 2026-10-10T07:58:03Z POST /orders 201 46ms order=o-88126",
+      "APPSG ecs/orders-api sgs=[sg-0b4d6f8a1c3e57902]",
+      "TASKROLE ecs/orders-api role=orders-api-task",
+      "STATE ecs/orders-api deployment PRIMARY rollout=IN_PROGRESS revision=orders-api:63 desired=3 running=0 pending=1 failed=5 at=2026-10-10T07:35:22Z",
+      "STATE ecs/orders-api deployment ACTIVE rollout=COMPLETED revision=orders-api:62 desired=1 running=1 pending=0 failed=0 at=2026-10-08T07:30:00Z",
+      "STATE ecs/orders-api service events in the hour before the alert: other=1 started_tasks=5 stopped_tasks=1",
+      "STATE ecs/orders-api stopped task f0d87363 at=2026-10-10T07:52:11Z revision=orders-api:63 stop=TaskFailedToStart cause=secret_missing",
+      "EVENT ecs/orders-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:orders/db-pasword-Qm3x9Z from secrets manager: ResourceNotFoundException: Secrets Manager can't find the specified secret.",
+      "STATE ecs/orders-api stopped task 011084e8 at=2026-10-10T07:49:11Z revision=orders-api:63 stop=TaskFailedToStart cause=secret_missing",
+      "EVENT ecs/orders-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:orders/db-pasword-Qm3x9Z from secrets manager: ResourceNotFoundException: Secrets Manager can't find the specified secret.",
+      "STATE ecs/orders-api stopped task d036c31f at=2026-10-10T07:46:11Z revision=orders-api:63 stop=TaskFailedToStart cause=secret_missing",
+      "EVENT ecs/orders-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:orders/db-pasword-Qm3x9Z from secrets manager: ResourceNotFoundException: Secrets Manager can't find the specified secret.",
+      "STATE ecs/orders-api stopped task 34483338 at=2026-10-10T07:43:11Z revision=orders-api:63 stop=TaskFailedToStart cause=secret_missing",
+      "EVENT ecs/orders-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:orders/db-pasword-Qm3x9Z from secrets manager: ResourceNotFoundException: Secrets Manager can't find the specified secret.",
+      "STATE ecs/orders-api stopped task 2fea0ed7 at=2026-10-10T07:40:11Z revision=orders-api:63 stop=TaskFailedToStart cause=secret_missing",
+      "EVENT ecs/orders-api stopped task: ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval failed: unable to retrieve secret from asm: service call has been retried 1 time(s): failed to fetch secret arn:aws:secretsmanager:eu-west-1:111122223333:secret:orders/db-pasword-Qm3x9Z from secrets manager: ResourceNotFoundException: Secrets Manager can't find the specified secret.",
+      "STATE ecs/orders-api stopped task 0590653d at=2026-10-10T07:37:03Z revision=orders-api:62 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/orders-api stopped task: Scaling activity initiated by (deployment ecs-svc/2215908472230984456)",
+      "STATE ecs/orders-api stopped task c536110b at=2026-10-10T07:37:02Z revision=orders-api:62 stop=ServiceSchedulerInitiated cause=scheduler exit=143",
+      "EVENT ecs/orders-api stopped task: Scaling activity initiated by (deployment ecs-svc/2215908472230984456)"
+    ],
+    "metrics": {
+      "alarm_value": 1.0,
+      "tasks_running": 1.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 1.0,
+      "deployments_in_flight": 2.0,
+      "deployment_failed_tasks": 5.0,
+      "cpu_utilization_pct": 64.0,
+      "memory_utilization_pct": 45.5,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "ecs_stopped_tasks": 7.0,
+      "ecs_tasks_failed_to_start": 5.0,
+      "ecs_stopped_secret_missing": 5.0,
+      "ecs_stopped_scheduler": 2.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "orders-api",
+        "at": "2026-10-10T07:35:22Z",
+        "version": "orders-api:63",
+        "previous": "orders-api:62",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/orders-api:5.8.1",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/orders-api:5.8.1",
+        "revision": "63",
+        "changed": "orders-api.secrets:DB_PASSWORD"
+      }
+    ],
+    "tool_errors": []
+  }
+}

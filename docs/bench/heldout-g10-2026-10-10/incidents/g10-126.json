@@ -1,0 +1,50 @@
+{
+  "id": "g10-126",
+  "alert": {
+    "alert_id": "g10-126",
+    "name": "image-thumbnailer throttles",
+    "service": "image-thumbnailer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Throttles >= 10 in 3 of 3 minutes for image-thumbnailer",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "image-thumbnailer",
+      "alarm": "image-thumbnailer-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Throttles FunctionName=image-thumbnailer stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on image-thumbnailer in the 6 h before the alert",
+      "LOG lambda/image-thumbnailer 2026-10-10T07:46:00Z REPORT RequestId: 75e61890-fad4-5b1b-8aeb-0defb5d053c8\tDuration: 1200.00 ms\tBilled Duration: 1201 ms\tMemory Size: 1536 MB\tMax Memory Used: 402 MB",
+      "LOG lambda/image-thumbnailer 2026-10-10T07:49:07Z REPORT RequestId: 2032a5e6-0b9a-55f8-9dfd-644d7f6c32b1\tDuration: 1291.30 ms\tBilled Duration: 1292 ms\tMemory Size: 1536 MB\tMax Memory Used: 403 MB",
+      "LOG lambda/image-thumbnailer 2026-10-10T07:52:14Z REPORT RequestId: a331c663-424e-5759-9b8c-e8e1542d90b9\tDuration: 1382.60 ms\tBilled Duration: 1383 ms\tMemory Size: 1536 MB\tMax Memory Used: 404 MB",
+      "LOG lambda/image-thumbnailer 2026-10-10T07:55:21Z REPORT RequestId: ddda6cba-a2fe-55c6-abc0-91547a4b579d\tDuration: 1473.90 ms\tBilled Duration: 1474 ms\tMemory Size: 1536 MB\tMax Memory Used: 405 MB",
+      "LOG lambda/image-thumbnailer 2026-10-10T07:58:28Z REPORT RequestId: c3066072-8e2d-579f-961a-404ff3aa6b2a\tDuration: 1565.20 ms\tBilled Duration: 1566 ms\tMemory Size: 1536 MB\tMax Memory Used: 406 MB",
+      "CONFIG lambda image-thumbnailer timeout=30s memory=1536MB reserved_concurrency=none env=[OUTPUT_BUCKET=acme-thumbs-dev] version=11 alias_live=11"
+    ],
+    "metrics": {
+      "alarm_throttles": 3412.0,
+      "alarm_sibling_lambda_invocations": 1180.0,
+      "alarm_sibling_lambda_errors": 0.0,
+      "alarm_sibling_lambda_duration": 2210.5,
+      "alarm_sibling_lambda_concurrentexecutions": 14.0,
+      "alarm_sibling_lambda_asynceventage": 418000.0,
+      "log_error_lines": 0.0,
+      "log_errors_peak_per_min": 0.0,
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 1536.0,
+      "lambda_errors": 0.0,
+      "lambda_throttles": 3412.0,
+      "lambda_invocations": 1180.0,
+      "lambda_duration_max_ms": 2210.5,
+      "lambda_concurrent_executions": 14.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/image-thumbnailer logs: logs: [output truncated] stopped after 10 pages, the alert-time lines read first (raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)",
+      "logs: lambda/image-thumbnailer logs: logs: [output truncated] kept the newest 120 lines and 0 older error line(s), dropped 1880 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

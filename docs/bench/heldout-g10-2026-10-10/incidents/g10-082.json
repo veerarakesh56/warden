@@ -1,0 +1,73 @@
+{
+  "id": "g10-082",
+  "alert": {
+    "alert_id": "g10-082",
+    "name": "pricing-quote-errors",
+    "service": "pricing-quote",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "pricing-quote Errors above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "pricing-quote",
+      "alarm": "pricing-quote-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=pricing-quote stat=Sum period=60s threshold GreaterThanThreshold 3.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:30:12Z lambda.amazonaws.com UpdateAlias20150331 on pricing-quote by role/github-actions-deploy",
+      "CHANGE 2026-10-10T07:29:40Z lambda.amazonaws.com PublishVersion20150331 on pricing-quote by role/github-actions-deploy",
+      "CHANGE 2026-10-10T07:24:58Z lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 on pricing-quote by role/github-actions-deploy",
+      "LOG lambda/pricing-quote 2026-10-10T07:48:02Z RESTORE_START Runtime Version: java:21.v24\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:c1b2a3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00",
+      "LOG lambda/pricing-quote 2026-10-10T07:48:02Z 07:48:02.031 [main] INFO  c.e.pricing.PriceCacheResource - afterRestore: reconnecting pool host=pricing-cache.x7k2pq.0001.euw1.cache.amazonaws.com:6379 (pool created at 2026-10-10T07:29:58Z)",
+      "LOG lambda/pricing-quote 2026-10-10T07:48:12Z 07:48:12.044 [main] ERROR c.e.pricing.PriceCacheResource - afterRestore failed: redis.clients.jedis.exceptions.JedisConnectionException: Failed to connect to any host resolved for DNS name.",
+      "LOG lambda/pricing-quote 2026-10-10T07:48:12Z RESTORE_REPORT Restore Duration: 10001.88 ms",
+      "LOG lambda/pricing-quote 2026-10-10T07:51:02Z RESTORE_START Runtime Version: java:21.v24\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:c1b2a3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00",
+      "LOG lambda/pricing-quote 2026-10-10T07:51:02Z 07:51:02.031 [main] INFO  c.e.pricing.PriceCacheResource - afterRestore: reconnecting pool host=pricing-cache.x7k2pq.0001.euw1.cache.amazonaws.com:6379 (pool created at 2026-10-10T07:29:58Z)",
+      "LOG lambda/pricing-quote 2026-10-10T07:51:12Z 07:51:12.044 [main] ERROR c.e.pricing.PriceCacheResource - afterRestore failed: redis.clients.jedis.exceptions.JedisConnectionException: Failed to connect to any host resolved for DNS name.",
+      "LOG lambda/pricing-quote 2026-10-10T07:51:12Z RESTORE_REPORT Restore Duration: 10001.88 ms",
+      "LOG lambda/pricing-quote 2026-10-10T07:54:02Z RESTORE_START Runtime Version: java:21.v24\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:c1b2a3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00",
+      "LOG lambda/pricing-quote 2026-10-10T07:54:02Z 07:54:02.031 [main] INFO  c.e.pricing.PriceCacheResource - afterRestore: reconnecting pool host=pricing-cache.x7k2pq.0001.euw1.cache.amazonaws.com:6379 (pool created at 2026-10-10T07:29:58Z)",
+      "LOG lambda/pricing-quote 2026-10-10T07:54:12Z 07:54:12.044 [main] ERROR c.e.pricing.PriceCacheResource - afterRestore failed: redis.clients.jedis.exceptions.JedisConnectionException: Failed to connect to any host resolved for DNS name.",
+      "LOG lambda/pricing-quote 2026-10-10T07:54:12Z RESTORE_REPORT Restore Duration: 10001.88 ms",
+      "LOG lambda/pricing-quote 2026-10-10T07:57:02Z RESTORE_START Runtime Version: java:21.v24\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:c1b2a3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00",
+      "LOG lambda/pricing-quote 2026-10-10T07:57:02Z 07:57:02.031 [main] INFO  c.e.pricing.PriceCacheResource - afterRestore: reconnecting pool host=pricing-cache.x7k2pq.0001.euw1.cache.amazonaws.com:6379 (pool created at 2026-10-10T07:29:58Z)",
+      "LOG lambda/pricing-quote 2026-10-10T07:57:12Z 07:57:12.044 [main] ERROR c.e.pricing.PriceCacheResource - afterRestore failed: redis.clients.jedis.exceptions.JedisConnectionException: Failed to connect to any host resolved for DNS name.",
+      "LOG lambda/pricing-quote 2026-10-10T07:57:12Z RESTORE_REPORT Restore Duration: 10001.88 ms",
+      "LOG lambda/pricing-quote 2026-10-10T07:59:30Z REPORT RequestId: a1d5235f-39a6-4a67-8063-21ba1a95e63b\tDuration: 38.20 ms\tBilled Duration: 39 ms\tMemory Size: 2048 MB\tMax Memory Used: 412 MB",
+      "LOG lambda/pricing-quote 2026-10-10T08:00:02Z RESTORE_START Runtime Version: java:21.v24\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:c1b2a3d4e5f60718293a4b5c6d7e8f90112233445566778899aabbccddeeff00",
+      "LOG lambda/pricing-quote 2026-10-10T08:00:02Z 08:00:02.031 [main] INFO  c.e.pricing.PriceCacheResource - afterRestore: reconnecting pool host=pricing-cache.x7k2pq.0001.euw1.cache.amazonaws.com:6379 (pool created at 2026-10-10T07:29:58Z)",
+      "LOG lambda/pricing-quote 2026-10-10T08:00:12Z 08:00:12.044 [main] ERROR c.e.pricing.PriceCacheResource - afterRestore failed: redis.clients.jedis.exceptions.JedisConnectionException: Failed to connect to any host resolved for DNS name.",
+      "LOG lambda/pricing-quote 2026-10-10T08:00:12Z RESTORE_REPORT Restore Duration: 10001.88 ms",
+      "CONFIG lambda pricing-quote timeout=30s memory=2048MB reserved_concurrency=none env=[CACHE_HOST=pricing-cache.x7k2pq.0001.euw1.cache.amazonaws.com,LOG_LEVEL=INFO] sgs=[sg-0b8d6f4e2c0a19375] version=18 alias_live=18"
+    ],
+    "metrics": {
+      "alarm_errors": 4.0,
+      "alarm_sibling_lambda_invocations": 1.0,
+      "alarm_sibling_lambda_errors": 1.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_duration": 10003.9,
+      "log_error_lines": 5.0,
+      "log_errors_peak_per_min": 1.0,
+      "lambda_timeout_s": 30.0,
+      "lambda_memory_mb": 2048.0,
+      "lambda_errors": 4.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 5.0,
+      "lambda_duration_max_ms": 10003.9,
+      "lambda_concurrent_executions": 2.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "lambda",
+        "service": "pricing-quote",
+        "at": "2026-10-10T07:29:40Z",
+        "version": "18",
+        "previous": "17",
+        "previous_basis": "served live traffic before this version"
+      }
+    ],
+    "tool_errors": []
+  }
+}

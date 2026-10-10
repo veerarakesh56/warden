@@ -1,0 +1,54 @@
+{
+  "id": "g10-148",
+  "alert": {
+    "alert_id": "g10-148",
+    "name": "crm-pg-connections",
+    "service": "crm-pg",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "crm-pg DatabaseConnections above 300",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "crm-pg",
+      "alarm": "crm-pg-connections"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/DatabaseConnections DBClusterIdentifier=crm-pg stat=Maximum period=60s threshold GreaterThanThreshold 300.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on crm-pg in the 6 h before the alert",
+      "CLUSTER aurora crm-pg writer=crm-pg-1 readers=[crm-pg-2] status=available"
+    ],
+    "metrics": {
+      "alarm_databaseconnections": 318.0,
+      "alarm_sibling_rds_cpuutilization": 27.4,
+      "alarm_sibling_rds_commitlatency": 2.2,
+      "alarm_sibling_rds_freeablememory": 26000000000.0,
+      "alarm_sibling_rds_deadlocks": 0.0,
+      "alarm_sibling_rds_buffercachehitratio": 99.8,
+      "aurora_members_available": 2.0,
+      "aurora_db_load": 2.1,
+      "aurora_db_load_cpu": 1.6,
+      "aurora_db_load_io": 0.3,
+      "aurora_db_load_client": 0.2,
+      "aurora_connections": 318.0,
+      "aurora_cpu_pct": 27.4,
+      "aurora_deadlocks": 0.0,
+      "aurora_replica_lag_ms": 14.0,
+      "active_connections": 318.0,
+      "idle_in_transaction": 0.0,
+      "long_running_queries": 0.0,
+      "max_connections": 2000.0,
+      "locks_waiting": 0.0,
+      "connections_used_pct": 0.159,
+      "reader_active_connections": 96.0,
+      "reader_idle_in_transaction": 0.0,
+      "reader_long_running_queries": 0.0,
+      "reader_max_connections": 2000.0,
+      "reader_locks_waiting": 0.0,
+      "reader_connections_used_pct": 0.048
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

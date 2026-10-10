@@ -1,0 +1,86 @@
+{
+  "id": "g10-078",
+  "alert": {
+    "alert_id": "g10-078",
+    "name": "inventory-api-running-tasks-low",
+    "service": "inventory-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "inventory-api RunningTaskCount below 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "inventory-api",
+      "alarm": "inventory-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=inventory-api stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE 2026-10-10T07:33:55Z ecs.amazonaws.com UpdateService on inventory-api by role/github-actions-deploy",
+      "LOG ecs/inventory-api 2026-10-10T07:46:01Z panic: config: required key INVENTORY_TABLE missing value",
+      "LOG ecs/inventory-api 2026-10-10T07:46:01Z goroutine 1 [running]:",
+      "LOG ecs/inventory-api 2026-10-10T07:49:01Z panic: config: required key INVENTORY_TABLE missing value",
+      "LOG ecs/inventory-api 2026-10-10T07:49:01Z goroutine 1 [running]:",
+      "LOG ecs/inventory-api 2026-10-10T07:49:30Z level=error msg=\"cache get failed\" err=\"dial tcp 10.40.22.15:6379: i/o timeout\"",
+      "LOG ecs/inventory-api 2026-10-10T07:51:30Z level=error msg=\"cache get failed\" err=\"dial tcp 10.40.22.15:6379: i/o timeout\"",
+      "LOG ecs/inventory-api 2026-10-10T07:52:01Z panic: config: required key INVENTORY_TABLE missing value",
+      "LOG ecs/inventory-api 2026-10-10T07:52:01Z goroutine 1 [running]:",
+      "LOG ecs/inventory-api 2026-10-10T07:53:30Z level=error msg=\"cache get failed\" err=\"dial tcp 10.40.22.15:6379: i/o timeout\"",
+      "LOG ecs/inventory-api 2026-10-10T07:55:01Z panic: config: required key INVENTORY_TABLE missing value",
+      "LOG ecs/inventory-api 2026-10-10T07:55:01Z goroutine 1 [running]:",
+      "LOG ecs/inventory-api 2026-10-10T07:55:30Z level=error msg=\"cache get failed\" err=\"dial tcp 10.40.22.15:6379: i/o timeout\"",
+      "LOG ecs/inventory-api 2026-10-10T07:56:00Z level=warn msg=\"readiness failing\" check=redis",
+      "LOG ecs/inventory-api 2026-10-10T07:57:30Z level=error msg=\"cache get failed\" err=\"dial tcp 10.40.22.15:6379: i/o timeout\"",
+      "APPSG ecs/inventory-api sgs=[sg-0d9b7f5e3c1a86420]",
+      "TASKROLE ecs/inventory-api role=inventory-api-task",
+      "STATE ecs/inventory-api deployment PRIMARY rollout=IN_PROGRESS revision=inventory-api:45 desired=3 running=0 pending=2 failed=4 at=2026-10-10T07:34:07Z",
+      "STATE ecs/inventory-api deployment ACTIVE rollout=COMPLETED revision=inventory-api:44 desired=1 running=0 pending=0 failed=2 at=2026-10-09T06:43:00Z",
+      "STATE ecs/inventory-api service events in the hour before the alert: health_check_failed=2 started_tasks=8 stopped_tasks=6",
+      "STATE ecs/inventory-api stopped task b12a704f at=2026-10-10T07:57:50Z revision=inventory-api:44 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/inventory-api stopped task: Task failed container health checks",
+      "STATE ecs/inventory-api stopped task 0a223c8f at=2026-10-10T07:55:03Z revision=inventory-api:45 stop=EssentialContainerExited cause=exit exit=2",
+      "EVENT ecs/inventory-api stopped task: Essential container in task exited",
+      "STATE ecs/inventory-api stopped task 8a787a2d at=2026-10-10T07:54:50Z revision=inventory-api:44 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/inventory-api stopped task: Task failed container health checks",
+      "STATE ecs/inventory-api stopped task 81cda8e9 at=2026-10-10T07:52:03Z revision=inventory-api:45 stop=EssentialContainerExited cause=exit exit=2",
+      "EVENT ecs/inventory-api stopped task: Essential container in task exited",
+      "STATE ecs/inventory-api stopped task 9963adef at=2026-10-10T07:49:03Z revision=inventory-api:45 stop=EssentialContainerExited cause=exit exit=2",
+      "EVENT ecs/inventory-api stopped task: Essential container in task exited",
+      "STATE ecs/inventory-api stopped task 479549f5 at=2026-10-10T07:46:03Z revision=inventory-api:45 stop=EssentialContainerExited cause=exit exit=2",
+      "EVENT ecs/inventory-api stopped task: Essential container in task exited",
+      "CHANGE 2026-10-10T07:46:51Z ec2.amazonaws.com RevokeSecurityGroupEgress on sg-0d9b7f5e3c1a86420 (this workload's security group) by role/network-terraform"
+    ],
+    "metrics": {
+      "alarm_value": 0.0,
+      "tasks_running": 0.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 2.0,
+      "deployments_in_flight": 2.0,
+      "deployment_failed_tasks": 6.0,
+      "cpu_utilization_pct": 4.4,
+      "memory_utilization_pct": 19.8,
+      "log_error_lines": 9.0,
+      "log_errors_peak_per_min": 2.0,
+      "ecs_stopped_tasks": 6.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_health_check": 2.0,
+      "ecs_stopped_exit": 4.0,
+      "network_changes_before_alert": 1.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "ecs",
+        "service": "inventory-api",
+        "at": "2026-10-10T07:34:07Z",
+        "version": "inventory-api:45",
+        "previous": "inventory-api:44",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/inventory-api:2.31.0",
+        "previous_image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/inventory-api:2.30.4",
+        "revision": "45"
+      }
+    ],
+    "tool_errors": []
+  }
+}

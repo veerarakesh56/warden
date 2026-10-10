@@ -1,0 +1,40 @@
+{
+  "id": "g10-109",
+  "alert": {
+    "alert_id": "g10-109",
+    "name": "app-logs-writes-blocked",
+    "service": "app-logs",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "app-logs ClusterIndexWritesBlocked is 1",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "opensearch": "app-logs",
+      "alarm": "app-logs-writes-blocked"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ES/ClusterIndexWritesBlocked ClientId=111122223333,DomainName=app-logs stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on app-logs in the 6 h before the alert",
+      "STATE opensearch app-logs Processing=false UpgradeProcessing=false EngineVersion=OpenSearch_2.15 InstanceType=r6g.large.search InstanceCount=3 DedicatedMasterEnabled=false VolumeSize=100"
+    ],
+    "metrics": {
+      "alarm_clusterindexwritesblocked": 1.0,
+      "alarm_sibling_es_freestoragespace": 4280.5,
+      "alarm_sibling_es_clusterusedspace": 290112.0,
+      "alarm_sibling_es_clusterstatus_green": 1.0,
+      "alarm_sibling_es_clusterstatus_yellow": 0.0,
+      "alarm_sibling_es_clusterstatus_red": 0.0,
+      "alarm_sibling_es_jvmmemorypressure": 71.2,
+      "alarm_sibling_es_cpuutilization": 38.6,
+      "alarm_sibling_es_4xx": 21520.0,
+      "alarm_sibling_es_5xx": 0.0,
+      "alarm_sibling_es_nodes": 3.0,
+      "alarm_sibling_es_indexingrate": 0.0,
+      "alarm_sibling_es_searchrate": 412.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

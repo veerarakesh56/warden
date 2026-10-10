@@ -1,0 +1,30 @@
+{
+  "id": "g10-041",
+  "alert": {
+    "alert_id": "g10-041",
+    "name": "orders-etl failed tasks",
+    "service": "orders-etl",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "numFailedTasks >= 1 in a 5-minute period (orders-etl)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "glue_job": "orders-etl",
+      "alarm": "orders-etl-failed-tasks"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM Glue/glue.driver.aggregate.numFailedTasks JobName=orders-etl,JobRunId=ALL,Type=count stat=Sum period=300s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:45:00Z glue.amazonaws.com StartJobRun on orders-etl by service/glue.amazonaws.com",
+      "CHANGE 2026-10-10T07:15:00Z glue.amazonaws.com StartJobRun on orders-etl by service/glue.amazonaws.com",
+      "CHANGE 2026-10-10T07:08:10Z glue.amazonaws.com ResetJobBookmark on orders-etl by role/data-eng-oncall",
+      "STATE glue_job orders-etl JobRuns=10(FAILED:2,SUCCEEDED:8)"
+    ],
+    "metrics": {
+      "alarm_value": 212.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "id": "g10-036",
+  "alert": {
+    "alert_id": "g10-036",
+    "name": "claims-ocr errors",
+    "service": "claims-ocr",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 5 in 3 of 3 minutes for claims-ocr",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "claims-ocr",
+      "alarm": "claims-ocr-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=claims-ocr stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 5.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on claims-ocr in the 6 h before the alert",
+      "LOG lambda/claims-ocr 2026-10-10T07:45:00Z [INFO]\t2026-10-10T07:45:00.012Z\t5726a71e-b3bd-5679-8862-404732e434c3\tocr claim=CL-90812 pages=3",
+      "LOG lambda/claims-ocr 2026-10-10T07:45:01Z REPORT RequestId: 5726a71e-b3bd-5679-8862-404732e434c3\tDuration: 640.00 ms\tBilled Duration: 641 ms\tMemory Size: 2048 MB\tMax Memory Used: 711 MB",
+      "LOG lambda/claims-ocr 2026-10-10T07:48:33Z [ERROR]\t2026-10-10T07:48:33.418Z\t293d9fc5-0c2e-580b-8b40-df74ff1b5559\tdecrypt document key failed: An error occurred (AccessDeniedException) when calling the Decrypt operation: User: arn:aws:sts::111122223333:assumed-role/claims-ocr-role/claims-ocr is not authorized to perform: kms:Decrypt on this resource because the resource does not exist in this Region, no resource-based policies allow access, or a resource-based policy explicitly denies access",
+      "LOG lambda/claims-ocr 2026-10-10T07:52:09Z [ERROR]\t2026-10-10T07:52:09.001Z\t3012bd39-ee52-5d07-b174-2369a929759b\tdecrypt document key failed: An error occurred (AccessDeniedException) when calling the Decrypt operation: User: arn:aws:sts::111122223333:assumed-role/claims-ocr-role/claims-ocr is not authorized to perform: kms:Decrypt on this resource because the resource does not exist in this Region, no resource-based policies allow access, or a resource-based policy explicitly denies access",
+      "LOG lambda/claims-ocr 2026-10-10T07:57:47Z [ERROR]\t2026-10-10T07:57:47.333Z\teda307e6-3948-5a30-8c6f-585d6b9e3f91\tdecrypt document key failed: An error occurred (AccessDeniedException) when calling the Decrypt operation: User: arn:aws:sts::111122223333:assumed-role/claims-ocr-role/claims-ocr is not authorized to perform: kms:Decrypt on this resource because the resource does not exist in this Region, no resource-based policies allow access, or a resource-based policy explicitly denies access",
+      "CONFIG lambda claims-ocr timeout=60s memory=2048MB reserved_concurrency=none env=[CLAIMS_BUCKET=acme-claims-dev] version=6 alias_live=6",
+      "ESM claims-ocr <- claims-ingest-dev State=Enabled BatchSize=5 LastProcessingResult=OK"
+    ],
+    "metrics": {
+      "alarm_errors": 77.0,
+      "alarm_sibling_lambda_invocations": 80.0,
+      "alarm_sibling_lambda_duration": 640.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "log_error_lines": 77.0,
+      "log_errors_peak_per_min": 9.0,
+      "lambda_timeout_s": 60.0,
+      "lambda_memory_mb": 2048.0,
+      "lambda_esm_enabled": 1.0,
+      "lambda_errors": 77.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 80.0,
+      "lambda_duration_max_ms": 640.0,
+      "lambda_concurrent_executions": 3.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/claims-ocr logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 170 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "g10-099",
+  "alert": {
+    "alert_id": "g10-099",
+    "name": "sign-in successes low",
+    "service": "shop-dev-auth",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "SignInSuccesses < 50 in 2 consecutive 5-minute periods",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "cognito_user_pool": "eu-west-1_Qx7RmT2pL",
+      "alarm": "shop-dev-signin-success-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Cognito/SignInSuccesses UserPool=eu-west-1_Qx7RmT2pL,UserPoolClient=4f8k2m9q1r7t3v5x6z0b2d4f6h stat=Sum period=300s threshold LessThanThreshold 50.0 datapoints=2/2 missing=breaching state=ALARM",
+      "CHANGE 2026-10-10T07:48:05Z cognito-idp.amazonaws.com SetRiskConfiguration on eu-west-1_Qx7RmT2pL by role/secops-identity-admin",
+      "STATE cognito_user_pool eu-west-1_Qx7RmT2pL EstimatedNumberOfUsers=48210 MfaConfiguration=OPTIONAL UserPoolTier=PLUS"
+    ],
+    "metrics": {
+      "alarm_signinsuccesses": 3.0,
+      "alarm_sibling_cognito_signinthrottles": 0.0,
+      "alarm_sibling_cognito_tokenrefreshsuccesses": 1210.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

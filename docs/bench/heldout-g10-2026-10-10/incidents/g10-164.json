@@ -1,0 +1,36 @@
+{
+  "id": "g10-164",
+  "alert": {
+    "alert_id": "g10-164",
+    "name": "storefront-cdn-5xx-rate",
+    "service": "storefront",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "storefront CDN 5xx error rate above 5%",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "cloudfront": "E2QWRUHAPOMQZL",
+      "alarm": "storefront-cdn-5xx-rate",
+      "alarm_region": "us-east-1"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/CloudFront/5xxErrorRate DistributionId=E2QWRUHAPOMQZL,Region=Global stat=Average period=60s threshold GreaterThanThreshold 5.0 datapoints=3/5 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:38:44Z cloudfront.amazonaws.com UpdateDistribution2020_05_31 on E2QWRUHAPOMQZL by role/cdn-pipeline"
+    ],
+    "metrics": {
+      "alarm_5xxerrorrate": 31.4,
+      "alarm_sibling_cloudfront_4xxerrorrate": 0.6,
+      "alarm_sibling_cloudfront_502errorrate": 0.3,
+      "alarm_sibling_cloudfront_504errorrate": 30.9,
+      "alarm_sibling_cloudfront_bytesdownloaded": 910000000.0,
+      "alarm_sibling_cloudfront_cachehitrate": 41.2,
+      "alarm_sibling_cloudfront_originlatency": 3987.0,
+      "alarm_sibling_cloudfront_requests": 48210.0,
+      "alarm_sibling_cloudfront_totalerrorrate": 32.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

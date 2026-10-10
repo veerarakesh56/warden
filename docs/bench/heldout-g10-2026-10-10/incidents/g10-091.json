@@ -1,0 +1,49 @@
+{
+  "id": "g10-091",
+  "alert": {
+    "alert_id": "g10-091",
+    "name": "payout-scheduler errors",
+    "service": "payout-scheduler",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 3 in 3 of 3 minutes for payout-scheduler",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "payout-scheduler",
+      "alarm": "payout-scheduler-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=payout-scheduler stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 3.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on payout-scheduler in the 6 h before the alert",
+      "LOG lambda/payout-scheduler 2026-10-10T07:47:02Z [INFO]\t2026-10-10T07:47:02.001Z\t4fac3181-79f2-5f4b-8026-232f885c8900\tloaded schedule from dynamodb table=payouts-dev items=212",
+      "LOG lambda/payout-scheduler 2026-10-10T07:47:02Z [INFO]\t2026-10-10T07:47:02.009Z\t4fac3181-79f2-5f4b-8026-232f885c8900\tconnecting to secretsmanager.eu-west-1.amazonaws.com:443 (10.40.3.17)",
+      "LOG lambda/payout-scheduler 2026-10-10T07:47:17Z [ERROR]\t2026-10-10T07:47:17.014Z\t4fac3181-79f2-5f4b-8026-232f885c8900\tbotocore.exceptions.ConnectTimeoutError: Connect timeout on endpoint URL: \"https://secretsmanager.eu-west-1.amazonaws.com/\"",
+      "LOG lambda/payout-scheduler 2026-10-10T07:47:17Z REPORT RequestId: 4fac3181-79f2-5f4b-8026-232f885c8900\tDuration: 15002.00 ms\tBilled Duration: 15003 ms\tMemory Size: 512 MB\tMax Memory Used: 97 MB",
+      "LOG lambda/payout-scheduler 2026-10-10T07:52:01Z [INFO]\t2026-10-10T07:52:01.003Z\t815dd65a-4fd8-50cc-930c-3a91541f1411\tloaded schedule from dynamodb table=payouts-dev items=212",
+      "LOG lambda/payout-scheduler 2026-10-10T07:52:16Z [ERROR]\t2026-10-10T07:52:16.900Z\t815dd65a-4fd8-50cc-930c-3a91541f1411\tbotocore.exceptions.ConnectTimeoutError: Connect timeout on endpoint URL: \"https://secretsmanager.eu-west-1.amazonaws.com/\"",
+      "LOG lambda/payout-scheduler 2026-10-10T07:58:45Z [ERROR]\t2026-10-10T07:58:45.120Z\tb54e56cb-4e5a-55dd-8265-d70b63771683\tbotocore.exceptions.ConnectTimeoutError: Connect timeout on endpoint URL: \"https://secretsmanager.eu-west-1.amazonaws.com/\"",
+      "CONFIG lambda payout-scheduler timeout=20s memory=512MB reserved_concurrency=none env=[PAYOUT_TABLE=payouts-dev] sgs=[sg-0c1d2e3f4a5b6c7d8] version=19 alias_live=19"
+    ],
+    "metrics": {
+      "alarm_errors": 58.0,
+      "alarm_sibling_lambda_invocations": 58.0,
+      "alarm_sibling_lambda_duration": 15002.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "log_error_lines": 58.0,
+      "log_errors_peak_per_min": 6.0,
+      "lambda_timeout_s": 20.0,
+      "lambda_memory_mb": 512.0,
+      "lambda_errors": 58.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 58.0,
+      "lambda_duration_max_ms": 15002.0,
+      "lambda_concurrent_executions": 3.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/payout-scheduler logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 82 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

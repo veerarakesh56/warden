@@ -1,0 +1,41 @@
+{
+  "id": "g10-119",
+  "alert": {
+    "alert_id": "g10-119",
+    "name": "orders-table-write-throttles",
+    "service": "orders",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "orders table WriteThrottleEvents above 100 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "orders",
+      "alarm": "orders-table-write-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/WriteThrottleEvents TableName=orders stat=Sum period=60s threshold GreaterThanThreshold 100.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T03:12:44Z dynamodb.amazonaws.com TagResource on orders by role/platform-tagging-bot",
+      "TABLE orders billing=PROVISIONED rcu=400 wcu=200 status=ACTIVE"
+    ],
+    "metrics": {
+      "alarm_writethrottleevents": 18422.0,
+      "alarm_sibling_dynamodb_consumedwritecapacityunits": 8.0,
+      "alarm_sibling_dynamodb_consumedreadcapacityunits": 4.0,
+      "alarm_sibling_dynamodb_provisionedwritecapacityunits": 200.0,
+      "alarm_sibling_dynamodb_provisionedreadcapacityunits": 400.0,
+      "alarm_sibling_dynamodb_readthrottleevents": 0.0,
+      "alarm_sibling_dynamodb_writeprovisionedthroughputthrottleevents": 18422.0,
+      "ddb_provisioned_rcu": 400.0,
+      "ddb_provisioned_wcu": 200.0,
+      "ddb_consumed_rcu": 212.5,
+      "ddb_consumed_wcu": 246.8,
+      "ddb_read_throttle_events": 0.0,
+      "ddb_write_throttle_events": 18422.0,
+      "ddb_throttled_requests": 17960.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

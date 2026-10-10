@@ -1,0 +1,31 @@
+{
+  "id": "g10-070",
+  "alert": {
+    "alert_id": "g10-070",
+    "name": "Athena cancelled queries",
+    "service": "analytics-dev",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Cancelled DML queries >= 3 in a 5-minute period (analytics-dev)",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "athena_workgroup": "analytics-dev",
+      "alarm": "analytics-dev-cancelled-queries"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Athena/ProcessedBytes QueryState=CANCELED,QueryType=DML,WorkGroup=analytics-dev stat=SampleCount period=300s threshold GreaterThanOrEqualToThreshold 3.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:19:07Z athena.amazonaws.com UpdateWorkGroup on analytics-dev by role/finops-cost-guardrails",
+      "STATE athena_workgroup analytics-dev State=ENABLED Configuration_EngineVersion_EffectiveEngineVersion=Athena_engine_version_3 EnforceWorkGroupConfiguration=true"
+    ],
+    "metrics": {
+      "alarm_processedbytes": 27.0,
+      "alarm_sibling_athena_totalexecutiontime": 4210.0,
+      "alarm_sibling_athena_engineexecutiontime": 4011.0,
+      "alarm_sibling_athena_queryqueuetime": 112.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

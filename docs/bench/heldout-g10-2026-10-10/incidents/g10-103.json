@@ -1,0 +1,32 @@
+{
+  "id": "g10-103",
+  "alert": {
+    "alert_id": "g10-103",
+    "name": "worker-asg-status-check-failed",
+    "service": "worker",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "worker-asg instances failing status checks",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "asg": "worker-asg",
+      "alarm": "worker-asg-status-check-failed"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/EC2/StatusCheckFailed AutoScalingGroupName=worker-asg stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=2/2 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T06:58:14Z autoscaling.amazonaws.com SuspendProcesses on worker-asg by user/ops-alice",
+      "STATE asg worker-asg MinSize=3 MaxSize=6 DesiredCapacity=3 Instances=3(Healthy:1,Unhealthy:2) SuspendedProcesses=3"
+    ],
+    "metrics": {
+      "alarm_statuscheckfailed": 1.0,
+      "alarm_sibling_ec2_cpuutilization": 4.1,
+      "alarm_sibling_ec2_statuscheckfailed_instance": 1.0,
+      "alarm_sibling_ec2_statuscheckfailed_system": 0.0,
+      "alarm_sibling_ec2_networkin": 1840221.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

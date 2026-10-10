@@ -1,0 +1,28 @@
+{
+  "id": "g10-012",
+  "alert": {
+    "alert_id": "g10-012",
+    "name": "WAF blocked requests spike",
+    "service": "shop-dev-edge",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "BlockedRequests > 500 per minute for 3 minutes on shop-dev-edge-acl",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "waf_web_acl": "shop-dev-edge-acl",
+      "alarm": "shop-dev-waf-blocked-spike"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/WAFV2/BlockedRequests Region=eu-west-1,Rule=ALL,WebACL=shop-dev-edge-acl stat=Sum period=60s threshold GreaterThanThreshold 500.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on shop-dev-edge-acl in the 6 h before the alert"
+    ],
+    "metrics": {
+      "alarm_blockedrequests": 52040.0,
+      "alarm_sibling_wafv2_allowedrequests": 61200.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

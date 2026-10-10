@@ -1,0 +1,33 @@
+{
+  "id": "g10-147",
+  "alert": {
+    "alert_id": "g10-147",
+    "name": "product-catalog-getitem-latency",
+    "service": "product-catalog",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "product-catalog GetItem p99 latency above 25 ms",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "product-catalog",
+      "alarm": "product-catalog-getitem-latency"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/SuccessfulRequestLatency Operation=GetItem,TableName=product-catalog stat=p99 period=300s threshold GreaterThanThreshold 25.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on product-catalog in the 6 h before the alert",
+      "TABLE product-catalog billing=PAY_PER_REQUEST rcu=0 wcu=0 status=ACTIVE"
+    ],
+    "metrics": {
+      "alarm_successfulrequestlatency": 26.1,
+      "ddb_consumed_rcu": 410.2,
+      "ddb_consumed_wcu": 3.1,
+      "ddb_read_throttle_events": 0.0,
+      "ddb_write_throttle_events": 0.0,
+      "ddb_throttled_requests": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

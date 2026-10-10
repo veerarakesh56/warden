@@ -1,0 +1,35 @@
+{
+  "id": "g10-084",
+  "alert": {
+    "alert_id": "g10-084",
+    "name": "help-center-web-latency",
+    "service": "help-center-web",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "help-center-web request latency above 2 s",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apprunner": "help-center-web",
+      "alarm": "help-center-web-latency"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AppRunner/RequestLatency ServiceID=9e8d7c6b5a4f43e2d1c0b9a8f7e6d5c4,ServiceName=help-center-web stat=Maximum period=60s threshold GreaterThanThreshold 2000.0 datapoints=1/1 missing=missing state=OK",
+      "CHANGE none on help-center-web in the 6 h before the alert",
+      "STATE apprunner help-center-web Status=RUNNING UpdatedAt=2026-10-07T08:52:00Z"
+    ],
+    "metrics": {
+      "alarm_requestlatency": 2140.0,
+      "alarm_sibling_apprunner_requests": 4100.0,
+      "alarm_sibling_apprunner_2xxstatusresponses": 4088.0,
+      "alarm_sibling_apprunner_5xxstatusresponses": 0.0,
+      "alarm_sibling_apprunner_4xxstatusresponses": 12.0,
+      "alarm_sibling_apprunner_activeinstances": 5.0,
+      "alarm_sibling_apprunner_cpuutilization": 61.0,
+      "alarm_sibling_apprunner_memoryutilization": 44.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

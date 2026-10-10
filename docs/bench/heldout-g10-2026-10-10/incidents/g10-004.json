@@ -1,0 +1,37 @@
+{
+  "id": "g10-004",
+  "alert": {
+    "alert_id": "g10-004",
+    "name": "crm-reports-mysql-cpu",
+    "service": "crm-reports-mysql",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "crm-reports-mysql CPUUtilization above 90% for 15 minutes",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "rds_instance": "crm-reports-mysql",
+      "alarm": "crm-reports-mysql-cpu"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/CPUUtilization DBInstanceIdentifier=crm-reports-mysql stat=Average period=300s threshold GreaterThanThreshold 90.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T03:10:10Z rds.amazonaws.com ModifyDBInstance on crm-reports-mysql by user/l.chen",
+      "STATE rds_instance crm-reports-mysql DBInstanceStatus=available DBInstanceClass=db.t4g.large Engine=mysql EngineVersion=8.0.39 MultiAZ=false AllocatedStorage=200 StorageType=gp3 Iops=3000 BackupRetentionPeriod=7 PendingModifiedValues=none CACertificateIdentifier=rds-ca-rsa2048-g1"
+    ],
+    "metrics": {
+      "alarm_cpuutilization": 99.6,
+      "alarm_sibling_rds_cpucreditbalance": 0.0,
+      "alarm_sibling_rds_cpucreditusage": 9.8,
+      "alarm_sibling_rds_cpusurpluscreditbalance": 1150.0,
+      "alarm_sibling_rds_freestoragespace": 3200000000.0,
+      "alarm_sibling_rds_databaseconnections": 64.0,
+      "alarm_sibling_rds_readiops": 2900.0,
+      "alarm_sibling_rds_writeiops": 410.0,
+      "alarm_sibling_rds_freeablememory": 910000000.0,
+      "alarm_sibling_rds_binlogdiskusage": 1200000000.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

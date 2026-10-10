@@ -1,0 +1,32 @@
+{
+  "id": "g10-111",
+  "alert": {
+    "alert_id": "g10-111",
+    "name": "legacy-billing-status-check",
+    "service": "legacy-billing",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "legacy-billing instance status check failed",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "instance_id": "i-0f2a7c5e9b3d14068",
+      "alarm": "legacy-billing-status-check"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/EC2/StatusCheckFailed InstanceId=i-0f2a7c5e9b3d14068 stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=1/1 missing=missing state=OK",
+      "CHANGE none on i-0f2a7c5e9b3d14068 in the 6 h before the alert",
+      "STATE instance_id i-0f2a7c5e9b3d14068 Name=running Status=ok Status=ok"
+    ],
+    "metrics": {
+      "alarm_statuscheckfailed": 1.0,
+      "alarm_sibling_ec2_statuscheckfailed_system": 1.0,
+      "alarm_sibling_ec2_statuscheckfailed_instance": 0.0,
+      "alarm_sibling_ec2_cpuutilization": 12.0,
+      "alarm_sibling_ec2_networkin": 2210443.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

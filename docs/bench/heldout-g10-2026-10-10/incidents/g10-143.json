@@ -1,0 +1,29 @@
+{
+  "id": "g10-143",
+  "alert": {
+    "alert_id": "g10-143",
+    "name": "ledger-batch-instance-check",
+    "service": "ledger-batch",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ledger-batch instance status check failed",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "instance_id": "i-0a9c3e5f7b1d24680",
+      "alarm": "ledger-batch-instance-check"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/EC2/StatusCheckFailed_Instance InstanceId=i-0a9c3e5f7b1d24680 stat=Maximum period=60s threshold GreaterThanOrEqualToThreshold 1.0 datapoints=2/2 missing=missing state=ALARM"
+    ],
+    "metrics": {
+      "alarm_statuscheckfailed_instance": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm: [access denied on ListMetrics] An error occurred (AccessDenied) when calling the ListMetrics operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-4410 is not authorized to perform: cloudwatch:ListMetrics because no identity-based policy allows the cloudwatch:ListMetrics action",
+      "logs: instance-id: [access denied on DescribeInstanceStatus] An error occurred (UnauthorizedOperation) when calling the DescribeInstanceStatus operation: You are not authorized to perform this operation. User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-4410 is not authorized to perform: ec2:DescribeInstanceStatus because no identity-based policy allows the ec2:DescribeInstanceStatus action"
+    ]
+  }
+}

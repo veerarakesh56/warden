@@ -1,0 +1,77 @@
+{
+  "id": "g10-138",
+  "alert": {
+    "alert_id": "g10-138",
+    "name": "payments-gw-restarts",
+    "service": "payments-gw",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "payments-gw container restarts above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "eks_cluster": "shop-dev-eks",
+      "namespace": "pay",
+      "deployment": "payments-gw",
+      "alarm": "payments-gw-restarts"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ContainerInsights/pod_number_of_container_restarts ClusterName=shop-dev-eks,Namespace=pay,PodName=payments-gw stat=Maximum period=60s threshold GreaterThanThreshold 3.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on payments-gw in the 6 h before the alert",
+      "CHANGE none on shop-dev-eks in the 6 h before the alert",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled up replica set payments-gw-6c8d7b9f5 to 1 from 0",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled down replica set payments-gw-5b9h6c7d8 to 3 from 4",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled up replica set payments-gw-6c8d7b9f5 to 2 from 1",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled down replica set payments-gw-5b9h6c7d8 to 2 from 3",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled up replica set payments-gw-6c8d7b9f5 to 3 from 2",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled down replica set payments-gw-5b9h6c7d8 to 1 from 2",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled up replica set payments-gw-6c8d7b9f5 to 4 from 3",
+      "LOG k8s/pay/payments-gw EVENT ScalingReplicaSet Deployment/payments-gw: Scaled down replica set payments-gw-5b9h6c7d8 to 0 from 1",
+      "LOG k8s/pay/payments-gw EVENT BackOff Pod/payments-gw-6c8d7b9f5-sbrrn: Back-off restarting failed container payments-gw in pod payments-gw-6c8d7b9f5-sbrrn_pay(5024ccf2-78ef-471a-a2d4-973ac6c71cc2)",
+      "LOG k8s/pay/payments-gw STATUS payments-gw-6c8d7b9f5-sbrrn/payments-gw: restarts 3; last exit: Error (code 1) at 2026-10-10T07:57:20Z; now waiting: CrashLoopBackOff - back-off 40s restarting failed container=payments-gw pod=payments-gw-6c8d7b9f5-sbrrn_pay(5024ccf2-78ef-471a-a2d4-973ac6c71cc2)",
+      "LOG k8s/pay/payments-gw STATUS payments-gw-6c8d7b9f5-gx64f/payments-gw: restarts 2; last exit: Error (code 1) at 2026-10-10T07:54:27Z",
+      "LOG k8s/pay/payments-gw STATUS payments-gw-6c8d7b9f5-qkd67/payments-gw: restarts 2; last exit: Error (code 1) at 2026-10-10T07:51:34Z",
+      "LOG k8s/pay/payments-gw STATUS payments-gw-6c8d7b9f5-gcfwg/payments-gw: restarts 2; last exit: Error (code 1) at 2026-10-10T07:48:41Z",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-sbrrn/payments-gw (previous) 2026-10-10T07:57:19.220019331Z Error: getaddrinfo EAI_AGAIN api.psp-gateway.example.com",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-sbrrn/payments-gw (previous) 2026-10-10T07:57:19.220188001Z     at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:109:26)",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-sbrrn/payments-gw (previous) 2026-10-10T07:57:19.220377120Z   errno: -3001, code: 'EAI_AGAIN', syscall: 'getaddrinfo', hostname: 'api.psp-gateway.example.com'",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-gx64f/payments-gw (previous) 2026-10-10T07:54:26.220019332Z Error: getaddrinfo EAI_AGAIN api.psp-gateway.example.com",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-gx64f/payments-gw (previous) 2026-10-10T07:54:26.220188002Z     at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:109:26)",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-gx64f/payments-gw (previous) 2026-10-10T07:54:26.220377121Z   errno: -3001, code: 'EAI_AGAIN', syscall: 'getaddrinfo', hostname: 'api.psp-gateway.example.com'",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-qkd67/payments-gw (previous) 2026-10-10T07:51:33.220019333Z Error: getaddrinfo EAI_AGAIN api.psp-gateway.example.com",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-qkd67/payments-gw (previous) 2026-10-10T07:51:33.220188003Z     at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:109:26)",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-qkd67/payments-gw (previous) 2026-10-10T07:51:33.220377122Z   errno: -3001, code: 'EAI_AGAIN', syscall: 'getaddrinfo', hostname: 'api.psp-gateway.example.com'",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-gcfwg/payments-gw (previous) 2026-10-10T07:48:40.220019334Z Error: getaddrinfo EAI_AGAIN api.psp-gateway.example.com",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-gcfwg/payments-gw (previous) 2026-10-10T07:48:40.220188004Z     at GetAddrInfoReqWrap.onlookup [as oncomplete] (node:dns:109:26)",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-gcfwg/payments-gw (previous) 2026-10-10T07:48:40.220377123Z   errno: -3001, code: 'EAI_AGAIN', syscall: 'getaddrinfo', hostname: 'api.psp-gateway.example.com'",
+      "LOG k8s/pay/payments-gw ROLLOUT revision 58 (current): 111122223333.dkr.ecr.eu-west-1.amazonaws.com/payments-gw:4.2.0-alpine created 2026-10-10T07:47:30Z",
+      "LOG k8s/pay/payments-gw ROLLOUT revision 57: 111122223333.dkr.ecr.eu-west-1.amazonaws.com/payments-gw:4.1.3 created 2026-10-04T08:15:00Z",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-sbrrn/payments-gw 2026-10-10T07:57:52.004410012Z payments-gw 4.2.0 node v20.17.0 libc=musl-1.2.5",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-sbrrn/payments-gw 2026-10-10T07:58:20.088120944Z WARN psp lookup api.psp-gateway.example.com took 5012ms (4 NXDOMAIN search expansions, 1 timeout)",
+      "LOG k8s/pay/payments-gw payments-gw-6c8d7b9f5-qkd67/payments-gw 2026-10-10T07:59:03.191223004Z POST /v1/charges 502 upstream=psp err=EAI_AGAIN",
+      "APPSG eks/shop-dev-eks sgs=[sg-03a5c7e9b1d2f4a68,sg-0e1d2c3b4a5968778]"
+    ],
+    "metrics": {
+      "alarm_value": 9.0,
+      "pods_total": 4.0,
+      "pods_ready": 2.0,
+      "restart_count": 9.0,
+      "oom_killed_containers": 0.0,
+      "crashloop_containers": 1.0,
+      "memory_limit_mib": 512.0,
+      "replicas_desired": 4.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "k8s",
+        "service": "payments-gw",
+        "at": "2026-10-10T07:47:30Z",
+        "image": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/payments-gw:4.2.0-alpine",
+        "previous": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/payments-gw:4.1.3",
+        "revision": "58"
+      }
+    ],
+    "tool_errors": []
+  }
+}

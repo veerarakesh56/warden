@@ -1,0 +1,31 @@
+{
+  "id": "g10-167",
+  "alert": {
+    "alert_id": "g10-167",
+    "name": "partner-exports-5xx",
+    "service": "partner-exports",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "partner-exports 5xxErrors above 10 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "s3_bucket": "partner-exports",
+      "alarm": "partner-exports-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/S3/5xxErrors BucketName=partner-exports,FilterId=EntireBucket stat=Sum period=60s threshold GreaterThanThreshold 10.0 datapoints=1/1 missing=notBreaching state=ALARM"
+    ],
+    "metrics": {
+      "alarm_5xxerrors": 3.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: alarm_5xxerrors PartialData (the series may be incomplete)",
+      "logs: alarm-siblings metrics: [failed (unclassified) on GetMetricData] An error occurred (InternalServiceError) when calling the GetMetricData operation (reached max retries: 0): Internal service error",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: s3-bucket: [access denied on GetBucketVersioning] An error occurred (AccessDenied) when calling the GetBucketVersioning operation: Access Denied"
+    ]
+  }
+}

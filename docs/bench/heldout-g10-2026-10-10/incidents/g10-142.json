@@ -1,0 +1,69 @@
+{
+  "id": "g10-142",
+  "alert": {
+    "alert_id": "g10-142",
+    "name": "fulfil-pg-replica-lag",
+    "service": "fulfil-pg",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "fulfil-pg AuroraReplicaLagMaximum above 10 seconds",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "fulfil-pg",
+      "alarm": "fulfil-pg-replica-lag"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/AuroraReplicaLagMaximum DBClusterIdentifier=fulfil-pg stat=Maximum period=60s threshold GreaterThanThreshold 10000.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on fulfil-pg in the 6 h before the alert",
+      "CLUSTER aurora fulfil-pg writer=fulfil-pg-1 readers=[fulfil-pg-2] status=available",
+      "postgres stuck connection: pid=61201 idle in transaction for 1502s: UPDATE pick_tasks SET picker_id = $1 WHERE id = $2",
+      "postgres stuck connection: pid=61244 idle in transaction for 1466s: SELECT * FROM pick_tasks WHERE wave_id = $1 FOR UPDATE SKIP LOCKED",
+      "postgres stuck connection: pid=61290 idle in transaction for 1430s: UPDATE pick_tasks SET picker_id = $1 WHERE id = $2",
+      "postgres stuck connection: pid=61330 idle in transaction for 1388s: SELECT * FROM pick_tasks WHERE wave_id = $1 FOR UPDATE SKIP LOCKED",
+      "postgres stuck connection: pid=61372 idle in transaction for 1351s: UPDATE pick_tasks SET picker_id = $1 WHERE id = $2",
+      "postgres stuck connection: pid=61415 idle in transaction for 1290s: UPDATE pick_tasks SET picker_id = $1 WHERE id = $2",
+      "postgres stuck connection: pid=61460 idle in transaction for 1232s: SELECT * FROM pick_tasks WHERE wave_id = $1 FOR UPDATE SKIP LOCKED",
+      "postgres stuck connection: pid=61499 idle in transaction for 1177s: UPDATE pick_tasks SET picker_id = $1 WHERE id = $2",
+      "postgres stuck connection: pid=61540 idle in transaction for 1104s: UPDATE pick_tasks SET picker_id = $1 WHERE id = $2",
+      "postgres stuck connection: pid=61588 idle in transaction for 1045s: SELECT * FROM pick_tasks WHERE wave_id = $1 FOR UPDATE SKIP LOCKED",
+      "postgres connections held: 388 idle in transaction from app=fulfil-worker client=10.70.2.31 (612/800 in use)",
+      "postgres connections held: 141 idle from app=fulfil-api client=10.70.3.8 (612/800 in use)",
+      "postgres connections held: 52 active from app=fulfil-api client=10.70.3.8 (612/800 in use)",
+      "[reader] postgres long-running query: pid=7781 running 1835s user=analyst app=psql client=10.70.9.3: SELECT s.carrier, count(*), avg(e.ts - s.created_at) FROM shipments s JOIN shipment_events e ON e.shipment_id = s.id GRO"
+    ],
+    "metrics": {
+      "alarm_aurorareplicalagmaximum": 31840.0,
+      "alarm_sibling_rds_cpuutilization": 46.1,
+      "alarm_sibling_rds_databaseconnections": 612.0,
+      "alarm_sibling_rds_commitlatency": 7.4,
+      "alarm_sibling_rds_aurorareplicalagminimum": 31840.0,
+      "alarm_sibling_rds_deadlocks": 0.0,
+      "alarm_sibling_rds_freeablememory": 14000000000.0,
+      "aurora_members_available": 2.0,
+      "aurora_db_load": 7.4,
+      "aurora_db_load_io": 3.9,
+      "aurora_db_load_cpu": 2.4,
+      "aurora_db_load_lock": 0.6,
+      "aurora_connections": 612.0,
+      "aurora_cpu_pct": 46.1,
+      "aurora_deadlocks": 0.0,
+      "aurora_replica_lag_ms": 31840.0,
+      "active_connections": 612.0,
+      "idle_in_transaction": 388.0,
+      "long_running_queries": 0.0,
+      "max_connections": 800.0,
+      "locks_waiting": 0.0,
+      "connections_used_pct": 0.765,
+      "reader_active_connections": 19.0,
+      "reader_idle_in_transaction": 0.0,
+      "reader_long_running_queries": 1.0,
+      "reader_max_connections": 800.0,
+      "reader_locks_waiting": 0.0,
+      "reader_connections_used_pct": 0.0238
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

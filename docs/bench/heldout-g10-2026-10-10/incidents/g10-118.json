@@ -1,0 +1,34 @@
+{
+  "id": "g10-118",
+  "alert": {
+    "alert_id": "g10-118",
+    "name": "shared-assets-efs-credits",
+    "service": "fs-0a1b2c3d4e5f60789",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "shared-assets EFS BurstCreditBalance below 1 GB",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "efs": "fs-0a1b2c3d4e5f60789",
+      "alarm": "shared-assets-efs-credits"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/EFS/BurstCreditBalance FileSystemId=fs-0a1b2c3d4e5f60789 stat=Minimum period=300s threshold LessThanThreshold 1000000000.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T05:31:40Z elasticfilesystem.amazonaws.com UpdateFileSystem on fs-0a1b2c3d4e5f60789 by role/platform-terraform-apply",
+      "STATE efs fs-0a1b2c3d4e5f60789 LifeCycleState=available ThroughputMode=bursting PerformanceMode=generalPurpose Value=64424509440 NumberOfMountTargets=3"
+    ],
+    "metrics": {
+      "alarm_burstcreditbalance": 0.0,
+      "alarm_sibling_efs_permittedthroughput": 3145728.0,
+      "alarm_sibling_efs_meterediobytes": 189000000.0,
+      "alarm_sibling_efs_totaliobytes": 190000000.0,
+      "alarm_sibling_efs_datareadiobytes": 170000000.0,
+      "alarm_sibling_efs_clientconnections": 12.0,
+      "alarm_sibling_efs_percentiolimit": 9.5
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "g10-045",
+  "alert": {
+    "alert_id": "g10-045",
+    "name": "accounts-http-api-4xx",
+    "service": "accounts",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "accounts HTTP API 4xx above 200 a minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "apigw_id": "k7p2x9q4m1",
+      "alarm": "accounts-http-api-4xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApiGateway/4xx ApiId=k7p2x9q4m1 stat=Sum period=60s threshold GreaterThanThreshold 200.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:52:18Z apigateway.amazonaws.com UpdateAuthorizer on k7p2x9q4m1 by role/identity-platform-deployer",
+      "STATE apigw_id k7p2x9q4m1 ProtocolType=HTTP DisableExecuteApiEndpoint=false"
+    ],
+    "metrics": {
+      "alarm_4xx": 13870.0,
+      "alarm_sibling_apigateway_5xx": 0.0,
+      "alarm_sibling_apigateway_count": 1460.0,
+      "alarm_sibling_apigateway_dataprocessed": 38211.0,
+      "alarm_sibling_apigateway_integrationlatency": 44.0,
+      "alarm_sibling_apigateway_latency": 52.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

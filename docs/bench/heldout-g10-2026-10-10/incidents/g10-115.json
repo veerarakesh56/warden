@@ -1,0 +1,53 @@
+{
+  "id": "g10-115",
+  "alert": {
+    "alert_id": "g10-115",
+    "name": "checkout-pricing errors",
+    "service": "checkout-pricing",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "Errors >= 10 in 3 of 3 minutes for checkout-pricing",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "checkout-pricing",
+      "alarm": "checkout-pricing-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "CONFIG appconfig checkout/dev monitors this alarm: deployment=14 state=COMPLETE version=9 completed=2026-10-10T07:47:12Z",
+      "ALARM AWS/Lambda/Errors FunctionName=checkout-pricing stat=Sum period=60s threshold GreaterThanOrEqualToThreshold 10.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE none on checkout-pricing in the 6 h before the alert",
+      "LOG lambda/checkout-pricing 2026-10-10T07:46:03Z [INFO]\t2026-10-10T07:46:03.041Z\tb936952e-9055-52f0-a601-ebf4e3ee6be9\tquote cart=c-77120 total=48.90 currency=EUR",
+      "LOG lambda/checkout-pricing 2026-10-10T07:47:48Z [appconfig agent] 2026/10/10 07:47:48 INFO retrieved data for 'checkout:dev:pricing-flags'",
+      "LOG lambda/checkout-pricing 2026-10-10T07:48:50Z [INFO]\t2026-10-10T07:48:50.600Z\t6df9e2eb-d1fa-5809-a188-28882c56f86b\tfeature flags loaded: new_tax_engine=on promo_stacking=off",
+      "LOG lambda/checkout-pricing 2026-10-10T07:48:51Z [ERROR]\t2026-10-10T07:48:51.002Z\tad292568-b30d-5c57-a1d8-b8d38d2d5296\tprice quote failed: flag new_tax_engine=on: TaxEngineError: no tax rule for country=DE category=digital_goods",
+      "LOG lambda/checkout-pricing 2026-10-10T07:50:07Z [INFO]\t2026-10-10T07:50:07.319Z\tbc803c39-b46f-53f6-95ce-2087f62f51db\tquote cart=c-77188 total=12.00 currency=EUR",
+      "LOG lambda/checkout-pricing 2026-10-10T07:52:30Z [ERROR]\t2026-10-10T07:52:30.077Z\tf6d6a473-43f6-50af-8274-4bc83f4e2dc8\tprice quote failed: flag new_tax_engine=on: TaxEngineError: no tax rule for country=DE category=digital_goods",
+      "LOG lambda/checkout-pricing 2026-10-10T07:57:12Z [ERROR]\t2026-10-10T07:57:12.511Z\tbfc9e08a-5c1b-511f-9009-3d8e52445be7\tprice quote failed: flag new_tax_engine=on: TaxEngineError: no tax rule for country=DE category=digital_goods",
+      "LOG lambda/checkout-pricing 2026-10-10T07:57:12Z REPORT RequestId: bfc9e08a-5c1b-511f-9009-3d8e52445be7\tDuration: 41.30 ms\tBilled Duration: 42 ms\tMemory Size: 1024 MB\tMax Memory Used: 166 MB",
+      "CONFIG lambda checkout-pricing timeout=6s memory=1024MB reserved_concurrency=none env=[APPCONFIG_APPLICATION,AWS_APPCONFIG_EXTENSION_POLL_INTERVAL_SECONDS=45,LOG_LEVEL=INFO] version=58 alias_live=58"
+    ],
+    "metrics": {
+      "alarm_errors": 611.0,
+      "alarm_sibling_lambda_invocations": 1408.0,
+      "alarm_sibling_lambda_duration": 233.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_concurrentexecutions": 9.0,
+      "log_error_lines": 611.0,
+      "log_errors_peak_per_min": 74.0,
+      "lambda_timeout_s": 6.0,
+      "lambda_memory_mb": 1024.0,
+      "lambda_errors": 611.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 1408.0,
+      "lambda_duration_max_ms": 233.0,
+      "lambda_concurrent_executions": 9.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: lambda/checkout-pricing logs: logs: [output truncated] stopped after 10 pages, the alert-time lines read first (raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)",
+      "logs: lambda/checkout-pricing logs: logs: [output truncated] kept the newest 120 lines and 30 older error line(s), dropped 1850 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"
+    ]
+  }
+}

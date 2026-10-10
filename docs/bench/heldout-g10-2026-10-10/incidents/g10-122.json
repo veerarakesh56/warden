@@ -1,0 +1,51 @@
+{
+  "id": "g10-122",
+  "alert": {
+    "alert_id": "g10-122",
+    "name": "search-tg-target-5xx",
+    "service": "search",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "search-tg target 5XX above 50",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "alb_target_group": "search-tg",
+      "load_balancer": "app/search-alb/6b5a4c3d2e1f0a98",
+      "alarm": "search-tg-target-5xx"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ApplicationELB/HTTPCode_Target_5XX_Count LoadBalancer=app/search-alb/6b5a4c3d2e1f0a98,TargetGroup=targetgroup/search-tg/2a3b4c5d6e7f8091 stat=Sum period=300s threshold GreaterThanThreshold 50.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:58:41Z elasticloadbalancing.amazonaws.com RegisterTargets on search-tg by role/AWSServiceRoleForAutoScaling",
+      "CHANGE 2026-10-10T07:52:10Z elasticloadbalancing.amazonaws.com RegisterTargets on search-tg by role/AWSServiceRoleForAutoScaling",
+      "CHANGE none on app/search-alb/6b5a4c3d2e1f0a98 in the 6 h before the alert",
+      "STATE load_balancer app/search-alb/6b5a4c3d2e1f0a98 Code=active Type=application Scheme=internet-facing IpAddressType=ipv4 AvailabilityZones=3",
+      "TARGETGROUP search-tg health_path=/ping port=traffic-port matcher=200",
+      "TARGET search-tg i-0c4f2a9e7b1d3f586:8080 initial Elb.RegistrationInProgress: Target registration is in progress",
+      "CONFIG alb search-alb zones=ap-south-1a,ap-south-1b,ap-south-1c zonal_shift=true"
+    ],
+    "metrics": {
+      "alarm_httpcode_target_5xx_count": 58.0,
+      "alarm_sibling_applicationelb_httpcode_target_2xx_count": 17920.0,
+      "alarm_sibling_applicationelb_healthyhostcount": 8.0,
+      "alarm_sibling_applicationelb_requestcount": 18010.0,
+      "alarm_sibling_applicationelb_requestcountpertarget": 2251.0,
+      "alarm_sibling_applicationelb_targetresponsetime": 0.21,
+      "alarm_sibling_applicationelb_unhealthyhostcount": 0.0,
+      "alb_healthy_hosts": 8.0,
+      "alb_unhealthy_hosts": 0.0,
+      "alb_target_5xx": 58.0,
+      "alb_elb_5xx": 0.0,
+      "alb_target_response_time_s": 0.21,
+      "alb_healthy_hosts_ap-south-1a": 3.0,
+      "alb_unhealthy_hosts_ap-south-1a": 0.0,
+      "alb_healthy_hosts_ap-south-1b": 3.0,
+      "alb_unhealthy_hosts_ap-south-1b": 0.0,
+      "alb_healthy_hosts_ap-south-1c": 2.0,
+      "alb_unhealthy_hosts_ap-south-1c": 0.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

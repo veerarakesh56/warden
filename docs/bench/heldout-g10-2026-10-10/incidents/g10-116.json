@@ -1,0 +1,36 @@
+{
+  "id": "g10-116",
+  "alert": {
+    "alert_id": "g10-116",
+    "name": "order-events-filtered-out",
+    "service": "orders",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "order-events notifications filtered out above 100",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "sns_topic": "order-events",
+      "alarm": "order-events-filtered-out"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/SNS/NumberOfNotificationsFilteredOut TopicName=order-events stat=Sum period=300s threshold GreaterThanThreshold 100.0 datapoints=2/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T07:44:10Z sns.amazonaws.com SetSubscriptionAttributes on order-events by role/fulfilment-deployer",
+      "POLICY sqs fulfilment-intake allows_sns_topic=order-events:yes",
+      "POLICY sqs analytics-intake allows_sns_topic=order-events:yes"
+    ],
+    "metrics": {
+      "alarm_numberofnotificationsfilteredout": 9184.0,
+      "alarm_sibling_sns_numberofmessagespublished": 612.0,
+      "alarm_sibling_sns_numberofnotificationsdelivered": 640.0,
+      "alarm_sibling_sns_numberofnotificationsfailed": 0.0,
+      "alarm_sibling_sns_numberofnotificationsfilteredout_messageattributes": 598.0,
+      "alarm_sibling_sns_publishsize": 2210.0,
+      "sns_notifications_failed": 0.0,
+      "sns_notifications_delivered": 9420.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

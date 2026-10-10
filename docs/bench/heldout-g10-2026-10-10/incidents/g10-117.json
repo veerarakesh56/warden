@@ -1,0 +1,82 @@
+{
+  "id": "g10-117",
+  "alert": {
+    "alert_id": "g10-117",
+    "name": "thumbnailer-errors",
+    "service": "thumbnailer",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "thumbnailer Errors above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "lambda": "thumbnailer",
+      "alarm": "thumbnailer-errors"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/Lambda/Errors FunctionName=thumbnailer stat=Sum period=60s threshold GreaterThanThreshold 3.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE 2026-10-10T07:37:10Z lambda.amazonaws.com UpdateAlias20150331 on thumbnailer by role/github-actions-deploy",
+      "CHANGE 2026-10-10T07:37:05Z lambda.amazonaws.com PublishVersion20150331 on thumbnailer by role/github-actions-deploy",
+      "CHANGE 2026-10-10T07:36:50Z lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 on thumbnailer by role/github-actions-deploy",
+      "CHANGE 2026-10-10T07:36:44Z lambda.amazonaws.com UpdateFunctionCode20150331v2 on thumbnailer by role/github-actions-deploy",
+      "LOG lambda/thumbnailer 2026-10-10T07:47:07Z INIT_START Runtime Version: python:3.12.v38\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:7b620fc2e66107a1046b140b9d320295811af3ad5d4c6a011fad1fa65127e9e6",
+      "LOG lambda/thumbnailer 2026-10-10T07:47:07Z [INFO]\t2026-10-10T07:47:07.404Z\tcold start python=3.12.6 arch=aarch64 layers=pillow-10-4:7",
+      "LOG lambda/thumbnailer 2026-10-10T07:47:07Z [ERROR] Runtime.ImportModuleError: Unable to import module 'handler': cannot import name '_imaging' from 'PIL' (/opt/python/PIL/__init__.py)",
+      "LOG lambda/thumbnailer 2026-10-10T07:47:07Z Traceback (most recent call last):",
+      "LOG lambda/thumbnailer 2026-10-10T07:47:07Z INIT_REPORT Init Duration: 312.44 ms\tPhase: invoke\tStatus: error\tError Type: Runtime.ImportModuleError",
+      "LOG lambda/thumbnailer 2026-10-10T07:47:07Z REPORT RequestId: a034f24d-99aa-45f1-bfd9-a2357b103c0e\tDuration: 1312.70 ms\tBilled Duration: 1313 ms\tMemory Size: 1024 MB\tMax Memory Used: 71 MB",
+      "LOG lambda/thumbnailer 2026-10-10T07:50:07Z INIT_START Runtime Version: python:3.12.v38\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:7b620fc2e66107a1046b140b9d320295811af3ad5d4c6a011fad1fa65127e9e6",
+      "LOG lambda/thumbnailer 2026-10-10T07:50:07Z [INFO]\t2026-10-10T07:50:07.404Z\tcold start python=3.12.6 arch=aarch64 layers=pillow-10-4:7",
+      "LOG lambda/thumbnailer 2026-10-10T07:50:07Z [ERROR] Runtime.ImportModuleError: Unable to import module 'handler': cannot import name '_imaging' from 'PIL' (/opt/python/PIL/__init__.py)",
+      "LOG lambda/thumbnailer 2026-10-10T07:50:07Z Traceback (most recent call last):",
+      "LOG lambda/thumbnailer 2026-10-10T07:50:07Z INIT_REPORT Init Duration: 312.44 ms\tPhase: invoke\tStatus: error\tError Type: Runtime.ImportModuleError",
+      "LOG lambda/thumbnailer 2026-10-10T07:50:07Z REPORT RequestId: 0c46cb57-cf1f-456d-a3b9-46d6a3a68804\tDuration: 1303.70 ms\tBilled Duration: 1304 ms\tMemory Size: 1024 MB\tMax Memory Used: 71 MB",
+      "LOG lambda/thumbnailer 2026-10-10T07:53:07Z INIT_START Runtime Version: python:3.12.v38\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:7b620fc2e66107a1046b140b9d320295811af3ad5d4c6a011fad1fa65127e9e6",
+      "LOG lambda/thumbnailer 2026-10-10T07:53:07Z [INFO]\t2026-10-10T07:53:07.404Z\tcold start python=3.12.6 arch=aarch64 layers=pillow-10-4:7",
+      "LOG lambda/thumbnailer 2026-10-10T07:53:07Z [ERROR] Runtime.ImportModuleError: Unable to import module 'handler': cannot import name '_imaging' from 'PIL' (/opt/python/PIL/__init__.py)",
+      "LOG lambda/thumbnailer 2026-10-10T07:53:07Z Traceback (most recent call last):",
+      "LOG lambda/thumbnailer 2026-10-10T07:53:07Z INIT_REPORT Init Duration: 312.44 ms\tPhase: invoke\tStatus: error\tError Type: Runtime.ImportModuleError",
+      "LOG lambda/thumbnailer 2026-10-10T07:53:07Z REPORT RequestId: ccef9843-5719-4a24-abab-3f8721ce115c\tDuration: 1294.70 ms\tBilled Duration: 1295 ms\tMemory Size: 1024 MB\tMax Memory Used: 71 MB",
+      "LOG lambda/thumbnailer 2026-10-10T07:56:07Z INIT_START Runtime Version: python:3.12.v38\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:7b620fc2e66107a1046b140b9d320295811af3ad5d4c6a011fad1fa65127e9e6",
+      "LOG lambda/thumbnailer 2026-10-10T07:56:07Z [INFO]\t2026-10-10T07:56:07.404Z\tcold start python=3.12.6 arch=aarch64 layers=pillow-10-4:7",
+      "LOG lambda/thumbnailer 2026-10-10T07:56:07Z [ERROR] Runtime.ImportModuleError: Unable to import module 'handler': cannot import name '_imaging' from 'PIL' (/opt/python/PIL/__init__.py)",
+      "LOG lambda/thumbnailer 2026-10-10T07:56:07Z Traceback (most recent call last):",
+      "LOG lambda/thumbnailer 2026-10-10T07:56:07Z INIT_REPORT Init Duration: 312.44 ms\tPhase: invoke\tStatus: error\tError Type: Runtime.ImportModuleError",
+      "LOG lambda/thumbnailer 2026-10-10T07:56:07Z REPORT RequestId: 016c2a98-9fad-4b6a-a1ab-c6017d73159e\tDuration: 1285.70 ms\tBilled Duration: 1286 ms\tMemory Size: 1024 MB\tMax Memory Used: 71 MB",
+      "LOG lambda/thumbnailer 2026-10-10T07:59:07Z INIT_START Runtime Version: python:3.12.v38\tRuntime Version ARN: arn:aws:lambda:eu-west-1::runtime:7b620fc2e66107a1046b140b9d320295811af3ad5d4c6a011fad1fa65127e9e6",
+      "LOG lambda/thumbnailer 2026-10-10T07:59:07Z [INFO]\t2026-10-10T07:59:07.404Z\tcold start python=3.12.6 arch=aarch64 layers=pillow-10-4:7",
+      "LOG lambda/thumbnailer 2026-10-10T07:59:07Z [ERROR] Runtime.ImportModuleError: Unable to import module 'handler': cannot import name '_imaging' from 'PIL' (/opt/python/PIL/__init__.py)",
+      "LOG lambda/thumbnailer 2026-10-10T07:59:07Z Traceback (most recent call last):",
+      "LOG lambda/thumbnailer 2026-10-10T07:59:07Z INIT_REPORT Init Duration: 312.44 ms\tPhase: invoke\tStatus: error\tError Type: Runtime.ImportModuleError",
+      "LOG lambda/thumbnailer 2026-10-10T07:59:07Z REPORT RequestId: a6bac148-faee-46f9-a7fb-063e61ba84db\tDuration: 1276.70 ms\tBilled Duration: 1277 ms\tMemory Size: 1024 MB\tMax Memory Used: 71 MB",
+      "CONFIG lambda thumbnailer timeout=15s memory=1024MB reserved_concurrency=none env=[LOG_LEVEL=INFO,OUTPUT_BUCKET=thumbs-dev] version=42 alias_live=42"
+    ],
+    "metrics": {
+      "alarm_errors": 4.0,
+      "alarm_sibling_lambda_invocations": 1.0,
+      "alarm_sibling_lambda_throttles": 0.0,
+      "alarm_sibling_lambda_duration": 1312.7,
+      "log_error_lines": 10.0,
+      "log_errors_peak_per_min": 2.0,
+      "lambda_timeout_s": 15.0,
+      "lambda_memory_mb": 1024.0,
+      "lambda_errors": 4.0,
+      "lambda_throttles": 0.0,
+      "lambda_invocations": 4.0,
+      "lambda_duration_max_ms": 1312.7,
+      "lambda_concurrent_executions": 1.0
+    },
+    "recent_deploys": [
+      {
+        "kind": "lambda",
+        "service": "thumbnailer",
+        "at": "2026-10-10T07:37:05Z",
+        "version": "42",
+        "previous": "41",
+        "previous_basis": "served live traffic before this version"
+      }
+    ],
+    "tool_errors": []
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "g10-159",
+  "alert": {
+    "alert_id": "g10-159",
+    "name": "invoice-batch-executions-failed",
+    "service": "billing",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "invoice-batch failed executions at or above 3",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "state_machine": "invoice-batch",
+      "alarm": "invoice-batch-executions-failed"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/States/ExecutionsFailed StateMachineArn=arn:aws:states:ap-south-1:111122223333:stateMachine:invoice-batch stat=Sum period=300s threshold GreaterThanOrEqualToThreshold 3.0 datapoints=1/1 missing=notBreaching state=ALARM",
+      "STATE state_machine invoice-batch status=ACTIVE type=STANDARD"
+    ],
+    "metrics": {
+      "alarm_executionsfailed": 9.0,
+      "alarm_sibling_states_executiontime": 61200.0,
+      "alarm_sibling_states_executionsstarted": 4.0,
+      "alarm_sibling_states_executionssucceeded": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [output truncated on GetMetricData] alarm_executionsfailed PartialData (the series may be incomplete)",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: states-failures: [access denied on ListExecutions] An error occurred (AccessDeniedException) when calling the ListExecutions operation: User is not authorized to perform: states:ListExecutions"
+    ]
+  }
+}

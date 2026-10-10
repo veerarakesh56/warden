@@ -1,0 +1,31 @@
+{
+  "id": "g10-102",
+  "alert": {
+    "alert_id": "g10-102",
+    "name": "rates-cache-replication-lag",
+    "service": "rates-cache",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "rates-cache replica ReplicationLag above 5 seconds",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "elasticache_node": "rates-cache-0001-002",
+      "alarm": "rates-cache-replication-lag"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/ElastiCache/ReplicationLag CacheClusterId=rates-cache-0001-002 stat=Maximum period=60s threshold GreaterThanThreshold 5.0 datapoints=3/3 missing=missing state=ALARM"
+    ],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [timed out] Read timeout on endpoint URL: \"https://monitoring.<region>.amazonaws.com/\"",
+      "logs: alarm: [timed out] Read timeout on endpoint URL: \"https://monitoring.<region>.amazonaws.com/\"",
+      "logs: elasticache-node: [not found on DescribeCacheClusters] An error occurred (CacheClusterNotFound) when calling the DescribeCacheClusters operation: CacheCluster not found: rates-cache-0001-002"
+    ],
+    "empty_reads": [
+      "metrics"
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "id": "g10-026",
+  "alert": {
+    "alert_id": "g10-026",
+    "name": "payments-pg-xid-age",
+    "service": "payments-pg",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "payments-pg MaximumUsedTransactionIDs above 1 billion",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "aurora_cluster": "payments-pg",
+      "alarm": "payments-pg-xid-age"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/RDS/MaximumUsedTransactionIDs DBClusterIdentifier=payments-pg,Role=WRITER stat=Maximum period=300s threshold GreaterThanThreshold 1000000000.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on payments-pg in the 6 h before the alert",
+      "CLUSTER aurora payments-pg writer=payments-pg-1 readers=[payments-pg-2] status=available",
+      "postgres stuck connection: pid=8812 idle in transaction for 271933s: UPDATE ledger_entries SET reconciled = true WHERE batch_id = $1",
+      "postgres long-running query: pid=9104 running 3311s user=? app=(none) client=local: autovacuum: VACUUM public.ledger_entries (to prevent wraparound)",
+      "postgres long-running query: pid=9230 running 1408s user=? app=(none) client=local: autovacuum: VACUUM public.payment_events (to prevent wraparound)"
+    ],
+    "metrics": {
+      "alarm_maximumusedtransactionids": 1118482212.0,
+      "alarm_sibling_rds_cpuutilization": 22.5,
+      "alarm_sibling_rds_databaseconnections": 143.0,
+      "alarm_sibling_rds_commitlatency": 2.1,
+      "alarm_sibling_rds_deadlocks": 0.0,
+      "alarm_sibling_rds_freeablememory": 24000000000.0,
+      "alarm_sibling_rds_writeiops": 2810.0,
+      "aurora_members_available": 2.0,
+      "aurora_db_load": 3.4,
+      "aurora_db_load_io": 1.9,
+      "aurora_db_load_cpu": 1.2,
+      "aurora_db_load_lwlock": 0.2,
+      "aurora_connections": 143.0,
+      "aurora_cpu_pct": 22.5,
+      "aurora_deadlocks": 0.0,
+      "aurora_replica_lag_ms": 12.6,
+      "active_connections": 143.0,
+      "idle_in_transaction": 1.0,
+      "long_running_queries": 2.0,
+      "max_connections": 2000.0,
+      "locks_waiting": 0.0,
+      "connections_used_pct": 0.0715,
+      "reader_active_connections": 51.0,
+      "reader_idle_in_transaction": 0.0,
+      "reader_long_running_queries": 0.0,
+      "reader_max_connections": 2000.0,
+      "reader_locks_waiting": 0.0,
+      "reader_connections_used_pct": 0.0255
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

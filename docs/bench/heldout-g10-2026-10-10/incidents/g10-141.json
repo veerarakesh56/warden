@@ -1,0 +1,32 @@
+{
+  "id": "g10-141",
+  "alert": {
+    "alert_id": "g10-141",
+    "name": "ledger-entries-read-throttles",
+    "service": "ledger-entries",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "ledger-entries ReadThrottleEvents above 50 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "ledger-entries",
+      "alarm": "ledger-entries-read-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/ReadThrottleEvents TableName=ledger-entries stat=Sum period=60s threshold GreaterThanThreshold 50.0 datapoints=2/2 missing=notBreaching state=ALARM"
+    ],
+    "metrics": {},
+    "recent_deploys": [],
+    "tool_errors": [
+      "logs: alarm metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: alarm-siblings metrics: [throttled on GetMetricData] An error occurred (Throttling) when calling the GetMetricData operation (reached max retries: 0): Rate exceeded",
+      "logs: changes: [throttled on LookupEvents] An error occurred (ThrottlingException) when calling the LookupEvents operation (reached max retries: 0): Rate exceeded",
+      "logs: dynamodb: [access denied on DescribeTable] An error occurred (AccessDeniedException) when calling the DescribeTable operation: User: arn:aws:sts::111122223333:assumed-role/warden-dev-platform-reader/inc-0001 is not authorized to perform: dynamodb:DescribeTable on resource: arn:aws:dynamodb:<region>:111122223333:table/ledger-entries because no identity-based policy allows the dynamodb:DescribeTable action"
+    ],
+    "empty_reads": [
+      "metrics"
+    ]
+  }
+}

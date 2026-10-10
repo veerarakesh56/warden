@@ -1,0 +1,68 @@
+{
+  "id": "g10-112",
+  "alert": {
+    "alert_id": "g10-112",
+    "name": "payments-api-running-tasks-low",
+    "service": "payments-api",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "payments-api RunningTaskCount below 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "ecs_cluster": "shop-dev",
+      "ecs_service": "payments-api",
+      "alarm": "payments-api-running-tasks-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM ECS/ContainerInsights/RunningTaskCount ClusterName=shop-dev,ServiceName=payments-api stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=3/3 missing=missing state=ALARM",
+      "CHANGE none on shop-dev in the 6 h before the alert",
+      "CHANGE none on payments-api in the 6 h before the alert",
+      "LOG ecs/payments-api 2026-10-10T07:47:50Z ERROR db ping failed: dial tcp 10.40.12.87:5432: i/o timeout",
+      "LOG ecs/payments-api 2026-10-10T07:47:51Z WARN  readiness /ready -> 503 (database unreachable after 5s)",
+      "LOG ecs/payments-api 2026-10-10T07:49:20Z ERROR db ping failed: dial tcp 10.40.12.87:5432: i/o timeout",
+      "LOG ecs/payments-api 2026-10-10T07:49:21Z WARN  readiness /ready -> 503 (database unreachable after 5s)",
+      "LOG ecs/payments-api 2026-10-10T07:51:40Z ERROR db ping failed: dial tcp 10.40.12.87:5432: i/o timeout",
+      "LOG ecs/payments-api 2026-10-10T07:51:41Z WARN  readiness /ready -> 503 (database unreachable after 5s)",
+      "LOG ecs/payments-api 2026-10-10T07:54:00Z ERROR db ping failed: dial tcp 10.40.12.87:5432: i/o timeout",
+      "LOG ecs/payments-api 2026-10-10T07:54:01Z WARN  readiness /ready -> 503 (database unreachable after 5s)",
+      "LOG ecs/payments-api 2026-10-10T07:56:30Z ERROR db ping failed: dial tcp 10.40.12.87:5432: i/o timeout",
+      "LOG ecs/payments-api 2026-10-10T07:56:31Z WARN  readiness /ready -> 503 (database unreachable after 5s)",
+      "LOG ecs/payments-api 2026-10-10T07:57:12Z ERROR charge c_7f1e: pq: could not connect: dial tcp 10.40.12.87:5432: i/o timeout",
+      "APPSG ecs/payments-api sgs=[sg-0a71c3e9d2b4f5a60]",
+      "TASKROLE ecs/payments-api role=payments-api-task",
+      "STATE ecs/payments-api deployment PRIMARY rollout=COMPLETED revision=payments-api:112 desired=3 running=1 pending=2 failed=8 at=2026-10-08T04:40:00Z",
+      "STATE ecs/payments-api service events in the hour before the alert: health_check_failed=6 started_tasks=5 stopped_tasks=5",
+      "STATE ecs/payments-api stopped task 87d32ba6 at=2026-10-10T07:57:15Z revision=payments-api:112 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/payments-api stopped task: Task failed container health checks",
+      "STATE ecs/payments-api stopped task ede06d82 at=2026-10-10T07:55:15Z revision=payments-api:112 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/payments-api stopped task: Task failed container health checks",
+      "STATE ecs/payments-api stopped task 74a5b595 at=2026-10-10T07:53:15Z revision=payments-api:112 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/payments-api stopped task: Task failed container health checks",
+      "STATE ecs/payments-api stopped task 278e3eb3 at=2026-10-10T07:51:15Z revision=payments-api:112 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/payments-api stopped task: Task failed container health checks",
+      "STATE ecs/payments-api stopped task 576bce51 at=2026-10-10T07:49:15Z revision=payments-api:112 stop=ServiceSchedulerInitiated cause=health_check exit=143",
+      "EVENT ecs/payments-api stopped task: Task failed container health checks",
+      "CHANGE 2026-10-10T07:44:18Z ec2.amazonaws.com RevokeSecurityGroupEgress on sg-0a71c3e9d2b4f5a60 (this workload's security group) by user/netops-jlee"
+    ],
+    "metrics": {
+      "alarm_value": 1.0,
+      "tasks_running": 1.0,
+      "tasks_desired": 3.0,
+      "tasks_pending": 2.0,
+      "deployments_in_flight": 1.0,
+      "deployment_failed_tasks": 8.0,
+      "cpu_utilization_pct": 6.1,
+      "memory_utilization_pct": 28.7,
+      "log_error_lines": 6.0,
+      "log_errors_peak_per_min": 1.0,
+      "ecs_stopped_tasks": 5.0,
+      "ecs_tasks_failed_to_start": 0.0,
+      "ecs_stopped_health_check": 5.0,
+      "network_changes_before_alert": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

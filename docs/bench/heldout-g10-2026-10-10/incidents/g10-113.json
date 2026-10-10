@@ -1,0 +1,38 @@
+{
+  "id": "g10-113",
+  "alert": {
+    "alert_id": "g10-113",
+    "name": "telemetry-events-write-throttles",
+    "service": "telemetry-events",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "telemetry-events WriteThrottleEvents above 500 per minute",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "dynamodb_table": "telemetry-events",
+      "alarm": "telemetry-events-write-throttles"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/DynamoDB/WriteThrottleEvents TableName=telemetry-events stat=Sum period=60s threshold GreaterThanThreshold 500.0 datapoints=3/3 missing=notBreaching state=ALARM",
+      "CHANGE 2026-10-10T04:40:02Z dynamodb.amazonaws.com UpdateContinuousBackups on telemetry-events by role/platform-terraform-apply",
+      "TABLE telemetry-events billing=PAY_PER_REQUEST rcu=0 wcu=0 status=ACTIVE"
+    ],
+    "metrics": {
+      "alarm_writethrottleevents": 26310.0,
+      "alarm_sibling_dynamodb_writekeyrangethroughputthrottleevents": 26310.0,
+      "alarm_sibling_dynamodb_consumedwritecapacityunits": 1.0,
+      "alarm_sibling_dynamodb_consumedreadcapacityunits": 1.0,
+      "alarm_sibling_dynamodb_writeaccountlimitthrottleevents": 0.0,
+      "alarm_sibling_dynamodb_readthrottleevents": 0.0,
+      "ddb_consumed_rcu": 12.4,
+      "ddb_consumed_wcu": 1630.2,
+      "ddb_read_throttle_events": 0.0,
+      "ddb_write_throttle_events": 26310.0,
+      "ddb_throttled_requests": 25987.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}

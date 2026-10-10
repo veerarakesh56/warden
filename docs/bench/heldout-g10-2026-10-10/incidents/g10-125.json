@@ -1,0 +1,42 @@
+{
+  "id": "g10-125",
+  "alert": {
+    "alert_id": "g10-125",
+    "name": "batch-asg-inservice-low",
+    "service": "batch",
+    "environment": "dev",
+    "severity": "high",
+    "summary": "batch-asg in-service instances below 2",
+    "started_at": "2026-10-10T08:00:00+00:00",
+    "labels": {
+      "asg": "batch-asg",
+      "alarm": "batch-asg-inservice-low"
+    }
+  },
+  "context": {
+    "logs": [
+      "ALARM AWS/AutoScaling/GroupInServiceInstances AutoScalingGroupName=batch-asg stat=Minimum period=60s threshold LessThanThreshold 2.0 datapoints=1/1 missing=missing state=ALARM",
+      "CHANGE none on batch-asg in the 6 h before the alert",
+      "STATE asg batch-asg MinSize=1 MaxSize=6 DesiredCapacity=1 Instances=1(Healthy:1) SuspendedProcesses=0",
+      "STATE asg batch-asg activity at=2026-10-10T07:59:04Z status=Successful cause=scheduled capacity=6->1",
+      "EVENT asg batch-asg activity: At 2026-10-10T07:58:46Z a scheduled action update of AutoScalingGroup constraints to min: 1, max: 6, desired: 1 changing the desired capacity from 6 to 1.  At 2026-10-10T07:59:04Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the capa",
+      "STATE asg batch-asg activity at=2026-10-10T07:59:03Z status=Successful cause=scheduled capacity=6->1",
+      "EVENT asg batch-asg activity: At 2026-10-10T07:58:46Z a scheduled action update of AutoScalingGroup constraints to min: 1, max: 6, desired: 1 changing the desired capacity from 6 to 1.  At 2026-10-10T07:59:03Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the capa",
+      "STATE asg batch-asg activity at=2026-10-10T07:59:02Z status=Successful cause=scheduled capacity=6->1",
+      "EVENT asg batch-asg activity: At 2026-10-10T07:58:46Z a scheduled action update of AutoScalingGroup constraints to min: 1, max: 6, desired: 1 changing the desired capacity from 6 to 1.  At 2026-10-10T07:59:02Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the capa",
+      "STATE asg batch-asg activity at=2026-10-10T07:59:01Z status=Successful cause=scheduled capacity=6->1",
+      "EVENT asg batch-asg activity: At 2026-10-10T07:58:46Z a scheduled action update of AutoScalingGroup constraints to min: 1, max: 6, desired: 1 changing the desired capacity from 6 to 1.  At 2026-10-10T07:59:01Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the capa",
+      "STATE asg batch-asg activity at=2026-10-10T07:59:00Z status=Successful cause=scheduled capacity=6->1",
+      "EVENT asg batch-asg activity: At 2026-10-10T07:58:46Z a scheduled action update of AutoScalingGroup constraints to min: 1, max: 6, desired: 1 changing the desired capacity from 6 to 1.  At 2026-10-10T07:59:00Z an instance was taken out of service in response to a difference between desired and actual capacity, shrinking the capa"
+    ],
+    "metrics": {
+      "alarm_groupinserviceinstances": 1.0,
+      "alarm_sibling_autoscaling_groupdesiredcapacity": 1.0,
+      "alarm_sibling_autoscaling_groupminsize": 1.0,
+      "alarm_sibling_autoscaling_groupmaxsize": 6.0,
+      "alarm_sibling_autoscaling_grouptotalinstances": 1.0
+    },
+    "recent_deploys": [],
+    "tool_errors": []
+  }
+}
