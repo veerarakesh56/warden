@@ -167,6 +167,11 @@ def call_timeout_s(provider: Any = None) -> float:
 # --------------------------------------------------------------------------- anthropic
 
 
+# Room for the whole answer: at 1500 one incident's answer was cut off three times in a row (2026-10-10). Output is
+# charged as used, and the incident's USD cap (llm.py) still stops the run.
+MAX_OUTPUT_TOKENS = 4096
+
+
 class AnthropicProvider:
     name = "anthropic"
 
@@ -181,11 +186,15 @@ class AnthropicProvider:
     def complete(self, *, system: str, user: str, schema: Any = None) -> Completion:
         resp = self._client.messages.create(
             model=self.model,
-            max_tokens=1500,
+            max_tokens=MAX_OUTPUT_TOKENS,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            # Said plainly: a cut-off answer read as "invalid JSON" three times, and the incident went to a person as
+            # "model unavailable" (qualification 2026-10-10, ecs-07, at 1500 tokens).
+            raise ProviderError(f"the answer was cut off at {MAX_OUTPUT_TOKENS} output tokens")
         return Completion(text, resp.usage.input_tokens, resp.usage.output_tokens)
 
 

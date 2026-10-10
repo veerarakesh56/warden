@@ -23,6 +23,8 @@
 # no authorised principals. A typo'd or brand-new environment name therefore cannot
 # inherit broad permissions by accident — it fails closed.
 #
+# G9-D (owner decision 2026-10-10): the reversible generic fix classes are allowed wherever a signed approval is
+# required; a person approves every one of them.
 # allow_actions / deny_actions values MUST be members of ActionKind (validated at
 # load). `deny_actions` wins over `allow_actions`. no_action and escalate_to_human
 # are ALWAYS permitted (the system must always be able to do nothing / hand off),
@@ -85,7 +87,8 @@ environments:
     tier: nonprod
     auto_remediate: true
     require_human_approval: false
-    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections]
+    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections,
+                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes]
     deny_actions: [failover_replica]     # a DB failover is a human call even in staging
     authorized_principals: [svc:warden-staging, role:oncall, role:platform, role:qa]
     credentials_ref: warden-staging-deploy
@@ -94,7 +97,8 @@ environments:
     tier: nonprod
     auto_remediate: true
     require_human_approval: false
-    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections]
+    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections,
+                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes]
     deny_actions: [failover_replica]
     authorized_principals: [svc:warden-qa, role:qa, role:oncall, role:platform]
     credentials_ref: warden-qa-staging-deploy
@@ -103,7 +107,8 @@ environments:
     tier: preprod
     auto_remediate: false        # WARDEN proposes; a human applies
     require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections]
+    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections,
+                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:release]
     credentials_ref: warden-pre-prod-deploy
@@ -112,7 +117,8 @@ environments:
     tier: preprod
     auto_remediate: false
     require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections]
+    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections,
+                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes]
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:qa-lead]
     credentials_ref: warden-qa-prod-deploy
@@ -121,7 +127,8 @@ environments:
     tier: prod
     auto_remediate: false        # NEVER auto in production
     require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache, terminate_connections]
+    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache, terminate_connections,
+                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes]
     deny_actions: [scale_down]   # scaling prod down is a capacity decision a human owns
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]
     credentials_ref: warden-prod-deploy

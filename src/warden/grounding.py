@@ -65,6 +65,20 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     ActionKind.failover_replica: ("replica", "lag", "failover", "unreachable", "refused", "timeout",
                                   "writer", "primary", "aurora"),
     ActionKind.clear_cache: ("cache", "redis", "evict", "stale", "hit", "miss", "memcache"),
+    # G9-D. Never a trusted line's own first word (CONFIG, STATE, SECRET, RULE, QUEUE, ...): every such line would
+    # support the action. CHANGE is kept for the two actions about changes: a change line does bear on them.
+    ActionKind.revert_config: ("flag", "feature", "appconfig", "parameter", "setting", "toggle", "change", "updated",
+                               "modified", "revert", "version"),
+    ActionKind.pause_flow: ("poison", "loop", "recurs", "storm", "runaway", "flood", "redeliver", "receive count",
+                            "dead-letter", "dlq", "duplicat", "cascad", "overload"),
+    ActionKind.resume_flow: ("disabled", "paused", "stopped", "inactive", "suspended", "not enabled"),
+    ActionKind.shift_traffic: ("zone", "zonal", "az", "impair", "unhealthy host", "unhealthyhost", "outage"),
+    ActionKind.redrive_messages: ("dlq", "dead-letter", "deadletter", "redriv", "maxreceive", "receive count"),
+    ActionKind.cancel_query: ("query", "statement", "long_running", "long-running", "scan", "queued", "workgroup"),
+    # Not "limit": a container's "memory limit" and a database's "connection limit" are not throttles (qualification
+    # 2026-10-10: raise_limit for an OOM, allowed).
+    ActionKind.raise_limit: ("throttl", "quota", "429", "too many", "exceeded", "concurrency", "burst", "rate"),
+    ActionKind.freeze_changes: ("deploy", "release", "pipeline", "commit", "change", "rollout"),
 }
 
 

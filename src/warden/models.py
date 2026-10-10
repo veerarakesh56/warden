@@ -206,6 +206,16 @@ class ActionKind(str, Enum):
     # reversible database write WARDEN performs — kills the connection, never the data. Not auto-safe
     # (touches a running DB); it goes through the full gate like every other real action.
     terminate_connections = "terminate_connections"
+    # G9-D (2026-10-10): the generic fix classes every main AWS service shares (owner decision: all reversible ones may
+    # run after a signed approval). Each is advice until a catalogue entry carries it out on the labelled resource.
+    revert_config = "revert_config"        # a configuration or feature flag back to its previous deployed version
+    pause_flow = "pause_flow"              # stop a consumer or a trigger that is causing harm (messages wait)
+    resume_flow = "resume_flow"            # turn a disabled consumer or trigger back on
+    shift_traffic = "shift_traffic"        # move traffic away from an impaired Availability Zone, for a set time
+    redrive_messages = "redrive_messages"  # move dead-lettered messages back to their source queue, at a capped rate
+    cancel_query = "cancel_query"          # stop one runaway query; the session and the data are untouched
+    raise_limit = "raise_limit"            # raise a throttle or reservation inside the account's own limit, bounded
+    freeze_changes = "freeze_changes"      # stop further deploys reaching the service while a person looks
     no_action = "no_action"
     escalate_to_human = "escalate_to_human"
 
@@ -255,6 +265,26 @@ ACTION_FACTS: dict[ActionKind, tuple[bool, str]] = {
     # exactly what it guarantees, and the pool reconnects. The question P2 asks is whether the
     # SYSTEM returns to its prior state, not whether one connection object survives.
     ActionKind.terminate_connections: (True, "single_service"),
+    # G9-D. A previous configuration version is kept by the configuration store; deploying the newer one again is
+    # routine - the same argument as rollback_deploy.
+    ActionKind.revert_config: (True, "single_service"),
+    # A paused consumer leaves its messages in the source, and resuming is the undo. A paused SCHEDULE misses its
+    # ticks while paused; the plan names the rule, and a person approves it knowing that.
+    ActionKind.pause_flow: (True, "single_service"),
+    ActionKind.resume_flow: (True, "single_service"),
+    # A zonal shift ends by itself at its expiry and can be cancelled. multi_service: everything behind the load
+    # balancer loses that zone's capacity while it lasts.
+    ActionKind.shift_traffic: (True, "multi_service"),
+    # Cancelling the move stops it; a redriven message that fails again returns to the dead-letter queue by the
+    # queue's own redrive policy. One processed successfully stays processed - as after any fix that lets traffic
+    # flow again - so the plan shows how many messages wait.
+    ActionKind.redrive_messages: (True, "single_service"),
+    # The query is lost and can be run again; its session, its data and the engine are untouched.
+    ActionKind.cancel_query: (True, "single_service"),
+    # Undone by setting the previous value back; bounded by the account's own limit (catalogue).
+    ActionKind.raise_limit: (True, "single_service"),
+    # Re-enabling the transition is the undo; nothing already deployed changes.
+    ActionKind.freeze_changes: (True, "single_service"),
     # Touch nothing. Present so the table is total over ActionKind: a KeyError inside the gate must
     # be impossible.
     ActionKind.no_action: (True, "single_pod"),
@@ -262,10 +292,31 @@ ACTION_FACTS: dict[ActionKind, tuple[bool, str]] = {
 }
 
 
+# What each action means, in the schema the model answers in (G9-D, 2026-10-10). Without it the names alone were read
+# their own way: qualification answered `raise_limit` for an out-of-memory kill after a config change lowered a
+# container's memory limit - and the gate allowed it.
+ACTION_MEANINGS = (
+    "rollback_deploy: return the service to the version or revision it ran before a deploy. "
+    "restart_pods: replace running instances with new ones of the SAME version. "
+    "scale_up / scale_down: change the NUMBER of replicas, tasks or provisioned capacity. "
+    "revert_config: return a configuration or feature flag to its previous deployed version. "
+    "pause_flow: stop a queue consumer or a scheduled trigger that is causing harm. "
+    "resume_flow: turn a disabled consumer or trigger back on. "
+    "shift_traffic: move a load balancer's traffic away from one impaired Availability Zone. "
+    "redrive_messages: move a dead-letter queue's messages back to their source queue. "
+    "cancel_query: stop one runaway analytics query. "
+    "raise_limit: raise a REQUEST throttle or a reserved concurrency of a managed service (an API stage's rate, a "
+    "function's reserved concurrency) - never a container's CPU or memory limit, never a database's connection limit. "
+    "freeze_changes: stop further deploys reaching the service while a person looks. "
+    "failover_replica, clear_cache, terminate_connections: what they say, on a database or cache. "
+    "no_action: nothing is wrong. escalate_to_human: a person decides."
+)
+
+
 class RemediationProposal(BaseModel):
     """Structured output from the model. Input to the verifier. Never executed directly."""
 
-    action: ActionKind
+    action: ActionKind = Field(description=ACTION_MEANINGS)
     target: ModelText = Field(description="ONE resource name, e.g. checkout or lambda:my-fn - nothing else")
     reasoning: ModelText
     expected_effect: ModelText

@@ -136,6 +136,9 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
                           "dynamodb": "dynamodb_raise_capacity"},
     ActionKind.terminate_connections: {"db": "db_terminate_idle_in_tx"},
     ActionKind.failover_replica: {"rds": "aurora_failover"},
+    # G9-D: the generic classes, as far as an entry carries them out today.
+    ActionKind.resume_flow: {"events": "events_enable_rule"},
+    ActionKind.raise_limit: {"lambda": "lambda_set_reserved_concurrency"},
 }
 
 

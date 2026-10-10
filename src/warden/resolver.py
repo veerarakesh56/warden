@@ -25,6 +25,7 @@ from .models import ActionKind, Alert, RemediationProposal
 # The labels that name one platform's resource, and the catalogue parameters they fill (outermost first).
 _PLATFORM_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
     "lambda": (("lambda", "function"),),
+    "events": (("eventbridge_rule", "rule"),),
     "ecs": (("ecs_cluster", "cluster"), ("ecs_service", "service")),
     "dynamodb": (("dynamodb_table", "table"),),
     "k8s": (("namespace", "namespace"), ("deployment", "deployment")),

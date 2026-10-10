@@ -287,8 +287,10 @@ MUTATIONS = [
     (
         "terminate_connections dropped from the production allow-list",
         "data/environments.yaml",
-        "    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache, terminate_connections]",
-        "    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache]",
+        ("    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache, terminate_connections,\n"
+         "                    revert_config,"),
+        ("    allow_actions: [restart_pods, scale_up, rollback_deploy, failover_replica, clear_cache,\n"
+         "                    revert_config,"),
         "policy P1 would reject the action in prod, and the eval row for inc-005 must notice",
     ),
     (

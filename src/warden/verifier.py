@@ -303,6 +303,11 @@ def _contradiction(proposal, context) -> str | None:
         return ("scale_up adds replicas, but every pod is failing: they are OOM-killed before serving "
                 "traffic, so load is not what fills memory and every new replica dies at startup the "
                 "same way. The per-replica memory limit or the application's memory use is the cause.")
+    # G9-D (qualification 2026-10-10): raise_limit raises a request throttle or a reserved concurrency; an
+    # out-of-memory kill is not a throttle, and a memory limit is not what it raises.
+    if a is ActionKind.raise_limit and _oom_seen(context):
+        return ("raise_limit raises a request throttle or a reserved concurrency, and the evidence shows "
+                "out-of-memory kills: no throttle is what kills the process.")
     if a is ActionKind.scale_down and _oom_seen(context):
         return ("scale_down with OOM kills in the evidence: fewer replicas cannot lower any replica's "
                 "memory use, and if memory grows with load it pushes more load onto each one.")
