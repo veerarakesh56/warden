@@ -320,7 +320,7 @@ def _install_log_gate() -> None:
 # Every catalogue platform the AWS platform carries out (review 2026-10-10, M1: sqs, athena and apigw were missing, so
 # their plans could never be made). tests/test_actions_g9d.py holds it to the AWS platform's own entries.
 AWS_PLATFORMS = ("lambda", "events", "dynamodb", "ecs", "rds", "sqs", "athena", "apigw", "elb", "appconfig", "codepipeline",
-                 "ec2")
+                 "ec2", "asg", "kms", "secretsmanager")
 
 
 def _platform(choice: str):

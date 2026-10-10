@@ -142,6 +142,40 @@
           "aws:SourceIdentity": "inc-*"
         }
       }
+    },
+    {
+      "Sid": "AutoScalingGroupsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "autoscaling:SetDesiredCapacity",
+      "Resource": "arn:aws:autoscaling:ap-south-2:*:autoScalingGroup:*:autoScalingGroupName/warden-pre-prod-*",
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "RevertsOnThisEnvironmentsTaggedResources",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DeregisterTargets",
+        "elasticloadbalancing:RegisterTargets",
+        "kms:CancelKeyDeletion",
+        "secretsmanager:RestoreSecret"
+      ],
+      "Resource": [
+        "arn:aws:elasticloadbalancing:ap-south-2:*:targetgroup/warden-pre-prod-*/*",
+        "arn:aws:kms:ap-south-2:*:key/*",
+        "arn:aws:secretsmanager:ap-south-2:*:secret:warden-pre-prod-*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "pre-prod"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
     }
   ]
 }

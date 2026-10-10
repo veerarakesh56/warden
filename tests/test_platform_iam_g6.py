@@ -21,7 +21,8 @@ PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs":
           "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds",
           "sqs": "sqs", "athena": "athena", "apigateway": "apigateway", "sts": "sts", "elbv2": "elasticloadbalancing",
           "ec2": "ec2", "arc-zonal-shift": "arc-zonal-shift", "appconfig": "appconfig",
-          "codepipeline": "codepipeline", "config": "config"}
+          "codepipeline": "codepipeline", "config": "config", "autoscaling": "autoscaling",
+          "kms": "kms", "secretsmanager": "secretsmanager"}
 # Actions AWS authorizes for a call besides the call's own (Service Authorization Reference, read 2026-10-10): the
 # session asks for them, the code never calls them.
 IMPLICIT = {"sqs:StartMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
@@ -120,15 +121,33 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     p.apply("ec2_revert_sg_change", sg, snapshot=p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
     p.rollback("ec2_revert_sg_change", sg, p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
     # G10-D3: values back to what AWS Config recorded before the change - applied, judged, rolled back.
-    from test_revert_config_history_g10d3 import ECS, LAM, _lambda_fake
+    from test_revert_config_history_g10d3 import ASG, ECS, LAM, STAGE, _lambda_fake, _trail
     from test_revert_config_history_g10d3 import Fake as History
+    from test_revert_config_history_g10d3 import Groups as Scaled
+    from test_revert_events_g10d2 import KEY_ID, SECRET, TG, Reverts
+
+    def _staged():
+        g = Scaled()
+        g.events = [_trail("UpdateStage", {"restApiId": "api1", "stageName": "prod", "patchOperations": [
+            {"op": "replace", "path": "/deploymentId", "value": "dep-new"}]}, eid="s-1")]
+        return g
 
     for fake, entry, params, after in (
             (History(), "ecs_restore_desired", {**ECS, "event": "e-1", "desired": "2"}, ("desired", 2)),
             (_lambda_fake(), "lambda_restore_concurrency", {**LAM, "event": "l-1", "concurrency": "50"},
              ("reserved", 50)),
             (_lambda_fake(None), "lambda_restore_concurrency", {**LAM, "event": "l-1", "concurrency": "none"},
-             ("reserved", None))):
+             ("reserved", None)),
+            (Scaled(), "asg_restore_capacity", {**ASG, "event": "a-1", "desired": "6"}, ("capacity", 6)),
+            (_staged(), "apigw_restore_stage", {**STAGE, "event": "s-1", "deployment": "dep-old"},
+             ("deployment", "dep-old")),
+            # G10-D2: the undo the event itself holds
+            (Reverts(), "elb_reregister_targets", {"alarm": ALARM, "target_group": TG, "event": "t-1"},
+             ("registered", {"i-0aaa"})),
+            (Reverts(), "kms_cancel_key_deletion", {"alarm": ALARM, "key": KEY_ID, "event": "k-1"},
+             ("key_state", "Disabled")),
+            (Reverts(), "secrets_restore_secret", {"alarm": ALARM, "secret": SECRET, "event": "s-1"},
+             ("deleted", False))):
         def history_actor(who, actions, resources, condition, also=(), fake=fake):
             granted.update(actions)
             clients = fake.actor(who, actions, resources, condition, also)

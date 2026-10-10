@@ -142,6 +142,40 @@
           "aws:SourceIdentity": "inc-*"
         }
       }
+    },
+    {
+      "Sid": "AutoScalingGroupsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "autoscaling:SetDesiredCapacity",
+      "Resource": "arn:aws:autoscaling:${region}:*:autoScalingGroup:*:autoScalingGroupName/warden-${env}-*",
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "RevertsOnThisEnvironmentsTaggedResources",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DeregisterTargets",
+        "elasticloadbalancing:RegisterTargets",
+        "kms:CancelKeyDeletion",
+        "secretsmanager:RestoreSecret"
+      ],
+      "Resource": [
+        "arn:aws:elasticloadbalancing:${region}:*:targetgroup/warden-${env}-*/*",
+        "arn:aws:kms:${region}:*:key/*",
+        "arn:aws:secretsmanager:${region}:*:secret:warden-${env}-*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
     }
   ]
 }

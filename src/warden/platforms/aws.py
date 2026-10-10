@@ -81,7 +81,9 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
           "codepipeline_freeze": "codepipeline", "ec2_revert_sg_change": "ec2",
-          "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda",
+          "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda", "asg_restore_capacity": "asg",
+          "apigw_restore_stage": "apigw", "elb_reregister_targets": "elb", "kms_cancel_key_deletion": "kms",
+          "secrets_restore_secret": "secretsmanager",
           "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
@@ -315,6 +317,9 @@ class AwsPlatform:
                 "appconfig_revert": self._live_appconfig, "codepipeline_freeze": self._live_pipeline,
                 "ec2_revert_sg_change": self._live_sg_change, "ecs_restore_desired": self._live_ecs_desired,
                 "lambda_restore_concurrency": self._live_lambda_restore,
+                "asg_restore_capacity": self._live_asg_restore, "apigw_restore_stage": self._live_stage_restore,
+                "elb_reregister_targets": self._live_targets, "kms_cancel_key_deletion": self._live_key_deletion,
+                "secrets_restore_secret": self._live_secret_deletion,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -358,6 +363,9 @@ class AwsPlatform:
                  "appconfig_revert": self._appconfig_reverted, "codepipeline_freeze": self._frozen,
                  "ec2_revert_sg_change": self._sg_alarm_ok, "ecs_restore_desired": self._ecs_restored,
                  "lambda_restore_concurrency": self._lambda_restored,
+                 "asg_restore_capacity": self._asg_restored, "apigw_restore_stage": self._stage_restored,
+                 "elb_reregister_targets": self._targets_healthy, "kms_cancel_key_deletion": self._key_kept,
+                 "secrets_restore_secret": self._secret_restored,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -387,6 +395,11 @@ class AwsPlatform:
         if entry == "ecs_restart_service":
             # The same task definition runs again: there is nothing to return to.
             return "nothing to roll back: a restart replaced tasks with the same task definition"
+        if entry == "kms_cancel_key_deletion":
+            return ("nothing to roll back: scheduling a key's deletion again is a person's decision, never WARDEN's "
+                    "undo")
+        if entry == "secrets_restore_secret":
+            return "nothing to roll back: deleting a secret again is a person's decision, never WARDEN's undo"
         if entry == "aurora_failover":
             # Irreversible (the catalogue's T3): failing back is another failover, a new decision for a person.
             return "nothing to roll back: a failover is not undone automatically; a person decides whether to fail back"
@@ -409,6 +422,9 @@ class AwsPlatform:
                  "appconfig_revert": self._appconfig_revert, "codepipeline_freeze": self._freeze,
                  "ec2_revert_sg_change": self._sg_revert, "ecs_restore_desired": self._ecs_restore,
                  "lambda_restore_concurrency": self._lambda_restore,
+                 "asg_restore_capacity": self._asg_restore, "apigw_restore_stage": self._stage_restore,
+                 "elb_reregister_targets": self._targets, "kms_cancel_key_deletion": self._key_cancel,
+                 "secrets_restore_secret": self._secret_restore,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -1618,6 +1634,296 @@ class AwsPlatform:
         want = None if params.get("concurrency") == "none" else int(params.get("concurrency", -1))
         got = self._read("lambda").get_function_concurrency(FunctionName=function).get("ReservedConcurrentExecutions")
         return got == want and self._alarm_ok(str(params.get("alarm", "")))
+
+    def _live_asg_restore(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded SetDesiredCapacity / UpdateAutoScalingGroup that set this group's desired capacity in the
+        hours before its alarm, and the capacity AWS Config recorded before it. A change that also set the group's
+        bounds is a person's; a scheduled action leaves no such event (AWS made it) and is not undone."""
+        name, alarm = params.get("asg"), params.get("alarm")
+        if not isinstance(name, str) or not isinstance(alarm, str):
+            return {}
+        g = (self._read("autoscaling").describe_auto_scaling_groups(AutoScalingGroupNames=[name]).get(
+            "AutoScalingGroups") or [{}])[0]
+        if g.get("AutoScalingGroupName") != name:
+            return {}
+        arn, desired = g.get("AutoScalingGroupARN", ""), g.get("DesiredCapacity")
+        lo, hi = g.get("MinSize"), g.get("MaxSize")
+        state: dict[str, Any] = {"asg": name, "arn": arn, "desired_now": desired, "where": self._where(arn)}
+        live = {"asg": {name}, "alarm": {alarm}, "event": set(), "desired": set(),
+                "environment": {t["Key"]: t["Value"] for t in g.get("Tags") or []}.get(ENV_TAG)}
+        onset = self._alarm_onset(alarm)
+        named = params.get("event")
+        if onset is None and not isinstance(named, str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+
+        def sets_capacity(e: dict[str, Any]) -> bool:
+            r = e["request"] or {}
+            return _last(r.get("autoScalingGroupName")) == name and "desiredCapacity" in r
+
+        writes = list({w["event"]: w for event in ("SetDesiredCapacity", "UpdateAutoScalingGroup")
+                       for w in self._trail_writes("EventName", event, since, self._now(), sets_capacity)}.values())
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} change(s) to "
+                    f"{name}'s desired capacity since {since:%Y-%m-%dT%H:%MZ}"}
+        e = writes[0]
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        if not why and {"minSize", "maxSize"} & set(e["request"] or {}):
+            why = "the change also set the group's bounds: a person restores them"
+        rid = self._config_id("AWS::AutoScaling::AutoScalingGroup", name, lambda rid: name in rid)
+        before = after = None
+        if rid and (not why or onset is None):
+            before, after, bracket = self._config_bracket(
+                "AWS::AutoScaling::AutoScalingGroup", rid, e, lambda i: _get(_json(i.get("configuration")), "desiredCapacity"))
+            why = why or bracket
+        elif not why:
+            why = "AWS Config holds no single record of this group"
+        state.update(before=before, after=after)
+        if not why and (not isinstance(before, int) or not isinstance(lo, int) or not isinstance(hi, int)
+                        or not lo <= before <= hi):
+            why = f"the capacity before ({before}) is outside the group's bounds now ({lo}..{hi})"
+        if not why and (after != (e["request"] or {}).get("desiredCapacity") or desired != after):
+            why = "the group's capacity is not what the change set: it moved since"
+        return {**live, "event": set() if why else {e["event"]}, "desired": set() if why else {str(before)},
+                "refused": why, "state": state}
+
+    def _asg_restore(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("asg", "arn", "event", "before", "after"), f"group {p['asg']}")
+        prior = int(p["desired"]) if str(p["desired"]).isdigit() else None
+        want_now, to = (snapshot.get("after"), prior) if not back else (prior, snapshot.get("after"))
+        if now.get("desired_now") != want_now or not isinstance(to, int):
+            raise AwsPlatformRefused(f"group {p['asg']} wants {now.get('desired_now')} instances, not {want_now}; "
+                                     "nothing was changed")
+        asg = self._actor(who, ["autoscaling:SetDesiredCapacity"], [now["arn"]], None)("autoscaling")
+        asg.set_desired_capacity(AutoScalingGroupName=p["asg"], DesiredCapacity=to, HonorCooldown=False)
+        return f"set group {p['asg']} desired capacity from {now.get('desired_now')} to {to}"
+
+    def _asg_restored(self, group: str, params: dict[str, Any]) -> bool:
+        g = (self._read("autoscaling").describe_auto_scaling_groups(AutoScalingGroupNames=[group]).get(
+            "AutoScalingGroups") or [{}])[0]
+        want = int(params["desired"]) if str(params.get("desired", "")).isdigit() else None
+        serving = sum(1 for i in g.get("Instances") or [] if i.get("LifecycleState") == "InService"
+                      and i.get("HealthStatus") == "Healthy")
+        return (isinstance(want, int) and g.get("DesiredCapacity") == want and serving == want
+                and self._alarm_ok(str(params.get("alarm", ""))))
+
+    def _live_stage_restore(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded UpdateStage that only moved this REST API stage to another deployment in the hours before
+        its alarm, and the deployment AWS Config recorded before it - which must still exist."""
+        name, stage, alarm = params.get("api"), params.get("stage"), params.get("alarm")
+        if not all(isinstance(v, str) for v in (name, stage, alarm)):
+            return {}
+        api_id, api_tags = self._rest_api(name)
+        if not api_id:
+            return {}
+        apigw = self._read("apigateway")
+        st = apigw.get_stage(restApiId=api_id, stageName=stage)
+        arn = f"arn:aws:apigateway:{apigw.meta.region_name}::/restapis/{api_id}/stages/{stage}"
+        state: dict[str, Any] = {"api": name, "api_id": api_id, "stage": stage, "arn": arn,
+                                 "deployment_now": st.get("deploymentId"), "where": apigw.meta.region_name}
+        live = {"api": {name}, "stage": {stage}, "alarm": {alarm}, "event": set(), "deployment": set(),
+                "environment": (st.get("tags") or {}).get(ENV_TAG) or api_tags.get(ENV_TAG)}
+        onset = self._alarm_onset(alarm)
+        named = params.get("event")
+        if onset is None and not isinstance(named, str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+
+        def moves_deployment(e: dict[str, Any]) -> bool:
+            r = e["request"] or {}
+            ops = r.get("patchOperations") or _get(r.get("updateStageInput") or {}, "patchOperations") or []
+            return (r.get("restApiId") == api_id and r.get("stageName") == stage and len(ops) == 1
+                    and isinstance(ops[0], dict) and ops[0].get("path") == "/deploymentId"
+                    and ops[0].get("op") == "replace")
+
+        writes = self._trail_writes("EventName", "UpdateStage", since, self._now(), moves_deployment)
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} deployment "
+                    f"change(s) to stage {stage} since {since:%Y-%m-%dT%H:%MZ}"}
+        e = writes[0]
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        rid = self._config_id("AWS::ApiGateway::Stage", stage, lambda rid: api_id in rid)
+        before = after = None
+        if rid and (not why or onset is None):
+            before, after, bracket = self._config_bracket(
+                "AWS::ApiGateway::Stage", rid, e, lambda i: _get(_json(i.get("configuration")), "deploymentId"))
+            why = why or bracket
+        elif not why:
+            why = "AWS Config holds no single record of this stage"
+        state.update(before=before, after=after)
+        if not why and st.get("deploymentId") != after:
+            why = "the stage's deployment is not what the change set: it moved since"
+        if not why:
+            try:
+                apigw.get_deployment(restApiId=api_id, deploymentId=str(before))
+            except Exception:  # noqa: BLE001 - gone, or unreadable: nothing to go back to
+                why = f"the deployment before the change ({before}) no longer exists"
+        return {**live, "event": set() if why else {e["event"]}, "deployment": set() if why else {str(before)},
+                "refused": why, "state": state}
+
+    def _stage_restore(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("api", "api_id", "stage", "arn", "event", "before", "after"), f"stage {p['stage']}")
+        want_now, to = (snapshot.get("after"), p["deployment"]) if not back else (p["deployment"], snapshot.get("after"))
+        if now.get("deployment_now") != want_now or not isinstance(to, str):
+            raise AwsPlatformRefused(f"stage {p['stage']} serves deployment {now.get('deployment_now')}, not "
+                                     f"{want_now}; nothing was changed")
+        apigw = self._actor(who, ["apigateway:PATCH"], [now["arn"]], None)("apigateway")
+        apigw.update_stage(restApiId=now["api_id"], stageName=p["stage"],
+                           patchOperations=[{"op": "replace", "path": "/deploymentId", "value": to}])
+        return f"moved stage {p['stage']} from deployment {now.get('deployment_now')} to {to}"
+
+    def _stage_restored(self, stage: str, params: dict[str, Any]) -> bool:
+        api_id, _ = self._rest_api(str(params.get("api", "")))
+        st = self._read("apigateway").get_stage(restApiId=api_id, stageName=stage) if api_id else {}
+        return st.get("deploymentId") == params.get("deployment") and self._alarm_ok(str(params.get("alarm", "")))
+
+    # ------------------------------------------------------------------ undo a recorded change, from the event (G10-D2)
+
+    def _one_write(self, event: str, keep: Callable[[dict[str, Any]], bool], params: dict[str, Any],
+                   alarm: str) -> tuple[dict[str, Any] | None, datetime | None, str]:
+        """(the ONE successful `event` write `keep` accepts in the hours before the alarm, the alarm's onset, why
+        none). A plan's own event (params["event"]) is found again once the alarm reads OK - for the rollback and
+        the health check - but is allowed again only while it reads ALARM."""
+        onset = self._alarm_onset(alarm)
+        named = params.get("event")
+        if onset is None and not isinstance(named, str):
+            return None, None, "the alarm is not in ALARM"
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        writes = list({w["event"]: w for w in self._trail_writes("EventName", event, since, self._now(), keep)}.values())
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return None, onset, (f"{'no recorded' if not writes else len(writes)} {event} since "
+                                 f"{since:%Y-%m-%dT%H:%MZ}" + (" (WARDEN does not choose one)" if writes else ""))
+        e = writes[0]
+        return e, onset, (_who_refusal(e, onset) if onset else "the alarm is not in ALARM")
+
+    def _live_targets(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE DeregisterTargets a person made on this target group before the alarm - an ECS service or an Auto
+        Scaling group deregisters its own (AWS-made: refused) - and its targets, while none is registered again."""
+        name, alarm = params.get("target_group"), params.get("alarm")
+        if not isinstance(name, str) or not isinstance(alarm, str):
+            return {}
+        elb = self._read("elbv2")
+        [tg] = elb.describe_target_groups(Names=[name])["TargetGroups"]
+        arn = tg["TargetGroupArn"]
+        tags = {t["Key"]: t["Value"] for d in elb.describe_tags(ResourceArns=[arn]).get("TagDescriptions") or []
+                for t in d.get("Tags") or []}
+        state: dict[str, Any] = {"target_group": name, "arn": arn, "where": self._where(arn)}
+        live = {"target_group": {name}, "alarm": {alarm}, "event": set(), "environment": tags.get(ENV_TAG)}
+        e, _onset, why = self._one_write(
+            "DeregisterTargets", lambda e: _get(e["request"] or {}, "targetGroupArn") == arn, params, alarm)
+        if e is not None:
+            targets = sorted(([str(_get(t, "id")), _get(t, "port")] for t in _get(e["request"], "targets") or []
+                              if isinstance(t, dict) and _get(t, "id")), key=json.dumps)
+            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")}, targets=targets)
+            if not why and not targets:
+                why = "the event names no target it deregistered"
+            if not why:
+                now = elb.describe_target_health(TargetGroupArn=arn, Targets=[
+                    {"Id": t, **({"Port": p} if isinstance(p, int) else {})} for t, p in targets]).get(
+                    "TargetHealthDescriptions") or []
+                if any(((h.get("TargetHealth") or {}).get("State")) not in (None, "unused", "draining") for h in now):
+                    why = "a deregistered target is registered again already"
+        return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
+
+    def _targets(self, p, snapshot, now, who, back) -> str:
+        """Register the targets the recorded DeregisterTargets removed (back: deregister them again)."""
+        self._expect(now, snapshot, ("target_group", "arn", "event", "targets"), f"target group {p['target_group']}")
+        targets = [{"Id": t, **({"Port": port} if isinstance(port, int) else {})} for t, port in now["targets"]]
+        action = "elasticloadbalancing:DeregisterTargets" if back else "elasticloadbalancing:RegisterTargets"
+        elb = self._actor(who, [action], [now["arn"]], None)("elbv2")
+        (elb.deregister_targets if back else elb.register_targets)(TargetGroupArn=now["arn"], Targets=targets)
+        return f"{'deregistered' if back else 'registered'} {len(targets)} target(s) in {p['target_group']}"
+
+    def _targets_healthy(self, name: str, params: dict[str, Any]) -> bool:
+        st = self._live_targets(params).get("state") or {}
+        if not st.get("targets"):
+            return False
+        now = self._read("elbv2").describe_target_health(TargetGroupArn=st["arn"], Targets=[
+            {"Id": t, **({"Port": p} if isinstance(p, int) else {})} for t, p in st["targets"]]).get(
+            "TargetHealthDescriptions") or []
+        healthy = [h for h in now if (h.get("TargetHealth") or {}).get("State") == "healthy"]
+        return len(healthy) == len(st["targets"]) and self._alarm_ok(str(params.get("alarm", "")))
+
+    def _live_key_deletion(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE ScheduleKeyDeletion on this customer managed key before the alarm, while the key is still pending
+        deletion. Cancelling keeps the key but leaves it disabled: enabling it is a person's (a key may be disabled
+        because it is compromised)."""
+        key, alarm = params.get("key"), params.get("alarm")
+        if not isinstance(key, str) or not isinstance(alarm, str):
+            return {}
+        kms = self._read("kms")
+        meta = kms.describe_key(KeyId=key)["KeyMetadata"]
+        kid, arn = meta["KeyId"], meta["Arn"]
+        tags = {t["TagKey"]: t["TagValue"] for t in kms.list_resource_tags(KeyId=kid).get("Tags") or []}
+        state: dict[str, Any] = {"key": key, "arn": arn, "key_state": meta.get("KeyState"), "where": self._where(arn)}
+        live = {"key": {key}, "alarm": {alarm}, "event": set(), "environment": tags.get(ENV_TAG)}
+        e, _onset, why = self._one_write(
+            "ScheduleKeyDeletion", lambda e: _last(_get(e["request"] or {}, "keyId")) in (kid, _last(arn)), params, alarm)
+        if e is not None:
+            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        if not why and meta.get("KeyManager") != "CUSTOMER":
+            why = "an AWS managed key is AWS's to manage"
+        if not why and meta.get("KeyState") != "PendingDeletion":
+            why = f"the key is {meta.get('KeyState')}, not pending deletion"
+        return {**live, "event": set() if why or e is None else {e["event"]}, "refused": why, "state": state}
+
+    def _key_cancel(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("key", "arn", "event"), f"key {p['key']}")
+        if now.get("key_state") != "PendingDeletion":
+            raise AwsPlatformRefused(f"key {p['key']} is {now.get('key_state')}, not pending deletion; nothing was "
+                                     "changed")
+        kms = self._actor(who, ["kms:CancelKeyDeletion"], [now["arn"]], None)("kms")
+        kms.cancel_key_deletion(KeyId=now["arn"])
+        return f"cancelled the deletion of key {p['key']} (it stays disabled until a person enables it)"
+
+    def _key_kept(self, key: str, params: dict[str, Any]) -> bool:
+        return self._read("kms").describe_key(KeyId=key)["KeyMetadata"].get("KeyState") == "Disabled"
+
+    def _live_secret_deletion(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE DeleteSecret with a recovery window on this secret before the alarm, while it is still
+        recoverable. One deleted without recovery is gone: nothing to restore."""
+        name, alarm = params.get("secret"), params.get("alarm")
+        if not isinstance(name, str) or not isinstance(alarm, str):
+            return {}
+        sm = self._read("secretsmanager")
+        d = sm.describe_secret(SecretId=name)
+        arn = d["ARN"]
+        tags = {t["Key"]: t["Value"] for t in d.get("Tags") or []}
+        state: dict[str, Any] = {"secret": d.get("Name", name), "arn": arn, "deleted": bool(d.get("DeletedDate")),
+                                 "where": self._where(arn)}
+        live = {"secret": {name}, "alarm": {alarm}, "event": set(), "environment": tags.get(ENV_TAG)}
+
+        def on_this(e: dict[str, Any]) -> bool:
+            r = e["request"] or {}
+            return str(_get(r, "secretId") or "") in (arn, d.get("Name"), name) and not _get(
+                r, "forceDeleteWithoutRecovery")
+
+        e, _onset, why = self._one_write("DeleteSecret", on_this, params, alarm)
+        if e is not None:
+            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        if not why and not d.get("DeletedDate"):
+            why = "the secret is not deleted (restored already)"
+        return {**live, "event": set() if why or e is None else {e["event"]}, "refused": why, "state": state}
+
+    def _secret_restore(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("secret", "arn", "event"), f"secret {p['secret']}")
+        if not now.get("deleted"):
+            raise AwsPlatformRefused(f"secret {p['secret']} is not deleted; nothing was changed")
+        sm = self._actor(who, ["secretsmanager:RestoreSecret"], [now["arn"]], None)("secretsmanager")
+        sm.restore_secret(SecretId=now["arn"])
+        return f"restored secret {p['secret']}"
+
+    def _secret_restored(self, name: str, params: dict[str, Any]) -> bool:
+        d = self._read("secretsmanager").describe_secret(SecretId=name)
+        return not d.get("DeletedDate") and self._alarm_ok(str(params.get("alarm", "")))
 
     # ------------------------------------------------------------------ codepipeline: freeze deploys (G9-D)
 

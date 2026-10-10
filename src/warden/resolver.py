@@ -35,6 +35,9 @@ _PLATFORM_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
     "dynamodb": (("dynamodb_table", "table"),),
     "k8s": (("namespace", "namespace"), ("deployment", "deployment")),
     "rds": (("aurora_cluster", "cluster"),),
+    "asg": (("asg", "asg"),),  # G10-D3: an Auto Scaling group, by its name
+    "kms": (("kms_key", "key"),),  # G10-D2
+    "secretsmanager": (("secret", "secret"),),
 }
 
 
@@ -172,6 +175,29 @@ def _security_group(alert: Alert, proposal: RemediationProposal, live: Any) -> t
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
 
 
+def _target_groups(alert: Alert) -> set[str]:
+    return {alert.labels[k] for k in ("alb_target_group", "nlb_target_group") if alert.labels.get(k)}
+
+
+def _deregistered(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
+    """revert_change on a target group (G10-D2): the ONE DeregisterTargets a person made before the alarm."""
+    alarm = alert.labels.get("alarm", "")
+    if not alarm or "," in alarm:
+        return None, "the alert names no single alarm, so no change before it can be dated"
+    group = _bare(alert, proposal.target)
+    entry = catalog.CATALOG["elb_reregister_targets"]
+    state = live(entry.name, {"target_group": group, "alarm": alarm})
+    events = state.get("event")
+    if not isinstance(events, set | frozenset) or len(events) != 1:
+        return None, f"no change to {group} WARDEN may undo: {state.get('refused') or 'it could not be read'}"
+    params = {"alarm": alarm, "target_group": group, "event": next(iter(events))}
+    problems = catalog.validate(entry.name, params, state)
+    if problems:
+        return None, "; ".join(problems)
+    return {"entry": entry.name, "params": params, "service": params[entry.target_param],
+            "environment": alert.environment, "incident_id": alert.alert_id}, ""
+
+
 # A security group's id: what revert_change names when a CHANGE line shows a write to one.
 _SG_ID = re.compile(r"sg-[0-9a-f]{8,17}")
 
@@ -239,6 +265,8 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
         return _sessions(alert, proposal, live)
     if proposal.action is ActionKind.revert_change and _SG_ID.fullmatch(_bare(alert, proposal.target)):
         return _security_group(alert, proposal, live)
+    if proposal.action is ActionKind.revert_change and _bare(alert, proposal.target) in _target_groups(alert):
+        return _deregistered(alert, proposal, live)
     found = _platform(alert, proposal.target)
     if found is None:
         return None, "the proposal's target is not a resource the alert's labels name"

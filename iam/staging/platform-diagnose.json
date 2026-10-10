@@ -49,6 +49,23 @@
           "aws:RequestedRegion": "ap-south-2"
         }
       }
+    },
+    {
+      "Sid": "DeploymentsOfThisEnvironmentsApis",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": "arn:aws:apigateway:ap-south-2::/restapis/*/deployments/*"
+    },
+    {
+      "Sid": "KeyTagsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "kms:ListResourceTags",
+      "Resource": "arn:aws:kms:ap-south-2:*:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "staging"
+        }
+      }
     }
   ]
 }

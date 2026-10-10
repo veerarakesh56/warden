@@ -49,6 +49,23 @@
           "aws:RequestedRegion": "${region}"
         }
       }
+    },
+    {
+      "Sid": "DeploymentsOfThisEnvironmentsApis",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": "arn:aws:apigateway:${region}::/restapis/*/deployments/*"
+    },
+    {
+      "Sid": "KeyTagsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "kms:ListResourceTags",
+      "Resource": "arn:aws:kms:${region}:*:key/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        }
+      }
     }
   ]
 }

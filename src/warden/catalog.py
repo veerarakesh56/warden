@@ -72,7 +72,7 @@ TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",)
                  "codepipeline": ("pipeline", "stage"),
                  "apigw": ("stage", "api"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
                  "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",),
-                 "ec2": ("group",)}
+                 "ec2": ("group",), "asg": ("asg",), "kms": ("key",), "secretsmanager": ("secret",)}
 
 
 def _ref(*names: str) -> dict[str, Param]:
@@ -202,6 +202,19 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("alarm", "cluster", "service", "event", "desired")),
     Entry("lambda_restore_concurrency", "T2", "lambda", "the reserved concurrency AWS Config recorded before the change",
           _ref("alarm", "function", "event", "concurrency")),
+    Entry("asg_restore_capacity", "T2", "asg", "the desired capacity AWS Config recorded before the change",
+          _ref("alarm", "asg", "event", "desired")),
+    # A stage moved to another deployment: back to the one before, which must still exist - a "stage rollback".
+    Entry("apigw_restore_stage", "T2", "apigw", "the deployment AWS Config recorded before the change",
+          _ref("alarm", "api", "stage", "event", "deployment")),
+    # G10-D2: the event itself holds the undo. Targets a PERSON deregistered (an ECS service's or an Auto Scaling
+    # group's own deregistrations are AWS-made, refused); a key's scheduled deletion (it stays disabled - enabling is a
+    # person's); a deleted secret still in its recovery window.
+    Entry("elb_reregister_targets", "T2", "elb", "the targets the recorded change deregistered",
+          _ref("alarm", "target_group", "event"), target=("target_group",)),
+    Entry("kms_cancel_key_deletion", "T1", "kms", "n/a (the key is kept; it stays disabled)", _ref("alarm", "key", "event")),
+    Entry("secrets_restore_secret", "T1", "secretsmanager", "n/a (the secret is restored as it was)",
+          _ref("alarm", "secret", "event")),
 ]}
 
 # Which entries can carry out what the model proposed, per platform. An action with no entry is
@@ -230,7 +243,10 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     # G10-D: a recorded change undone - a security group's rules, or a rule or consumer a change disabled (the same
     # writes as resume_flow, reached as the undo of that change).
     ActionKind.revert_change: {"ec2": "ec2_revert_sg_change", "events": "events_enable_rule",
-                               "ecs": "ecs_restore_desired", "lambda": "lambda_restore_concurrency"},
+                               "ecs": "ecs_restore_desired", "lambda": "lambda_restore_concurrency",
+                               "asg": "asg_restore_capacity", "apigw": "apigw_restore_stage",
+                               "elb": "elb_reregister_targets", "kms": "kms_cancel_key_deletion",
+                               "secretsmanager": "secrets_restore_secret"},
 }
 
 
@@ -251,6 +267,20 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                "enabled", f"disabled; its messages wait in the queue, kept "
                                                f"{s.get('retention_s')} s; it stays paused until a person resumes it")],
     "events_enable_rule": lambda p, s: [_arrow(f"rule {p['rule']}", "disabled", "enabled")],
+    "elb_reregister_targets": lambda p, s: [(f"target group {p['target_group']}: register again "
+                                             f"{', '.join(f'{t}:{port}' for t, port in s.get('targets') or [])} - "
+                                             f"undoing {s.get('event_name')} at {s.get('event_time')} by "
+                                             f"{s.get('actor')}")],
+    "kms_cancel_key_deletion": lambda p, s: [_arrow(f"key {p['key']}", "pending deletion",
+                                                    "kept, still disabled (a person enables it)")],
+    "secrets_restore_secret": lambda p, s: [_arrow(f"secret {p['secret']}", "deleted (recoverable)", "restored")],
+    "asg_restore_capacity": lambda p, s: [_arrow(f"desired capacity of group {p['asg']}", s.get("desired_now"),
+                                                 f"{p['desired']} (what AWS Config recorded before {s.get('event_name')} "
+                                                 f"at {s.get('event_time')} by {s.get('actor')})")],
+    "apigw_restore_stage": lambda p, s: [_arrow(f"deployment of stage {p['stage']} of {p['api']}",
+                                                s.get("deployment_now"),
+                                                f"{p['deployment']} (what AWS Config recorded before "
+                                                f"{s.get('event_name')} at {s.get('event_time')} by {s.get('actor')})")],
     "ecs_restore_desired": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired_now"),
                                                 f"{p['desired']} (what AWS Config recorded before {s.get('event_name')} "
                                                 f"at {s.get('event_time')} by {s.get('actor')})")],
@@ -336,7 +366,8 @@ ROLLS_PODS = frozenset({"k8s_restart", "ecs_restart_service"})
 MITIGATES = {"lambda_disable_esm": "it stays paused until a person resumes it",
              "events_disable_rule": "it stays paused until a person resumes it",
              "arc_zonal_shift": "traffic avoids the impaired zone until the shift expires; the zone is not fixed",
-             "codepipeline_freeze": "deploys stay frozen until a person enables the stage's transition again"}
+             "codepipeline_freeze": "deploys stay frozen until a person enables the stage's transition again",
+             "kms_cancel_key_deletion": "the key is kept but stays disabled until a person enables it"}
 # Snapshot values that move on their own while a plan waits: shown to the approver, left out of the drift hash (M6).
 VOLATILE = {"sqs_redrive_dlq": ("waiting",)}
 # A queue a paused mapping reads must keep its messages at least this long (H2: a 60 s retention expires them).

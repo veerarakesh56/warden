@@ -208,3 +208,106 @@ def test_the_resolver_plans_revert_change_on_a_labelled_service_with_the_alarm_a
     req, why = resolver.request_for(alert, proposal, lambda e, params: p.live(e, params))
     assert why == "" and req["entry"] == "ecs_restore_desired"
     assert req["params"] == {**ECS, "event": "e-1", "desired": "2"}
+
+
+# ---------------------------------------------------------------- D3b: an Auto Scaling group, an API Gateway stage
+
+ASG_ARN = f"arn:aws:autoscaling:test-region-1:{ACCT}:autoScalingGroup:1-2-3:autoScalingGroupName/warden-dev-web"
+ASG = {"alarm": ALARM, "asg": "warden-dev-web"}
+STAGE = {"alarm": ALARM, "api": "warden-dev-shop", "stage": "prod"}
+
+
+class Groups(Fake):
+    def __init__(self):
+        super().__init__()
+        self.capacity, self.bounds, self.serving = 2, (1, 8), 2
+        self.deployment, self.deployments = "dep-new", {"dep-old", "dep-new"}
+        self.events = [_trail("SetDesiredCapacity", {"autoScalingGroupName": "warden-dev-web", "desiredCapacity": 2},
+                              eid="a-1", source="autoscaling.amazonaws.com")]
+        self.history["AWS::AutoScaling::AutoScalingGroup"] = [_ci(600, {"desiredCapacity": 6}),
+                                                               _ci(59, {"desiredCapacity": 2}, related=["a-1"])]
+        self.history["AWS::ApiGateway::Stage"] = [_ci(600, {"deploymentId": "dep-old"}),
+                                                  _ci(59, {"deploymentId": "dep-new"}, related=["s-1"])]
+
+    def describe_auto_scaling_groups(self, AutoScalingGroupNames):
+        return {"AutoScalingGroups": [{"AutoScalingGroupName": "warden-dev-web", "AutoScalingGroupARN": ASG_ARN,
+                                       "DesiredCapacity": self.capacity, "MinSize": self.bounds[0],
+                                       "MaxSize": self.bounds[1], "Tags": [{"Key": "Environment", "Value": "dev"}],
+                                       "Instances": [{"LifecycleState": "InService", "HealthStatus": "Healthy"}]
+                                       * self.serving}]}
+
+    def list_discovered_resources(self, resourceType, resourceName):
+        if resourceType == "AWS::AutoScaling::AutoScalingGroup":
+            return {"resourceIdentifiers": [{"resourceId": ASG_ARN}]}
+        if resourceType == "AWS::ApiGateway::Stage":
+            return {"resourceIdentifiers": [{"resourceId": "api1/prod"}, {"resourceId": "other/prod"}]}
+        return super().list_discovered_resources(resourceType, resourceName)
+
+    # apigateway
+    def get_rest_apis(self, **kw):
+        return {"items": [{"id": "api1", "name": "warden-dev-shop", "tags": {"Environment": "dev"}}]}
+
+    def get_stage(self, restApiId, stageName):
+        return {"deploymentId": self.deployment, "tags": {"Environment": "dev"}}
+
+    def get_deployment(self, restApiId, deploymentId):
+        if deploymentId not in self.deployments:
+            raise RuntimeError("NotFoundException")
+        return {"id": deploymentId}
+
+
+def test_a_capacity_cut_is_set_back_within_the_groups_bounds():
+    f = Groups()
+    p = _p(f)
+    live = p.live("asg_restore_capacity", ASG)
+    assert live["event"] == {"a-1"} and live["desired"] == {"6"} and live["environment"] == "dev", live.get("refused")
+    plan = {**ASG, "event": "a-1", "desired": "6"}
+    p.apply("asg_restore_capacity", plan, snapshot=live["state"], who=WHO)
+    assert f.sessions == [{"actions": ["autoscaling:SetDesiredCapacity"], "resources": [ASG_ARN]}]
+    assert f.writes == [("set_desired_capacity", {"AutoScalingGroupName": "warden-dev-web", "DesiredCapacity": 6,
+                                                  "HonorCooldown": False})]
+    f.capacity, f.alarm_state = 6, "OK"
+    assert not p.healthy("warden-dev-web", entry="asg_restore_capacity", params=plan)  # 2 of 6 serving
+    f.serving = 6
+    assert p.healthy("warden-dev-web", entry="asg_restore_capacity", params=plan)
+
+
+@pytest.mark.parametrize("change, why", [
+    (lambda f: f.events.__setitem__(0, _trail("UpdateAutoScalingGroup", {
+        "autoScalingGroupName": "warden-dev-web", "desiredCapacity": 2, "maxSize": 2}, eid="a-1")), "bounds"),
+    (lambda f: setattr(f, "bounds", (1, 4)), "outside the group's bounds"),
+    (lambda f: f.events.clear(), "no recorded"),  # a scheduled action: AWS made it, no such event
+])
+def test_a_group_change_a_person_owns_is_refused(change, why):
+    f = Groups()
+    change(f)
+    live = _p(f).live("asg_restore_capacity", ASG)
+    assert live["event"] == set() and why in live["refused"], live.get("refused")
+
+
+def test_a_stage_moved_to_a_new_deployment_goes_back_to_the_one_before():
+    f = Groups()
+    f.events = [_trail("UpdateStage", {"restApiId": "api1", "stageName": "prod", "patchOperations": [
+        {"op": "replace", "path": "/deploymentId", "value": "dep-new"}]}, eid="s-1", source="apigateway.amazonaws.com")]
+    p = _p(f)
+    live = p.live("apigw_restore_stage", STAGE)
+    assert live["event"] == {"s-1"} and live["deployment"] == {"dep-old"}, live.get("refused")
+    p.apply("apigw_restore_stage", {**STAGE, "event": "s-1", "deployment": "dep-old"}, snapshot=live["state"], who=WHO)
+    assert f.sessions[-1]["actions"] == ["apigateway:PATCH"]
+    assert f.writes[-1] == ("update_stage", {"restApiId": "api1", "stageName": "prod", "patchOperations": [
+        {"op": "replace", "path": "/deploymentId", "value": "dep-old"}]})
+
+
+@pytest.mark.parametrize("ops, gone, why", [
+    ([{"op": "replace", "path": "/deploymentId", "value": "dep-new"},
+      {"op": "replace", "path": "/variables/x", "value": "1"}], False, "no recorded"),  # more than a move: a person's
+    ([{"op": "replace", "path": "/deploymentId", "value": "dep-new"}], True, "no longer exists"),
+    ([{"op": "replace", "path": "/variables/x", "value": "1"}], False, "no recorded"),  # another setting, not a move
+])
+def test_a_stage_change_that_did_more_or_a_deployment_that_is_gone_is_refused(ops, gone, why):
+    f = Groups()
+    f.events = [_trail("UpdateStage", {"restApiId": "api1", "stageName": "prod", "patchOperations": ops}, eid="s-1")]
+    if gone:
+        f.deployments.discard("dep-old")
+    live = _p(f).live("apigw_restore_stage", STAGE)
+    assert live["event"] == set() and why in live["refused"], live.get("refused")

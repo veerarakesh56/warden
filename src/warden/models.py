@@ -317,8 +317,9 @@ ACTION_MEANINGS = (
     "raise_limit: raise a REQUEST throttle or a reserved concurrency of a managed service (an API stage's rate, a "
     "function's reserved concurrency) - never a container's CPU or memory limit, never a database's connection limit. "
     "freeze_changes: stop further deploys reaching the service while a person looks. "
-    "revert_change: undo ONE configuration change a CHANGE line records shortly before the alert (a security group "
-    "rule revoked or added, a rule or consumer disabled) back to what it was - target the changed resource itself. "
+    "revert_change: undo ONE configuration change a CHANGE line records shortly before the alert, back to what it "
+    "was - a security group rule revoked or added, a desired count, capacity or reserved concurrency set, an API stage "
+    "moved to another deployment, a scheduled rule disabled. Target the changed resource itself. "
     "failover_replica, clear_cache, terminate_connections: what they say, on a database or cache. "
     "no_action: nothing is wrong. escalate_to_human: a person decides."
 )
