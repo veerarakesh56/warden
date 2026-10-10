@@ -203,9 +203,11 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     # G9-D: the generic classes, as far as an entry carries them out today.
     ActionKind.pause_flow: {"lambda": "lambda_disable_esm", "events": "events_disable_rule"},
     ActionKind.resume_flow: {"lambda": "lambda_enable_esm", "events": "events_enable_rule"},
-    # Only the stage throttle: a Lambda's reserved concurrency is scale_up's, under scale_up's evidence and allowlist
-    # (independent review 2026-10-10, H1: the same write reached through raise_limit escaped both).
-    ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle"},
+    # A Lambda's reserved concurrency again too (G10-B): the schema tells the model raise_limit means it, and the
+    # held-out author's key agreed - so a right answer was never planned. Review H1's harm stays closed by its other
+    # half: raise_limit's own evidence words (grounding: throttl, quota, 429, burst) - "too many connections" or an
+    # error rate supports it no more (tests/test_review_g9d.py h1), and P11 refuses it against an OOM.
+    ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle", "lambda": "lambda_set_reserved_concurrency"},
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
     ActionKind.shift_traffic: {"elb": "arc_zonal_shift"},
     ActionKind.revert_config: {"appconfig": "appconfig_revert"},

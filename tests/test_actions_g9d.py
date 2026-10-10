@@ -60,8 +60,8 @@ def test_a_disabled_rule_is_resumed_through_its_entry():
                             expected_effect="e", blast_radius="single_service", reversible=True),
         lambda e, p: {"rule": {"warden-dev-nightly"}})
     assert why == "" and req["entry"] == "events_enable_rule" and req["params"] == {"rule": "warden-dev-nightly"}
-    # Review H1: a Lambda's reserved concurrency is scale_up's only - raise_limit reached it with weaker evidence.
-    assert catalog.for_action(ActionKind.raise_limit, "lambda") is None
+    # Review H1 closed raise_limit's weak evidence words; G10-B maps it to the reserved concurrency again.
+    assert catalog.for_action(ActionKind.raise_limit, "lambda").name == "lambda_set_reserved_concurrency"
     assert catalog.for_action(ActionKind.scale_up, "lambda").name == "lambda_set_reserved_concurrency"
     assert catalog.for_action(ActionKind.raise_limit, "apigw").name == "apigw_raise_stage_throttle"
 

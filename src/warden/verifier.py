@@ -25,6 +25,7 @@ from .models import (
     Verdict,
     VerdictStatus,
 )
+from .resolver import no_fix_path
 
 # Actions genuinely inert enough to skip human approval. Deliberately only the two that CANNOT
 # touch running infrastructure: doing nothing, and handing off to a person. `clear_cache` was here
@@ -708,6 +709,15 @@ def _enforce(
             rejected = True
             policies.append("P14-TARGET-NOT-IN-EVIDENCE")
             reasons.append(problem + ".")
+
+    # P30 - a fix nothing in the catalogue can carry out is advice for a person, never a plan put to the approver
+    # (G10-B). Held-out G9-F, 2026-10-10: scale_up on a NAT gateway reached a person as approved_for_human, with no
+    # entry that acts on a NAT gateway - the one wrong answer the gate let through. Decided only for a target the
+    # alarm's labels name (resolver.no_fix_path); the right fix may well be what it says, done by a person.
+    if why := no_fix_path(alert, proposal):
+        escalate = True
+        policies.append("P30-NO-FIX-PATH")
+        reasons.append(f"{why[0].upper()}{why[1:]}: the proposal is advice for a person to carry out, not a plan.")
 
     if rejected:
         return Verdict(

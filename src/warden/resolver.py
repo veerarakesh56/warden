@@ -17,6 +17,7 @@ Anything that does not resolve is a reason, recorded, and the incident stays wit
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from . import catalog
@@ -37,13 +38,54 @@ _PLATFORM_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+def _bare(alert: Alert, target: str) -> str:
+    """The target as the labels write it: the model often names `lambda:warden-dev-x` for the label `warden-dev-x`
+    (held-out G9-F: 9 of 48 targets), and a right fix was then never planned. Only a short kind word before the
+    first colon is dropped, and only when what is left is a label's exact value - never an ARN's parts."""
+    kind, sep, rest = target.partition(":")
+    if sep and _KIND_WORD.fullmatch(kind) and rest in alert.labels.values():
+        return rest
+    return target
+
+
+_KIND_WORD = re.compile(r"[a-z][a-z0-9_-]{1,23}")
+
+
 def _platform(alert: Alert, target: str) -> tuple[str, dict[str, str]] | None:
     """The platform whose labelled resource the target names, and the parameters the labels give."""
+    target = _bare(alert, target)
     for platform, labels in _PLATFORM_LABELS.items():
         values = [alert.labels.get(label, "") for label, _ in labels]
         if all(values) and "," not in "".join(values) and values[-1] == target:
             return platform, {param: alert.labels[label] for label, param in labels}
     return None
+
+
+# The label that names each platform's resource (the last of _PLATFORM_LABELS), and labels that only qualify one.
+_NAMING_LABEL = {labels[-1][0]: platform for platform, labels in _PLATFORM_LABELS.items()}
+_QUALIFIERS = frozenset({"alarm", "namespace", "ecs_cluster", "eks_cluster", "apigw_stage", "selector", "log_group",
+                         "cluster", "lambda_qualifier", "service", "environment", "region", "account"})
+# The resource kinds each special path is reached from (_configuration: the AppConfig application, never a label).
+_SPECIAL_KINDS = {ActionKind.revert_config: frozenset(), ActionKind.freeze_changes: frozenset({"lambda", "ecs"})}
+
+
+def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
+    """Why no catalogue entry could carry out this proposal, or "" when one might (G10-B, policy P30).
+
+    Decided only when the target is a resource the labels name: a NAT gateway, a file system, a Lambda function. A
+    target the labels do not name is left to the planner and to P14 - unknown is not "none"."""
+    if proposal.action in (ActionKind.no_action, ActionKind.escalate_to_human):
+        return ""
+    target = _bare(alert, proposal.target)
+    kinds = {key for key, value in alert.labels.items() if value == target and key not in _QUALIFIERS}
+    if not kinds:
+        return ""
+    platforms = {_NAMING_LABEL.get(key) for key in kinds} | {"db" for key in kinds if key in _DB_LABELS}
+    able = _SPECIAL_KINDS.get(proposal.action, frozenset(catalog.FOR_ACTION.get(proposal.action, {})))
+    if platforms & able:
+        return ""
+    named = ", ".join(sorted(kinds))
+    return f"no catalogue entry carries out {proposal.action.value} on {target} (labelled {named})"
 
 
 def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any]) -> dict[str, Any] | str:
@@ -110,12 +152,40 @@ def _configuration(alert: Alert, proposal: RemediationProposal, live: Any) -> tu
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
 
 
+def _sessions(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
+    """terminate_connections (G10-B): the labelled database cluster or instance, when the database platform's
+    connection goes to that very server - a database carries no tag, so its endpoint's own name is the link (an RDS
+    endpoint starts with the instance or cluster id). A `hostaddr` decides the address whatever the host says, so a
+    connection that names one is never taken for the labelled server. The platform then closes only its own
+    application logins' sessions, idle in a transaction for at least five minutes (platforms/db.py)."""
+    target = _bare(alert, proposal.target)
+    if not any(alert.labels.get(key) == target for key in _DB_LABELS):
+        return None, "the proposal's target is not a database the alert's labels name"
+    entry = catalog.CATALOG["db_terminate_idle_in_tx"]
+    state = live(entry.name, {})
+    names, server = state.get("database"), str((state.get("state") or {}).get("server", ""))
+    if not isinstance(names, set | frozenset) or len(names) != 1:
+        return None, "the database platform is not connected, or names no application logins it may close"
+    if "hostaddr" in server or not re.search(rf"(?:^|[\s=,@]){re.escape(target)}\.", server):
+        return None, f"the database WARDEN is connected to is not {target}"
+    params = {"database": next(iter(names)), "min_idle_seconds": 300, "max_sessions": 20}
+    problems = catalog.validate(entry.name, params, state)
+    if problems:
+        return None, "; ".join(problems)
+    return {"entry": entry.name, "params": params, "service": params[entry.target_param],
+            "environment": alert.environment, "incident_id": alert.alert_id}, ""
+
+
+# Labels that name a database server: the database platform's link from an alarm (G10-B).
+_DB_LABELS = ("database", "aurora_cluster", "rds_instance", "rds_cluster", "db_instance")
+
+
 def _freeze(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
     """freeze_changes: the labelled Lambda function or ECS service, and the pipeline stage its own tag names."""
-    labels = alert.labels
-    if labels.get("lambda") and "," not in labels["lambda"] and proposal.target == labels["lambda"]:
+    labels, target = alert.labels, _bare(alert, proposal.target)
+    if labels.get("lambda") and "," not in labels["lambda"] and target == labels["lambda"]:
         resource = labels["lambda"]
-    elif labels.get("ecs_cluster") and labels.get("ecs_service") and proposal.target == labels["ecs_service"]:
+    elif labels.get("ecs_cluster") and labels.get("ecs_service") and target == labels["ecs_service"]:
         resource = f"{labels['ecs_cluster']}/{labels['ecs_service']}"
     else:
         return None, "the proposal's target is not a Lambda function or ECS service the alert's labels name"
@@ -141,6 +211,8 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
         return _configuration(alert, proposal, live)
     if proposal.action is ActionKind.freeze_changes:
         return _freeze(alert, proposal, live)
+    if proposal.action is ActionKind.terminate_connections:
+        return _sessions(alert, proposal, live)
     found = _platform(alert, proposal.target)
     if found is None:
         return None, "the proposal's target is not a resource the alert's labels name"

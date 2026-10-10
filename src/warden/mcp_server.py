@@ -540,6 +540,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "OBSERVE MODE, never obeyed: P8 fired, but every failed read was benign (lines cut with "
                             "the alert-time lines kept, or a secondary read)"
                         ),
+                        "P30-NO-FIX-PATH": (
+                            "the target is a resource the alarm's labels name, and no catalogue entry carries out "
+                            "the proposed action on it: the proposal reaches a person as advice, not as a plan"
+                        ),
                         "P22-SELF-TARGET": (
                             "an alert in WARDEN's own runtime environment goes to a person whatever is "
                             "proposed; WARDEN never acts on its own components"

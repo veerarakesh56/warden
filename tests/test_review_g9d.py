@@ -32,8 +32,13 @@ def test_h1_real_support_still_supports(action, quote):
     assert _supports(action, quote)
 
 
-def test_h1_raise_limit_never_reaches_the_lambda_entry_scale_up_owns():
-    assert catalog.for_action(A.raise_limit, "lambda") is None
+def test_h1_raise_limit_reaches_the_lambda_entry_only_on_its_own_evidence_words():
+    """G10-B mapped raise_limit to the reserved concurrency again; H1's harm stays closed by the words alone."""
+    from warden.grounding import ACTION_EVIDENCE
+
+    assert catalog.for_action(A.raise_limit, "lambda").name == "lambda_set_reserved_concurrency"
+    weak = ("rate", "too many", "exceed", "error", "request", "connection", "limit")
+    assert not [k for k in ACTION_EVIDENCE[A.raise_limit] if any(w in k for w in weak)]
 
 
 def _platform():
