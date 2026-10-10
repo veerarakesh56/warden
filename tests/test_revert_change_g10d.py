@@ -34,6 +34,12 @@ def _event(name, *, minutes_before_alarm=60, items=(EGRESS_443,), who=None, erro
             "CloudTrailEvent": json.dumps(detail)}
 
 
+def _with_agent(raw, agent):
+    detail = json.loads(raw["CloudTrailEvent"])
+    detail["userAgent"] = agent
+    return {**raw, "CloudTrailEvent": json.dumps(detail)}
+
+
 class Groups(Config):
     """A security group, its rules, and the CloudTrail events that changed them. The alarm went into ALARM 30 minutes
     before NOW (Config.describe_alarms)."""
@@ -130,6 +136,9 @@ def test_an_added_ingress_rule_is_revoked_by_the_rule_it_created_only():
     (lambda f: f.sg_rules.append({"GroupId": SG, "IsEgress": True, "IpProtocol": "tcp", "FromPort": 443,
                                   "ToPort": 443, "CidrIpv4": "0.0.0.0/0"}), "back already"),
     (lambda f: setattr(f, "alarm_state", "OK"), "not in ALARM"),
+    # Infrastructure as code: its next apply would undo the undo (owner decision, 2026-10-10 - every family).
+    (lambda f: f.sg_events.__setitem__(0, _with_agent(_event("RevokeSecurityGroupEgress"),
+                                                      "APN/1.0 HashiCorp/1.0 Terraform/1.9.8")), "infrastructure as code"),
 ])
 def test_every_refusal_allows_no_event_and_says_why(change, why):
     f = Groups()

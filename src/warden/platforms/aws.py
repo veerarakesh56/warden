@@ -160,7 +160,7 @@ def _sg_parse(raw: dict[str, Any], group: str) -> dict[str, Any] | None:
             "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
             "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
             "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}",
-            "truncated": not isinstance(response, dict) or not items}
+            "user_agent": str(d.get("userAgent") or ""), "truncated": not isinstance(response, dict) or not items}
 
 
 def _sg_undo_text(e: dict[str, Any]) -> str:
@@ -245,6 +245,12 @@ def _who_refusal(e: dict[str, Any], onset: datetime) -> str:
         return f"{e['actor']} is a principal whose changes WARDEN never reverts (WARDEN_NEVER_REVERT_PRINCIPALS)"
     if e["request"] is None:
         return "CloudTrail did not record the whole request (too large, or not returned)"
+    return _iac_refusal(e)
+
+
+def _iac_refusal(e: dict[str, Any]) -> str:
+    """A change made through infrastructure as code is undone in the code: its next apply would undo WARDEN's undo
+    (owner decision, 2026-10-10 - for every revert family)."""
     iac = _IAC.search(e.get("user_agent") or "")
     if iac:
         return (f"the change was made by infrastructure as code ({iac.group(0)}): undo it in the code - its next "
@@ -1483,6 +1489,8 @@ class AwsPlatform:
             return f"{e['actor']} is a principal whose changes WARDEN never reverts (WARDEN_NEVER_REVERT_PRINCIPALS)"
         if e["truncated"]:
             return "CloudTrail did not record the whole change (too large, or not returned)"
+        if iac := _iac_refusal(e):
+            return iac
         if not e["rules"]:
             return "the event names no rule it changed"
         if e["kind"] == "revoke" and not e["egress"] and any(r[5] in _OPEN_CIDRS for r in e["rules"]):
