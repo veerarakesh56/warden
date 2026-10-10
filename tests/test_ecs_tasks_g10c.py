@@ -120,3 +120,17 @@ def test_a_rollback_stands_when_the_deploy_itself_changed_the_permission_or_name
 def test_more_tasks_are_not_started_when_tasks_cannot_start(action):
     verdict = _verdict(action, {"ecs_stopped_secret_missing": 2.0, "ecs_tasks_failed_to_start": 2.0})
     assert "P11-ACTION-CONTRADICTS-EVIDENCE" in verdict.policy_ids
+
+
+def test_a_long_stop_reason_keeps_its_decisive_end():
+    """G10 held-out set (2026-10-10): the 400-character cut dropped the end of ECS's secret-retrieval reason - the
+    part that says why. Both ends are kept now."""
+    from warden.aws_stack import _head_and_tail
+
+    reason = ("ResourceInitializationError: unable to pull secrets or registry auth: execution resource retrieval "
+              "failed: unable to retrieve secret from asm: service call has been retried 1 time(s): " + "x" * 300 +
+              " InvalidRequestException: You can't perform this operation on the secret because it was marked for "
+              "deletion.")
+    cut = _head_and_tail(reason, 400)
+    assert len(cut) <= 400 and cut.startswith("ResourceInitializationError") and cut.endswith("marked for deletion.")
+    assert _head_and_tail("short", 400) == "short"

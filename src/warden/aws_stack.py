@@ -209,6 +209,15 @@ _STOP_CAUSES = (
 )
 
 
+def _head_and_tail(text: str, limit: int) -> str:
+    """At most `limit` characters, keeping both ends: ECS puts the decisive exception at the END of a long
+    stoppedReason (G10 held-out set, 2026-10-10: "...because it was marked for deletion" was cut off)."""
+    if len(text) <= limit:
+        return text
+    head = limit // 2
+    return f"{text[:head]} ... {text[-(limit - head - 5):]}"
+
+
 def task_stop_cause(stop_code: str, reason: str, exit_codes: list) -> str:
     """One stopped task's cause, from a closed set: what an ECS task stopped for, decided from AWS's own words."""
     for cause, rx in _STOP_CAUSES:
@@ -224,6 +233,7 @@ def task_stop_cause(stop_code: str, reason: str, exit_codes: list) -> str:
 
 # The universal alarm reader (G9-A2a): how many of the resource's other metrics, and CloudTrail's limits.
 SIBLING_METRICS = int(os.environ.get("WARDEN_ALARM_SIBLING_METRICS", "12"))
+MATH_PARTS = 5  # a metric-math alarm's metrics read (its expression never is)
 CHANGE_NAMES = 3
 CHANGE_MAX = 20
 _READ_VERBS = ("Describe", "Get", "List", "Lookup", "BatchGet", "Head", "Search", "Scan", "Query")
@@ -673,7 +683,22 @@ class StackBackend:
                      f"datapoints={a.get('DatapointsToAlarm') or a.get('EvaluationPeriods')}/{a.get('EvaluationPeriods')} "
                      f"missing={_safe(a.get('TreatMissingData') or 'missing')} state={_safe(a.get('StateValue'))}")
         if not (ns and metric):  # metric math: the expression is the owner's text, not read
-            out.lines.append(f"ALARM metric-math {threshold}")
+            # Its parts are AWS's structured fields, read like a plain alarm's metric (G10 review, 2026-10-10: an API
+            # Gateway fault behind a math alarm showed no symptom at all). AWS's own namespaces only, as below.
+            parts = [q["MetricStat"] for q in a.get("Metrics") or [] if isinstance(q.get("MetricStat"), dict)]
+            out.lines.append(f"ALARM metric-math parts={len(parts)} {threshold}")
+            reads: dict[str, tuple] = {}
+            for q in parts[:MATH_PARTS]:
+                m = q.get("Metric") or {}
+                pns, pmetric, pstat = m.get("Namespace"), m.get("MetricName"), q.get("Stat") or "Maximum"
+                pdims = {str(d.get("Name")): str(d.get("Value")) for d in m.get("Dimensions") or []}
+                if not (pns and pmetric):
+                    continue
+                out.lines.append(f"ALARM part {_safe(pns)}/{_safe(pmetric)} {_dims(pdims)} stat={_safe(pstat)} "
+                                 f"period={q.get('Period')}s")
+                if str(pns).startswith("AWS/"):
+                    reads[f"alarm_part_{_key(pns.split('/')[-1])}_{_key(pmetric)}"] = (pns, pmetric, pdims, pstat)
+            out.metrics.update(self._cw_read(out, "alarm", alert, reads))
             self._read_changes(out, alert, {})
             return
         stat = a.get("Statistic") or a.get("ExtendedStatistic") or "Maximum"
@@ -1353,7 +1378,7 @@ class StackBackend:
                 f"revision={_safe(str(t.get('taskDefinitionArn', '')).rsplit('/', 1)[-1])} "
                 f"stop={_safe(t.get('stopCode'))} cause={cause}" + (f" exit={int(exits[0])}" if exits else ""))
             if reason.strip():
-                out.lines.append(f"EVENT ecs/{service} stopped task: {reason.strip()[:400]}")
+                out.lines.append(f"EVENT ecs/{service} stopped task: {_head_and_tail(reason.strip(), 400)}")
         out.metrics["ecs_stopped_tasks"] = float(len(tasks))
         out.metrics["ecs_tasks_failed_to_start"] = float(sum(1 for t in tasks if t.get("stopCode") == "TaskFailedToStart"))
         for cause, n in causes.items():

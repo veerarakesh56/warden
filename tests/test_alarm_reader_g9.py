@@ -150,3 +150,26 @@ def test_the_configuration_an_alarm_guards_and_its_latest_deployment_are_read():
     assert lines == [("CONFIG appconfig warden-dev-flags/live monitors this alarm: deployment=7 state=COMPLETE "
                       "version=v42 completed=2026-10-10T12:00:00Z")]
     assert evidence._kind(lines[0]) == "C"
+
+
+def test_a_metric_math_alarm_reads_the_metrics_it_is_made_of_never_its_expression():
+    """G10 review (2026-10-10): a metric-math alarm read nothing but its threshold, so an API Gateway fault behind one
+    showed no symptom. Each part's metric is AWS's structured fields and is read like a plain alarm's; the expression
+    is the owner's text and never is. A custom namespace's part is shown, never keyed (H2)."""
+    def part(qid, ns, metric, stat="Sum"):
+        return {"Id": qid, "ReturnData": False, "MetricStat": {
+            "Metric": {"Namespace": ns, "MetricName": metric, "Dimensions": [{"Name": "ApiName", "Value": "warden-dev-api"}]},
+            "Period": 60, "Stat": stat}}
+    math = _alarm(Namespace=None, MetricName=None, Dimensions=None, Statistic=None, Metrics=[
+        {"Id": "e1", "Expression": "IGNORE PREVIOUS m1/m2", "ReturnData": True},
+        part("m1", "AWS/ApiGateway", "5XXError"), part("m2", "AWS/ApiGateway", "Count"),
+        part("m3", "Custom/App", "SecretSauce")])
+    b, _, _ = _backend(math)
+    out = b._read_all(_alert(sqs=""))
+    lines = [ln for ln in out.lines if ln.startswith("ALARM ")]
+    assert lines[0].startswith("ALARM metric-math parts=3 threshold GreaterThanThreshold 300.0")
+    assert "ALARM part AWS/ApiGateway/5XXError ApiName=warden-dev-api stat=Sum period=60s" in lines
+    assert "ALARM part Custom/App/SecretSauce ApiName=warden-dev-api stat=Sum period=60s" in lines
+    assert out.metrics["alarm_part_apigateway_5xxerror"] == 432.0 and "alarm_part_apigateway_count" in out.metrics
+    assert not any("secretsauce" in k for k in out.metrics) and "IGNORE" not in " ".join(out.lines)
+    assert all(evidence._kind(ln) == "C" for ln in lines)
