@@ -44,7 +44,7 @@ STEER = re.compile(r"(?i)(?<![a-z])(?:ignore|instructions?|previous|propose|appr
                     r"(?![a-z])")
 
 
-def _kind(line: str) -> str:
+def _kind(line: str, names: frozenset[str] = frozenset()) -> str:
     # Defence in depth (2026-09-27 audit): a "trusted" line that uses steering language is demoted
     # to untrusted. Trust by prefix rests on every backend prefixing application text, and a custom
     # backend that does not would otherwise hand the model a forged CONFIG line. Measured on every
@@ -54,6 +54,8 @@ def _kind(line: str) -> str:
     # over every recorded run: no real config line is demoted.
     if _CONFIG.match(line) or _K8S_ROLLOUT.match(line):
         spaced, bare = _aws_words(line)
+        for name in names:  # the alert's own resources: whole tokens only, and still checked word by word
+            bare = re.sub(r"(?<![A-Za-z0-9._/-])" + re.escape(name) + r"(?![A-Za-z0-9._/-])", " ", bare)
         if not STEER.search(spaced) and not _SQUASHED_STEER.search(re.sub(r"[^a-z]", "", bare.lower())):
             return "C"
     return "E" if line.startswith("EVENT ") else "L"
@@ -186,9 +188,14 @@ class Item:
         return self.id[0] not in UNTRUSTED_KINDS
 
 
+# A resource name as AWS and Kubernetes spell one - never a sentence: no space, no `=`, at least three characters.
+_RESOURCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:-]{2,255}")
+
+
 def index(context: ContextBundle) -> dict[str, Item]:
     items: list[tuple[str, str]] = []
-    items += [(_kind(line), line) for line in context.logs]
+    names = frozenset(n for n in context.resource_names if _RESOURCE_NAME.fullmatch(n))
+    items += [(_kind(line, names), line) for line in context.logs]
     items += [("M", f"{k}={v:g}") for k, v in context.metrics.items()]
     items += [("D", ", ".join(f"{k}={v}" for k, v in d.items())) for d in context.recent_deploys]
     items += [("T", tool_error_text(e)) for e in context.tool_errors]

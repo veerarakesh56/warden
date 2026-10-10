@@ -168,6 +168,10 @@ class ContextBundle(BaseModel):
     # What AWS's own documentation says about the evidence's error codes (aws_docs.py, G10-C6): reference for the
     # model, never evidence - no item id a citation can name, scanned by the tripwire as outside text.
     references: list[str] = Field(default_factory=list)
+    # The resources the alert names (its resource labels' values, set where the alert is redacted): a structured
+    # line that holds one whole is not demoted for a steering stem inside it - `refund-approval` (G10 held-out set,
+    # 2026-10-10). Carried in the context so every reading of it assigns the same item ids.
+    resource_names: list[str] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
         return not (self.logs or self.metrics or self.recent_deploys)

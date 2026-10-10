@@ -434,6 +434,8 @@ def node_redact(state: WardenState) -> WardenState:
         alert_text=" ".join(summary_text.split()),  # register M10: evidence of kind A, quarantined
         empty_reads=context.empty_reads,  # register N2: source names only, nothing to redact
         references=context.references,  # G10-C6: AWS's pages; redacted where they are rendered and scanned
+        resource_names=sorted({n.strip() for k, v in redacted_labels.items() if k in RESOURCE_LABELS
+                               for n in v.split(",") if n.strip()}),
     )
     return {
         "alert": alert,
