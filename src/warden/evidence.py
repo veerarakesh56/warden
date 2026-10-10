@@ -140,7 +140,7 @@ READ_OPERATIONS = frozenset({
     "DescribeExecution", "DescribeLoadBalancerAttributes", "DescribeNetworkAcls", "DescribeNodegroup",
     "DescribeRouteTables", "DescribeScalingActivities", "DescribeSubnets", "DescribeTasks", "GetQueryResults",
     "GetResourceMetrics", "ListApplications", "ListDeployments", "ListEnvironments", "ListExecutions",
-    "ListNodegroups", "ListTasks", "StartQuery",
+    "ListNodegroups", "ListTasks", "StartQuery", "DescribeSubscriber",
 })
 # Steering words looked for with the separators removed: STEER needs a non-letter on each side, so
 # `ignoreallpreviousinstructions` passed it (review 2026-09-28).

@@ -77,7 +77,8 @@ _SCOPABLE = {"kinesis:DescribeStreamSummary", "firehose:DescribeDeliveryStream",
              "es:DescribeDomain", "synthetics:GetCanary", "s3:GetBucketVersioning", "elasticache:DescribeServerlessCaches",
              "elasticache:DescribeCacheClusters", "redshift:DescribeClusters", "acm:DescribeCertificate",
              "appsync:GetGraphqlApi", "cognito-idp:DescribeUserPool", "elasticfilesystem:DescribeFileSystems",
-             "elasticmapreduce:DescribeCluster", "kms:DescribeKey", "apigateway:GET", "cloudfront:GetDistribution"}
+             "elasticmapreduce:DescribeCluster", "kms:DescribeKey", "apigateway:GET", "cloudfront:GetDistribution",
+             "events:DescribeSubscriber"}
 
 
 def test_no_scopable_read_is_granted_on_everything():
@@ -197,3 +198,25 @@ def test_every_resource_label_has_a_reader_or_a_reason_it_has_none():
     missing = sorted(k for k in resources.LABEL_KEYS if k not in aws_describe.TABLE and k not in direct and k not in NOT_READ)
     assert missing == []
     assert {"cloudfront", "route53_health_check"} <= set(aws_describe.TABLE)
+
+
+def test_every_field_and_path_is_in_awss_own_response_shape():
+    """A misspelled field reads as absent forever (G10, 2026-10-10: checked against botocore's service models). Every
+    row's read method, path and fields must exist in the response shape botocore ships for it."""
+    import botocore
+    import botocore.session
+
+    session = botocore.session.get_session()
+    for key, d in aws_describe.TABLE.items():
+        model = session.get_service_model(d.service)
+        [op] = [o for o in model.operation_names if botocore.xform_name(o) == d.method]
+        shape = model.operation_model(op).output_shape
+        for part in d.path.split(".") if d.path else []:
+            assert part in shape.members, (key, d.path)
+            shape = shape.members[part]
+        shape = shape.member if shape.type_name == "list" else shape
+        for f in d.fields:
+            sh = shape
+            for part in f.split("."):
+                assert part in getattr(sh, "members", {}), (key, f)
+                sh = sh.members[part]

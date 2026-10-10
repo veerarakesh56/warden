@@ -115,6 +115,14 @@ TABLE: dict[str, Describe] = {
                             "DistributionConfig.HttpVersion", "DistributionConfig.PriceClass", "LastModifiedTime")),
     "route53_health_check": Describe("route53", "get_health_check_status", "route53:GetHealthCheckStatus",
                                      _arg("HealthCheckId"), "", ("HealthCheckObservations",)),
+    # EventBridge's Custom Event Bus (G10, 2026-10-10): a subscriber - whether it runs, whether its bus revoked it,
+    # how it retries, whether a dead-letter destination is set (its keys only) and how much it logs.
+    "eventbridge_subscriber": Describe("eventbridgev2", "describe_subscriber", "events:DescribeSubscriber",
+                                       lambda v, account, region: {
+                                           "SubscriberArn": f"arn:aws:events:{region}:{account()}:subscriber/{v}"},
+                                       "", ("State", "Revoked", "Type", "RetryPolicy.MaxRetryAttempts",
+                                            "RetryPolicy.MaxEventAgeInSeconds", "OnFailureConfiguration",
+                                            "LogConfiguration.Level", "LastModifiedTime")),
     "s3_bucket": Describe("s3", "get_bucket_versioning", "s3:GetBucketVersioning", _arg("Bucket"), "",
                           ("Status", "MFADelete")),
     "nat_gateway": Describe("ec2", "describe_nat_gateways", "ec2:DescribeNatGateways", _list_arg("NatGatewayIds"),

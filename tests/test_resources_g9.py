@@ -46,6 +46,11 @@ CASES = [
     ("AWS/Events", {"EventBusName": "orders-bus", "RuleName": "created"}, {"eventbridge_rule": "created", "event_bus": "orders-bus"}),
     ("AWS/Events", {"EventBusName": "default", "RuleName": "nightly"}, {"eventbridge_rule": "nightly"}),
     ("AWS/Events", {"EventBusName": "orders-bus"}, {}),
+    # EventBridge's Custom Event Bus: a subscriber's ARN; a publish metric names the bus only and no subscriber.
+    ("AWS/EventsV2", {"EventBus": "arn:aws:events:ap-south-1:" + "0" * 12 + ":event-bus/orders",
+                      "Subscriber": "arn:aws:events:ap-south-1:" + "0" * 12 + ":subscriber/large-orders/EXAMPLE1234"},
+     {"eventbridge_subscriber": "large-orders/EXAMPLE1234"}),
+    ("AWS/EventsV2", {"EventBus": "arn:aws:events:ap-south-1:" + "0" * 12 + ":event-bus/orders"}, {}),
     ("AWS/Scheduler", {"ScheduleGroup": "default"}, {"schedule_group": "default"}),
     ("AWS/States", {"StateMachineArn": f"arn:aws:states:r:{ACCT}:stateMachine:checkout"}, {"state_machine": "checkout"}),
     ("AWS/Kinesis", {"StreamName": "clicks"}, {"kinesis_stream": "clicks"}),

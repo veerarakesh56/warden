@@ -89,6 +89,17 @@
       }
     },
     {
+      "Sid": "SubscribersOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "events:DescribeSubscriber",
+      "Resource": "arn:aws:events:${region}:*:subscriber/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        }
+      }
+    },
+    {
       "Sid": "GlobalServicesDistributionsOfThisEnvironment",
       "Effect": "Allow",
       "Action": "cloudfront:GetDistribution",

@@ -175,7 +175,9 @@ def test_every_read_operation_the_readers_call_is_known():
 
     session = botocore.session.get_session()
     ops = {}
-    for svc in (*aws_stack.NEEDED_CLIENTS, "appconfig"):
+    from warden import aws_describe
+
+    for svc in (*aws_stack.NEEDED_CLIENTS, "appconfig", *{d.service for d in aws_describe.TABLE.values()}):
         for op in session.get_service_model(svc).operation_names:
             ops.setdefault(xform_name(op), set()).add(op)
     called = set()
@@ -185,7 +187,8 @@ def test_every_read_operation_the_readers_call_is_known():
             name = m.group(1) or m.group(2)
             if re.fullmatch(r"(describe|get|list|lookup|filter|start|search)_\w+", name) and name in ops:
                 called |= ops[name]
-    assert {"ListExecutions", "StartQuery", "DescribeTasks"} <= called
+    called |= {op for d in aws_describe.TABLE.values() for op in ops[d.method]}  # the table names its method
+    assert {"ListExecutions", "StartQuery", "DescribeTasks", "DescribeSubscriber"} <= called
     assert sorted(called - evidence.READ_OPERATIONS) == []
 
 

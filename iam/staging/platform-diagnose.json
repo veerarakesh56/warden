@@ -89,6 +89,17 @@
       }
     },
     {
+      "Sid": "SubscribersOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "events:DescribeSubscriber",
+      "Resource": "arn:aws:events:ap-south-2:*:subscriber/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "staging"
+        }
+      }
+    },
+    {
       "Sid": "GlobalServicesDistributionsOfThisEnvironment",
       "Effect": "Allow",
       "Action": "cloudfront:GetDistribution",

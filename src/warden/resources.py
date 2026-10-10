@@ -139,6 +139,14 @@ def _events(d: Mapping[str, str]) -> Labels:
     return out
 
 
+def _events_v2(d: Mapping[str, str]) -> Labels:
+    """AWS/EventsV2 (EventBridge's Custom Event Bus, read 2026-10-10): a subscriber's metrics carry its ARN,
+    `arn:aws:events:<region>:<account>:subscriber/<name>/<id>`; the label is `<name>/<id>`."""
+    arn = d.get("Subscriber", "")
+    _, sep, tail = arn.partition(":subscriber/")
+    return {"eventbridge_subscriber": tail} if sep and tail.count("/") == 1 else {}
+
+
 def _usage(d: Mapping[str, str]) -> Labels:
     """AWS/Usage: a service quota's usage (Service, Type, Resource, Class)."""
     if not d.get("Service"):
@@ -168,6 +176,7 @@ NAMESPACES: dict[str, Callable[[Mapping[str, str]], Labels]] = {
     "AWS/SNS": _one("sns_topic", "TopicName"),
     "AWS/AmazonMQ": _one("mq_broker", "Broker", fn=lambda v: re.sub(r"-[12]$", "", v)),  # ActiveMQ: <broker>-1/-2
     "AWS/Events": _events,
+    "AWS/EventsV2": _events_v2,
     "AWS/Scheduler": _one("schedule_group", "ScheduleGroup"),
     "AWS/States": _one("state_machine", "StateMachineArn", fn=_arn_name),
     "AWS/Kinesis": _one("kinesis_stream", "StreamName"),
@@ -217,7 +226,7 @@ LABEL_KEYS = frozenset({
     "k8s_service", "log_group", "canary", "docdb_cluster", "docdb_instance", "mq_broker", "elasticache_serverless",
     "appsync_events",
     "instance_id", "asg", "ebs_volume", "efs", "fsx", "aurora_cluster", "rds_instance", "dynamodb_table",
-    "elasticache_node", "memorydb", "sqs", "sns_topic", "eventbridge_rule", "event_bus", "schedule_group",
+    "elasticache_node", "memorydb", "sqs", "sns_topic", "eventbridge_rule", "event_bus", "eventbridge_subscriber", "schedule_group",
     "state_machine", "kinesis_stream", "firehose", "msk_cluster", "apigw_id", "apigw_rest", "apigw_stage", "appsync",
     "alb_target_group", "nlb_target_group", "load_balancer", "clb", "cloudfront", "route53_health_check", "s3_bucket",
     "nat_gateway", "transit_gateway", "opensearch", "redshift", "cognito_user_pool", "apprunner", "glue_job",
