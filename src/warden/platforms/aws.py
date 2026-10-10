@@ -82,6 +82,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
           "codepipeline_freeze": "codepipeline", "ec2_revert_sg_change": "ec2",
           "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda", "lambda_restore_settings": "lambda", "asg_restore_capacity": "asg",
+          "sqs_restore_attributes": "sqs", "kinesis_restore_retention": "kinesis",
           "apigw_restore_stage": "apigw", "elb_reregister_targets": "elb", "kms_cancel_key_deletion": "kms",
           "secrets_restore_secret": "secretsmanager",
           "aurora_failover": "rds"}
@@ -265,6 +266,36 @@ def _lambda_settings(conf: dict[str, Any], keys: list[str] | None = None) -> dic
     return {k: v for k, v in out.items() if keys is None or k in keys}
 
 
+# G10 v2: a queue's settings a revert may write, and SQS's bounds for each (AWS::SQS::Queue's Config schema, read
+# 2026-10-10). Never Policy, RedrivePolicy, RedriveAllowPolicy, encryption or FIFO settings.
+_QUEUE_SETTINGS = {"DelaySeconds": (0, 900), "MaximumMessageSize": (1024, 1048576),
+                   "MessageRetentionPeriod": (60, 1209600), "ReceiveMessageWaitTimeSeconds": (0, 20),
+                   "VisibilityTimeout": (0, 43200)}
+
+
+def _ints(conf: dict[str, Any], keys: list[str]) -> dict[str, int]:
+    out = {}
+    for k in keys:
+        v = _get(conf, k)
+        if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
+            out[k] = int(v)
+    return out
+
+
+def _pairs_text(values: dict[str, Any]) -> str:
+    return ",".join(f"{k}={values[k]}" for k in sorted(values))
+
+
+def _pairs_parse(text: str, allowed: dict[str, tuple[int, int]]) -> dict[str, int]:
+    out = {}
+    for part in text.split(","):
+        k, _, v = part.partition("=")
+        if k not in allowed or not v.isdigit():
+            return {}
+        out[k] = int(v)
+    return out
+
+
 def _settings_text(values: dict[str, Any]) -> str:
     return ",".join(f"{k}={values[k]}" for k in sorted(values))
 
@@ -374,6 +405,8 @@ class AwsPlatform:
                 "ec2_revert_sg_change": self._live_sg_change, "ecs_restore_desired": self._live_ecs_desired,
                 "lambda_restore_concurrency": self._live_lambda_restore,
                 "lambda_restore_settings": self._live_lambda_settings,
+                "sqs_restore_attributes": self._live_sqs_attributes,
+                "kinesis_restore_retention": self._live_kinesis_retention,
                 "asg_restore_capacity": self._live_asg_restore, "apigw_restore_stage": self._live_stage_restore,
                 "elb_reregister_targets": self._live_targets, "kms_cancel_key_deletion": self._live_key_deletion,
                 "secrets_restore_secret": self._live_secret_deletion,
@@ -421,6 +454,8 @@ class AwsPlatform:
                  "ec2_revert_sg_change": self._sg_alarm_ok, "ecs_restore_desired": self._ecs_restored,
                  "lambda_restore_concurrency": self._lambda_restored,
                  "lambda_restore_settings": self._lambda_settings_restored,
+                 "sqs_restore_attributes": self._sqs_attributes_restored,
+                 "kinesis_restore_retention": self._kinesis_retention_restored,
                  "asg_restore_capacity": self._asg_restored, "apigw_restore_stage": self._stage_restored,
                  "elb_reregister_targets": self._targets_healthy, "kms_cancel_key_deletion": self._key_kept,
                  "secrets_restore_secret": self._secret_restored,
@@ -481,6 +516,8 @@ class AwsPlatform:
                  "ec2_revert_sg_change": self._sg_revert, "ecs_restore_desired": self._ecs_restore,
                  "lambda_restore_concurrency": self._lambda_restore,
                  "lambda_restore_settings": self._lambda_settings_restore,
+                 "sqs_restore_attributes": self._sqs_attributes_restore,
+                 "kinesis_restore_retention": self._kinesis_retention_restore,
                  "asg_restore_capacity": self._asg_restore, "apigw_restore_stage": self._stage_restore,
                  "elb_reregister_targets": self._targets, "kms_cancel_key_deletion": self._key_cancel,
                  "secrets_restore_secret": self._secret_restore,
@@ -515,6 +552,8 @@ class AwsPlatform:
             return c.list_queue_tags(QueueUrl=arn).get("Tags") or {}  # SQS tags by the queue's URL
         if service == "athena":
             return {t["Key"]: t["Value"] for t in c.list_tags_for_resource(ResourceARN=arn).get("Tags") or []}
+        if service == "kinesis":  # by the stream's name: the ARN's last part
+            return {t["Key"]: t["Value"] for t in c.list_tags_for_stream(StreamName=_last(arn)).get("Tags") or []}
         raise AwsPlatformError(f"no tag reader for {service}")
 
     @staticmethod
@@ -1768,6 +1807,156 @@ class AwsPlatform:
         want = _settings_parse(str(params.get("settings", "")))
         return (bool(want) and conf.get("LastUpdateStatus") in (None, "Successful")
                 and {k: _lambda_settings(conf).get(k) for k in want} == want
+                and self._alarm_ok(str(params.get("alarm", ""))))
+
+    # ------------------------------------------------------------------ G10 v2: a queue's settings, a stream's retention
+
+    def _one_change(self, source: str, names: tuple[str, ...], since: datetime, on_this: Callable[[dict[str, Any]], bool],
+                    named: Any) -> tuple[dict[str, Any] | None, str]:
+        """The ONE recorded write of these names to this resource since `since`, or why there is not exactly one."""
+        writes = self._trail_writes("EventSource", source, since, self._now(),
+                                    lambda e: e["event_name"].startswith(names) and on_this(e))
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return None, f"{'no recorded' if not writes else len(writes)} change(s) since {since:%Y-%m-%dT%H:%MZ}"
+        return writes[0], ""
+
+    def _live_sqs_attributes(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded SetQueueAttributes on this queue in the hours before its alarm that set only its timing and
+        size settings, and those settings as AWS Config recorded them before it."""
+        name, alarm = params.get("queue"), params.get("alarm")
+        if not isinstance(name, str) or not isinstance(alarm, str):
+            return {}
+        sqs = self._read("sqs")
+        url = sqs.get_queue_url(QueueName=name)["QueueUrl"]
+        attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["All"])["Attributes"]
+        arn = attrs["QueueArn"]
+        now_values = {k: int(attrs[k]) for k in _QUEUE_SETTINGS if str(attrs.get(k, "")).isdigit()}
+        state: dict[str, Any] = {"queue": name, "url": url, "arn": arn, "now": now_values, "where": self._where(arn)}
+        live = {"queue": {name}, "alarm": {alarm}, "event": set(), "attributes": set(),
+                "environment": self._tags("sqs", url).get(ENV_TAG)}
+        onset = self._alarm_onset(alarm)
+        if onset is None and not isinstance(params.get("event"), str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        e, why = self._one_change("sqs.amazonaws.com", ("SetQueueAttributes",), since,
+                                  lambda e: str((e["request"] or {}).get("queueUrl", "")).rstrip("/").endswith("/" + name),
+                                  params.get("event"))
+        if e is None:
+            return {**live, "refused": why, "state": state}
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        wrote = (e["request"] or {}).get("attributes")
+        wrote = wrote if isinstance(wrote, dict) else {}
+        other = sorted(k for k in wrote if k not in _QUEUE_SETTINGS)
+        if not why and other:
+            why = f"the change also set {', '.join(other)}: a person undoes it"
+        changed = sorted(k for k in wrote if k in _QUEUE_SETTINGS)
+        if not why and not changed:
+            why = "the change set none of the queue's timing or size settings"
+        before = after = None
+        if not why or onset is None:
+            rid = self._config_id("AWS::SQS::Queue", name, lambda rid: rid.rstrip("/").endswith(name))
+            if not rid:
+                why = why or "AWS Config holds no single record of this queue"
+            else:
+                before, after, bracket = self._config_bracket(
+                    "AWS::SQS::Queue", rid, e, lambda i: _ints(_json(i.get("configuration")), changed))
+                why = why or bracket
+        state.update(before=before, after=after)
+        if not why and (not isinstance(before, dict) or set(before) != set(changed)):
+            why = "AWS Config recorded no value before the change"
+        if not why and {k: now_values.get(k) for k in changed} != after:
+            why = "the queue's settings are not what the change set: they moved since"
+        if not why and any(not _QUEUE_SETTINGS[k][0] <= v <= _QUEUE_SETTINGS[k][1] for k, v in before.items()):
+            why = "the value before the change is outside what SQS allows"
+        return {**live, "event": set() if why else {e["event"]},
+                "attributes": set() if why else {_pairs_text(before)}, "refused": why, "state": state}
+
+    def _sqs_attributes_restore(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("queue", "arn", "event", "before", "after"), f"queue {p['queue']}")
+        before = _pairs_parse(p["attributes"], _QUEUE_SETTINGS)
+        after = snapshot.get("after") or {}
+        want_now, to = (after, before) if not back else (before, after)
+        if not to or {k: (now.get("now") or {}).get(k) for k in to} != want_now:
+            raise AwsPlatformRefused(f"queue {p['queue']} settings are {now.get('now')}, not {want_now}; nothing was "
+                                     "changed")
+        sqs = self._actor(who, ["sqs:SetQueueAttributes"], [now["arn"]], None)("sqs")
+        sqs.set_queue_attributes(QueueUrl=now["url"], Attributes={k: str(v) for k, v in to.items()})
+        return f"set queue {p['queue']} {_pairs_text(want_now)} -> {_pairs_text(to)}"
+
+    def _sqs_attributes_restored(self, queue: str, params: dict[str, Any]) -> bool:
+        sqs = self._read("sqs")
+        url = sqs.get_queue_url(QueueName=queue)["QueueUrl"]
+        attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["All"])["Attributes"]
+        want = _pairs_parse(str(params.get("attributes", "")), _QUEUE_SETTINGS)
+        return bool(want) and all(str(attrs.get(k)) == str(v) for k, v in want.items()) and \
+            self._alarm_ok(str(params.get("alarm", "")))
+
+    def _live_kinesis_retention(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded DecreaseStreamRetentionPeriod on this stream in the hours before its alarm, and the
+        retention AWS Config recorded before it. Records already past the shorter retention are gone either way: the
+        restore keeps what is left from going too."""
+        name, alarm = params.get("stream"), params.get("alarm")
+        if not isinstance(name, str) or not isinstance(alarm, str):
+            return {}
+        s = self._read("kinesis").describe_stream_summary(StreamName=name)["StreamDescriptionSummary"]
+        arn, hours = s["StreamARN"], s.get("RetentionPeriodHours")
+        state: dict[str, Any] = {"stream": name, "arn": arn, "hours_now": hours, "where": self._where(arn)}
+        live = {"stream": {name}, "alarm": {alarm}, "event": set(), "hours": set(),
+                "environment": self._tags("kinesis", arn).get(ENV_TAG)}
+        onset = self._alarm_onset(alarm)
+        if onset is None and not isinstance(params.get("event"), str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+
+        def on_this(e: dict[str, Any]) -> bool:
+            r = e["request"] or {}
+            return _last(r.get("streamName") or r.get("streamARN") or "") == name
+
+        e, why = self._one_change("kinesis.amazonaws.com", ("DecreaseStreamRetentionPeriod",), since, on_this,
+                                  params.get("event"))
+        if e is None:
+            return {**live, "refused": why, "state": state}
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        before = after = None
+        if not why or onset is None:
+            rid = self._config_id("AWS::Kinesis::Stream", name, lambda rid: rid.endswith(name))
+            if not rid:
+                why = why or "AWS Config holds no single record of this stream"
+            else:
+                before, after, bracket = self._config_bracket(
+                    "AWS::Kinesis::Stream", rid, e, lambda i: _get(_json(i.get("configuration")), "RetentionPeriodHours"))
+                why = why or bracket
+        state.update(before=before, after=after)
+        if not why and not (isinstance(before, int) and isinstance(after, int) and before > after):
+            why = "AWS Config recorded no longer retention before the change"
+        if not why and hours != after:
+            why = "the stream's retention is not what the change set: it moved since"
+        if not why and not 24 <= before <= 8760:
+            why = "the retention before the change is outside what Kinesis allows"
+        return {**live, "event": set() if why else {e["event"]}, "hours": set() if why else {str(before)},
+                "refused": why, "state": state}
+
+    def _kinesis_retention_restore(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("stream", "arn", "event", "before", "after"), f"stream {p['stream']}")
+        before = int(p["hours"]) if str(p["hours"]).isdigit() else None
+        after = snapshot.get("after")
+        want_now, to = (after, before) if not back else (before, after)
+        if now.get("hours_now") != want_now or not isinstance(to, int):
+            raise AwsPlatformRefused(f"stream {p['stream']} keeps {now.get('hours_now')} h, not {want_now} h; "
+                                     "nothing was changed")
+        action = "kinesis:DecreaseStreamRetentionPeriod" if back else "kinesis:IncreaseStreamRetentionPeriod"
+        k = self._actor(who, [action], [now["arn"]], None)("kinesis")
+        (k.decrease_stream_retention_period if back else k.increase_stream_retention_period)(
+            StreamName=p["stream"], RetentionPeriodHours=to)
+        return f"set stream {p['stream']} retention from {want_now} h to {to} h"
+
+    def _kinesis_retention_restored(self, stream: str, params: dict[str, Any]) -> bool:
+        s = self._read("kinesis").describe_stream_summary(StreamName=stream)["StreamDescriptionSummary"]
+        return (str(s.get("RetentionPeriodHours")) == str(params.get("hours")) and s.get("StreamStatus") == "ACTIVE"
                 and self._alarm_ok(str(params.get("alarm", ""))))
 
     def _live_asg_restore(self, params: dict[str, Any]) -> dict[str, Any]:

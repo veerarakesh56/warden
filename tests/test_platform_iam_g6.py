@@ -22,7 +22,7 @@ PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs":
           "sqs": "sqs", "athena": "athena", "apigateway": "apigateway", "sts": "sts", "elbv2": "elasticloadbalancing",
           "ec2": "ec2", "arc-zonal-shift": "arc-zonal-shift", "appconfig": "appconfig",
           "codepipeline": "codepipeline", "config": "config", "autoscaling": "autoscaling",
-          "kms": "kms", "secretsmanager": "secretsmanager"}
+          "kms": "kms", "secretsmanager": "secretsmanager", "kinesis": "kinesis"}
 # Actions AWS authorizes for a call besides the call's own (Service Authorization Reference, read 2026-10-10): the
 # session asks for them, the code never calls them.
 IMPLICIT = {"sqs:StartMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
@@ -134,6 +134,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     from test_revert_config_history_g10d3 import Fake as History
     from test_revert_config_history_g10d3 import Groups as Scaled
     from test_revert_events_g10d2 import KEY_ID, SECRET, TG, Reverts
+    from test_revert_v2_g10 import Q_ARN, QP, SP, Q, Queue, Stream
 
     def _staged():
         g = Scaled()
@@ -148,6 +149,10 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
             (_lambda_fake(None), "lambda_restore_concurrency", {**LAM, "event": "l-1", "concurrency": "none"},
              ("reserved", None)),
             (Settings(), "lambda_restore_settings", SETTINGS, ("timeout", 30)),
+            # G10 v2: a queue's settings, a stream's retention
+            (Queue(), "sqs_restore_attributes", {**QP, "event": "q-1", "attributes": "VisibilityTimeout=300"},
+             ("attrs", {"QueueArn": Q_ARN, "QueueName": Q, "VisibilityTimeout": "300"})),
+            (Stream(), "kinesis_restore_retention", {**SP, "event": "k-1", "hours": "168"}, ("hours", 168)),
             (Scaled(), "asg_restore_capacity", {**ASG, "event": "a-1", "desired": "6"}, ("capacity", 6)),
             (_staged(), "apigw_restore_stage", {**STAGE, "event": "s-1", "deployment": "dep-old"},
              ("deployment", "dep-old")),

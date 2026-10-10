@@ -89,7 +89,8 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     ActionKind.revert_change: ("revoke", "authorize", "disable", "modifysecuritygrouprules", "deleteroute",
                                "replaceroute", "updateservice", "putfunctionconcurrency", "deletefunctionconcurrency",
                                "setdesiredcapacity", "updateautoscalinggroup", "updatestage", "deregistertargets",
-                               "updatefunctionconfiguration"),
+                               "updatefunctionconfiguration", "setqueueattributes",
+                               "decreasestreamretentionperiod"),
 }
 
 

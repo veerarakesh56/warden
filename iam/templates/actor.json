@@ -10,6 +10,8 @@
         "ecs:UpdateService",
         "events:DisableRule",
         "events:EnableRule",
+        "kinesis:DecreaseStreamRetentionPeriod",
+        "kinesis:IncreaseStreamRetentionPeriod",
         "lambda:DeleteFunctionConcurrency",
         "lambda:PutFunctionConcurrency",
         "lambda:UpdateAlias",
@@ -20,6 +22,7 @@
         "sqs:GetQueueAttributes",
         "sqs:ReceiveMessage",
         "sqs:SendMessage",
+        "sqs:SetQueueAttributes",
         "sqs:StartMessageMoveTask"
       ],
       "Resource": [
@@ -27,6 +30,7 @@
         "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
         "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",
         "arn:aws:events:${region}:*:rule/warden-${env}-*",
+        "arn:aws:kinesis:${region}:*:stream/warden-${env}-*",
         "arn:aws:lambda:${region}:*:function:warden-${env}-*",
         "arn:aws:rds:${region}:*:cluster:warden-${env}-*",
         "arn:aws:rds:${region}:*:db:warden-${env}-*",

@@ -72,7 +72,8 @@ TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",)
                  "codepipeline": ("pipeline", "stage"),
                  "apigw": ("stage", "api"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
                  "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",),
-                 "ec2": ("group",), "asg": ("asg",), "kms": ("key",), "secretsmanager": ("secret",)}
+                 "ec2": ("group",), "asg": ("asg",), "kms": ("key",), "secretsmanager": ("secret",),
+                 "kinesis": ("stream",)}
 
 
 def _ref(*names: str) -> dict[str, Param]:
@@ -206,6 +207,12 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     Entry("lambda_restore_settings", "T2", "lambda",
           "the timeout, memory and ephemeral storage AWS Config recorded before the change",
           _ref("alarm", "function", "event", "settings")),
+    # G10 v2: a queue's timing and size settings (never its policy, redrive, encryption or FIFO settings), and a
+    # stream's retention - each back to what AWS Config recorded before the one recorded change.
+    Entry("sqs_restore_attributes", "T2", "sqs", "the queue's timing and size settings AWS Config recorded before the change",
+          _ref("alarm", "queue", "event", "attributes")),
+    Entry("kinesis_restore_retention", "T2", "kinesis", "the retention AWS Config recorded before the change",
+          _ref("alarm", "stream", "event", "hours")),
     Entry("asg_restore_capacity", "T2", "asg", "the desired capacity AWS Config recorded before the change",
           _ref("alarm", "asg", "event", "desired")),
     # A stage moved to another deployment: back to the one before, which must still exist - a "stage rollback".
@@ -248,6 +255,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     # writes as resume_flow, reached as the undo of that change).
     ActionKind.revert_change: {"ec2": "ec2_revert_sg_change", "events": "events_enable_rule",
                                "ecs": "ecs_restore_desired", "lambda": "lambda_restore_concurrency",
+                               "sqs": "sqs_restore_attributes", "kinesis": "kinesis_restore_retention",
                                "asg": "asg_restore_capacity", "apigw": "apigw_restore_stage",
                                "elb": "elb_reregister_targets", "kms": "kms_cancel_key_deletion",
                                "secretsmanager": "secrets_restore_secret"},
@@ -288,6 +296,13 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "ecs_restore_desired": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired_now"),
                                                 f"{p['desired']} (what AWS Config recorded before {s.get('event_name')} "
                                                 f"at {s.get('event_time')} by {s.get('actor')})")],
+    "sqs_restore_attributes": lambda p, s: [_arrow(f"queue {p['queue']}", s.get("after"),
+                                                   f"{p['attributes']} (what AWS Config recorded before "
+                                                   f"{s.get('event_name')} at {s.get('event_time')} by {s.get('actor')})")],
+    "kinesis_restore_retention": lambda p, s: [_arrow(f"retention of stream {p['stream']}", s.get("after"),
+                                                      f"{p['hours']} h (what AWS Config recorded before "
+                                                      f"{s.get('event_name')} at {s.get('event_time')} by "
+                                                      f"{s.get('actor')})")],
     "lambda_restore_settings": lambda p, s: [_arrow(f"settings of {p['function']}", s.get("after"),
                                                     f"{p['settings']} (what AWS Config recorded before "
                                                     f"{s.get('event_name')} at {s.get('event_time')} by "

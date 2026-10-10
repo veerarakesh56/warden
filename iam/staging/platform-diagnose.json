@@ -100,6 +100,12 @@
       }
     },
     {
+      "Sid": "StreamTagsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "kinesis:ListTagsForStream",
+      "Resource": "arn:aws:kinesis:ap-south-2:*:stream/warden-staging-*"
+    },
+    {
       "Sid": "GlobalServicesDistributionsOfThisEnvironment",
       "Effect": "Allow",
       "Action": "cloudfront:GetDistribution",

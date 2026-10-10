@@ -38,6 +38,7 @@ _PLATFORM_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
     "asg": (("asg", "asg"),),  # G10-D3: an Auto Scaling group, by its name
     "kms": (("kms_key", "key"),),  # G10-D2
     "secretsmanager": (("secret", "secret"),),
+    "kinesis": (("kinesis_stream", "stream"),),  # G10 v2
 }
 
 

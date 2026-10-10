@@ -10,6 +10,8 @@
         "ecs:UpdateService",
         "events:DisableRule",
         "events:EnableRule",
+        "kinesis:DecreaseStreamRetentionPeriod",
+        "kinesis:IncreaseStreamRetentionPeriod",
         "lambda:DeleteFunctionConcurrency",
         "lambda:PutFunctionConcurrency",
         "lambda:UpdateAlias",
@@ -20,6 +22,7 @@
         "sqs:GetQueueAttributes",
         "sqs:ReceiveMessage",
         "sqs:SendMessage",
+        "sqs:SetQueueAttributes",
         "sqs:StartMessageMoveTask"
       ],
       "Resource": [
@@ -27,6 +30,7 @@
         "arn:aws:dynamodb:ap-south-2:*:table/warden-staging-*",
         "arn:aws:ecs:ap-south-2:*:service/warden-staging-*/*",
         "arn:aws:events:ap-south-2:*:rule/warden-staging-*",
+        "arn:aws:kinesis:ap-south-2:*:stream/warden-staging-*",
         "arn:aws:lambda:ap-south-2:*:function:warden-staging-*",
         "arn:aws:rds:ap-south-2:*:cluster:warden-staging-*",
         "arn:aws:rds:ap-south-2:*:db:warden-staging-*",
