@@ -165,6 +165,17 @@ _ECS_EVENT_KINDS = (
     ("started_tasks", re.compile(r"has started \d+ tasks", re.IGNORECASE)),
     ("stopped_tasks", re.compile(r"has stopped \d+ running tasks", re.IGNORECASE)),
 )
+# Why ECS could not place a task, from its own words (G10 held-out set, 2026-10-10: counting the events hid that the
+# cluster had run out of network interfaces). The first that matches; the rest stay plain `unable_to_place`.
+_PLACE_WHY = (
+    ("eni", re.compile(r"RESOURCE:ENI", re.IGNORECASE)),
+    ("memory", re.compile(r"RESOURCE:MEMORY|insufficient memory", re.IGNORECASE)),
+    ("cpu", re.compile(r"RESOURCE:CPU|insufficient CPU", re.IGNORECASE)),
+    ("ports", re.compile(r"RESOURCE:PORTS|already-used port", re.IGNORECASE)),
+    ("gpu", re.compile(r"RESOURCE:GPU|insufficient GPU", re.IGNORECASE)),
+    ("no_instances", re.compile(r"no container instances were found", re.IGNORECASE)),
+    ("constraints", re.compile(r"did not match required attributes|placement constraint|MemberOf", re.IGNORECASE)),
+)
 # G10-C4: the writes that cut a workload off the network, and the request keys that name what they wrote to.
 _NETWORK_EVENTS = ("RevokeSecurityGroupEgress", "RevokeSecurityGroupIngress", "ModifySecurityGroupRules",
                    "DeleteRoute", "ReplaceRoute", "ReplaceRouteTableAssociation", "DisassociateRouteTable",
@@ -1353,7 +1364,10 @@ class StackBackend:
             at = _parse_time(e.get("createdAt"))
             if at is None or not started - ECS_EVENT_WINDOW <= at <= started + timedelta(minutes=5):
                 continue
-            kind = next((k for k, rx in _ECS_EVENT_KINDS if rx.search(str(e.get("message", "")))), "other")
+            message = str(e.get("message", ""))
+            kind = next((k for k, rx in _ECS_EVENT_KINDS if rx.search(message)), "other")
+            if kind == "unable_to_place":
+                kind += next((f"_{why}" for why, rx in _PLACE_WHY if rx.search(message)), "")
             kinds[kind] = kinds.get(kind, 0) + 1
         if kinds:
             counted = " ".join(f"{k}={n}" for k, n in sorted(kinds.items()))
