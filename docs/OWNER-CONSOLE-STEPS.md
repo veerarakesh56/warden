@@ -659,6 +659,25 @@ that one resource. Both are in `iam/<env>/` (dev shown), and a test holds them t
 Undo: delete the roles `warden-dev-actor` and `warden-dev-platform-reader`, then the policies
 `WardenActor-dev`, `WardenPlatformReader-dev` and `WardenPlatformDiagnose-dev`.
 
+### AWS Config, so WARDEN can undo a recorded change (in the window; owner decision 2026-10-10)
+
+`revert_change` sets a value back to what AWS Config recorded just before the change - an ECS service's desired
+count, a Lambda function's reserved concurrency (G10-D3). With no recorder those plans are refused, nothing else.
+One recorder per account and Region. Cost: about $0.003 per recorded change (continuous) plus a little S3 - check
+the Config pricing page the day before.
+
+1. **AWS Config** -> Region **Asia Pacific (Hyderabad)** -> **Settings** (or **Get started**).
+2. **Recording strategy**: **Specific resource types**, frequency **Continuous**, these types:
+   `AWS::ECS::Service`, `AWS::Lambda::Function`, `AWS::AutoScaling::AutoScalingGroup`, `AWS::ApiGateway::Stage`,
+   `AWS::EC2::SecurityGroup`.
+3. **IAM role**: **Use the AWS Config service-linked role** (created if missing).
+4. **Delivery**: **Create a bucket**, named `warden-dev-config-` plus any short suffix. Tags `Project` = `warden`,
+   `Environment` = `dev`. No SNS topic. **Next**, skip rules, **Confirm**.
+5. Claude checks, read-only, that the recorder is on and recording continuously.
+
+Undo: **Settings** -> **Stop recording**; then Claude gives the two delete commands for the recorder and its
+delivery channel, and you empty and delete the bucket.
+
 ## Done 2026-09-27
 
 1. `WardenFullstackOperator` updated: the operator may delete detached network interfaces (used the

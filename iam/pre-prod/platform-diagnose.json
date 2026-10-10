@@ -36,6 +36,8 @@
       "Effect": "Allow",
       "Action": [
         "autoscaling:DescribeScalingActivities",
+        "config:GetResourceConfigHistory",
+        "config:ListDiscoveredResources",
         "ec2:DescribeNetworkAcls",
         "ec2:DescribeRouteTables",
         "ec2:DescribeSecurityGroupRules",

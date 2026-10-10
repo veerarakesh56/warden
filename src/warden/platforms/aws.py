@@ -81,11 +81,13 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
           "codepipeline_freeze": "codepipeline", "ec2_revert_sg_change": "ec2",
+          "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda",
           "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
 # G10-D: undoing a recorded security group change. Only a change in the hours before the alarm went into ALARM.
 SG_CHANGE_BEFORE_ALARM = timedelta(hours=6)
+REVERT_BEFORE_ALARM = SG_CHANGE_BEFORE_ALARM  # every revert family: the change must be this close before the alarm
 _SG_ID = re.compile(r"sg-[0-9a-f]{8,17}")
 _SG_EVENTS = ("RevokeSecurityGroupEgress", "RevokeSecurityGroupIngress", "AuthorizeSecurityGroupEgress",
               "AuthorizeSecurityGroupIngress")
@@ -181,6 +183,67 @@ Clients = Callable[[str], Any]
 # holds further exact (actions, resources) statements (identity.session_policy).
 Actor = Callable[[dict[str, Any], list[str], list[str], dict[str, Any] | None], Clients]
 
+# G10-D3: undoing a recorded change from AWS Config's record of the resource before it (owner decision 2026-10-10: a
+# continuous Config recorder). Field paths from AWS's own Config resource schemas (awslabs/aws-config-resource-schema,
+# read 2026-10-10): AWS::ECS::Service configuration.DesiredCount; AWS::Lambda::Function
+# supplementaryConfiguration.Concurrency.reservedConcurrentExecutions.
+CONFIG_LOOKBACK = timedelta(days=7)  # GetResourceConfigHistory spans at most 7 days a call
+
+
+def _json(value: Any) -> dict[str, Any]:
+    """A Config item's configuration: a JSON string, or already an object."""
+    if isinstance(value, dict):
+        return value
+    try:
+        out = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return out if isinstance(out, dict) else {}
+
+
+def _trail_change(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """One CloudTrail write that succeeded, with who made it - else None."""
+    try:
+        d = json.loads(raw.get("CloudTrailEvent") or "{}")
+    except ValueError:
+        return None
+    if d.get("errorCode"):
+        return None
+    who = d.get("userIdentity") or {}
+    issuer = (who.get("sessionContext") or {}).get("sessionIssuer") or {}
+    actor_name = str(issuer.get("userName") or who.get("userName") or "")
+    at = _when(raw.get("EventTime") or d.get("eventTime"))
+    return {"event": str(raw.get("EventId") or d.get("eventID") or ""),
+            "event_name": str(raw.get("EventName") or d.get("eventName") or ""),
+            "at": at, "event_time": at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?",
+            "request": d.get("requestParameters") if isinstance(d.get("requestParameters"), dict) else None,
+            "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
+            "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
+            "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}"}
+
+
+def _who_refusal(e: dict[str, Any], onset: datetime) -> str:
+    """Why a recorded change is not WARDEN's to undo, whatever it changed - or ""."""
+    if e["at"] is None or e["at"] >= onset:
+        return "the change came after the alarm went off - it may be the fix"
+    if e["who_type"] == "Root":
+        return "the change was made by the root user: a person looks"
+    if e["invoked_by"]:
+        return f"the change was made by an AWS service ({e['invoked_by']}): its owner manages it"
+    if e["source_identity"].startswith("inc-"):
+        return "the change was WARDEN's own: its own rollback undoes it"
+    if e["actor_name"] and e["actor_name"] in never_revert():
+        return f"{e['actor']} is a principal whose changes WARDEN never reverts (WARDEN_NEVER_REVERT_PRINCIPALS)"
+    if e["request"] is None:
+        return "CloudTrail did not record the whole request (too large, or not returned)"
+    return ""
+
+
+def _last(value: Any) -> str:
+    """A name from a name or an ARN: `orders` from `arn:...:service/c1/orders` or `arn:...:function:orders`."""
+    return str(value or "").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+
+
 
 class AwsPlatformError(RuntimeError):
     pass
@@ -250,7 +313,8 @@ class AwsPlatform:
                 "sqs_redrive_dlq": self._live_dlq, "athena_stop_query": self._live_query,
                 "apigw_raise_stage_throttle": self._live_stage, "arc_zonal_shift": self._live_zones,
                 "appconfig_revert": self._live_appconfig, "codepipeline_freeze": self._live_pipeline,
-                "ec2_revert_sg_change": self._live_sg_change,
+                "ec2_revert_sg_change": self._live_sg_change, "ecs_restore_desired": self._live_ecs_desired,
+                "lambda_restore_concurrency": self._live_lambda_restore,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -292,7 +356,8 @@ class AwsPlatform:
                  "sqs_redrive_dlq": self._redrive_done, "athena_stop_query": self._query_cancelled,
                  "apigw_raise_stage_throttle": self._stage_healthy, "arc_zonal_shift": self._shift_holds,
                  "appconfig_revert": self._appconfig_reverted, "codepipeline_freeze": self._frozen,
-                 "ec2_revert_sg_change": self._sg_alarm_ok,
+                 "ec2_revert_sg_change": self._sg_alarm_ok, "ecs_restore_desired": self._ecs_restored,
+                 "lambda_restore_concurrency": self._lambda_restored,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -342,7 +407,8 @@ class AwsPlatform:
                  "sqs_redrive_dlq": self._redrive, "athena_stop_query": self._stop_query,
                  "apigw_raise_stage_throttle": self._stage_throttle, "arc_zonal_shift": self._zonal_shift,
                  "appconfig_revert": self._appconfig_revert, "codepipeline_freeze": self._freeze,
-                 "ec2_revert_sg_change": self._sg_revert,
+                 "ec2_revert_sg_change": self._sg_revert, "ecs_restore_desired": self._ecs_restore,
+                 "lambda_restore_concurrency": self._lambda_restore,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -1332,6 +1398,226 @@ class AwsPlatform:
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         undone = "kind" in st and st.get("present") is (st["kind"] == "revoke")
         return undone and bool(alarm) and alarm[0].get("StateValue") == "OK"
+
+    # ------------------------------------------------------------------ undo a recorded change, from Config (G10-D3)
+
+    def _alarm_onset(self, alarm: str) -> datetime | None:
+        """When the alarm went into ALARM - None unless it reads ALARM now."""
+        found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
+            "MetricAlarms") or []
+        return _when(found[0].get("StateTransitionedTimestamp")) if found and found[0].get("StateValue") == "ALARM" \
+            else None
+
+    def _alarm_ok(self, alarm: str) -> bool:
+        found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
+            "MetricAlarms") or []
+        return bool(found) and found[0].get("StateValue") == "OK"
+
+    def _trail_writes(self, key: str, value: str, since: datetime, until: datetime,
+                      keep: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
+        """Every successful write CloudTrail recorded with this lookup attribute in the window that `keep` accepts. A
+        window with more events than WARDEN reads chooses nothing: an unread one could be the change."""
+        out, token = [], None
+        for _ in range(4):
+            page = self._read("cloudtrail").lookup_events(
+                LookupAttributes=[{"AttributeKey": key, "AttributeValue": value}], StartTime=since, EndTime=until,
+                MaxResults=50, **({"NextToken": token} if token else {}))
+            for raw in page.get("Events") or []:
+                e = _trail_change(raw)
+                if e is not None and not (e["at"] is not None and e["at"] < since) and keep(e):
+                    out.append(e)
+            token = page.get("NextToken")
+            if not token:
+                return out
+        raise AwsPlatformRefused(f"more CloudTrail events for {value} than WARDEN reads in the window; nothing is "
+                                 "chosen")
+
+    def _config_bracket(self, rtype: str, rid: str, e: dict[str, Any],
+                        value_of: Callable[[dict[str, Any]], Any]) -> tuple[Any, Any, str]:
+        """(before, after, why): the value AWS Config recorded just before the change and the one it recorded with
+        it - the item whose relatedEvents names the event, else the first after it. Refused when the record is not
+        continuous, when there is none before, or when the value changed again since."""
+        items, token = [], None
+        for _ in range(3):
+            page = self._read("config").get_resource_config_history(
+                resourceType=rtype, resourceId=rid, earlierTime=e["at"] - CONFIG_LOOKBACK, laterTime=self._now(),
+                chronologicalOrder="Forward", limit=100, **({"nextToken": token} if token else {}))
+            items += page.get("configurationItems") or []
+            token = page.get("nextToken")
+            if not token:
+                break
+        else:
+            return None, None, "Config holds more records than WARDEN reads since the change"
+        if any(str(i.get("recordingFrequency") or "Continuous").lower() != "continuous" for i in items):
+            return None, None, "Config records this resource daily, not continuously: its value before is unknown"
+        after = next((i for i in items if e["event"] in (i.get("relatedEvents") or [])), None) or next(
+            (i for i in items if (_when(i.get("configurationItemCaptureTime")) or e["at"]) >= e["at"]), None)
+        if after is None:
+            return None, None, "Config has not recorded the change yet"
+        at = items.index(after)
+        before = items[at - 1] if at > 0 else None
+        if before is None:
+            return None, None, "Config holds no record of the resource before the change"
+        if any(value_of(i) != value_of(after) for i in items[at + 1:]):
+            return None, None, "the value changed again after the change"
+        return value_of(before), value_of(after), ""
+
+    def _config_id(self, rtype: str, name: str, fits: Callable[[str], bool]) -> str:
+        found = self._read("config").list_discovered_resources(resourceType=rtype, resourceName=name).get(
+            "resourceIdentifiers") or []
+        ids = [r["resourceId"] for r in found if fits(str(r.get("resourceId", "")))]
+        return ids[0] if len(ids) == 1 else ""
+
+    def _live_ecs_desired(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded UpdateService that set this service's desired count in the hours before its alarm, and the
+        count AWS Config recorded before it - the one value a restore may write."""
+        cluster, service, alarm = params.get("cluster"), params.get("service"), params.get("alarm")
+        if not all(isinstance(v, str) for v in (cluster, service, alarm)):
+            return {}
+        [svc] = self._read("ecs").describe_services(cluster=cluster, services=[service], include=["TAGS"])["services"]
+        name, arn = svc["serviceName"], svc["serviceArn"]
+        state: dict[str, Any] = {"cluster": cluster, "service": name, "arn": arn, "desired_now": svc.get("desiredCount"),
+                                 "where": self._where(arn)}
+        live = {"cluster": {cluster}, "service": {name}, "alarm": {alarm}, "event": set(), "desired": set(),
+                "environment": {t["key"]: t["value"] for t in svc.get("tags") or []}.get(ENV_TAG)}
+
+        def refused(why: str) -> dict[str, Any]:
+            return {**live, "refused": why, "state": state}
+
+        scaled = self._read("application-autoscaling").describe_scalable_targets(
+            ServiceNamespace="ecs", ResourceIds=[f"service/{cluster}/{name}"],
+            ScalableDimension="ecs:service:DesiredCount").get("ScalableTargets")
+        if scaled:
+            return refused("an autoscaler owns this service's desired count")
+        onset = self._alarm_onset(alarm)
+        named = params.get("event")
+        if onset is None and not isinstance(named, str):
+            return refused("the alarm is not in ALARM")
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+
+        def sets_count(e: dict[str, Any]) -> bool:
+            r = e["request"] or {}
+            return (_last(r.get("service")) == name and _last(r.get("cluster") or "default") == _last(cluster)
+                    and "desiredCount" in r)
+
+        writes = self._trail_writes("EventName", "UpdateService", since, self._now(), sets_count)
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return refused(f"{'no recorded' if not writes else len(writes)} change(s) to {name}'s desired count since "
+                           f"{since:%Y-%m-%dT%H:%MZ}" + ("" if not writes else " (WARDEN does not choose one)"))
+        e = writes[0]
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        rid = self._config_id("AWS::ECS::Service", name, lambda rid: _last(cluster) in rid or rid.endswith(name))
+        if not why and not rid:
+            why = "AWS Config holds no single record of this service"
+        before = after = None
+        if rid and (not why or onset is None):
+            before, after, bracket = self._config_bracket("AWS::ECS::Service", rid, e,
+                                                          lambda i: _get(_json(i.get("configuration")), "DesiredCount"))
+            why = why or bracket
+        state.update(before=before, after=after)
+        if not why and (not isinstance(before, int) or before < 1):
+            why = f"the count before the change was {before}: nothing to restore"
+        if not why and (after != (e["request"] or {}).get("desiredCount") or svc.get("desiredCount") != after):
+            why = "the service's count is not what the change set: it moved since"
+        return {**live, "event": set() if why else {e["event"]}, "desired": set() if why else {str(before)},
+                "refused": why, "state": state}
+
+    def _ecs_restore(self, p, snapshot, now, who, back) -> str:
+        """Set the desired count back to what AWS Config recorded before the change (back: what the change set)."""
+        self._expect(now, snapshot, ("cluster", "service", "arn", "event", "before", "after"), f"service {p['service']}")
+        prior = int(p["desired"]) if str(p["desired"]).isdigit() else None  # a ref: what Config recorded, as text
+        want_now, to = (snapshot.get("after"), prior) if not back else (prior, snapshot.get("after"))
+        if now.get("desired_now") != want_now or not isinstance(to, int):
+            raise AwsPlatformRefused(f"service {p['service']} wants {now.get('desired_now')} tasks, not {want_now}; "
+                                     "nothing was changed")
+        ecs = self._actor(who, ["ecs:UpdateService"], [now["arn"]], None)("ecs")
+        ecs.update_service(cluster=p["cluster"], service=p["service"], desiredCount=to)
+        return f"set service {p['service']} desired tasks from {now.get('desired_now')} to {to}"
+
+    def _ecs_restored(self, service: str, params: dict[str, Any]) -> bool:
+        """Every task of the restored count running, and the alarm reads OK."""
+        [svc] = self._read("ecs").describe_services(cluster=params.get("cluster", ""), services=[service])["services"]
+        want = int(params["desired"]) if str(params.get("desired", "")).isdigit() else None
+        return (isinstance(want, int) and svc.get("desiredCount") == want and svc.get("runningCount") == want
+                and self._alarm_ok(str(params.get("alarm", ""))))
+
+    def _live_lambda_restore(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded Put/DeleteFunctionConcurrency on this function in the hours before its alarm, and the
+        reserved concurrency AWS Config recorded before it (none: unreserved)."""
+        fn, alarm = params.get("function"), params.get("alarm")
+        if not isinstance(fn, str) or not isinstance(alarm, str):
+            return {}
+        lam = self._read("lambda")
+        conf = lam.get_function_configuration(FunctionName=fn)
+        arn, name = conf["FunctionArn"], conf["FunctionName"]
+        reserved = lam.get_function_concurrency(FunctionName=name).get("ReservedConcurrentExecutions")
+        free = (lam.get_account_settings().get("AccountLimit") or {}).get("UnreservedConcurrentExecutions")
+        state: dict[str, Any] = {"function": name, "arn": arn, "reserved": reserved, "where": self._where(arn)}
+        live = {"function": {name}, "alarm": {alarm}, "event": set(), "concurrency": set(),
+                "environment": self._tags("lambda", arn).get(ENV_TAG), "unreserved_account_concurrency": free}
+        onset = self._alarm_onset(alarm)
+        named = params.get("event")
+        if onset is None and not isinstance(named, str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+
+        def on_this(e: dict[str, Any]) -> bool:
+            return e["event_name"].startswith(("PutFunctionConcurrency", "DeleteFunctionConcurrency")) and \
+                _last((e["request"] or {}).get("functionName")) == name
+
+        # By event SOURCE: Lambda's event names carry an API version (`PutFunctionConcurrency20171031`).
+        writes = self._trail_writes("EventSource", "lambda.amazonaws.com", since, self._now(), on_this)
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} concurrency "
+                    f"change(s) to {name} since {since:%Y-%m-%dT%H:%MZ}"}
+        e = writes[0]
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+
+        def value_of(i: dict[str, Any]) -> Any:
+            return _get(_json((i.get("supplementaryConfiguration") or {}).get("Concurrency")),
+                        "reservedConcurrentExecutions")
+
+        before = after = None
+        if not why or onset is None:
+            before, after, bracket = self._config_bracket("AWS::Lambda::Function", name, e, value_of)
+            why = why or bracket
+        state.update(before=before, after=after)
+        if not why and reserved != after:
+            why = "the function's reserved concurrency is not what the change set: it moved since"
+        if not why and isinstance(before, int) and isinstance(free, int) and \
+                before - (reserved or 0) > free - AWS_RESERVED_UNRESERVED:
+            why = "the account has no room to reserve that much again"
+        return {**live, "event": set() if why else {e["event"]},
+                "concurrency": set() if why else {"none" if before is None else str(before)}, "refused": why,
+                "state": state}
+
+    def _lambda_restore(self, p, snapshot, now, who, back) -> str:
+        """Reserved concurrency back to what Config recorded before the change - `none` deletes the reservation
+        (back: what the change set)."""
+        self._expect(now, snapshot, ("function", "arn", "event", "before", "after"), f"lambda {p['function']}")
+        before = None if p["concurrency"] == "none" else int(p["concurrency"])
+        want_now, to = (snapshot.get("after"), before) if not back else (before, snapshot.get("after"))
+        if now.get("reserved") != want_now:
+            raise AwsPlatformRefused(f"lambda {p['function']} reserves {now.get('reserved')}, not {want_now}; "
+                                     "nothing was changed")
+        action = "lambda:DeleteFunctionConcurrency" if to is None else "lambda:PutFunctionConcurrency"
+        lam = self._actor(who, [action], [now["arn"]], None)("lambda")
+        if to is None:
+            lam.delete_function_concurrency(FunctionName=p["function"])
+        else:
+            lam.put_function_concurrency(FunctionName=p["function"], ReservedConcurrentExecutions=to)
+        return f"set lambda {p['function']} reserved concurrency from {now.get('reserved')} to {'none' if to is None else to}"
+
+    def _lambda_restored(self, function: str, params: dict[str, Any]) -> bool:
+        want = None if params.get("concurrency") == "none" else int(params.get("concurrency", -1))
+        got = self._read("lambda").get_function_concurrency(FunctionName=function).get("ReservedConcurrentExecutions")
+        return got == want and self._alarm_ok(str(params.get("alarm", "")))
 
     # ------------------------------------------------------------------ codepipeline: freeze deploys (G9-D)
 

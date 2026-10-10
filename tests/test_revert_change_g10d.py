@@ -181,6 +181,8 @@ def test_the_resolver_plans_the_one_change_the_platform_allows_and_says_why_when
     assert req is None and "not in ALARM" in why
 
 
-def test_a_disabled_rule_is_reverted_through_its_enable_entry():
+def test_a_disabled_rule_is_reverted_through_its_enable_entry_and_a_function_through_its_concurrency():
+    """A disabled consumer is resume_flow's (lambda_enable_esm); revert_change on a function undoes a recorded
+    concurrency change (G10-D3)."""
     assert catalog.for_action(ActionKind.revert_change, "events").name == "events_enable_rule"
-    assert catalog.for_action(ActionKind.revert_change, "lambda").name == "lambda_enable_esm"
+    assert catalog.for_action(ActionKind.revert_change, "lambda").name == "lambda_restore_concurrency"

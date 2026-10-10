@@ -10,6 +10,7 @@
         "ecs:UpdateService",
         "events:DisableRule",
         "events:EnableRule",
+        "lambda:DeleteFunctionConcurrency",
         "lambda:PutFunctionConcurrency",
         "lambda:UpdateAlias",
         "rds:FailoverDBCluster",

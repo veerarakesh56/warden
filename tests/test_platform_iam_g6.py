@@ -21,7 +21,7 @@ PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs":
           "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds",
           "sqs": "sqs", "athena": "athena", "apigateway": "apigateway", "sts": "sts", "elbv2": "elasticloadbalancing",
           "ec2": "ec2", "arc-zonal-shift": "arc-zonal-shift", "appconfig": "appconfig",
-          "codepipeline": "codepipeline"}
+          "codepipeline": "codepipeline", "config": "config"}
 # Actions AWS authorizes for a call besides the call's own (Service Authorization Reference, read 2026-10-10): the
 # session asks for them, the code never calls them.
 IMPLICIT = {"sqs:StartMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
@@ -119,6 +119,28 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     f.sg_rules = [{"GroupId": SG, "SecurityGroupRuleId": "sgr-0added"}]
     p.apply("ec2_revert_sg_change", sg, snapshot=p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
     p.rollback("ec2_revert_sg_change", sg, p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
+    # G10-D3: values back to what AWS Config recorded before the change - applied, judged, rolled back.
+    from test_revert_config_history_g10d3 import ECS, LAM, _lambda_fake
+    from test_revert_config_history_g10d3 import Fake as History
+
+    for fake, entry, params, after in (
+            (History(), "ecs_restore_desired", {**ECS, "event": "e-1", "desired": "2"}, ("desired", 2)),
+            (_lambda_fake(), "lambda_restore_concurrency", {**LAM, "event": "l-1", "concurrency": "50"},
+             ("reserved", 50)),
+            (_lambda_fake(None), "lambda_restore_concurrency", {**LAM, "event": "l-1", "concurrency": "none"},
+             ("reserved", None))):
+        def history_actor(who, actions, resources, condition, also=(), fake=fake):
+            granted.update(actions)
+            clients = fake.actor(who, actions, resources, condition, also)
+            return lambda service: _Recording(service, clients(service), writes)
+
+        q = AwsPlatform(reader=lambda service, fake=fake: _Recording(service, fake, reads), actor=history_actor,
+                        clock=lambda: NOW, sleep=lambda s: None)
+        snap = q.live(entry, params)["state"]
+        q.apply(entry, params, snapshot=snap, who=WHO)
+        setattr(fake, *after)
+        q.healthy(params[catalog.CATALOG[entry].target_param], entry=entry, params=params)
+        q.rollback(entry, params, snap, who=WHO)
     return reads, writes, granted
 
 

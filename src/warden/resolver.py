@@ -246,6 +246,11 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
     entry = catalog.for_action(proposal.action, platform)
     if entry is None:
         return None, f"no catalogue entry carries out {proposal.action.value} on {platform}"
+    if "alarm" in entry.params:  # G10-D3: the change is dated by the alarm going off
+        alarm = alert.labels.get("alarm", "")
+        if not alarm or "," in alarm:
+            return None, "the alert names no single alarm, so no change before it can be dated"
+        params["alarm"] = alarm
     if entry.name == "lambda_move_alias":
         alias = alert.labels.get("lambda_qualifier", "")
         if not alias or alias.isdigit() or alias == "$LATEST":

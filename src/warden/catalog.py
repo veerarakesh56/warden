@@ -196,6 +196,12 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     # the group since, a change after the alarm went off (it may be the fix).
     Entry("ec2_revert_sg_change", "T3", "ec2", "the group's rules as CloudTrail recorded them before the change",
           _ref("alarm", "group", "event"), target=("group",)),
+    # G10-D3: a value back to what AWS Config recorded just before ONE recorded change (Config's own relatedEvents
+    # name the change), the hours before the alarm, with the same refusals; Config must record continuously.
+    Entry("ecs_restore_desired", "T2", "ecs", "the desired count AWS Config recorded before the change",
+          _ref("alarm", "cluster", "service", "event", "desired")),
+    Entry("lambda_restore_concurrency", "T2", "lambda", "the reserved concurrency AWS Config recorded before the change",
+          _ref("alarm", "function", "event", "concurrency")),
 ]}
 
 # Which entries can carry out what the model proposed, per platform. An action with no entry is
@@ -224,7 +230,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     # G10-D: a recorded change undone - a security group's rules, or a rule or consumer a change disabled (the same
     # writes as resume_flow, reached as the undo of that change).
     ActionKind.revert_change: {"ec2": "ec2_revert_sg_change", "events": "events_enable_rule",
-                               "lambda": "lambda_enable_esm"},
+                               "ecs": "ecs_restore_desired", "lambda": "lambda_restore_concurrency"},
 }
 
 
@@ -245,6 +251,13 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                "enabled", f"disabled; its messages wait in the queue, kept "
                                                f"{s.get('retention_s')} s; it stays paused until a person resumes it")],
     "events_enable_rule": lambda p, s: [_arrow(f"rule {p['rule']}", "disabled", "enabled")],
+    "ecs_restore_desired": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired_now"),
+                                                f"{p['desired']} (what AWS Config recorded before {s.get('event_name')} "
+                                                f"at {s.get('event_time')} by {s.get('actor')})")],
+    "lambda_restore_concurrency": lambda p, s: [_arrow(f"reserved concurrency of {p['function']}", s.get("reserved"),
+                                                       f"{p['concurrency']} (what AWS Config recorded before "
+                                                       f"{s.get('event_name')} at {s.get('event_time')} by "
+                                                       f"{s.get('actor')})")],
     "ec2_revert_sg_change": lambda p, s: [(f"security group {p['group']}: {s.get('undo')} - undoing "
                                            f"{s.get('event_name')} at {s.get('event_time')} by {s.get('actor')} "
                                            f"(event {p['event']})")],
