@@ -30,14 +30,25 @@
         "arn:aws:rds:${region}:*:db:warden-${env}-*",
         "arn:aws:sqs:${region}:*:warden-${env}-*"
       ],
-      "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
     },
     {
       "Sid": "PipelineStagesOfThisEnvironment",
       "Effect": "Allow",
-      "Action": ["codepipeline:DisableStageTransition", "codepipeline:EnableStageTransition"],
+      "Action": [
+        "codepipeline:DisableStageTransition",
+        "codepipeline:EnableStageTransition"
+      ],
       "Resource": "arn:aws:codepipeline:${region}:*:warden-${env}-*/*",
-      "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
     },
     {
       "Sid": "ConfigurationDeploymentsOfThisEnvironment",
@@ -45,19 +56,30 @@
       "Action": "appconfig:StopDeployment",
       "Resource": "arn:aws:appconfig:${region}:*:application/*",
       "Condition": {
-        "StringEquals": {"aws:ResourceTag/Environment": "${env}"},
-        "StringLike": {"aws:SourceIdentity": "inc-*"}
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
       }
     },
     {
       "Sid": "ZonalShiftsOfThisEnvironmentsLoadBalancers",
       "Effect": "Allow",
-      "Action": ["arc-zonal-shift:CancelZonalShift", "arc-zonal-shift:StartZonalShift"],
+      "Action": [
+        "arc-zonal-shift:CancelZonalShift",
+        "arc-zonal-shift:StartZonalShift"
+      ],
       "Resource": [
         "arn:aws:elasticloadbalancing:${region}:*:loadbalancer/app/warden-${env}-*/*",
         "arn:aws:elasticloadbalancing:${region}:*:loadbalancer/net/warden-${env}-*/*"
       ],
-      "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
     },
     {
       "Sid": "StageThrottlesOfThisEnvironmentsApis",
@@ -65,8 +87,12 @@
       "Action": "apigateway:PATCH",
       "Resource": "arn:aws:apigateway:${region}::/restapis/*/stages/*",
       "Condition": {
-        "StringEquals": {"aws:ResourceTag/Environment": "${env}"},
-        "StringLike": {"aws:SourceIdentity": "inc-*"}
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
       }
     },
     {
@@ -75,8 +101,45 @@
       "Action": "lambda:UpdateEventSourceMapping",
       "Resource": "arn:aws:lambda:${region}:*:event-source-mapping:*",
       "Condition": {
-        "ArnLike": {"lambda:FunctionArn": "arn:aws:lambda:${region}:*:function:warden-${env}-*"},
-        "StringLike": {"aws:SourceIdentity": "inc-*"}
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:${region}:*:function:warden-${env}-*"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "SecurityGroupRulesOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress"
+      ],
+      "Resource": "arn:aws:ec2:${region}:*:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "TheRuleAnAuthorizeCreates",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:AuthorizeSecurityGroupIngress"
+      ],
+      "Resource": "arn:aws:ec2:${region}:*:security-group-rule/*",
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
       }
     }
   ]

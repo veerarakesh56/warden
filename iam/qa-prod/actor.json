@@ -108,6 +108,39 @@
           "aws:SourceIdentity": "inc-*"
         }
       }
+    },
+    {
+      "Sid": "SecurityGroupRulesOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress"
+      ],
+      "Resource": "arn:aws:ec2:ap-south-2:*:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "qa-prod"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "TheRuleAnAuthorizeCreates",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:AuthorizeSecurityGroupIngress"
+      ],
+      "Resource": "arn:aws:ec2:ap-south-2:*:security-group-rule/*",
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
     }
   ]
 }

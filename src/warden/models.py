@@ -219,6 +219,10 @@ class ActionKind(str, Enum):
     cancel_query = "cancel_query"          # stop one runaway query; the session and the data are untouched
     raise_limit = "raise_limit"            # raise a throttle or reservation inside the account's own limit, bounded
     freeze_changes = "freeze_changes"      # stop further deploys reaching the service while a person looks
+    # G10-D (2026-10-10): undo ONE configuration change CloudTrail recorded shortly before the alarm, back to the state
+    # AWS recorded before it - most outages follow a change (research 2026-10-10). Only families a catalogue entry
+    # carries out; IAM and resource policies stay a person's.
+    revert_change = "revert_change"
     no_action = "no_action"
     escalate_to_human = "escalate_to_human"
 
@@ -288,6 +292,8 @@ ACTION_FACTS: dict[ActionKind, tuple[bool, str]] = {
     ActionKind.raise_limit: (True, "single_service"),
     # Re-enabling the transition is the undo; nothing already deployed changes.
     ActionKind.freeze_changes: (True, "single_service"),
+    # Undone by re-applying the recorded change itself. single_service: one resource's one change.
+    ActionKind.revert_change: (True, "single_service"),
     # Touch nothing. Present so the table is total over ActionKind: a KeyError inside the gate must
     # be impossible.
     ActionKind.no_action: (True, "single_pod"),
@@ -311,6 +317,8 @@ ACTION_MEANINGS = (
     "raise_limit: raise a REQUEST throttle or a reserved concurrency of a managed service (an API stage's rate, a "
     "function's reserved concurrency) - never a container's CPU or memory limit, never a database's connection limit. "
     "freeze_changes: stop further deploys reaching the service while a person looks. "
+    "revert_change: undo ONE configuration change a CHANGE line records shortly before the alert (a security group "
+    "rule revoked or added, a rule or consumer disabled) back to what it was - target the changed resource itself. "
     "failover_replica, clear_cache, terminate_connections: what they say, on a database or cache. "
     "no_action: nothing is wrong. escalate_to_human: a person decides."
 )

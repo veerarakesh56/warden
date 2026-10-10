@@ -71,7 +71,8 @@ TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",)
                  "elb": ("load_balancer",), "appconfig": ("application", "config_env"),
                  "codepipeline": ("pipeline", "stage"),
                  "apigw": ("stage", "api"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
-                 "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",)}
+                 "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",),
+                 "ec2": ("group",)}
 
 
 def _ref(*names: str) -> dict[str, Param]:
@@ -188,6 +189,13 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     Entry("db_terminate_blocker", "T2", "db", "n/a (the blocking session is closed)", _ref("database", "pid")),
     Entry("aurora_failover", "T3", "rds", "n/a (irreversible)", _ref("cluster", "target_instance")),
     Entry("infra_restore_baseline", "T3", "terraform", "the Terraform-declared baseline", _ref("stack")),
+    # G10-D: undo the ONE security group write CloudTrail recorded in the hours before the alarm went into ALARM -
+    # re-authorize exactly the rules a revoke removed (AWS's own response lists them), or revoke only the rule ids an
+    # authorize created. T3: network and security-adjacent. Refusals (platforms/aws.py): ingress from the whole
+    # internet, a change by root, by an AWS service, by WARDEN or by a principal the owner named, any other write to
+    # the group since, a change after the alarm went off (it may be the fix).
+    Entry("ec2_revert_sg_change", "T3", "ec2", "the group's rules as CloudTrail recorded them before the change",
+          _ref("alarm", "group", "event"), target=("group",)),
 ]}
 
 # Which entries can carry out what the model proposed, per platform. An action with no entry is
@@ -213,6 +221,10 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.revert_config: {"appconfig": "appconfig_revert"},
     ActionKind.freeze_changes: {"codepipeline": "codepipeline_freeze"},
     ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
+    # G10-D: a recorded change undone - a security group's rules, or a rule or consumer a change disabled (the same
+    # writes as resume_flow, reached as the undo of that change).
+    ActionKind.revert_change: {"ec2": "ec2_revert_sg_change", "events": "events_enable_rule",
+                               "lambda": "lambda_enable_esm"},
 }
 
 
@@ -233,6 +245,9 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                "enabled", f"disabled; its messages wait in the queue, kept "
                                                f"{s.get('retention_s')} s; it stays paused until a person resumes it")],
     "events_enable_rule": lambda p, s: [_arrow(f"rule {p['rule']}", "disabled", "enabled")],
+    "ec2_revert_sg_change": lambda p, s: [(f"security group {p['group']}: {s.get('undo')} - undoing "
+                                           f"{s.get('event_name')} at {s.get('event_time')} by {s.get('actor')} "
+                                           f"(event {p['event']})")],
     "events_disable_rule": lambda p, s: [_arrow(f"scheduled rule {p['rule']}", "enabled",
                                                 "disabled; it misses its runs while disabled")],
     "dynamodb_raise_capacity": lambda p, s: [_arrow(f"write capacity of table {p['table']}", s.get("write"),

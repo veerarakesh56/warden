@@ -152,6 +152,30 @@ def _configuration(alert: Alert, proposal: RemediationProposal, live: Any) -> tu
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
 
 
+def _security_group(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
+    """revert_change on a security group (G10-D): the ONE write CloudTrail recorded on it before the alarm went off -
+    the platform's live read decides which, and whether it may be undone; the model only names the group."""
+    alarm = alert.labels.get("alarm", "")
+    if not alarm or "," in alarm:
+        return None, "the alert names no single alarm, so no change before it can be dated"
+    group = _bare(alert, proposal.target)
+    entry = catalog.CATALOG["ec2_revert_sg_change"]
+    state = live(entry.name, {"group": group, "alarm": alarm})
+    events = state.get("event")
+    if not isinstance(events, set | frozenset) or len(events) != 1:
+        return None, f"no change to {group} WARDEN may undo: {state.get('refused') or 'the group could not be read'}"
+    params = {"alarm": alarm, "group": group, "event": next(iter(events))}
+    problems = catalog.validate(entry.name, params, state)
+    if problems:
+        return None, "; ".join(problems)
+    return {"entry": entry.name, "params": params, "service": params[entry.target_param],
+            "environment": alert.environment, "incident_id": alert.alert_id}, ""
+
+
+# A security group's id: what revert_change names when a CHANGE line shows a write to one.
+_SG_ID = re.compile(r"sg-[0-9a-f]{8,17}")
+
+
 def _sessions(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
     """terminate_connections (G10-B): the labelled database cluster or instance, when the database platform's
     connection goes to that very server - a database carries no tag, so its endpoint's own name is the link (an RDS
@@ -213,6 +237,8 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
         return _freeze(alert, proposal, live)
     if proposal.action is ActionKind.terminate_connections:
         return _sessions(alert, proposal, live)
+    if proposal.action is ActionKind.revert_change and _SG_ID.fullmatch(_bare(alert, proposal.target)):
+        return _security_group(alert, proposal, live)
     found = _platform(alert, proposal.target)
     if found is None:
         return None, "the proposal's target is not a resource the alert's labels name"

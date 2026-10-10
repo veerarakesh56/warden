@@ -41,6 +41,7 @@ rollback). A pause, a shift and a freeze end "mitigated": the page stays open (c
 from __future__ import annotations
 
 import itertools
+import json
 import os
 import re
 import time
@@ -79,9 +80,101 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs", "ecs_restart_service": "ecs",
           "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
-          "codepipeline_freeze": "codepipeline",
+          "codepipeline_freeze": "codepipeline", "ec2_revert_sg_change": "ec2",
           "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
+
+# G10-D: undoing a recorded security group change. Only a change in the hours before the alarm went into ALARM.
+SG_CHANGE_BEFORE_ALARM = timedelta(hours=6)
+_SG_ID = re.compile(r"sg-[0-9a-f]{8,17}")
+_SG_EVENTS = ("RevokeSecurityGroupEgress", "RevokeSecurityGroupIngress", "AuthorizeSecurityGroupEgress",
+              "AuthorizeSecurityGroupIngress")
+_OPEN_CIDRS = frozenset({"0.0.0.0/0", "::/0"})
+
+
+def never_revert() -> frozenset[str]:
+    """Role and user names whose changes WARDEN never reverts - a security team's, a break-glass identity's. The owner
+    names them (WARDEN_NEVER_REVERT_PRINCIPALS, comma-separated); a revoked rule may be the incident response."""
+    return frozenset(n.strip() for n in os.environ.get("WARDEN_NEVER_REVERT_PRINCIPALS", "").split(",") if n.strip())
+
+
+def _get(d: dict[str, Any], name: str) -> Any:
+    """A field by name in any case: CloudTrail writes `groupId`, the EC2 API `GroupId`."""
+    low = name.lower()
+    return next((v for k, v in d.items() if k.lower() == low), None)
+
+
+def _items(value: Any) -> list[dict[str, Any]]:
+    """A CloudTrail list: `{"items": [...]}` as EC2 writes it, or a plain list."""
+    if isinstance(value, dict):
+        value = value.get("items") or value.get("item") or []
+    return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
+
+
+def _sg_group_of(request: dict[str, Any]) -> str:
+    """The group a security group write names: `groupId` at the top, or in the newer APIs' request wrapper."""
+    direct = _get(request, "groupId")
+    if isinstance(direct, str):
+        return direct
+    inner = next((v for v in request.values() if isinstance(v, dict) and isinstance(_get(v, "groupId"), str)), {})
+    return str(_get(inner, "groupId") or "") if inner else ""
+
+
+def _sg_rule_key(r: dict[str, Any]) -> list[Any]:
+    """One rule as a canonical list - [egress, protocol, from, to, kind, value] - from CloudTrail's camelCase or the
+    EC2 API's PascalCase. A list, not a tuple: the plan's snapshot comes back from JSON as lists."""
+    ref = _get(r, "referencedGroupId") or _get(_get(r, "referencedGroupInfo") or {}, "groupId")
+    kind, value = next(((k, v) for k, v in (("cidr4", _get(r, "cidrIpv4")), ("cidr6", _get(r, "cidrIpv6")),
+                                            ("prefix", _get(r, "prefixListId")), ("group", ref)) if v), ("", ""))
+    port = (lambda v: int(v) if isinstance(v, (int, str)) and str(v).lstrip("-").isdigit() else None)
+    return [bool(_get(r, "isEgress")), str(_get(r, "ipProtocol") or ""), port(_get(r, "fromPort")),
+            port(_get(r, "toPort")), kind, str(value)]
+
+
+def _sg_parse(raw: dict[str, Any], group: str) -> dict[str, Any] | None:
+    """One CloudTrail security group write on `group` that succeeded, with what it changed - else None."""
+    try:
+        d = json.loads(raw.get("CloudTrailEvent") or "{}")
+    except ValueError:
+        return None
+    name = str(raw.get("EventName") or d.get("eventName") or "")
+    if name not in _SG_EVENTS or d.get("errorCode") or _sg_group_of(d.get("requestParameters") or {}) != group:
+        return None
+    kind = "revoke" if name.startswith("Revoke") else "authorize"
+    response = d.get("responseElements")
+    field = "revokedSecurityGroupRuleSet" if kind == "revoke" else "securityGroupRuleSet"
+    items = _items(_get(response, field)) if isinstance(response, dict) else []
+    who = d.get("userIdentity") or {}
+    issuer = (who.get("sessionContext") or {}).get("sessionIssuer") or {}
+    actor_name = str(issuer.get("userName") or who.get("userName") or "")
+    at = _when(raw.get("EventTime") or d.get("eventTime"))
+    return {"event": str(raw.get("EventId") or d.get("eventID") or ""), "event_name": name, "kind": kind,
+            "egress": name.endswith("Egress"), "at": at, "event_time": at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else "?",
+            "rules": sorted((_sg_rule_key(i) for i in items), key=json.dumps), "rule_ids": sorted(str(_get(i, "securityGroupRuleId") or "")
+                                                                                 for i in items),
+            "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
+            "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
+            "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}",
+            "truncated": not isinstance(response, dict) or not items}
+
+
+def _sg_undo_text(e: dict[str, Any]) -> str:
+    verb = "authorize again" if e["kind"] == "revoke" else "revoke"
+    way = "to" if e["egress"] else "from"
+    rules = "; ".join(f"{r[1]} {r[2]}-{r[3]} {way} {r[5]}" for r in e["rules"])
+    return f"{verb} {len(e['rules'])} {'egress' if e['egress'] else 'ingress'} rule(s): {rules}"[:400]
+
+
+def _sg_permission(r: list[Any]) -> dict[str, Any]:
+    """The EC2 IpPermission that writes exactly one canonical rule."""
+    _egress, proto, low, high, kind, value = r
+    perm: dict[str, Any] = {"IpProtocol": proto}
+    if proto not in ("-1", "all") and low is not None:
+        perm.update(FromPort=low, ToPort=high)
+    perm.update({"cidr4": {"IpRanges": [{"CidrIp": value}]}, "cidr6": {"Ipv6Ranges": [{"CidrIpv6": value}]},
+                 "prefix": {"PrefixListIds": [{"PrefixListId": value}]},
+                 "group": {"UserIdGroupPairs": [{"GroupId": value}]}}.get(kind, {}))
+    return perm
 
 Clients = Callable[[str], Any]
 # (who, actions, resources, condition[, also]) -> a client factory whose clients hold that one actor session; `also`
@@ -157,6 +250,7 @@ class AwsPlatform:
                 "sqs_redrive_dlq": self._live_dlq, "athena_stop_query": self._live_query,
                 "apigw_raise_stage_throttle": self._live_stage, "arc_zonal_shift": self._live_zones,
                 "appconfig_revert": self._live_appconfig, "codepipeline_freeze": self._live_pipeline,
+                "ec2_revert_sg_change": self._live_sg_change,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -198,6 +292,7 @@ class AwsPlatform:
                  "sqs_redrive_dlq": self._redrive_done, "athena_stop_query": self._query_cancelled,
                  "apigw_raise_stage_throttle": self._stage_healthy, "arc_zonal_shift": self._shift_holds,
                  "appconfig_revert": self._appconfig_reverted, "codepipeline_freeze": self._frozen,
+                 "ec2_revert_sg_change": self._sg_alarm_ok,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -247,6 +342,7 @@ class AwsPlatform:
                  "sqs_redrive_dlq": self._redrive, "athena_stop_query": self._stop_query,
                  "apigw_raise_stage_throttle": self._stage_throttle, "arc_zonal_shift": self._zonal_shift,
                  "appconfig_revert": self._appconfig_revert, "codepipeline_freeze": self._freeze,
+                 "ec2_revert_sg_change": self._sg_revert,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -1112,6 +1208,130 @@ class AwsPlatform:
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         return str(st.get("deployment")) == str(params.get("deployment")) and st.get("deploy_state") in (
             "REVERTED", "ROLLED_BACK") and bool(alarm) and alarm[0].get("StateValue") == "OK"
+
+    # ------------------------------------------------------------------ ec2: undo a recorded security group change (G10-D)
+
+    def _live_sg_change(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE security group write CloudTrail recorded in SG_CHANGE_BEFORE_ALARM before the alarm went into ALARM,
+        and exactly what undoing it writes. Allowed only when it is the group's only write from then until now (one
+        after the alarm may be the fix; two are a choice WARDEN does not make), it succeeded, and nothing refuses it.
+        A plan's own event is also read by its id, so a rollback and the health check see it once the alarm is OK."""
+        group, alarm = params.get("group"), params.get("alarm")
+        if not isinstance(group, str) or not _SG_ID.fullmatch(group) or not isinstance(alarm, str):
+            return {}
+        found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
+            "MetricAlarms") or []
+        onset = _when(found[0].get("StateTransitionedTimestamp")) if found and found[0].get("StateValue") == "ALARM" \
+            else None
+        ec2 = self._read("ec2")
+        g = (ec2.describe_security_groups(GroupIds=[group]).get("SecurityGroups") or [{}])[0]
+        if g.get("GroupId") != group:
+            return {}
+        arn = f"arn:aws:ec2:{ec2.meta.region_name}:{g.get('OwnerId', '')}:security-group/{group}"
+        tags = {t["Key"]: t["Value"] for t in g.get("Tags") or []}
+        state: dict[str, Any] = {"group": group, "arn": arn, "where": self._where(arn)}
+        eligible, why = None, ""
+        if onset is None:
+            why = "the alarm is not in ALARM"
+        else:
+            writes = self._sg_writes(group, onset - SG_CHANGE_BEFORE_ALARM, self._now())
+            if len(writes) != 1:
+                why = (f"{'no recorded write' if not writes else f'{len(writes)} writes (WARDEN does not choose one)'} "
+                       f"to {group} since {onset - SG_CHANGE_BEFORE_ALARM:%Y-%m-%dT%H:%MZ}")
+            else:
+                eligible = writes[0]
+                why = self._sg_refusal(eligible, onset)
+        named = params.get("event")
+        e = self._sg_event_by_id(named, group) if isinstance(named, str) else eligible
+        if e is not None:
+            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor", "kind", "egress", "rules")},
+                         undo=_sg_undo_text(e), present=self._sg_present(group, e))
+        if not why and eligible is not None:
+            if eligible["kind"] == "revoke" and self._sg_present(group, eligible):
+                why = "the revoked rules are back already"
+            elif eligible["kind"] == "authorize" and not self._sg_present(group, eligible):
+                why = "the rules it added are gone already"
+        allowed = {eligible["event"]} if eligible is not None and not why else set()
+        return {"group": {group}, "alarm": {alarm}, "event": allowed, "environment": tags.get(ENV_TAG),
+                "refused": why, "state": state}
+
+    def _sg_writes(self, group: str, since: datetime, until: datetime) -> list[dict[str, Any]]:
+        """Every successful security group rule write CloudTrail recorded on `group` in the window, parsed."""
+        out = []
+        trail = self._read("cloudtrail")
+        for name in _SG_EVENTS:
+            page = trail.lookup_events(LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": name}],
+                                       StartTime=since, EndTime=until, MaxResults=50)
+            if page.get("NextToken"):
+                raise AwsPlatformRefused(f"more {name} events than WARDEN reads in the window; nothing is chosen")
+            for raw in page.get("Events") or []:
+                e = _sg_parse(raw, group)
+                if e is not None and not (e["at"] is not None and e["at"] < since):  # the window, held here too
+                    out.append(e)
+        return out
+
+    def _sg_event_by_id(self, event_id: str, group: str) -> dict[str, Any] | None:
+        page = self._read("cloudtrail").lookup_events(
+            LookupAttributes=[{"AttributeKey": "EventId", "AttributeValue": event_id}], MaxResults=1)
+        return next((e for e in (_sg_parse(raw, group) for raw in page.get("Events") or []) if e is not None), None)
+
+    @staticmethod
+    def _sg_refusal(e: dict[str, Any], onset: datetime) -> str:
+        if e["at"] is None or e["at"] >= onset:
+            return "the change came after the alarm went off - it may be the fix"
+        if e["who_type"] == "Root":
+            return "the change was made by the root user: a person looks"
+        if e["invoked_by"]:
+            return f"the change was made by an AWS service ({e['invoked_by']}): its owner manages it"
+        if e["source_identity"].startswith("inc-"):
+            return "the change was WARDEN's own: its own rollback undoes it"
+        if e["actor_name"] and e["actor_name"] in never_revert():
+            return f"{e['actor']} is a principal whose changes WARDEN never reverts (WARDEN_NEVER_REVERT_PRINCIPALS)"
+        if e["truncated"]:
+            return "CloudTrail did not record the whole change (too large, or not returned)"
+        if not e["rules"]:
+            return "the event names no rule it changed"
+        if e["kind"] == "revoke" and not e["egress"] and any(r[5] in _OPEN_CIDRS for r in e["rules"]):
+            return "undoing it would open ingress to the whole internet: a person decides"
+        return ""
+
+    def _sg_present(self, group: str, e: dict[str, Any]) -> bool:
+        """Whether the event's rules are in the group now: a revoke's re-added, an authorize's still there."""
+        rules = self._read("ec2").describe_security_group_rules(
+            Filters=[{"Name": "group-id", "Values": [group]}]).get("SecurityGroupRules") or []
+        if e["kind"] == "authorize":
+            ids = {r.get("SecurityGroupRuleId") for r in rules}
+            return bool(e["rule_ids"]) and all(rid in ids for rid in e["rule_ids"])
+        now = [_sg_rule_key(r) for r in rules]
+        return all(r in now for r in e["rules"])
+
+    def _sg_revert(self, p, snapshot, now, who, back) -> str:
+        """Undo the recorded write (back: write it again). A revoke is undone by authorizing exactly its rules; an
+        authorize by revoking exactly the rules it created. The session holds the one action on this one group."""
+        self._expect(now, snapshot, ("group", "arn", "event", "kind", "egress", "rules"), f"security group {p['group']}")
+        egress, kind = bool(now["egress"]), now["kind"]
+        add = (kind == "revoke") != back  # a revoke's undo, or an authorize's undo rolled back: authorize
+        side = "Egress" if egress else "Ingress"
+        action = f"ec2:{'Authorize' if add else 'Revoke'}SecurityGroup{side}"
+        region, account = now["arn"].split(":")[3], now["arn"].split(":")[4]
+        resources = [now["arn"]] + ([f"arn:aws:ec2:{region}:{account}:security-group-rule/*"] if add else [])
+        ec2 = self._actor(who, [action], resources, None)("ec2")
+        perms = [_sg_permission(r) for r in now["rules"]]
+        if add:
+            (ec2.authorize_security_group_egress if egress else ec2.authorize_security_group_ingress)(
+                GroupId=p["group"], IpPermissions=perms)
+            return f"authorized {len(perms)} {side.lower()} rule(s) on {p['group']}"
+        (ec2.revoke_security_group_egress if egress else ec2.revoke_security_group_ingress)(
+            GroupId=p["group"], IpPermissions=perms)
+        return f"revoked {len(perms)} {side.lower()} rule(s) on {p['group']}"
+
+    def _sg_alarm_ok(self, group: str, params: dict[str, Any]) -> bool:
+        """The undo is in place and the alarm it was for reads OK: the write landing is not a recovery."""
+        st = self._live_sg_change(params).get("state") or {}
+        alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
+                                                         AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
+        undone = "kind" in st and st.get("present") is (st["kind"] == "revoke")
+        return undone and bool(alarm) and alarm[0].get("StateValue") == "OK"
 
     # ------------------------------------------------------------------ codepipeline: freeze deploys (G9-D)
 

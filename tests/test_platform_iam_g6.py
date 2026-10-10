@@ -10,8 +10,9 @@ import pathlib
 
 import boto3
 
-from test_aws_fixes_g9d import ALARM, DLQ, LB, Config
+from test_aws_fixes_g9d import ALARM, DLQ, LB
 from test_aws_platform_g6 import FN, NOW, WHO
+from test_revert_change_g10d import SG, Groups, _event
 from warden import catalog
 from warden.platforms.aws import AwsPlatform
 
@@ -48,7 +49,7 @@ class _Recording:
 
 def _exercise() -> tuple[set[str], set[str], set[str]]:
     reads, writes, granted = set(), set(), set()
-    f = Config()
+    f = Groups()
     f.esm["State"], f.rule["State"] = "Disabled", "DISABLED"
 
     def actor(who, actions, resources, condition, also=()):
@@ -75,7 +76,9 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
              "arc_zonal_shift": {"load_balancer": LB, "away_from": "tr1-aza", "minutes": 60},
              "appconfig_revert": {"alarm": ALARM, "application": "warden-dev-flags", "config_env": "live",
                                   "deployment": "7"},
-             "codepipeline_freeze": {"resource": FN, "pipeline": "warden-dev-deploy", "stage": "Prod"}}
+             "codepipeline_freeze": {"resource": FN, "pipeline": "warden-dev-deploy", "stage": "Prod"},
+             # G10-D: a revoked egress rule authorized again
+             "ec2_revert_sg_change": {"alarm": ALARM, "group": SG, "event": "e-1"}}
     for entry, params in plans.items():
         snap = p.live(entry, params)["state"]
         p.apply(entry, params, snapshot=snap, who=WHO)
@@ -107,6 +110,15 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     f.moves = [{"Status": "RUNNING", "TaskHandle": "h-1"}]
     redrive = plans["sqs_redrive_dlq"]
     p.rollback("sqs_redrive_dlq", redrive, p.live("sqs_redrive_dlq", redrive)["state"], who=WHO)
+    # G10-D: the egress undo rolled back (revoke), and an added ingress rule's undo (revoke) and its rollback (authorize).
+    sg = plans["ec2_revert_sg_change"]
+    p.rollback("ec2_revert_sg_change", sg, p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
+    f.sg_events = [_event("AuthorizeSecurityGroupIngress", items=({
+        "groupId": SG, "securityGroupRuleId": "sgr-0added", "isEgress": False, "ipProtocol": "tcp",
+        "fromPort": 22, "toPort": 22, "cidrIpv4": "203.0.113.0/24"},))]
+    f.sg_rules = [{"GroupId": SG, "SecurityGroupRuleId": "sgr-0added"}]
+    p.apply("ec2_revert_sg_change", sg, snapshot=p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
+    p.rollback("ec2_revert_sg_change", sg, p.live("ec2_revert_sg_change", sg)["state"], who=WHO)
     return reads, writes, granted
 
 
