@@ -14,6 +14,33 @@
           "ecs:cluster": "arn:aws:ecs:ap-south-2:*:cluster/warden-qa-prod-*"
         }
       }
+    },
+    {
+      "Sid": "NodeGroupsAndFailedExecutionsOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeNodegroup",
+        "eks:ListNodegroups",
+        "states:DescribeExecution",
+        "states:ListExecutions"
+      ],
+      "Resource": [
+        "arn:aws:eks:ap-south-2:*:cluster/warden-qa-prod-*",
+        "arn:aws:eks:ap-south-2:*:nodegroup/warden-qa-prod-*/*/*",
+        "arn:aws:states:ap-south-2:*:stateMachine:warden-qa-prod-*",
+        "arn:aws:states:ap-south-2:*:execution:warden-qa-prod-*:*"
+      ]
+    },
+    {
+      "Sid": "ScalingActivitiesNameNoResource",
+      "Effect": "Allow",
+      "Action": "autoscaling:DescribeScalingActivities",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
     }
   ]
 }

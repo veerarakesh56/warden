@@ -161,6 +161,20 @@ _ECS_EVENT_KINDS = (
     ("started_tasks", re.compile(r"has started \d+ tasks", re.IGNORECASE)),
     ("stopped_tasks", re.compile(r"has stopped \d+ running tasks", re.IGNORECASE)),
 )
+# G10-C2: node groups, scaling activities and failed executions read per incident.
+NODEGROUPS = 10
+ASG_ACTIVITIES = 20
+SFN_FAILURES = 3
+_ASG_CAUSES = (
+    ("scheduled", re.compile(r"scheduled action", re.IGNORECASE)),
+    ("health_check", re.compile(r"health check|unhealthy", re.IGNORECASE)),
+    ("policy", re.compile(r"policy|alarm", re.IGNORECASE)),
+    ("instance_refresh", re.compile(r"instance refresh", re.IGNORECASE)),
+    ("rebalance", re.compile(r"rebalanc", re.IGNORECASE)),
+    ("spot", re.compile(r"spot", re.IGNORECASE)),
+    ("manual", re.compile(r"user request|SetDesiredCapacity|UpdateAutoScalingGroup", re.IGNORECASE)),
+)
+_CAPACITY_CHANGE = re.compile(r"capacity from (\d{1,6}) to (\d{1,6})", re.IGNORECASE)
 # AWS's own stoppedReason and container reasons, classified - first match wins. The order matters: a secret that does
 # not exist before a denied one, both before the network (a pull that timed out), the network before an image.
 _STOP_CAUSES = (
@@ -386,7 +400,8 @@ class StackBackend:
         # the first eighteen read "no client" in the cloud (independent review 2026-10-10, H1).
         clients = clients if hasattr(clients, "__missing__") else dict(clients or {})
         needed = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds",
-                  "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail")
+                  "elbv2", "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail",
+                  "autoscaling", "stepfunctions")
         missing = [n for n in needed if n not in clients]
         if missing:
             try:
@@ -432,6 +447,8 @@ class StackBackend:
         self._eks = clients["eks"]
         self._pi = clients["pi"]
         self._ct = clients["cloudtrail"]
+        self._asg = clients["autoscaling"]
+        self._sfn = clients["stepfunctions"]
         self._clients = clients  # every other service's client, made when an alarm names one (aws_describe.py)
         self._account_id = ""
         self._sleep = time.sleep
@@ -510,6 +527,11 @@ class StackBackend:
 
         readers += [(key.replace("_", "-"), lambda out, key=key: self._read_state(out, key, lab[key]))
                     for key in aws_describe.TABLE if lab.get(key)]
+        # G10-C2: what the group did and why (a scheduled scale-in, a failed launch), and why executions failed.
+        if lab.get("asg"):
+            readers.append(("asg-activity", lambda out: self._read_asg_activity(out, alert, lab["asg"])))
+        if lab.get("state_machine"):
+            readers.append(("states-failures", lambda out: self._read_sfn_failures(out, lab["state_machine"])))
         readers += [(f"lambda/{f}", lambda out, f=f: self._read_lambda(out, alert, f, _suffix(f, len(fns) > 1))) for f in fns]
         readers += [(f"sqs/{q}", lambda out, q=q: self._read_sqs(out, alert, q, _suffix(q, len(queues) > 1))) for q in queues]
         if lab.get("dynamodb_table"):
@@ -775,6 +797,12 @@ class StackBackend:
         live = (alias or {}).get("FunctionVersion")
         cfg = (self._lambda.get_function_configuration(FunctionName=fn, Qualifier="live")
                if live else self._lambda.get_function_configuration(FunctionName=fn))
+        # G10-C2: a function that cannot run says why in two closed codes (an ENI limit, a deleted image, a KMS key
+        # it may not use, a subnet out of addresses) - shown only when it is not simply Active and updated.
+        if cfg.get("State", "Active") != "Active" or cfg.get("LastUpdateStatus", "Successful") == "Failed":
+            out.lines.append(f"STATE lambda {fn} state={_safe(cfg.get('State'))} reason={_safe(cfg.get('StateReasonCode'))} "
+                             f"last_update={_safe(cfg.get('LastUpdateStatus'))} "
+                             f"update_reason={_safe(cfg.get('LastUpdateStatusReasonCode'))}")
         conc = self._lambda.get_function_concurrency(FunctionName=fn).get("ReservedConcurrentExecutions")
 
         listed, cut = _pages(self._lambda.list_versions_by_function, "Versions", next_token="NextMarker",
@@ -1254,6 +1282,50 @@ class StackBackend:
                                                               if vpc.get("clusterSecurityGroupId") else [])})
         if sgs:
             out.lines.append(f"APPSG eks/{cluster} sgs=[{','.join(sgs)}]")
+        # G10-C2: a node group that cannot launch nodes names why in a closed code (AsgInstanceLaunchFailures,
+        # InsufficientFreeAddresses, IamNodeRoleNotFound, ...); the message is AWS's words, quarantined.
+        try:
+            for ng in (self._eks.list_nodegroups(clusterName=cluster, maxResults=NODEGROUPS).get("nodegroups") or []):
+                g = self._eks.describe_nodegroup(clusterName=cluster, nodegroupName=ng).get("nodegroup") or {}
+                issues = (g.get("health") or {}).get("issues") or []
+                if issues or g.get("status") not in (None, "ACTIVE"):
+                    codes = ",".join(sorted({_safe(i.get("code")) for i in issues}))
+                    out.lines.append(f"STATE eks/{cluster} nodegroup {_safe(ng)} status={_safe(g.get('status'))} "
+                                     f"issues=[{codes}]")
+                    out.lines += [f"EVENT eks/{cluster} nodegroup issue: {str(i.get('message', ''))[:300]}"
+                                  for i in issues[:3] if i.get("message")]
+        except Exception as exc:  # noqa: BLE001 - the cluster's other evidence stands
+            out.lines.append(_partial("eks nodegroups", exc))
+
+    def _read_asg_activity(self, out: _Out, alert: Alert, group: str) -> None:
+        """G10-C2: the group's scaling activities in the hour before the alert - held-out asg-scheduled-scale-in read a
+        planned scale-in as a shortage. AWS's Cause names a scheduled action, a policy, a health check or a person."""
+        started = AwsBackend._started_at(alert)
+        acts = self._asg.describe_scaling_activities(
+            AutoScalingGroupName=group, MaxRecords=ASG_ACTIVITIES).get("Activities") or []
+        for a in acts:
+            at = _parse_time(a.get("StartTime"))
+            if at is None or not started - ECS_EVENT_WINDOW <= at <= started + timedelta(minutes=5):
+                continue
+            cause = str(a.get("Cause") or "")
+            kind = next((k for k, rx in _ASG_CAUSES if rx.search(cause)), "other")
+            moved = _CAPACITY_CHANGE.search(cause)
+            out.lines.append(f"STATE asg {_safe(group)} activity at={_z(at)} status={_safe(a.get('StatusCode'))} "
+                             f"cause={kind}" + (f" capacity={moved.group(1)}->{moved.group(2)}" if moved else ""))
+            if cause:
+                out.lines.append(f"EVENT asg {_safe(group)} activity: {cause[:300]}")
+
+    def _read_sfn_failures(self, out: _Out, machine: str) -> None:
+        """G10-C2: the last failed executions and the error each failed with (States.Timeout, Lambda.ServiceException,
+        a task's own error name); the cause text is the task's words, quarantined."""
+        arn = f"arn:aws:states:{self._cw.meta.region_name}:{self._account()}:stateMachine:{machine}"
+        for e in self._sfn.list_executions(stateMachineArn=arn, statusFilter="FAILED",
+                                     maxResults=SFN_FAILURES).get("executions") or []:
+            d = self._sfn.describe_execution(executionArn=e["executionArn"])
+            out.lines.append(f"STATE states {_safe(machine)} failed execution at={_z(_parse_time(d.get('stopDate')))} "
+                             f"error={_safe(d.get('error'))}")
+            if d.get("cause"):
+                out.lines.append(f"EVENT states {_safe(machine)} failure: {str(d['cause'])[:300]}")
 
     def _read_k8s(self, out: _Out, alert: Alert, ns: str, dep: str, sfx: str) -> None:
         k8s = self._k8s_factory()

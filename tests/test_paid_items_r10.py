@@ -36,6 +36,10 @@ FREE = {
     ("_sts", "get_caller_identity"),
     ("_ct", "lookup_events"),  # CloudTrail event history: free (read 2026-10-10)
     ("_ecs", "list_tasks"), ("_ecs", "describe_tasks"),  # ECS control plane: not billed (G10-C1)
+    # G10-C2: EKS, Auto Scaling and Step Functions control-plane reads - not billed (Step Functions' pricing page,
+    # read 2026-10-10, bills only state transitions and Express requests and duration).
+    ("_eks", "list_nodegroups"), ("_eks", "describe_nodegroup"), ("_asg", "describe_scaling_activities"),
+    ("_sfn", "list_executions"), ("_sfn", "describe_execution"),
 }
 
 

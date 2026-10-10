@@ -87,12 +87,31 @@ data "aws_iam_policy_document" "fs_reader" {
     }
   }
 
+  # G10-C2: a cluster's node groups and their health, and a state machine's failed executions.
+  statement {
+    sid    = "NodeGroupsAndFailedExecutionsOfOwnStack"
+    effect = "Allow"
+    actions = [
+      "eks:DescribeNodegroup",
+      "eks:ListNodegroups",
+      "states:DescribeExecution",
+      "states:ListExecutions",
+    ]
+    resources = [
+      "arn:aws:eks:${local.reader_arn}:cluster/${local.name}-*",
+      "arn:aws:eks:${local.reader_arn}:nodegroup/${local.name}-*/*/*",
+      "arn:aws:states:${local.reader_arn}:stateMachine:${local.name}-*",
+      "arn:aws:states:${local.reader_arn}:execution:${local.name}-*:*",
+    ]
+  }
+
   # Actions that take no resource ("*" only), or that the code calls without an identity: a list of cache
   # clusters, the instances of a cluster by filter.
   statement {
     sid    = "ReadAnywhere"
     effect = "Allow"
     actions = [
+      "autoscaling:DescribeScalingActivities",
       "cloudtrail:LookupEvents",
       "cloudwatch:GetMetricData",
       "cloudwatch:ListMetrics",

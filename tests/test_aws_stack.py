@@ -245,7 +245,18 @@ def _clients(**over):
             {"IpProtocol": "tcp", "FromPort": 6379, "ToPort": 6379, "UserIdGroupPairs": [{"GroupId": "sg-0lambda"}]},
             {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "UserIdGroupPairs": [{"GroupId": "sg-0other"}]}]}]}),
         "eks": Fake(describe_cluster={"cluster": {"resourcesVpcConfig": {
-            "clusterSecurityGroupId": "sg-0eks", "securityGroupIds": []}}}),
+            "clusterSecurityGroupId": "sg-0eks", "securityGroupIds": []}}},
+            list_nodegroups={"nodegroups": [f"{P}ng"]},
+            describe_nodegroup={"nodegroup": {"status": "DEGRADED", "health": {"issues": [
+                {"code": "InsufficientFreeAddresses", "message": "Subnet has insufficient free IP addresses"}]}}}),
+        "autoscaling": Fake(describe_scaling_activities={"Activities": [
+            {"StartTime": NOW - timedelta(minutes=6), "StatusCode": "Successful",
+             "Cause": "At 2026-10-10T07:00:00Z a scheduled action update of AutoScalingGroup constraints to min: 2, "
+                      "max: 8, desired: 2 changing the desired capacity from 6 to 2."},
+            {"StartTime": NOW - timedelta(hours=5), "StatusCode": "Successful", "Cause": "an old one"}]}),
+        "stepfunctions": Fake(
+            list_executions={"executions": [{"executionArn": "arn:aws:states:ap-south-2:1:execution:m:e1"}]},
+            describe_execution={"error": "States.TaskFailed", "cause": "KeyError: 'sku'", "stopDate": NOW}),
         "pi": Fake(get_resource_metrics=lambda **kw: {"MetricList": [
             {"Key": {"Metric": "db.load.avg"}, "DataPoints": [{"Value": 1.5}, {"Value": 4.0}]},
             {"Key": {"Metric": "db.load.avg", "Dimensions": {"db.wait_event_type.name": "Lock"}},
@@ -617,7 +628,7 @@ _CLIENT_PREFIX = {
     "_ddb": "dynamodb", "_ec": "elasticache", "_rds": "rds", "_elb": "elasticloadbalancing",
     "_ec2": "ec2", "_eks": "eks", "_pi": "pi",
     "_apigw": "apigateway", "_sm": "secretsmanager", "_sns": "sns", "_events": "events", "_sts": "sts",
-    "_ct": "cloudtrail",
+    "_ct": "cloudtrail", "_asg": "autoscaling", "_sfn": "states",
 }
 _NOT_CLIENTS = {"_aws", "_bound"}  # the reused AwsBackend (its calls are collected from aws_backend.py); the
 # per-incident backends of the cloud runtime (G9-A2b), whose calls are this module's own
@@ -815,7 +826,9 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         # Logs Insights results and cancel name a query id, not a resource: AWS gives them no resource type (R22).
         "logs:GetQueryResults", "logs:StopQuery",
         # An ALB's zones and zonal-shift setting (G9-D): no resource type (AWS's service reference JSON, 2026-10-10).
-        "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes"}
+        "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes",
+        # A group's scaling activities (G10-C2): no resource type, no condition key (service reference, 2026-10-10).
+        "autoscaling:DescribeScalingActivities"}
 
 
 # The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).
