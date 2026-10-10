@@ -246,3 +246,32 @@ def test_a_rollback_is_supported_by_the_deploy_record_or_the_deploys_own_event(c
     proposal = RemediationProposal(action=ActionKind.rollback_deploy, target="x", reasoning="r", expected_effect="e",
                                    blast_radius="single_service", reversible=True)
     assert (grounding.action_support_problem(rc, proposal, {cid: Item(cid, quote)}) is None) is supported
+
+
+def test_only_the_latest_change_to_a_resource_is_undone():
+    """G10 held-out (2026-10-10, g10-082): a configuration change was published as a new version and an alias moved to
+    it; undoing the configuration change reached a person. A cited change written over since is not undone - unless
+    another cited change the revert holds is the latest (g10-172: the stage move after its deployment)."""
+    from warden import grounding
+    from warden.evidence import Item
+    from warden.models import Citation, RootCause
+
+    items = {"C1": Item("C1", "CHANGE 2026-10-10T07:30:12Z lambda.amazonaws.com UpdateAlias20150331 on fn by role/ci"),
+             "C2": Item("C2", "CHANGE 2026-10-10T07:24:58Z lambda.amazonaws.com UpdateFunctionConfiguration20150331v2 "
+                              "on fn by role/ci"),
+             "C3": Item("C3", "CHANGE 2026-10-10T07:46:04Z apigateway.amazonaws.com UpdateStage on api by role/ci"),
+             "C4": Item("C4", "CHANGE 2026-10-10T07:44:50Z apigateway.amazonaws.com PutIntegration on api by role/ci"),
+             "C5": Item("C5", "CHANGE 2026-10-10T07:50:00Z lambda.amazonaws.com TagResource20170331v2 on fn2 by role/x"),
+             "C6": Item("C6", "CHANGE 2026-10-10T07:40:00Z lambda.amazonaws.com PutFunctionConcurrency20171031 on fn2 "
+                              "by user/ops")}
+    proposal = RemediationProposal(action=ActionKind.revert_change, target="x", reasoning="r", expected_effect="e",
+                                   blast_radius="single_service", reversible=True)
+
+    def problem(*cites):
+        rc = RootCause(hypothesis="h", confidence=0.9,
+                       citations=[Citation(id=c, quote=items[c].text.split(" ", 3)[3].split(" by ")[0]) for c in cites])
+        return grounding.action_support_problem(rc, proposal, items)
+
+    assert "changed again after the cited change (UpdateAlias20150331)" in problem("C2")
+    assert problem("C3", "C4") is None  # the stage move is the latest; the integration put before it is not undone
+    assert problem("C6") is None  # a tag written after is not a change to the resource

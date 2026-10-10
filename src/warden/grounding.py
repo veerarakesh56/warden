@@ -217,6 +217,28 @@ def _supports(quote: str, key: str, shortage: bool = True, idle_short: bool = Fa
 
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+# A CHANGE line as aws_stack._read_changes writes it: when, which event, on what.
+_CHANGE_AT = re.compile(r"^CHANGE (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) \S+ (\S+) on (\S+) by ")
+
+
+def _changed_again(supporting: list[str], items: dict[str, Item]) -> str | None:
+    """WARDEN undoes only the LATEST change to a resource: a cited change the evidence shows written over since - a new
+    version published after a configuration change, say (G10 held-out, 2026-10-10, g10-082) - is not one. Tag writes
+    beside the resource do not count."""
+    lines = [m.groups() for i in items.values() if (m := _CHANGE_AT.match(i.text))]
+    why = None
+    for cid in supporting:  # the cited changes that support the revert: one that is the latest is enough
+        m = _CHANGE_AT.match(items[cid].text)
+        if not m:
+            return None  # not a CHANGE line WARDEN can date: as before
+        at, _, resource = m.groups()
+        later = [e for t, e, r in lines if r == resource and t > at and not e.startswith(("TagResource", "UntagResource"))]
+        if not later:
+            return None
+        why = f"{resource} was changed again after the cited change ({later[0]}): only the latest change is undone"
+    return why
+
+
 # The fields a revert family undoes, for the events whose request may set others: a CHANGE line names the request's
 # fields (aws_stack._request_fields), and a revert is supported only when one of these is among them.
 REVERT_FIELDS = {"updateservice": ("desiredcount",), "setdesiredcapacity": ("desiredcapacity",),
@@ -258,9 +280,10 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
                 # The request's fields, when the line holds them, must include one the family undoes: a forced
                 # redeploy's UpdateService names no desiredCount (G10 held-out, 2026-10-10).
                 if key and (fields is None or key not in REVERT_FIELDS or fields & set(REVERT_FIELDS[key])):
-                    ok.append(w)
-        return None if ok else (
-            f"none of the cited evidence names a write revert_change undoes (none of: {', '.join(keys[:6])}...)")
+                    ok.append(c.id.strip().strip("[]"))
+        if not ok:
+            return f"none of the cited evidence names a write revert_change undoes (none of: {', '.join(keys[:6])}...)"
+        return _changed_again(list(dict.fromkeys(ok)), items)
     if proposal.action is ActionKind.rollback_deploy and any(
             c.id.strip().strip("[]").startswith("D") and c.id.strip().strip("[]") in items for c in root_cause.citations):
         return None  # WARDEN's own record of the deploy in the window (G10 held-out: `previous=41` quoted from it)
