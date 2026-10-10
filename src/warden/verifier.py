@@ -9,6 +9,7 @@ re-running anything.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from . import evidence, tripwire
 from .environments import EnvironmentPolicies, default_environment_policies, strip_prefix
@@ -17,6 +18,7 @@ from .grounding import action_support_problem, citation_problems, target_problem
 from .knowledge import default_knowledge_base
 from .models import (
     ACTION_FACTS,
+    RESOURCE_LABELS,
     ActionKind,
     Alert,
     ContextBundle,
@@ -436,9 +438,45 @@ def _p29_benign_partials(alert: Alert, context: ContextBundle, root_cause: RootC
     return None
 
 
+# A write to the alert's own resource by a person or a pipeline, as aws_stack._read_changes writes it.
+_CHANGE_LINE = re.compile(r"^CHANGE (\d{4}-\d\d-\d\dT[\d:]{8})Z \S+ (\S+) on (\S+) by ((?:role|user)\S*)")
+UNADDRESSED_CHANGE_WINDOW_S = 1800
+
+
+def _when(text: str) -> datetime | None:
+    try:
+        at = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return at if at.tzinfo else None
+
+
+def _p31_unaddressed_change(alert: Alert, context: ContextBundle, root_cause: RootCause,
+                            proposal: RemediationProposal) -> str | None:
+    """G10 held-out set (2026-10-10, g10-135): a person cut an ECS service's desired count ten minutes before its
+    memory alarm; the diagnosis named only the memory leak and a restart reached the approver. Recorded when a role or
+    a user wrote to the alert's own resource in the half hour before it fired, and a fix neither reverts, rolls back
+    nor cites that write. Observe mode: measured before it decides anything."""
+    if proposal.action in (ActionKind.revert_change, ActionKind.rollback_deploy) or proposal.action in AUTO_SAFE_ACTIONS:
+        return None
+    started = _when(alert.started_at)
+    names = {n.strip() for k, v in alert.labels.items() if k in RESOURCE_LABELS for n in v.split(",") if n.strip()}
+    cited = {c.id for c in root_cause.citations}
+    for item in evidence.index(context).values():
+        m = _CHANGE_LINE.match(item.text)
+        if not (m and item.id.startswith("C") and m.group(3) in names) or item.id in cited:
+            continue
+        if m.group(4).startswith("role/AWSServiceRole") or m.group(2).startswith(("TagResource", "UntagResource")):
+            continue  # AWS's own automation, and a label written beside the resource, are not a change made to it
+        at = _when(m.group(1) + "+00:00")
+        if started and at and 0 <= (started - at).total_seconds() <= UNADDRESSED_CHANGE_WINDOW_S:
+            return f"{m.group(2)} on {m.group(3)} by {m.group(4)} ({item.id}) is neither cited nor reverted"
+    return None
+
+
 OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider),
             ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers), ("P28-NON-ENGLISH-LOGS", _p28_language),
-            ("P29-P8-BENIGN-PARTIALS", _p29_benign_partials))
+            ("P29-P8-BENIGN-PARTIALS", _p29_benign_partials), ("P31-UNADDRESSED-CHANGE", _p31_unaddressed_change))
 
 
 def verify(

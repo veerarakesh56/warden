@@ -540,6 +540,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "OBSERVE MODE, never obeyed: P8 fired, but every failed read was benign (lines cut with "
                             "the alert-time lines kept, or a secondary read)"
                         ),
+                        "P31-UNADDRESSED-CHANGE": (
+                            "OBSERVE MODE, never obeyed: a role or an IAM user wrote to the alert's own resource in "
+                            "the half hour before it fired, and the fix neither reverts, rolls back nor cites it"
+                        ),
                         "P30-NO-FIX-PATH": (
                             "the target is a resource the alarm's labels name, and no catalogue entry carries out "
                             "the proposed action on it: the proposal reaches a person as advice, not as a plan"

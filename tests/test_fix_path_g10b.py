@@ -149,3 +149,43 @@ def test_the_playbook_and_runbook_commands_name_a_custom_bus():
                                          ContextBundle(logs=["RULE nightly State=DISABLED schedule=-"]))
              for c in f.fix if "enable-rule" in c]
     assert plain and "--event-bus-name" not in plain[0]
+
+
+def test_a_persons_recent_write_to_the_alerts_resource_left_unaddressed_is_observed_and_never_obeyed():
+    """G10 held-out set (2026-10-10, g10-135): a person cut an ECS service's desired count ten minutes before its
+    memory alarm; the diagnosis named only a memory leak and a restart reached the approver. P31 records it in observe
+    mode (measured on the baseline's 172 answers: it named 2 wrong answers and none of the 132 right ones)."""
+    from warden import verifier
+    from warden.models import (
+        ActionKind,
+        Alert,
+        Citation,
+        ContextBundle,
+        RemediationProposal,
+        RootCause,
+        Severity,
+    )
+
+    alert = Alert(alert_id="x", name="n", severity=Severity.high, service="pricing-api", environment="dev",
+                  summary="s", started_at="2026-10-10T08:00:00+00:00",
+                  labels={"ecs_cluster": "shop", "ecs_service": "pricing-api"})
+    ctx = ContextBundle(logs=[
+        "CHANGE 2026-10-10T07:49:46Z ecs.amazonaws.com UpdateService on pricing-api by user/dev-ssingh",
+        "CHANGE 2026-10-10T07:40:00Z ecs.amazonaws.com UpdateService on pricing-api by role/AWSServiceRoleForECS",
+        "CHANGE 2026-10-10T07:41:00Z ecs.amazonaws.com TagResource on pricing-api by role/finops",
+        "CHANGE 2026-10-10T06:00:00Z ecs.amazonaws.com UpdateService on pricing-api by role/deployer"],
+        metrics={"x": 1.0})
+    rc = RootCause(hypothesis="h", confidence=0.9, evidence=["e"], citations=[])
+    restart = RemediationProposal(action=ActionKind.restart_pods, target="pricing-api", reasoning="r",
+                                  expected_effect="e", blast_radius="single_service", rollback_plan="r", reversible=True)
+    verdict = verifier.verify(alert, ctx, rc, restart)
+    assert verdict.observed == [("P31-UNADDRESSED-CHANGE: UpdateService on pricing-api by user/dev-ssingh (C1) is "
+                                 "neither cited nor reverted")]
+    assert not any(p.startswith("P31") for p in verdict.policy_ids)  # observed, never obeyed
+    for quiet in (restart.model_copy(update={"action": ActionKind.revert_change}),
+                  restart.model_copy(update={"action": ActionKind.escalate_to_human})):
+        assert not verifier._p31_unaddressed_change(alert, ctx, rc, quiet)
+    cited = rc.model_copy(update={"citations": [Citation(id="C1", quote="UpdateService on pricing-api")]})
+    assert not verifier._p31_unaddressed_change(alert, ctx, cited, restart)
+    only_automation = ContextBundle(logs=ctx.logs[1:], metrics={"x": 1.0})
+    assert not verifier._p31_unaddressed_change(alert, only_automation, rc, restart)
