@@ -87,6 +87,8 @@ data "aws_iam_policy_document" "fs_reader" {
       "ecs:DescribeTaskDefinition",
       "elasticache:DescribeCacheClusters",
       "elasticache:DescribeEvents",
+      "elasticloadbalancing:DescribeLoadBalancerAttributes",
+      "elasticloadbalancing:DescribeLoadBalancers",
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",
       "lambda:ListEventSourceMappings",

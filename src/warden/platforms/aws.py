@@ -27,7 +27,9 @@ never an event-pattern rule, which drops what it matches), ecs_restart_service (
 deployment pulls whatever a tag points to now), ecs_scale_service (at most two more tasks, never under Application Auto
 Scaling), sqs_redrive_dlq (to the dead-letter queue's one source queue, at most 50 a second; the session holds each
 queue's own actions only), athena_stop_query (the one query running past RUNAWAY_QUERY) and apigw_raise_stage_throttle
-(an existing all-methods throttle, at most double, within the account's).
+(an existing all-methods throttle, at most double, within the account's), and arc_zonal_shift (ARC moves a
+load balancer's traffic away from its ONE impaired zone - no healthy host while another zone serves - for 30 to
+180 minutes, only where the balancer allows zonal shifts; the rollback cancels WARDEN's own shift only).
 """
 
 from __future__ import annotations
@@ -59,7 +61,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "lambda_disable_esm": "lambda", "events_enable_rule": "events", "events_disable_rule": "events",
           "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs", "ecs_restart_service": "ecs",
           "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
-          "apigw_raise_stage_throttle": "apigw", "aurora_failover": "rds"}
+          "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
 Clients = Callable[[str], Any]
@@ -130,7 +132,7 @@ class AwsPlatform:
                 "dynamodb_raise_capacity": self._live_table, "ecs_rollback_service": self._live_ecs,
                 "ecs_restart_service": self._live_ecs_tasks, "ecs_scale_service": self._live_ecs_tasks,
                 "sqs_redrive_dlq": self._live_dlq, "athena_stop_query": self._live_query,
-                "apigw_raise_stage_throttle": self._live_stage,
+                "apigw_raise_stage_throttle": self._live_stage, "arc_zonal_shift": self._live_zones,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -170,7 +172,7 @@ class AwsPlatform:
                  "dynamodb_raise_capacity": self._table_healthy, "ecs_rollback_service": self._ecs_healthy,
                  "ecs_restart_service": self._ecs_healthy, "ecs_scale_service": self._ecs_healthy,
                  "sqs_redrive_dlq": self._redrive_done, "athena_stop_query": self._query_cancelled,
-                 "apigw_raise_stage_throttle": self._stage_healthy,
+                 "apigw_raise_stage_throttle": self._stage_healthy, "arc_zonal_shift": self._shift_holds,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -215,7 +217,7 @@ class AwsPlatform:
                  "dynamodb_raise_capacity": self._capacity, "ecs_rollback_service": self._ecs,
                  "ecs_restart_service": self._ecs_restart, "ecs_scale_service": self._ecs_scale,
                  "sqs_redrive_dlq": self._redrive, "athena_stop_query": self._stop_query,
-                 "apigw_raise_stage_throttle": self._stage_throttle,
+                 "apigw_raise_stage_throttle": self._stage_throttle, "arc_zonal_shift": self._zonal_shift,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -908,6 +910,92 @@ class AwsPlatform:
         sums = self._metric_sums("AWS/ApiGateway", [{"Name": "ApiName", "Value": api},
                                                     {"Name": "Stage", "Value": params.get("stage", "")}], ("Count",))
         return now.get("rate_limit") == params.get("rate_limit") and sums is not None and sums["Count"] > 0
+
+    # ------------------------------------------------------------------ arc: shift traffic away from a zone (G9-D)
+
+    def _zone_health(self, lb: str, arn: str, zones: list[str]) -> dict[str, tuple[float, float]]:
+        """Per zone, over the load balancer's target groups: (fewest healthy hosts, most unhealthy hosts) in the last
+        HEALTH_WINDOW. A zone with no datapoint is absent: unknown is never healthy."""
+        tgs = [t["TargetGroupArn"].split(":", 5)[-1] for t in
+               (self._read("elbv2").describe_target_groups(LoadBalancerArn=arn).get("TargetGroups") or [])[:5]]
+        queries, keys = [], {}
+        for i, (tg, zone, metric, stat) in enumerate((tg, z, m, s) for tg in tgs for z in zones for m, s in
+                                                      (("HealthyHostCount", "Minimum"), ("UnHealthyHostCount", "Maximum"))):
+            keys[f"q{i}"] = (zone, metric)
+            queries.append({"Id": f"q{i}", "ReturnData": True, "MetricStat": {"Period": 60, "Stat": stat, "Metric": {
+                "Namespace": "AWS/ApplicationELB" if lb.startswith("app/") else "AWS/NetworkELB",
+                "MetricName": metric, "Dimensions": [{"Name": "LoadBalancer", "Value": lb},
+                                                     {"Name": "TargetGroup", "Value": tg},
+                                                     {"Name": "AvailabilityZone", "Value": zone}]}}})
+        if not queries:
+            return {}
+        end = self._now()
+        got = self._read("cloudwatch").get_metric_data(MetricDataQueries=queries, StartTime=end - HEALTH_WINDOW,
+                                                       EndTime=end, ScanBy="TimestampDescending")
+        out: dict[str, list[float]] = {}
+        for r in got.get("MetricDataResults") or []:
+            if r.get("Values") and r.get("Id") in keys:
+                zone, metric = keys[r["Id"]]
+                pair = out.setdefault(zone, [0.0, 0.0])
+                pair[0 if metric == "HealthyHostCount" else 1] += float(r["Values"][0])
+        return {z: (h, u) for z, (h, u) in out.items()}
+
+    def _live_zones(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The load balancer's zones by ID, the ONE zone that is impaired (no healthy host, some unhealthy, while
+        another zone serves), whether zonal shifts are allowed, and any shift already in place."""
+        lb = params.get("load_balancer")
+        if not isinstance(lb, str) or not lb.startswith(("app/", "net/")) or lb.count("/") != 2:
+            return {}
+        elb = self._read("elbv2")
+        [desc] = elb.describe_load_balancers(Names=[lb.split("/")[1]])["LoadBalancers"]
+        arn = desc["LoadBalancerArn"]
+        if not arn.endswith(":loadbalancer/" + lb):
+            return {}  # the name is another load balancer's (a different id)
+        names = sorted(z["ZoneName"] for z in desc.get("AvailabilityZones") or [] if z.get("ZoneName"))
+        ids = {z["ZoneName"]: z["ZoneId"] for z in self._read("ec2").describe_availability_zones(
+            ZoneNames=names).get("AvailabilityZones") or [] if z.get("ZoneName") in names}
+        attrs = {a.get("Key"): a.get("Value") for a in
+                 elb.describe_load_balancer_attributes(LoadBalancerArn=arn).get("Attributes") or []}
+        tags = {t["Key"]: t["Value"] for d in elb.describe_tags(ResourceArns=[arn]).get("TagDescriptions") or []
+                for t in d.get("Tags") or []}
+        health = self._zone_health(lb, arn, names)
+        impaired = [z for z, (h, u) in health.items() if h == 0 and u > 0]
+        serving = sorted(z for z, (h, _) in health.items() if h > 0)
+        managed = self._read("arc-zonal-shift").get_managed_resource(resourceIdentifier=arn)
+        active = [s.get("zonalShiftId") for s in managed.get("zonalShifts") or [] if s.get("appliedStatus") == "APPLIED"]
+        one = len(impaired) == 1 and serving and impaired[0] in ids and attrs.get("zonal_shift.config.enabled") == "true"
+        return {"load_balancer": {lb}, "away_from": {ids[impaired[0]]} if one else set(),
+                "environment": tags.get(ENV_TAG), "rollout": "progressing" if active else "complete",
+                "state": {"load_balancer": lb, "arn": arn, "zones": ids, "impaired_name": impaired[0] if one else None,
+                          "serving": serving, "active_shifts": active, "where": self._where(arn)}}
+
+    def _zonal_shift(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("load_balancer", "arn", "zones"), f"load balancer {p['load_balancer']}")
+        arc_read = self._read("arc-zonal-shift")
+        mark = f"WARDEN {who['incident']}"
+        if back:
+            mine = [s for s in arc_read.get_managed_resource(resourceIdentifier=now["arn"]).get("zonalShifts") or []
+                    if s.get("awayFrom") == p["away_from"] and str(s.get("comment", "")).startswith(mark)]
+            if not mine:
+                return f"nothing to roll back: the shift away from {p['away_from']} has already ended"
+            arc = self._actor(who, ["arc-zonal-shift:CancelZonalShift"], [now["arn"]], None)("arc-zonal-shift")
+            arc.cancel_zonal_shift(zonalShiftId=mine[0]["zonalShiftId"])
+            return f"cancelled the shift away from {p['away_from']}; traffic returns to every zone"
+        if p["away_from"] not in self.live("arc_zonal_shift", p).get("away_from", set()):
+            raise AwsPlatformRefused(f"zone {p['away_from']} is no longer the one impaired zone of {p['load_balancer']} "
+                                     "(or a shift is already in place); nothing was changed")
+        if not isinstance(p["minutes"], int) or not 30 <= p["minutes"] <= 180:
+            raise AwsPlatformRefused("a shift lasts 30 to 180 minutes; nothing was changed")
+        arc = self._actor(who, ["arc-zonal-shift:StartZonalShift"], [now["arn"]], None)("arc-zonal-shift")
+        arc.start_zonal_shift(resourceIdentifier=now["arn"], awayFrom=p["away_from"], expiresIn=f"{p['minutes']}m",
+                              comment=f"{mark} plan {who['plan_hash'][:12]}"[:128])
+        return f"shifted {p['load_balancer']}'s traffic away from {p['away_from']} for {p['minutes']} minutes"
+
+    def _shift_holds(self, lb: str, params: dict[str, Any]) -> bool:
+        """The shift is applied (that zone's weight 0) and another zone serves - a positive signal."""
+        now = self._live_zones({"load_balancer": lb}).get("state") or {}
+        managed = self._read("arc-zonal-shift").get_managed_resource(resourceIdentifier=now.get("arn", ""))
+        return (managed.get("appliedWeights") or {}).get(params.get("away_from")) == 0 and bool(now.get("serving"))
 
     def _live_cluster(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("cluster")

@@ -68,6 +68,7 @@ class Entry:
 # must be the last, or the success check would judge another object than the one changed (sixth review,
 # 2026-10-01); all of them key the bounds and the per-target mutex (target_key).
 TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",), "athena": ("workgroup",),
+                 "elb": ("load_balancer",),
                  "apigw": ("stage", "api"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
                  "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",)}
 
@@ -154,6 +155,10 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     Entry("apigw_raise_stage_throttle", "T1", "apigw", "n/a (bounded increase)",
           {**_ref("api", "stage"), "rate_limit": Param("int", 1, 10000), "burst_limit": Param("int", 1, 5000)},
           _raise_throttle),
+    # G9-D: traffic away from the load balancer's ONE impaired zone for a set time (ARC ends it at its expiry; the
+    # rollback cancels it). Only where the load balancer allows zonal shifts, one shift at a time.
+    Entry("arc_zonal_shift", "T2", "elb", "n/a (ends at its expiry, or cancelled)",
+          {**_ref("load_balancer", "away_from"), "minutes": Param("int", 30, 180)}),
     Entry("dynamodb_raise_capacity", "T1", "dynamodb", "n/a (bounded increase)",
           {**_ref("table"), "capacity": Param("int", 1, 40000)}, _at_most_double),
     Entry("ecs_rollback_service", "T2", "ecs", "the service's previous steady task definition",
@@ -192,6 +197,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     # (independent review 2026-10-10, H1: the same write reached through raise_limit escaped both).
     ActionKind.raise_limit: {"apigw": "apigw_raise_stage_throttle"},
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
+    ActionKind.shift_traffic: {"elb": "arc_zonal_shift"},
     ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
 }
 
@@ -231,6 +237,9 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "apigw_raise_stage_throttle": lambda p, s: [
         _arrow(f"rate limit of stage {p['stage']} of {p['api']}", s.get("rate_limit"), p["rate_limit"]),
         _arrow(f"burst limit of stage {p['stage']} of {p['api']}", s.get("burst_limit"), p["burst_limit"])],
+    "arc_zonal_shift": lambda p, s: [(f"load balancer {p['load_balancer']}: traffic shifted away from zone "
+                                      f"{p['away_from']} ({s.get('impaired_name')}) for {p['minutes']} minutes; "
+                                      f"the zones left serve it all: {', '.join(s.get('serving') or []) or 'unknown'}")],
     "aurora_failover": lambda p, s: [_arrow(f"writer of cluster {p['cluster']}", s.get("writer"),
                                             p["target_instance"]) + " (not undone automatically)"],
 }
@@ -272,7 +281,9 @@ def for_action(action: ActionKind, platform: str) -> Entry | None:
 ROLLS_PODS = frozenset({"k8s_restart", "ecs_restart_service"})
 # A pause holds the harm, it fixes nothing (independent review 2026-10-10, H2): its run ends "mitigated" - the page is
 # not resolved and a person resumes the flow.
-MITIGATES = frozenset({"lambda_disable_esm", "events_disable_rule"})
+MITIGATES = {"lambda_disable_esm": "it stays paused until a person resumes it",
+             "events_disable_rule": "it stays paused until a person resumes it",
+             "arc_zonal_shift": "traffic avoids the impaired zone until the shift expires; the zone is not fixed"}
 # Snapshot values that move on their own while a plan waits: shown to the approver, left out of the drift hash (M6).
 VOLATILE = {"sqs_redrive_dlq": ("waiting",)}
 # A queue a paused mapping reads must keep its messages at least this long (H2: a 60 s retention expires them).

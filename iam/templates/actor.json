@@ -33,6 +33,16 @@
       "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
     },
     {
+      "Sid": "ZonalShiftsOfThisEnvironmentsLoadBalancers",
+      "Effect": "Allow",
+      "Action": ["arc-zonal-shift:CancelZonalShift", "arc-zonal-shift:StartZonalShift"],
+      "Resource": [
+        "arn:aws:elasticloadbalancing:${region}:*:loadbalancer/app/warden-${env}-*/*",
+        "arn:aws:elasticloadbalancing:${region}:*:loadbalancer/net/warden-${env}-*/*"
+      ],
+      "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
+    },
+    {
       "Sid": "StageThrottlesOfThisEnvironmentsApis",
       "Effect": "Allow",
       "Action": "apigateway:PATCH",

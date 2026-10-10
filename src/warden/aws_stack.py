@@ -1056,10 +1056,28 @@ class StackBackend:
         if lbs:
             lb = lbs[0].split(":loadbalancer/", 1)[-1]
             tgd = {"TargetGroup": tg["TargetGroupArn"].split(":", 5)[-1], "LoadBalancer": lb}
+            # G9-D: the load balancer's zones and whether ARC may shift traffic away from one - and below, its hosts per
+            # zone: an impaired zone shows as one zone with no healthy host while the others serve.
+            zones: list[str] = []
+            try:
+                [desc] = self._elb.describe_load_balancers(LoadBalancerArns=[lbs[0]])["LoadBalancers"]
+                zones = sorted(z["ZoneName"] for z in desc.get("AvailabilityZones") or [] if z.get("ZoneName"))[:6]
+                attrs = {a.get("Key"): a.get("Value") for a in self._elb.describe_load_balancer_attributes(
+                    LoadBalancerArn=lbs[0]).get("Attributes") or []}
+                out.lines.append(f"CONFIG alb {lb.split('/')[1] if '/' in lb else lb} zones={','.join(zones) or 'none'} "
+                                 f"zonal_shift={attrs.get('zonal_shift.config.enabled') or 'false'}")
+            except Exception as exc:  # noqa: BLE001 - the target health above stands without it
+                out.lines.append(_partial("alb zones", exc))
+            per_zone = {}
+            for z in zones:
+                at = {**tgd, "AvailabilityZone": z}
+                per_zone[f"alb_healthy_hosts_{z}"] = ("AWS/ApplicationELB", "HealthyHostCount", at, "Minimum")
+                per_zone[f"alb_unhealthy_hosts_{z}"] = ("AWS/ApplicationELB", "UnHealthyHostCount", at, "Maximum")
             out.metrics.update(self._cw_read(out, "alb", alert, {
                 "alb_target_5xx": ("AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", tgd, "Sum"),
                 "alb_elb_5xx": ("AWS/ApplicationELB", "HTTPCode_ELB_5XX_Count", {"LoadBalancer": lb}, "Sum"),
                 "alb_target_response_time_s": ("AWS/ApplicationELB", "TargetResponseTime", tgd, "Maximum"),
+                **per_zone,
             }))
 
     def _read_apigw(self, out: _Out, alert: Alert, api_name: str) -> None:

@@ -110,6 +110,7 @@
         "cloudtrail:LookupEvents",
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
+        "ec2:DescribeAvailabilityZones",
         "ec2:DescribeInstanceStatus",
         "ec2:DescribeNatGateways",
         "ec2:DescribeSecurityGroups",
@@ -118,7 +119,9 @@
         "ecs:DescribeTaskDefinition",
         "elasticache:DescribeEvents",
         "elasticloadbalancing:DescribeInstanceHealth",
+        "elasticloadbalancing:DescribeLoadBalancerAttributes",
         "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTags",
         "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:DescribeTargetHealth",
         "kafka:ListClustersV2",
@@ -165,6 +168,15 @@
         "arn:aws:apigateway:ap-south-2::/restapis",
         "arn:aws:apigateway:ap-south-2::/apis",
         "arn:aws:apigateway:ap-south-2::/apis/*"
+      ]
+    },
+    {
+      "Sid": "ZonalShiftStateOfThisEnvironmentsLoadBalancers",
+      "Effect": "Allow",
+      "Action": "arc-zonal-shift:GetManagedResource",
+      "Resource": [
+        "arn:aws:elasticloadbalancing:ap-south-2:*:loadbalancer/app/warden-qa-prod-*/*",
+        "arn:aws:elasticloadbalancing:ap-south-2:*:loadbalancer/net/warden-qa-prod-*/*"
       ]
     },
     {

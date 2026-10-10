@@ -28,6 +28,7 @@ _PLATFORM_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
     "events": (("eventbridge_rule", "rule"),),
     "sqs": (("sqs", "queue"),),
     "athena": (("athena_workgroup", "workgroup"),),
+    "elb": (("load_balancer", "load_balancer"),),
     "apigw": (("apigw_stage", "stage"), ("apigw_rest", "api")),  # the API is what a person names
     "ecs": (("ecs_cluster", "cluster"), ("ecs_service", "service")),
     "dynamodb": (("dynamodb_table", "table"),),
@@ -61,6 +62,8 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
         if not isinstance(cur, int) or cur < 1:
             return "the current capacity was not read"
         return {**params, "capacity": 2 * cur}
+    if "minutes" in entry.params:
+        return {**params, "minutes": 60}  # an hour, then ARC ends it by itself
     if "per_second" in entry.params:
         # Slow enough not to flood the consumer, fast enough to finish inside the verify window (review H3).
         waiting = live.get("waiting")

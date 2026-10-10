@@ -265,8 +265,7 @@ class RemediationWorkflow:
             done["verified"] = True
             if workflow.patched("g9-mitigated") and plan.entry in MITIGATES:
                 # A pause holds the harm and fixes nothing (review H2): the page stays open, a person resumes it.
-                return await end("mitigated", [(f"{req.service} is paused, not fixed: it stays paused until a "
-                                                "person resumes it")])
+                return await end("mitigated", [f"{req.service} is mitigated, not fixed: {MITIGATES[plan.entry]}"])
             if workflow.patched("c18a-rechecks"):
                 # Durable re-checks (register C18a): a fix that holds for minutes and fails within the hour is not a
                 # recovery. A relapse is recorded as a failed result (the breaker counts it) and goes to a person:

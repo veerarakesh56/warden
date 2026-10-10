@@ -269,3 +269,88 @@ def test_a_session_policy_holds_each_pair_exactly_and_no_pattern():
         (["sqs:StartMessageMoveTask"], [DLQ_ARN]), (["sqs:SendMessage"], [QUEUE_ARN])]
     with pytest.raises(identity.IdentityError, match="exact ARNs"):
         identity.session_policy(["sqs:StartMessageMoveTask"], [DLQ_ARN], None, also=[(["sqs:SendMessage"], ["*"])])
+
+
+LB = "app/warden-dev-shop/abc123"
+LB_ARN = f"arn:aws:elasticloadbalancing:test-region-1:{ACCT}:loadbalancer/{LB}"
+
+
+class Zones(Queues):
+    def __init__(self):
+        super().__init__()
+        self.zonal = "true"
+        self.health = {"test-region-1a": (0.0, 3.0), "test-region-1b": (2.0, 0.0)}  # (healthy, unhealthy)
+        self.shifts, self.weights = [], {}
+
+    def describe_load_balancers(self, Names):
+        return {"LoadBalancers": [{"LoadBalancerArn": LB_ARN, "AvailabilityZones": [
+            {"ZoneName": "test-region-1a"}, {"ZoneName": "test-region-1b"}]}]}
+
+    def describe_availability_zones(self, ZoneNames):
+        return {"AvailabilityZones": [{"ZoneName": z, "ZoneId": "tr1-az" + z[-1]} for z in ZoneNames]}
+
+    def describe_load_balancer_attributes(self, LoadBalancerArn):
+        return {"Attributes": [{"Key": "zonal_shift.config.enabled", "Value": self.zonal}]}
+
+    def describe_tags(self, ResourceArns):
+        return {"TagDescriptions": [{"ResourceArn": ResourceArns[0], "Tags": [{"Key": "Environment", "Value": "dev"}]}]}
+
+    def describe_target_groups(self, LoadBalancerArn):
+        return {"TargetGroups": [{"TargetGroupArn": f"arn:aws:elasticloadbalancing:test-region-1:{ACCT}:targetgroup/tg/1"}]}
+
+    def get_metric_data(self, MetricDataQueries, StartTime, EndTime, **kw):
+        out = []
+        for q in MetricDataQueries:
+            m = q["MetricStat"]["Metric"]
+            zone = {d["Name"]: d["Value"] for d in m["Dimensions"]}.get("AvailabilityZone")
+            if zone is None:
+                return super().get_metric_data(MetricDataQueries, StartTime, EndTime)
+            h, u = self.health.get(zone, (None, None))
+            v = h if m["MetricName"] == "HealthyHostCount" else u
+            out.append({"Id": q["Id"], "Values": [] if v is None else [v]})
+        return {"MetricDataResults": out}
+
+    def get_managed_resource(self, resourceIdentifier):
+        return {"zonalShifts": [dict(s) for s in self.shifts], "appliedWeights": dict(self.weights)}
+
+
+@pytest.fixture
+def zones():
+    f = Zones()
+    return f, AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: NOW, sleep=lambda s: None)
+
+
+def test_traffic_shifts_away_from_the_one_impaired_zone_and_the_rollback_cancels_only_its_own_shift(zones):
+    f, p = zones
+    live = p.live("arc_zonal_shift", {"load_balancer": LB})
+    assert live["away_from"] == {"tr1-aza"} and live["environment"] == "dev"
+    params = {"load_balancer": LB, "away_from": "tr1-aza", "minutes": 60}
+    assert catalog.validate("arc_zonal_shift", params, live) == []
+    p.apply("arc_zonal_shift", params, snapshot=live["state"], who=WHO)
+    name, kw = f.writes[-1]
+    assert name == "start_zonal_shift" and kw["resourceIdentifier"] == LB_ARN and kw["awayFrom"] == "tr1-aza"
+    assert kw["expiresIn"] == "60m" and kw["comment"].startswith("WARDEN inc-7 plan ")
+    assert f.sessions[-1]["resources"] == [LB_ARN] and f.sessions[-1]["actions"] == ["arc-zonal-shift:StartZonalShift"]
+    assert "shifted away from zone tr1-aza (test-region-1a)" in catalog.change_of("arc_zonal_shift", params, live["state"])[0]
+    f.weights = {"tr1-aza": 0, "tr1-azb": 1}
+    assert p.healthy(LB, entry="arc_zonal_shift", params=params)
+    f.shifts = [{"zonalShiftId": "z-other", "awayFrom": "tr1-aza", "comment": "someone else", "appliedStatus": "APPLIED"},
+                {"zonalShiftId": "z-mine", "awayFrom": "tr1-aza", "comment": kw["comment"], "appliedStatus": "APPLIED"}]
+    p.rollback("arc_zonal_shift", params, live["state"], who=WHO)
+    assert f.writes[-1] == ("cancel_zonal_shift", {"zonalShiftId": "z-mine"})
+
+
+def test_no_shift_without_exactly_one_impaired_zone_the_balancers_consent_or_with_one_in_place(zones):
+    f, p = zones
+    base = {"load_balancer": LB}
+    f.health = {"test-region-1a": (0.0, 3.0), "test-region-1b": (0.0, 2.0)}  # nothing serves: a shift helps nobody
+    assert p.live("arc_zonal_shift", base)["away_from"] == set()
+    f.health = {"test-region-1a": (0.0, 3.0), "test-region-1b": (2.0, 0.0)}
+    f.zonal = "false"
+    assert p.live("arc_zonal_shift", base)["away_from"] == set()
+    f.zonal = "true"
+    f.shifts = [{"zonalShiftId": "z-1", "awayFrom": "tr1-azb", "appliedStatus": "APPLIED"}]
+    live = p.live("arc_zonal_shift", base)
+    assert any("P21" in x for x in catalog.validate("arc_zonal_shift",
+                                                    {**base, "away_from": "tr1-aza", "minutes": 60}, live))
+    assert p.live("arc_zonal_shift", {"load_balancer": "app/warden-dev-shop/other-id"}) == {}

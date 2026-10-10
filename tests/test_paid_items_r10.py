@@ -28,7 +28,7 @@ FREE = {
     ("_apigw", "get_apis"), ("_ddb", "describe_table"), ("_ec", "describe_cache_clusters"), ("_ec", "describe_events"),
     ("_ec", "describe_replication_groups"), ("_ec2", "describe_security_groups"), ("_ecs", "describe_services"),
     ("_ecs", "describe_task_definition"), ("_eks", "describe_cluster"), ("_elb", "describe_target_groups"),
-    ("_elb", "describe_target_health"), ("_events", "describe_rule"), ("_lambda", "get_alias"),
+    ("_elb", "describe_target_health"), ("_elb", "describe_load_balancers"), ("_elb", "describe_load_balancer_attributes"), ("_events", "describe_rule"), ("_lambda", "get_alias"),
     ("_lambda", "get_function"), ("_lambda", "get_function_concurrency"), ("_lambda", "get_function_configuration"),
     ("_lambda", "list_event_source_mappings"), ("_lambda", "list_versions_by_function"),
     ("_logs", "filter_log_events"), ("_logs", "get_query_results"), ("_logs", "stop_query"),

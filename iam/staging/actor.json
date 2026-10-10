@@ -37,6 +37,23 @@
       }
     },
     {
+      "Sid": "ZonalShiftsOfThisEnvironmentsLoadBalancers",
+      "Effect": "Allow",
+      "Action": [
+        "arc-zonal-shift:CancelZonalShift",
+        "arc-zonal-shift:StartZonalShift"
+      ],
+      "Resource": [
+        "arn:aws:elasticloadbalancing:ap-south-2:*:loadbalancer/app/warden-staging-*/*",
+        "arn:aws:elasticloadbalancing:ap-south-2:*:loadbalancer/net/warden-staging-*/*"
+      ],
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
       "Sid": "StageThrottlesOfThisEnvironmentsApis",
       "Effect": "Allow",
       "Action": "apigateway:PATCH",

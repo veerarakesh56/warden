@@ -213,6 +213,9 @@ def _clients(**over):
                 {"SourceIdentifier": f"{P}aurora", "Date": NOW, "Message": "Completed failover to DB instance"}]
                 if e["SourceIdentifier"] == SourceIdentifier]}),
         "elbv2": Fake(
+            describe_load_balancers={"LoadBalancers": [{"AvailabilityZones": [
+                {"ZoneName": "test-region-1a"}, {"ZoneName": "test-region-1b"}]}]},
+            describe_load_balancer_attributes={"Attributes": [{"Key": "zonal_shift.config.enabled", "Value": "true"}]},
             describe_target_groups={"TargetGroups": [{
                 "TargetGroupArn": f"arn:aws:elasticloadbalancing:ap-south-2:1:targetgroup/{P}orders/abc",
                 "HealthCheckPath": "/healthz", "HealthCheckPort": "traffic-port", "Matcher": {"HttpCode": "200"},
@@ -803,7 +806,9 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         # The universal alarm reader (G9-A2a): ListMetrics and LookupEvents take no resource.
         "cloudwatch:ListMetrics", "cloudtrail:LookupEvents",
         # Logs Insights results and cancel name a query id, not a resource: AWS gives them no resource type (R22).
-        "logs:GetQueryResults", "logs:StopQuery"}
+        "logs:GetQueryResults", "logs:StopQuery",
+        # An ALB's zones and zonal-shift setting (G9-D): no resource type (AWS's service reference JSON, 2026-10-10).
+        "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeLoadBalancerAttributes"}
 
 
 # The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).
@@ -945,3 +950,26 @@ def test_the_watched_environments_reader_role_grants_every_call_the_stack_backen
     doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
     granted = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
     assert called <= granted, sorted(called - granted)
+
+
+def test_an_albs_zones_its_zonal_shift_setting_and_its_hosts_per_zone_are_read():
+    """G9-D: an impaired zone shows as one zone with no healthy host while the others serve - the evidence for
+    shift_traffic - and the zonal-shift setting says whether ARC can act on this load balancer at all."""
+    per_zone = {("HealthyHostCount", "test-region-1a"): 0.0, ("UnHealthyHostCount", "test-region-1a"): 2.0,
+                ("HealthyHostCount", "test-region-1b"): 2.0, ("UnHealthyHostCount", "test-region-1b"): 0.0}
+
+    def get_metric_data(MetricDataQueries, **_):
+        out = []
+        for q in MetricDataQueries:
+            metric = q["MetricStat"]["Metric"]
+            zone = {d["Name"]: d["Value"] for d in metric["Dimensions"]}.get("AvailabilityZone")
+            value = per_zone.get((metric["MetricName"], zone))
+            out.append({"Id": q["Id"], "Values": [] if value is None else [value]})
+        return {"MetricDataResults": out}
+
+    b = _backend(_clients(cloudwatch=Fake(get_metric_data=get_metric_data)))
+    alert = _alert(alb_target_group=f"{P}orders")
+    assert f"CONFIG alb {P}alb zones=test-region-1a,test-region-1b zonal_shift=true" in b.logs(alert)
+    m = b.metrics(alert)
+    assert m["alb_healthy_hosts_test-region-1a"] == 0 and m["alb_unhealthy_hosts_test-region-1a"] == 2
+    assert m["alb_healthy_hosts_test-region-1b"] == 2 and m["alb_unhealthy_hosts_test-region-1b"] == 0
