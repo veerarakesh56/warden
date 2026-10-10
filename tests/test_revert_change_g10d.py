@@ -186,3 +186,23 @@ def test_a_disabled_rule_is_reverted_through_its_enable_entry_and_a_function_thr
     concurrency change (G10-D3)."""
     assert catalog.for_action(ActionKind.revert_change, "events").name == "events_enable_rule"
     assert catalog.for_action(ActionKind.revert_change, "lambda").name == "lambda_restore_concurrency"
+
+
+@pytest.mark.parametrize("quote, supported", [
+    ("UpdateService on pricing-api by user/dev", True), ("RevokeSecurityGroupEgress on sg-0d4c3b2a1f0e9d8c7", True),
+    ("PutFunctionConcurrency20171031 on fn by user/x", True), ("UpdateStage on api by role/x", True),
+    ("DeleteRoute on rtb-1", True), ("ReplaceRoute on rtb-0a1", True), ("DisableRule on nightly", True),
+    ("DeregisterTargets on web-tg", True), ("SetDesiredCapacity on asg", True),
+    ("ModifyTargetGroupAttributes on tg", False), ("TagResource on x", False), ("error rate went up", False),
+    ("disable-feature flag on", False)])
+def test_a_revert_is_supported_by_the_event_name_it_undoes(quote, supported):
+    """G10 held-out baseline (2026-10-10): P15 held back every revert WARDEN can carry out - its keys are run-together
+    event names, quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero."""
+    from warden import grounding
+    from warden.evidence import Item
+    from warden.models import Citation, RootCause
+
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id="C1", quote=quote)])
+    proposal = RemediationProposal(action=ActionKind.revert_change, target="x", reasoning="r", expected_effect="e",
+                                   blast_radius="single_service", reversible=True)
+    assert (grounding.action_support_problem(rc, proposal, {"C1": Item("C1", quote)}) is None) is supported

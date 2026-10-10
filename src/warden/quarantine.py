@@ -286,7 +286,9 @@ def _span(values: set[str]) -> str:
         m = _NUM.search(v)
         return float(m.group()) if m else 0.0
 
-    ordered = sorted(values, key=first_number)
+    # Ties broken by the value itself: set order changes with each process's hash seed, so the same evidence gave the
+    # diagnose and the verify step different facts and a right citation read as ungrounded (G10 held-out, 2026-10-10).
+    ordered = sorted(values, key=lambda v: (first_number(v), v))
     return f"{ordered[0]} .. {ordered[-1]} ({len(values)} values)"
 
 

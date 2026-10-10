@@ -215,6 +215,8 @@ def _supports(quote: str, key: str, shortage: bool = True, idle_short: bool = Fa
 
 
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+# A CloudTrail event name as a CHANGE line writes it: CamelCase words, and the API version Lambda and CloudFront append.
+_EVENT_NAME = re.compile(r"(?<![A-Za-z0-9])(?:[A-Z][a-z]+){2,}[A-Za-z0-9_]*(?![A-Za-z0-9])")
 
 
 def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
@@ -227,8 +229,16 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     # wording supported scale_up and terminate_connections (independent review 2026-09-28).
     # Words split at camelCase first: WARDEN's own facts spell codes `OOMKilled`, `exitCode=137`,
     # `CPUUtilization`, and none of those "contained" oom, exit or cpu (second review, 2026-09-30).
-    quotes = [_CAMEL.sub(" ", c.quote).lower() for c in root_cause.citations
-              if c.id.strip().strip("[]") in items and not c.id.strip().strip("[]").startswith("T")]
+    cited = [c.quote for c in root_cause.citations
+             if c.id.strip().strip("[]") in items and not c.id.strip().strip("[]").startswith("T")]
+    if proposal.action is ActionKind.revert_change:
+        # An API's name, never a measure (G10 held-out baseline, 2026-10-10: the keys are run-together event names, but
+        # quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero - P15 held back every
+        # revert WARDEN can carry out). A CamelCase word in the quote holding a family's key supports it.
+        events = [w.lower() for q in cited for w in _EVENT_NAME.findall(q)]
+        return None if any(k in w for w in events for k in keys) else (
+            f"none of the cited evidence names a write revert_change undoes (none of: {', '.join(keys[:6])}...)")
+    quotes = [_CAMEL.sub(" ", q).lower() for q in cited]
     shortage = proposal.action is not ActionKind.scale_down
     idle_short = proposal.action is ActionKind.scale_up
     if any(_supports(q, k, shortage, idle_short) for q in quotes for k in keys):

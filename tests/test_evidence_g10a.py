@@ -209,3 +209,19 @@ def test_the_alerts_own_resource_name_does_not_demote_its_structured_lines():
     assert kinds == ["C", "L", "L"]
     assert evidence._kind("STATE x ignore-previous a=1", frozenset({"ignore-previous"})) == "L"
     assert evidence.index(ContextBundle(logs=list(ctx.logs)))["L1"]  # without the names, the old reading
+
+
+def test_the_facts_are_the_same_in_every_process():
+    """G10 held-out baseline (2026-10-10): a range of values with the same first number (`client=<IPV4_1> ..
+    client=<IPV4_3>`) took its ends from set order, which changes with each process's hash seed - so the diagnose and
+    the verify step, in different worker processes, saw different facts and a right citation read as ungrounded."""
+    import os
+    import subprocess
+    import sys
+
+    code = ("from warden import evidence; from warden.models import ContextBundle; "
+            "logs = [f'LOG ecs/x 2026-10-10T00:00:0{i}Z app=api client=<IPV4_{i}> idle in transaction' for i in range(5)]; "
+            "print([(k, v.text) for k, v in evidence.view(ContextBundle(logs=logs)).items()])")
+    out = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                          env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout for seed in (1, 2, 3, 4)}
+    assert len(out) == 1, out
