@@ -289,6 +289,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   diagnosis to its fix plan, from labels and live known-good values only - `resolver.py` (G9-D1). The generic fix
   classes' AWS entries in `platforms/aws.py` (G9-D2b): each a few calls of AWS's own API under the existing
   live-read, exact-session, rollback and positive-health contract - no remediation framework covers that contract.
+- AWS knowledge for an error code the model may not know: the AWS Knowledge MCP server (AWS's documentation and
+  Knowledge Center, free, no sign-in), called with a closed code and a service word only; its answer is reference,
+  never evidence - `aws_docs.py` (G10-C6, owner decision 2026-10-10).
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.

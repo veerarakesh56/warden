@@ -79,12 +79,27 @@ def summarise(rows: dict[str, dict]) -> dict:
     return out
 
 
+def with_references(doc: dict) -> dict:
+    """The case's evidence with what AWS's documentation says about its error codes - fetched as the read zone
+    fetches it (graph.node_gather): closed codes from the typed facts, never the case's text."""
+    import os
+
+    from warden import aws_docs, evidence, quarantine
+    from warden.models import ContextBundle
+
+    os.environ["WARDEN_AWS_DOCS"] = "on"
+    facts = [i.text for i in quarantine.reduce(evidence.index(ContextBundle(**doc["context"]))).values()]
+    return {**doc["context"], "references": aws_docs.references(doc["alert"].get("labels") or {}, facts)}
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--cases", required=True, type=pathlib.Path)
     p.add_argument("--out", required=True, type=pathlib.Path)
     p.add_argument("--resume", action="store_true", help="answer only the cases not answered yet")
     p.add_argument("--score-only", action="store_true")
+    p.add_argument("--docs", action="store_true",
+                   help="fetch AWS's documentation on the evidence's error codes first, as the read zone does (G10-C6)")
     args = p.parse_args(argv)
     sys.path.insert(0, str(ROOT / "scripts"))
     key = json.loads((args.cases / "key.json").read_text(encoding="utf-8"))
@@ -100,7 +115,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.resume and dest.exists() and "P0-MODEL-UNAVAILABLE" not in dest.read_text(encoding="utf-8"):
                 continue
             doc = json.loads(case.read_text(encoding="utf-8"))
-            report = rediagnose({"alert": doc["alert"], "context": doc["context"]}, LLMClient())
+            context = with_references(doc) if args.docs else doc["context"]
+            report = rediagnose({"alert": doc["alert"], "context": context}, LLMClient())
             dest.write_text(report.model_dump_json(indent=2), encoding="utf-8")
             print(f"{doc['id']}: {report.proposal.action.value} {report.verdict.status.value}", flush=True)
     rows = {}

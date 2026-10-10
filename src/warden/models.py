@@ -165,6 +165,9 @@ class ContextBundle(BaseModel):
     # with their scores. Read by policy P16; recorded in the report so a replay sees what was decided.
     tripwire: str = "off"
     suspected: dict[str, float] = Field(default_factory=dict)
+    # What AWS's own documentation says about the evidence's error codes (aws_docs.py, G10-C6): reference for the
+    # model, never evidence - no item id a citation can name, scanned by the tripwire as outside text.
+    references: list[str] = Field(default_factory=list)
 
     def is_empty(self) -> bool:
         return not (self.logs or self.metrics or self.recent_deploys)

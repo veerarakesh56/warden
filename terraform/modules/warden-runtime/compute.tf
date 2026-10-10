@@ -216,6 +216,9 @@ resource "aws_ecs_task_definition" "zone" {
       # The notify zone posts for real - the only zone that does. chatops.py is dry-run unless this is set, and it is
       # never loaded from SSM; without it every report was dropped silently (2026-10-09).
       each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {},
+      # AWS's documentation on the evidence's error codes, as reference - fetched where the evidence is read
+      # (aws_docs.py, owner decision 2026-10-10). Over the 443 egress the group already has.
+      each.key == "read" ? { WARDEN_AWS_DOCS = "on" } : {},
       # The read zone gathers the evidence: every resource the alarm names, through each watched environment's reader
       # role (aws_stack.py, G9-A2b; it reuses aws_backend for ECS).
       each.key == "read" ? { WARDEN_BACKEND = "stack" } : {}) :
