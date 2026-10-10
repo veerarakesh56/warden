@@ -273,13 +273,14 @@ def _best_time(lines, runs=2):
 def test_many_distinct_values_per_line_scale_linearly():
     """Fourth review (2026-09-30): the sweep tested every found value against every line - 2,000 lines of
     ten values each took 217 s. A ratio, not a wall-clock limit (a loaded machine slows both runs alike):
-    four times the lines, and so four times the values, must cost about four times as much, never the
-    sixteen times a quadratic sweep costs."""
+    eight times the lines, and so eight times the values, must cost about eight times as much, never the
+    sixty-four times a quadratic sweep costs. At 4x with a cutoff of 8 a loaded CI runner measured 8.0x on a linear
+    sweep (238e917, 2026-10-09; 7.8x measured here at 8x): the wider gap keeps the two apart."""
     from warden import redaction
 
-    small, large = _lines(200, 10), _lines(800, 10)
+    small, large = _lines(200, 10), _lines(1600, 10)
     ratio = _best_time(large) / _best_time(small)
-    assert ratio < 8, f"4x the input cost {ratio:.1f}x the time - the sweep is quadratic again"
+    assert ratio < 24, f"8x the input cost {ratio:.1f}x the time - the sweep is quadratic again"
     r = redaction._Redactor(None)
     for line in large:
         r.find(line)
