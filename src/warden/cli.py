@@ -401,6 +401,10 @@ async def _workflow_command(args: argparse.Namespace) -> int:
         stage, plan = await runtime.status(client, args.workflow_id)
         _out(f"stage: {stage}")
         if plan:
+            from . import catalog
+
+            for change in catalog.change_of(plan.entry, plan.params, plan.snapshot):
+                _out(f"change: {_one(change)}")
             _out(f"plan : {_one(plan.entry)} {plan.params} tier {plan.tier}")
             _out(f"target: {_one(plan.target)}")
             _out(f"where: {_one(plan.snapshot.get('server') or 'not stated by the platform')}")

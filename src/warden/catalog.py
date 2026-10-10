@@ -184,6 +184,56 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
 }
 
 
+def _arrow(what: str, before: Any, after: Any) -> str:
+    return f"{what}: {'unknown' if before is None else before} -> {after}"
+
+
+# What each entry changes, from the plan's own snapshot (what WARDEN read) and values: the approver reads the change
+# itself, not only the entry's name (G9-D owner decision: a dry-run diff on the approval screen). Both are in the plan
+# hash the approver signs, so this text cannot differ from what is applied.
+_CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
+    "lambda_move_alias": lambda p, s: [_arrow(f"alias {p['alias']} of {p['function']} serves version", s.get("version"),
+                                              p["to_version"])],
+    "lambda_set_reserved_concurrency": lambda p, s: [_arrow(f"reserved concurrency of {p['function']}",
+                                                            s.get("reserved"), p["concurrency"])],
+    "lambda_enable_esm": lambda p, s: [_arrow(f"event source mapping {p['mapping']}", "disabled", "enabled")],
+    "lambda_disable_esm": lambda p, s: [_arrow(f"event source mapping {p['mapping']} (reads {s.get('source')})",
+                                               "enabled", "disabled; its messages wait in the queue")],
+    "events_enable_rule": lambda p, s: [_arrow(f"rule {p['rule']}", "disabled", "enabled")],
+    "events_disable_rule": lambda p, s: [_arrow(f"scheduled rule {p['rule']}", "enabled",
+                                                "disabled; it misses its runs while disabled")],
+    "dynamodb_raise_capacity": lambda p, s: [_arrow(f"write capacity of table {p['table']}", s.get("write"),
+                                                    p["capacity"])],
+    "ecs_rollback_service": lambda p, s: [_arrow(f"task definition of service {p['service']}",
+                                                 s.get("task_definition"), p["to_task_definition"])],
+    "ecs_restart_service": lambda p, s: [(f"service {p['service']}: every task replaced by a new one of the same "
+                                          f"task definition {s.get('task_definition')}")],
+    "ecs_scale_service": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired"),
+                                              p["replicas"])],
+    "sqs_redrive_dlq": lambda p, s: [(f"{'unknown' if s.get('waiting') is None else s['waiting']} messages move "
+                                      f"from {p['queue']} to {p['to_queue']} at {p['per_second']} a second; moved "
+                                      "messages are not moved back")],
+    "athena_stop_query": lambda p, s: [_arrow(f"query {p['query']} in workgroup {p['workgroup']}",
+                                              s.get("query_state"), "cancelled")],
+    "apigw_raise_stage_throttle": lambda p, s: [
+        _arrow(f"rate limit of stage {p['stage']} of {p['api']}", s.get("rate_limit"), p["rate_limit"]),
+        _arrow(f"burst limit of stage {p['stage']} of {p['api']}", s.get("burst_limit"), p["burst_limit"])],
+    "aurora_failover": lambda p, s: [_arrow(f"writer of cluster {p['cluster']}", s.get("writer"),
+                                            p["target_instance"]) + " (not undone automatically)"],
+}
+
+
+def change_of(name: str, params: dict[str, Any], snapshot: dict[str, Any]) -> list[str]:
+    """The plan's change, before -> after, in words. An entry without its own description shows its values."""
+    describe = _CHANGES.get(name)
+    if describe is not None:
+        try:
+            return describe(params, snapshot or {})
+        except (KeyError, TypeError):
+            pass  # a plan missing a value it needs is refused elsewhere; show the values instead
+    return [f"{name} with " + ", ".join(f"{k}={v}" for k, v in sorted(params.items()))]
+
+
 def target_key(name: str, params: dict[str, Any]) -> str:
     """The resource a fix changes, as one key: its platform and the parameters naming it, outermost first
     (`k8s:shop/orders`). The bounds, the mutex and the workflow id key on it - never on a free-text service

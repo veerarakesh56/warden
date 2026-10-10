@@ -230,7 +230,11 @@ class ApprovalPage:
         if plan is None or plan.problems:
             return _json(409, {"error": "this plan is no longer waiting for an approval"})
         self.store.mark_viewed(token)
+        from . import catalog
+
         return _json(200, {"plan": {
+            # First: what changes, before and after (G9-D) - then the plan's facts.
+            "change": "; ".join(catalog.change_of(plan.entry, plan.params, plan.snapshot)),
             "entry": plan.entry, "target": plan.target, "tier": plan.tier, "environment": plan.environment,
             "values": plan.params, "plan_hash": plan.plan_hash, "made": both_times(plan.created_at),
             "link_expires": both_times(link.expires_at), "type_the_target": plan.tier in TYPED_TIERS}})

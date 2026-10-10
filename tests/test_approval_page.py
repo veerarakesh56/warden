@@ -175,3 +175,33 @@ def test_a_challenge_in_the_audit_is_taken_once(setup, tmp_path):
     store.put_challenge("tok:approve", pending)
     assert store.take_challenge("tok:approve") == pending
     assert store.take_challenge("tok:approve") is None and store.challenge("tok:approve") is None
+
+
+def test_the_page_shows_what_the_plan_changes_before_and_after(setup):
+    """G9-D (owner decision 2026-10-10): a dry-run diff on the approval screen, from the plan's snapshot and values -
+    both in the hash the approver signs - shown first, before the entry's name."""
+    page, device, _, _ = setup
+    global PLAN
+    saved = PLAN
+    PLAN = saved.model_copy(update={"entry": "ecs_scale_service", "params": {"cluster": "c1", "service": "orders",
+                                                                             "replicas": 3},
+                                    "snapshot": {"desired": 2}})
+    try:
+        token = page.new_link("rem-dev-1", "owner")
+        plan = json.loads(_show(page, device, token).body)["plan"]
+    finally:
+        PLAN = saved
+    assert next(iter(plan)) == "change" and plan["change"] == "desired tasks of service orders: 2 -> 3"
+
+
+def test_every_catalogue_entry_says_what_it_changes():
+    from warden import catalog
+
+    missing = sorted(set(catalog.CATALOG) - set(catalog._CHANGES) - {
+        # Kubernetes, database and Terraform entries show their values: their snapshots are the platforms' own.
+        "k8s_rollout_undo", "k8s_restart", "k8s_scale", "db_terminate_idle_in_tx", "db_terminate_blocker",
+        "infra_restore_baseline", "lambda_restore_config"})
+    assert missing == []
+    assert catalog.change_of("sqs_redrive_dlq", {"queue": "d", "to_queue": "s", "per_second": 10}, {"waiting": 42}) == [
+        "42 messages move from d to s at 10 a second; moved messages are not moved back"]
+    assert catalog.change_of("lambda_move_alias", {"function": "f"}, {}) == ["lambda_move_alias with function=f"]
