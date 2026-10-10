@@ -82,7 +82,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
           "codepipeline_freeze": "codepipeline", "ec2_revert_sg_change": "ec2",
           "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda", "lambda_restore_settings": "lambda", "asg_restore_capacity": "asg",
-          "sqs_restore_attributes": "sqs", "kinesis_restore_retention": "kinesis",
+          "sqs_restore_attributes": "sqs", "kinesis_restore_retention": "kinesis", "ec2_restore_route": "ec2",
           "apigw_restore_stage": "apigw", "elb_reregister_targets": "elb", "kms_cancel_key_deletion": "kms",
           "secrets_restore_secret": "secretsmanager",
           "aurora_failover": "rds"}
@@ -313,6 +313,45 @@ def _pairs_parse(text: str, allowed: dict[str, tuple[int, int]]) -> dict[str, in
     return out
 
 
+# G10 v2 routes: what a route write names, and the targets WARDEN may route to again - never a local route, a carrier
+# or local gateway, a core network or a gateway endpoint's own route (vpce-).
+_RTB_ID = re.compile(r"rtb-[0-9a-f]{8,17}")
+_ROUTE_EVENTS = ("DeleteRoute", "ReplaceRoute", "CreateRoute")
+_ROUTE_DESTS = ("destinationCidrBlock", "destinationIpv6CidrBlock", "destinationPrefixListId")
+_ROUTE_TARGETS = ("natGatewayId", "gatewayId", "transitGatewayId", "vpcPeeringConnectionId", "networkInterfaceId",
+                  "egressOnlyInternetGatewayId")
+_GATEWAY_ID = re.compile(r"(?:igw|vgw)-[0-9a-f]{8,17}")
+
+
+def _route_dest(r: dict[str, Any]) -> tuple[str, str] | None:
+    for k in _ROUTE_DESTS:
+        v = _get(r, k)
+        if v:
+            return (k, str(v))
+    return None
+
+
+def _route_target_for(routes: list[Any], dest: tuple[str, str] | list[str] | None) -> list[str] | None:
+    """The target of the route to `dest` among `routes` (Config's camelCase or EC2's PascalCase), if WARDEN may write
+    it - else None."""
+    if not dest:
+        return None
+    for r in routes:
+        if isinstance(r, dict) and str(_get(r, dest[0]) or "") == dest[1]:
+            for k in _ROUTE_TARGETS:
+                v = str(_get(r, k) or "")
+                if v and (k != "gatewayId" or _GATEWAY_ID.fullmatch(v)):
+                    return [k, v]
+            return None
+    return None
+
+
+def _route_undo_text(dest: Any, after: Any, before: Any) -> str:
+    if not dest:
+        return "no route to restore"
+    return f"route {dest[1]} {'via ' + after[1] if after else '(deleted)'} -> via {before[1] if before else '?'}"
+
+
 def _settings_text(values: dict[str, Any]) -> str:
     return ",".join(f"{k}={values[k]}" for k in sorted(values))
 
@@ -423,6 +462,7 @@ class AwsPlatform:
                 "lambda_restore_concurrency": self._live_lambda_restore,
                 "lambda_restore_settings": self._live_lambda_settings,
                 "sqs_restore_attributes": self._live_sqs_attributes,
+                "ec2_restore_route": self._live_route_change,
                 "kinesis_restore_retention": self._live_kinesis_retention,
                 "asg_restore_capacity": self._live_asg_restore, "apigw_restore_stage": self._live_stage_restore,
                 "elb_reregister_targets": self._live_targets, "kms_cancel_key_deletion": self._live_key_deletion,
@@ -472,6 +512,7 @@ class AwsPlatform:
                  "lambda_restore_concurrency": self._lambda_restored,
                  "lambda_restore_settings": self._lambda_settings_restored,
                  "sqs_restore_attributes": self._sqs_attributes_restored,
+                 "ec2_restore_route": self._route_restored,
                  "kinesis_restore_retention": self._kinesis_retention_restored,
                  "asg_restore_capacity": self._asg_restored, "apigw_restore_stage": self._stage_restored,
                  "elb_reregister_targets": self._targets_healthy, "kms_cancel_key_deletion": self._key_kept,
@@ -537,6 +578,7 @@ class AwsPlatform:
                  "lambda_restore_concurrency": self._lambda_restore,
                  "lambda_restore_settings": self._lambda_settings_restore,
                  "sqs_restore_attributes": self._sqs_attributes_restore,
+                 "ec2_restore_route": self._route_restore,
                  "kinesis_restore_retention": self._kinesis_retention_restore,
                  "asg_restore_capacity": self._asg_restore, "apigw_restore_stage": self._stage_restore,
                  "elb_reregister_targets": self._targets, "kms_cancel_key_deletion": self._key_cancel,
@@ -1929,6 +1971,92 @@ class AwsPlatform:
         want = _pairs_parse(str(params.get("attributes", "")), _QUEUE_SETTINGS)
         return bool(want) and all(str(attrs.get(k)) == str(v) for k, v in want.items()) and \
             self._alarm_ok(str(params.get("alarm", "")))
+
+    def _live_route_change(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE route write CloudTrail recorded on this route table in the hours before the alarm - a DeleteRoute or a
+        ReplaceRoute - and the target AWS Config recorded for that destination just before it. A route the change
+        created is not deleted; a local, carrier, local-gateway or core-network route is not written."""
+        table, alarm = params.get("route_table"), params.get("alarm")
+        if not isinstance(table, str) or not _RTB_ID.fullmatch(table) or not isinstance(alarm, str):
+            return {}
+        ec2 = self._read("ec2")
+        t = (ec2.describe_route_tables(RouteTableIds=[table]).get("RouteTables") or [{}])[0]
+        if t.get("RouteTableId") != table:
+            return {}
+        arn = f"arn:aws:ec2:{ec2.meta.region_name}:{t.get('OwnerId', '')}:route-table/{table}"
+        state: dict[str, Any] = {"route_table": table, "arn": arn, "where": self._where(arn)}
+        live = {"route_table": {table}, "alarm": {alarm}, "event": set(),
+                "environment": {x["Key"]: x["Value"] for x in t.get("Tags") or []}.get(ENV_TAG)}
+        onset = self._alarm_onset(alarm)
+        named = params.get("event")
+        if onset is None and not isinstance(named, str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - SG_CHANGE_BEFORE_ALARM
+        writes: list[dict[str, Any]] = []
+        for name in _ROUTE_EVENTS:  # every route write to the table: two are a choice WARDEN does not make
+            writes += self._trail_writes("EventName", name, since, self._now(),
+                                         lambda e, name=name: e["event_name"] == name
+                                         and _get(e["request"] or {}, "routeTableId") == table)
+        if isinstance(named, str):
+            writes = [w for w in writes if w["event"] == named] or writes
+        if len(writes) != 1:
+            return {**live, "state": state, "refused": f"{'no recorded' if not writes else len(writes)} route "
+                    f"write(s) to {table} since {since:%Y-%m-%dT%H:%MZ}"}
+        e = writes[0]
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        if not why and e["event_name"] == "CreateRoute":
+            why = "the change created a route: deleting it is a person's decision"
+        dest = _route_dest(e["request"] or {})
+        if not why and dest is None:
+            why = "the change names no destination WARDEN can route"
+        before = after = None
+        if not why or onset is None:
+            before, after, bracket = self._config_bracket(
+                "AWS::EC2::RouteTable", table, e,
+                lambda i: _route_target_for(_get(_json(i.get("configuration")), "routes") or [], dest))
+            why = why or bracket
+        now_target = _route_target_for(t.get("Routes") or [], dest) if dest else None
+        state.update(dest=list(dest) if dest else None, before=before, after=after, now=now_target,
+                     undo=_route_undo_text(dest, after, before))
+        if not why and before is None:
+            why = "AWS Config recorded no route to that destination before the change - or one WARDEN does not write"
+        if not why and now_target != after:
+            why = "the route is not what the change left: it moved since"
+        return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
+
+    def _route_restore(self, p, snapshot, now, who, back) -> str:
+        """The route back to the target Config recorded before the change (back: what the change left - deleting the
+        route WARDEN made again, or replacing it back)."""
+        self._expect(now, snapshot, ("route_table", "arn", "event", "dest", "before", "after"),
+                     f"route table {p['route_table']}")
+        dest, before, after = snapshot.get("dest"), snapshot.get("before"), snapshot.get("after")
+        want_now, to = (after, before) if not back else (before, after)
+        if now.get("now") != want_now or not dest:
+            raise AwsPlatformRefused(f"route table {p['route_table']} routes {dest} to {now.get('now')}, not "
+                                     f"{want_now}; nothing was changed")
+        where = {dest[0][0].upper() + dest[0][1:]: dest[1]}
+        if to is None:
+            action, call = "ec2:DeleteRoute", {}
+        else:
+            action = "ec2:CreateRoute" if want_now is None else "ec2:ReplaceRoute"
+            call = {to[0][0].upper() + to[0][1:]: to[1]}
+        ec2 = self._actor(who, [action], [now["arn"]], None)("ec2")
+        {"ec2:DeleteRoute": ec2.delete_route, "ec2:CreateRoute": ec2.create_route,
+         "ec2:ReplaceRoute": ec2.replace_route}[action](RouteTableId=p["route_table"], **where, **call)
+        return f"route table {p['route_table']}: {dest[1]} {'removed' if to is None else 'to ' + to[1]}"
+
+    def _route_restored(self, table: str, params: dict[str, Any]) -> bool:
+        """The route back with its target active, and the alarm OK."""
+        t = (self._read("ec2").describe_route_tables(RouteTableIds=[table]).get("RouteTables") or [{}])[0]
+        state = self.live("ec2_restore_route", {"route_table": table, "alarm": params.get("alarm"),
+                                                "event": params.get("event")}).get("state") or {}
+        dest, before = state.get("dest"), state.get("before")
+        if not dest or not before:
+            return False
+        active = [r for r in t.get("Routes") or [] if str(_get(r, dest[0]) or "") == dest[1]
+                  and str(_get(r, "State") or "active") == "active"]
+        return (_route_target_for(active, dest) == before) and self._alarm_ok(str(params.get("alarm", "")))
 
     def _live_kinesis_retention(self, params: dict[str, Any]) -> dict[str, Any]:
         """The ONE recorded DecreaseStreamRetentionPeriod on this stream in the hours before its alarm, and the

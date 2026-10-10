@@ -670,14 +670,16 @@ Undo: `python scripts/forward_global_alarms.py --undo` removes exactly the rule,
 ### AWS Config, so WARDEN can undo a recorded change (in the window; owner decision 2026-10-10)
 
 `revert_change` sets a value back to what AWS Config recorded just before the change - an ECS service's desired
-count, a Lambda function's reserved concurrency (G10-D3). With no recorder those plans are refused, nothing else.
+count, a Lambda function's reserved concurrency (G10-D3), its timeout, memory or ephemeral storage (D4), a queue's timing
+settings, a stream's retention and a deleted or replaced route (G10 v2). With no recorder those plans are refused,
+nothing else.
 One recorder per account and Region. Cost: about $0.003 per recorded change (continuous) plus a little S3 - check
 the Config pricing page the day before.
 
 1. **AWS Config** -> Region **Asia Pacific (Hyderabad)** -> **Settings** (or **Get started**).
 2. **Recording strategy**: **Specific resource types**, frequency **Continuous**, these types:
    `AWS::ECS::Service`, `AWS::Lambda::Function`, `AWS::AutoScaling::AutoScalingGroup`, `AWS::ApiGateway::Stage`,
-   `AWS::EC2::SecurityGroup`.
+   `AWS::EC2::SecurityGroup`, `AWS::SQS::Queue`, `AWS::Kinesis::Stream`, `AWS::EC2::RouteTable`.
 3. **IAM role**: **Use the AWS Config service-linked role** (created if missing).
 4. **Delivery**: **Create a bucket**, named `warden-dev-config-` plus any short suffix. Tags `Project` = `warden`,
    `Environment` = `dev`. No SNS topic. **Next**, skip rules, **Confirm**.

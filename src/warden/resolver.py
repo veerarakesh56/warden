@@ -182,6 +182,29 @@ def _security_group(alert: Alert, proposal: RemediationProposal, live: Any) -> t
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
 
 
+_RTB_ID = re.compile(r"rtb-[0-9a-f]{8,17}")
+
+
+def _route_table(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
+    """revert_change on a route table (G10 v2, owner decision 2026-10-10): the ONE route write CloudTrail recorded on it
+    before the alarm went off - the platform's live read decides which, and whether it may be undone."""
+    alarm = alert.labels.get("alarm", "")
+    if not alarm or "," in alarm:
+        return None, "the alert names no single alarm, so no change before it can be dated"
+    table = _bare(alert, proposal.target)
+    entry = catalog.CATALOG["ec2_restore_route"]
+    state = live(entry.name, {"route_table": table, "alarm": alarm})
+    events = state.get("event")
+    if not isinstance(events, set | frozenset) or len(events) != 1:
+        return None, f"no change to {table} WARDEN may undo: {state.get('refused') or 'the route table could not be read'}"
+    params = {"alarm": alarm, "route_table": table, "event": next(iter(events))}
+    problems = catalog.validate(entry.name, params, state)
+    if problems:
+        return None, "; ".join(problems)
+    return {"entry": entry.name, "params": params, "service": params[entry.target_param],
+            "environment": alert.environment, "incident_id": alert.alert_id}, ""
+
+
 def _target_groups(alert: Alert) -> set[str]:
     return {alert.labels[k] for k in ("alb_target_group", "nlb_target_group") if alert.labels.get(k)}
 
@@ -272,6 +295,8 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
         return _sessions(alert, proposal, live)
     if proposal.action is ActionKind.revert_change and _SG_ID.fullmatch(_bare(alert, proposal.target)):
         return _security_group(alert, proposal, live)
+    if proposal.action is ActionKind.revert_change and _RTB_ID.fullmatch(_bare(alert, proposal.target)):
+        return _route_table(alert, proposal, live)
     if proposal.action is ActionKind.revert_change and _bare(alert, proposal.target) in _target_groups(alert):
         return _deregistered(alert, proposal, live)
     found = _platform(alert, proposal.target)

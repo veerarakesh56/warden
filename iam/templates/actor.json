@@ -134,6 +134,24 @@
       }
     },
     {
+      "Sid": "RouteTablesOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateRoute",
+        "ec2:DeleteRoute",
+        "ec2:ReplaceRoute"
+      ],
+      "Resource": "arn:aws:ec2:${region}:*:route-table/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "${env}"
+        },
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
       "Sid": "TheRuleAnAuthorizeCreates",
       "Effect": "Allow",
       "Action": [

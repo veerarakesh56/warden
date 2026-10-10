@@ -134,6 +134,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     from test_revert_config_history_g10d3 import Fake as History
     from test_revert_config_history_g10d3 import Groups as Scaled
     from test_revert_events_g10d2 import KEY_ID, SECRET, TG, Reverts
+    from test_revert_routes_g10 import NAT, RP, Routes
     from test_revert_v2_g10 import Q_ARN, QP, SP, Q, Queue, Stream
 
     def _staged():
@@ -153,6 +154,11 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
             (Queue(), "sqs_restore_attributes", {**QP, "event": "q-1", "attributes": "VisibilityTimeout=300"},
              ("attrs", {"QueueArn": Q_ARN, "QueueName": Q, "VisibilityTimeout": "300"})),
             (Stream(), "kinesis_restore_retention", {**SP, "event": "k-1", "hours": "168"}, ("hours", 168)),
+            # G10 v2 routes (owner decision 2026-10-10)
+            (Routes(), "ec2_restore_route", {**RP, "event": "r-1"},
+             ("routes", [{"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": NAT, "State": "active"}])),
+            (Routes(event="ReplaceRoute"), "ec2_restore_route", {**RP, "event": "r-1"},
+             ("routes", [{"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": NAT, "State": "active"}])),
             (Scaled(), "asg_restore_capacity", {**ASG, "event": "a-1", "desired": "6"}, ("capacity", 6)),
             (_staged(), "apigw_restore_stage", {**STAGE, "event": "s-1", "deployment": "dep-old"},
              ("deployment", "dep-old")),

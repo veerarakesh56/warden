@@ -197,6 +197,10 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     # the group since, a change after the alarm went off (it may be the fix).
     Entry("ec2_revert_sg_change", "T3", "ec2", "the group's rules as CloudTrail recorded them before the change",
           _ref("alarm", "group", "event"), target=("group",)),
+    # G10 v2, owner decision 2026-10-10: a route deleted or replaced, back to the target AWS Config recorded before the
+    # change - routes only (a network ACL is a security control, and stays with a person). T3: a passkey approves.
+    Entry("ec2_restore_route", "T3", "ec2", "the route AWS Config recorded before the change",
+          _ref("alarm", "route_table", "event"), target=("route_table",)),
     # G10-D3: a value back to what AWS Config recorded just before ONE recorded change (Config's own relatedEvents
     # name the change), the hours before the alarm, with the same refusals; Config must record continuously.
     Entry("ecs_restore_desired", "T2", "ecs", "the desired count AWS Config recorded before the change",
@@ -311,6 +315,9 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                        f"{p['concurrency']} (what AWS Config recorded before "
                                                        f"{s.get('event_name')} at {s.get('event_time')} by "
                                                        f"{s.get('actor')})")],
+    "ec2_restore_route": lambda p, s: [(f"route table {p['route_table']}: {s.get('undo')} - undoing "
+                                        f"{s.get('event_name')} at {s.get('event_time')} by {s.get('actor')} "
+                                        f"(event {p['event']}; AWS Config's record before it)")],
     "ec2_revert_sg_change": lambda p, s: [(f"security group {p['group']}: {s.get('undo')} - undoing "
                                            f"{s.get('event_name')} at {s.get('event_time')} by {s.get('actor')} "
                                            f"(event {p['event']})")],
