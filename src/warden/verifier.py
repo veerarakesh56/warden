@@ -478,7 +478,7 @@ def _p31_unaddressed_change(alert: Alert, context: ContextBundle, root_cause: Ro
     """G10 held-out set (2026-10-10, g10-135): a person cut an ECS service's desired count ten minutes before its
     memory alarm; the diagnosis named only the memory leak and a restart reached the approver. Recorded when a role or
     a user wrote to the alert's own resource in the half hour before it fired, and a fix neither reverts, rolls back
-    nor cites that write. Observe mode: measured before it decides anything."""
+    nor cites that write. Enforced (owner, 2026-10-10) after it was measured in observe mode."""
     if proposal.action in (ActionKind.revert_change, ActionKind.rollback_deploy) or proposal.action in AUTO_SAFE_ACTIONS:
         return None
     started = _when(alert.started_at)
@@ -498,7 +498,7 @@ def _p31_unaddressed_change(alert: Alert, context: ContextBundle, root_cause: Ro
 
 OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider),
             ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers), ("P28-NON-ENGLISH-LOGS", _p28_language),
-            ("P29-P8-BENIGN-PARTIALS", _p29_benign_partials), ("P31-UNADDRESSED-CHANGE", _p31_unaddressed_change))
+            ("P29-P8-BENIGN-PARTIALS", _p29_benign_partials))
 
 
 def verify(
@@ -803,6 +803,14 @@ def _enforce(
         escalate = True
         policies.append("P30-NO-FIX-PATH")
         reasons.append(f"{why[0].upper()}{why[1:]}: the proposal is advice for a person to carry out, not a plan.")
+
+    # P31 - a person's recent write to the alerting resource that the fix ignores (owner decision 2026-10-10, after it
+    # was measured in observe mode: on the G10 held-out answers it named only wrong ones - the one wrong answer that
+    # reached a person in every run, a restart that ignored a desired-count cut - and none of 132 right ones).
+    if why := _p31_unaddressed_change(alert, context, root_cause, proposal):
+        escalate = True
+        policies.append("P31-UNADDRESSED-CHANGE")
+        reasons.append(f"{why[0].upper()}{why[1:]}: a person looks at that change before any fix.")
 
     if rejected:
         return Verdict(

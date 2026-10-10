@@ -151,10 +151,10 @@ def test_the_playbook_and_runbook_commands_name_a_custom_bus():
     assert plain and "--event-bus-name" not in plain[0]
 
 
-def test_a_persons_recent_write_to_the_alerts_resource_left_unaddressed_is_observed_and_never_obeyed():
+def test_a_persons_recent_write_to_the_alerts_resource_left_unaddressed_escalates():
     """G10 held-out set (2026-10-10, g10-135): a person cut an ECS service's desired count ten minutes before its
-    memory alarm; the diagnosis named only a memory leak and a restart reached the approver. P31 records it in observe
-    mode (measured on the baseline's 172 answers: it named 2 wrong answers and none of the 132 right ones)."""
+    memory alarm; the diagnosis named only a memory leak and a restart reached the approver. P31, measured in observe
+    mode first (it named 2 wrong answers and none of 132 right ones), escalates (owner decision, 2026-10-10)."""
     from warden import verifier
     from warden.models import (
         ActionKind,
@@ -179,9 +179,10 @@ def test_a_persons_recent_write_to_the_alerts_resource_left_unaddressed_is_obser
     restart = RemediationProposal(action=ActionKind.restart_pods, target="pricing-api", reasoning="r",
                                   expected_effect="e", blast_radius="single_service", rollback_plan="r", reversible=True)
     verdict = verifier.verify(alert, ctx, rc, restart)
-    assert verdict.observed == [("P31-UNADDRESSED-CHANGE: UpdateService on pricing-api by user/dev-ssingh (C1) is "
-                                 "neither cited nor reverted")]
-    assert not any(p.startswith("P31") for p in verdict.policy_ids)  # observed, never obeyed
+    assert "P31-UNADDRESSED-CHANGE" in verdict.policy_ids and verdict.status.value == "escalated"
+    assert any("UpdateService on pricing-api by user/dev-ssingh (C1) is neither cited nor reverted" in r
+               for r in verdict.reasons)
+    assert not any(o.startswith("P31") for o in verdict.observed)
     for quiet in (restart.model_copy(update={"action": ActionKind.revert_change}),
                   restart.model_copy(update={"action": ActionKind.escalate_to_human})):
         assert not verifier._p31_unaddressed_change(alert, ctx, rc, quiet)

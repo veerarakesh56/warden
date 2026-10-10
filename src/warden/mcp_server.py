@@ -541,8 +541,8 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "the alert-time lines kept, or a secondary read)"
                         ),
                         "P31-UNADDRESSED-CHANGE": (
-                            "OBSERVE MODE, never obeyed: a role or an IAM user wrote to the alert's own resource in "
-                            "the half hour before it fired, and the fix neither reverts, rolls back nor cites it"
+                            "a role or an IAM user wrote to the alert's own resource in the half hour before it "
+                            "fired, and the fix neither reverts, rolls back nor cites it: escalated to a person"
                         ),
                         "P30-NO-FIX-PATH": (
                             "the target is a resource the alarm's labels name, and no catalogue entry carries out "
