@@ -11,6 +11,8 @@
         "athena:ListQueryExecutions",
         "athena:ListTagsForResource",
         "cloudwatch:DescribeAlarms",
+        "codepipeline:GetPipelineState",
+        "codepipeline:ListTagsForResource",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
         "ecs:DescribeServiceRevisions",
@@ -51,6 +53,7 @@
       "Resource": [
         "arn:aws:athena:ap-south-2:*:workgroup/warden-staging-*",
         "arn:aws:cloudwatch:ap-south-2:*:alarm:warden-staging-*",
+        "arn:aws:codepipeline:ap-south-2:*:warden-staging-*",
         "arn:aws:dynamodb:ap-south-2:*:table/warden-staging-*",
         "arn:aws:ecs:ap-south-2:*:service-revision/warden-staging-*/*/*",
         "arn:aws:ecs:ap-south-2:*:service/warden-staging-*/*",

@@ -69,6 +69,7 @@ class Entry:
 # 2026-10-01); all of them key the bounds and the per-target mutex (target_key).
 TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",), "athena": ("workgroup",),
                  "elb": ("load_balancer",), "appconfig": ("application", "config_env"),
+                 "codepipeline": ("pipeline", "stage"),
                  "apigw": ("stage", "api"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
                  "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",)}
 
@@ -164,6 +165,10 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
     # not "environment": that word is the resource's own Environment tag everywhere WARDEN reads (P18).
     Entry("appconfig_revert", "T2", "appconfig", "the configuration deployed before it",
           _ref("alarm", "application", "config_env", "deployment"), target=("application", "config_env")),
+    # G9-D: no deploy reaches the service while a person looks - the inbound transition of the pipeline stage the
+    # service's own `warden:pipeline` tag names (AWS has no link of its own from a service to its pipeline).
+    Entry("codepipeline_freeze", "T1", "codepipeline", "the stage's inbound transition, enabled again",
+          _ref("resource", "pipeline", "stage")),
     Entry("dynamodb_raise_capacity", "T1", "dynamodb", "n/a (bounded increase)",
           {**_ref("table"), "capacity": Param("int", 1, 40000)}, _at_most_double),
     Entry("ecs_rollback_service", "T2", "ecs", "the service's previous steady task definition",
@@ -204,6 +209,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.cancel_query: {"athena": "athena_stop_query"},
     ActionKind.shift_traffic: {"elb": "arc_zonal_shift"},
     ActionKind.revert_config: {"appconfig": "appconfig_revert"},
+    ActionKind.freeze_changes: {"codepipeline": "codepipeline_freeze"},
     ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
 }
 
@@ -249,6 +255,8 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "appconfig_revert": lambda p, s: [(f"configuration {p['application']}/{p['config_env']}: deployment "
                                        f"{p['deployment']} (version {s.get('version')}, {s.get('deploy_state')}) is "
                                        "stopped and reverted to the configuration deployed before it")],
+    "codepipeline_freeze": lambda p, s: [_arrow(f"deploys of {p['resource']} through pipeline {p['pipeline']} "
+                                                f"stage {p['stage']}", "flowing", "frozen until a person enables them")],
     "aurora_failover": lambda p, s: [_arrow(f"writer of cluster {p['cluster']}", s.get("writer"),
                                             p["target_instance"]) + " (not undone automatically)"],
 }
@@ -292,7 +300,8 @@ ROLLS_PODS = frozenset({"k8s_restart", "ecs_restart_service"})
 # not resolved and a person resumes the flow.
 MITIGATES = {"lambda_disable_esm": "it stays paused until a person resumes it",
              "events_disable_rule": "it stays paused until a person resumes it",
-             "arc_zonal_shift": "traffic avoids the impaired zone until the shift expires; the zone is not fixed"}
+             "arc_zonal_shift": "traffic avoids the impaired zone until the shift expires; the zone is not fixed",
+             "codepipeline_freeze": "deploys stay frozen until a person enables the stage's transition again"}
 # Snapshot values that move on their own while a plan waits: shown to the approver, left out of the drift hash (M6).
 VOLATILE = {"sqs_redrive_dlq": ("waiting",)}
 # A queue a paused mapping reads must keep its messages at least this long (H2: a 60 s retention expires them).

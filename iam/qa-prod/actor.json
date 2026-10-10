@@ -37,6 +37,20 @@
       }
     },
     {
+      "Sid": "PipelineStagesOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": [
+        "codepipeline:DisableStageTransition",
+        "codepipeline:EnableStageTransition"
+      ],
+      "Resource": "arn:aws:codepipeline:ap-south-2:*:warden-qa-prod-*/*",
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
       "Sid": "ConfigurationDeploymentsOfThisEnvironment",
       "Effect": "Allow",
       "Action": "appconfig:StopDeployment",

@@ -385,10 +385,22 @@ class Config(Zones):
     def list_deployments(self, ApplicationId, EnvironmentId, MaxResults):
         return {"Items": [{"DeploymentNumber": 6, "State": "COMPLETE"}, dict(self.deployment)]}
 
-    def list_tags_for_resource(self, ResourceARN=None, ResourceArn=None):
+    def list_tags_for_resource(self, ResourceARN=None, ResourceArn=None, resourceArn=None):
         if ResourceArn:  # AppConfig's spelling
             return {"Tags": dict(self.config_tags)}
+        if resourceArn:  # CodePipeline's
+            return {"tags": [{"key": "Environment", "value": self.pipeline_env}]}
         return super().list_tags_for_resource(ResourceARN)
+
+    pipeline_env, pipeline_tag, inbound = "dev", "warden-dev-deploy/Prod", True
+
+    def list_tags(self, Resource):
+        return {"Tags": {"Environment": "dev", **({"warden:pipeline": self.pipeline_tag} if self.pipeline_tag else {})}}
+
+    def get_pipeline_state(self, name):
+        self.__dict__.setdefault("asked", []).append(name)
+        return {"stageStates": [{"stageName": "Build"},
+                                {"stageName": "Prod", "inboundTransitionState": {"enabled": self.inbound}}]}
 
 
 @pytest.fixture
@@ -437,3 +449,40 @@ def test_no_revert_past_the_window_untagged_unguarded_or_of_another_configuratio
     assert p.live("appconfig_revert", {"alarm": ALARM})["deployment"] == set()
     f.config_tags, f.monitors = {"Environment": "dev"}, []
     assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()
+
+
+def test_deploys_are_frozen_at_the_stage_the_services_own_tag_names_and_the_rollback_unfreezes(config):
+    from warden import resolver
+    from warden.models import ActionKind, Alert, RemediationProposal, Severity
+
+    f, p = config
+    alert = Alert(alert_id="a1", name="n", service="checkout", environment="dev", severity=Severity.high, summary="",
+                  started_at="2026-10-10T00:00:00+00:00", labels={"lambda": FN})
+    prop = RemediationProposal(action=ActionKind.freeze_changes, target=FN, reasoning="r", expected_effect="e",
+                               blast_radius="single_service", reversible=True)
+    req, why = resolver.request_for(alert, prop, p.live)
+    assert why == "" and req["params"] == {"resource": FN, "pipeline": "warden-dev-deploy", "stage": "Prod"}
+    snap = p.live("codepipeline_freeze", req["params"])["state"]
+    p.apply("codepipeline_freeze", req["params"], snapshot=snap, who={**WHO, "incident": "inc_7:x"})
+    name, kw = f.writes[-1]
+    assert name == "disable_stage_transition" and kw["transitionType"] == "Inbound"
+    assert kw["reason"] == "WARDEN inc-7-x froze deploys for a person"  # CodePipeline's own character set
+    assert f.sessions[-1]["resources"] == [f"arn:aws:codepipeline:test-region-1:{ACCT}:warden-dev-deploy/Prod"]
+    f.inbound = False
+    assert p.healthy("Prod", entry="codepipeline_freeze", params=req["params"])
+    p.rollback("codepipeline_freeze", req["params"], snap, who=WHO)
+    assert f.writes[-1] == ("enable_stage_transition", {"pipelineName": "warden-dev-deploy", "stageName": "Prod",
+                                                        "transitionType": "Inbound"})
+
+
+def test_no_freeze_without_the_tag_of_another_environments_pipeline_or_when_already_frozen(config):
+    f, p = config
+    f.pipeline_tag = None
+    assert p.live("codepipeline_freeze", {"resource": FN})["pipeline"] == set()
+    f.pipeline_tag, f.pipeline_env = "warden-dev-deploy/Prod", "prod"
+    assert p.live("codepipeline_freeze", {"resource": FN})["pipeline"] == set()
+    f.pipeline_env, f.inbound = "dev", False
+    assert p.live("codepipeline_freeze", {"resource": FN})["stage"] == set()
+    f.inbound, f.pipeline_tag, f.asked = True, "warden dev deploy; x/Prod", []
+    assert p.live("codepipeline_freeze", {"resource": FN})["pipeline"] == set()
+    assert f.asked == []  # a tag outside CodePipeline's own name pattern never reaches its API

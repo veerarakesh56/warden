@@ -11,6 +11,8 @@
         "athena:ListQueryExecutions",
         "athena:ListTagsForResource",
         "cloudwatch:DescribeAlarms",
+        "codepipeline:GetPipelineState",
+        "codepipeline:ListTagsForResource",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
         "ecs:DescribeServiceRevisions",
@@ -51,6 +53,7 @@
       "Resource": [
         "arn:aws:athena:${region}:*:workgroup/warden-${env}-*",
         "arn:aws:cloudwatch:${region}:*:alarm:warden-${env}-*",
+        "arn:aws:codepipeline:${region}:*:warden-${env}-*",
         "arn:aws:dynamodb:${region}:*:table/warden-${env}-*",
         "arn:aws:ecs:${region}:*:service-revision/warden-${env}-*/*/*",
         "arn:aws:ecs:${region}:*:service/warden-${env}-*/*",

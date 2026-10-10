@@ -110,12 +110,37 @@ def _configuration(alert: Alert, proposal: RemediationProposal, live: Any) -> tu
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
 
 
+def _freeze(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
+    """freeze_changes: the labelled Lambda function or ECS service, and the pipeline stage its own tag names."""
+    labels = alert.labels
+    if labels.get("lambda") and "," not in labels["lambda"] and proposal.target == labels["lambda"]:
+        resource = labels["lambda"]
+    elif labels.get("ecs_cluster") and labels.get("ecs_service") and proposal.target == labels["ecs_service"]:
+        resource = f"{labels['ecs_cluster']}/{labels['ecs_service']}"
+    else:
+        return None, "the proposal's target is not a Lambda function or ECS service the alert's labels name"
+    entry = catalog.CATALOG["codepipeline_freeze"]
+    state = live(entry.name, {"resource": resource})
+    one = {k: state.get(k) for k in ("pipeline", "stage")}
+    if not all(isinstance(v, set | frozenset) and len(v) == 1 for v in one.values()):
+        return None, (f"{resource} names no pipeline stage WARDEN may freeze (its warden:pipeline tag, a stage that "
+                      "exists, of its environment, with deploys still flowing)")
+    params = {"resource": resource, **{k: next(iter(v)) for k, v in one.items()}}
+    problems = catalog.validate(entry.name, params, state)
+    if problems:
+        return None, "; ".join(problems)
+    return {"entry": entry.name, "params": params, "service": params[entry.target_param],
+            "environment": alert.environment, "incident_id": alert.alert_id}, ""
+
+
 def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
     """A FixRequest's fields for this proposal, or None and why. `live(entry, params)` is the platform's live read."""
     if proposal.action in (ActionKind.no_action, ActionKind.escalate_to_human):
         return None, "the proposal is to hand the incident to a person"
     if proposal.action is ActionKind.revert_config:
         return _configuration(alert, proposal, live)
+    if proposal.action is ActionKind.freeze_changes:
+        return _freeze(alert, proposal, live)
     found = _platform(alert, proposal.target)
     if found is None:
         return None, "the proposal's target is not a resource the alert's labels name"

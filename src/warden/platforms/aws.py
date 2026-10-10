@@ -32,13 +32,17 @@ load balancer's traffic away from its ONE impaired zone - no healthy host while 
 180 minutes, only where the balancer allows zonal shifts; the rollback cancels WARDEN's own shift only), and
 appconfig_revert (stop and revert the latest deployment of the ONE AppConfig environment whose monitors name the
 firing alarm - AWS's own link - within 70 of AWS's 72 hours, its application, environment and deployment tagged
-with one Environment; re-deploying is a new decision, so there is nothing to roll back).
+with one Environment; re-deploying is a new decision, so there is nothing to roll back), and
+codepipeline_freeze (disable the inbound transition of the pipeline stage the service's own `warden:pipeline` tag
+names - AWS has no link of its own - of the service's environment, while deploys still flow; enabled again on
+rollback). A pause, a shift and a freeze end "mitigated": the page stays open (catalog.MITIGATES).
 """
 
 from __future__ import annotations
 
 import itertools
 import os
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -53,6 +57,9 @@ HEALTH_WINDOW = timedelta(minutes=5)
 # merely older. A version that served for a minute before being replaced is no fallback.
 KNOWN_GOOD = timedelta(minutes=30)
 _PERIOD = 300  # CloudWatch's period for the served-version reads, seconds
+# G9-D: the tag on a Lambda function or an ECS service naming the pipeline stage that deploys it: `<pipeline>/<stage>`.
+PIPELINE_TAG = "warden:pipeline"
+_PIPELINE_NAME = re.compile(r"[A-Za-z0-9.@_-]{1,100}")  # CodePipeline's own pattern for both names
 # G9-D: AppConfig reverts a COMPLETED deployment for 72 hours (AWS, read 2026-10-10); WARDEN keeps a margin.
 APPCONFIG_REVERT = timedelta(hours=70)
 # G9-D: an Athena query running longer than this is a runaway a person may cancel.
@@ -67,6 +74,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs", "ecs_restart_service": "ecs",
           "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
           "apigw_raise_stage_throttle": "apigw", "arc_zonal_shift": "elb", "appconfig_revert": "appconfig",
+          "codepipeline_freeze": "codepipeline",
           "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
@@ -139,7 +147,7 @@ class AwsPlatform:
                 "ecs_restart_service": self._live_ecs_tasks, "ecs_scale_service": self._live_ecs_tasks,
                 "sqs_redrive_dlq": self._live_dlq, "athena_stop_query": self._live_query,
                 "apigw_raise_stage_throttle": self._live_stage, "arc_zonal_shift": self._live_zones,
-                "appconfig_revert": self._live_appconfig,
+                "appconfig_revert": self._live_appconfig, "codepipeline_freeze": self._live_pipeline,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -180,7 +188,7 @@ class AwsPlatform:
                  "ecs_restart_service": self._ecs_healthy, "ecs_scale_service": self._ecs_healthy,
                  "sqs_redrive_dlq": self._redrive_done, "athena_stop_query": self._query_cancelled,
                  "apigw_raise_stage_throttle": self._stage_healthy, "arc_zonal_shift": self._shift_holds,
-                 "appconfig_revert": self._appconfig_reverted,
+                 "appconfig_revert": self._appconfig_reverted, "codepipeline_freeze": self._frozen,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -229,7 +237,7 @@ class AwsPlatform:
                  "ecs_restart_service": self._ecs_restart, "ecs_scale_service": self._ecs_scale,
                  "sqs_redrive_dlq": self._redrive, "athena_stop_query": self._stop_query,
                  "apigw_raise_stage_throttle": self._stage_throttle, "arc_zonal_shift": self._zonal_shift,
-                 "appconfig_revert": self._appconfig_revert,
+                 "appconfig_revert": self._appconfig_revert, "codepipeline_freeze": self._freeze,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -1065,6 +1073,59 @@ class AwsPlatform:
         st = self._live_appconfig(params).get("state") or {}
         return str(st.get("deployment")) == str(params.get("deployment")) and st.get("deploy_state") in (
             "REVERTED", "ROLLED_BACK")
+
+    # ------------------------------------------------------------------ codepipeline: freeze deploys (G9-D)
+
+    def _resource_tags(self, resource: str) -> dict[str, str]:
+        """The tags of a Lambda function (`name`) or an ECS service (`cluster/service`)."""
+        if "/" in resource:
+            cluster, service = resource.split("/", 1)
+            [svc] = self._read("ecs").describe_services(cluster=cluster, services=[service], include=["TAGS"])["services"]
+            return {t["key"]: t["value"] for t in svc.get("tags") or []}
+        arn = self._read("lambda").get_function_configuration(FunctionName=resource)["FunctionArn"]
+        return self._tags("lambda", _unqualified(arn))
+
+    def _live_pipeline(self, params: dict[str, Any]) -> dict[str, Any]:
+        resource = params.get("resource")
+        if not isinstance(resource, str):
+            return {}
+        tags = self._resource_tags(resource)
+        pipeline, _, stage = str(tags.get(PIPELINE_TAG, "")).partition("/")
+        if not (_PIPELINE_NAME.fullmatch(pipeline) and _PIPELINE_NAME.fullmatch(stage)):
+            return {"resource": {resource}, "pipeline": set(), "stage": set(), "environment": tags.get(ENV_TAG)}
+        cp = self._read("codepipeline")
+        st = cp.get_pipeline_state(name=pipeline)
+        stages = {s.get("stageName"): s for s in st.get("stageStates") or []}
+        arn = f"arn:aws:codepipeline:{cp.meta.region_name}:{self._account()}:{pipeline}"
+        p_env = {t["key"]: t["value"] for t in cp.list_tags_for_resource(resourceArn=arn).get("tags") or []}.get(ENV_TAG)
+        flowing = (stages.get(stage, {}).get("inboundTransitionState") or {}).get("enabled")
+        # Freezable: the stage exists, deploys still flow into it, and the pipeline is the service's environment's.
+        can = stage in stages and flowing is True and p_env == tags.get(ENV_TAG)
+        return {"resource": {resource}, "pipeline": {pipeline} if can else set(), "stage": {stage} if can else set(),
+                "environment": tags.get(ENV_TAG) if p_env == tags.get(ENV_TAG) else None,
+                "state": {"resource": resource, "pipeline": pipeline, "stage": stage, "arn": f"{arn}/{stage}",
+                          "enabled": flowing, "where": self._where(arn)}}
+
+    def _freeze(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("resource", "pipeline", "stage", "arn"), f"pipeline {p['pipeline']}")
+        if now.get("enabled") is back:  # freezing needs deploys flowing; the rollback needs them frozen
+            raise AwsPlatformRefused(f"stage {p['stage']} of {p['pipeline']} is already "
+                                     f"{'enabled' if now.get('enabled') else 'frozen'}; nothing was changed")
+        action = "codepipeline:EnableStageTransition" if back else "codepipeline:DisableStageTransition"
+        cp = self._actor(who, [action], [now["arn"]], None)("codepipeline")
+        if back:
+            cp.enable_stage_transition(pipelineName=p["pipeline"], stageName=p["stage"], transitionType="Inbound")
+            return f"enabled deploys into {p['pipeline']} stage {p['stage']} again"
+        # The reason: CodePipeline's own character set only (letters, digits, spaces and ! @ ( ) . * ? -).
+        reason = re.sub(r"[^A-Za-z0-9!@ ().*?-]", "-", f"WARDEN {who['incident']} froze deploys for a person")[:300]
+        cp.disable_stage_transition(pipelineName=p["pipeline"], stageName=p["stage"], transitionType="Inbound",
+                                    reason=reason)
+        return f"froze deploys into {p['pipeline']} stage {p['stage']}"
+
+    def _frozen(self, stage: str, params: dict[str, Any]) -> bool:
+        st = self._read("codepipeline").get_pipeline_state(name=params.get("pipeline", ""))
+        found = [s for s in st.get("stageStates") or [] if s.get("stageName") == stage]
+        return bool(found) and (found[0].get("inboundTransitionState") or {}).get("enabled") is False
 
     def _live_cluster(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("cluster")

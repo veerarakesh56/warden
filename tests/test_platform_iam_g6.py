@@ -19,7 +19,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs": "ecs",
           "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds",
           "sqs": "sqs", "athena": "athena", "apigateway": "apigateway", "sts": "sts", "elbv2": "elasticloadbalancing",
-          "ec2": "ec2", "arc-zonal-shift": "arc-zonal-shift", "appconfig": "appconfig"}
+          "ec2": "ec2", "arc-zonal-shift": "arc-zonal-shift", "appconfig": "appconfig",
+          "codepipeline": "codepipeline"}
 # Actions AWS authorizes for a call besides the call's own (Service Authorization Reference, read 2026-10-10): the
 # session asks for them, the code never calls them.
 IMPLICIT = {"sqs:StartMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
@@ -73,7 +74,8 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
                                             "burst_limit": 100},
              "arc_zonal_shift": {"load_balancer": LB, "away_from": "tr1-aza", "minutes": 60},
              "appconfig_revert": {"alarm": ALARM, "application": "warden-dev-flags", "config_env": "live",
-                                  "deployment": "7"}}
+                                  "deployment": "7"},
+             "codepipeline_freeze": {"resource": FN, "pipeline": "warden-dev-deploy", "stage": "Prod"}}
     for entry, params in plans.items():
         snap = p.live(entry, params)["state"]
         p.apply(entry, params, snapshot=snap, who=WHO)
@@ -95,6 +97,9 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     # The resolver's reads, before a mapping or a query is named: it lists them (resolver.request_for).
     p.live("lambda_disable_esm", {"function": FN})
     p.live("athena_stop_query", {"workgroup": "warden-dev-bi"})
+    f.inbound = False
+    freeze = plans["codepipeline_freeze"]
+    p.rollback("codepipeline_freeze", freeze, p.live("codepipeline_freeze", freeze)["state"], who=WHO)
     f.shifts = [{"zonalShiftId": "z-1", "awayFrom": "tr1-aza", "comment": "WARDEN inc-7 plan x",
                  "appliedStatus": "APPLIED"}]
     shift = plans["arc_zonal_shift"]

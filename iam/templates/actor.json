@@ -33,6 +33,13 @@
       "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
     },
     {
+      "Sid": "PipelineStagesOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": ["codepipeline:DisableStageTransition", "codepipeline:EnableStageTransition"],
+      "Resource": "arn:aws:codepipeline:${region}:*:warden-${env}-*/*",
+      "Condition": {"StringLike": {"aws:SourceIdentity": "inc-*"}}
+    },
+    {
       "Sid": "ConfigurationDeploymentsOfThisEnvironment",
       "Effect": "Allow",
       "Action": "appconfig:StopDeployment",
