@@ -420,11 +420,33 @@ def _p28_language(alert: Alert, context: ContextBundle, root_cause: RootCause,
 # alert time is material, and so is every denied, missing or timed-out read of the alerting resource itself. The old
 # "truncated at N lines" kept the OLDEST lines (Wave 4's fs-05): material. Observed only, until a live window measures
 # it on healthy controls and faults (the 30 recorded incidents: P8 fired 3 times, none of them benign).
-_BENIGN_PARTIAL = re.compile(
-    r"^(?:logs|metrics|recent_deploys): (?:logs: )?(?:"
-    r"\[output truncated\] (?:kept the newest|stopped after \d+ pages, the alert-time lines read first"
-    r"|\d+ line\(s\) cut to)"
-    r"|(?:alb zones|appconfig|alarm-siblings metrics|lambda/[\w.-]+ code): )")
+# The stack readers put their own tags first (`logs: lambda/<fn> logs: logs: [output truncated] kept the newest ...`):
+# the pattern held only the bare form, so P29 never saw the sampling notice it was written for (G10 held-out
+# baseline, 2026-10-10: 0 of the 27 right fixes P8 escalated read benign). Every tag before the outcome must be
+# shaped like one WARDEN writes (evidence._SEGMENT), as in tool_error_text.
+_BENIGN_TAIL = re.compile(r"\[output truncated\] (?:kept the newest|stopped after \d+ pages, "
+                          r"the alert-time lines read first|\d+ line\(s\) cut to)")
+_SECONDARY_READ = re.compile(r"alb zones|appconfig|alarm-siblings metrics|lambda/[\w.-]+ code")
+
+
+def _benign_partial(error: str) -> bool:
+    m = re.match(r"(?:logs|metrics|recent_deploys): ", error)
+    if not m:
+        return False
+    rest = error[m.end():]
+    first = rest.split(": ", 1)[0]
+    if first == "logs" and ": " in rest:  # the bare backend's own `logs: ` prefix
+        rest = rest.split(": ", 1)[1]
+        first = rest.split(": ", 1)[0]
+    if ": " in rest and _SECONDARY_READ.fullmatch(first):
+        return True
+    i = rest.find("[")
+    chain = rest[:i]
+    if i < 0 or (chain and not chain.endswith(": ")):
+        return False
+    if not all(evidence._SEGMENT.fullmatch(seg) for seg in (chain[:-2].split(": ") if chain else [])):
+        return False
+    return bool(_BENIGN_TAIL.match(rest, i))
 
 
 def _p29_benign_partials(alert: Alert, context: ContextBundle, root_cause: RootCause,
@@ -433,7 +455,7 @@ def _p29_benign_partials(alert: Alert, context: ContextBundle, root_cause: RootC
     the other policies alone."""
     if not context.tool_errors or proposal.action in EVIDENCE_EXEMPT_ACTIONS:
         return None
-    if all(_BENIGN_PARTIAL.match(e) for e in context.tool_errors):
+    if all(_benign_partial(e) for e in context.tool_errors):
         return f"P8 fired on {len(context.tool_errors)} failed read(s), every one benign"
     return None
 

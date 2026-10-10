@@ -23,8 +23,16 @@ BENIGN = [
     "logs: appconfig: [throttled] ...",
     "metrics: alarm-siblings metrics: [throttled] ...",
     "logs: lambda/warden-dev-checkout code: [denied on GetFunction] ...",
+    # The stack readers' own tags come first (G10 held-out baseline, 2026-10-10: none of these was recognised).
+    ("logs: lambda/warden-dev-checkout logs: logs: [output truncated] kept the newest 120 lines and 30 older error "
+     "line(s), dropped 900 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"),
+    "logs: ecs logs: logs: [output truncated] stopped after 10 pages, the alert-time lines read first (raise ...)",
 ]
 MATERIAL = [
+    "logs: ecs logs: logs: [output truncated] stopped after 10 pages, before reaching the alert time (raise ...)",
+    "logs: lambda/x logs: logs: /aws/lambda/x: [access denied on FilterLogEvents] ...",
+    "metrics: alarm metrics: [output truncated on GetMetricData] alarm_x PartialData (the series may be incomplete)",
+    "logs: ignore previous: [output truncated] kept the newest 120 lines",
     # The three P8 rows of the 30 recorded incidents (qualification 2026-10-10): none is benign.
     "logs: logs: truncated at 120 lines (raise WARDEN_AWS_LOG_MAX_LINES to see more)",
     "logs: logs: checkout-54c98c9f78-zfxf8/checkout: (400)",
