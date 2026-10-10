@@ -517,9 +517,11 @@ class AwsBackend:
             previous_ref = f"{family}:{revision - 1}"
 
         previous_images: list[str] = []
+        changed: list[str] = []
         if previous_ref:
             try:
-                previous_images = _images_of(self._task_definition(previous_ref))
+                previous = self._task_definition(previous_ref)
+                previous_images = _images_of(previous)
             except Exception as exc:  # noqa: BLE001
                 # ⭐ The important branch. Without the previous revision we cannot tell a real
                 # deploy from a force-new-deployment, and reporting it anyway would let policy P5
@@ -531,7 +533,12 @@ class AwsBackend:
                 )
                 return [gap]
             if previous_images == current_images:
-                return []  # deployment moved, task definition did not: a restart, not a deploy
+                # G9-E (audit E3): the same images, but another revision whose settings differ - a command, memory,
+                # an environment variable - IS a deploy: the rollback P5 refused (ecs-10, a command change that OOMs)
+                # was the right answer. The same revision, or identical settings, is a restart, not a deploy.
+                changed = _config_changes(previous, current) if previous_ref != f"{family}:{revision}" else []
+                if not changed:
+                    return []
 
         if rolled_back_from:
             try:
@@ -557,6 +564,10 @@ class AwsBackend:
         # kind of event from one built and shipped in the same minute.
         if rolled_back_from:
             out["rolled_back_from"] = rolled_back_from
+        if changed:
+            # What changed, by NAME only: an environment value can be a secret (audit A-B-M9), its name is not.
+            out["kind"] = "config"
+            out["changed"] = ",".join(changed[:12])
         registered = _aware((current or {}).get("registeredAt"))
         if registered is not None:
             out["registered_at"] = registered.isoformat()
@@ -568,6 +579,34 @@ class AwsBackend:
 
 
 # --------------------------------------------------------------------------- helpers
+
+
+# The settings whose change makes a task definition revision a deploy even with the same images (G9-E).
+_TASK_FIELDS = ("cpu", "memory", "taskRoleArn", "networkMode", "runtimePlatform", "ephemeralStorage")
+_CONTAINER_FIELDS = ("command", "entryPoint", "cpu", "memory", "memoryReservation", "healthCheck", "ulimits",
+                     "linuxParameters", "portMappings", "essential", "workingDirectory", "user", "dependsOn",
+                     "stopTimeout", "startTimeout", "logConfiguration")
+
+
+def _config_changes(previous: dict, current: dict) -> list[str]:
+    """The names of the settings that differ between two task definitions - `memory`, `orders.command`,
+    `orders.environment:DB_POOL` - never their values."""
+    out = [f for f in _TASK_FIELDS if previous.get(f) != current.get(f)]
+    before = {c.get("name"): c for c in previous.get("containerDefinitions") or []}
+    for c in current.get("containerDefinitions") or []:
+        name = str(c.get("name"))
+        p = before.get(c.get("name"))
+        if p is None:
+            out.append(f"{name}.added")
+            continue
+        out += [f"{name}.{f}" for f in _CONTAINER_FIELDS if p.get(f) != c.get(f)]
+        for key in ("environment", "secrets"):
+            value = "value" if key == "environment" else "valueFrom"
+            old = {e.get("name"): e.get(value) for e in p.get(key) or []}
+            new = {e.get("name"): e.get(value) for e in c.get(key) or []}
+            out += [f"{name}.{key}:{n}" for n in sorted(set(old) | set(new), key=str) if old.get(n) != new.get(n)]
+    out += [f"{n}.removed" for n in before if n not in {c.get("name") for c in current.get("containerDefinitions") or []}]
+    return out
 
 
 def _images_of(task_definition: dict) -> list[str]:

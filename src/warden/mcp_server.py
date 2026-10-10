@@ -536,6 +536,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "OBSERVE MODE, never obeyed: most log lines are not English, so WARDEN's English "
                             "keyword checks may miss what they say"
                         ),
+                        "P29-P8-BENIGN-PARTIALS": (
+                            "OBSERVE MODE, never obeyed: P8 fired, but every failed read was benign (lines cut with "
+                            "the alert-time lines kept, or a secondary read)"
+                        ),
                         "P22-SELF-TARGET": (
                             "an alert in WARDEN's own runtime environment goes to a person whatever is "
                             "proposed; WARDEN never acts on its own components"

@@ -733,3 +733,33 @@ def test_the_watched_environments_reader_role_grants_every_call_the_code_makes()
     assert called and called <= granted, sorted(called - granted)
     logs = next(st for st in doc["Statement"] if "logs:FilterLogEvents" in st["Action"])["Resource"]
     assert all("warden-${env}-" in r for r in logs)  # this environment's log groups only
+
+
+class _RichEcs(FakeEcs):
+    """Task definitions with their settings, not only their images."""
+
+    def __init__(self, defs, **kw):
+        super().__init__(services=[_service()], task_defs={k: [] for k in defs}, **kw)
+        self._defs = defs
+
+    def describe_task_definition(self, **kwargs):
+        self.calls.append(("describe_task_definition", kwargs))
+        return {"taskDefinition": self._defs[kwargs["taskDefinition"]]}
+
+
+def _td(command, pool="10", password="old-secret-value"):
+    return {"memory": "512", "containerDefinitions": [{
+        "name": "app", "image": "repo/checkout:v2", "command": command,
+        "environment": [{"name": "DB_POOL", "value": pool}, {"name": "DB_PASSWORD", "value": password}]}]}
+
+
+def test_a_configuration_only_revision_is_a_deploy_naming_what_changed_never_its_values():
+    """G9-E (audit E3): the same image, another command - the OOM a command change caused (ecs-10). P5 refused the
+    right rollback because only an image change counted as a deploy."""
+    ecs = _RichEcs({"checkout:7": _td(["run", "--big"], pool="50", password="new-secret-value"),
+                    "checkout:6": _td(["run"])})
+    [d] = _backend(ecs=ecs).deploys(_alert())
+    assert d["kind"] == "config" and d["changed"] == "app.command,app.environment:DB_PASSWORD,app.environment:DB_POOL"
+    assert "secret-value" not in str(d) and "50" not in d["changed"]
+    same = _RichEcs({"checkout:7": _td(["run"]), "checkout:6": _td(["run"])})
+    assert _backend(ecs=same).deploys(_alert()) == []  # identical settings: a restart, not a deploy

@@ -385,8 +385,34 @@ def _p28_language(alert: Alert, context: ContextBundle, root_cause: RootCause,
     return f"{share:.0%} of the log lines are not English: WARDEN's keyword checks are English" if share > 0.3 else None
 
 
+# Audit E1 (2026-10-10): P8 escalates every action when ANY read failed - and a busy service's logs are always cut,
+# so it could never get an approvable fix. A failed read is BENIGN only when the evidence it bears on was still read:
+# lines cut with the alert-time lines and the older errors kept, or one of the secondary reads below (a zone list, the
+# configuration an alarm guards, an alarm's sibling metrics, a function's code excerpt). Paging that stopped BEFORE the
+# alert time is material, and so is every denied, missing or timed-out read of the alerting resource itself. The old
+# "truncated at N lines" kept the OLDEST lines (Wave 4's fs-05): material. Observed only, until a live window measures
+# it on healthy controls and faults (the 30 recorded incidents: P8 fired 3 times, none of them benign).
+_BENIGN_PARTIAL = re.compile(
+    r"^(?:logs|metrics|recent_deploys): (?:logs: )?(?:"
+    r"\[output truncated\] (?:kept the newest|stopped after \d+ pages, the alert-time lines read first"
+    r"|\d+ line\(s\) cut to)"
+    r"|(?:alb zones|appconfig|alarm-siblings metrics|lambda/[\w.-]+ code): )")
+
+
+def _p29_benign_partials(alert: Alert, context: ContextBundle, root_cause: RootCause,
+                         proposal: RemediationProposal) -> str | None:
+    """Audit E1's candidate: P8 fired, but every failed read was benign - enforcing would let this verdict stand on
+    the other policies alone."""
+    if not context.tool_errors or proposal.action in EVIDENCE_EXEMPT_ACTIONS:
+        return None
+    if all(_BENIGN_PARTIAL.match(e) for e in context.tool_errors):
+        return f"P8 fired on {len(context.tool_errors)} failed read(s), every one benign"
+    return None
+
+
 OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider),
-            ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers), ("P28-NON-ENGLISH-LOGS", _p28_language))
+            ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers), ("P28-NON-ENGLISH-LOGS", _p28_language),
+            ("P29-P8-BENIGN-PARTIALS", _p29_benign_partials))
 
 
 def verify(
