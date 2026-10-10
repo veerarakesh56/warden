@@ -124,6 +124,13 @@ def failure_tag(exc: BaseException) -> str:
     return "[" + outcome_of(exc) + (f" on {op}" if isinstance(op, str) and op.isidentifier() else "") + "]"
 
 
+def status_tag(status: str) -> str:
+    """The tag for a GetMetricData series CloudWatch did not finish, from its StatusCode (G10 review, 2026-10-10: an
+    untagged `PartialData` reached the model as "failed (unclassified)")."""
+    outcome = {"PartialData": "output truncated", "Forbidden": "access denied"}.get(status, "failed (unclassified)")
+    return f"[{outcome} on GetMetricData]"
+
+
 def failure(exc: BaseException) -> str:
     """The tag, then the exception's first line (redacted later, shown to people, never to the model)."""
     text = str(exc).strip()

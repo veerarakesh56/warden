@@ -57,7 +57,7 @@ from .aws_backend import (
 )
 from .environments import strip_prefix
 from .models import Alert
-from .tools import PARTIAL_PREFIX, ToolError, deploy_in_window, failure
+from .tools import PARTIAL_PREFIX, ToolError, deploy_in_window, failure, status_tag
 
 # Re-exported so the report/harness can import the windows from the backend they describe.
 __all__ = [
@@ -649,8 +649,8 @@ class StackBackend:
             values = res.get("Values") or []
             if res.get("Id") in ids and res.get("StatusCode") not in (None, "Complete"):
                 # A series CloudWatch could not finish is said, not read as complete (audit A-B-M18).
-                out.lines.append(_partial(f"{reader} metrics", f"{ids[res['Id']][0]} {res['StatusCode']} "
-                                          "(the series may be incomplete)"))
+                out.lines.append(_partial(f"{reader} metrics", f"{status_tag(res['StatusCode'])} {ids[res['Id']][0]} "
+                                          f"{res['StatusCode']} (the series may be incomplete)"))
             if res.get("Id") in ids and values:
                 key, stat = ids[res["Id"]]
                 got[key] = float(sum(values) if stat == "Sum" else
@@ -768,7 +768,8 @@ class StackBackend:
             if broke is not None:
                 out.lines.append(_partial("changes", broke))
             elif truncated or len(writes) > CHANGE_MAX:
-                out.lines.append(_partial("changes", f"more writes to {_safe(n)} than were read"))
+                out.lines.append(_partial("changes", f"[output truncated on LookupEvents] more writes to {_safe(n)} "
+                                                     "than were read"))
             elif not writes:
                 out.lines.append(f"CHANGE none on {_safe(n)} in the {int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h "
                                  "before the alert")
@@ -1078,7 +1079,7 @@ class StackBackend:
         for inst in instances:
             name = inst.get("DBInstanceIdentifier", "?")
             if not inst.get("PerformanceInsightsEnabled") or not inst.get("DbiResourceId"):
-                out.lines.append(_partial("aurora metrics", f"Performance Insights is off on {_one_line(name)}"))
+                out.lines.append(_partial("aurora metrics", f"[not supported] Performance Insights is off on {_one_line(name)}"))
                 continue
             try:
                 got = self._pi.get_resource_metrics(
@@ -1113,12 +1114,15 @@ class StackBackend:
                 if status == "Complete":
                     break
                 if status not in ("Scheduled", "Running"):
-                    out.lines.append(_partial(f"{tag} metrics", f"the Logs Insights query ended {_one_line(status)}"))
+                    outcome = "timed out" if status == "Timeout" else "failed (unclassified)"
+                    out.lines.append(_partial(f"{tag} metrics", f"[{outcome} on GetQueryResults] the Logs Insights query "
+                                                                f"ended {_one_line(status)}"))
                     return
                 if time.monotonic() > deadline:
                     self._logs.stop_query(queryId=qid)
                     out.lines.append(_partial(f"{tag} metrics",
-                                              f"the Logs Insights query did not finish in {INSIGHTS_WAIT_S:.0f}s"))
+                                              f"[timed out on GetQueryResults] the Logs Insights query did not "
+                                              f"finish in {INSIGHTS_WAIT_S:.0f}s"))
                     return
                 self._sleep(0.5)
         except Exception as exc:  # noqa: BLE001 - the error counts are extra evidence, the logs above still stand
@@ -1280,7 +1284,7 @@ class StackBackend:
                     Filters=[{"Name": "association.subnet-id", "Values": subnets}]).get("NetworkAcls") or []
                 ids.update(dict.fromkeys((a["NetworkAclId"] for a in acls), "network ACL"))
         except Exception as exc:  # noqa: BLE001 - the security groups are still looked up
-            out.lines.append(_partial("network of the workload", exc))
+            out.lines.append(_partial("network workload", exc))
         started = AwsBackend._started_at(alert)
         found = 0
         for name in _NETWORK_EVENTS:
@@ -1292,7 +1296,7 @@ class StackBackend:
                 out.lines.append(_partial("network changes", exc))
                 break
             if got.get("NextToken"):
-                out.lines.append(_partial("network changes", f"more {name} events than one page in the window"))
+                out.lines.append(_partial("network changes", f"[output truncated on LookupEvents] more {name} events than one page in the window"))
             for e in got.get("Events") or []:
                 if not _a_write(e):
                     continue

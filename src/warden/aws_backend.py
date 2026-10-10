@@ -80,7 +80,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .models import Alert
-from .tools import PARTIAL_PREFIX, Metrics, ToolError, alert_time, deploy_in_window, failure
+from .tools import (
+    PARTIAL_PREFIX,
+    Metrics,
+    ToolError,
+    alert_time,
+    deploy_in_window,
+    failure,
+    status_tag,
+)
 
 # (connect, read) seconds. See note 2 in the module docstring about the budget.
 CONNECT_TIMEOUT = float(os.environ.get("WARDEN_AWS_CONNECT_TIMEOUT", "2.0"))
@@ -452,7 +460,8 @@ class AwsBackend:
             values = result.get("Values") or []
             key = keys.get(result.get("Id", ""))
             if key and result.get("StatusCode") not in (None, "Complete"):
-                partial.append(f"utilisation: {key} {result['StatusCode']} (the series may be incomplete)")
+                partial.append(f"utilisation: {status_tag(result['StatusCode'])} {key} {result['StatusCode']} "
+                               "(the series may be incomplete)")
             if key and values:
                 out[key] = float(max(values))
         return out, partial
