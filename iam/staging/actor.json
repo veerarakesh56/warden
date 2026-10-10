@@ -5,23 +5,46 @@
       "Sid": "ApprovedFixesOnThisEnvironmentsResources",
       "Effect": "Allow",
       "Action": [
+        "athena:StopQueryExecution",
         "dynamodb:UpdateTable",
         "ecs:UpdateService",
         "events:DisableRule",
         "events:EnableRule",
         "lambda:PutFunctionConcurrency",
         "lambda:UpdateAlias",
-        "rds:FailoverDBCluster"
+        "rds:FailoverDBCluster",
+        "sqs:CancelMessageMoveTask",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ReceiveMessage",
+        "sqs:SendMessage",
+        "sqs:StartMessageMoveTask"
       ],
       "Resource": [
+        "arn:aws:athena:ap-south-2:*:workgroup/warden-staging-*",
         "arn:aws:dynamodb:ap-south-2:*:table/warden-staging-*",
         "arn:aws:ecs:ap-south-2:*:service/warden-staging-*/*",
         "arn:aws:events:ap-south-2:*:rule/warden-staging-*",
         "arn:aws:lambda:ap-south-2:*:function:warden-staging-*",
         "arn:aws:rds:ap-south-2:*:cluster:warden-staging-*",
-        "arn:aws:rds:ap-south-2:*:db:warden-staging-*"
+        "arn:aws:rds:ap-south-2:*:db:warden-staging-*",
+        "arn:aws:sqs:ap-south-2:*:warden-staging-*"
       ],
       "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "StageThrottlesOfThisEnvironmentsApis",
+      "Effect": "Allow",
+      "Action": "apigateway:PATCH",
+      "Resource": "arn:aws:apigateway:ap-south-2::/restapis/*/stages/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "staging"
+        },
         "StringLike": {
           "aws:SourceIdentity": "inc-*"
         }

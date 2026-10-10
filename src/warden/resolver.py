@@ -26,6 +26,9 @@ from .models import ActionKind, Alert, RemediationProposal
 _PLATFORM_LABELS: dict[str, tuple[tuple[str, str], ...]] = {
     "lambda": (("lambda", "function"),),
     "events": (("eventbridge_rule", "rule"),),
+    "sqs": (("sqs", "queue"),),
+    "athena": (("athena_workgroup", "workgroup"),),
+    "apigw": (("apigw_rest", "api"), ("apigw_stage", "stage")),
     "ecs": (("ecs_cluster", "cluster"), ("ecs_service", "service")),
     "dynamodb": (("dynamodb_table", "table"),),
     "k8s": (("namespace", "namespace"), ("deployment", "deployment")),
@@ -58,6 +61,16 @@ def _bounded(entry: catalog.Entry, params: dict[str, Any], live: dict[str, Any])
         if not isinstance(cur, int) or cur < 1:
             return "the current capacity was not read"
         return {**params, "capacity": 2 * cur}
+    if "per_second" in entry.params:
+        return {**params, "per_second": 10}  # a fifth of the catalogue's cap, so the consumer is not flooded
+    if "rate_limit" in entry.params:
+        out = dict(params)
+        for key in ("rate_limit", "burst_limit"):
+            cur, cap = live.get(f"current_{key}"), live.get(f"account_{key}")
+            if not isinstance(cur, int) or cur < 1 or not isinstance(cap, int) or cap <= cur:
+                return f"the stage's {key} or the account's room for it was not read"
+            out[key] = min(2 * cur, cap)
+        return out
     if "replicas" in entry.params:
         cur = live.get("current_replicas")
         if not isinstance(cur, int) or cur < 1:

@@ -20,6 +20,14 @@ one, from ECS's own deployment history), and aurora_failover (T3: promote one av
 only while the writer is still the one they saw; irreversible - a person decides what comes after). lambda_restore_config
 is not carried out here: restoring a
 configuration copies environment values, which WARDEN does not read (audit A-B-M9).
+
+G9-D (2026-10-10; AWS's own documentation read that day, verify-fix-apis.md): lambda_disable_esm (pause a mapping that
+reads an SQS queue - never a stream, whose records age out while paused), events_disable_rule (pause a SCHEDULED rule -
+never an event-pattern rule, which drops what it matches), ecs_restart_service (only digest-pinned images: a forced
+deployment pulls whatever a tag points to now), ecs_scale_service (at most two more tasks, never under Application Auto
+Scaling), sqs_redrive_dlq (to the dead-letter queue's one source queue, at most 50 a second; the session holds each
+queue's own actions only), athena_stop_query (the one query running past RUNAWAY_QUERY) and apigw_raise_stage_throttle
+(an existing all-methods throttle, at most double, within the account's).
 """
 
 from __future__ import annotations
@@ -31,6 +39,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from .. import catalog
 from ..aws_stack import SERVED_LOOKBACK
 
 ENV_TAG = os.environ.get("WARDEN_AWS_ENV_TAG", "Environment")
@@ -39,18 +48,23 @@ HEALTH_WINDOW = timedelta(minutes=5)
 # merely older. A version that served for a minute before being replaced is no fallback.
 KNOWN_GOOD = timedelta(minutes=30)
 _PERIOD = 300  # CloudWatch's period for the served-version reads, seconds
+# G9-D: an Athena query running longer than this is a runaway a person may cancel.
+RUNAWAY_QUERY = timedelta(minutes=15)
 # Register C17: a Lambda alias moves through a canary - this share of its traffic to the version first, for this long,
 # then all of it only if that share was served without an error. (An ECS service canaries by its own deployment
 # strategy, CANARY or LINEAR, which the plan shows; WARDEN does not change a service's strategy.)
 CANARY_WEIGHT = 0.1
 CANARY_FOR = timedelta(minutes=2)
 _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lambda", "lambda_enable_esm": "lambda",
-          "events_enable_rule": "events", "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs",
-          "aurora_failover": "rds"}
+          "lambda_disable_esm": "lambda", "events_enable_rule": "events", "events_disable_rule": "events",
+          "dynamodb_raise_capacity": "dynamodb", "ecs_rollback_service": "ecs", "ecs_restart_service": "ecs",
+          "ecs_scale_service": "ecs", "sqs_redrive_dlq": "sqs", "athena_stop_query": "athena",
+          "apigw_raise_stage_throttle": "apigw", "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
 Clients = Callable[[str], Any]
-# (who, actions, resources, condition) -> a client factory whose clients hold that one actor session.
+# (who, actions, resources, condition[, also]) -> a client factory whose clients hold that one actor session; `also`
+# holds further exact (actions, resources) statements (identity.session_policy).
 Actor = Callable[[dict[str, Any], list[str], list[str], dict[str, Any] | None], Clients]
 
 
@@ -111,8 +125,12 @@ class AwsPlatform:
         bounds need, the resource's own environment tag, a rollout state, and a snapshot that changes with any
         change that matters. Nothing read means nothing allowed."""
         read = {"lambda_move_alias": self._live_alias, "lambda_set_reserved_concurrency": self._live_concurrency,
-                "lambda_enable_esm": self._live_esm, "events_enable_rule": self._live_rule,
+                "lambda_enable_esm": self._live_esm, "lambda_disable_esm": self._live_esm_pause,
+                "events_enable_rule": self._live_rule, "events_disable_rule": self._live_rule_pause,
                 "dynamodb_raise_capacity": self._live_table, "ecs_rollback_service": self._live_ecs,
+                "ecs_restart_service": self._live_ecs_tasks, "ecs_scale_service": self._live_ecs_tasks,
+                "sqs_redrive_dlq": self._live_dlq, "athena_stop_query": self._live_query,
+                "apigw_raise_stage_throttle": self._live_stage,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -148,7 +166,11 @@ class AwsPlatform:
     def healthy(self, service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
         check = {"lambda_move_alias": self._lambda_healthy, "lambda_set_reserved_concurrency": self._lambda_healthy,
                  "lambda_enable_esm": self._esm_healthy, "events_enable_rule": self._rule_healthy,
+                 "lambda_disable_esm": self._esm_paused, "events_disable_rule": self._rule_paused,
                  "dynamodb_raise_capacity": self._table_healthy, "ecs_rollback_service": self._ecs_healthy,
+                 "ecs_restart_service": self._ecs_healthy, "ecs_scale_service": self._ecs_healthy,
+                 "sqs_redrive_dlq": self._redrive_done, "athena_stop_query": self._query_cancelled,
+                 "apigw_raise_stage_throttle": self._stage_healthy,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -170,6 +192,11 @@ class AwsPlatform:
                  who: dict[str, Any] | None = None) -> str:
         if entry not in _KINDS:
             raise AwsPlatformError(f"{entry} is not something the AWS platform does")
+        if entry == "athena_stop_query":
+            return "nothing rolled back: a cancelled query is not resumed; it can be run again"
+        if entry == "ecs_restart_service":
+            # The same task definition runs again: there is nothing to return to.
+            return "nothing rolled back: a restart replaced tasks with the same task definition"
         if entry == "aurora_failover":
             # Irreversible (the catalogue's T3): failing back is another failover, a new decision for a person.
             return "nothing rolled back: a failover is not undone automatically; a person decides whether to fail back"
@@ -184,7 +211,11 @@ class AwsPlatform:
             raise AwsPlatformRefused(f"could not read the target of {entry}; nothing was changed")
         write = {"lambda_move_alias": self._move_alias, "lambda_set_reserved_concurrency": self._set_concurrency,
                  "lambda_enable_esm": self._esm, "events_enable_rule": self._rule,
+                 "lambda_disable_esm": self._esm_off, "events_disable_rule": self._rule_off,
                  "dynamodb_raise_capacity": self._capacity, "ecs_rollback_service": self._ecs,
+                 "ecs_restart_service": self._ecs_restart, "ecs_scale_service": self._ecs_scale,
+                 "sqs_redrive_dlq": self._redrive, "athena_stop_query": self._stop_query,
+                 "apigw_raise_stage_throttle": self._stage_throttle,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -212,6 +243,10 @@ class AwsPlatform:
             return {t["Key"]: t["Value"] for t in c.list_tags_for_resource(ResourceARN=arn).get("Tags") or []}
         if service == "dynamodb":
             return {t["Key"]: t["Value"] for t in c.list_tags_of_resource(ResourceArn=arn).get("Tags") or []}
+        if service == "sqs":
+            return c.list_queue_tags(QueueUrl=arn).get("Tags") or {}  # SQS tags by the queue's URL
+        if service == "athena":
+            return {t["Key"]: t["Value"] for t in c.list_tags_for_resource(ResourceARN=arn).get("Tags") or []}
         raise AwsPlatformError(f"no tag reader for {service}")
 
     @staticmethod
@@ -398,21 +433,48 @@ class AwsPlatform:
 
     # ------------------------------------------------------------------ lambda: event source mapping
 
-    def _live_esm(self, params: dict[str, Any]) -> dict[str, Any]:
-        uuid = params.get("mapping")
-        if not isinstance(uuid, str):
+    def _live_esm(self, params: dict[str, Any], pause: bool = False) -> dict[str, Any]:
+        """The function's mappings that can be turned on (or, to pause, off). With no mapping named, the allowed set is
+        every such mapping of the function - the resolver takes it only when there is exactly one."""
+        fn, uuid = params.get("function"), params.get("mapping")
+        if not isinstance(fn, str):
             return {}
         lam = self._read("lambda")
-        m = lam.get_event_source_mapping(UUID=uuid)
-        fn_arn = m["FunctionArn"]
-        state = m.get("State")
-        return {"mapping": {uuid} if state == "Disabled" else set(),
-                "environment": self._tags("lambda", _unqualified(fn_arn)).get(ENV_TAG),
-                "rollout": "progressing" if state in ("Enabling", "Disabling", "Updating", "Creating") else "complete",
-                "state": {"mapping": uuid, "function": fn_arn, "enabled": state == "Enabled", "where": self._where(fn_arn)}}
+        conf = lam.get_function_configuration(FunctionName=fn)
+        fn_arn, name = _unqualified(conf["FunctionArn"]), conf["FunctionName"]
+        if isinstance(uuid, str):
+            mappings = [lam.get_event_source_mapping(UUID=uuid)]
+        else:
+            mappings, marker = [], None
+            for _ in range(5):
+                page = lam.list_event_source_mappings(FunctionName=name, **({"Marker": marker} if marker else {}))
+                mappings += page.get("EventSourceMappings") or []
+                marker = page.get("NextMarker")
+                if not marker:
+                    break
+        mine = [m for m in mappings if _unqualified(str(m.get("FunctionArn", ""))) == fn_arn]
+        want = "Enabled" if pause else "Disabled"
+        # A pause only for a queue: its messages wait. A stream's records expire while a mapping is paused.
+        allowed = {m["UUID"] for m in mine if m.get("State") == want
+                   and (not pause or str(m.get("EventSourceArn", "")).startswith("arn:aws:sqs:"))}
+        out = {"function": {name}, "mapping": allowed, "environment": self._tags("lambda", fn_arn).get(ENV_TAG)}
+        if isinstance(uuid, str) and mine:
+            m = mine[0]
+            state = m.get("State")
+            out["rollout"] = "progressing" if state in ("Enabling", "Disabling", "Updating", "Creating") else "complete"
+            out["state"] = {"mapping": uuid, "function": fn_arn, "enabled": state == "Enabled",
+                            "source": m.get("EventSourceArn"), "where": self._where(fn_arn)}
+        return out
+
+    def _live_esm_pause(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._live_esm(params, pause=True)
+
+    def _esm_off(self, p, snapshot, now, who, back) -> str:
+        return self._esm(p, snapshot, now, who, not back)
 
     def _esm(self, p, snapshot, now, who, back) -> str:
-        self._expect(now, snapshot, ("mapping", "function"), f"event source mapping {p['mapping']}")
+        """Enable the mapping (back: disable it). The pause entry is the same write the other way round."""
+        self._expect(now, snapshot, ("mapping", "function", "source"), f"event source mapping {p['mapping']}")
         if now.get("enabled") != back:  # enabling needs it disabled; the rollback needs it enabled
             raise AwsPlatformRefused(f"event source mapping {p['mapping']} is already "
                                      f"{'enabled' if now.get('enabled') else 'disabled'}; nothing was changed")
@@ -428,20 +490,34 @@ class AwsPlatform:
     def _esm_healthy(self, uuid: str, params: dict[str, Any]) -> bool:
         return self._read("lambda").get_event_source_mapping(UUID=uuid).get("State") == "Enabled"
 
+    def _esm_paused(self, uuid: str, params: dict[str, Any]) -> bool:
+        return self._read("lambda").get_event_source_mapping(UUID=uuid).get("State") == "Disabled"
+
     # ------------------------------------------------------------------ eventbridge: enable a rule
 
-    def _live_rule(self, params: dict[str, Any]) -> dict[str, Any]:
+    def _live_rule(self, params: dict[str, Any], pause: bool = False) -> dict[str, Any]:
         name = params.get("rule")
         if not isinstance(name, str):
             return {}
         rule = self._read("events").describe_rule(Name=name)
         state = rule.get("State")
-        return {"rule": {rule["Name"]} if state == "DISABLED" else set(),
+        # A pause only for a scheduled rule (it misses ticks); an event-pattern rule would drop the events it matches.
+        # Only the plain ENABLED state: a rule on all CloudTrail management events may not come back the same way.
+        can = state == "ENABLED" and bool(rule.get("ScheduleExpression")) and not rule.get("EventPattern") \
+            if pause else state == "DISABLED"
+        return {"rule": {rule["Name"]} if can else set(),
                 "environment": self._tags("events", rule["Arn"]).get(ENV_TAG),
                 "state": {"rule": rule["Name"], "arn": rule["Arn"], "enabled": state == "ENABLED",
                           "where": self._where(rule["Arn"])}}
 
+    def _live_rule_pause(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._live_rule(params, pause=True)
+
+    def _rule_off(self, p, snapshot, now, who, back) -> str:
+        return self._rule(p, snapshot, now, who, not back)
+
     def _rule(self, p, snapshot, now, who, back) -> str:
+        """Enable the rule (back: disable it). The pause entry is the same write the other way round."""
         self._expect(now, snapshot, ("rule", "arn"), f"rule {p['rule']}")
         if now.get("enabled") != back:
             raise AwsPlatformRefused(f"rule {p['rule']} is already {'enabled' if now.get('enabled') else 'disabled'}; "
@@ -453,6 +529,9 @@ class AwsPlatform:
 
     def _rule_healthy(self, name: str, params: dict[str, Any]) -> bool:
         return self._read("events").describe_rule(Name=name).get("State") == "ENABLED"
+
+    def _rule_paused(self, name: str, params: dict[str, Any]) -> bool:
+        return self._read("events").describe_rule(Name=name).get("State") == "DISABLED"
 
     # ------------------------------------------------------------------ dynamodb: raise write capacity
 
@@ -557,6 +636,62 @@ class AwsPlatform:
         ecs.update_service(cluster=p["cluster"], service=p["service"], taskDefinition=to)
         return f"rolled service {p['service']} from {want_now} to {to}"
 
+    def _live_ecs_tasks(self, params: dict[str, Any]) -> dict[str, Any]:
+        """A service's task count and rollout settings, for a restart or a bounded scale-up (G9-D)."""
+        cluster, service = params.get("cluster"), params.get("service")
+        if not isinstance(cluster, str) or not isinstance(service, str):
+            return {}
+        ecs = self._read("ecs")
+        [svc] = ecs.describe_services(cluster=cluster, services=[service], include=["TAGS"])["services"]
+        td = ecs.describe_task_definition(taskDefinition=svc["taskDefinition"])["taskDefinition"]
+        pinned = all("@sha256:" in str(c.get("image", "")) for c in td.get("containerDefinitions") or [{}])
+        desired = svc.get("desiredCount")
+        conf = svc.get("deploymentConfiguration") or {}
+        min_healthy = conf.get("minimumHealthyPercent")
+        deployments = svc.get("deployments") or []
+        busy = len(deployments) > 1 or any(d.get("rolloutState") == "IN_PROGRESS" for d in deployments)
+        scaled = self._read("application-autoscaling").describe_scalable_targets(
+            ServiceNamespace="ecs", ResourceIds=[f"service/{cluster}/{svc['serviceName']}"],
+            ScalableDimension="ecs:service:DesiredCount").get("ScalableTargets")
+        return {"cluster": {cluster}, "service": {svc["serviceName"]} if pinned else set(),
+                "environment": {t["key"]: t["value"] for t in svc.get("tags") or []}.get(ENV_TAG),
+                "current_replicas": desired if isinstance(desired, int) and desired >= 1 else None,
+                # Register C10: how many tasks a new deployment may stop together, from the service's own setting.
+                "at_once": desired - -(-desired * min_healthy // 100) if isinstance(desired, int)
+                and isinstance(min_healthy, int) else None,
+                "autoscaled": bool(scaled), "rollout": "progressing" if busy else "complete",
+                "state": {"cluster": cluster, "service": svc["serviceName"], "arn": svc["serviceArn"],
+                          "task_definition": svc["taskDefinition"], "desired": desired,
+                          "where": self._where(svc["serviceArn"])}}
+
+    def _ecs_restart(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("cluster", "service", "arn", "task_definition"), f"service {p['service']}")
+        if p["service"] not in self.live("ecs_restart_service", p).get("service", set()):
+            raise AwsPlatformRefused(f"service {p['service']} runs an image not pinned by digest; a restart could "
+                                     "roll out new code; nothing was changed")
+        ecs = self._actor(who, ["ecs:UpdateService"], [now["arn"]], None)("ecs")
+        ecs.update_service(cluster=p["cluster"], service=p["service"], forceNewDeployment=True)
+        return f"restarted service {p['service']}'s tasks on {now['task_definition']}"
+
+    def _ecs_scale(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("cluster", "service", "arn"), f"service {p['service']}")
+        if back:
+            if now.get("desired") != p["replicas"]:
+                raise AwsPlatformRefused(f"service {p['service']} no longer wants {p['replicas']} tasks; nothing was "
+                                         "changed")
+            to = snapshot.get("desired")
+        else:
+            self._expect(now, snapshot, ("desired",), f"service {p['service']}'s task count")
+            cur, to = now.get("desired"), p["replicas"]
+            if not isinstance(cur, int) or not isinstance(to, int) or not cur < to <= cur + 2:
+                raise AwsPlatformRefused(f"scaling service {p['service']} from {cur} to {to} tasks is outside the "
+                                         "bound (above the current, at most two more); nothing was changed")
+        if not isinstance(to, int):
+            raise AwsPlatformError("the plan holds no task count to return to")
+        ecs = self._actor(who, ["ecs:UpdateService"], [now["arn"]], None)("ecs")
+        ecs.update_service(cluster=p["cluster"], service=p["service"], desiredCount=to)
+        return f"set service {p['service']} desired tasks from {now.get('desired')} to {to}"
+
     def _ecs_healthy(self, service: str, params: dict[str, Any]) -> bool:
         """One deployment, its rollout completed, every desired task running - a positive signal."""
         [svc] = self._read("ecs").describe_services(cluster=params.get("cluster", ""), services=[service])["services"]
@@ -566,6 +701,178 @@ class AwsPlatform:
 
 
     # ------------------------------------------------------------------ rds: fail an Aurora cluster over
+
+    # ------------------------------------------------------------------ sqs: redrive a dead-letter queue (G9-D)
+
+    def _live_dlq(self, params: dict[str, Any]) -> dict[str, Any]:
+        name = params.get("queue")
+        if not isinstance(name, str):
+            return {}
+        sqs = self._read("sqs")
+        url = sqs.get_queue_url(QueueName=name)["QueueUrl"]
+        attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "ApproximateNumberOfMessages",
+                                                                        "KmsMasterKeyId"])["Attributes"]
+        arn = attrs["QueueArn"]
+        head = arn.rsplit(":", 1)[0]
+        sources = []
+        for u in (sqs.list_dead_letter_source_queues(QueueUrl=url, MaxResults=10).get("queueUrls") or [])[:10]:
+            # https://sqs.<region>.amazonaws.com/<account>/<name>: a source in this account and Region only.
+            parts = u.rstrip("/").split("/")
+            acct, qname = (parts[-2], parts[-1]) if len(parts) >= 5 else ("", "")
+            if acct == head.rsplit(":", 1)[-1] and qname:
+                sources.append(qname)
+        running = [t for t in sqs.list_message_move_tasks(SourceArn=arn, MaxResults=10).get("Results") or []
+                   if t.get("Status") == "RUNNING"]
+        waiting = attrs.get("ApproximateNumberOfMessages")
+        ok = not attrs.get("KmsMasterKeyId")  # SSE-KMS needs key permissions the actor does not hold
+        return {"queue": {name} if ok else set(), "to_queue": set(sources) if ok else set(),
+                "environment": self._tags("sqs", url).get(ENV_TAG),
+                "rollout": "progressing" if running else "complete",
+                # In the plan the approver signs: how many messages would move, and from where to where.
+                "state": {"queue": name, "arn": arn, "url": url, "sources": sorted(sources),
+                          "waiting": int(waiting) if str(waiting).isdigit() else None, "where": self._where(arn)}}
+
+    def _redrive(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("queue", "arn", "sources"), f"queue {p['queue']}")
+        if p["to_queue"] not in (now.get("sources") or []):
+            raise AwsPlatformRefused(f"{p['to_queue']} is not a source of {p['queue']} now; nothing was changed")
+        dlq, dest = now["arn"], now["arn"].rsplit(":", 1)[0] + ":" + p["to_queue"]
+        sqs_read = self._read("sqs")
+        if back:
+            running = [t for t in sqs_read.list_message_move_tasks(SourceArn=dlq, MaxResults=10).get("Results") or []
+                       if t.get("Status") == "RUNNING"]
+            if not running:
+                return f"nothing rolled back: the move from {p['queue']} finished; moved messages stay in {p['to_queue']}"
+            sqs = self._actor(who, ["sqs:CancelMessageMoveTask"], [dlq], None)("sqs")
+            sqs.cancel_message_move_task(TaskHandle=running[0]["TaskHandle"])
+            return f"cancelled the move from {p['queue']}; messages already moved stay in {p['to_queue']}"
+        if not isinstance(p["per_second"], int) or not 1 <= p["per_second"] <= 50:
+            raise AwsPlatformRefused("the redrive rate is outside 1..50 a second; nothing was changed")
+        # AWS authorizes the move against both queues (Service Authorization Reference, read 2026-10-10): receive,
+        # delete and read attributes on the dead-letter queue, send on the destination - each on its own queue only.
+        sqs = self._actor(who, ["sqs:StartMessageMoveTask", "sqs:ReceiveMessage", "sqs:DeleteMessage",
+                                "sqs:GetQueueAttributes"], [dlq], None, also=[(["sqs:SendMessage"], [dest])])("sqs")
+        sqs.start_message_move_task(SourceArn=dlq, DestinationArn=dest, MaxNumberOfMessagesPerSecond=p["per_second"])
+        return (f"started moving {now.get('waiting')} messages from {p['queue']} to {p['to_queue']} at "
+                f"{p['per_second']} a second")
+
+    def _redrive_done(self, name: str, params: dict[str, Any]) -> bool:
+        """The latest move finished, and the dead-letter queue is empty - a positive signal."""
+        sqs = self._read("sqs")
+        url = sqs.get_queue_url(QueueName=name)["QueueUrl"]
+        attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "ApproximateNumberOfMessages"])
+        attrs = attrs["Attributes"]
+        tasks = sqs.list_message_move_tasks(SourceArn=attrs["QueueArn"], MaxResults=1).get("Results") or []
+        return bool(tasks) and tasks[0].get("Status") == "COMPLETED" and str(attrs.get("ApproximateNumberOfMessages")) == "0"
+
+    # ------------------------------------------------------------------ athena: cancel the runaway query (G9-D)
+
+    def _account(self) -> str:
+        """The reader session's own account (sts:GetCallerIdentity needs no permission): an ARN for a resource whose
+        API answer carries none."""
+        return str(self._read("sts").get_caller_identity()["Account"])
+
+    def _live_query(self, params: dict[str, Any]) -> dict[str, Any]:
+        wg, qid = params.get("workgroup"), params.get("query")
+        if not isinstance(wg, str):
+            return {}
+        athena = self._read("athena")
+        state = athena.get_work_group(WorkGroup=wg)["WorkGroup"].get("State")
+        arn = f"arn:aws:athena:{athena.meta.region_name}:{self._account()}:workgroup/{wg}"
+        ids = [qid] if isinstance(qid, str) else             (athena.list_query_executions(WorkGroup=wg, MaxResults=50).get("QueryExecutionIds") or [])
+        runaway, mine = set(), {}
+        for q in (athena.batch_get_query_execution(QueryExecutionIds=ids).get("QueryExecutions") or []) if ids else []:
+            if q.get("WorkGroup") != wg:
+                continue
+            st = q.get("Status") or {}
+            mine[q["QueryExecutionId"]] = st.get("State")
+            since = _when(st.get("SubmissionDateTime"))
+            if st.get("State") == "RUNNING" and since and self._now() - since >= RUNAWAY_QUERY:
+                runaway.add(q["QueryExecutionId"])
+        out = {"workgroup": {wg} if state == "ENABLED" else set(), "query": runaway,
+               "environment": self._tags("athena", arn).get(ENV_TAG)}
+        if isinstance(qid, str):
+            out["state"] = {"workgroup": wg, "arn": arn, "query": qid, "query_state": mine.get(qid),
+                            "where": self._where(arn)}
+        return out
+
+    def _stop_query(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("workgroup", "arn", "query"), f"query {p['query']}")
+        if p["query"] not in self.live("athena_stop_query", p).get("query", set()):
+            raise AwsPlatformRefused(f"query {p['query']} is no longer a runaway in {p['workgroup']}; nothing was "
+                                     "changed")
+        athena = self._actor(who, ["athena:StopQueryExecution"], [now["arn"]], None)("athena")
+        athena.stop_query_execution(QueryExecutionId=p["query"])
+        return f"cancelled query {p['query']} in workgroup {p['workgroup']}"
+
+    def _query_cancelled(self, wg: str, params: dict[str, Any]) -> bool:
+        q = self._read("athena").get_query_execution(QueryExecutionId=params.get("query", ""))["QueryExecution"]
+        return q.get("WorkGroup") == wg and (q.get("Status") or {}).get("State") == "CANCELLED"
+
+    # ------------------------------------------------------------------ api gateway: raise a stage throttle (G9-D)
+
+    def _rest_api(self, name: str) -> str:
+        """The REST API's id from its name (the metric dimension is the name); exactly one, or none."""
+        apigw, found, pos = self._read("apigateway"), [], None
+        for _ in range(5):
+            page = apigw.get_rest_apis(limit=500, **({"position": pos} if pos else {}))
+            found += [a["id"] for a in page.get("items") or [] if a.get("name") == name]
+            pos = page.get("position")
+            if not pos:
+                break
+        return found[0] if len(found) == 1 else ""
+
+    def _live_stage(self, params: dict[str, Any]) -> dict[str, Any]:
+        name, stage = params.get("api"), params.get("stage")
+        if not isinstance(name, str) or not isinstance(stage, str):
+            return {}
+        api_id = self._rest_api(name)
+        if not api_id:
+            return {}
+        apigw = self._read("apigateway")
+        st = apigw.get_stage(restApiId=api_id, stageName=stage)
+        every = (st.get("methodSettings") or {}).get("*/*") or {}
+        rate, burst = every.get("throttlingRateLimit"), every.get("throttlingBurstLimit")
+        acct = apigw.get_account().get("throttleSettings") or {}
+        arn = f"arn:aws:apigateway:{apigw.meta.region_name}::/restapis/{api_id}/stages/{stage}"
+        whole = lambda v: int(v) if isinstance(v, int | float) and v >= 1 and float(v).is_integer() else None
+        return {"api": {name}, "stage": {stage} if whole(rate) and whole(burst) else set(),
+                "environment": (st.get("tags") or {}).get(ENV_TAG),
+                "current_rate_limit": whole(rate), "current_burst_limit": whole(burst),
+                "account_rate_limit": whole(acct.get("rateLimit")), "account_burst_limit": whole(acct.get("burstLimit")),
+                "state": {"api": name, "api_id": api_id, "stage": stage, "arn": arn, "rate_limit": whole(rate),
+                          "burst_limit": whole(burst), "where": apigw.meta.region_name}}
+
+    def _stage_throttle(self, p, snapshot, now, who, back) -> str:
+        self._expect(now, snapshot, ("api", "api_id", "stage", "arn"), f"stage {p['stage']}")
+        if back:
+            if (now.get("rate_limit"), now.get("burst_limit")) != (p["rate_limit"], p["burst_limit"]):
+                raise AwsPlatformRefused(f"stage {p['stage']}'s throttle is no longer the one WARDEN set; nothing was "
+                                         "changed")
+            rate, burst = snapshot.get("rate_limit"), snapshot.get("burst_limit")
+        else:
+            self._expect(now, snapshot, ("rate_limit", "burst_limit"), f"stage {p['stage']}'s throttle")
+            problems = catalog.validate("apigw_raise_stage_throttle", p, self.live("apigw_raise_stage_throttle", p))
+            if problems:
+                raise AwsPlatformRefused(f"{'; '.join(problems)}; nothing was changed")
+            rate, burst = p["rate_limit"], p["burst_limit"]
+        if not isinstance(rate, int) or not isinstance(burst, int):
+            raise AwsPlatformError("the plan holds no throttle to return to")
+        apigw = self._actor(who, ["apigateway:PATCH"], [now["arn"]], None)("apigateway")
+        # Only "replace", and only the all-methods key GetStage returned: AWS takes no "remove" for a throttle, and a
+        # path that does not match the stage's own key makes a second setting (API Gateway reference, 2026-10-10).
+        apigw.update_stage(restApiId=now["api_id"], stageName=p["stage"], patchOperations=[
+            {"op": "replace", "path": "/*/*/throttling/rateLimit", "value": str(rate)},
+            {"op": "replace", "path": "/*/*/throttling/burstLimit", "value": str(burst)}])
+        return (f"set stage {p['stage']} of {p['api']} throttle from {now.get('rate_limit')}/{now.get('burst_limit')} "
+                f"to {rate}/{burst} (rate/burst)")
+
+    def _stage_healthy(self, stage: str, params: dict[str, Any]) -> bool:
+        """The throttle WARDEN set holds and the stage serves requests - a positive signal."""
+        now = self._live_stage(params).get("state") or {}
+        sums = self._metric_sums("AWS/ApiGateway", [{"Name": "ApiName", "Value": params.get("api", "")},
+                                                    {"Name": "Stage", "Value": stage}], ("Count",))
+        return now.get("rate_limit") == params.get("rate_limit") and sums is not None and sums["Count"] > 0
 
     def _live_cluster(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("cluster")
@@ -677,10 +984,11 @@ def _platform(sts: Any, where: str, reader_arn: str, actor_arn: str) -> AwsPlatf
             held["until"] = time.monotonic() + 600
         return held["clients"](service)
 
-    def actor(who: dict[str, Any], actions: list[str], resources: list[str], condition: dict | None) -> Clients:
+    def actor(who: dict[str, Any], actions: list[str], resources: list[str], condition: dict | None,
+              also: tuple = ()) -> Clients:
         return session(identity.actor_session(sts, role_arn=actor_arn, incident=who["incident"],
                                               plan_hash=who["plan_hash"], approvers=who["approvers"],
-                                              actions=actions, resources=resources, condition=condition))
+                                              actions=actions, resources=resources, condition=condition, also=also))
 
     return AwsPlatform(reader=reader, actor=actor)
 

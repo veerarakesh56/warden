@@ -286,7 +286,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   namespaces and dimensions, one table - `resources.py` (G9-A1; checked against AWS's metric pages 2026-10-10). The state of
   each service's resource: one closed table of read calls and AWS's own structured fields - `aws_describe.py` (G9-A2c). Which more
   resources an investigation may read: only names WARDEN already holds - `investigation.py` (G9-B). From an approved
-  diagnosis to its fix plan, from labels and live known-good values only - `resolver.py` (G9-D1).
+  diagnosis to its fix plan, from labels and live known-good values only - `resolver.py` (G9-D1). The generic fix
+  classes' AWS entries in `platforms/aws.py` (G9-D2b): each a few calls of AWS's own API under the existing
+  live-read, exact-session, rollback and positive-health contract - no remediation framework covers that contract.
 - Configuration and secrets: SSM Parameter Store and Secrets Manager - `settings.py`, `environments.py`.
 - Chat delivery: Slack and Microsoft Teams incoming webhooks - `chatops.py`.
 - Change records: GitHub's Issues REST API, one issue per applied change - `changes.py`.

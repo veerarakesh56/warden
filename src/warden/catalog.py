@@ -67,7 +67,8 @@ class Entry:
 # Per platform: the parameters that together name the changed resource, outermost first. The request's `service`
 # must be the last, or the success check would judge another object than the one changed (sixth review,
 # 2026-10-01); all of them key the bounds and the per-target mutex (target_key).
-TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "dynamodb": ("table",), "ecs": ("cluster", "service"),
+TARGET_PARAMS = {"lambda": ("function",), "events": ("rule",), "sqs": ("queue",), "athena": ("workgroup",),
+                 "apigw": ("api", "stage"), "dynamodb": ("table",), "ecs": ("cluster", "service"),
                  "k8s": ("namespace", "deployment"), "db": ("database",), "rds": ("cluster",), "terraform": ("stack",)}
 
 
@@ -93,6 +94,18 @@ def _raise_concurrency(p: dict, live: dict) -> list[str]:
     return []
 
 
+def _raise_throttle(p: dict, live: dict) -> list[str]:
+    """A stage's rate and burst: each above the current, at most double, and never past the account's own limits."""
+    out = []
+    for key, acct in (("rate_limit", "account_rate_limit"), ("burst_limit", "account_burst_limit")):
+        cur, cap = live.get(f"current_{key}"), live.get(acct)
+        if not isinstance(cur, int) or cur < 1 or not isinstance(cap, int):
+            out.append(f"the stage's current {key} or the account's was not read")
+        elif not cur < p[key] <= min(2 * cur, cap):
+            out.append(f"{key} must be above {cur} and at most {min(2 * cur, cap)}")
+    return out
+
+
 def _scale_up_by_two(p: dict, live: dict) -> list[str]:
     cur = live.get("current_replicas")
     if not isinstance(cur, int) or cur < 1:
@@ -107,13 +120,39 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("function", "from_version")),
     Entry("lambda_set_reserved_concurrency", "T1", "lambda", "n/a (bounded increase)",
           {**_ref("function"), "concurrency": Param("int", 1, 1000)}, _raise_concurrency),
-    Entry("lambda_enable_esm", "T1", "lambda", "the event source mapping's enabled state", _ref("mapping"),
+    # The function names the mapping's owner: a mapping of another function is never in the allowed set (G9-D).
+    Entry("lambda_enable_esm", "T1", "lambda", "the event source mapping's enabled state", _ref("function", "mapping"),
           target=("mapping",)),
+    # Pause (G9-D): only a mapping reading an SQS queue - its messages wait in the queue. A stream's records age out
+    # while paused, so a stream mapping is never paused here.
+    Entry("lambda_disable_esm", "T1", "lambda", "the event source mapping's enabled state",
+          _ref("function", "mapping"), target=("mapping",)),
     Entry("events_enable_rule", "T1", "events", "the rule's enabled state", _ref("rule")),
+    # Pause (G9-D): only a SCHEDULED rule - it misses its ticks while paused. An event-pattern rule drops the events
+    # that match while it is disabled, so one is never paused here.
+    Entry("events_disable_rule", "T1", "events", "the rule's enabled state", _ref("rule")),
+    # G9-D: a dead-letter queue's messages back to its ONE source queue, at most 50 a second (AWS allows 500). Moved
+    # messages are not moved back; cancelling stops the rest, and one that fails again returns by the source queue's
+    # own redrive policy. A KMS-encrypted queue is refused: the actor holds no key permissions.
+    Entry("sqs_redrive_dlq", "T2", "sqs", "n/a (cancelling stops the move; moved messages stay)",
+          {**_ref("queue", "to_queue"), "per_second": Param("int", 1, 50)}),
+    # G9-D: the one query running longer than the runaway bound in the workgroup; the query is lost, the session and
+    # the data are untouched, and it can be run again.
+    Entry("athena_stop_query", "T1", "athena", "n/a (the query can be run again)", _ref("workgroup", "query")),
+    # G9-D: a REST API stage's all-methods throttle, only where one is already set (AWS can replace it, not remove a
+    # new one); above the current, at most double, within the account's limits.
+    Entry("apigw_raise_stage_throttle", "T1", "apigw", "n/a (bounded increase)",
+          {**_ref("api", "stage"), "rate_limit": Param("int", 1, 10000), "burst_limit": Param("int", 1, 5000)},
+          _raise_throttle),
     Entry("dynamodb_raise_capacity", "T1", "dynamodb", "n/a (bounded increase)",
           {**_ref("table"), "capacity": Param("int", 1, 40000)}, _at_most_double),
     Entry("ecs_rollback_service", "T2", "ecs", "the service's previous steady task definition",
           _ref("cluster", "service", "to_task_definition")),
+    # G9-D: a restart only when every container image is pinned by digest - forcing a new deployment pulls whatever
+    # a tag points to now, which would roll out new code (AWS ECS API reference, read 2026-10-10).
+    Entry("ecs_restart_service", "T1", "ecs", "n/a (same task definition, new tasks)", _ref("cluster", "service")),
+    Entry("ecs_scale_service", "T1", "ecs", "n/a (bounded increase)",
+          {**_ref("cluster", "service"), "replicas": Param("int", 1, 100)}, _scale_up_by_two),
     Entry("k8s_rollout_undo", "T2", "k8s", "the last revision that was Ready",
           _ref("namespace", "deployment", "to_revision")),
     Entry("k8s_restart", "T1", "k8s", "n/a (same spec, new pods)", _ref("namespace", "deployment")),
@@ -131,14 +170,17 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
 FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.rollback_deploy: {"lambda": "lambda_move_alias", "ecs": "ecs_rollback_service",
                                  "k8s": "k8s_rollout_undo"},
-    ActionKind.restart_pods: {"k8s": "k8s_restart"},
+    ActionKind.restart_pods: {"k8s": "k8s_restart", "ecs": "ecs_restart_service"},
     ActionKind.scale_up: {"k8s": "k8s_scale", "lambda": "lambda_set_reserved_concurrency",
-                          "dynamodb": "dynamodb_raise_capacity"},
+                          "dynamodb": "dynamodb_raise_capacity", "ecs": "ecs_scale_service"},
     ActionKind.terminate_connections: {"db": "db_terminate_idle_in_tx"},
     ActionKind.failover_replica: {"rds": "aurora_failover"},
     # G9-D: the generic classes, as far as an entry carries them out today.
-    ActionKind.resume_flow: {"events": "events_enable_rule"},
-    ActionKind.raise_limit: {"lambda": "lambda_set_reserved_concurrency"},
+    ActionKind.pause_flow: {"lambda": "lambda_disable_esm", "events": "events_disable_rule"},
+    ActionKind.resume_flow: {"lambda": "lambda_enable_esm", "events": "events_enable_rule"},
+    ActionKind.raise_limit: {"lambda": "lambda_set_reserved_concurrency", "apigw": "apigw_raise_stage_throttle"},
+    ActionKind.cancel_query: {"athena": "athena_stop_query"},
+    ActionKind.redrive_messages: {"sqs": "sqs_redrive_dlq"},
 }
 
 
@@ -164,9 +206,9 @@ def for_action(action: ActionKind, platform: str) -> Entry | None:
     return CATALOG[name] if name else None
 
 
-ROLLS_PODS = frozenset({"k8s_restart"})  # entries that replace a workload's pods through its own rollout (C10)
+ROLLS_PODS = frozenset({"k8s_restart", "ecs_restart_service"})  # entries that replace a workload's pods through its own rollout (C10)
 # Entries an autoscaler would undo (register C4): a HorizontalPodAutoscaler, or Application Auto Scaling on a table.
-SCALES = frozenset({"k8s_scale", "dynamodb_raise_capacity"})
+SCALES = frozenset({"k8s_scale", "dynamodb_raise_capacity", "ecs_scale_service"})
 
 
 def validate(name: str, params: dict[str, Any], live: dict[str, Any]) -> list[str]:

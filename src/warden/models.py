@@ -275,9 +275,9 @@ ACTION_FACTS: dict[ActionKind, tuple[bool, str]] = {
     # A zonal shift ends by itself at its expiry and can be cancelled. multi_service: everything behind the load
     # balancer loses that zone's capacity while it lasts.
     ActionKind.shift_traffic: (True, "multi_service"),
-    # Cancelling the move stops it; a redriven message that fails again returns to the dead-letter queue by the
-    # queue's own redrive policy. One processed successfully stays processed - as after any fix that lets traffic
-    # flow again - so the plan shows how many messages wait.
+    # Cancelling the move stops it, but moved messages are NOT moved back (AWS, read 2026-10-10); one that fails
+    # again returns to the dead-letter queue by the source queue's own redrive policy, and one processed successfully
+    # stays processed - as after any fix that lets traffic flow again. The plan shows how many messages wait.
     ActionKind.redrive_messages: (True, "single_service"),
     # The query is lost and can be run again; its session, its data and the engine are untouched.
     ActionKind.cancel_query: (True, "single_service"),

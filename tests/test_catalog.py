@@ -80,6 +80,8 @@ def test_proposals_map_to_entries_per_platform_and_the_rest_is_advice():
     assert catalog.for_action(ActionKind.rollback_deploy, "lambda").name == "lambda_move_alias"
     for advice in (ActionKind.scale_down, ActionKind.clear_cache, ActionKind.no_action, ActionKind.escalate_to_human):
         assert catalog.for_action(advice, "k8s") is None
-    assert catalog.for_action(ActionKind.restart_pods, "ecs") is None
+    # G9-D2b: an ECS restart is an entry now - only for digest-pinned images (tests/test_aws_fixes_g9d.py).
+    assert catalog.for_action(ActionKind.restart_pods, "ecs").name == "ecs_restart_service"
+    assert catalog.for_action(ActionKind.restart_pods, "lambda") is None
     for per_platform in catalog.FOR_ACTION.values():
         assert set(per_platform.values()) <= set(catalog.CATALOG)

@@ -5,7 +5,11 @@
       "Sid": "ReadThisEnvironmentsResources",
       "Effect": "Allow",
       "Action": [
+        "athena:BatchGetQueryExecution",
+        "athena:GetQueryExecution",
         "athena:GetWorkGroup",
+        "athena:ListQueryExecutions",
+        "athena:ListTagsForResource",
         "cloudwatch:DescribeAlarms",
         "dynamodb:DescribeTable",
         "dynamodb:ListTagsOfResource",
@@ -38,6 +42,9 @@
         "sns:ListSubscriptionsByTopic",
         "sqs:GetQueueAttributes",
         "sqs:GetQueueUrl",
+        "sqs:ListDeadLetterSourceQueues",
+        "sqs:ListMessageMoveTasks",
+        "sqs:ListQueueTags",
         "states:DescribeStateMachine",
         "synthetics:GetCanary"
       ],
@@ -159,6 +166,23 @@
         "arn:aws:apigateway:ap-south-2::/apis",
         "arn:aws:apigateway:ap-south-2::/apis/*"
       ]
+    },
+    {
+      "Sid": "StagesOfThisEnvironmentsApis",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": "arn:aws:apigateway:ap-south-2::/restapis/*/stages/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "qa-staging"
+        }
+      }
+    },
+    {
+      "Sid": "TheAccountsThrottle",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": "arn:aws:apigateway:ap-south-2::/account"
     },
     {
       "Sid": "NeverApiKeys",

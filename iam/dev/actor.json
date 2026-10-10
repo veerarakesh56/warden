@@ -5,23 +5,46 @@
       "Sid": "ApprovedFixesOnThisEnvironmentsResources",
       "Effect": "Allow",
       "Action": [
+        "athena:StopQueryExecution",
         "dynamodb:UpdateTable",
         "ecs:UpdateService",
         "events:DisableRule",
         "events:EnableRule",
         "lambda:PutFunctionConcurrency",
         "lambda:UpdateAlias",
-        "rds:FailoverDBCluster"
+        "rds:FailoverDBCluster",
+        "sqs:CancelMessageMoveTask",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ReceiveMessage",
+        "sqs:SendMessage",
+        "sqs:StartMessageMoveTask"
       ],
       "Resource": [
+        "arn:aws:athena:ap-south-2:*:workgroup/warden-dev-*",
         "arn:aws:dynamodb:ap-south-2:*:table/warden-dev-*",
         "arn:aws:ecs:ap-south-2:*:service/warden-dev-*/*",
         "arn:aws:events:ap-south-2:*:rule/warden-dev-*",
         "arn:aws:lambda:ap-south-2:*:function:warden-dev-*",
         "arn:aws:rds:ap-south-2:*:cluster:warden-dev-*",
-        "arn:aws:rds:ap-south-2:*:db:warden-dev-*"
+        "arn:aws:rds:ap-south-2:*:db:warden-dev-*",
+        "arn:aws:sqs:ap-south-2:*:warden-dev-*"
       ],
       "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
+      "Sid": "StageThrottlesOfThisEnvironmentsApis",
+      "Effect": "Allow",
+      "Action": "apigateway:PATCH",
+      "Resource": "arn:aws:apigateway:ap-south-2::/restapis/*/stages/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/Environment": "dev"
+        },
         "StringLike": {
           "aws:SourceIdentity": "inc-*"
         }

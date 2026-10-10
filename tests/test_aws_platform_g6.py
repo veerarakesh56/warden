@@ -150,8 +150,9 @@ class Fake:
         return {"Events": getattr(self, "trail", [])}
 
     # --- the actor's clients
-    def actor(self, who, actions, resources, condition):
-        self.sessions.append({"who": who, "actions": actions, "resources": resources, "condition": condition})
+    def actor(self, who, actions, resources, condition, also=()):
+        self.sessions.append({"who": who, "actions": actions, "resources": resources, "condition": condition,
+                              "also": list(also)})
         fake = self
 
         class Writer:
@@ -241,16 +242,16 @@ def test_concurrency_is_only_ever_raised_from_an_existing_reservation_within_the
 
 def test_an_event_source_mapping_is_enabled_under_its_functions_exact_arn(aws):
     f, p = aws
-    live = p.live("lambda_enable_esm", {"mapping": "u-1"})
-    assert live["mapping"] == {"u-1"} and _ok("lambda_enable_esm", {"mapping": "u-1"}, live) == []
-    p.apply("lambda_enable_esm", {"mapping": "u-1"}, snapshot=live["state"], who=WHO)
+    live = p.live("lambda_enable_esm", {"function": FN, "mapping": "u-1"})
+    assert live["mapping"] == {"u-1"} and _ok("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, live) == []
+    p.apply("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, snapshot=live["state"], who=WHO)
     assert f.writes == [("update_event_source_mapping", {"UUID": "u-1", "Enabled": True})]
     esm_arn = f"arn:aws:lambda:test-region-1:{ACCT}:event-source-mapping:u-1"
     assert f.sessions[0]["resources"] == [esm_arn] and f.sessions[0]["condition"] == {"ArnEquals": {"lambda:FunctionArn": FN_ARN}}
     f.esm["State"] = "Enabled"
-    assert p.live("lambda_enable_esm", {"mapping": "u-1"})["mapping"] == set()  # nothing to enable
+    assert p.live("lambda_enable_esm", {"function": FN, "mapping": "u-1"})["mapping"] == set()  # nothing to enable
     with pytest.raises(AwsPlatformRefused, match="already enabled"):
-        p.apply("lambda_enable_esm", {"mapping": "u-1"}, snapshot=live["state"], who=WHO)
+        p.apply("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, snapshot=live["state"], who=WHO)
 
 
 def test_a_rule_is_enabled_and_its_rollback_disables_it(aws):

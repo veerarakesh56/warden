@@ -10,15 +10,24 @@ import pathlib
 
 import boto3
 
-from test_aws_platform_g6 import FN, NOW, WHO, Fake
+from test_aws_fixes_g9d import DLQ, Queues
+from test_aws_platform_g6 import FN, NOW, WHO
+from warden import catalog
 from warden.platforms.aws import AwsPlatform
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PREFIX = {"lambda": "lambda", "events": "events", "dynamodb": "dynamodb", "ecs": "ecs",
-          "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds"}
+          "application-autoscaling": "application-autoscaling", "cloudwatch": "cloudwatch", "cloudtrail": "cloudtrail", "rds": "rds",
+          "sqs": "sqs", "athena": "athena", "apigateway": "apigateway", "sts": "sts"}
+# Actions AWS authorizes for a call besides the call's own (Service Authorization Reference, read 2026-10-10): the
+# session asks for them, the code never calls them.
+IMPLICIT = {"sqs:StartMessageMoveTask": {"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes",
+                                         "sqs:SendMessage"}}
 
 
 def _action(service: str, method: str) -> str:
+    if service == "apigateway":  # API Gateway's IAM actions are the HTTP verbs of its control plane
+        return "apigateway:" + ("GET" if method.startswith("get_") else "PATCH" if method.startswith("update_") else method)
     client = boto3.client(service, region_name="us-east-1", aws_access_key_id="x", aws_secret_access_key="x")
     return f"{PREFIX[service]}:{client.meta.method_to_api_mapping[method]}"
 
@@ -28,30 +37,42 @@ class _Recording:
         self._service, self._target, self._seen = service, target, seen
 
     def __getattr__(self, name):
+        if name == "meta":  # the client's own settings (its Region), not a call
+            return self._target.meta
         self._seen.add(_action(self._service, name))
         return getattr(self._target, name)
 
 
 def _exercise() -> tuple[set[str], set[str], set[str]]:
     reads, writes, granted = set(), set(), set()
-    f = Fake()
+    f = Queues()
+    f.esm["State"], f.rule["State"] = "Disabled", "DISABLED"
 
-    def actor(who, actions, resources, condition):
+    def actor(who, actions, resources, condition, also=()):
         granted.update(actions)
-        clients = f.actor(who, actions, resources, condition)
+        for acts, _ in also:
+            granted.update(acts)
+        clients = f.actor(who, actions, resources, condition, also)
         return lambda service: _Recording(service, clients(service), writes)
 
     p = AwsPlatform(reader=lambda service: _Recording(service, f, reads), actor=actor, clock=lambda: NOW, sleep=lambda s: None)
     plans = {"lambda_move_alias": {"function": FN, "alias": "live", "to_version": "3"},
              "lambda_set_reserved_concurrency": {"function": FN, "concurrency": 5},
-             "lambda_enable_esm": {"mapping": "u-1"}, "events_enable_rule": {"rule": f.rule["Name"]},
+             "lambda_enable_esm": {"function": FN, "mapping": "u-1"}, "events_enable_rule": {"rule": f.rule["Name"]},
              "dynamodb_raise_capacity": {"table": "warden-dev-carts", "capacity": 10},
              "ecs_rollback_service": {"cluster": "c1", "service": "orders", "to_task_definition": "arn:td/orders:9"},
-             "aurora_failover": {"cluster": "warden-dev-orders", "target_instance": "warden-dev-orders-b"}}
+             "aurora_failover": {"cluster": "warden-dev-orders", "target_instance": "warden-dev-orders-b"},
+             # G9-D
+             "ecs_restart_service": {"cluster": "c1", "service": "orders"},
+             "ecs_scale_service": {"cluster": "c1", "service": "orders", "replicas": 3},
+             "sqs_redrive_dlq": {"queue": DLQ, "to_queue": "warden-dev-orders", "per_second": 10},
+             "athena_stop_query": {"workgroup": "warden-dev-bi", "query": "q-1"},
+             "apigw_raise_stage_throttle": {"api": "warden-dev-shop", "stage": "prod", "rate_limit": 200,
+                                            "burst_limit": 100}}
     for entry, params in plans.items():
         snap = p.live(entry, params)["state"]
         p.apply(entry, params, snapshot=snap, who=WHO)
-        p.healthy(next(iter(params.values())) if entry != "ecs_rollback_service" else "orders", entry=entry,
+        p.healthy(params[catalog.CATALOG[entry].target_param], entry=entry,
                   params=params)
     p.changes(NOW, NOW, "dev")  # the change timeline's CloudTrail read (requirement R38)
     # The rollbacks, each from the state its apply left.
@@ -60,6 +81,18 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     f.esm["State"], f.rule["State"] = "Enabled", "ENABLED"
     p.rollback("lambda_enable_esm", plans["lambda_enable_esm"], p.live("lambda_enable_esm", plans["lambda_enable_esm"])["state"], who=WHO)
     p.rollback("events_enable_rule", plans["events_enable_rule"], p.live("events_enable_rule", plans["events_enable_rule"])["state"], who=WHO)
+    # G9-D: the pauses (same writes, the other way round), and the inverses with a call of their own.
+    f.esm["State"], f.rule["State"], f.rule["ScheduleExpression"] = "Enabled", "ENABLED", "rate(5 minutes)"
+    for entry, params in (("lambda_disable_esm", {"function": FN, "mapping": "u-1"}),
+                          ("events_disable_rule", {"rule": f.rule["Name"]})):
+        p.apply(entry, params, snapshot=p.live(entry, params)["state"], who=WHO)
+        p.healthy(params.get("mapping") or params["rule"], entry=entry, params=params)
+    # The resolver's reads, before a mapping or a query is named: it lists them (resolver.request_for).
+    p.live("lambda_disable_esm", {"function": FN})
+    p.live("athena_stop_query", {"workgroup": "warden-dev-bi"})
+    f.moves = [{"Status": "RUNNING", "TaskHandle": "h-1"}]
+    redrive = plans["sqs_redrive_dlq"]
+    p.rollback("sqs_redrive_dlq", redrive, p.live("sqs_redrive_dlq", redrive)["state"], who=WHO)
     return reads, writes, granted
 
 
@@ -83,8 +116,9 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
 
 def test_the_actor_role_holds_exactly_the_platforms_writes_and_every_session_asks_only_for_them():
     _, writes, granted = _exercise()
-    assert writes == _actions("actor") == granted
-    assert not any(a.split(":")[1].startswith(("Get", "List", "Describe")) for a in writes)
+    implicit = {a for w in writes for a in IMPLICIT.get(w, ())}
+    assert writes | implicit == _actions("actor") == granted
+    assert not any(a.split(":")[1].startswith(("Get", "List", "Describe")) or a == "apigateway:GET" for a in writes)
 
 
 def test_the_roles_trust_only_the_runtime_zones_and_the_actor_needs_the_approval_tags():
