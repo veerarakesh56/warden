@@ -60,8 +60,13 @@ _PERIOD = 300  # CloudWatch's period for the served-version reads, seconds
 # G9-D: the tag on a Lambda function or an ECS service naming the pipeline stage that deploys it: `<pipeline>/<stage>`.
 PIPELINE_TAG = "warden:pipeline"
 _PIPELINE_NAME = re.compile(r"[A-Za-z0-9.@_-]{1,100}")  # CodePipeline's own pattern for both names
+# Review-e M2: a zone is judged on at least this many one-minute points of the HEALTH_WINDOW.
+ZONE_POINTS = 3
 # G9-D: AppConfig reverts a COMPLETED deployment for 72 hours (AWS, read 2026-10-10); WARDEN keeps a margin.
 APPCONFIG_REVERT = timedelta(hours=70)
+# ...and only a deployment that STARTED in the hours before its alarm went into ALARM: the change that may have caused
+# it, never an unrelated one days old (review-e H1).
+APPCONFIG_BEFORE_ALARM = timedelta(hours=6)
 # G9-D: an Athena query running longer than this is a runaway a person may cancel.
 RUNAWAY_QUERY = timedelta(minutes=15)
 # Register C17: a Lambda alias moves through a canary - this share of its traffic to the version first, for this long,
@@ -106,7 +111,11 @@ def _never_written(exc: BaseException) -> bool:
     return code in ("AccessDenied", "AccessDeniedException", "UnauthorizedOperation", "ValidationException",
                     "InvalidParameterValueException", "PreconditionFailedException", "ResourceNotFoundException",
                     "ResourceConflictException", "ClientException", "InvalidParameterException",
-                    "LimitExceededException")
+                    "LimitExceededException",
+                    # G9-D entries (review-e M6): ARC, AppConfig and CodePipeline refuse with these; throttling is a
+                    # call AWS did not run. None is "half-made".
+                    "ConflictException", "BadRequestException", "StageNotFoundException", "PipelineNotFoundException",
+                    "ThrottlingException", "TooManyRequestsException", "Throttling", "RequestLimitExceeded")
 
 
 def _one_line(value: Any) -> str:
@@ -936,12 +945,17 @@ class AwsPlatform:
     def _zone_health(self, lb: str, arn: str, zones: list[str]) -> dict[str, tuple[float, float]]:
         """Per zone, over the load balancer's target groups: (fewest healthy hosts, most unhealthy hosts) in the last
         HEALTH_WINDOW. A zone with no datapoint is absent: unknown is never healthy."""
-        tgs = [t["TargetGroupArn"].split(":", 5)[-1] for t in
-               (self._read("elbv2").describe_target_groups(LoadBalancerArn=arn).get("TargetGroups") or [])[:5]]
+        groups = self._read("elbv2").describe_target_groups(LoadBalancerArn=arn).get("TargetGroups") or []
+        if len(groups) > 5:
+            return {}  # review-e L3: more groups than WARDEN reads - no zone is called impaired on part of them
+        tgs = [t["TargetGroupArn"].split(":", 5)[-1] for t in groups]
         queries, keys = [], {}
+        # Review-e M2: every minute of the window, and the strictest view of each - no node saw a healthy host in the
+        # impaired zone (Maximum 0), every node saw one in a serving zone (Minimum above 0), unhealthy ones throughout.
         for i, (tg, zone, metric, stat) in enumerate((tg, z, m, s) for tg in tgs for z in zones for m, s in
-                                                      (("HealthyHostCount", "Minimum"), ("UnHealthyHostCount", "Maximum"))):
-            keys[f"q{i}"] = (zone, metric)
+                                                      (("HealthyHostCount", "Maximum"), ("HealthyHostCount", "Minimum"),
+                                                       ("UnHealthyHostCount", "Minimum"))):
+            keys[f"q{i}"] = (zone, f"{metric}:{stat}")
             queries.append({"Id": f"q{i}", "ReturnData": True, "MetricStat": {"Period": 60, "Stat": stat, "Metric": {
                 "Namespace": "AWS/ApplicationELB" if lb.startswith("app/") else "AWS/NetworkELB",
                 "MetricName": metric, "Dimensions": [{"Name": "LoadBalancer", "Value": lb},
@@ -952,13 +966,26 @@ class AwsPlatform:
         end = self._now()
         got = self._read("cloudwatch").get_metric_data(MetricDataQueries=queries, StartTime=end - HEALTH_WINDOW,
                                                        EndTime=end, ScanBy="TimestampDescending")
-        out: dict[str, list[float]] = {}
+        series: dict[tuple[str, str], list[list[float]]] = {}
         for r in got.get("MetricDataResults") or []:
-            if r.get("Values") and r.get("Id") in keys:
-                zone, metric = keys[r["Id"]]
-                pair = out.setdefault(zone, [0.0, 0.0])
-                pair[0 if metric == "HealthyHostCount" else 1] += float(r["Values"][0])
-        return {z: (h, u) for z, (h, u) in out.items()}
+            if r.get("Id") in keys:
+                series.setdefault(keys[r["Id"]], []).append([float(v) for v in r.get("Values") or []])
+        out = {}
+        for zone in zones:
+            hmax = series.get((zone, "HealthyHostCount:Maximum"), [])
+            hmin = series.get((zone, "HealthyHostCount:Minimum"), [])
+            umin = series.get((zone, "UnHealthyHostCount:Minimum"), [])
+            if not hmax or any(len(v) < ZONE_POINTS for v in hmax + hmin + umin):
+                continue  # too little data: unknown, never impaired and never serving
+            healthy_never = all(x == 0 for v in hmax for x in v)
+            unhealthy_always = all(sum(col) > 0 for col in zip(*umin, strict=False))
+            serving_always = all(sum(col) > 0 for col in zip(*hmin, strict=False))
+            if serving_always:
+                out[zone] = (1.0, 0.0)  # serving: (healthy, unhealthy)
+            elif healthy_never and unhealthy_always:
+                out[zone] = (0.0, 1.0)  # impaired
+            # anything between: unknown, neither impaired nor serving
+        return out
 
     def _live_zones(self, params: dict[str, Any]) -> dict[str, Any]:
         """The load balancer's zones by ID, the ONE zone that is impaired (no healthy host, some unhealthy, while
@@ -983,6 +1010,10 @@ class AwsPlatform:
         serving = sorted(z for z, (h, _) in health.items() if h > 0)
         managed = self._read("arc-zonal-shift").get_managed_resource(resourceIdentifier=arn)
         active = [s.get("zonalShiftId") for s in managed.get("zonalShifts") or [] if s.get("appliedStatus") == "APPLIED"]
+        # Review-e M1: ARC's own autoshift is a shift too - a manual one would override it, back into the zone AWS
+        # found impaired.
+        active += [f"autoshift:{a.get('awayFrom')}" for a in managed.get("autoshifts") or []
+                   if a.get("appliedStatus") == "APPLIED"]
         one = len(impaired) == 1 and serving and impaired[0] in ids and attrs.get("zonal_shift.config.enabled") == "true"
         return {"load_balancer": {lb}, "away_from": {ids[impaired[0]]} if one else set(),
                 "environment": tags.get(ENV_TAG), "rollout": "progressing" if active else "complete",
@@ -992,7 +1023,7 @@ class AwsPlatform:
     def _zonal_shift(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("load_balancer", "arn", "zones"), f"load balancer {p['load_balancer']}")
         arc_read = self._read("arc-zonal-shift")
-        mark = f"WARDEN {who['incident']}"
+        mark = f"WARDEN {who['incident']} plan "  # review-e L4: "inc-7" must not match "inc-71"
         if back:
             mine = [s for s in arc_read.get_managed_resource(resourceIdentifier=now["arn"]).get("zonalShifts") or []
                     if s.get("awayFrom") == p["away_from"] and str(s.get("comment", "")).startswith(mark)]
@@ -1008,7 +1039,7 @@ class AwsPlatform:
             raise AwsPlatformRefused("a shift lasts 30 to 180 minutes; nothing was changed")
         arc = self._actor(who, ["arc-zonal-shift:StartZonalShift"], [now["arn"]], None)("arc-zonal-shift")
         arc.start_zonal_shift(resourceIdentifier=now["arn"], awayFrom=p["away_from"], expiresIn=f"{p['minutes']}m",
-                              comment=f"{mark} plan {who['plan_hash'][:12]}"[:128])
+                              comment=f"{mark}{who['plan_hash'][:12]}"[:128])
         return f"shifted {p['load_balancer']}'s traffic away from {p['away_from']} for {p['minutes']} minutes"
 
     def _shift_holds(self, lb: str, params: dict[str, Any]) -> bool:
@@ -1033,8 +1064,9 @@ class AwsPlatform:
         if not found:
             return {}
         ac = self._read("appconfig")
-        pairs = aws_describe.appconfig_for_alarm(ac, str(found[0].get("AlarmArn") or ""))
-        if len(pairs) != 1:
+        pairs, complete = aws_describe.appconfig_for_alarm(ac, str(found[0].get("AlarmArn") or ""))
+        fired = _when(found[0].get("StateTransitionedTimestamp") or found[0].get("StateUpdatedTimestamp"))
+        if len(pairs) != 1 or not complete:  # review-e M3: one guard among what could NOT be read is not "the one"
             return {"alarm": {alarm}, "application": set(), "config_env": set(), "deployment": set()}
         app, env = pairs[0]
         d = aws_describe.latest_deployment(ac, app["Id"], env["Id"]) or {}
@@ -1044,8 +1076,10 @@ class AwsPlatform:
         dep_arn = f"{env_arn}/deployment/{n}"
         tagged = {(ac.list_tags_for_resource(ResourceArn=a).get("Tags") or {}).get(ENV_TAG)
                   for a in (app_arn, env_arn, dep_arn)} if n else {None}
-        done = _when(d.get("CompletedAt"))
-        can = bool(n) and len(tagged) == 1 and None not in tagged and (
+        done, began = _when(d.get("CompletedAt")), _when(d.get("StartedAt"))
+        related = (found[0].get("StateValue") == "ALARM" and fired is not None and began is not None
+                   and fired - APPCONFIG_BEFORE_ALARM <= began <= fired)
+        can = bool(n) and related and len(tagged) == 1 and None not in tagged and (
             d.get("State") in ("DEPLOYING", "BAKING")
             or (d.get("State") == "COMPLETE" and done is not None and self._now() - done < APPCONFIG_REVERT))
         return {"alarm": {alarm}, "application": {app["Name"]} if can else set(),
@@ -1054,6 +1088,8 @@ class AwsPlatform:
                 "state": {"alarm": alarm, "application": app["Name"], "app_id": app["Id"], "config_env": env["Name"],
                           "env_id": env["Id"], "deployment": n, "deploy_state": d.get("State"),
                           "version": d.get("VersionLabel") or d.get("ConfigurationVersion"),
+                          "profile": _plain(d.get("ConfigurationName")), "started": _iso(began),
+                          "completed": _iso(done), "alarm_since": _iso(fired),
                           "app_arn": app_arn, "env_arn": env_arn, "dep_arn": dep_arn, "where": self._where(app_arn)}}
 
     def _appconfig_revert(self, p, snapshot, now, who, back) -> str:
@@ -1069,10 +1105,13 @@ class AwsPlatform:
         return f"stopped and reverted deployment {p['deployment']} of {p['application']}/{p['config_env']}"
 
     def _appconfig_reverted(self, config_env: str, params: dict[str, Any]) -> bool:
-        """That deployment now reads REVERTED or ROLLED_BACK - a positive signal."""
+        """That deployment reads REVERTED or ROLLED_BACK, AND the alarm that guards it reads OK: the write landing is
+        not a recovery (review-e M4)."""
         st = self._live_appconfig(params).get("state") or {}
+        alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
+                                                         AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         return str(st.get("deployment")) == str(params.get("deployment")) and st.get("deploy_state") in (
-            "REVERTED", "ROLLED_BACK")
+            "REVERTED", "ROLLED_BACK") and bool(alarm) and alarm[0].get("StateValue") == "OK"
 
     # ------------------------------------------------------------------ codepipeline: freeze deploys (G9-D)
 
@@ -1108,6 +1147,8 @@ class AwsPlatform:
 
     def _freeze(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("resource", "pipeline", "stage", "arn"), f"pipeline {p['pipeline']}")
+        if back and now.get("enabled") is True:
+            return f"nothing to roll back: deploys into {p['pipeline']} stage {p['stage']} were enabled again already"
         if now.get("enabled") is back:  # freezing needs deploys flowing; the rollback needs them frozen
             raise AwsPlatformRefused(f"stage {p['stage']} of {p['pipeline']} is already "
                                      f"{'enabled' if now.get('enabled') else 'frozen'}; nothing was changed")
@@ -1250,6 +1291,18 @@ def _unqualified(function_arn: str) -> str:
     """`arn:...:function:name` from `arn:...:function:name:qualifier`."""
     head, _, rest = function_arn.partition(":function:")
     return f"{head}:function:{rest.split(':')[0]}"
+
+
+def _iso(t: datetime | None) -> str | None:
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ") if t else None
+
+
+_PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def _plain(name: Any) -> str:
+    """A name AWS lets its owner write freely, shown only when it is a plain name (review-e L8)."""
+    return str(name) if isinstance(name, str) and _PLAIN_NAME.fullmatch(name) else "(name withheld: not a plain name)"
 
 
 def _when(value: Any) -> datetime | None:

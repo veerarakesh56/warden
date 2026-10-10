@@ -26,7 +26,7 @@ def test_no_evidence_word_is_a_trusted_lines_own_first_word():
     action. The few kept are named, each with its reason."""
     prefixes = {w.lower() for w in re.findall(r"[A-Z]{2,}", evidence._CONFIG.pattern)}
     assert prefixes >= {"config", "state", "secret", "rule", "queue", "change"}
-    allowed = {ActionKind.revert_config: {"change"}, ActionKind.freeze_changes: {"change", "rollout"},
+    allowed = {ActionKind.freeze_changes: {"change", "rollout"},
                ActionKind.rollback_deploy: {"rollout"},  # a ROLLOUT line is a deploy's own state
                # Kept on purpose: "queue at 900", "queue slots: 0 free" are real support (reviews 4 and 8).
                ActionKind.scale_up: {"queue"}}

@@ -241,8 +241,9 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                           f"task definition {s.get('task_definition')} (its secrets are read again)")],
     "ecs_scale_service": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired"),
                                               p["replicas"])],
-    "sqs_redrive_dlq": lambda p, s: [(f"{'unknown' if s.get('waiting') is None else s['waiting']} messages move "
-                                      f"from {p['queue']} to {p['to_queue']} at {p['per_second']} a second; moved "
+    "sqs_redrive_dlq": lambda p, s: [(f"the messages waiting in {p['queue']} "
+                                      f"({'unknown' if s.get('waiting') is None else s['waiting']} when planned; the "
+                                      f"count moves) move to {p['to_queue']} at {p['per_second']} a second; moved "
                                       "messages are not moved back")],
     "athena_stop_query": lambda p, s: [_arrow(f"query {p['query']} in workgroup {p['workgroup']}",
                                               s.get("query_state"), "cancelled")],
@@ -253,10 +254,14 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                       f"{p['away_from']} ({s.get('impaired_name')}) for {p['minutes']} minutes; "
                                       f"the zones left serve it all: {', '.join(s.get('serving') or []) or 'unknown'}")],
     "appconfig_revert": lambda p, s: [(f"configuration {p['application']}/{p['config_env']}: deployment "
-                                       f"{p['deployment']} (version {s.get('version')}, {s.get('deploy_state')}) is "
+                                       f"{p['deployment']} of profile {s.get('profile')} (version {s.get('version')}, "
+                                       f"{s.get('deploy_state')}, started {s.get('started')}, completed "
+                                       f"{s.get('completed') or 'not yet'}; the alarm fired {s.get('alarm_since')}) is "
                                        "stopped and reverted to the configuration deployed before it")],
     "codepipeline_freeze": lambda p, s: [_arrow(f"deploys of {p['resource']} through pipeline {p['pipeline']} "
-                                                f"stage {p['stage']}", "flowing", "frozen until a person enables them")],
+                                                f"stage {p['stage']}", "flowing",
+                                                "frozen until a person enables them (a deploy already inside the "
+                                                "stage finishes)")],
     "aurora_failover": lambda p, s: [_arrow(f"writer of cluster {p['cluster']}", s.get("writer"),
                                             p["target_instance"]) + " (not undone automatically)"],
 }
@@ -307,7 +312,7 @@ VOLATILE = {"sqs_redrive_dlq": ("waiting",)}
 # A queue a paused mapping reads must keep its messages at least this long (H2: a 60 s retention expires them).
 MIN_PAUSE_RETENTION_S = 86400
 # A redrive must finish inside the default verify window (H3): at most this many seconds of moving.
-REDRIVE_SECONDS = 240  # entries that replace a workload's pods through its own rollout (C10)
+REDRIVE_SECONDS = 180  # leaves the 3 consecutive 30 s checks inside the 5-minute window (review-e L5)  # entries that replace a workload's pods through its own rollout (C10)
 # Entries an autoscaler would undo (register C4): a HorizontalPodAutoscaler, or Application Auto Scaling on a table.
 SCALES = frozenset({"k8s_scale", "dynamodb_raise_capacity", "ecs_scale_service"})
 

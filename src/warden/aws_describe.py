@@ -164,24 +164,37 @@ TABLE: dict[str, Describe] = {
 APPCONFIG_APPS = 20
 
 
-def appconfig_for_alarm(client: Any, alarm_arn: str) -> list[tuple[dict, dict]]:
-    """The (application, environment) pairs whose monitors name this alarm. An application the reader may not read
-    (another environment's, by tag) is skipped."""
-    apps, token = [], None
+def appconfig_for_alarm(client: Any, alarm_arn: str) -> tuple[list[tuple[dict, dict]], bool]:
+    """The (application, environment) pairs whose monitors name this alarm, and whether every application was read
+    (review-e M3: a second guard among the unread ones made the first look like the only one). An application the
+    reader is refused (another environment's, by tag) is not this environment's: it does not make the read partial."""
+    apps, token, complete = [], None, True
     for _ in range(3):
         page = client.list_applications(MaxResults=50, **({"NextToken": token} if token else {}))
         apps += page.get("Items") or []
         token = page.get("NextToken")
         if not token:
             break
+    complete = not token and len(apps) <= APPCONFIG_APPS
     out = []
     for app in apps[:APPCONFIG_APPS]:
         try:
-            envs = client.list_environments(ApplicationId=app["Id"], MaxResults=50).get("Items") or []
-        except Exception:  # noqa: BLE001, S112 - not readable here: another environment's application
+            envs, etoken = [], None
+            for _ in range(3):
+                page = client.list_environments(ApplicationId=app["Id"], MaxResults=50,
+                                                **({"NextToken": etoken} if etoken else {}))
+                envs += page.get("Items") or []
+                etoken = page.get("NextToken")
+                if not etoken:
+                    break
+            complete = complete and not etoken
+        except Exception as exc:  # noqa: BLE001
+            code = str(((getattr(exc, "response", None) or {}).get("Error") or {}).get("Code") or type(exc).__name__)
+            if "Denied" not in code and "Forbidden" not in code:
+                complete = False
             continue
         out += [(app, e) for e in envs if any(m.get("AlarmArn") == alarm_arn for m in e.get("Monitors") or [])]
-    return out
+    return out, complete
 
 
 def latest_deployment(client: Any, app_id: str, env_id: str) -> dict | None:

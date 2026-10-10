@@ -203,5 +203,6 @@ def test_every_catalogue_entry_says_what_it_changes():
         "infra_restore_baseline", "lambda_restore_config"})
     assert missing == []
     assert catalog.change_of("sqs_redrive_dlq", {"queue": "d", "to_queue": "s", "per_second": 10}, {"waiting": 42}) == [
-        "42 messages move from d to s at 10 a second; moved messages are not moved back"]
+        ("the messages waiting in d (42 when planned; the count moves) move to s at 10 a second; moved messages are "
+         "not moved back")]
     assert catalog.change_of("lambda_move_alias", {"function": "f"}, {}) == ["lambda_move_alias with function=f"]

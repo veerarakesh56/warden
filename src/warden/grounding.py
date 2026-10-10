@@ -67,8 +67,9 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
     ActionKind.clear_cache: ("cache", "redis", "evict", "stale", "hit", "miss", "memcache"),
     # G9-D. Never a trusted line's own first word (CONFIG, STATE, SECRET, RULE, QUEUE, ...): every such line would
     # support the action. CHANGE is kept for the two actions about changes: a change line does bear on them.
-    ActionKind.revert_config: ("flag", "feature", "appconfig", "parameter", "setting", "toggle", "change", "updated",
-                               "modified", "revert", "version"),
+    # Only words about a configuration or a flag (independent review 2026-10-10, review-e H1: "version" and CHANGE
+    # matched a Lambda deploy line, and a days-old configuration was reverted).
+    ActionKind.revert_config: ("appconfig", "feature flag", "feature-flag", "configuration profile", "toggle"),
     # Not "loop" (CrashLoopBackOff), not "stopped" (an ECS task stopped): neither says a flow is the harm or is off
     # (independent review 2026-10-10, H1).
     ActionKind.pause_flow: ("poison", "recurs", "storm", "runaway", "flood", "redeliver", "receive count",

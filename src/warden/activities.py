@@ -159,7 +159,9 @@ def _environment_problems(env: str, entry: catalog.Entry, params: dict[str, Any]
     if own != env:
         problems.append(f"P18 ENV-MISMATCH: the target's own environment is {own!r}, not the incident's {env!r}")
     for p in dict.fromkeys([*entry.target_params, *(k for k, v in entry.params.items() if v.kind == "ref")]):
-        named = environments.env_of_name(str(params.get(p, "")))
+        value = str(params.get(p, ""))
+        # A load balancer is named `app/<name>/<id>` (review-e L6): its name is the part that carries a prefix.
+        named = environments.env_of_name(value.split("/")[1] if value.count("/") == 2 else value)
         if named and named != env:
             problems.append(f"P18 ENV-MISMATCH: {p} {params.get(p)!r} is named for {named!r}, not {env!r}")
     return problems
@@ -730,7 +732,9 @@ class IncidentActivities:
 
         alert_id = alert.alert_id
         why, req = "", None
-        if verified.verdict.status != VerdictStatus.approved_for_human:
+        p6_only = (verified.verdict.status == VerdictStatus.escalated
+                   and set(verified.verdict.policy_ids) == {"P6-BLAST-RADIUS"})
+        if verified.verdict.status != VerdictStatus.approved_for_human and not p6_only:
             why = f"the verdict is {verified.verdict.status.value}"
         elif self.platform is None:
             why = "this worker reads no platform"

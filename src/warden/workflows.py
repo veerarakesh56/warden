@@ -391,7 +391,12 @@ class IncidentWorkflow:
         # G9-D1: a proposal the verifier passed for a person opens its fix plan - a RemediationWorkflow that waits for
         # a signed human approval, as one requested through MCP does. Its own workflow, abandoned by this one: the plan
         # outlives the incident's run. Patched: histories recorded before it replay unchanged.
-        if workflow.patched("g9-plan-fix") and not diagnosed.model_unavailable and verified.verdict.status.value == "approved_for_human":
+        # Review-e M5: also a proposal escalated by P6 ALONE - its reach is wide, which is exactly what the signed approval
+        # of its plan decides; shift_traffic's floor is multi_service, so no zonal shift could ever be planned.
+        plannable = verified.verdict.status.value == "approved_for_human" or (
+            workflow.patched("g9-plan-p6") and verified.verdict.status.value == "escalated"
+            and set(verified.verdict.policy_ids) == {"P6-BLAST-RADIUS"})
+        if workflow.patched("g9-plan-fix") and not diagnosed.model_unavailable and plannable:
             try:
                 req = await workflow.execute_activity_method(acts.plan_fix, **_zoned(acts.plan_fix),
                                                              args=[first, diagnosed, verified], **QUICK)

@@ -209,6 +209,14 @@ def _key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")[:60] or "metric"
 
 
+_PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def _plain(name) -> str:
+    """A name its owner writes freely, in a TRUSTED line only when it is a plain name (review-e L8)."""
+    return str(name) if isinstance(name, str) and _PLAIN_NAME.fullmatch(name) else "(name-withheld)"
+
+
 def _partial(reader: str, line_or_exc) -> str:
     text = line_or_exc if isinstance(line_or_exc, str) else failure(line_or_exc)
     return f"{PARTIAL_PREFIX}{reader}: {text.removeprefix(PARTIAL_PREFIX)}"
@@ -619,12 +627,13 @@ class StackBackend:
             return
         try:
             client = self._clients["appconfig"]
-            for app, env in aws_describe.appconfig_for_alarm(client, alarm_arn)[:3]:
+            pairs, _complete = aws_describe.appconfig_for_alarm(client, alarm_arn)
+            for app, env in pairs[:3]:
                 d = aws_describe.latest_deployment(client, app["Id"], env["Id"])
                 if d:
                     done = d.get("CompletedAt")
                     out.lines.append(
-                        f"CONFIG appconfig {_safe(app.get('Name'))}/{_safe(env.get('Name'))} monitors this alarm: "
+                        f"CONFIG appconfig {_plain(app.get('Name'))}/{_plain(env.get('Name'))} monitors this alarm: "
                         f"deployment={d.get('DeploymentNumber')} state={_safe(d.get('State'))} "
                         f"version={_safe(d.get('VersionLabel') or d.get('ConfigurationVersion'))} completed="
                         f"{done.strftime('%Y-%m-%dT%H:%M:%SZ') if hasattr(done, 'strftime') else 'not yet'}")

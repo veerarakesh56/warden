@@ -10,7 +10,7 @@ from datetime import timedelta
 
 import pytest
 
-from test_aws_platform_g6 import ACCT, FN, FN_ARN, NOW, WHO, Fake
+from test_aws_platform_g6 import ACCT, FN, FN_ARN, NOW, WHO, Fake, _Err
 from warden import catalog
 from warden.platforms.aws import AwsPlatform, AwsPlatformRefused
 
@@ -309,7 +309,8 @@ class Zones(Queues):
                 return super().get_metric_data(MetricDataQueries, StartTime, EndTime)
             h, u = self.health.get(zone, (None, None))
             v = h if m["MetricName"] == "HealthyHostCount" else u
-            out.append({"Id": q["Id"], "Values": [] if v is None else [v]})
+            # Five one-minute points, the same value each (a zone steady through the window).
+            out.append({"Id": q["Id"], "Values": [] if v is None else [v] * 5})
         return {"MetricDataResults": out}
 
     def get_managed_resource(self, resourceIdentifier):
@@ -332,6 +333,7 @@ def test_traffic_shifts_away_from_the_one_impaired_zone_and_the_rollback_cancels
     name, kw = f.writes[-1]
     assert name == "start_zonal_shift" and kw["resourceIdentifier"] == LB_ARN and kw["awayFrom"] == "tr1-aza"
     assert kw["expiresIn"] == "60m" and kw["comment"].startswith("WARDEN inc-7 plan ")
+    assert "autoshifts" not in kw
     assert f.sessions[-1]["resources"] == [LB_ARN] and f.sessions[-1]["actions"] == ["arc-zonal-shift:StartZonalShift"]
     assert "shifted away from zone tr1-aza (test-region-1a)" in catalog.change_of("arc_zonal_shift", params, live["state"])[0]
     f.weights = {"tr1-aza": 0, "tr1-azb": 1}
@@ -366,19 +368,22 @@ class Config(Zones):
     def __init__(self):
         super().__init__()
         self.monitors = [{"AlarmArn": ALARM_ARN}]
-        self.deployment = {"DeploymentNumber": 7, "State": "COMPLETE", "CompletedAt": NOW - timedelta(hours=1),
-                           "VersionLabel": "v42"}
+        self.deployment = {"DeploymentNumber": 7, "State": "COMPLETE", "StartedAt": NOW - timedelta(hours=1, minutes=10),
+                           "CompletedAt": NOW - timedelta(hours=1), "VersionLabel": "v42", "ConfigurationName": "flags"}
         self.config_tags = {"Environment": "dev"}
 
+    alarm_state = "ALARM"
+
     def describe_alarms(self, AlarmNames, AlarmTypes):
-        return {"MetricAlarms": [{"AlarmName": ALARM, "AlarmArn": ALARM_ARN}]}
+        return {"MetricAlarms": [{"AlarmName": ALARM, "AlarmArn": ALARM_ARN, "StateValue": self.alarm_state,
+                                  "StateTransitionedTimestamp": NOW - timedelta(minutes=30)}]}
 
     def list_applications(self, MaxResults, **kw):
         return {"Items": [{"Id": "app1", "Name": "warden-dev-flags"}, {"Id": "app2", "Name": "warden-prod-flags"}]}
 
-    def list_environments(self, ApplicationId, MaxResults):
+    def list_environments(self, ApplicationId, MaxResults, **kw):
         if ApplicationId == "app2":
-            raise PermissionError("AccessDenied: another environment's application")
+            raise _Err("AccessDeniedException")  # another environment's application: tag-scoped reader
         return {"Items": [{"Id": "env1", "Name": "live", "Monitors": list(self.monitors)},
                           {"Id": "env2", "Name": "canary", "Monitors": []}]}
 
@@ -434,6 +439,8 @@ def test_the_configuration_the_alarm_guards_is_reverted_through_its_own_deployme
     assert f.sessions[-1]["resources"] == [app, f"{app}/environment/env1", f"{app}/environment/env1/deployment/7"]
     assert p.rollback("appconfig_revert", req["params"], snap, who=WHO).startswith("nothing to roll back")
     f.deployment["State"] = "REVERTED"
+    assert not p.healthy("live", entry="appconfig_revert", params=req["params"])  # review-e M4: the alarm still fires
+    f.alarm_state = "OK"
     assert p.healthy("live", entry="appconfig_revert", params=req["params"])
 
 
@@ -443,6 +450,10 @@ def test_no_revert_past_the_window_untagged_unguarded_or_of_another_configuratio
     f, p = config
     _, wrong = _revert("warden-dev-other")
     assert "not the configuration this alarm guards" in resolver.request_for(_revert("x")[0], wrong, p.live)[1]
+    # Review-e H1: a deployment that started long before the alarm fired is not the incident's change.
+    f.deployment["StartedAt"] = NOW - timedelta(hours=8)
+    assert p.live("appconfig_revert", {"alarm": ALARM})["deployment"] == set()
+    f.deployment["StartedAt"] = NOW - timedelta(hours=1, minutes=10)
     f.deployment["CompletedAt"] = NOW - timedelta(hours=71)  # AWS reverts for 72 hours; WARDEN keeps a margin
     assert p.live("appconfig_revert", {"alarm": ALARM})["deployment"] == set()
     f.deployment["CompletedAt"], f.config_tags = NOW - timedelta(hours=1), {}
@@ -486,3 +497,20 @@ def test_no_freeze_without_the_tag_of_another_environments_pipeline_or_when_alre
     f.inbound, f.pipeline_tag, f.asked = True, "warden dev deploy; x/Prod", []
     assert p.live("codepipeline_freeze", {"resource": FN})["pipeline"] == set()
     assert f.asked == []  # a tag outside CodePipeline's own name pattern never reaches its API
+
+
+def test_an_application_that_could_not_be_read_for_another_reason_makes_no_plan(config):
+    """Review-e M3: an unread application may be a second guard - "the one" is then not known."""
+    _, p = config
+    real = Config.list_environments
+
+    def flaky(self, ApplicationId, MaxResults, **kw):
+        if ApplicationId == "app2":
+            raise _Err("ThrottlingException")
+        return real(self, ApplicationId, MaxResults)
+
+    Config.list_environments = flaky
+    try:
+        assert p.live("appconfig_revert", {"alarm": ALARM})["application"] == set()
+    finally:
+        Config.list_environments = real
