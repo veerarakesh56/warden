@@ -94,6 +94,8 @@ def test_a_visibility_timeout_cut_is_set_back_and_its_rollback_sets_what_the_cha
     (Queue(attributes={"KmsMasterKeyId": "alias/x"}), "also set KmsMasterKeyId"),
     (Queue(before={"VisibilityTimeout": 99999}), "outside what SQS allows"),
     (Queue(before={"DelaySeconds": 0}), "no value before"),
+    # A shorter retention expires queued messages for good, the restore's way or its rollback's.
+    (Queue(attributes={"MessageRetentionPeriod": "1209600"}), "also set MessageRetentionPeriod"),
 ])
 def test_a_queue_change_wardens_restore_may_not_undo_is_refused(fake, why):
     live = _p(fake).live("sqs_restore_attributes", QP)
@@ -114,7 +116,7 @@ def test_a_queue_whose_setting_moved_is_refused_before_and_after_the_plan():
     assert g.writes == []
 
 
-def test_a_retention_cut_is_raised_back_and_its_rollback_lowers_it_again():
+def test_a_retention_cut_is_raised_back_and_never_shortened_again():
     f = Stream()
     p = _p(f)
     live = p.live("kinesis_restore_retention", SP)
@@ -125,9 +127,10 @@ def test_a_retention_cut_is_raised_back_and_its_rollback_lowers_it_again():
     assert f.writes[-1] == ("increase_stream_retention_period", {"StreamName": S, "RetentionPeriodHours": 168})
     f.hours, f.alarm_state = 168, "OK"
     assert p.healthy(S, entry="kinesis_restore_retention", params=params) is True
-    p.rollback("kinesis_restore_retention", params, live["state"], who=WHO)
-    assert f.sessions[-1]["actions"] == ["kinesis:DecreaseStreamRetentionPeriod"]
-    assert f.writes[-1] == ("decrease_stream_retention_period", {"StreamName": S, "RetentionPeriodHours": 24})
+    # A rollback would delete the records older than the shorter retention for good: the longer one stays.
+    writes = len(f.writes)
+    assert "deletes its older records for good" in p.rollback("kinesis_restore_retention", params, live["state"], who=WHO)
+    assert len(f.writes) == writes
 
 
 def test_a_stream_without_a_longer_retention_before_or_that_moved_is_refused():

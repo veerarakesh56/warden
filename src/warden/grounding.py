@@ -223,6 +223,8 @@ REVERT_FIELDS = {"updateservice": ("desiredcount",), "setdesiredcapacity": ("des
                  "updateautoscalinggroup": ("desiredcapacity", "minsize", "maxsize"),
                  "updatefunctionconfiguration": ("timeout", "memorysize", "ephemeralstorage"),
                  "putfunctionconcurrency": ("reservedconcurrentexecutions",), "setqueueattributes": ("attributes",)}
+# The CloudTrail events that are a deploy - what a rollback undoes.
+_DEPLOY_EVENTS = ("updatefunctioncode", "publishversion", "updatealias", "createdeployment", "registertaskdefinition")
 _REQUEST_NAMED = re.compile(r" request=([A-Za-z0-9,]{1,600})$")
 # A CloudTrail event name as a CHANGE line writes it: CamelCase words, and the API version Lambda and CloudFront append.
 _EVENT_NAME = re.compile(r"(?<![A-Za-z0-9])(?:[A-Z][a-z]+){2,}[A-Za-z0-9_]*(?![A-Za-z0-9])")
@@ -259,6 +261,12 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
                     ok.append(w)
         return None if ok else (
             f"none of the cited evidence names a write revert_change undoes (none of: {', '.join(keys[:6])}...)")
+    if proposal.action is ActionKind.rollback_deploy and any(
+            c.id.strip().strip("[]").startswith("D") and c.id.strip().strip("[]") in items for c in root_cause.citations):
+        return None  # WARDEN's own record of the deploy in the window (G10 held-out: `previous=41` quoted from it)
+    if proposal.action is ActionKind.rollback_deploy and any(
+            w.lower().startswith(_DEPLOY_EVENTS) for q in cited for w in _EVENT_NAME.findall(q)):
+        return None  # the deploy's own CloudTrail event (`UpdateFunctionCode20150331v2`)
     quotes = [_CAMEL.sub(" ", q).lower() for q in cited]
     shortage = proposal.action is not ActionKind.scale_down
     idle_short = proposal.action is ActionKind.scale_up

@@ -10,7 +10,6 @@
         "ecs:UpdateService",
         "events:DisableRule",
         "events:EnableRule",
-        "kinesis:DecreaseStreamRetentionPeriod",
         "kinesis:IncreaseStreamRetentionPeriod",
         "lambda:DeleteFunctionConcurrency",
         "lambda:PutFunctionConcurrency",

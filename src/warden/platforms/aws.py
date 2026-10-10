@@ -222,7 +222,13 @@ def _trail_change(raw: dict[str, Any]) -> dict[str, Any] | None:
             "request": d.get("requestParameters") if isinstance(d.get("requestParameters"), dict) else None,
             "who_type": str(who.get("type") or ""), "invoked_by": str(who.get("invokedBy") or ""),
             "source_identity": str((who.get("sessionContext") or {}).get("sourceIdentity") or ""),
-            "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}"}
+            "actor_name": actor_name, "actor": f"{str(who.get('type') or '?').lower()}/{actor_name or '?'}",
+            "user_agent": str(d.get("userAgent") or "")}
+
+
+# The user agents of the infrastructure-as-code tools that call AWS's APIs themselves (CloudFormation, and so CDK and
+# SAM, call as an AWS service and are refused as one).
+_IAC = re.compile(r"Terraform|OpenTofu|pulumi|crossplane", re.IGNORECASE)
 
 
 def _who_refusal(e: dict[str, Any], onset: datetime) -> str:
@@ -239,6 +245,10 @@ def _who_refusal(e: dict[str, Any], onset: datetime) -> str:
         return f"{e['actor']} is a principal whose changes WARDEN never reverts (WARDEN_NEVER_REVERT_PRINCIPALS)"
     if e["request"] is None:
         return "CloudTrail did not record the whole request (too large, or not returned)"
+    iac = _IAC.search(e.get("user_agent") or "")
+    if iac:
+        return (f"the change was made by infrastructure as code ({iac.group(0)}): undo it in the code - its next "
+                "apply would undo WARDEN's")
     return ""
 
 
@@ -268,9 +278,10 @@ def _lambda_settings(conf: dict[str, Any], keys: list[str] | None = None) -> dic
 
 # G10 v2: a queue's settings a revert may write, and SQS's bounds for each (AWS::SQS::Queue's Config schema, read
 # 2026-10-10). Never Policy, RedrivePolicy, RedriveAllowPolicy, encryption or FIFO settings.
+# Not MessageRetentionPeriod: setting it shorter - the restore or its automatic rollback - expires queued messages
+# for good (G10 held-out re-check, 2026-10-10: g10-158 proposed undoing Terraform's longer retention).
 _QUEUE_SETTINGS = {"DelaySeconds": (0, 900), "MaximumMessageSize": (1024, 1048576),
-                   "MessageRetentionPeriod": (60, 1209600), "ReceiveMessageWaitTimeSeconds": (0, 20),
-                   "VisibilityTimeout": (0, 43200)}
+                   "ReceiveMessageWaitTimeSeconds": (0, 20), "VisibilityTimeout": (0, 43200)}
 
 
 def _ints(conf: dict[str, Any], keys: list[str]) -> dict[str, int]:
@@ -493,6 +504,9 @@ class AwsPlatform:
                     "undo")
         if entry == "secrets_restore_secret":
             return "nothing to roll back: deleting a secret again is a person's decision, never WARDEN's undo"
+        if entry == "kinesis_restore_retention":
+            return ("nothing to roll back: shortening a stream's retention deletes its older records for good; the "
+                    "longer retention stays until a person decides")
         if entry == "aurora_failover":
             # Irreversible (the catalogue's T3): failing back is another failover, a new decision for a person.
             return "nothing to roll back: a failover is not undone automatically; a person decides whether to fail back"
@@ -1772,6 +1786,20 @@ class AwsPlatform:
         changed = sorted(k for k in _SETTINGS if _setting_in_request(e["request"] or {}, k) is not None)
         if not why and not changed:
             why = "the change set none of timeout, memory or ephemeral storage"
+        if not why:
+            versions, marker = [], None
+            for _ in range(10):  # 50 a page; a function with more than 500 versions reads its newest 500
+                page = self._read("lambda").list_versions_by_function(
+                    FunctionName=name, **({"Marker": marker} if marker else {}))
+                versions += page.get("Versions") or []
+                marker = page.get("NextMarker")
+                if not marker:
+                    break
+            later = [v for v in versions if v.get("Version") != "$LATEST" and
+                     (_when(v.get("LastModified")) or e["at"]) > e["at"]]
+            if later:
+                why = (f"version {later[-1].get('Version')} was published after the change and holds it: what serves "
+                       "traffic is that version - a rollback, not a configuration revert")
         before = after = None
         if not why or onset is None:
             before, after, bracket = self._config_bracket(

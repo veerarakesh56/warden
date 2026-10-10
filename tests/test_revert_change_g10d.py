@@ -229,3 +229,20 @@ def test_a_revert_is_supported_only_when_the_request_set_what_the_family_undoes(
     proposal = RemediationProposal(action=ActionKind.revert_change, target="x", reasoning="r", expected_effect="e",
                                    blast_radius="single_service", reversible=True)
     assert (grounding.action_support_problem(rc, proposal, {"C1": Item("C1", line)}) is None) is supported
+
+
+@pytest.mark.parametrize("cid, quote, supported", [
+    ("D1", "previous=41", True),  # WARDEN's own record of the deploy in the window
+    ("C5", "UpdateFunctionCode20150331v2 on thumbnailer", True), ("C5", "PublishVersion20150331 on fn", True),
+    ("C5", "lambda_errors=4", False), ("C5", "code=ImportModuleError", False)])
+def test_a_rollback_is_supported_by_the_deploy_record_or_the_deploys_own_event(cid, quote, supported):
+    """G10 held-out (2026-10-10, g10-117 and g10-171): right rollbacks citing the deploy record (`previous=41`) and the
+    code update's CloudTrail event were held back - P15 looked for "deploy" or "version" inside the quote only."""
+    from warden import grounding
+    from warden.evidence import Item
+    from warden.models import Citation, RootCause
+
+    rc = RootCause(hypothesis="h", confidence=0.9, citations=[Citation(id=cid, quote=quote)])
+    proposal = RemediationProposal(action=ActionKind.rollback_deploy, target="x", reasoning="r", expected_effect="e",
+                                   blast_radius="single_service", reversible=True)
+    assert (grounding.action_support_problem(rc, proposal, {cid: Item(cid, quote)}) is None) is supported
