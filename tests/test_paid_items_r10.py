@@ -35,6 +35,7 @@ FREE = {
     ("_rds", "describe_db_clusters"), ("_rds", "describe_db_instances"), ("_rds", "describe_events"),
     ("_sts", "get_caller_identity"),
     ("_ct", "lookup_events"),  # CloudTrail event history: free (read 2026-10-10)
+    ("_ecs", "list_tasks"), ("_ecs", "describe_tasks"),  # ECS control plane: not billed (G10-C1)
 }
 
 

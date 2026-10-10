@@ -287,6 +287,17 @@ def replica_lag_s(metrics: dict[str, float]) -> float | None:
     return max(lags) if lags else None
 
 
+# The stopped-task causes that are failures (aws_stack.stop_cause), not a deployment's or a person's own stops.
+_TASK_FAILURES = frozenset({"secret_missing", "permission", "network", "image", "oom", "health_check", "exit",
+                            "failed_to_start"})
+
+
+def _deploy_changed_access(context) -> bool:
+    """A deploy in the evidence changed what the task may reach: its roles or its secrets (aws_backend._config_changes)."""
+    changed = ",".join(str(d.get("changed", "")) for d in context.recent_deploys)
+    return any(w in changed for w in ("taskRoleArn", "executionRoleArn", ".secrets:"))
+
+
 def _contradiction(proposal, context) -> str | None:
     """Why the proposed action cannot fix what the evidence shows - or None.
 
@@ -320,6 +331,20 @@ def _contradiction(proposal, context) -> str | None:
                 "of the load, so the lagging replica falls further behind.")
     if a is ActionKind.restart_pods and _log_has(context, "ErrImagePull", "ImagePullBackOff"):
         return "restart_pods re-pulls the same image, and the evidence shows that image cannot be pulled."
+    # G10-C1: what ECS's own stopped tasks say they died of (aws_stack._read_ecs_tasks). A rollback changes the task
+    # definition: it cannot fix tasks that die on the network - a route, a security group, DNS (recorded ecs-13 proposed
+    # one) - nor on a permission the deploy did not change. Fresh or more tasks fail to start the same way.
+    failing = {k.removeprefix("ecs_stopped_") for k, v in m.items()
+               if k.startswith("ecs_stopped_") and v > 0} & _TASK_FAILURES
+    if (a is ActionKind.rollback_deploy and failing and failing <= {"network", "permission"}
+            and not ("permission" in failing and _deploy_changed_access(context))):
+        return (f"rollback_deploy changes the task definition, but the stopped tasks died on "
+                f"{' and '.join(sorted(failing))}: the previous revision meets the same route, security group or "
+                "permission.")
+    if (a in (ActionKind.restart_pods, ActionKind.scale_up) and m.get("ecs_tasks_failed_to_start", 0) > 0
+            and failing & {"secret_missing", "permission", "network", "image"}):
+        return (f"{a.value} starts more tasks, but tasks fail to start ({', '.join(sorted(failing))}): every new one "
+                "fails the same way.")
     if (a is ActionKind.terminate_connections and "long_running_queries" in m
             and m.get("long_running_queries", 0) > 0 and m.get("idle_in_transaction", 0) == 0
             and m.get("locks_waiting", 0) == 0):

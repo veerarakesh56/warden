@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "StoppedTasksOfThisEnvironmentsClusters",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeTasks",
+        "ecs:ListTasks"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "ecs:cluster": "arn:aws:ecs:ap-south-2:*:cluster/warden-qa-staging-*"
+        }
+      }
+    }
+  ]
+}

@@ -4,7 +4,6 @@ fields are copied, and the stack backend reads it for any alarm whose labels nam
 
 from __future__ import annotations
 
-import json
 import pathlib
 from datetime import UTC, datetime
 
@@ -58,8 +57,9 @@ def test_every_entry_names_a_resource_the_alarm_mapping_gives():
 
 
 def test_every_entry_is_one_read_and_the_reader_role_grants_it():
-    doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
-    granted = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
+    import reader_iam
+
+    granted = reader_iam.granted()
     for key, d in aws_describe.TABLE.items():
         assert d.method.startswith(("describe_", "get_", "list_")), (key, d.method)
         verb = d.action.split(":", 1)[1]
@@ -81,7 +81,9 @@ _SCOPABLE = {"kinesis:DescribeStreamSummary", "firehose:DescribeDeliveryStream",
 
 
 def test_no_scopable_read_is_granted_on_everything():
-    doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
+    import reader_iam
+
+    doc = {"Statement": reader_iam.statements()}
     for s in doc["Statement"]:
         actions = {s["Action"]} if isinstance(s["Action"], str) else set(s["Action"])
         if s["Effect"] == "Allow" and s["Resource"] == "*":

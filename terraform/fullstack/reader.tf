@@ -74,6 +74,19 @@ data "aws_iam_policy_document" "fs_reader" {
     ]
   }
 
+  # An ECS service's stopped tasks (G10-C1): task actions are scoped by their cluster, not a resource name.
+  statement {
+    sid       = "StoppedTasksOfOwnClusters"
+    effect    = "Allow"
+    actions   = ["ecs:DescribeTasks", "ecs:ListTasks"]
+    resources = ["*"]
+    condition {
+      test     = "ArnLike"
+      variable = "ecs:cluster"
+      values   = ["arn:aws:ecs:${local.reader_arn}:cluster/${local.name}-*"]
+    }
+  }
+
   # Actions that take no resource ("*" only), or that the code calls without an identity: a list of cache
   # clusters, the instances of a cluster by filter.
   statement {

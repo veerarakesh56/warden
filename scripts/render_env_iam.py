@@ -27,7 +27,8 @@ TEMPLATES = ROOT / "iam" / "templates"
 # The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit. The actor and
 # platform-reader roles are WARDEN's own per-environment identities for its AWS platform (G6, audit A-P-5): the
 # runtime worker assumes the reader to read, and the actor - for one approved plan - to write.
-KINDS = ("boundary", "deploy", "deploy-ec2", "trust", "actor", "actor-trust", "platform-reader", "platform-reader-trust")
+KINDS = ("boundary", "deploy", "deploy-ec2", "trust", "actor", "actor-trust", "platform-reader", "platform-diagnose",
+         "platform-reader-trust")
 TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # WARDEN's own runtime environment (`runtime:` in environments.yaml) gets no application IAM: its deploy role - the one
 # runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).

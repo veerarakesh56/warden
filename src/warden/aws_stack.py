@@ -150,6 +150,44 @@ def _retag_aws_line(tag: str, line: str) -> str:
     return f"LOG {tag} {_z(_parse_time(stamp))} {message}"
 
 
+# G10-C1: an ECS service's last stopped tasks, its events in the hour before the alert, and how each is classified.
+STOPPED_TASKS = 10
+ECS_EVENT_WINDOW = timedelta(hours=1)
+_ECS_EVENT_KINDS = (
+    ("health_check_failed", re.compile(r"failed (?:container|ELB) health checks|is unhealthy in target-group", re.IGNORECASE)),
+    ("unable_to_place", re.compile(r"unable to place a task", re.IGNORECASE)),
+    ("deployment_failed", re.compile(r"deployment failed|circuit breaker", re.IGNORECASE)),
+    ("steady_state", re.compile(r"has reached a steady state", re.IGNORECASE)),
+    ("started_tasks", re.compile(r"has started \d+ tasks", re.IGNORECASE)),
+    ("stopped_tasks", re.compile(r"has stopped \d+ running tasks", re.IGNORECASE)),
+)
+# AWS's own stoppedReason and container reasons, classified - first match wins. The order matters: a secret that does
+# not exist before a denied one, both before the network (a pull that timed out), the network before an image.
+_STOP_CAUSES = (
+    ("secret_missing", re.compile(r"ResourceNotFoundException|ParameterNotFound|secret[^.]{0,80}(?:not found|does not exist)",
+                                  re.IGNORECASE)),
+    ("permission", re.compile(r"AccessDenied|not authorized|UnauthorizedOperation|is not permitted", re.IGNORECASE)),
+    ("network", re.compile(r"i/o timeout|dial tcp|context deadline exceeded|network is unreachable|no route to host|"
+                           r"connection refused|could not resolve|no such host", re.IGNORECASE)),
+    ("image", re.compile(r"CannotPullContainerError|manifest unknown|pull access denied|not found: manifest", re.IGNORECASE)),
+    ("oom", re.compile(r"OutOfMemory|out of memory|OOMKilled", re.IGNORECASE)),
+    ("health_check", re.compile(r"health check", re.IGNORECASE)),
+)
+
+
+def task_stop_cause(stop_code: str, reason: str, exit_codes: list) -> str:
+    """One stopped task's cause, from a closed set: what an ECS task stopped for, decided from AWS's own words."""
+    for cause, rx in _STOP_CAUSES:
+        if rx.search(reason):
+            return cause
+    if 137 in exit_codes:
+        return "oom"
+    if stop_code == "EssentialContainerExited" or "Essential container" in reason:
+        return "exit"
+    return {"UserInitiated": "user", "ServiceSchedulerInitiated": "scheduler", "SpotInterruption": "spot",
+            "TerminationNotice": "spot", "TaskFailedToStart": "failed_to_start"}.get(stop_code, "unknown")
+
+
 # The universal alarm reader (G9-A2a): how many of the resource's other metrics, and CloudTrail's limits.
 SIBLING_METRICS = int(os.environ.get("WARDEN_ALARM_SIBLING_METRICS", "12"))
 CHANGE_NAMES = 3
@@ -1157,7 +1195,58 @@ class StackBackend:
                                     "image": d.get("image", ""), "previous_image": d.get("previous_image", ""),
                                     "revision": d.get("revision", ""),
                                     # a rollback: nothing to roll back to, and the evidence says so (audit A-B-M6)
-                                    **({"rolled_back_from": d["rolled_back_from"]} if d.get("rolled_back_from") else {})})
+                                    **({"rolled_back_from": d["rolled_back_from"]} if d.get("rolled_back_from") else {}),
+                                    # a config-only revision: the setting NAMES it changed (G10: dropped here before)
+                                    **({"changed": d["changed"]} if d.get("changed") else {})})
+        self._read_ecs_tasks(out, alert.labels["ecs_cluster"], service, svc, alert)
+
+    def _read_ecs_tasks(self, out: _Out, cluster: str, service: str, svc: dict, alert: Alert) -> None:
+        """G10-C1: what the console shows first and the evidence lacked (miss analysis 2026-10-10: ecs-06, -07, -12,
+        -13 were answered with the service "at its desired count, nothing failed"). Each deployment's counts; the
+        service's own events, counted by kind; and the last stopped tasks - AWS's stop code and its stoppedReason
+        classified into a closed set of causes. The reason text itself reaches the model only as quarantined facts."""
+        for d in svc.get("deployments") or []:
+            out.lines.append(
+                f"STATE ecs/{service} deployment {_safe(d.get('status'))} rollout={_safe(d.get('rolloutState'))} "
+                f"revision={_safe(str(d.get('taskDefinition', '')).rsplit('/', 1)[-1])} desired={int(d.get('desiredCount') or 0)} "
+                f"running={int(d.get('runningCount') or 0)} pending={int(d.get('pendingCount') or 0)} "
+                f"failed={int(d.get('failedTasks') or 0)} at={_z(_parse_time(d.get('createdAt')))}")
+        started = AwsBackend._started_at(alert)
+        kinds: dict[str, int] = {}
+        for e in svc.get("events") or []:
+            at = _parse_time(e.get("createdAt"))
+            if at is None or not started - ECS_EVENT_WINDOW <= at <= started + timedelta(minutes=5):
+                continue
+            kind = next((k for k, rx in _ECS_EVENT_KINDS if rx.search(str(e.get("message", "")))), "other")
+            kinds[kind] = kinds.get(kind, 0) + 1
+        if kinds:
+            counted = " ".join(f"{k}={n}" for k, n in sorted(kinds.items()))
+            out.lines.append(f"STATE ecs/{service} service events in the hour before the alert: {counted}")
+        try:
+            arns = self._ecs.list_tasks(cluster=cluster, serviceName=service, desiredStatus="STOPPED",
+                                        maxResults=STOPPED_TASKS).get("taskArns") or []
+            tasks = (self._ecs.describe_tasks(cluster=cluster, tasks=arns).get("tasks") or []) if arns else []
+        except Exception as exc:  # noqa: BLE001 - the rest of the service's evidence stands
+            out.lines.append(_partial("ecs stopped tasks", exc))
+            return
+        causes: dict[str, int] = {}
+        for t in sorted(tasks, key=lambda t: _parse_time(t.get("stoppedAt")) or started, reverse=True):
+            reason = " ".join([str(t.get("stoppedReason") or "")]
+                              + [str(c.get("reason") or "") for c in t.get("containers") or []])
+            exits = [c.get("exitCode") for c in t.get("containers") or [] if c.get("exitCode") is not None]
+            cause = task_stop_cause(str(t.get("stopCode") or ""), reason, exits)
+            causes[cause] = causes.get(cause, 0) + 1
+            out.lines.append(
+                f"STATE ecs/{service} stopped task {_safe(str(t.get('taskArn', '')).rsplit('/', 1)[-1][:8])} "
+                f"at={_z(_parse_time(t.get('stoppedAt')))} "
+                f"revision={_safe(str(t.get('taskDefinitionArn', '')).rsplit('/', 1)[-1])} "
+                f"stop={_safe(t.get('stopCode'))} cause={cause}" + (f" exit={int(exits[0])}" if exits else ""))
+            if reason.strip():
+                out.lines.append(f"EVENT ecs/{service} stopped task: {reason.strip()[:400]}")
+        out.metrics["ecs_stopped_tasks"] = float(len(tasks))
+        out.metrics["ecs_tasks_failed_to_start"] = float(sum(1 for t in tasks if t.get("stopCode") == "TaskFailedToStart"))
+        for cause, n in causes.items():
+            out.metrics[f"ecs_stopped_{cause}"] = float(n)
 
     def _read_eks(self, out: _Out, cluster: str) -> None:
         vpc = self._eks.describe_cluster(name=cluster)["cluster"].get("resourcesVpcConfig") or {}

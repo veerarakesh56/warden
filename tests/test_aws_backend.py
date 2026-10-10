@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import ast
 import inspect
-import json
 import pathlib
 import re
 from datetime import UTC, datetime, timedelta
@@ -277,8 +276,11 @@ def test_a_failed_rollout_is_counted():
         {"status": "ACTIVE", "rolloutState": "COMPLETED", "createdAt": NOW,
          "taskDefinition": "arn:aws:ecs:eu-west-1:1:task-definition/checkout:6"},
     ]
-    out = _backend(ecs=FakeEcs(services=[_service(deployments=deployments)])).metrics(_alert())
+    svc = {**_service(deployments=deployments), "deploymentConfiguration": {"deploymentCircuitBreaker": {"enable": True}}}
+    out = _backend(ecs=FakeEcs(services=[svc])).metrics(_alert())
     assert out["deployments_failed"] == 1.0
+    # G10: without the circuit breaker (or deployment alarms) ECS never marks one FAILED - no count, not a 0.
+    assert "deployments_failed" not in _backend(ecs=FakeEcs(services=[_service(deployments=deployments)])).metrics(_alert())
     assert out["deployments_in_flight"] == 2.0
 
 
@@ -301,7 +303,7 @@ def test_tasks_dying_in_a_loop_are_visible_even_though_nothing_is_marked_failed(
     service = _service(running=2, desired=2, pending=0, deployments=deployments)
     out = _backend(ecs=FakeEcs(services=[service])).metrics(_alert())
 
-    assert out["deployments_failed"] == 0.0, "ECS marks nothing FAILED without the circuit breaker"
+    assert "deployments_failed" not in out, "ECS marks nothing FAILED without the circuit breaker: not a 0"
     assert out["tasks_running"] == out["tasks_desired"], "the service still looks healthy by count"
     assert out["deployment_failed_tasks"] == 10.0, "and this is the number that says it is not"
 
@@ -728,8 +730,10 @@ def test_the_watched_environments_reader_role_grants_every_call_the_code_makes()
     """In the cloud runtime every read runs in `warden-<env>-platform-reader` (aws_backend._bind): that role must grant
     each call, or a real incident is read as AccessDenied - the logs read was missing (2026-10-09)."""
     called = {_iam_action(attr, method) for attr, method in _api_calls()}
-    doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
-    granted = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
+    import reader_iam
+
+    doc = {"Statement": reader_iam.statements()}
+    granted = reader_iam.granted()
     assert called and called <= granted, sorted(called - granted)
     logs = next(st for st in doc["Statement"] if "logs:FilterLogEvents" in st["Action"])["Resource"]
     assert all("warden-${env}-" in r for r in logs)  # this environment's log groups only

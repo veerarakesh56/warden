@@ -143,6 +143,13 @@ def _ecs():
         describe_task_definition=lambda taskDefinition: {"taskDefinition": {
             "taskRoleArn": "arn:aws:iam::1:role/warden-dev-orders-api-task",
             "containerDefinitions": [{"image": f"app:{taskDefinition.rsplit(':', 1)[1]}"}]}},
+        list_tasks={"taskArns": ["arn:aws:ecs:ap-south-2:1:task/c/0123456789abcdef"]},
+        describe_tasks={"tasks": [{
+            "taskArn": "arn:aws:ecs:ap-south-2:1:task/c/0123456789abcdef", "taskDefinitionArn": arn + "8",
+            "stopCode": "TaskFailedToStart", "stoppedAt": NOW - timedelta(minutes=2),
+            "stoppedReason": "ResourceInitializationError: unable to pull secrets or registry auth: "
+                             "ResourceNotFoundException: Secrets Manager can't find the specified secret.",
+            "containers": [{"name": "app"}]}]},
     )
 
 
@@ -944,11 +951,11 @@ def test_a_fault_flags_value_never_reaches_the_evidence():
 def test_the_watched_environments_reader_role_grants_every_call_the_stack_backend_makes():
     """G9-A2b (2026-10-10): the cloud runtime's read zone runs this backend in `warden-<env>-platform-reader`; a call the
     role does not grant is an AccessDenied found during a real incident."""
-    import json
 
     called = {_iam_action(a, m) for a, m in _api_calls()}
-    doc = json.loads((ROOT / "iam" / "templates" / "platform-reader.json").read_text(encoding="utf-8"))
-    granted = {a for st in doc["Statement"] for a in ([st["Action"]] if isinstance(st["Action"], str) else st["Action"])}
+    import reader_iam
+
+    granted = reader_iam.granted()
     assert called <= granted, sorted(called - granted)
 
 

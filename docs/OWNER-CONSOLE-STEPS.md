@@ -643,9 +643,12 @@ that one resource. Both are in `iam/<env>/` (dev shown), and a test holds them t
    and `iam/dev/platform-reader-trust.local.json` with this account's id (neither is committed).
 2. **IAM** -> **Policies** -> **Create policy** -> **JSON**. Paste the whole of `iam/dev/platform-reader.json`.
    **Next**. Name: `WardenPlatformReader-dev`. Tags `Project` = `warden`, `Environment` = `dev`.
-   **Create policy**. Do the same with `iam/dev/actor.json`, named `WardenActor-dev`.
+   **Create policy**. Do the same with `iam/dev/platform-diagnose.json`, named `WardenPlatformDiagnose-dev` (the
+   reader's second policy: the first is near IAM's 6,144-character limit), and with `iam/dev/actor.json`, named
+   `WardenActor-dev`.
 3. **IAM** -> **Roles** -> **Create role** -> **Custom trust policy**. Paste the whole of
-   `iam/dev/platform-reader-trust.local.json` -> **Next** -> tick `WardenPlatformReader-dev` -> **Next**.
+   `iam/dev/platform-reader-trust.local.json` -> **Next** -> tick `WardenPlatformReader-dev` and
+   `WardenPlatformDiagnose-dev` -> **Next**.
    Name `warden-dev-platform-reader`. Maximum session duration **1 hour**. Tags `Project` = `warden`,
    `Environment` = `dev`. **Create role**.
 4. The same for the actor: trust `iam/dev/actor-trust.local.json`, policy `WardenActor-dev`, name
@@ -654,7 +657,7 @@ that one resource. Both are in `iam/<env>/` (dev shown), and a test holds them t
    with one approved test fix, that CloudTrail shows the session tags `approver`, `incident` and `plan`.
 
 Undo: delete the roles `warden-dev-actor` and `warden-dev-platform-reader`, then the policies
-`WardenActor-dev` and `WardenPlatformReader-dev`.
+`WardenActor-dev`, `WardenPlatformReader-dev` and `WardenPlatformDiagnose-dev`.
 
 ## Done 2026-09-27
 

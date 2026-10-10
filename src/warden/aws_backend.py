@@ -371,10 +371,14 @@ class AwsBackend:
         }
         deployments = service.get("deployments") or []
         out["deployments_in_flight"] = float(len(deployments))
-        # rolloutState FAILED means ECS gave up rolling forward — the strongest single signal here.
-        out["deployments_failed"] = float(
-            sum(1 for d in deployments if d.get("rolloutState") == "FAILED")
-        )
+        # rolloutState FAILED means ECS gave up rolling forward — the strongest single signal here. Only when ECS can
+        # set it - the deployment circuit breaker or deployment alarms on: otherwise it is always 0, and the model read
+        # that 0 as "no failed deploy" in ecs-06, -07, -09 and -12 (miss analysis, 2026-10-10). Absent, not zero.
+        config = service.get("deploymentConfiguration") or {}
+        if (config.get("deploymentCircuitBreaker") or {}).get("enable") or (config.get("alarms") or {}).get("enable"):
+            out["deployments_failed"] = float(
+                sum(1 for d in deployments if d.get("rolloutState") == "FAILED")
+            )
         # ⛔ THE SIGNAL A REAL ACCOUNT PROVED WAS MISSING. `deployments_failed` above counts
         # deployments ECS has marked FAILED — and ECS only ever sets that when the deployment
         # circuit breaker is enabled, which the proving ground does not enable. So it was
@@ -582,7 +586,8 @@ class AwsBackend:
 
 
 # The settings whose change makes a task definition revision a deploy even with the same images (G9-E).
-_TASK_FIELDS = ("cpu", "memory", "taskRoleArn", "networkMode", "runtimePlatform", "ephemeralStorage")
+_TASK_FIELDS = ("cpu", "memory", "taskRoleArn", "executionRoleArn", "networkMode", "runtimePlatform",
+                "ephemeralStorage")
 _CONTAINER_FIELDS = ("command", "entryPoint", "cpu", "memory", "memoryReservation", "healthCheck", "ulimits",
                      "linuxParameters", "portMappings", "essential", "workingDirectory", "user", "dependsOn",
                      "stopTimeout", "startTimeout", "logConfiguration")
