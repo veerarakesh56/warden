@@ -79,7 +79,11 @@ module "runtime" {
   # (register M20) and every incident is escalated on the rules alone.
   model_provider = lookup(local.tf, "model_provider", "")
   model          = lookup(local.tf, "model", "")
-  depends_on     = [terraform_data.environment_is_known]
+  # The workers' way out outlives them: pausing removes the services and the NAT route in one apply, and a task told to
+  # stop on an instance that has already lost its route never hears it - its service stays DRAINING until Terraform
+  # gives up after twenty minutes, with the instances still running (2026-10-11, run 38121022138). With this, the
+  # services and their instances go first, the route and the NAT after.
+  depends_on = [terraform_data.environment_is_known, aws_route.private_out]
 }
 
 # A slot the owner made by hand before the first apply (the Slack webhook, moved off the laptop in W0-now) is adopted,
