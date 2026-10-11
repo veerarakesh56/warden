@@ -1671,7 +1671,9 @@ class AwsPlatform:
         if before is None:
             return None, None, "Config holds no record of the resource before the change"
         if any(value_of(i) != value_of(after) for i in items[at + 1:]):
-            return None, None, "the value changed again after the change"
+            # With the values: WARDEN's own restore is such a later record once Config has it, and its rollback must
+            # still find the snapshot it was approved for. The reason alone keeps a new plan from being made.
+            return value_of(before), value_of(after), "the value changed again after the change"
         return value_of(before), value_of(after), ""
 
     def _config_id(self, rtype: str, name: str, fits: Callable[[str], bool]) -> str:
