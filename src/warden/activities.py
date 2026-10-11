@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import logging
 import os
 import secrets
 from collections.abc import Callable
@@ -30,6 +31,17 @@ from .observability import _safe_error
 
 MAX_APPROVAL_TTL_MINUTES = 240
 MAX_RECOVER_WITHIN_MINUTES = 120
+
+
+_LOG = logging.getLogger("warden.incident")
+
+
+def _note(text: str) -> None:
+    """One line on the worker's own log for whoever operates WARDEN: what it decided. The audit is the record; this
+    is so a decision can be seen without the database or the chat (live window, 2026-10-11: the only sign of an
+    incident in the log was the model's HTTP request). WARDEN's own words only - a status, policy ids, an entry's
+    name, its own refusal - on one line, cut short, through the logging gate like every other line."""
+    _LOG.info("%s", " ".join(text.split())[:300])
 
 
 class FixRequest(BaseModel):
@@ -751,6 +763,7 @@ class IncidentActivities:
         self.audit.append(alert_id, "incident.plan_fix", {
             "run_id": _run_id(), "planned": bool(req), "why": why,
             **({"entry": req["entry"], "params": req["params"], "workflow_id": req["workflow_id"]} if req else {})})
+        _note(f"{alert_id} fix plan " + (f"opened: {req['entry']}" if req else f"not opened: {why}"))
         return req or {}
 
     @activity.defn
@@ -845,4 +858,7 @@ class IncidentActivities:
         steps += graph.apply_node(state, route[graph.route_after_verify(state)](state))
         self._record(pack.alert.alert_id, steps)
         self.audit.checkpoint()
+        verdict = state["verdict"]
+        _note(f"{pack.alert.alert_id} alarm={pack.alert.labels.get('alarm', '-')} action={diagnosed.proposal.action.value} "
+              f"verdict={verdict.status.value} policies={','.join(verdict.policy_ids) or '-'}")
         return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps)
