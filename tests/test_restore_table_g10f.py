@@ -154,6 +154,19 @@ def test_the_resolver_plans_the_restore_from_the_tables_label_and_it_has_a_fix_p
     assert request is None and "no higher capacity" in why
 
 
+def test_every_config_type_a_restore_reads_is_in_the_owners_recorder_step():
+    """A type the recorder does not record is a restore that always refuses (the table's was missing, 2026-10-11)."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    read = set(re.findall(r'"(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)"',
+                          (root / "src/warden/platforms/aws.py").read_text(encoding="utf-8")))
+    step = (root / "docs/OWNER-CONSOLE-STEPS.md").read_text(encoding="utf-8")
+    assert "AWS::DynamoDB::Table" in read and len(read) >= 8
+    assert sorted(t for t in read if f"`{t}`" not in step) == []
+
+
 def _support(line):
     from warden.evidence import Item
 
