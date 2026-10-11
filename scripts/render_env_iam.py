@@ -41,7 +41,7 @@ def render(env: str, account: str = "<ACCOUNT_ID>", cluster: str = "<CLUSTER_RES
     """{kind: JSON text} for one environment. substitute() fails on any unknown placeholder. `cluster` is the
     environment's Aurora cluster resource id (stack.json `aurora_cluster_resource_id`), for the harness policy."""
     out = {}
-    for kind in (*KINDS, "harness", "harness-trust") if env in HARNESS_ENVS else KINDS:
+    for kind in (*KINDS, "harness", "harness-lab", "harness-trust") if env in HARNESS_ENVS else KINDS:
         text = string.Template((TEMPLATES / f"{kind}.json").read_text(encoding="utf-8"))
         # env_sql: the environment as a database user name has it - `_` for `-` (audit A-I-1/A-I-2).
         rendered = json.loads(text.substitute(env=env, env_sql=env.replace("-", "_"), account=account,

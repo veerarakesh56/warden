@@ -1,6 +1,8 @@
 name: "_ infra · deploy"
 
-# plan | apply | destroy the full stack in ONE environment, through GitHub OIDC. Called only by
+# plan | apply | destroy ONE stack in ONE environment, through GitHub OIDC: the full stack (terraform/fullstack), or
+# the undo lab (terraform/undo-lab - a table, a queue, two functions and a schedule; it refuses any environment but
+# the one its fault-injection role exists in). Called only by
 # Deploy · <env>. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
 # (docs/OWNER-CONSOLE-STEPS.md): the role warden-<env>-deploy (its trust accepts only this repository's
 # GitHub Environment of the same name), the SSM parameters /warden/<env>/tf/*, a state bucket, and a
@@ -17,6 +19,9 @@ on:
       action:
         type: string
         required: true
+      stack:
+        type: string
+        default: fullstack
 
 permissions:
   contents: read
@@ -31,6 +36,7 @@ jobs:
       id-token: write
     env:
       ACTION: ${{ inputs.action }}
+      STACK: ${{ inputs.stack }}
       WARDEN_ENV: ${{ inputs.environment }}
       BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -44,6 +50,7 @@ jobs:
       - name: A known action
         run: |
           case "$ACTION" in plan|apply|destroy) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+          case "$STACK" in fullstack|undo-lab) ;; *) echo "::error::unknown stack: $STACK"; exit 1 ;; esac
       - name: The environment names its region
         run: |
           test -n "$AWS_REGION" || { echo "::error::set the variable AWS_REGION on this GitHub Environment"; exit 1; }
@@ -96,19 +103,19 @@ jobs:
       - name: init with the S3 backend
         # backend_override.tf exists only on the runner: a local apply keeps local state.
         run: |
-          printf 'terraform {\n  backend "s3" {}\n}\n' > terraform/fullstack/backend_override.tf
-          terraform -chdir=terraform/fullstack init -input=false \
-            -backend-config="bucket=$BUCKET" -backend-config="key=fullstack/terraform.tfstate" \
+          printf 'terraform {\n  backend "s3" {}\n}\n' > "terraform/$STACK/backend_override.tf"
+          terraform -chdir="terraform/$STACK" init -input=false \
+            -backend-config="bucket=$BUCKET" -backend-config="key=$STACK/terraform.tfstate" \
             -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
           # The environment IS the workspace; terraform refuses any other (main.tf precondition).
-          terraform -chdir=terraform/fullstack workspace select -or-create "$WARDEN_ENV"
+          terraform -chdir="terraform/$STACK" workspace select -or-create "$WARDEN_ENV"
       - name: plan, and Helios on it (R56)
         if: env.ACTION != 'destroy'
         run: |
           set -o pipefail
-          terraform -chdir=terraform/fullstack show -json > "$RUNNER_TEMP/before.json"
-          terraform -chdir=terraform/fullstack plan -input=false -no-color -out="$RUNNER_TEMP/tfplan"
-          terraform -chdir=terraform/fullstack show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
+          terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/before.json"
+          terraform -chdir="terraform/$STACK" plan -input=false -no-color -out="$RUNNER_TEMP/tfplan"
+          terraform -chdir="terraform/$STACK" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
           # Refuses the change when it fails anything under a scenario today's stack survives.
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --plan "$RUNNER_TEMP/plan.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -116,27 +123,31 @@ jobs:
         if: env.ACTION == 'apply'
         run: |
           # The plan Helios checked, and nothing else.
-          terraform -chdir=terraform/fullstack apply -input=false -no-color "$RUNNER_TEMP/tfplan"
+          terraform -chdir="terraform/$STACK" apply -input=false -no-color "$RUNNER_TEMP/tfplan"
           # stack.json: every output EXCEPT the sensitive ones.
-          terraform -chdir=terraform/fullstack output -json \
+          terraform -chdir="terraform/$STACK" output -json \
             | jq 'with_entries(select(.value.sensitive | not))' > "$RUNNER_TEMP/stack.json"
           # Aurora (express configuration) after the VPC exists; it merges its keys into stack.json.
-          python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json"
-          aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/fullstack/stack.json" --only-show-errors
+          if [ "$STACK" = fullstack ]; then
+            python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json"
+          fi
+          aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/$STACK/stack.json" --only-show-errors
       - name: Helios on the applied state (R56)
         if: env.ACTION == 'apply'
         run: |
           set -o pipefail
           # The scenarios a plan could not decide (values unknown until apply), and every other one again.
-          terraform -chdir=terraform/fullstack show -json > "$RUNNER_TEMP/after.json"
+          terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/after.json"
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --after "$RUNNER_TEMP/after.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: destroy
         if: env.ACTION == 'destroy'
         run: |
           # Aurora first: terraform does not know it exists.
-          python terraform/fullstack/aurora_express.py destroy
-          terraform -chdir=terraform/fullstack destroy -input=false -auto-approve -no-color
-          aws s3 rm "s3://$BUCKET/fullstack/stack.json" --only-show-errors || true
+          if [ "$STACK" = fullstack ]; then
+            python terraform/fullstack/aurora_express.py destroy
+          fi
+          terraform -chdir="terraform/$STACK" destroy -input=false -auto-approve -no-color
+          aws s3 rm "s3://$BUCKET/$STACK/stack.json" --only-show-errors || true
           aws resourcegroupstaggingapi get-resources --region "$AWS_REGION" \
             --tag-filters Key=Project,Values=warden "Key=Environment,Values=$WARDEN_ENV" --query 'length(ResourceTagMappingList)'

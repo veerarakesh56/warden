@@ -49,3 +49,5 @@ NEXT-SESSION-PROMPT.txt
 iam/*/*.local.json
 terraform/proving-ground/*.local.json
 .mutation-restore.json
+# The undo lab's function archives, built at plan time.
+terraform/undo-lab/.build/

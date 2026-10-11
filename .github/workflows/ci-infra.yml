@@ -7,6 +7,7 @@ on:
     branches: [main]
     paths:
       - "terraform/fullstack/**"
+      - "terraform/undo-lab/**"
       - "terraform/modules/**"
       - "terraform/runtime/**"
       - "tests/test_runtime_pipeline_s9.py"
@@ -39,6 +40,7 @@ on:
   pull_request:
     paths:
       - "terraform/fullstack/**"
+      - "terraform/undo-lab/**"
       - "terraform/modules/**"
       - "terraform/runtime/**"
       - "tests/test_runtime_pipeline_s9.py"

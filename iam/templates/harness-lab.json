@@ -1,0 +1,62 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TheLabsFaultsOnItsOwnResources",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:UpdateTable",
+        "events:DisableRule",
+        "events:EnableRule",
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:PutFunctionConcurrency",
+        "lambda:UpdateFunctionConfiguration"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:${region}:*:table/warden-${env}-lab-*",
+        "arn:aws:events:${region}:*:rule/warden-${env}-lab-*",
+        "arn:aws:lambda:${region}:*:function:warden-${env}-lab-*"
+      ]
+    },
+    {
+      "Sid": "TheLabsOwnQueueMappings",
+      "Effect": "Allow",
+      "Action": "lambda:UpdateEventSourceMapping",
+      "Resource": "arn:aws:lambda:${region}:*:event-source-mapping:*",
+      "Condition": {
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:${region}:*:function:warden-${env}-lab-*"
+        }
+      }
+    },
+    {
+      "Sid": "ReadTheLabsState",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "events:DescribeRule",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:${region}:*:table/warden-${env}-lab-*",
+        "arn:aws:events:${region}:*:rule/warden-${env}-lab-*",
+        "arn:aws:lambda:${region}:*:function:warden-${env}-lab-*"
+      ]
+    },
+    {
+      "Sid": "ReadsThatNameNoResource",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms",
+        "lambda:ListEventSourceMappings"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    }
+  ]
+}

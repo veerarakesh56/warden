@@ -489,7 +489,7 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
               "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
               "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
               "tests/test_runtime_module_g6.py", "tests/test_runtime_pipeline_s9.py", "tests/test_runtime_iam_g6.py", "tests/test_actor_use_g6.py", "tests/test_redis_tls_r8.py", "tests/test_api_auth_ai13.py", "tests/test_runtime_network_g6.py"}
-    assert all(p.startswith(("terraform/fullstack/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
+    assert all(p.startswith(("terraform/fullstack/", "terraform/undo-lab/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
                or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
                          "src/warden/data/environments.yaml")
                for p in wf["on"]["push"]["paths"] + wf["on"]["pull_request"]["paths"])
@@ -729,8 +729,12 @@ def test_aurora_status_says_whether_the_cluster_is_up():
 
 def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
-    assert text.index("terraform/fullstack apply") < text.index("aurora_express.py create") < text.index("aws s3 cp")
-    assert text.index("aurora_express.py destroy") < text.index("terraform/fullstack destroy")
+    # One workflow, two stacks (2026-10-11): Aurora is the full stack's only, and the undo lab never reaches it.
+    assert text.index('"terraform/$STACK" apply') < text.index("aurora_express.py create") < text.index("aws s3 cp")
+    assert text.index("aurora_express.py destroy") < text.index('"terraform/$STACK" destroy')
+    for step in ("aurora_express.py create", "aurora_express.py destroy"):
+        assert 'if [ "$STACK" = fullstack ]; then' in text[text.index(step) - 90:text.index(step)], step
+    assert 'case "$STACK" in fullstack|undo-lab) ;;' in text and "terraform/fullstack apply" not in text
     assert "MASTER_PASSWORD" not in text and "db_master_password" not in text
 
 

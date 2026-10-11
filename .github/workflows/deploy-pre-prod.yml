@@ -16,6 +16,11 @@ on:
         type: choice
         options: [plan, apply, destroy]
         default: plan
+      infra_stack:
+        description: "infra only: the full stack, or the small undo lab (terraform/undo-lab)"
+        type: choice
+        options: [fullstack, undo-lab]
+        default: fullstack
       apps_target:
         description: "apps only: what to deploy"
         type: choice
@@ -41,6 +46,7 @@ jobs:
     with:
       environment: pre-prod
       action: ${{ inputs.infra_action }}
+      stack: ${{ inputs.infra_stack }}
     permissions:
       contents: read
       id-token: write

@@ -1,0 +1,62 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "TheLabsFaultsOnItsOwnResources",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:UpdateTable",
+        "events:DisableRule",
+        "events:EnableRule",
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:PutFunctionConcurrency",
+        "lambda:UpdateFunctionConfiguration"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-dev-lab-*",
+        "arn:aws:events:ap-south-2:*:rule/warden-dev-lab-*",
+        "arn:aws:lambda:ap-south-2:*:function:warden-dev-lab-*"
+      ]
+    },
+    {
+      "Sid": "TheLabsOwnQueueMappings",
+      "Effect": "Allow",
+      "Action": "lambda:UpdateEventSourceMapping",
+      "Resource": "arn:aws:lambda:ap-south-2:*:event-source-mapping:*",
+      "Condition": {
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:ap-south-2:*:function:warden-dev-lab-*"
+        }
+      }
+    },
+    {
+      "Sid": "ReadTheLabsState",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "events:DescribeRule",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-south-2:*:table/warden-dev-lab-*",
+        "arn:aws:events:ap-south-2:*:rule/warden-dev-lab-*",
+        "arn:aws:lambda:ap-south-2:*:function:warden-dev-lab-*"
+      ]
+    },
+    {
+      "Sid": "ReadsThatNameNoResource",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DescribeAlarms",
+        "lambda:ListEventSourceMappings"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2"
+        }
+      }
+    }
+  ]
+}
