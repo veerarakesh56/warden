@@ -150,6 +150,59 @@ with the alert-time lines kept. The same saved answers again, no model call (`--
 The wrong plans are the same cases as before. Not measured here: a live service. These are three runs of one
 synthetic set; the live window's faults and healthy controls are the first measure on real reads.
 
+## Third pass (2026-10-11): two undo families, and three defects found on the way
+
+The owner left the choice of new writes to WARDEN's author. Built, each behind a passkey approval:
+
+- `dynamodb_restore_capacity`: a table's read and write units back to what AWS Config recorded before the ONE
+  recorded UpdateTable that only cut them (g10-092, g10-107, g10-130).
+- `asg_resume_processes`: exactly the processes ONE recorded SuspendProcesses stopped, resumed (g10-103).
+
+| Same answers, no model call | baseline 209063b | ff73442 | 397346f |
+|---|---|---|---|
+| Outcome right | 146 | 145 | 149 |
+| ... a right fix plan reached the approver | 52 | 53 | 56 |
+| ... a hand-off, where a hand-off is a right answer | 94 | 92 | 93 |
+| A right fix proposed and held back | 21 | 22 | 18 |
+| No right fix proposed, none planned | 4 | 3 | 4 |
+| A wrong plan reached the approver | 1 | 2 | 1 |
+
+**What these numbers do not say.** "Reached the approver" is the verifier's verdict; the plan itself is made by the
+platform's live read, which this benchmark cannot run. One of the plans counted right (g10-024) changes an on-demand
+table's maximum throughput through Terraform: the live read refuses it. Of the four wrong plans, the live read
+refuses three (see above). The fourth is real: in ff73442 a restart of g10-135 passes, because the model cited the
+person's desired-count cut and dismissed it, which P31 does not judge. Escalating such a fix even when the change is
+cited was measured: it stops that plan and hands 1, 2 and 0 right plans to a person. Not changed on one case.
+Neither family has run against live AWS.
+
+**Found on the way, in code that existed before** (each fixed and tested; none seen live yet):
+
+- A fix judged by its alarm was verified for a fixed five minutes. An alarm of three 5-minute periods clears no
+  sooner than fifteen, so a right restore behind it would have been rolled back. The window now follows the alarm.
+- A restore from AWS Config's record could not be rolled back once Config had recorded the restore itself: the
+  rollback refused, and a refused rollback trips the kill switch.
+- WARDEN's own state line lost a number to the redactor: a file system's size in bytes was masked as a phone
+  number (g10-118).
+
+**Left with a person, on purpose** (18 held back in the last run):
+
+| Why | Cases |
+|---|---|
+| The change was made through infrastructure as code: undone in the code (owner, 2026-10-10) | g10-018, g10-052, g10-063 |
+| A resize of a database, cache or search domain: downtime or a failover, minutes to hours, and cost | g10-004, g10-049, g10-100, g10-109 |
+| Security or identity: a KMS grant, an API authorizer | g10-039, g10-045 |
+| The value before the change is recorded nowhere WARDEN reads (provisioned concurrency, a target group attribute, an SNS filter policy) | g10-005, g10-034, g10-116 |
+| A global or slow change (CloudFront), a Route 53 health check (owner, 2026-10-10) | g10-035, g10-164 |
+| A read failed for real (the database refused the connection; a rule on a custom bus read on the default one - today's reader takes the bus from the alarm) | g10-007, g10-101 |
+| A runaway query on PostgreSQL: a cancel entry is a candidate, not built before the existing writes are proven live | g10-114 |
+| A secondary index's capacity: the table-level raise would change the wrong thing, and the evidence check holds it | g10-044 |
+
+In each of these the person receives the diagnosis and the proposed fix as advice.
+
+**"Ask three times, hand over when the answers differ" was measured and not built.** With the three saved runs as
+the three answers (an estimate: three code versions, not three samples of one), it would hand 1, 4 and 3 right
+plans to a person, stop 0, 1 and 1 of the wrong verdicts, and triple the model cost.
+
 ## The 30 recorded incidents, read one by one (2026-10-11)
 
 The provider qualification replays 30 incidents recorded on live AWS in September 2026. Sonnet 5 scores 18 to 22 of
