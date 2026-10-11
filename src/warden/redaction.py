@@ -145,7 +145,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     #   - nor may it run INTO a date: `task 4471 2026-09-11T18:09:10Z` lost its number and half its timestamp to
     #     `<PHONE_1>-11T18:09:10Z` (the 30 recorded incidents, read 2026-10-11). A phone number before a date is still
     #     masked, up to the date.
-    ("PHONE", re.compile(r"(?<![\w.\-])(?!\d{4}-\d\d-\d\d)\+?\d(?:(?! ?\d{4}-\d\d-\d\d)[\d \-]){8,14}\d(?![\w.])")),
+    ("PHONE", re.compile(r"(?<![\w.\-])(?!\d{4}-\d\d-\d\d)\+?\d(?:(?!\d{4}-\d\d-\d\d)[\d \-]){8,14}\d(?![\w.])")),
     # password=..., secret: ..., aws_secret_access_key="...": the value after a credential-ish key.
     # Runs LAST: a value already masked whole is left alone. The bounded [\w.\-] prefix/suffix lets the sensitive word sit INSIDE a
     # compound key (`aws_secret_access_key`, `db_password`), which a `\b`-anchored form missed — the

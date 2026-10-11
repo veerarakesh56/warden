@@ -318,6 +318,50 @@ def test_rollout_restart_is_not_a_deploy():
     assert _backend(apps=FakeApps(replicasets=rs)).deploys(_alert()) == []
 
 
+def _rs_with(rev, created, *, image="acme/checkout:9f2c1ab", annotations=None, **container):
+    return NS(
+        metadata=NS(annotations={"deployment.kubernetes.io/revision": str(rev)}, creation_timestamp=created,
+                    owner_references=[NS(kind="Deployment", uid="dep-uid")]),
+        spec=NS(template=NS(metadata=NS(annotations=annotations or {}),
+                            spec=NS(containers=[NS(image=image, **container)]))),
+    )
+
+
+def _two(before: dict, after: dict):
+    rs = [_rs_with(1, ALERT_AT - timedelta(days=2), **before), _rs_with(2, ALERT_AT - timedelta(minutes=5), **after)]
+    return _backend(apps=FakeApps(replicasets=rs)).deploys(_alert())
+
+
+def test_a_template_change_with_no_image_change_is_a_deploy():
+    """The recorded incident k8s-03 (read 2026-10-11): a memory limit lowered on the same image. Only images were
+    compared, so it was "a restart, not a deploy" - no deploy record, and the rollback was never proposed (0 of 6
+    runs). The record names WHICH part changed and never a value."""
+    limits = lambda mib: NS(limits={"memory": f"{mib}Mi"})
+    [d] = _two({"resources": limits(256)}, {"resources": limits(48)})
+    assert d["changed"] == "resources" and d["image"] == d["previous_image"] and d["revision"] == "2"
+    [d] = _two({"env": [NS(name="DB_PASSWORD", value="old-secret")]}, {"env": [NS(name="DB_PASSWORD", value="hunter2")]})
+    assert d["changed"] == "env" and "hunter2" not in str(d) and "DB_PASSWORD" not in str(d)
+    [d] = _two({"image": "a:1", "command": ["run"]}, {"image": "a:2", "command": ["run", "--fast"]})
+    assert d["changed"] == "image,command"
+    [d] = _two({}, {"readiness_probe": NS(http_get=NS(path="/ready"))})
+    assert d["changed"] == "readiness_probe"
+
+
+def test_a_restart_that_only_stamps_the_template_is_still_no_deploy():
+    stamp = {"kubectl.kubernetes.io/restartedAt": "2026-10-10T07:55:00Z"}
+    same = {"resources": NS(limits={"memory": "256Mi"}), "env": [NS(name="A", value="1")]}
+    assert _two(same, {**same, "annotations": stamp}) == []
+
+
+def test_the_parts_of_a_template_are_not_resources_a_target_may_name():
+    from warden import evidence
+    from warden.models import ContextBundle
+
+    context = ContextBundle(recent_deploys=[{"deployment": "checkout", "revision": "2", "changed": "image,env"}])
+    inventory = evidence.inventory(_alert(), context)
+    assert "checkout" in inventory and not {"image", "env", "image,env"} & inventory
+
+
 def test_init_container_only_image_change_is_a_deploy():
     """A deploy that bumps ONLY a migration/init-container image (app container unchanged) is a real
     template change. _images() compared app containers alone, so it read as a no-op restart, hid the

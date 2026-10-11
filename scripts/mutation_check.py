@@ -150,7 +150,7 @@ MUTATIONS = [
     (
         "k8s backend reports a rollout restart as a deploy",
         "k8s_backend.py",
-        "        if previous is not None and _images(previous) == current_images:\n            return []",
+        "        if not changed:\n            return []",
         "        if False:\n            return []",
         "policy P5 would accept a rollback that re-applies the identical template",
     ),

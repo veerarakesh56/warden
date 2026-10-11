@@ -401,8 +401,10 @@ class KubernetesBackend:
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
         """A recent TEMPLATE CHANGE for this Deployment, or nothing.
 
-        Compares the current ReplicaSet's images with the previous ReplicaSet's. A `rollout restart`
-        bumps the revision without changing an image and is therefore NOT a deploy.
+        Compares the current ReplicaSet's pod template with the previous one's: its images, and the parts of it whose
+        change is a deploy with no image moved - a lowered memory limit, an environment variable, a probe (the
+        recorded incident k8s-03, read 2026-10-11: such a change was no deploy, so no rollback was ever proposed, in
+        six runs of six). A `rollout restart` bumps the revision and changes none of them: it is NOT a deploy.
         """
         ns, name = self._namespace(alert), self._deployment(alert)
         try:
@@ -424,7 +426,9 @@ class KubernetesBackend:
         current, previous = owned[-1], (owned[-2] if len(owned) > 1 else None)
 
         current_images = _images(current)
-        if previous is not None and _images(previous) == current_images:
+        changed = ["image"] if previous is None or _images(previous) != current_images else []
+        changed += _template_changes(previous, current) if previous is not None else []
+        if not changed:
             return []  # revision moved, template did not: a restart, not a deploy
 
         changed_at = _aware(current.metadata.creation_timestamp)
@@ -438,6 +442,7 @@ class KubernetesBackend:
             "previous_image": ",".join(_images(previous)) if previous is not None else "",
             "at": changed_at.isoformat(),
             "by": "kubernetes",
+            "changed": ",".join(changed),  # which parts of the template - names from a closed list, never a value
         }]
 
 
@@ -508,6 +513,26 @@ def _images(rs) -> list[str]:
     spec = rs.spec.template.spec
     containers = list(getattr(spec, "init_containers", None) or []) + list(spec.containers or [])
     return sorted(c.image or "" for c in containers)
+
+
+# The parts of a pod template whose change is a deploy although no image moved. Names only, a closed list: a value -
+# an environment variable's, a command's - may be a secret, and is never written.
+_CONTAINER_PARTS = ("resources", "env", "env_from", "command", "args", "liveness_probe", "readiness_probe",
+                    "startup_probe", "ports", "volume_mounts", "security_context")
+_POD_PARTS = ("volumes", "service_account_name", "node_selector", "tolerations", "affinity")
+
+
+def _template_changes(previous, current) -> list[str]:
+    """Which parts of the pod template differ between two ReplicaSets, images apart."""
+    def containers(spec) -> list:
+        return list(getattr(spec, "init_containers", None) or []) + list(spec.containers or [])
+
+    a, b = previous.spec.template.spec, current.spec.template.spec
+    ca, cb = containers(a), containers(b)
+    changed = ["containers"] if len(ca) != len(cb) else []
+    changed += [part for part in _CONTAINER_PARTS
+                if [getattr(c, part, None) for c in ca] != [getattr(c, part, None) for c in cb]]
+    return changed + [part for part in _POD_PARTS if getattr(a, part, None) != getattr(b, part, None)]
 
 
 def _api_error(exc) -> str:

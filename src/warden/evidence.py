@@ -260,7 +260,8 @@ def inventory(alert: Alert, context: ContextBundle) -> set[str]:
     untrusted line mentions is not evidence the resource exists."""
     names = {alert.service}
     names |= {v.strip() for value in alert.labels.values() for v in value.split(",")}
-    names |= {str(v) for d in context.recent_deploys for v in d.values()}
+    # Not `changed`: it names parts of a template (image, env, resources), not a resource.
+    names |= {str(v) for d in context.recent_deploys for k, v in d.items() if k != "changed"}
     names |= {k.split("__", 1)[1] for k in context.metrics if "__" in k}
     names |= {i.text for i in index(context).values() if i.id[0] == "C"}
     return {t for n in names for t in tokens(n)} | names | {p for n in names for p in PATH.findall(n)}
