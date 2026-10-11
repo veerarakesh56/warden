@@ -117,7 +117,7 @@ jobs:
           terraform -chdir="terraform/$STACK" plan -input=false -no-color -out="$RUNNER_TEMP/tfplan"
           terraform -chdir="terraform/$STACK" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
           # Refuses the change when it fails anything under a scenario today's stack survives.
-          python scripts/helios_gate.py --helios "$HELIOS_BIN" --plan "$RUNNER_TEMP/plan.json" \
+          python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: apply and publish stack.json
         if: env.ACTION == 'apply'
@@ -138,7 +138,7 @@ jobs:
           set -o pipefail
           # The scenarios a plan could not decide (values unknown until apply), and every other one again.
           terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/after.json"
-          python scripts/helios_gate.py --helios "$HELIOS_BIN" --after "$RUNNER_TEMP/after.json" \
+          python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --after "$RUNNER_TEMP/after.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: destroy
         if: env.ACTION == 'destroy'

@@ -48,9 +48,9 @@ def zones(doc: dict) -> list[str]:
     return sorted(z for z in found if isinstance(z, str) and z)
 
 
-def scenarios(doc: dict, out_dir: pathlib.Path) -> dict[str, pathlib.Path]:
+def scenarios(doc: dict, out_dir: pathlib.Path, helios_dir: pathlib.Path = HELIOS) -> dict[str, pathlib.Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    found = {p.stem: p for p in sorted((HELIOS / "scenarios").glob("*.json"))}
+    found = {p.stem: p for p in sorted((helios_dir / "scenarios").glob("*.json"))}
     for z in zones(doc):
         path = out_dir / f"lose-{z}.json"
         path.write_text(json.dumps({"name": f"lose-{z}", "kind": {"type": AZ, "az": z}}), encoding="utf-8")
@@ -108,25 +108,35 @@ def main(argv: list[str] | None = None) -> int:
     target.add_argument("--after", type=pathlib.Path)
     ap.add_argument("--baseline", type=pathlib.Path)
     ap.add_argument("--out-dir", type=pathlib.Path, required=True)
+    # Each stack is judged by its OWN scenarios and accepted failures (terraform/<stack>/helios): the undo lab's first
+    # plan was refused for not holding the full stack's node group, queue and cache (2026-10-11).
+    ap.add_argument("--stack", default="fullstack")
     args = ap.parse_args(argv)
+    helios_dir = ROOT / "terraform" / args.stack / "helios"
+    if not args.stack.replace("-", "").isalnum() or not (helios_dir / "accepted.json").is_file():
+        print(f"refused: terraform/{args.stack}/helios/accepted.json does not exist - a stack says what it accepts, "
+              "even when that is nothing")
+        return 1
     document = args.plan or args.after
     doc = _load(document)
     if doc is None:
         print(f"refused: {document} is not a `terraform show -json` document")
         return 1
     baseline = _load(args.baseline)
-    accepted = json.loads((HELIOS / "accepted.json").read_text(encoding="utf-8"))
+    accepted = json.loads((helios_dir / "accepted.json").read_text(encoding="utf-8"))
     helios = [args.helios]
     refused = False
     lines = [f"### Helios {'after apply' if args.after else 'before apply'}", "",
              "| Scenario | Verdict | Why |", "|---|---|---|"]
-    for name, path in scenarios(doc, args.out_dir).items():
+    for name, path in scenarios(doc, args.out_dir, helios_dir).items():
         before = simulate(helios, args.baseline, path) if baseline is not None else None
         verdict, why = judge(name, simulate(helios, document, path), before, accepted)
         if args.after and verdict == "later":
             verdict, why = "refuse", "inconclusive on the applied state"
         refused |= verdict == "refuse"
         lines.append(f"| {name} | {verdict} | {why.replace('|', '/')} |")
+    if len(lines) == 4:
+        lines += ["", f"terraform/{args.stack} declares no scenario it must survive and has no subnet: nothing to run."]
     if baseline is None:
         lines += ["", "No current state: a first create, compared with the accepted failures only."]
     if refused and args.after:

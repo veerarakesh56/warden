@@ -113,6 +113,36 @@ def test_every_scenario_and_accepted_failure_names_a_resource_the_stack_declares
     assert set(accepted) == {"az-outage"} | {p.stem for p in (gate.HELIOS / "scenarios").glob("*.json")}
 
 
+def test_each_stack_is_judged_by_its_own_scenarios_and_one_that_declares_none_is_refused(tmp_path, monkeypatch, capsys):
+    """2026-10-11: the undo lab's first plan was refused for not holding the full stack's node group, queue and cache.
+    A stack says what it accepts in its own terraform/<stack>/helios/accepted.json - the lab accepts nothing and names
+    no scenario (it exists to be broken); a stack with no such file, or a name that is no stack's, is refused."""
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"planned_values": {"root_module": {"resources": [
+        {"type": "aws_dynamodb_table", "values": {}}]}}}), encoding="utf-8")
+    monkeypatch.setattr(gate, "simulate", lambda *a: ("error", "the lab runs no scenario"))
+
+    def run(stack):
+        return gate.main(["--helios", "helios", "--plan", str(plan), "--out-dir", str(tmp_path / "s"), "--stack", stack])
+
+    assert run("undo-lab") == 0 and "declares no scenario" in capsys.readouterr().out
+    assert json.loads((ROOT / "terraform" / "undo-lab" / "helios" / "accepted.json").read_text(encoding="utf-8")) == {}
+    assert not list((ROOT / "terraform" / "undo-lab" / "helios").glob("scenarios/*.json"))
+    assert run("fullstack") == 1  # its own three scenarios run - and here cannot
+    for stack in ("runtime", "no-such-stack", "../fullstack", ""):
+        assert run(stack) == 1 and "refused" in capsys.readouterr().out, stack
+    # A stack's own accepted failures excuse its own scenario - never another stack's file.
+    own = tmp_path / "terraform" / "other" / "helios"
+    (own / "scenarios").mkdir(parents=True)
+    (own / "scenarios" / "table-loss.json").write_text("{}", encoding="utf-8")
+    (own / "accepted.json").write_text(json.dumps({"table-loss": ["aws_lambda_function.reader"]}), encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "simulate", lambda *a: {"aws_lambda_function.reader"})
+    assert run("other") == 0 and "| table-loss | ok |" in capsys.readouterr().out
+    (own / "accepted.json").write_text("{}", encoding="utf-8")
+    assert run("other") == 1
+
+
 @pytest.fixture
 def deploy():
     return (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
@@ -123,8 +153,9 @@ def test_the_deploy_applies_only_the_plan_helios_checked(deploy):
     assert "--locked" in deploy
     assert deploy.index("Build Helios at a pinned commit") < deploy.index("configure-aws-credentials")
     order = ["show -json > \"$RUNNER_TEMP/before.json\"", "plan -input=false -no-color -out=\"$RUNNER_TEMP/tfplan\"",
-             "helios_gate.py --helios \"$HELIOS_BIN\" --plan", "apply -input=false -no-color \"$RUNNER_TEMP/tfplan\"",
-             "helios_gate.py --helios \"$HELIOS_BIN\" --after"]
+             "helios_gate.py --helios \"$HELIOS_BIN\" --stack \"$STACK\" --plan",
+             "apply -input=false -no-color \"$RUNNER_TEMP/tfplan\"",
+             "helios_gate.py --helios \"$HELIOS_BIN\" --stack \"$STACK\" --after"]
     assert [deploy.index(s) for s in order] == sorted(deploy.index(s) for s in order)
     assert "-auto-approve -no-color\n" not in deploy.split("name: destroy")[0]  # no fresh, unchecked plan is applied
     assert deploy.count("set -o pipefail") >= 2  # tee would hide the gate's exit code
