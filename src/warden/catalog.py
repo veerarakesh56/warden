@@ -388,6 +388,9 @@ def fingerprint() -> str:
 # A platform with more than one kind of recorded change to undo: the resolver uses the entry that found the change,
 # and refuses when more than one did (WARDEN does not choose between two changes).
 REVERT_ALSO = {"lambda": ("lambda_restore_settings",)}
+# When none of them found a recorded change: a consumer a change switched off is undone by switching it on - the same
+# write as resume_flow (G10 held-out, 2026-10-11: the undo of a disabled event source mapping was never planned).
+REVERT_ELSE = {"lambda": ("lambda_enable_esm", "mapping")}
 
 
 def for_action(action: ActionKind, platform: str) -> Entry | None:

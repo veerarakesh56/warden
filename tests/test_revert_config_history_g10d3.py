@@ -58,6 +58,11 @@ class Fake:
     def describe_scalable_targets(self, **kw):
         return {"ScalableTargets": list(self.scaled)}
 
+    mappings: tuple = ()
+
+    def list_event_source_mappings(self, FunctionName, **kw):
+        return {"EventSourceMappings": list(self.mappings)}
+
     # lambda
     def get_function_configuration(self, FunctionName):
         return {"FunctionName": FN, "FunctionArn": FN_ARN}

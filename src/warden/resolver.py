@@ -328,6 +328,7 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
         entry, state = _the_recorded_change(entry, params, state, platform, live)
         if entry is None:
             return None, state
+        params = {k: v for k, v in params.items() if k in entry.params}  # the entry found may take fewer
     for name, spec in entry.params.items():
         if name in params or spec.kind != "ref":
             continue
@@ -356,6 +357,11 @@ def _the_recorded_change(entry: catalog.Entry, params: dict[str, Any], state: di
     if len(found) > 1:
         return None, ("more than one kind of recorded change to this resource ("
                       + ", ".join(e.name for e, _ in found) + "): WARDEN does not choose between them")
+    if not found and platform in catalog.REVERT_ELSE:
+        name, what = catalog.REVERT_ELSE[platform]
+        switched_off = live(name, params)
+        if switched_off.get(what):
+            return catalog.CATALOG[name], switched_off
     return found[0] if found else tried[0]
 
 

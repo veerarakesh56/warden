@@ -298,6 +298,10 @@ def _principal(e: dict) -> str:
     kind = _safe(who.get("type") or "unknown")
     if kind == "AssumedRole":
         role = ((who.get("sessionContext") or {}).get("sessionIssuer") or {}).get("userName")
+        # An IAM Identity Center role ends in an opaque 16-hex id: with it the redactor's entropy backstop hid the
+        # whole actor, `role/` included, and a person's change read `by <HIGHENTROPY_1>` (G10 held-out, 2026-10-11).
+        if role and str(role).startswith("AWSReservedSSO_"):
+            role = re.sub(r"_[0-9a-f]{16}$", "", str(role))
         return f"role/{_safe(role)}" if role else "role"
     if kind == "IAMUser":
         return f"user/{_safe(who.get('userName'))}" if who.get("userName") else "user"

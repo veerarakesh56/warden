@@ -82,7 +82,10 @@ def _evidence_is_substantial(context) -> bool:
     """
     has_logs = len(context.logs) >= MIN_LOG_LINES
     has_metrics = len(context.metrics) >= MIN_METRICS
-    has_deploys = bool(context.recent_deploys)
+    # A write CloudTrail recorded counts as a deploy does: it is the record of a change (G10 held-out, 2026-10-11 - a
+    # scheduled rule a person disabled runs nothing, so it logs nothing and has one metric; its DisableRule, its
+    # DISABLED state and its alarm were all read, and the re-enable was held as thin evidence).
+    has_deploys = bool(context.recent_deploys) or next(_changes_by_someone(context), None) is not None
     # Two independent kinds of evidence, or a deploy plus one other kind.
     return sum([has_logs, has_metrics, has_deploys]) >= 2
 
@@ -460,9 +463,24 @@ def _p29_benign_partials(alert: Alert, context: ContextBundle, root_cause: RootC
     return None
 
 
-# A write to the alert's own resource by a person or a pipeline, as aws_stack._read_changes writes it.
-_CHANGE_LINE = re.compile(r"^CHANGE (\d{4}-\d\d-\d\dT[\d:]{8})Z \S+ (\S+) on (\S+) by ((?:role|user)\S*)")
+# A dated write as aws_stack._read_changes writes it: when, the event, the resource, who.
+_CHANGE_LINE = re.compile(r"^CHANGE (\d{4}-\d\d-\d\dT[\d:]{8})Z \S+ (\S+) on (\S+) by (\S+)")
 UNADDRESSED_CHANGE_WINDOW_S = 1800
+
+
+def _changes_by_someone(context: ContextBundle):
+    """WARDEN's own CHANGE lines of a write someone made: (item, match). Not AWS's own automation (a service, a
+    service-linked role), not a label written beside the resource. Any other actor counts - a role, a user, the root
+    user, a federated one, and a name the redactor hid: unknown is not AWS (G10 held-out, 2026-10-11 - only `role` and
+    `user` counted, so an Identity Center role the redactor hid was nobody's change)."""
+    for item in evidence.index(context).values():
+        m = _CHANGE_LINE.match(item.text)
+        if not m or not item.id.startswith("C"):
+            continue
+        who = m.group(4)
+        if who.startswith(("service", "role/AWSServiceRole")) or m.group(2).startswith(("TagResource", "UntagResource")):
+            continue
+        yield item, m
 
 
 def _when(text: str) -> datetime | None:
@@ -484,12 +502,9 @@ def _p31_unaddressed_change(alert: Alert, context: ContextBundle, root_cause: Ro
     started = _when(alert.started_at)
     names = {n.strip() for k, v in alert.labels.items() if k in RESOURCE_LABELS for n in v.split(",") if n.strip()}
     cited = {c.id for c in root_cause.citations}
-    for item in evidence.index(context).values():
-        m = _CHANGE_LINE.match(item.text)
-        if not (m and item.id.startswith("C") and m.group(3) in names) or item.id in cited:
+    for item, m in _changes_by_someone(context):
+        if m.group(3) not in names or item.id in cited:
             continue
-        if m.group(4).startswith("role/AWSServiceRole") or m.group(2).startswith(("TagResource", "UntagResource")):
-            continue  # AWS's own automation, and a label written beside the resource, are not a change made to it
         at = _when(m.group(1) + "+00:00")
         if started and at and 0 <= (started - at).total_seconds() <= UNADDRESSED_CHANGE_WINDOW_S:
             return f"{m.group(2)} on {m.group(3)} by {m.group(4)} ({item.id}) is neither cited nor reverted"
