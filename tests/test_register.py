@@ -421,3 +421,13 @@ def test_every_ci_only_file_runs_where_a_skip_fails_the_job():
         holding = [r for r in steps if file in r and "grep -qE ' skipped'" in r and "exit 1" in r
                    and re.search(r"grep -qE '\^\[0-9\]\+ passed'", r)]
         assert holding, (file, job)
+
+
+def test_no_register_holds_two_rows_under_one_id():
+    """2026-10-11: seven rows added on 2026-10-10 took ids H1-H7 that the register already held, and an edit meant
+    for the new H6 replaced the old one - "Approver impersonation" was gone from the register, unnoticed."""
+    seen: dict[tuple[str, str], int] = {}
+    for rel, row in all_rows():
+        key = (rel, next(iter(row.values())))
+        seen[key] = seen.get(key, 0) + 1
+    assert not {k: n for k, n in seen.items() if n > 1}

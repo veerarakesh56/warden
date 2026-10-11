@@ -87,6 +87,69 @@ refusal there plans nothing and the person is told why.
 - **Network undo.** Routes may be restored after a passkey approval (T3, the security-group undo's refusals); network
   ACL entries (a security control) and Route 53 health checks stay with a person.
 
+## Second pass (2026-10-11): what the person gets
+
+"Correct action" above counts what the model proposed. What reaches a person also depends on WARDEN's own gate, in
+both directions, so the scorer now names each case's **outcome** (`scripts/heldout_bench.py`, `outcome`): a wrong
+proposal the gate turned into a hand-off is a right outcome where the key accepts a hand-off; a right proposal the
+gate held back is not one where the key holds only a fix. The same answers, scored under two versions of the verifier
+with no model call (`--reverify`; per-case rows in `runs/*.reverified-d7b0161.json`):
+
+| Same answers | baseline 209063b | ff73442 | 397346f |
+|---|---|---|---|
+| Outcome right, verifier of 6dc75f7 (2026-10-10) | 124 | 123 | 125 |
+| Outcome right, verifier of d7b0161 (2026-10-11) | 127 | 126 | 129 |
+| ... a right fix plan reached the approver | 28 | 28 | 30 |
+| ... a hand-off, where a hand-off is a right answer | 99 | 98 | 99 |
+| A right fix proposed and held back | 40 | 41 | 38 |
+| No right fix proposed, none planned | 4 | 3 | 4 |
+| A wrong plan reached the approver | 1 | 2 | 1 |
+
+Read against the same floor: always escalating gives 103 right outcomes and no fix.
+
+**What the second pass fixed** (each read from one held-back answer, then tested and plant-checked): a load
+balancer's own name refused as a list (P14, g10-121); a deregistered target group held as having no fix path (P30,
+g10-029); an AppConfig revert whose citation and target were both refused (g10-115); a re-enabled schedule held as
+thin evidence although its change, state and alarm were all read (P9, g10-106); the undo of a disabled event source
+mapping never planned (g10-073); and P31 blind to a change made by an IAM Identity Center role, the root user or a
+federated one - the redactor hid the role's name, and only `role/...` and `user/...` counted as a person.
+
+**Where the remaining right fixes are held** (397346f, 38 cases):
+
+- 15 by nothing but WARDEN's own log sampling notice (P8; in 2 of them beside the blast-radius policy, whose plan
+  opens by itself). P29, still observed by the owner's decision, would let them through: measured on these three
+  runs, counting every right fix, it adds 19, 22 and 21 right fix plans and no wrong one.
+- 22 by a fix WARDEN has no write for: the provisioned capacity of a DynamoDB table, an Auto Scaling group's
+  suspended processes or instance refresh, an SNS filter policy, a target group's attributes, provisioned
+  concurrency, a database resize, Firehose, CloudFront, S3, an HTTP API authorizer - and the Route 53
+  health check the owner keeps with a person. P15 and P30 hold these; a hand-off is the designed outcome.
+- 1 by a database reader that could not connect - the fault itself.
+
+**The model's own misses** are the smaller part. Of its 32 wrong or harmful proposals in this run the gate stopped
+31 and handed them to a person; where the key accepts a hand-off that is a right outcome. That leaves 4 cases where
+no right fix was proposed and the key holds only a fix, and the one wrong plan (g10-075, see above).
+
+## The 30 recorded incidents, read one by one (2026-10-11)
+
+The provider qualification replays 30 incidents recorded on live AWS in September 2026. Sonnet 5 scores 18 to 22 of
+30 there. Across six runs on six code versions, 17 incidents are right every time, 2 in five runs of six, and 11
+miss in most or all runs:
+
+| Incident | Keyed answer | What the model answers | Why |
+|---|---|---|---|
+| ecs-08 cpu starvation, k8s-05 exit non-zero | scale_up / rollback | the keyed answer, every run | Ungradeable: the recording fails its own evidence assertion, so the row is NO-EVIDENCE whatever is answered. The ceiling is 28. |
+| ecs-06 invalid secret, ecs-07 health check failing | rollback | no_action | The recording holds running=desired, `deployments_failed=0` and "heartbeat ok" - not the count of failed tasks, the stopped task's reason or the service's events, all read since. |
+| k8s-03 memory limit lowered | rollback | escalate (0.8 confident of the OOM) | A defect of today's reader too, fixed in this pass: only a changed image was a deploy, so a lowered limit left no deploy record and nothing to roll back. |
+| k8s-07 scaled to zero | scale_up | escalate | The recording holds only "no live pods match"; the reader has reported the Deployment's own replica count since. |
+| ecs-12 security group, ecs-13 no route | escalate | no_action, refused by the gate | No network evidence was recorded. The model closes an alarm it cannot explain; P12/P24 hand it to a person - the keyed outcome. |
+| ecs-09 desired count zero, db-04 long query | scale_up / escalate | varies run to run | The model's answer flips between runs on the same evidence. |
+| db-03 connections at 80% | terminate_connections | escalate | The recording shows no idle-in-transaction session: WARDEN's own entry, which closes only those, would close nothing. |
+
+So this set mostly measures the September recordings: the evidence is frozen as that month's readers wrote it, and
+the reader fixes since cannot show in a replay. Re-recording the same faults with today's readers is the live
+window's work. Two defects of today's code turned up while reading it and are fixed: the Kubernetes deploy record
+above, and a number followed by a timestamp redacted as a phone number, taking half the timestamp with it (b58e56f).
+
 ## Limits
 
 - A replay reads nothing more: the investigation loop's extra reads, Reachability Analyzer and every live refusal above
