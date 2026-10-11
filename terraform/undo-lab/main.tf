@@ -67,6 +67,7 @@ locals {
   permissions_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/WardenEnvBoundary-${local.env}"
   write_units          = 10
   work_seconds         = 2
+  write_seconds        = 12 # the producer stops writing after this long: a throttled table never times it out
   timeout_seconds      = 30
 }
 
@@ -145,7 +146,12 @@ data "archive_file" "producer" {
 
       def handler(event, context):
           written = throttled = 0
+          started = time.monotonic()
           for i in range(int(os.environ["WRITES"])):
+              # A throttled write answers slowly: without this the run outlasted its timeout, and the function's
+              # error alarm fired for the table's fault (seen live, 2026-10-11).
+              if time.monotonic() - started > float(os.environ["WRITE_SECONDS"]):
+                  break
               try:
                   TABLE.put_item(Item={"id": f"order-{i}", "at": int(time.time())})
                   written += 1
@@ -225,11 +231,12 @@ resource "aws_lambda_function" "producer" {
 
   environment {
     variables = {
-      TABLE        = aws_dynamodb_table.orders.name
-      QUEUE        = aws_sqs_queue.jobs.url
-      WRITES       = tostring(var.writes_per_minute)
-      MESSAGES     = "5"
-      WORK_SECONDS = tostring(local.work_seconds)
+      TABLE         = aws_dynamodb_table.orders.name
+      QUEUE         = aws_sqs_queue.jobs.url
+      WRITES        = tostring(var.writes_per_minute)
+      MESSAGES      = "5"
+      WORK_SECONDS  = tostring(local.work_seconds)
+      WRITE_SECONDS = tostring(local.write_seconds)
     }
   }
 

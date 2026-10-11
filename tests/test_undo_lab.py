@@ -61,6 +61,10 @@ def test_the_scripts_baseline_is_the_one_terraform_declares():
     assert int(re.search(r"timeout_seconds\s+= (\d+)", TF).group(1)) == undo_lab.TIMEOUT_SECONDS
     work = int(re.search(r"work_seconds\s+= (\d+)", TF).group(1))
     assert undo_lab.CUT_TIMEOUT_SECONDS < work < undo_lab.TIMEOUT_SECONDS  # the cut timeout really cuts the work off
+    # A throttled table slows every write: the producer stops writing in time, so the table's fault never becomes the
+    # function's (seen live 2026-10-11: both alarms fired for one cut).
+    writing = int(re.search(r"write_seconds\s+= (\d+)", TF).group(1))
+    assert writing + work < undo_lab.TIMEOUT_SECONDS / 2 and 'os.environ["WRITE_SECONDS"]' in TF
     writes = int(re.search(r'variable "writes_per_minute".*?default\s+= (\d+)', TF, re.DOTALL).group(1))
     # One write unit serves 60 writes a minute: the cut throttles, the baseline never does.
     assert undo_lab.CUT_WRITE_UNITS * 60 < writes < undo_lab.WRITE_UNITS * 60
