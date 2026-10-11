@@ -55,3 +55,43 @@ def test_a_fix_is_counted_apart_from_a_safe_escalation_and_the_always_escalate_f
     assert (s["fixable"], s["fixed"], s["escalated_a_fixable"]) == (2, 1, 1)
     floor = hb.always_escalate({"a": key, "b": {**KEY, "correct_actions": ["pause_flow"]}})
     assert floor == {"cases": 2, "correct": 1, "fixed": 0}
+
+
+def test_the_outcome_is_what_the_person_gets_whatever_the_model_said():
+    """2026-10-11: "correct action" counted what the model said. A wrong proposal the gate turned into a hand-off is
+    a right outcome where the key accepts a hand-off; a right proposal the gate held back is not one where it does
+    not."""
+    fix_only, either, healthy = ({"correct_actions": ["rollback_deploy"]},
+                                 {"correct_actions": ["rollback_deploy", "escalate_to_human"]},
+                                 {"correct_actions": ["no_action", "escalate_to_human"]})
+    o = hb.outcome
+    assert o("rollback_deploy", "approved_for_human", True, fix_only) == "right plan"
+    assert o("rollback_deploy", "escalated", False, fix_only) == "held back"
+    assert o("rollback_deploy", "escalated", False, either) == "right hand-off"
+    assert o("scale_up", "escalated", False, either) == "right hand-off"  # the gate stopped a wrong fix: a person looks
+    assert o("scale_up", "approved_for_human", True, either) == "wrong plan"
+    assert o("scale_up", "rejected", False, fix_only) == "missed fix"
+    assert o("escalate_to_human", "auto_safe", False, fix_only) == "missed fix"
+    assert o("no_action", "auto_safe", False, healthy) == "right close"
+    assert o("no_action", "auto_safe", False, fix_only) == "wrong close"
+    assert o("no_action", "escalated", False, healthy) == "right hand-off"
+    assert o("no_action", "escalated", False, fix_only) == "missed fix"
+    key = {**KEY, "correct_actions": ["rollback_deploy"]}
+    rows = {"a": hb.score(_report("rollback_deploy"), key),
+            "b": hb.score(_report("rollback_deploy", "escalated", ["P8-PARTIAL-CONTEXT"]), key)}
+    assert (rows["a"]["outcome"], rows["b"]["outcome"]) == ("right plan", "held back")
+    s = hb.summarise(rows)
+    assert s["outcome_right"] == 1 and s["outcomes"]["held back"] == 1 and sum(s["outcomes"].values()) == 2
+
+
+def test_a_reverified_report_carries_todays_verdict_and_an_unanswered_one_is_left_alone():
+    assert hb.reverified({"proposal": None, "x": 1}) == {"proposal": None, "x": 1}
+    report = {"alert": {"alert_id": "a", "name": "n", "service": "s", "environment": "dev", "severity": "high",
+                        "summary": "", "started_at": "2026-10-10T00:00:00+00:00", "labels": {}},
+              "context": {"logs": [], "metrics": {}},
+              "root_cause": {"hypothesis": "h", "confidence": 0.9, "evidence": []},
+              "proposal": {"action": "restart_pods", "target": "s", "reasoning": "r", "expected_effect": "e",
+                           "blast_radius": "single_service", "reversible": True},
+              "verdict": {"status": "approved_for_human", "policy_ids": []}}
+    again = hb.reverified(report)["verdict"]
+    assert again["status"] == "rejected" and "P3-NO-EVIDENCE" in again["policy_ids"]
