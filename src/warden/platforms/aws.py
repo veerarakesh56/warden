@@ -191,6 +191,11 @@ Actor = Callable[[dict[str, Any], list[str], list[str], dict[str, Any] | None], 
 # read 2026-10-10): AWS::ECS::Service configuration.DesiredCount; AWS::Lambda::Function
 # supplementaryConfiguration.Concurrency.reservedConcurrentExecutions.
 CONFIG_LOOKBACK = timedelta(days=7)  # GetResourceConfigHistory spans at most 7 days a call
+# A fix judged by its alarm is verified for as long as that alarm can take to read OK: its whole evaluation range
+# (EvaluationPeriods x Period - with M of N datapoints the breaching ones must first leave the range), then the
+# metric's own delay and the three consecutive checks. The fixed five minutes rolled back a right fix behind any alarm
+# of 5-minute periods (found reading the workflow, 2026-10-11; never yet run live).
+ALARM_SETTLE_MINUTES = 3
 
 
 def _json(value: Any) -> dict[str, Any]:
@@ -229,6 +234,12 @@ def _trail_change(raw: dict[str, Any]) -> dict[str, Any] | None:
 # The user agents of the infrastructure-as-code tools that call AWS's APIs themselves (CloudFormation, and so CDK and
 # SAM, call as an AWS service and are refused as one).
 _IAC = re.compile(r"Terraform|OpenTofu|pulumi|crossplane", re.IGNORECASE)
+
+
+def _grace(group: dict[str, Any]) -> int:
+    """Seconds before a group's new instance can count as healthy: its own health check grace period."""
+    grace = group.get("HealthCheckGracePeriod")
+    return grace if isinstance(grace, int) and grace > 0 else 0
 
 
 def _who_refusal(e: dict[str, Any], onset: datetime) -> str:
@@ -471,9 +482,20 @@ class AwsPlatform:
         if read is None:
             return {}
         try:
-            return read(params)
+            out = read(params)
         except Exception:  # noqa: BLE001 - absent or unreadable allows nothing; the catalogue refuses
             return {}
+        alarm = params.get("alarm")
+        # `slow_start_s`: what the resource itself needs before it can be healthy (a group's new instances).
+        slow = out.pop("slow_start_s", 0) if out else 0
+        if out and isinstance(alarm, str):
+            try:
+                minutes = self._alarm_clear_minutes(alarm)
+            except Exception:  # noqa: BLE001 - unread: the request's own default window stands
+                minutes = None
+            if minutes is not None:
+                out["recover_minutes"] = minutes + -(-slow // 60)
+        return out
 
     def changes(self, since: datetime, until: datetime, environment: str) -> list[dict[str, Any]]:
         """Write events on this environment's resources in CloudTrail (requirement R38): when, what, by whom. Read-only
@@ -1591,6 +1613,18 @@ class AwsPlatform:
             "MetricAlarms") or []
         return bool(found) and found[0].get("StateValue") == "OK"
 
+    def _alarm_clear_minutes(self, alarm: str) -> int | None:
+        """How long this alarm may take to read OK once its cause is gone - None when that cannot be read."""
+        found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
+            "MetricAlarms") or []
+        a = found[0] if found else {}
+        periods = [a.get("Period"), *((m.get("MetricStat") or {}).get("Period") for m in a.get("Metrics") or [])]
+        period = max((p for p in periods if isinstance(p, int) and p > 0), default=None)
+        n = a.get("EvaluationPeriods")
+        if period is None or not isinstance(n, int) or n < 1:
+            return None
+        return -(-period * n // 60) + ALARM_SETTLE_MINUTES
+
     def _trail_writes(self, key: str, value: str, since: datetime, until: datetime,
                       keep: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
         """Every successful write CloudTrail recorded with this lookup attribute in the window that `keep` accepts. A
@@ -2138,7 +2172,8 @@ class AwsPlatform:
         lo, hi = g.get("MinSize"), g.get("MaxSize")
         state: dict[str, Any] = {"asg": name, "arn": arn, "desired_now": desired, "where": self._where(arn)}
         live = {"asg": {name}, "alarm": {alarm}, "event": set(), "desired": set(),
-                "environment": {t["Key"]: t["Value"] for t in g.get("Tags") or []}.get(ENV_TAG)}
+                "environment": {t["Key"]: t["Value"] for t in g.get("Tags") or []}.get(ENV_TAG),
+                "slow_start_s": _grace(g)}
         onset = self._alarm_onset(alarm)
         named = params.get("event")
         if onset is None and not isinstance(named, str):

@@ -290,8 +290,31 @@ def _freeze(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dic
             "environment": alert.environment, "incident_id": alert.alert_id}, ""
 
 
+# FixRequest's own bounds for the verify window (activities.py; tests/test_recover_window.py holds them equal).
+RECOVER_MINUTES = (5, 120)
+
+
 def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
-    """A FixRequest's fields for this proposal, or None and why. `live(entry, params)` is the platform's live read."""
+    """A FixRequest's fields for this proposal, or None and why. `live(entry, params)` is the platform's live read.
+    The verify window is the platform's own, when its read gave one (a fix judged by an alarm waits as long as that
+    alarm can take to clear) - never shorter than the default, never longer than a request may ask."""
+    windows: dict[str, int] = {}
+
+    def reading(entry: str, params: dict[str, Any]) -> dict[str, Any]:
+        state = live(entry, params)
+        minutes = state.get("recover_minutes")
+        if isinstance(minutes, int) and not isinstance(minutes, bool):
+            windows[entry] = minutes
+        return state
+
+    request, why = _request_for(alert, proposal, reading)
+    if request and request["entry"] in windows:
+        lo, hi = RECOVER_MINUTES
+        request["recover_within_minutes"] = min(max(windows[request["entry"]], lo), hi)
+    return request, why
+
+
+def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple[dict[str, Any] | None, str]:
     if proposal.action in (ActionKind.no_action, ActionKind.escalate_to_human):
         return None, "the proposal is to hand the incident to a person"
     if proposal.action is ActionKind.revert_config:
