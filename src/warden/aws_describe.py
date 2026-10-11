@@ -231,6 +231,10 @@ def _value(v: Any) -> str:
         return "true" if v else "false"
     if isinstance(v, datetime):
         return _z(v)
+    if isinstance(v, int) and abs(v) >= 10 ** 9:
+        # Its thousands marked: bare, the redactor reads a whole number of ten digits or more as a phone number (G10
+        # held-out, 2026-10-11: a file system's size in bytes reached the model as `Value=<PHONE_1>`).
+        return f"{v:_}"
     if isinstance(v, (list, tuple)):
         # A list of resources is its count and how many are in each state; a Route 53 checker's report counts by
         # its first word (Success / Failure), never its text.

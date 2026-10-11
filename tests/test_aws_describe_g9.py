@@ -237,3 +237,16 @@ def test_no_row_writes_two_fields_under_one_name():
     assert aws_describe.field_name(("State", "RetryPolicy.MaxRetryAttempts"), "RetryPolicy.MaxRetryAttempts") == \
         "MaxRetryAttempts"
     assert aws_describe.field_name(("A.B.C",), "A.B.C") == "A_B_C"
+
+
+@pytest.mark.parametrize("size, written", [(64424509440, "64_424_509_440"), (10 ** 9, "1_000_000_000"),
+                                           (999999999, "999999999"), (-(10 ** 12), "-1_000_000_000_000")])
+def test_a_long_whole_number_is_written_so_that_the_redactor_does_not_take_it_for_a_phone_number(size, written):
+    from warden.redaction import redact
+
+    line = aws_describe.state_line("efs", "fs-0a1b2c3d4e5f60789", {"FileSystems": [{
+        "LifeCycleState": "available", "ThroughputMode": "bursting", "PerformanceMode": "generalPurpose",
+        "SizeInBytes": {"Value": size}, "NumberOfMountTargets": 3}]})
+    assert f" Value={written} " in line
+    assert redact(line).text == line
+    assert aws_describe._value(True) == "true"  # a flag is never a number
