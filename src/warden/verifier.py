@@ -421,8 +421,8 @@ def _p28_language(alert: Alert, context: ContextBundle, root_cause: RootCause,
 # lines cut with the alert-time lines and the older errors kept, or one of the secondary reads below (a zone list, the
 # configuration an alarm guards, an alarm's sibling metrics, a function's code excerpt). Paging that stopped BEFORE the
 # alert time is material, and so is every denied, missing or timed-out read of the alerting resource itself. The old
-# "truncated at N lines" kept the OLDEST lines (Wave 4's fs-05): material. Observed only, until a live window measures
-# it on healthy controls and faults (the 30 recorded incidents: P8 fired 3 times, none of them benign).
+# "truncated at N lines" kept the OLDEST lines (Wave 4's fs-05): material. Observed first (the 30 recorded incidents:
+# P8 fired 3 times, none of them benign), enforced by the owner on 2026-10-11: P8 now fires on a material read only.
 # The stack readers put their own tags first (`logs: lambda/<fn> logs: logs: [output truncated] kept the newest ...`):
 # the pattern held only the bare form, so P29 never saw the sampling notice it was written for (G10 held-out
 # baseline, 2026-10-10: 0 of the 27 right fixes P8 escalated read benign). Every tag before the outcome must be
@@ -454,17 +454,6 @@ def _benign_partial(error: str) -> bool:
     if not all(evidence._SEGMENT.fullmatch(seg) for seg in (chain[:-2].split(": ") if chain else [])):
         return False
     return bool(_BENIGN_TAIL.match(rest, i) or _NO_LOG_YET.match(rest, i))
-
-
-def _p29_benign_partials(alert: Alert, context: ContextBundle, root_cause: RootCause,
-                         proposal: RemediationProposal) -> str | None:
-    """Audit E1's candidate: P8 fired, but every failed read was benign - enforcing would let this verdict stand on
-    the other policies alone."""
-    if not context.tool_errors or proposal.action in EVIDENCE_EXEMPT_ACTIONS:
-        return None
-    if all(_benign_partial(e) for e in context.tool_errors):
-        return f"P8 fired on {len(context.tool_errors)} failed read(s), every one benign"
-    return None
 
 
 # A dated write as aws_stack._read_changes writes it: when, the event, the resource, who.
@@ -516,8 +505,7 @@ def _p31_unaddressed_change(alert: Alert, context: ContextBundle, root_cause: Ro
 
 
 OBSERVED = (("P25-NO-ACTION-OVER-ERROR-RATE", _p25_error_rate), ("P26-LOW-DECIDER-P", _p26_decider),
-            ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers), ("P28-NON-ENGLISH-LOGS", _p28_language),
-            ("P29-P8-BENIGN-PARTIALS", _p29_benign_partials))
+            ("P27-NUMBER-NOT-IN-EVIDENCE", _p27_numbers), ("P28-NON-ENGLISH-LOGS", _p28_language))
 
 
 def verify(
@@ -638,10 +626,13 @@ def _enforce(
         )
 
     # P8 — a tool failing means the picture is partial. Say so rather than pretending.
-    if context.tool_errors and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
+    # Only a MATERIAL failed read (owner, 2026-10-11 - P29 enforced after three held-out runs: 19, 22 and 21 more right
+    # fix plans, no wrong one): WARDEN's own sampling notice on a busy service's logs is not a missing picture.
+    material = [e for e in context.tool_errors if not _benign_partial(e)]
+    if material and proposal.action not in EVIDENCE_EXEMPT_ACTIONS:
         escalate = True
         policies.append("P8-PARTIAL-CONTEXT")
-        reasons.append(f"{len(context.tool_errors)} context tool(s) failed; evidence is incomplete.")
+        reasons.append(f"{len(material)} context tool(s) failed; evidence is incomplete.")
 
     # P9 — evidence measured by US, not confidence reported by the model.
     #

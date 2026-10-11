@@ -77,7 +77,8 @@ refusal there plans nothing and the person is told why.
 ## Owner decisions (2026-10-10, after these runs)
 
 - **P29** (P8 escalates over WARDEN's own log sample). On the baseline, enforcing it would let 9 more right fixes reach
-  a person and no wrong one. Stays observed until the live window measures it.
+  a person and no wrong one. Stays observed until the live window measures it. (Enforced on 2026-10-11 - see
+  "P29 enforced" below.)
 - **P31** (a person's recent write left unaddressed). Named only wrong answers in observe mode: enforced.
 - **Reverting an infrastructure-as-code change.** WARDEN's live read now refuses to undo a change made through
   Terraform, OpenTofu, Pulumi or Crossplane (by the request's user agent; CloudFormation already counted as an AWS
@@ -128,6 +129,26 @@ federated one - the redactor hid the role's name, and only `role/...` and `user/
 **The model's own misses** are the smaller part. Of its 32 wrong or harmful proposals in this run the gate stopped
 31 and handed them to a person; where the key accepts a hand-off that is a right outcome. That leaves 4 cases where
 no right fix was proposed and the key holds only a fix, and the one wrong plan (g10-075, see above).
+
+## P29 enforced (owner, 2026-10-11)
+
+After the second pass the owner enforced P29: P8 escalates on a material failed read only (a timeout, a denied or
+missing read, lines cut before the alert time), never on WARDEN's own notice that it sampled a busy service's logs
+with the alert-time lines kept. The same saved answers again, no model call (`--reverify`):
+
+| Same answers | baseline 209063b | ff73442 | 397346f |
+|---|---|---|---|
+| Outcome right, P29 observed | 127 | 126 | 129 |
+| Outcome right, P29 enforced | 141 | 142 | 144 |
+| ... a right fix plan reached the approver | 47 | 50 | 51 |
+| ... a hand-off, where a hand-off is a right answer | 94 | 92 | 93 |
+| A right fix proposed and held back | 26 | 25 | 23 |
+| No right fix proposed, none planned | 4 | 3 | 4 |
+| A wrong plan reached the approver | 1 | 2 | 1 |
+| An alert closed wrongly (no_action left standing) | 0 | 0 | 0 |
+
+The wrong plans are the same cases as before. Not measured here: a live service. These are three runs of one
+synthetic set; the live window's faults and healthy controls are the first measure on real reads.
 
 ## The 30 recorded incidents, read one by one (2026-10-11)
 

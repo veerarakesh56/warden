@@ -1,6 +1,7 @@
 """G9-E (2026-10-10): the policies that blocked correct answers (audit-coverage-limits E1, E3), changed only where it
-is safe - P5 counts a configuration-only revision as a deploy (tests/test_aws_backend.py) - and observed, never
-obeyed, where it relaxes a safety policy (P29 beside P8, until a live window measures it)."""
+is safe - P5 counts a configuration-only revision as a deploy (tests/test_aws_backend.py). P29 (a benign failed read
+is not P8's partial picture) was observed beside P8 until the owner enforced it on 2026-10-11, after three held-out
+runs: 19, 22 and 21 more right fix plans reached the approver and no wrong one."""
 
 from __future__ import annotations
 
@@ -54,25 +55,29 @@ MATERIAL = [
 ]
 
 
-def _observed(errors):
-    return verifier._p29_benign_partials(ALERT, ContextBundle(tool_errors=errors), ROOT, PROPOSAL)
+def _p8(errors, proposal=PROPOSAL):
+    v = verifier.verify(ALERT, ContextBundle(tool_errors=errors, metrics={"x": 1.0}), ROOT, proposal)
+    return "P8-PARTIAL-CONTEXT" in v.policy_ids
 
 
 @pytest.mark.parametrize("line", BENIGN)
-def test_a_benign_failed_read_is_observed(line):
-    assert _observed([line])
+def test_a_benign_failed_read_is_not_a_partial_picture(line):
+    assert not _p8([line])
+    assert not _p8([line, BENIGN[0]])
 
 
 @pytest.mark.parametrize("line", MATERIAL)
-def test_a_material_failed_read_is_not_and_one_spoils_the_lot(line):
-    assert _observed([line]) is None
-    assert _observed([BENIGN[0], line]) is None
+def test_a_material_failed_read_escalates_and_one_spoils_the_lot(line):
+    assert _p8([line])
+    assert _p8([BENIGN[0], line])
 
 
-def test_p29_is_observed_only_p8_still_escalates():
-    assert any(pid == "P29-P8-BENIGN-PARTIALS" for pid, _ in verifier.OBSERVED)
-    v = verifier.verify(ALERT, ContextBundle(tool_errors=[BENIGN[0]], metrics={"x": 1.0}), ROOT, PROPOSAL)
-    assert "P8-PARTIAL-CONTEXT" in v.policy_ids and any(o.startswith("P29") for o in v.observed)
+def test_p8_counts_only_the_material_reads_and_never_judges_a_hand_off():
+    v = verifier.verify(ALERT, ContextBundle(tool_errors=[BENIGN[0], MATERIAL[0], MATERIAL[1]], metrics={"x": 1.0}),
+                        ROOT, PROPOSAL)
+    assert any(r.startswith("2 context tool(s) failed") for r in v.reasons)
+    assert not _p8([MATERIAL[0]], PROPOSAL.model_copy(update={"action": ActionKind.escalate_to_human}))
+    assert _p8([MATERIAL[0]], PROPOSAL.model_copy(update={"action": ActionKind.no_action}))
 
 
 # Signature metric keys no WARDEN backend emits (audit F1, 2026-10-10): a signature carrying only these matches on

@@ -474,7 +474,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "nothing"
                         ),
                         "P7-DISPROPORTIONATE": "heavy actions on low/medium severity escalate",
-                        "P8-PARTIAL-CONTEXT": "a failed context tool means incomplete evidence",
+                        "P8-PARTIAL-CONTEXT": (
+                            "a failed context tool means incomplete evidence - not WARDEN's own notice that it "
+                            "sampled a busy service's logs with the alert-time lines kept, nor a secondary read"
+                        ),
                         "P9-THIN-EVIDENCE": (
                             "too little evidence was gathered to justify acting, regardless of "
                             "stated confidence - counted by WARDEN, not claimed by the model"
@@ -535,10 +538,6 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         "P28-NON-ENGLISH-LOGS": (
                             "OBSERVE MODE, never obeyed: most log lines are not English, so WARDEN's English "
                             "keyword checks may miss what they say"
-                        ),
-                        "P29-P8-BENIGN-PARTIALS": (
-                            "OBSERVE MODE, never obeyed: P8 fired, but every failed read was benign (lines cut with "
-                            "the alert-time lines kept, or a secondary read)"
                         ),
                         "P31-UNADDRESSED-CHANGE": (
                             "a role or an IAM user wrote to the alert's own resource in the half hour before it "
