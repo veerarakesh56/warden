@@ -445,6 +445,7 @@ _NEXT_STEP = {
     "approved_for_human": "Held for approval - the fix below runs only if a person approves it.",
     "auto_safe": "No change proposed - recorded, nothing to run.",
 }
+_HANDED_OVER = "Handed to a person - WARDEN proposes no change and could not name a cause. Someone should look."
 
 
 # --------------------------------------------------------------------------- build
@@ -643,7 +644,10 @@ def _render_markdown(d: dict) -> str:
     lines.append(f"Severity **{a['severity']}** | alert {_c(a['id'])} | started "
                  f"{both_times(started) if started else a.get('started_at') or 'unknown'}")
     if v:
-        lines.append(f"**Next step: {_NEXT_STEP.get(v['status'], v['status'])}**")
+        # A hand-off the gate lets stand is not "nothing to run": a person was asked to look (the runtime's first
+        # report on today's code read "No change proposed - recorded, nothing to run" over an escalation, 2026-10-11).
+        handed = bool(p) and p.get("action") == "escalate_to_human" and v["status"] == "auto_safe"
+        lines.append(f"**Next step: {_HANDED_OVER if handed else _NEXT_STEP.get(v['status'], v['status'])}**")
     lines.append("")
 
     # ---- summary
@@ -874,15 +878,18 @@ def _render_markdown(d: dict) -> str:
             lines.append(f"- {r['applied_change']}")
         lines.append("")
 
-    lines.append("## Promotion - apply this fix to the higher environments")
-    if d["promotion"]:
-        for t in d["promotion"]:
-            approval = "human approval required" if t["requires_human_approval"] else "no separate approval"
-            creds = f" - account {_c(t['credentials_ref'])}" if t.get("credentials_ref") else ""
-            lines.append(f"- **{t['environment']}** ({t['tier']}): {t['note']} - {approval}{creds}")
-    else:
-        lines.append("- _No higher environment permits this action; nothing to promote._")
-    lines.append("")
+    # Only a fix is promoted: a hand-off or "nothing to do" has nothing to apply anywhere (the same report listed
+    # three environments in which "a human applies this fix" - there was none).
+    if p and p.get("action") not in ("escalate_to_human", "no_action"):
+        lines.append("## Promotion - apply this fix to the higher environments")
+        if d["promotion"]:
+            for t in d["promotion"]:
+                approval = "human approval required" if t["requires_human_approval"] else "no separate approval"
+                creds = f" - deploy role {_c(t['credentials_ref'])}" if t.get("credentials_ref") else ""
+                lines.append(f"- **{t['environment']}** ({t['tier']}): {t['note']} - {approval}{creds}")
+        else:
+            lines.append("- _No higher environment permits this action; nothing to promote._")
+        lines.append("")
     lines.append("---")
     lines.append("_WARDEN proposes and gates. Nothing was executed against production by this tool._")
     return "\n".join(lines)

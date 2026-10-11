@@ -89,3 +89,26 @@ def test_promotion_names_the_account_to_use_in_each_target_env():
     for t in rep.data["promotion"]:
         assert t["credentials_ref"], f"{t['environment']} missing credentials_ref"
     assert "warden-prod-deploy" in rep.markdown
+
+
+def test_a_hand_off_says_a_person_should_look_and_promotes_nothing():
+    """The runtime's first report on live AWS (2026-10-11) escalated to a person, yet read "No change proposed -
+    recorded, nothing to run" and listed three environments in which "a human applies this fix"."""
+    safe = Verdict(status=VerdictStatus.auto_safe)
+    handed = build_report(_alert(), proposal=_prop(ActionKind.escalate_to_human), verdict=safe).markdown
+    assert "**Next step: Handed to a person" in handed and "Someone should look" in handed
+    assert "nothing to run" not in handed and "Promotion" not in handed and "applies this fix" not in handed
+    quiet = build_report(_alert(), proposal=_prop(ActionKind.no_action), verdict=safe).markdown
+    assert "**Next step: No change proposed - recorded, nothing to run.**" in quiet and "Promotion" not in quiet
+    # A hand-off the gate did not let stand keeps the gate's own next step.
+    held = build_report(_alert(), proposal=_prop(ActionKind.escalate_to_human),
+                        verdict=Verdict(status=VerdictStatus.escalated)).markdown
+    assert "**Next step: Escalated - a person decides." in held and "Promotion" not in held
+
+
+def test_a_fix_is_still_promoted_and_names_each_environments_deploy_role():
+    fix = build_report(_alert(), proposal=_prop(ActionKind.scale_up),
+                       verdict=Verdict(status=VerdictStatus.approved_for_human)).markdown
+    assert "## Promotion - apply this fix to the higher environments" in fix
+    assert "deploy role `warden-prod-deploy`" in fix and " - account " not in fix
+    assert "**Next step: Held for approval" in fix
