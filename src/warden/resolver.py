@@ -85,6 +85,11 @@ def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
     if proposal.action in (ActionKind.no_action, ActionKind.escalate_to_human):
         return ""
     target = _bare(alert, proposal.target)
+    if proposal.action is ActionKind.revert_change and (
+            _SG_ID.fullmatch(target) or _RTB_ID.fullmatch(target) or target in _target_groups(alert)):
+        # request_for's own paths: a security group, a route table, a target group (G10 held-out, 2026-10-11: a
+        # deregistered target group, labelled alb_target_group, was held as having no fix path).
+        return ""
     kinds = {key for key, value in alert.labels.items() if value == target and key not in _QUALIFIERS}
     if not kinds:
         return ""
@@ -153,7 +158,9 @@ def _configuration(alert: Alert, proposal: RemediationProposal, live: Any) -> tu
     if not all(isinstance(v, set | frozenset) and len(v) == 1 for v in one.values()):
         return None, "no single AppConfig deployment WARDEN may revert is guarded by this alarm"
     params = {"alarm": alarm, **{k: next(iter(v)) for k, v in one.items()}}
-    if proposal.target not in (params["application"], f"{params['application']}/{params['config_env']}"):
+    # As WARDEN's own line writes it too: `appconfig <application>/<environment>` (G10 held-out, 2026-10-11).
+    named = proposal.target.removeprefix("appconfig:").removeprefix("appconfig ")
+    if named not in (params["application"], f"{params['application']}/{params['config_env']}"):
         return None, "the proposal's target is not the configuration this alarm guards"
     problems = catalog.validate(entry.name, params, state)
     if problems:

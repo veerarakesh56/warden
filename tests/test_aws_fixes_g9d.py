@@ -423,6 +423,21 @@ def _revert(target):
                                 blast_radius="single_service", reversible=True))
 
 
+@pytest.mark.parametrize("target, planned", [
+    ("warden-dev-flags/live", True), ("appconfig:warden-dev-flags/live", True), ("appconfig warden-dev-flags/live", True),
+    ("appconfig:warden-dev-flags", True), ("appconfig:other/live", False), ("lambda:warden-dev-flags/live", False),
+])
+def test_the_configuration_is_named_as_wardens_own_line_writes_it(config, target, planned):
+    """G10 held-out (2026-10-11, g10-115): the model named `appconfig:<application>/<environment>`, the words of the
+    CONFIG line it read, and the right revert was never planned."""
+    from warden import resolver
+
+    alert, prop = _revert(target)
+    req, why = resolver.request_for(alert, prop, config[1].live)
+    assert bool(req) is planned, why
+    assert planned or why == "the proposal's target is not the configuration this alarm guards"
+
+
 def test_the_configuration_the_alarm_guards_is_reverted_through_its_own_deployment(config):
     from warden import resolver
 

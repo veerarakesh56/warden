@@ -218,12 +218,17 @@ def test_the_facts_are_the_same_in_every_process():
     client=<IPV4_3>`) took its ends from set order, which changes with each process's hash seed - so the diagnose and
     the verify step, in different worker processes, saw different facts and a right citation read as ungrounded."""
     import os
+    import pathlib
     import subprocess
     import sys
 
+    from warden import evidence
+
+    src = str(pathlib.Path(evidence.__file__).parents[1])  # this checkout's code, whatever is installed beside it
     code = ("from warden import evidence; from warden.models import ContextBundle; "
             "logs = [f'LOG ecs/x 2026-10-10T00:00:0{i}Z app=api client=<IPV4_{i}> idle in transaction' for i in range(5)]; "
             "print([(k, v.text) for k, v in evidence.view(ContextBundle(logs=logs)).items()])")
     out = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
-                          env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout for seed in (1, 2, 3, 4)}
+                          env={**os.environ, "PYTHONHASHSEED": str(seed), "PYTHONPATH": src}).stdout
+           for seed in (1, 2, 3, 4)}
     assert len(out) == 1, out

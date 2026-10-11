@@ -249,6 +249,11 @@ def tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(text))
 
 
+# A name written as a path: a load balancer's `app/web/3f8a1c0d`, an AppConfig `application/environment`. Never from
+# the middle of a longer name.
+PATH = re.compile(r"(?<![\w./-])[A-Za-z0-9][\w.-]*(?:/[\w.-]+)+")
+
+
 def inventory(alert: Alert, context: ContextBundle) -> set[str]:
     """Resource names WARDEN knows exist: the alert's service and label values, the deploys, and the
     per-resource suffixes of metric keys (`lambda_errors__checkout`). Not log text: a name only an
@@ -258,4 +263,4 @@ def inventory(alert: Alert, context: ContextBundle) -> set[str]:
     names |= {str(v) for d in context.recent_deploys for v in d.values()}
     names |= {k.split("__", 1)[1] for k in context.metrics if "__" in k}
     names |= {i.text for i in index(context).values() if i.id[0] == "C"}
-    return {t for n in names for t in tokens(n)} | names
+    return {t for n in names for t in tokens(n)} | names | {p for n in names for p in PATH.findall(n)}

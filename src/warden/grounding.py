@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from .evidence import Item, tokens
+from .evidence import PATH, Item, tokens
 from .models import ActionKind, RemediationProposal, RootCause
 
 MIN_QUOTE = 4  # characters, whitespace excluded: a quote of "a" is in everything
@@ -290,6 +290,12 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     if proposal.action is ActionKind.rollback_deploy and any(
             w.lower().startswith(_DEPLOY_EVENTS) for q in cited for w in _EVENT_NAME.findall(q)):
         return None  # the deploy's own CloudTrail event (`UpdateFunctionCode20150331v2`)
+    if proposal.action is ActionKind.revert_config and any(
+            i is not None and i.id.startswith("C") and i.text.startswith("CONFIG appconfig ")
+            for i in (items.get(c.id.strip().strip("[]")) for c in root_cause.citations)):
+        # WARDEN's own read of the AppConfig environment whose monitors name this alarm, whichever part of the line
+        # was quoted (G10 held-out, 2026-10-11: `deployment=14 state=COMPLETE version=9` holds no word above).
+        return None
     quotes = [_CAMEL.sub(" ", q).lower() for q in cited]
     shortage = proposal.action is not ActionKind.scale_down
     idle_short = proposal.action is ActionKind.scale_up
@@ -334,7 +340,7 @@ _SCOPE = re.compile(r"[\s,(]*\b(?:namespace|ns|cluster)\b\s*[=:/ ]\s*[\"'\u201c\
 _DESCRIPTORS = frozenset({
     "ecs", "ecs-service", "eks", "k8s", "service", "svc", "deploy", "sts", "rds", "aurora", "sqs", "sns",
     "dynamodb", "redis", "elasticache", "postgres", "postgresql", "mysql", "version", "revision",
-    "prod", "staging", "dev"})
+    "prod", "staging", "dev", "appconfig"})
 # A command inside a target is a second instruction, whatever resource it also names:
 # "orders kubectl delete ns warden-pg".
 # Whole words only: `public.ecr.aws` in an image name is not the aws CLI.
@@ -404,8 +410,16 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
         return f"target {proposal.target!r} names a whole namespace or cluster"
 
     def resources(text: str) -> set[str]:
-        return {t for t in tokens(text) & inventory
-                if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
+        found = {t for t in tokens(text) & inventory
+                 if not t.isdigit() and t.lower() not in _RESOURCE_KINDS | _DESCRIPTORS and t not in scopes}
+        # A name WARDEN's own reads write as a path - a load balancer's `app/web/3f8a1c0d`, an AppConfig
+        # `application/environment` - is one resource, not a list of its parts (G10 held-out, 2026-10-11: the targets
+        # of a zonal shift and of a configuration revert were refused as lists). Never a path through a namespace or
+        # a cluster: that one still names a scope.
+        for path in PATH.findall(text):
+            if path in inventory and not tokens(path) & set(scopes):
+                found = found - tokens(path) | {path}
+        return found
 
     named = resources(outside)
     wide = set(scopes) | set(containers)

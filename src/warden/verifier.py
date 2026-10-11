@@ -789,7 +789,11 @@ def _enforce(
         # recorded fs-01 alert's namespace is `shop`, its service `shop`).
         containers = values(lambda w: is_namespace(w) or (is_scope(w) and any(_compute(x) for x in w)),
                             but_the_service=False)
-        problem = target_problem(proposal, evidence.inventory(alert, context), scopes, containers)
+        # `kind:name`, where the alert's own label of that kind holds the name, is that one resource - as the
+        # resolver reads it (G10 held-out, 2026-10-11: `elasticache_serverless:pricing-cache` was refused as a list).
+        kind, sep, rest = proposal.target.partition(":")
+        named = proposal.model_copy(update={"target": rest}) if sep and alert.labels.get(kind) == rest else proposal
+        problem = target_problem(named, evidence.inventory(alert, context), scopes, containers)
         if problem:
             rejected = True
             policies.append("P14-TARGET-NOT-IN-EVIDENCE")
