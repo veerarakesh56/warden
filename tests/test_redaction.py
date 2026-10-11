@@ -303,6 +303,9 @@ def test_grouped_credit_card_is_masked_whole():
     "orders ERROR connection pool exhausted (50/50) db=orders-db-ro-1\n2026-08-21T03:20:04Z orders ERROR",
     "WARDEN benchmark - wave2-2026-09-24T115746Z",
     "checkout-7bcd5ccbc9-tw8gw/checkout 2026-09-24T12:10:56.921256607Z checkout: heartbeat ok",
+    # A number, then a timestamp: the number and half the date were one "phone number" (read 2026-10-11).
+    "task 4471 2026-09-11T18:09:10Z started", "order 12 2026-09-11 shipped", "pid 30122 2026-10-10T07:55:01Z exit 1",
+    "retries 3 4 2026-10-10 again",
 ])
 def test_identifiers_and_timestamps_are_not_masked_as_phone_numbers(text):
     """⛔ Evidence corrupted by the redactor is evidence lost: a node name, a replica name and a
@@ -317,10 +320,14 @@ def test_identifiers_and_timestamps_are_not_masked_as_phone_numbers(text):
     ("phone=4155550132 retry", "4155550132"),
     ("tel: +91 98765 43210", "98765 43210"),
     ("contact +91-98765-43210 asap", "98765-43210"),
+    # Before a date too: masked up to the date, which stays.
+    ("called 4155550132 2026-10-10T07:55:01Z twice", "4155550132"),
+    ("called +1 415 555 0132 2026-10-10 twice", "415 555 0132"),
 ])
 def test_real_phone_numbers_are_still_masked(text, number):
     r = redact(text)
     assert number not in r.text and "<PHONE_" in r.text, r.text
+    assert ("2026-10-10" in text) == ("2026-10-10" in r.text)
 
 
 def test_a_contiguous_card_number_is_still_masked():
