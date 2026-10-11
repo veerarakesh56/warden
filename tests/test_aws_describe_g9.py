@@ -220,3 +220,20 @@ def test_every_field_and_path_is_in_awss_own_response_shape():
             for part in f.split("."):
                 assert part in getattr(sh, "members", {}), (key, f)
                 sh = sh.members[part]
+
+
+def test_no_row_writes_two_fields_under_one_name():
+    """G10 held-out (2026-10-11): an instance read `Status=impaired Status=ok` - its system check and its instance
+    check under one name, so the evidence could not say which had failed."""
+    for key, d in aws_describe.TABLE.items():
+        names = [aws_describe.field_name(d.fields, f) for f in d.fields]
+        assert len(set(names)) == len(names), (key, names)
+    line = aws_describe.state_line("instance_id", "i-0f3a9c2e7b1d45608", {"InstanceStatuses": [{
+        "InstanceState": {"Name": "running"}, "SystemStatus": {"Status": "impaired"},
+        "InstanceStatus": {"Status": "ok"}, "Events": [{"Code": "instance-retirement"}]}]})
+    assert line == ("STATE instance_id i-0f3a9c2e7b1d45608 Name=running SystemStatus_Status=impaired "
+                    "InstanceStatus_Status=ok Events=1")
+    # A row whose fields end differently keeps the short names, and a deeper field its path, as before.
+    assert aws_describe.field_name(("State", "RetryPolicy.MaxRetryAttempts"), "RetryPolicy.MaxRetryAttempts") == \
+        "MaxRetryAttempts"
+    assert aws_describe.field_name(("A.B.C",), "A.B.C") == "A_B_C"

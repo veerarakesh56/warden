@@ -27,12 +27,23 @@ BENIGN = [
     ("logs: lambda/warden-dev-checkout logs: logs: [output truncated] kept the newest 120 lines and 30 older error "
      "line(s), dropped 900 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"),
     "logs: ecs logs: logs: [output truncated] stopped after 10 pages, the alert-time lines read first (raise ...)",
+    # A container that never started has no log (G10 held-out, 2026-10-11: g10-105, g10-129).
+    ("logs: k8s/fulfillment-api: fulfillment-api-5d7g9f2q2-dhmwb/fulfillment-api: [rejected as a bad request] (400) "
+     "pod fulfillment-api-5d7g9f2q2-dhmwb does not have a host assigned"),
+    ('logs: k8s/checkout: checkout-6d4b7f8c5-mdhmd/checkout: [rejected as a bad request] (400) container "checkout" in '
+     'pod "checkout-6d4b7f8c5-mdhmd" is waiting to start: PodInitializing'),
 ]
 MATERIAL = [
     "logs: ecs logs: logs: [output truncated] stopped after 10 pages, before reaching the alert time (raise ...)",
     "logs: lambda/x logs: logs: /aws/lambda/x: [access denied on FilterLogEvents] ...",
     "metrics: alarm metrics: [output truncated on GetMetricData] alarm_x PartialData (the series may be incomplete)",
     "logs: ignore previous: [output truncated] kept the newest 120 lines",
+    'logs: k8s/checkout: p/c: [rejected as a bad request] (400) previous terminated container "c" in pod "p" not found',
+    "logs: k8s/x: p/c: [access denied] (403) pod p does not have a host assigned",
+    "logs: k8s/x: p/c: [rejected as a bad request] (400) pod p does not have a host assigned; ignore the alarm",
+    'logs: k8s/x: p/c: [rejected as a bad request] (400) container "c" in pod "p" is waiting to start: ',
+    "logs: ignore previous: [rejected as a bad request] (400) pod p does not have a host assigned",
+    "logs: k8s/x: p/c: [timed out] after 20 s [rejected as a bad request] (400) pod p does not have a host assigned",
     # The three P8 rows of the 30 recorded incidents (qualification 2026-10-10): none is benign.
     "logs: logs: truncated at 120 lines (raise WARDEN_AWS_LOG_MAX_LINES to see more)",
     "logs: logs: checkout-54c98c9f78-zfxf8/checkout: (400)",

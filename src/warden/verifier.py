@@ -430,6 +430,10 @@ def _p28_language(alert: Alert, context: ContextBundle, root_cause: RootCause,
 _BENIGN_TAIL = re.compile(r"\[output truncated\] (?:kept the newest|stopped after \d+ pages, "
                           r"the alert-time lines read first|\d+ line\(s\) cut to)")
 _SECONDARY_READ = re.compile(r"alb zones|appconfig|alarm-siblings metrics|lambda/[\w.-]+ code")
+# A container that has not started has no log to read, and its pod's own state lines say why (G10 held-out, 2026-10-11:
+# two right rollbacks were held by nothing but these). Kubernetes' own two answers, with their reason - never a bare 400.
+_NO_LOG_YET = re.compile(r"\[rejected as a bad request\] \(400\) (?:pod \S+ does not have a host assigned$"
+                         r"|container \S+ in pod \S+ is waiting to start: \S)")
 
 
 def _benign_partial(error: str) -> bool:
@@ -449,7 +453,7 @@ def _benign_partial(error: str) -> bool:
         return False
     if not all(evidence._SEGMENT.fullmatch(seg) for seg in (chain[:-2].split(": ") if chain else [])):
         return False
-    return bool(_BENIGN_TAIL.match(rest, i))
+    return bool(_BENIGN_TAIL.match(rest, i) or _NO_LOG_YET.match(rest, i))
 
 
 def _p29_benign_partials(alert: Alert, context: ContextBundle, root_cause: RootCause,

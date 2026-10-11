@@ -248,6 +248,15 @@ def _value(v: Any) -> str:
     return _safe(v)
 
 
+def field_name(fields: tuple[str, ...], dotted: str) -> str:
+    """The name a field is written under: its last part - or its whole path when it is deeper, or when another field
+    of the row ends the same (G10 held-out, 2026-10-11: an instance read `Status=impaired Status=ok`, its system check
+    and its instance check under one name)."""
+    leaf = dotted.split(".")[-1]
+    shared = sum(f.split(".")[-1] == leaf for f in fields) > 1
+    return dotted.replace(".", "_") if shared or dotted.count(".") >= 2 else leaf
+
+
 def state_line(key: str, name: str, response: Mapping[str, Any]) -> str:
     """`STATE <label> <name> field=value ...` from one describe response, the allowlisted fields only."""
     d = TABLE[key]
@@ -259,7 +268,7 @@ def state_line(key: str, name: str, response: Mapping[str, Any]) -> str:
         item = found[0]
     if not isinstance(item, Mapping):
         raise TypeError(f"no {key} in the response")
-    fields = " ".join(f"{f.split('.')[-1] if f.count('.') < 2 else f.replace('.', '_')}={_value(_get(item, f))}"
+    fields = " ".join(f"{field_name(d.fields, f)}={_value(_get(item, f))}"
                       for f in d.fields if _get(item, f) is not None)
     return f"STATE {key} {_safe(name)} {fields}".rstrip()
 
