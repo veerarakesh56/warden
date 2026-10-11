@@ -224,6 +224,11 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           "the provisioned capacity AWS Config recorded before the change", _ref("alarm", "table", "event", "throughput")),
     Entry("asg_restore_capacity", "T2", "asg", "the desired capacity AWS Config recorded before the change",
           _ref("alarm", "asg", "event", "desired")),
+    # G10 held-out (2026-10-11, g10-103): the processes ONE recorded SuspendProcesses stopped, resumed - the event
+    # itself holds the undo. The group then acts again: it replaces unhealthy instances, and those are not brought back.
+    Entry("asg_resume_processes", "T2", "asg",
+          "the processes suspended again (instances the group replaced meanwhile stay replaced)",
+          _ref("alarm", "asg", "event")),
     # A stage moved to another deployment: back to the one before, which must still exist - a "stage rollback".
     Entry("apigw_restore_stage", "T2", "apigw", "the deployment AWS Config recorded before the change",
           _ref("alarm", "api", "stage", "event", "deployment")),
@@ -299,6 +304,10 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "asg_restore_capacity": lambda p, s: [_arrow(f"desired capacity of group {p['asg']}", s.get("desired_now"),
                                                  f"{p['desired']} (what AWS Config recorded before {s.get('event_name')} "
                                                  f"at {s.get('event_time')} by {s.get('actor')})")],
+    "asg_resume_processes": lambda p, s: [(f"group {p['asg']}: resume {', '.join(s.get('processes') or ['?'])} - "
+                                           f"undoing {s.get('event_name')} at {s.get('event_time')} by "
+                                           f"{s.get('actor')}; the group then acts again - it replaces unhealthy "
+                                           "instances, and those are not brought back")],
     "apigw_restore_stage": lambda p, s: [_arrow(f"deployment of stage {p['stage']} of {p['api']}",
                                                 s.get("deployment_now"),
                                                 f"{p['deployment']} (what AWS Config recorded before "
@@ -398,7 +407,7 @@ def fingerprint() -> str:
 
 # A platform with more than one kind of recorded change to undo: the resolver uses the entry that found the change,
 # and refuses when more than one did (WARDEN does not choose between two changes).
-REVERT_ALSO = {"lambda": ("lambda_restore_settings",)}
+REVERT_ALSO = {"lambda": ("lambda_restore_settings",), "asg": ("asg_resume_processes",)}
 # When none of them found a recorded change: a consumer a change switched off is undone by switching it on - the same
 # write as resume_flow (G10 held-out, 2026-10-11: the undo of a disabled event source mapping was never planned).
 REVERT_ELSE = {"lambda": ("lambda_enable_esm", "mapping")}

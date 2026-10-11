@@ -85,6 +85,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "sqs_restore_attributes": "sqs", "kinesis_restore_retention": "kinesis", "ec2_restore_route": "ec2",
           "apigw_restore_stage": "apigw", "elb_reregister_targets": "elb", "kms_cancel_key_deletion": "kms",
           "secrets_restore_secret": "secretsmanager", "dynamodb_restore_capacity": "dynamodb",
+          "asg_resume_processes": "asg",
           "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
@@ -234,6 +235,12 @@ def _trail_change(raw: dict[str, Any]) -> dict[str, Any] | None:
 # The user agents of the infrastructure-as-code tools that call AWS's APIs themselves (CloudFormation, and so CDK and
 # SAM, call as an AWS service and are refused as one).
 _IAC = re.compile(r"Terraform|OpenTofu|pulumi|crossplane", re.IGNORECASE)
+
+
+# Every process an Auto Scaling group runs: a SuspendProcesses that names none suspends them all (AWS API reference,
+# read 2026-10-11).
+_ASG_PROCESSES = frozenset({"Launch", "Terminate", "AddToLoadBalancer", "AlarmNotification", "AZRebalance",
+                            "HealthCheck", "InstanceRefresh", "ReplaceUnhealthy", "ScheduledActions"})
 
 
 def _grace(group: dict[str, Any]) -> int:
@@ -488,6 +495,7 @@ class AwsPlatform:
                 "elb_reregister_targets": self._live_targets, "kms_cancel_key_deletion": self._live_key_deletion,
                 "secrets_restore_secret": self._live_secret_deletion,
                 "dynamodb_restore_capacity": self._live_table_restore,
+                "asg_resume_processes": self._live_asg_resume,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -550,6 +558,7 @@ class AwsPlatform:
                  "elb_reregister_targets": self._targets_healthy, "kms_cancel_key_deletion": self._key_kept,
                  "secrets_restore_secret": self._secret_restored,
                  "dynamodb_restore_capacity": self._table_restored,
+                 "asg_resume_processes": self._asg_resumed,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -617,6 +626,7 @@ class AwsPlatform:
                  "elb_reregister_targets": self._targets, "kms_cancel_key_deletion": self._key_cancel,
                  "secrets_restore_secret": self._secret_restore,
                  "dynamodb_restore_capacity": self._table_restore,
+                 "asg_resume_processes": self._asg_resume,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -2402,7 +2412,9 @@ class AwsPlatform:
         if onset is None and not isinstance(named, str):
             return None, None, "the alarm is not in ALARM"
         since = (onset or self._now()) - REVERT_BEFORE_ALARM
-        writes = list({w["event"]: w for w in self._trail_writes("EventName", event, since, self._now(), keep)}.values())
+        # The event's own name too: the lookup filters by it, and an answer that held another write is not one.
+        writes = list({w["event"]: w for w in self._trail_writes(
+            "EventName", event, since, self._now(), lambda e: e["event_name"] == event and keep(e))}.values())
         if isinstance(named, str):
             writes = [w for w in writes if w["event"] == named] or writes
         if len(writes) != 1:
@@ -2458,6 +2470,58 @@ class AwsPlatform:
             "TargetHealthDescriptions") or []
         healthy = [h for h in now if (h.get("TargetHealth") or {}).get("State") == "healthy"]
         return len(healthy) == len(st["targets"]) and self._alarm_ok(str(params.get("alarm", "")))
+
+    def _live_asg_resume(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE SuspendProcesses a person made on this group before its alarm, while every process it suspended is
+        still suspended - the event itself names what to resume. A deployment that suspends a group's processes is
+        AWS-made and refused, as is one made through infrastructure as code."""
+        name, alarm = params.get("asg"), params.get("alarm")
+        if not isinstance(name, str) or not isinstance(alarm, str):
+            return {}
+        g = (self._read("autoscaling").describe_auto_scaling_groups(AutoScalingGroupNames=[name]).get(
+            "AutoScalingGroups") or [{}])[0]
+        if g.get("AutoScalingGroupName") != name:
+            return {}
+        arn = g.get("AutoScalingGroupARN", "")
+        suspended = sorted(str(p.get("ProcessName")) for p in g.get("SuspendedProcesses") or [])
+        state: dict[str, Any] = {"asg": name, "arn": arn, "suspended_now": suspended, "where": self._where(arn)}
+        live = {"asg": {name}, "alarm": {alarm}, "event": set(), "slow_start_s": _grace(g),
+                "environment": {t["Key"]: t["Value"] for t in g.get("Tags") or []}.get(ENV_TAG)}
+        e, _onset, why = self._one_write(
+            "SuspendProcesses", lambda e: _last(_get(e["request"] or {}, "autoScalingGroupName")) == name, params, alarm)
+        if e is not None:
+            asked = _get(e["request"] or {}, "scalingProcesses")
+            processes = sorted(str(p) for p in asked) if isinstance(asked, list) and asked else sorted(_ASG_PROCESSES)
+            state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")}, processes=processes)
+            if not why and not set(processes) <= _ASG_PROCESSES:
+                why = "the event names a process WARDEN does not know"
+            if not why and not set(processes) <= set(suspended):
+                why = "a process the change suspended runs again already"
+        return {**live, "event": set() if why else {e["event"]}, "refused": why, "state": state}
+
+    def _asg_resume(self, p, snapshot, now, who, back) -> str:
+        """Resume exactly the processes the recorded SuspendProcesses stopped (back: suspend them again)."""
+        self._expect(now, snapshot, ("asg", "arn", "event", "processes"), f"group {p['asg']}")
+        processes = list(now["processes"])
+        if not back and not set(processes) <= set(now.get("suspended_now") or []):
+            raise AwsPlatformRefused(f"a process of group {p['asg']} the plan resumes runs again already; nothing was "
+                                     "changed")
+        action = "autoscaling:SuspendProcesses" if back else "autoscaling:ResumeProcesses"
+        asg = self._actor(who, [action], [now["arn"]], None)("autoscaling")
+        (asg.suspend_processes if back else asg.resume_processes)(AutoScalingGroupName=p["asg"],
+                                                                   ScalingProcesses=processes)
+        return f"{'suspended again' if back else 'resumed'} {', '.join(processes)} on group {p['asg']}"
+
+    def _asg_resumed(self, group: str, params: dict[str, Any]) -> bool:
+        """None of the resumed processes suspended, every wanted instance in service and healthy, the alarm OK."""
+        st = self._live_asg_resume(params).get("state") or {}
+        g = (self._read("autoscaling").describe_auto_scaling_groups(AutoScalingGroupNames=[group]).get(
+            "AutoScalingGroups") or [{}])[0]
+        serving = sum(1 for i in g.get("Instances") or [] if i.get("LifecycleState") == "InService"
+                      and i.get("HealthStatus") == "Healthy")
+        want = g.get("DesiredCapacity")
+        return (bool(st.get("processes")) and not set(st["processes"]) & set(st.get("suspended_now") or [])
+                and isinstance(want, int) and serving == want and self._alarm_ok(str(params.get("alarm", ""))))
 
     def _live_key_deletion(self, params: dict[str, Any]) -> dict[str, Any]:
         """The ONE ScheduleKeyDeletion on this customer managed key before the alarm, while the key is still pending

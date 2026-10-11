@@ -168,7 +168,11 @@
     {
       "Sid": "AutoScalingGroupsOfThisEnvironment",
       "Effect": "Allow",
-      "Action": "autoscaling:SetDesiredCapacity",
+      "Action": [
+        "autoscaling:ResumeProcesses",
+        "autoscaling:SetDesiredCapacity",
+        "autoscaling:SuspendProcesses"
+      ],
       "Resource": "arn:aws:autoscaling:ap-south-2:*:autoScalingGroup:*:autoScalingGroupName/warden-dev-*",
       "Condition": {
         "StringLike": {

@@ -90,7 +90,8 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
                                "replaceroute", "updateservice", "putfunctionconcurrency", "deletefunctionconcurrency",
                                "setdesiredcapacity", "updateautoscalinggroup", "updatestage", "deregistertargets",
                                "updatefunctionconfiguration", "setqueueattributes",
-                               "decreasestreamretentionperiod", "updateeventsourcemapping", "updatetable"),
+                               "decreasestreamretentionperiod", "updateeventsourcemapping", "updatetable",
+                               "suspendprocesses"),
 }
 
 

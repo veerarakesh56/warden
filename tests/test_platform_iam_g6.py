@@ -123,6 +123,8 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
     # G10-D3: values back to what AWS Config recorded before the change - applied, judged, rolled back.
     from test_restore_table_g10f import PLAN as TABLE_PLAN
     from test_restore_table_g10f import Tables
+    from test_resume_processes_g10f import PLAN as RESUME_PLAN
+    from test_resume_processes_g10f import Suspended
     from test_revert_config_history_g10d3 import (
         ASG,
         ECS,
@@ -163,6 +165,7 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
              ("routes", [{"DestinationCidrBlock": "0.0.0.0/0", "NatGatewayId": NAT, "State": "active"}])),
             (Scaled(), "asg_restore_capacity", {**ASG, "event": "a-1", "desired": "6"}, ("capacity", 6)),
             (Tables(), "dynamodb_restore_capacity", TABLE_PLAN, ("units", [100, 400])),
+            (Suspended(), "asg_resume_processes", RESUME_PLAN, ("suspended", [])),
             (_staged(), "apigw_restore_stage", {**STAGE, "event": "s-1", "deployment": "dep-old"},
              ("deployment", "dep-old")),
             # G10-D2: the undo the event itself holds
