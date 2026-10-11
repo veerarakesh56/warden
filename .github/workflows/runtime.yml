@@ -158,7 +158,24 @@ jobs:
         run: terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" -out="$RUNNER_TEMP/tfplan"
       - name: apply the plan just made
         if: env.ACTION == 'apply'
-        run: terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan"
+        run: |
+          set -o pipefail
+          if terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan" \
+              | tee "$RUNNER_TEMP/apply.log"; then
+            exit 0
+          fi
+          # A pause releases the NAT gateway's address right after the gateway. For a moment EC2 still lists the
+          # address as associated, and answers the release's disassociate with UnauthorizedOperation, not "not
+          # found" (2026-10-09; twice on 2026-10-11) - everything else is already gone. Only when that is the one
+          # error: plan what is left and apply it, once.
+          if [ "$(grep -c 'Error: ' "$RUNNER_TEMP/apply.log")" != 1 ] \
+              || ! grep -q 'Error: disassociating EC2 EIP' "$RUNNER_TEMP/apply.log"; then
+            exit 1
+          fi
+          echo "::notice::the NAT gateway's address was still listed as associated; applying what is left, once"
+          terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" \
+            -out="$RUNNER_TEMP/tfplan-rest"
+          terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan-rest"
       # The audit's tables, triggers and writer login, from inside the VPC (migrate.tf). Idempotent.
       - name: the audit's schema and writer login
         if: env.ACTION == 'apply'

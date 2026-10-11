@@ -5,8 +5,11 @@ plans, and applies only the plan it made, with that digest. terraform/runtime ta
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FLOW = (ROOT / ".github" / "workflows" / "runtime.yml").read_text(encoding="utf-8")
@@ -83,3 +86,50 @@ def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     assert not re.search(r"\b(?:ap|us|eu|ca|sa|me|af|il)-[a-z]+-\d\b", tf)  # no region
     module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
     assert module.count("permissions_boundary = var.permissions_boundary_arn") == 5  # every role the module makes
+
+
+EIP_ERROR = "Error: disassociating EC2 EIP (eipassoc-0abc): operation error EC2: DisassociateAddress, UnauthorizedOperation"
+
+
+@pytest.mark.parametrize("first, second, exit_code, calls", [
+    ("ok", "", 0, ["apply"]),
+    (EIP_ERROR, "ok", 0, ["apply", "plan", "apply"]),
+    (EIP_ERROR, "Error: still failing", 1, ["apply", "plan", "apply"]),  # once, never a loop
+    ("Error: creating ECS Service (warden-ops-core): AccessDenied", "ok", 1, ["apply"]),
+    (EIP_ERROR + "|Error: waiting for ECS Service delete: timeout", "ok", 1, ["apply"]),  # not the ONE error
+    ("Error: disassociating EC2 EIP|" + EIP_ERROR, "ok", 1, ["apply"]),
+])
+def test_a_pause_retries_only_the_one_known_address_error_and_only_once(tmp_path, first, second, exit_code, calls):
+    """2026-10-11: a pause removed everything in order and still ended red - EC2 answered the release of the NAT
+    gateway's address with UnauthorizedOperation while it still listed the address as associated. The apply step runs
+    here as written, against a stand-in terraform: it applies what is left once, only for that one error."""
+    import shutil
+    import subprocess
+
+    import yaml
+
+    bash = shutil.which("bash")
+    assert bash, "the workflow's step is a bash script: bash must be on PATH to test it"
+    steps = yaml.safe_load(FLOW)["jobs"]["deploy"]["steps"]
+    script = next(s["run"] for s in steps if s.get("name") == "apply the plan just made")
+    answers = tmp_path / "answers"
+    answers.write_text(first + "\n" + second + "\n", encoding="utf-8", newline="\n")
+    fake = tmp_path / "terraform"
+    fake.write_text(
+        "#!/usr/bin/env bash\n"
+        'here="$(dirname "$0")"\n'
+        'verb="$2"\n'
+        'echo "$verb" >> "$here/calls"\n'
+        '[ "$verb" = plan ] && exit 0\n'
+        'n=$(grep -c apply "$here/calls")\n'
+        'answer="$(sed -n "${n}p" "$here/answers")"\n'
+        '[ "$answer" = ok ] && { echo "Apply complete!"; exit 0; }\n'
+        'echo "$answer" | tr "|" "\\n"\n'
+        "exit 1\n", encoding="utf-8", newline="\n")
+    fake.chmod(0o755)
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": str(tmp_path),
+           "IMAGE": "registry.example/warden@sha256:0"}
+    done = subprocess.run([bash, "-e", "-c", script], env=env, capture_output=True, text=True, cwd=tmp_path,
+                          check=False)
+    assert (done.returncode != 0) == (exit_code != 0), done.stdout + done.stderr
+    assert (tmp_path / "calls").read_text(encoding="utf-8").split() == calls
