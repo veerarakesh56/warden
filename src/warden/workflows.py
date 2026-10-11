@@ -396,6 +396,10 @@ class IncidentWorkflow:
         plannable = verified.verdict.status.value == "approved_for_human" or (
             workflow.patched("g9-plan-p6") and verified.verdict.status.value == "escalated"
             and set(verified.verdict.policy_ids) == {"P6-BLAST-RADIUS"})
+        # Held by P31 alone: plan_fix offers the undo of the change the proposal left unaddressed (activities.py).
+        if (not plannable and verified.verdict.status.value == "escalated"
+                and set(verified.verdict.policy_ids) == {"P31-UNADDRESSED-CHANGE"}):
+            plannable = workflow.patched("g10-offer-undo")
         if workflow.patched("g9-plan-fix") and not diagnosed.model_unavailable and plannable:
             try:
                 req = await workflow.execute_activity_method(acts.plan_fix, **_zoned(acts.plan_fix),

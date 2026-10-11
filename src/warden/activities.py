@@ -44,6 +44,9 @@ def _note(text: str) -> None:
     _LOG.info("%s", " ".join(text.split())[:300])
 
 
+OFFERED_UNDO = "WARDEN's own offer: the undo of the change the proposal left unaddressed"
+
+
 class FixRequest(BaseModel):
     incident_id: str
     # A catalogue entry name, never free text: an agent-supplied entry was printed raw by `warden
@@ -744,9 +747,20 @@ class IncidentActivities:
 
         alert_id = alert.alert_id
         why, req = "", None
-        p6_only = (verified.verdict.status == VerdictStatus.escalated
-                   and set(verified.verdict.policy_ids) == {"P6-BLAST-RADIUS"})
-        if verified.verdict.status != VerdictStatus.approved_for_human and not p6_only:
+        held_by = (set(verified.verdict.policy_ids) if verified.verdict.status == VerdictStatus.escalated else None)
+        p6_only = held_by == {"P6-BLAST-RADIUS"}
+        # Held by P31 alone: the fix passed every other policy and left a person's recent change to the alert's own
+        # resource unaddressed. WARDEN offers the undo of THAT change instead - same target, the platform's live read
+        # decides which change and whether it may be undone, a person approves it. (First live fault, 2026-10-11: a
+        # cut table got "raise the capacity", P31 held it, and the person received no plan although the undo has an
+        # entry; held-out g10-135 the same.) The model's own proposal stays in the report as it was.
+        offer = held_by == {"P31-UNADDRESSED-CHANGE"}
+        proposal = diagnosed.proposal
+        if offer:
+            from .models import ActionKind
+
+            proposal = proposal.model_copy(update={"action": ActionKind.revert_change})
+        if verified.verdict.status != VerdictStatus.approved_for_human and not p6_only and not offer:
             why = f"the verdict is {verified.verdict.status.value}"
         elif self.platform is None:
             why = "this worker reads no platform"
@@ -755,15 +769,16 @@ class IncidentActivities:
                 return self.platform.live(entry, params, **_env(self.platform.live, alert.environment))
 
             try:
-                req, why = resolver.request_for(alert, diagnosed.proposal, live)
+                req, why = resolver.request_for(alert, proposal, live)
             except Exception as exc:  # noqa: BLE001 - a failed live read plans nothing; the person was told
                 req, why = None, f"the live read failed ({type(exc).__name__})"
         if req:
             req["workflow_id"] = resolver.workflow_id(req)
         self.audit.append(alert_id, "incident.plan_fix", {
-            "run_id": _run_id(), "planned": bool(req), "why": why,
+            "run_id": _run_id(), "planned": bool(req), "why": why, **({"offered": OFFERED_UNDO} if offer else {}),
             **({"entry": req["entry"], "params": req["params"], "workflow_id": req["workflow_id"]} if req else {})})
-        _note(f"{alert_id} fix plan " + (f"opened: {req['entry']}" if req else f"not opened: {why}"))
+        _note(f"{alert_id} fix plan " + (f"opened: {req['entry']}" if req else f"not opened: {why}")
+              + (f" ({OFFERED_UNDO})" if offer else ""))
         return req or {}
 
     @activity.defn
