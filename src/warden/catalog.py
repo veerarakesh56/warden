@@ -217,6 +217,11 @@ CATALOG: dict[str, Entry] = {e.name: e for e in [
           _ref("alarm", "queue", "event", "attributes")),
     Entry("kinesis_restore_retention", "T2", "kinesis", "the retention AWS Config recorded before the change",
           _ref("alarm", "stream", "event", "hours")),
+    # G10 held-out (2026-10-11, three cases of a person's cut): a table's provisioned read and write capacity back to
+    # what AWS Config recorded before the ONE recorded UpdateTable that only cut it - never a billing mode, an index, a
+    # raise, or a table an autoscaler owns.
+    Entry("dynamodb_restore_capacity", "T2", "dynamodb",
+          "the provisioned capacity AWS Config recorded before the change", _ref("alarm", "table", "event", "throughput")),
     Entry("asg_restore_capacity", "T2", "asg", "the desired capacity AWS Config recorded before the change",
           _ref("alarm", "asg", "event", "desired")),
     # A stage moved to another deployment: back to the one before, which must still exist - a "stage rollback".
@@ -262,6 +267,7 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
                                "sqs": "sqs_restore_attributes", "kinesis": "kinesis_restore_retention",
                                "asg": "asg_restore_capacity", "apigw": "apigw_restore_stage",
                                "elb": "elb_reregister_targets", "kms": "kms_cancel_key_deletion",
+                               "dynamodb": "dynamodb_restore_capacity",
                                "secretsmanager": "secrets_restore_secret"},
 }
 
@@ -297,6 +303,11 @@ _CHANGES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
                                                 s.get("deployment_now"),
                                                 f"{p['deployment']} (what AWS Config recorded before "
                                                 f"{s.get('event_name')} at {s.get('event_time')} by {s.get('actor')})")],
+    "dynamodb_restore_capacity": lambda p, s: [_arrow(f"read/write capacity units of table {p['table']}",
+                                                      "/".join(str(u) for u in s.get("after") or []) or None,
+                                                      f"{p['throughput']} (what AWS Config recorded before "
+                                                      f"{s.get('event_name')} at {s.get('event_time')} by "
+                                                      f"{s.get('actor')})")],
     "ecs_restore_desired": lambda p, s: [_arrow(f"desired tasks of service {p['service']}", s.get("desired_now"),
                                                 f"{p['desired']} (what AWS Config recorded before {s.get('event_name')} "
                                                 f"at {s.get('event_time')} by {s.get('actor')})")],

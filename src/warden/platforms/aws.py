@@ -84,7 +84,7 @@ _KINDS = {"lambda_move_alias": "lambda", "lambda_set_reserved_concurrency": "lam
           "ecs_restore_desired": "ecs", "lambda_restore_concurrency": "lambda", "lambda_restore_settings": "lambda", "asg_restore_capacity": "asg",
           "sqs_restore_attributes": "sqs", "kinesis_restore_retention": "kinesis", "ec2_restore_route": "ec2",
           "apigw_restore_stage": "apigw", "elb_reregister_targets": "elb", "kms_cancel_key_deletion": "kms",
-          "secrets_restore_secret": "secretsmanager",
+          "secrets_restore_secret": "secretsmanager", "dynamodb_restore_capacity": "dynamodb",
           "aurora_failover": "rds"}
 AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreserved (catalog._raise_concurrency)
 
@@ -310,6 +310,15 @@ def _ints(conf: dict[str, Any], keys: list[str]) -> dict[str, int]:
     return out
 
 
+def _throughput(conf: dict[str, Any]) -> list[int] | None:
+    """[read, write] capacity units of a table, of its Config record or of an UpdateTable request, in any key case
+    (AWS::DynamoDB::Table configuration.provisionedThroughput.readCapacityUnits / .writeCapacityUnits -
+    awslabs/aws-config-resource-schema, read 2026-10-11). None unless both are whole numbers."""
+    tp = _get(conf, "provisionedThroughput")
+    units = [_get(tp, k) for k in ("readCapacityUnits", "writeCapacityUnits")] if isinstance(tp, dict) else []
+    return units if units and all(isinstance(u, int) for u in units) else None
+
+
 def _pairs_text(values: dict[str, Any]) -> str:
     return ",".join(f"{k}={values[k]}" for k in sorted(values))
 
@@ -478,6 +487,7 @@ class AwsPlatform:
                 "asg_restore_capacity": self._live_asg_restore, "apigw_restore_stage": self._live_stage_restore,
                 "elb_reregister_targets": self._live_targets, "kms_cancel_key_deletion": self._live_key_deletion,
                 "secrets_restore_secret": self._live_secret_deletion,
+                "dynamodb_restore_capacity": self._live_table_restore,
                 "aurora_failover": self._live_cluster}.get(entry)
         if read is None:
             return {}
@@ -539,6 +549,7 @@ class AwsPlatform:
                  "asg_restore_capacity": self._asg_restored, "apigw_restore_stage": self._stage_restored,
                  "elb_reregister_targets": self._targets_healthy, "kms_cancel_key_deletion": self._key_kept,
                  "secrets_restore_secret": self._secret_restored,
+                 "dynamodb_restore_capacity": self._table_restored,
                  "aurora_failover": self._cluster_healthy}.get(entry or "")
         if check is None:
             return False
@@ -605,6 +616,7 @@ class AwsPlatform:
                  "asg_restore_capacity": self._asg_restore, "apigw_restore_stage": self._stage_restore,
                  "elb_reregister_targets": self._targets, "kms_cancel_key_deletion": self._key_cancel,
                  "secrets_restore_secret": self._secret_restore,
+                 "dynamodb_restore_capacity": self._table_restore,
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
@@ -2157,6 +2169,76 @@ class AwsPlatform:
     def _kinesis_retention_restored(self, stream: str, params: dict[str, Any]) -> bool:
         s = self._read("kinesis").describe_stream_summary(StreamName=stream)["StreamDescriptionSummary"]
         return (str(s.get("RetentionPeriodHours")) == str(params.get("hours")) and s.get("StreamStatus") == "ACTIVE"
+                and self._alarm_ok(str(params.get("alarm", ""))))
+
+    def _live_table_restore(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The ONE recorded UpdateTable on this table in the hours before its alarm, when all it did was CUT the
+        table's provisioned capacity - and the capacity AWS Config recorded before it. DynamoDB allows an increase at
+        any time (AWS, read 2026-10-11). A change of billing mode, of an index or of anything else is a person's; so
+        is a table whose capacity an autoscaler owns."""
+        name, alarm = params.get("table"), params.get("alarm")
+        if not isinstance(name, str) or not isinstance(alarm, str):
+            return {}
+        t = self._read("dynamodb").describe_table(TableName=name)["Table"]
+        arn, now = t["TableArn"], _throughput(t)
+        state: dict[str, Any] = {"table": name, "arn": arn, "now": now, "where": self._where(arn)}
+        live = {"table": {name}, "alarm": {alarm}, "event": set(), "throughput": set(),
+                "environment": self._tags("dynamodb", arn).get(ENV_TAG),
+                "rollout": "complete" if t.get("TableStatus") == "ACTIVE" else "progressing"}
+        onset = self._alarm_onset(alarm)
+        if onset is None and not isinstance(params.get("event"), str):
+            return {**live, "refused": "the alarm is not in ALARM", "state": state}
+        since = (onset or self._now()) - REVERT_BEFORE_ALARM
+        e, why = self._one_change("dynamodb.amazonaws.com", ("UpdateTable",), since,
+                                  lambda e: _last(_get(e["request"] or {}, "tableName")) == name, params.get("event"))
+        if e is None:
+            return {**live, "refused": why, "state": state}
+        state.update({k: e[k] for k in ("event", "event_name", "event_time", "actor")})
+        why = _who_refusal(e, onset) if onset else "the alarm is not in ALARM"
+        other = sorted(k for k in e["request"] or {} if k.lower() not in ("tablename", "provisionedthroughput"))
+        if not why and other:
+            why = f"the change also set {', '.join(other)}: a person undoes it"
+        if not why and (t.get("BillingModeSummary") or {}).get("BillingMode", "PROVISIONED") != "PROVISIONED":
+            why = "the table is not in provisioned capacity mode"
+        if not why and self._read("application-autoscaling").describe_scalable_targets(
+                ServiceNamespace="dynamodb", ResourceIds=[f"table/{name}"]).get("ScalableTargets"):
+            why = "an autoscaler owns this table's capacity"
+        rid = self._config_id("AWS::DynamoDB::Table", name, lambda rid: _last(rid) == name)
+        before = after = None
+        if rid and (not why or onset is None):
+            before, after, bracket = self._config_bracket(
+                "AWS::DynamoDB::Table", rid, e, lambda i: _throughput(_json(i.get("configuration"))))
+            why = why or bracket
+        elif not why:
+            why = "AWS Config holds no single record of this table"
+        state.update(before=before, after=after)
+        if not why and not (before and after and before != after and all(b >= a for b, a in zip(before, after))):
+            why = "AWS Config recorded no higher capacity before the change"
+        if not why and (after != _throughput(e["request"] or {}) or now != after):
+            why = "the table's capacity is not what the change set: it moved since"
+        return {**live, "event": set() if why else {e["event"]},
+                "throughput": set() if why else {f"{before[0]}/{before[1]}"}, "refused": why, "state": state}
+
+    def _table_restore(self, p, snapshot, now, who, back) -> str:
+        """Set the table's capacity back to what AWS Config recorded before the cut (back: to what the cut set)."""
+        self._expect(now, snapshot, ("table", "arn", "event", "before", "after"), f"table {p['table']}")
+        text = str(p["throughput"])
+        prior = [int(v) for v in text.split("/")] if re.fullmatch(r"[1-9][0-9]*/[1-9][0-9]*", text) else None
+        want_now, to = (snapshot.get("after"), prior) if not back else (prior, snapshot.get("after"))
+        if now.get("now") != want_now or not to:
+            raise AwsPlatformRefused(f"table {p['table']} has {now.get('now')} read/write units, not {want_now}; "
+                                     "nothing was changed")
+        db = self._actor(who, ["dynamodb:UpdateTable"], [now["arn"]], None)("dynamodb")
+        db.update_table(TableName=p["table"], ProvisionedThroughput={"ReadCapacityUnits": to[0],
+                                                                      "WriteCapacityUnits": to[1]})
+        return (f"set table {p['table']} capacity from {want_now[0]}/{want_now[1]} to {to[0]}/{to[1]} "
+                "read/write units")
+
+    def _table_restored(self, table: str, params: dict[str, Any]) -> bool:
+        t = self._read("dynamodb").describe_table(TableName=table)["Table"]
+        now = _throughput(t)
+        return (t.get("TableStatus") == "ACTIVE" and now is not None
+                and f"{now[0]}/{now[1]}" == str(params.get("throughput"))
                 and self._alarm_ok(str(params.get("alarm", ""))))
 
     def _live_asg_restore(self, params: dict[str, Any]) -> dict[str, Any]:

@@ -90,7 +90,7 @@ ACTION_EVIDENCE: dict[ActionKind, tuple[str, ...]] = {
                                "replaceroute", "updateservice", "putfunctionconcurrency", "deletefunctionconcurrency",
                                "setdesiredcapacity", "updateautoscalinggroup", "updatestage", "deregistertargets",
                                "updatefunctionconfiguration", "setqueueattributes",
-                               "decreasestreamretentionperiod", "updateeventsourcemapping"),
+                               "decreasestreamretentionperiod", "updateeventsourcemapping", "updatetable"),
 }
 
 
@@ -245,7 +245,7 @@ REVERT_FIELDS = {"updateservice": ("desiredcount",), "setdesiredcapacity": ("des
                  "updateautoscalinggroup": ("desiredcapacity", "minsize", "maxsize"),
                  "updatefunctionconfiguration": ("timeout", "memorysize", "ephemeralstorage"),
                  "putfunctionconcurrency": ("reservedconcurrentexecutions",), "setqueueattributes": ("attributes",),
-                 "updateeventsourcemapping": ("enabled",)}
+                 "updateeventsourcemapping": ("enabled",), "updatetable": ("provisionedthroughput",)}
 # The CloudTrail events that are a deploy - what a rollback undoes.
 _DEPLOY_EVENTS = ("updatefunctioncode", "publishversion", "updatealias", "createdeployment", "registertaskdefinition")
 _REQUEST_NAMED = re.compile(r" request=([A-Za-z0-9,]{1,600})$")
