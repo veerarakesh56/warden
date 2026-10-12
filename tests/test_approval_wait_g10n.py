@@ -23,8 +23,8 @@ from warden.models import ActionKind
 
 def test_the_wait_is_an_environments_own_setting_within_a_week():
     policies = environments.default_environment_policies()
-    assert policies.for_env("dev").approval_wait_hours == environments.APPROVAL_WAIT_HOURS == 24
-    assert policies.for_env("an-unknown-one").approval_wait_hours == 24
+    assert policies.for_env("dev").approval_wait_hours == environments.APPROVAL_WAIT_HOURS == 72
+    assert policies.for_env("an-unknown-one").approval_wait_hours == 72
     assert environments.MAX_APPROVAL_WAIT_HOURS == 168 and MAX_APPROVAL_TTL_MINUTES == 168 * 60
     assert FixRequest(**{**REQ, "approval_ttl_minutes": 168 * 60}).approval_ttl_minutes == 10080
     with pytest.raises(ValidationError):
@@ -39,8 +39,8 @@ def test_a_plan_made_from_an_incident_waits_as_long_as_its_environment_says():
     req, why = resolver.request_for(_alert(dynamodb_table="warden-dev-carts"),
                                     _proposal(ActionKind.scale_up, "warden-dev-carts"),
                                     lambda e, p: {"table": {"warden-dev-carts"}, "current_capacity": 50})
-    assert why == "" and req["approval_ttl_minutes"] == 24 * 60
-    assert FixRequest(**{k: v for k, v in req.items() if k != "workflow_id"}).approval_ttl_minutes == 1440
+    assert why == "" and req["approval_ttl_minutes"] == 72 * 60
+    assert FixRequest(**{k: v for k, v in req.items() if k != "workflow_id"}).approval_ttl_minutes == 72 * 60
 
 
 def test_the_message_says_until_when_and_the_link_lasts_as_long_as_the_plan(world, sink):  # noqa: F811

@@ -59,7 +59,7 @@ def _actions(sid: str, kfield: str, values: Any) -> frozenset[ActionKind]:
 # after a discussion" - a 30-minute plan behind a 15-minute link ran out on a person twice in one day). A plan made hours
 # ago is still safe to approve: the target is read again before anything is applied, and a target that moved is refused.
 # Per environment (`approval_wait_hours`), never past a week.
-APPROVAL_WAIT_HOURS = 24
+APPROVAL_WAIT_HOURS = 72  # three days (owner, same day: "more like days or weeks")
 MAX_APPROVAL_WAIT_HOURS = 7 * 24
 
 

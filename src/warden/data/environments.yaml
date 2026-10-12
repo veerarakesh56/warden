@@ -84,7 +84,7 @@ default:
   credentials_ref: null
 
 environments:
-# `approval_wait_hours` (default 24, at most 168) is how long a fix plan in that environment waits for its approval -
+# `approval_wait_hours` (default 72 - three days - and at most 168, a week) is how long a fix plan in that environment waits for its approval -
 # and how long its approval link works. The target is read again before anything is applied, whatever the wait.
 # `tripwire: off | on | required` (default off) sets the injection detector per environment; the stricter of it and
 # WARDEN_TRIPWIRE applies. None sets it yet: the image has no detector (Prompt Guard 2 is a gated model), and
