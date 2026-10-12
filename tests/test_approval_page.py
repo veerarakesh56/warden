@@ -213,8 +213,33 @@ def test_the_page_says_what_it_is_doing_and_asks_for_the_target_only_when_the_ti
     out of sight above the plan, a second click read "link is not valid", and a T1 plan showed the target box."""
     page, _, _, _ = setup
     shell = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}").body
-    assert '<p id="typed-p" hidden>' in shell and "hidden = !d.plan.type_the_target" in shell
-    assert 'if (k === "type_the_target") { continue; }' in shell
+    assert '<p id="typed-p" hidden>' in shell and '$("typed-p").hidden = !plan.type_the_target' in shell
+    assert '["change", "tier", "risk", "type_the_target"].includes(k)' in shell  # not listed as a fact of the plan
     assert "Sending your approval." in shell and "Sending your denial." in shell and "s.scrollIntoView" in shell
     assert shell.count("busy(true);") == 3 == shell.count("finally { busy(false); }")  # no second click mid-way
-    assert 'document.getElementById("acts").hidden = true' in shell and shell.count("sent(") == 2
+    assert '$("acts").hidden = true' in shell and shell.count("sent(") == 2
+
+
+def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_the_basics_of_access(setup):
+    """The redesign (owner, 2026-10-12: "they look like some poor pages") must stay inside the policy the page is
+    served with - one nonced style, one nonced script, nothing from anywhere else, no style attribute - and keep what
+    a person using a keyboard, a screen reader, a phone or 200% zoom needs."""
+    import re
+
+    from warden import approval_page
+
+    page, _, _, _ = setup
+    served = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}")
+    assert "{{" not in served.body and served.body.count('nonce="') == 2  # every placeholder filled; one style, one script
+    nonce = re.search(r"script-src 'nonce-([^']+)'", served.headers["Content-Security-Policy"]).group(1)
+    assert served.body.count(f'nonce="{nonce}"') == 2
+    for html in (approval_page._PAGE, approval_page._ENROL):
+        assert html.count("<style nonce=") == 1 and html.count("<script nonce=") == 1
+        for refused in ("http://", "https://", "//", "<img", "<link", "<iframe", "@import", "url(", ' style="', "onclick"):
+            assert refused not in html.replace("</", ""), refused
+        assert "prefers-color-scheme:dark" in html and "prefers-reduced-motion:reduce" in html
+        assert '<html lang="en">' in html and "width=device-width" in html and ":focus-visible" in html
+        assert 'role="status" aria-live="polite"' in html and "<main" in html and "<h1" in html
+        for control in re.findall(r'<(?:input|textarea) id="([a-z]+)"', html):
+            assert f'<label for="{control}">' in html, control  # every control is labelled
+        assert "#000" not in html and "#fff" not in html.lower()

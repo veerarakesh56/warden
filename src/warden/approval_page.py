@@ -386,91 +386,246 @@ def _json(status: int, payload: dict) -> Response:
     return Response(status, _headers(secrets.token_urlsafe(8), "application/json"), json.dumps(payload))
 
 
-# The enrolment page: one button, then the approver list to save. Same rules as the approval page.
-_ENROL = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WARDEN passkey</title>
-<style nonce="{{NONCE}}">body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}
-button{font:inherit;padding:.5rem 1rem}textarea{font:14px/1.4 monospace;width:100%}[hidden]{display:none}</style></head>
-<body><main>
-<h1>WARDEN passkey</h1>
-<p id="status" role="status" aria-live="polite">Create a passkey on this device to approve plans with it.</p>
-<button id="make" type="button">Create my passkey</button>
-<section id="done" hidden aria-labelledby="done-h"><h2 id="done-h">The approver list, with this passkey</h2>
-<p><label for="list">Save this as WARDEN's approver list. The passkey approves nothing until it is saved
-there.</label></p>
-<textarea id="list" rows="24" readonly></textarea>
-<p><button id="copy" type="button">Copy the list</button></p></section>
-</main>
-<script nonce="{{NONCE}}">
+# ------------------------------------------------------------------ the pages
+# One look for both pages (owner, 2026-10-12: "they look like some poor pages"). Everything is in the page: the
+# Content-Security-Policy admits no font, image, frame or script from anywhere, and no style attribute - so the system
+# font, classes only, and a nonce on the one style and the one script. Light and dark follow the device. Depth says
+# what is what: the plan lies on a raised sheet, the old value is pressed in and the new one raised, the one button
+# that sends a decision can be pressed. Labelled controls, keyboard order, a status always in words (never colour
+# alone), readable at 200% and at a phone's width.
+_STYLE = """
+:root{color-scheme:light dark;
+--bg:oklch(0.965 0.006 85);--bg2:oklch(0.925 0.01 85);--sheet:oklch(0.995 0.003 85);--well:oklch(0.958 0.007 85);
+--line:oklch(0.875 0.008 85);--ink:oklch(0.24 0.012 265);--muted:oklch(0.46 0.012 265);
+--accent:oklch(0.47 0.19 265);--accent-hi:oklch(0.42 0.19 265);--accent-edge:oklch(0.33 0.15 265);
+--accent-ink:oklch(0.985 0.005 265);--glow:oklch(0.47 0.19 265/.26);
+--ok:oklch(0.43 0.11 150);--warn:oklch(0.46 0.12 65);--bad:oklch(0.47 0.18 27);
+--in:inset 0 1px 2px oklch(0.2 0.02 265/.10);--lift:0 1px 0 oklch(1 0 0/.6) inset,0 2px 6px oklch(0.2 0.02 265/.14);
+--shadow:0 1px 1px oklch(0.2 0.02 265/.05),0 6px 14px oklch(0.2 0.02 265/.06),0 22px 48px oklch(0.2 0.02 265/.10)}
+@media (prefers-color-scheme:dark){:root{
+--bg:oklch(0.205 0.013 265);--bg2:oklch(0.15 0.014 265);--sheet:oklch(0.235 0.013 265);--well:oklch(0.195 0.013 265);
+--line:oklch(0.33 0.014 265);--ink:oklch(0.95 0.006 85);--muted:oklch(0.74 0.01 85);
+--accent:oklch(0.74 0.13 265);--accent-hi:oklch(0.8 0.11 265);--accent-edge:oklch(0.52 0.14 265);
+--accent-ink:oklch(0.17 0.02 265);--glow:oklch(0.74 0.13 265/.22);
+--ok:oklch(0.8 0.13 150);--warn:oklch(0.83 0.12 80);--bad:oklch(0.76 0.15 27);
+--in:inset 0 1px 2px oklch(0 0 0/.45);--lift:0 1px 0 oklch(1 0 0/.07) inset,0 2px 8px oklch(0 0 0/.4);
+--shadow:0 1px 0 oklch(1 0 0/.05) inset,0 14px 40px oklch(0 0 0/.5)}}
+*{box-sizing:border-box}
+html{font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-text-size-adjust:100%}
+body{margin:0;min-height:100vh;color:var(--ink);
+background:radial-gradient(120% 55% at 50% -8%,var(--bg) 0,var(--bg2) 100%) fixed var(--bg2)}
+.page{max-width:36rem;margin:0 auto;padding:1.25rem 1rem 3rem}
+.top{display:flex;align-items:baseline;gap:.625rem;padding:.25rem .25rem 1rem}
+.mark{font-weight:700;letter-spacing:.14em;font-size:.8125rem}
+.where,.foot{color:var(--muted);font-size:.8125rem}
+.foot{margin:1rem .25rem 0}
+.sheet{background:var(--sheet);border:1px solid var(--line);border-radius:1rem;box-shadow:var(--shadow);overflow:hidden}
+.steps{list-style:none;margin:0;padding:.875rem 1.25rem;display:flex;flex-wrap:wrap;gap:.5rem 1.125rem;counter-reset:s;
+border-bottom:1px solid var(--line);background:var(--well);font-size:.8125rem;color:var(--muted)}
+.steps li{counter-increment:s;display:flex;align-items:center;gap:.4375rem}
+.steps li::before{content:counter(s);display:grid;place-items:center;width:1.375rem;height:1.375rem;border-radius:50%;
+border:1px solid var(--line);background:var(--sheet);font-weight:600;font-size:.75rem}
+.steps li[aria-current]{color:var(--ink);font-weight:600}
+.steps li[aria-current]::before{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.steps li.done::before{content:"✓";color:var(--ok);border-color:currentColor}
+h1{font-size:1.375rem;line-height:1.25;letter-spacing:-.01em;margin:1.375rem 1.25rem .5rem}
+p{margin:0 0 1rem}
+.lede{margin:0 1.25rem 1.25rem;color:var(--muted);max-width:60ch}
+.eyebrow{margin:1.25rem 1.25rem .625rem;font-size:.75rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+color:var(--muted)}
+.mono,.change{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.mono{font-size:.875rem}
+.change{margin:0 1.25rem;display:grid;gap:.5rem}
+.change .line{display:grid;justify-items:start;gap:.4375rem;padding:.875rem 1rem;border-radius:.75rem;
+background:var(--well);box-shadow:var(--in);overflow-wrap:anywhere}
+.change .what{font-weight:600}
+.change .pair{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .625rem}
+.change .was{color:var(--muted);padding:.3125rem .6875rem;border-radius:.5rem;border:1px dashed var(--line);
+text-decoration:line-through}
+.change .to{font:600 .6875rem/1 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;letter-spacing:.1em;
+text-transform:uppercase;color:var(--muted)}
+.change .now{font-weight:700;padding:.3125rem .6875rem;border-radius:.5rem;background:var(--sheet);
+border:1px solid var(--line);box-shadow:var(--lift)}
+.facts{margin:1.25rem 1.25rem 0;display:grid;grid-template-columns:minmax(7.5rem,max-content) 1fr}
+.facts dt,.facts dd{margin:0;padding:.625rem 0;border-top:1px solid var(--line)}
+.facts dt{color:var(--muted);font-size:.875rem;padding-right:1rem}
+.facts dd{overflow-wrap:anywhere}
+.risk{font-weight:600}.risk.t1{color:var(--ok)}.risk.t2{color:var(--warn)}.risk.t3{color:var(--bad)}
+.pad{padding:0 1.25rem}
+.bar{position:relative;overflow:hidden;margin-top:1.25rem;padding:1rem 1.25rem 1.25rem;border-top:1px solid var(--line);
+background:var(--well)}
+.bar::before{content:"";position:absolute;left:0;top:0;height:2px;width:30%;background:var(--accent);opacity:0;
+transform:translateX(-100%)}
+body[data-busy="1"] .bar::before{opacity:1;animation:run 1.1s cubic-bezier(.22,1,.36,1) infinite}
+@keyframes run{to{transform:translateX(340%)}}
+#status{margin:0 0 .875rem;font-weight:500}
+#status[data-kind="bad"]{color:var(--bad)}#status[data-kind="ok"]{color:var(--ok)}
+label{display:block;font-size:.875rem;font-weight:600;margin-bottom:.375rem}
+input,textarea{width:100%;font:inherit;color:inherit;background:var(--sheet);border:1px solid var(--line);
+border-radius:.625rem;padding:.625rem .75rem;box-shadow:var(--in)}
+textarea{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.8125rem;line-height:1.45;
+resize:vertical}
+.hint{display:block;margin-top:.375rem;font-size:.8125rem;font-weight:400;color:var(--muted)}
+button{width:100%;font:inherit;font-weight:600;border-radius:.75rem;padding:.75rem 1rem;border:1px solid transparent;
+cursor:pointer;transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s cubic-bezier(.22,1,.36,1),
+background-color .16s}
+.primary{color:var(--accent-ink);background:var(--accent);
+box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 3px 0 var(--accent-edge),0 10px 22px var(--glow)}
+.primary:hover{background:var(--accent-hi)}
+.primary:active{transform:translateY(2px);box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 1px 0 var(--accent-edge),
+0 4px 10px var(--glow)}
+.danger{color:var(--bad);background:var(--sheet);border-color:currentColor}
+.danger:active{transform:translateY(1px)}
+button:disabled{opacity:.55;cursor:progress;transform:none}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+details{margin-top:1rem}
+summary{cursor:pointer;color:var(--muted);font-size:.875rem;padding:.25rem 0}
+details p{margin:.75rem 0}
+[hidden]{display:none!important}
+@media (max-width:26rem){.facts{grid-template-columns:1fr}.facts dt{padding-bottom:0}
+.facts dd{border-top:0;padding-top:.125rem}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+"""
+
+# What both pages' scripts share: the passkey encodings, the status line, the step marker, the POST.
+_JS = """
 const base = location.pathname.endsWith("/") ? location.pathname.slice(0, -1) : location.pathname;
+const $ = id => document.getElementById(id);
 const b2a = b => btoa(String.fromCharCode(...new Uint8Array(b))).split("+").join("-").split("/").join("_")
   .split("=").join("");
 const a2b = s => Uint8Array.from(atob(s.split("-").join("+").split("_").join("/")), c => c.charCodeAt(0));
-const say = t => { document.getElementById("status").textContent = t; };
-async function post(step, body) {
-  const r = await fetch(base + "/" + step, {method: "POST", headers: {"Content-Type": "application/json"},
+const say = (t, kind) => { const s = $("status"); s.textContent = t; s.dataset.kind = kind || "info";
+                           s.scrollIntoView({block: "nearest"}); };
+const busy = on => { document.body.dataset.busy = on ? "1" : "0";
+                     for (const b of document.querySelectorAll("button")) { b.disabled = on; } };
+const step = n => { [...document.querySelectorAll(".steps li")].forEach((li, i) => {
+  li.classList.toggle("done", i < n);
+  if (i === n) { li.setAttribute("aria-current", "step"); } else { li.removeAttribute("aria-current"); }
+  li.setAttribute("aria-label", li.textContent + (i < n ? ", done" : "")); }); };
+async function post(name, body) {
+  const r = await fetch(base + "/" + name, {method: "POST", headers: {"Content-Type": "application/json"},
                                             body: JSON.stringify(body || {})});
   return [r.ok, await r.json()];
 }
-document.getElementById("make").addEventListener("click", async () => {
-  try {
-    const [ok, d] = await post("options"); if (!ok) { say(d.error); return; }
-    const o = d.options; o.challenge = a2b(o.challenge); o.user.id = a2b(o.user.id);
-    o.excludeCredentials = (o.excludeCredentials || []).map(c => ({...c, id: a2b(c.id)}));
-    const c = await navigator.credentials.create({publicKey: o});
-    const [done, r] = await post("finish", {response: {id: c.id, rawId: b2a(c.rawId), type: c.type, response: {
-      clientDataJSON: b2a(c.response.clientDataJSON), attestationObject: b2a(c.response.attestationObject)}}});
-    if (!done) { say(r.error); return; }
-    document.getElementById("list").value = r.approvers;
-    document.getElementById("done").hidden = false; document.getElementById("make").hidden = true;
-    say(r.device_bound ? "Passkey created on this device. Save the list below."
-      : "Passkey created. It is synced between your devices, so it cannot approve the riskiest tier. Save the list below.");
-  } catch (e) { say("Not created: " + e.message); }
-});
-document.getElementById("copy").addEventListener("click", async () => {
-  try { await navigator.clipboard.writeText(document.getElementById("list").value); say("Copied."); }
-  catch (e) { document.getElementById("list").select(); say("Select the list and copy it."); }
-});
-</script></body></html>
+"""
+
+_SHELL = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style nonce="{{NONCE}}">{{STYLE}}</style></head>
+<body data-busy="0"><div class="page">
+<header class="top"><span class="mark">WARDEN</span><span class="where">{{WHERE}}</span></header>
+<main class="sheet">{{MAIN}}</main>
+<p class="foot">{{FOOT}}</p>
+</div>
+<script nonce="{{NONCE}}">{{JS}}{{SCRIPT}}</script></body></html>
 """
 
 
-# The page: no plan in it - the plan arrives only after the first passkey ceremony. Labelled controls, keyboard
-# order, text status (never colour alone), and nothing loaded from anywhere else.
-_PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WARDEN approval</title>
-<style nonce="{{NONCE}}">body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}
-dt{font-weight:600}button{font:inherit;padding:.5rem 1rem}[hidden]{display:none}</style></head>
-<body><main>
-<h1>WARDEN approval</h1>
-<p id="status" role="status" aria-live="polite">Confirm it is you to see the plan.</p>
-<p id="only">This link was made for one approver. Only that person can open it, with their own passkey; anyone else
-sees nothing here and cannot approve the plan.</p>
-<button id="who" type="button">Show the plan with my passkey</button>
-<section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h">The plan</h2><dl id="facts"></dl>
-<div id="acts"><p id="typed-p" hidden><label for="typed">Type the target exactly to approve it</label><br>
-<input id="typed" autocomplete="off"></p>
-<button id="ok" type="button">Approve this plan with my passkey</button>
-<p><label for="why">Or deny it (optional reason)</label><br><input id="why" maxlength="200" autocomplete="off"></p>
-<button id="no" type="button">Deny this plan with my passkey</button></div></section>
-</main>
-<script nonce="{{NONCE}}">
-const base = location.pathname.replace(/\\/$/, "");
-const b2a = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
-const a2b = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
-const say = t => { const s = document.getElementById("status"); s.textContent = t; s.scrollIntoView({block: "center"}); };
-const busy = on => { for (const b of document.querySelectorAll("button")) { b.disabled = on; } };
-const sent = t => { document.getElementById("acts").hidden = true; say(t); };
-async function post(step, body) {
-  const r = await fetch(base + "/" + step, {method: "POST", headers: {"Content-Type": "application/json"},
-                                            body: JSON.stringify(body || {})});
-  return [r.ok, await r.json()];
+def _page(title: str, where: str, main: str, foot: str, script: str) -> str:
+    return (_SHELL.replace("{{TITLE}}", title).replace("{{WHERE}}", where).replace("{{MAIN}}", main)
+            .replace("{{FOOT}}", foot).replace("{{STYLE}}", _STYLE).replace("{{JS}}", _JS).replace("{{SCRIPT}}", script))
+
+
+# The enrolment page: one button, then the approver list to save.
+_ENROL = _page("WARDEN passkey", "Passkey", """
+<ol class="steps" aria-label="Steps"><li class="done">Open your link</li><li aria-current="step">Create the passkey</li>
+<li>Save the approver list</li></ol>
+<h1 id="title">Add a passkey for approvals</h1>
+<p id="only" class="lede">You confirm it with your fingerprint, face or PIN each time you approve a plan. Nobody else
+can use it.</p>
+<section id="done" hidden aria-labelledby="done-h"><h2 id="done-h" class="eyebrow">The approver list, with this passkey</h2>
+<div class="pad"><label for="list">Save this as WARDEN's approver list. The passkey approves nothing until it is saved
+there.</label>
+<textarea id="list" rows="14" readonly></textarea></div></section>
+<div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">Create a passkey on this device to
+approve plans with it.</p>
+<button id="make" class="primary" type="button">Create my passkey</button>
+<button id="copy" class="primary" type="button" hidden>Copy the list</button></div>
+""", "The page cannot save the list: a person does, where WARDEN reads it.", """
+$("make").addEventListener("click", async () => {
+  busy(true);
+  try {
+    say("Confirm with your device.", "work");
+    const [ok, d] = await post("options"); if (!ok) { say(d.error, "bad"); return; }
+    const o = d.options; o.challenge = a2b(o.challenge); o.user.id = a2b(o.user.id);
+    o.excludeCredentials = (o.excludeCredentials || []).map(c => ({...c, id: a2b(c.id)}));
+    const c = await navigator.credentials.create({publicKey: o});
+    say("Checking the new passkey.", "work");
+    const [done, r] = await post("finish", {response: {id: c.id, rawId: b2a(c.rawId), type: c.type, response: {
+      clientDataJSON: b2a(c.response.clientDataJSON), attestationObject: b2a(c.response.attestationObject)}}});
+    if (!done) { say(r.error, "bad"); return; }
+    $("list").value = r.approvers; $("done").hidden = false; $("only").hidden = true;
+    $("make").hidden = true; $("copy").hidden = false; $("title").textContent = "Passkey created"; step(2);
+    say(r.device_bound ? "Passkey created on this device. Save the list shown above."
+      : "Passkey created. It is synced between your devices, so it cannot approve the riskiest tier. Save the list shown above.",
+      "ok");
+  } catch (e) { say("Not created: " + e.message, "bad"); } finally { busy(false); }
+});
+$("copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("list").value); say("Copied. Save it as the approver list.", "ok"); }
+  catch (e) { $("list").select(); say("Select the list and copy it."); }
+});
+""")
+
+# The approval page: no plan in it - the plan arrives only after the first passkey ceremony.
+_PAGE = _page("WARDEN approval", "Approval", """
+<ol class="steps" aria-label="Steps"><li aria-current="step">Confirm it is you</li><li>Read the plan</li>
+<li>Decide</li></ol>
+<h1 id="title">A plan is waiting for your approval</h1>
+<p id="only" class="lede">This link was made for one approver. Only that person can open it, with their own passkey;
+anyone else sees nothing here and cannot approve the plan.</p>
+<section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h" class="eyebrow">What will change</h2>
+<p id="change" class="change"></p>
+<dl id="facts" class="facts"></dl></section>
+<div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">Confirm it is you to see the plan.</p>
+<button id="who" class="primary" type="button">Show the plan with my passkey</button>
+<div id="acts" hidden><p id="typed-p" hidden><label for="typed">Type the target exactly to approve it
+<span class="hint">It is shown above, beside Target.</span></label>
+<input id="typed" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false"></p>
+<button id="ok" class="primary" type="button">Approve this plan with my passkey</button>
+<details><summary>Deny this plan instead</summary>
+<p><label for="why">Reason (optional)</label><input id="why" maxlength="200" autocomplete="off"></p>
+<button id="no" class="danger" type="button">Deny this plan with my passkey</button></details></div></div>
+""", "WARDEN checks every approval again, against this exact plan, before anything changes.", """
+const LABELS = {entry: "Action", target: "Target", environment: "Environment", values: "Exact values",
+                plan_hash: "Plan fingerprint", made: "Plan made", link_expires: "Link expires"};
+const MONO = ["entry", "target", "values", "plan_hash"];
+const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; e.textContent = text;
+                                 return e; };
+function show(plan) {
+  const change = $("change"); change.textContent = "";
+  for (const line of String(plan.change || "").split("; ")) {
+    const at = line.lastIndexOf(" -> ");
+    const row = el("span", "line", at < 0 ? line : "");
+    if (at >= 0) {
+      const was = line.slice(0, at), colon = was.lastIndexOf(": ");
+      const pair = el("span", "pair", "");
+      pair.append(el("span", "was", colon < 0 ? was : was.slice(colon + 2)), el("span", "to", "becomes"),
+                  el("span", "now", line.slice(at + 4)));
+      if (colon >= 0) { row.append(el("span", "what", was.slice(0, colon))); }
+      row.append(pair);
+    }
+    change.append(row);
+  }
+  const dl = $("facts"); dl.textContent = "";
+  dl.append(el("dt", "", "Risk"), el("dd", "risk " + String(plan.tier).toLowerCase(),
+                                     plan.risk ? plan.tier + ": " + plan.risk : String(plan.tier)));
+  for (const [k, v] of Object.entries(plan)) {
+    if (["change", "tier", "risk", "type_the_target"].includes(k)) { continue; }
+    dl.append(el("dt", "", LABELS[k] || k.split("_").join(" ")),
+              el("dd", MONO.includes(k) ? "mono" : "", typeof v === "string" ? v : JSON.stringify(v)));
+  }
+  $("typed-p").hidden = !plan.type_the_target;
+  $("only").hidden = true; $("who").hidden = true; $("plan").hidden = false; $("acts").hidden = false;
+  $("title").textContent = "Read the plan, then decide"; step(1);
 }
-async function passkey(step) {
-  say("Confirm with your passkey.");
-  const [ok, d] = await post(step); if (!ok) { throw new Error(d.error); }
+const sent = t => { $("acts").hidden = true; $("title").textContent = "Done"; $("plan-h").textContent = "The plan";
+                    step(3);
+                    say(t + " You can close this page.", "ok"); };
+async function passkey(name) {
+  say("Confirm with your passkey.", "work");
+  const [ok, d] = await post(name); if (!ok) { throw new Error(d.error); }
   const o = d.options; o.challenge = a2b(o.challenge);
   o.allowCredentials = (o.allowCredentials || []).map(c => ({...c, id: a2b(c.id)}));
   const c = await navigator.credentials.get({publicKey: o});
@@ -478,44 +633,34 @@ async function passkey(step) {
     clientDataJSON: b2a(c.response.clientDataJSON), authenticatorData: b2a(c.response.authenticatorData),
     signature: b2a(c.response.signature), userHandle: c.response.userHandle ? b2a(c.response.userHandle) : null}};
 }
-document.getElementById("who").addEventListener("click", async () => {
+$("who").addEventListener("click", async () => {
   busy(true);
   try {
     const [ok, d] = await post("login", {response: await passkey("login-options")});
-    if (!ok) { say(d.error); return; }
-    const dl = document.getElementById("facts"); dl.textContent = "";
-    document.getElementById("typed-p").hidden = !d.plan.type_the_target;
-    for (const [k, v] of Object.entries(d.plan)) {
-      if (k === "type_the_target") { continue; }
-      const dt = document.createElement("dt"); dt.textContent = k.replace(/_/g, " ");
-      const dd = document.createElement("dd"); dd.textContent = typeof v === "string" ? v : JSON.stringify(v);
-      dl.append(dt, dd);
-    }
-    document.getElementById("plan").hidden = false; document.getElementById("who").hidden = true;
-    say("Read the plan, then approve it, deny it or close this page.");
+    if (!ok) { say(d.error, "bad"); return; }
+    show(d.plan); say("Approve it, deny it, or close this page to leave it waiting.");
   } catch (e) {
-    say("Not confirmed: " + e.message + " If this link was not made for you, you cannot approve this plan.");
+    say("Not confirmed: " + e.message + " If this link was not made for you, you cannot approve this plan.", "bad");
   } finally { busy(false); }
 });
-document.getElementById("ok").addEventListener("click", async () => {
+$("ok").addEventListener("click", async () => {
   busy(true);
   try {
     const response = await passkey("approve-options");
-    say("Sending your approval. This takes a few seconds; do not click again.");
-    const [ok, d] = await post("approve", {response, typed_target: document.getElementById("typed").value});
-    if (ok) { sent("Approval sent. " + d.note + " You can close this page."); } else { say(d.error); }
-  } catch (e) { say("Not approved: " + e.message); } finally { busy(false); }
+    say("Sending your approval. This takes a few seconds; do not click again.", "work");
+    const [ok, d] = await post("approve", {response, typed_target: $("typed").value});
+    if (ok) { sent("Approval sent. " + d.note); } else { say(d.error, "bad"); }
+  } catch (e) { say("Not approved: " + e.message, "bad"); } finally { busy(false); }
 });
-document.getElementById("no").addEventListener("click", async () => {
+$("no").addEventListener("click", async () => {
   busy(true);
   try {
     const response = await passkey("deny-options");
-    say("Sending your denial. This takes a few seconds; do not click again.");
-    const [ok, d] = await post("deny", {response, reason: document.getElementById("why").value});
-    if (ok) { sent(d.note + " You can close this page."); } else { say(d.error); }
-  } catch (e) { say("Not denied: " + e.message); } finally { busy(false); }
+    say("Sending your denial. This takes a few seconds; do not click again.", "work");
+    const [ok, d] = await post("deny", {response, reason: $("why").value});
+    if (ok) { sent(d.note); } else { say(d.error, "bad"); }
+  } catch (e) { say("Not denied: " + e.message, "bad"); } finally { busy(false); }
 });
-</script></body></html>
-"""
+""")
 
 __all__ = ["LINK_TTL", "ApprovalPage", "Link", "Response"]
