@@ -193,7 +193,7 @@ def test_there_is_an_alarm_for_every_symptom_family():
     assert len(alarms) >= 18, sorted(alarms)
     catalog = ROOT / "scenarios" / "catalog" / "wave4-fullstack.yaml"
     if catalog.exists():  # every alarm the harness polls must exist
-        polled = set(re.findall(r"^\s+alarm: warden-dev-([a-z0-9-]+)", catalog.read_text(encoding="utf-8"), re.MULTILINE))
+        polled = set(re.findall(r"^\s+alarm: warden-__ENV__-([a-z0-9-]+)", catalog.read_text(encoding="utf-8"), re.MULTILINE))
         assert polled and polled <= set(alarms), sorted(polled - set(alarms))
 
 
@@ -866,7 +866,7 @@ def test_every_terraform_root_tags_project_and_environment(name):
     """Owner rule R53: the root module and the proving ground carried neither (review 2026-09-28)."""
     text = _all_tf(ROOTS[name])
     assert re.search(r'Project\s*=\s*"warden"', text), name
-    assert re.search(r"Environment\s*=\s*(?:var\.environment|local\.env)", text), name
+    assert re.search(r"Environment\s*=\s*(?:coalesce\(var\.environment, yamldecode\(|local\.env)", text), name
 
 
 @pytest.mark.parametrize("cmd", ["create", "status", "destroy"])

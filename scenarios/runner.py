@@ -63,7 +63,7 @@ from typing import Any, ClassVar, Self
 
 import yaml
 
-from scenarios.region import region
+from scenarios.region import EXAMPLE_ACCOUNT, fault_environment, region
 
 from . import ops, ops_db, ops_k8s
 
@@ -288,7 +288,10 @@ def check_baseline(clients: ops.Clients, target: ops.Target) -> list[str]:
 def load_wave(wave: int) -> tuple[dict, list[dict]]:
     """Return (catalog document, scenarios) for one wave, in catalog order."""
     for path in sorted(CATALOG.glob("*.yaml")):
-        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        # `warden-__ENV__-`: the environment's own prefix, as in the alert templates - a catalogue names no
+        # environment (owner, 2026-10-12).
+        text = path.read_text(encoding="utf-8").replace("warden-__ENV__-", f"warden-{fault_environment()}-")
+        doc = yaml.safe_load(text) or {}
         if int(doc.get("wave", -1)) == wave:
             return doc, list(doc.get("scenarios") or [])
     raise RunnerError(f"no catalog file declares wave {wave} (looked in {CATALOG})")
@@ -1027,8 +1030,8 @@ _FAKE_RESPONSES: dict[str, Callable[[str], dict]] = {
         "taskDefinition": {
             "family": "checkout", "cpu": "512", "memory": "512", "networkMode": "awsvpc",
             "requiresCompatibilities": ["FARGATE"],
-            "executionRoleArn": "arn:aws:iam::111122223333:role/exec",
-            "taskRoleArn": "arn:aws:iam::111122223333:role/task",
+            "executionRoleArn": f"arn:aws:iam::{EXAMPLE_ACCOUNT}:role/exec",
+            "taskRoleArn": f"arn:aws:iam::{EXAMPLE_ACCOUNT}:role/task",
             "containerDefinitions": [{
                 "name": "checkout",
                 "image": "public.ecr.aws/docker/library/python:3.12-alpine",
@@ -1039,10 +1042,10 @@ _FAKE_RESPONSES: dict[str, Callable[[str], dict]] = {
     },
     "register_task_definition": lambda tag: {
         "taskDefinition": {
-            "taskDefinitionArn": f"arn:aws:ecs:{region()}:111122223333:task-definition/checkout:99"
+            "taskDefinitionArn": f"arn:aws:ecs:{region()}:{EXAMPLE_ACCOUNT}:task-definition/checkout:99"
         }
     },
-    "list_tasks": lambda tag: {"taskArns": [f"arn:aws:ecs:{region()}:111122223333:task/fake"]},
+    "list_tasks": lambda tag: {"taskArns": [f"arn:aws:ecs:{region()}:{EXAMPLE_ACCOUNT}:task/fake"]},
     "list_role_policies": lambda tag: {"PolicyNames": ["warden-reader-inline"]},
     "describe_security_groups": lambda tag: {
         "SecurityGroups": [{
@@ -1102,7 +1105,7 @@ def _dry_harness() -> Harness:
     target = ops.Target(
         region=region(), cluster="warden-proving-ground", service="checkout",
         log_group="/ecs/checkout",
-        baseline_task_definition=f"arn:aws:ecs:{region()}:111122223333:task-definition/checkout:1",
+        baseline_task_definition=f"arn:aws:ecs:{region()}:{EXAMPLE_ACCOUNT}:task-definition/checkout:1",
         security_group_id="sg-fake", route_table_id="rtb-fake", warden_role_name="warden-reader",
         tags=dict(_DRY_TAGS),
     )
@@ -1114,11 +1117,11 @@ def _dry_harness() -> Harness:
         return 0, ""
 
     return Harness(
-        clients=clients, target=target, account="111122223333",
+        clients=clients, target=target, account=EXAMPLE_ACCOUNT,
         assume_reader=lambda: {
             "AWS_ACCESS_KEY_ID": "ASIADRYRUN", "AWS_SECRET_ACCESS_KEY": "dry",
             "AWS_SESSION_TOKEN": "dry",
-            "arn": "arn:aws:sts::111122223333:assumed-role/warden-reader/dry-run",
+            "arn": f"arn:aws:sts::{EXAMPLE_ACCOUNT}:assumed-role/warden-reader/dry-run",
         },
         invoke_warden=invoke,
         # No real account, so nothing to check. Said explicitly rather than inherited from a default:

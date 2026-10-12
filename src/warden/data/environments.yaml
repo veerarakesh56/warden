@@ -63,6 +63,17 @@ aws_global_region: us-east-1
 # person (P22 SELF-TARGET, planned). environments.names() and the account sweep's tag audit accept it.
 runtime: ops
 
+# Where faults may be injected - the benchmark harness and the undo lab. Only here does a fault-injection role exist
+# (register R18, audit A-I-18); never an environment of the prod tier. Code and Terraform read this list; none names
+# an environment of its own (owner, 2026-10-12: nothing in the repository is hardcoded).
+fault_environments: [dev]
+
+# This repository, as GitHub's OIDC token names it - what the deploy roles' trust policies accept: its name, and the
+# immutable subject GitHub issues for it (owner@owner-id/repository@repository-id).
+github:
+  repository: veerarakesh56/warden
+  subject: veerarakesh56@171412850/warden@1341685493
+
 default:
   tier: unknown
   auto_remediate: false

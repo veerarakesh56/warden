@@ -26,6 +26,11 @@ concurrency:
   group: runtime-ops
   cancel-in-progress: false
 
+env:
+  # WARDEN's own environment: environments.yaml `runtime` (tests/test_no_hardcoding_r17.py holds the two equal, and
+  # every `environment:` key below with them). Named once for the steps' shell lines.
+  RUNTIME_ENV: ops
+
 jobs:
   image:
     if: inputs.action != 'restart'
@@ -153,7 +158,7 @@ jobs:
           terraform -chdir=terraform/runtime init -input=false \
             -backend-config="bucket=$BUCKET" -backend-config="key=runtime/terraform.tfstate" \
             -backend-config="region=$AWS_REGION" -backend-config="use_lockfile=true"
-          terraform -chdir=terraform/runtime workspace select -or-create ops
+          terraform -chdir=terraform/runtime workspace select -or-create "$RUNTIME_ENV"
       - name: plan
         run: terraform -chdir=terraform/runtime plan -input=false -no-color -var "runtime_image=$IMAGE" -out="$RUNNER_TEMP/tfplan"
       - name: apply the plan just made
@@ -183,7 +188,7 @@ jobs:
         run: |
           # Paused (SSM tf/paused = true) there is no way out of the VPC - the Lambda cannot reach Secrets Manager -
           # and nothing writes to the audit; the schema is checked at the next resume.
-          if [ "$(aws ssm get-parameter --name /warden/ops/tf/paused --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
+          if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
             echo "paused: the audit's schema is checked at the next resume"
             exit 0
           fi
@@ -219,7 +224,7 @@ jobs:
       # service is stable again - a worker that cannot start is reported here, not found later.
       - name: A fresh deployment of every zone's service
         run: |
-          cluster=warden-ops-runtime
+          cluster="warden-$RUNTIME_ENV-runtime"
           services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
           test -n "$services" || { echo "::error::no services in $cluster: apply first"; exit 1; }
           for svc in $services; do

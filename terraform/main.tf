@@ -13,7 +13,7 @@ locals {
   # (owner rule R53, independent review 2026-09-28).
   tags = merge(var.tags, {
     Project     = "warden"
-    Environment = var.environment
+    Environment = coalesce(var.environment, yamldecode(file("${path.module}/../src/warden/data/environments.yaml")).runtime)
     Application = var.name
     ManagedBy   = "terraform"
   })

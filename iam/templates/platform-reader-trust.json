@@ -4,8 +4,8 @@
     {
       "Sid": "TheRuntimeZonesThatRead",
       "Effect": "Allow",
-      "Principal": {"AWS": ["arn:aws:iam::${account}:role/warden-ops-read", "arn:aws:iam::${account}:role/warden-ops-notify",
-                            "arn:aws:iam::${account}:role/warden-ops-act"]},
+      "Principal": {"AWS": ["arn:aws:iam::${account}:role/warden-${runtime}-read", "arn:aws:iam::${account}:role/warden-${runtime}-notify",
+                            "arn:aws:iam::${account}:role/warden-${runtime}-act"]},
       "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
       "Condition": {"StringLike": {"sts:SourceIdentity": ["inc-*", "warden-worker"]}}
     }

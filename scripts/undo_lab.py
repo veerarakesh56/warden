@@ -22,10 +22,11 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from warden.environments import EnvironmentPolicies
 from warden.environments import names as environment_names
 
-# Where a lab may exist: where the fault-injection role does (scripts/render_env_iam.py HARNESS_ENVS).
-LAB_ENVS = ("dev",)
+# Where a lab may exist: where the fault-injection role does - environments.yaml `fault_environments`, never named here.
+LAB_ENVS = EnvironmentPolicies.load().fault_environments
 # The baseline terraform/undo-lab/main.tf declares (tests/test_undo_lab.py holds the two equal).
 WRITE_UNITS, TIMEOUT_SECONDS = 10, 30
 CUT_WRITE_UNITS, CUT_TIMEOUT_SECONDS = 1, 1

@@ -24,9 +24,12 @@ def _terraform_tags() -> dict[str, str]:
     block = main[main.index("  tags = {"):]
     block = block[:block.index("\n  }")]
     tags = dict(re.findall(r'^\s+(\w+)\s+=\s+"([^"]+)"', block, re.MULTILINE))
-    tags["Environment"] = re.search(r'variable "environment" \{[^}]*?default\s+=\s+"([^"]+)"',
-                                    (ROOT / "terraform" / "proving-ground" / "variables.tf").read_text(encoding="utf-8"),
-                                    re.DOTALL).group(1)
+    # The stack's environment is configuration: the first of environments.yaml `fault_environments` (main.tf's
+    # coalesce), never a default written in variables.tf.
+    assert "yamldecode(" in main and ".fault_environments[0])" in main
+    from warden.environments import EnvironmentPolicies
+
+    tags["Environment"] = EnvironmentPolicies.load().fault_environments[0]
     return tags
 
 

@@ -4,7 +4,7 @@
     {
       "Sid": "OnlyTheOperatorRoleOfThisAccount",
       "Effect": "Allow",
-      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-ops-operator"},
+      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-${runtime}-operator"},
       "Action": ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
     }
   ]

@@ -30,7 +30,6 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import json
-import os
 import re
 import secrets
 import shlex
@@ -41,13 +40,13 @@ from typing import Any
 
 import yaml
 
-from scenarios.region import region
+from scenarios.region import fault_environment, region
 
 from .ops import OpError
 from .ops_k8s import _to_dict
 
-# ponytail: the benchmark runs one environment per process - dev unless WARDEN_ENV says otherwise.
-ENV = os.environ.get("WARDEN_ENV", "dev")
+# ponytail: the benchmark runs one environment per process - WARDEN_ENV, else environments.yaml's fault environment.
+ENV = fault_environment()
 PREFIX = f"warden-{ENV}-"
 REQUIRED_TAGS = {"Project": "warden", "Environment": ENV}
 K8S_LABELS = {"project": "warden", "environment": ENV}
@@ -72,38 +71,38 @@ class Target:
     from the stack description file (fullstack_cli.load_stack)."""
 
     region: str = REGION
-    checkout: str = "warden-dev-checkout"
-    processor: str = "warden-dev-order-processor"
-    notifier: str = "warden-dev-notifier"
-    reconciler: str = "warden-dev-reconciler"
-    ops_fn: str = "warden-dev-ops"
+    checkout: str = f"{PREFIX}checkout"
+    processor: str = f"{PREFIX}order-processor"
+    notifier: str = f"{PREFIX}notifier"
+    reconciler: str = f"{PREFIX}reconciler"
+    ops_fn: str = f"{PREFIX}ops"
     alias: str = "live"
-    orders_queue: str = "warden-dev-orders"
-    orders_dlq: str = "warden-dev-orders-dlq"
-    notifications_queue: str = "warden-dev-notifications"
-    topic: str = "warden-dev-order-events"
-    table: str = "warden-dev-carts"
+    orders_queue: str = f"{PREFIX}orders"
+    orders_dlq: str = f"{PREFIX}orders-dlq"
+    notifications_queue: str = f"{PREFIX}notifications"
+    topic: str = f"{PREFIX}order-events"
+    table: str = f"{PREFIX}carts"
     table_rcu: int = 5
     table_wcu: int = 5
-    redis_group: str = "warden-dev-redis"
+    redis_group: str = f"{PREFIX}redis"
     redis_sg_id: str = ""
-    aurora_cluster: str = "warden-dev-aurora"
-    writer_instance: str = "warden-dev-aurora-1"
-    reader_instance: str = "warden-dev-aurora-2"
+    aurora_cluster: str = f"{PREFIX}aurora"
+    writer_instance: str = f"{PREFIX}aurora-1"
+    reader_instance: str = f"{PREFIX}aurora-2"
     writer_endpoint: str = ""     # cluster writer endpoint (what the processor's DB_HOST must be)
     reader_endpoint: str = ""     # cluster reader endpoint
     database: str = "shop"
     orders_sql_table: str = "orders"
     slow_index: str = "orders_customer_id_idx"
-    checkout_role: str = "warden-dev-checkout"
-    ecs_cluster: str = "warden-dev-ecs"
-    ecs_service: str = "warden-dev-orders-api"
-    ecs_exec_role: str = "warden-dev-ecs-exec"
-    ecs_task_role: str = "warden-dev-orders-api-task"   # signs orders-api's IAM DB tokens (fs-21)
+    checkout_role: str = f"{PREFIX}checkout"
+    ecs_cluster: str = f"{PREFIX}ecs"
+    ecs_service: str = f"{PREFIX}orders-api"
+    ecs_exec_role: str = f"{PREFIX}ecs-exec"
+    ecs_task_role: str = f"{PREFIX}orders-api-task"   # signs orders-api's IAM DB tokens (fs-21)
     ecs_baseline_td: str = ""
-    target_group: str = "warden-dev-orders"
+    target_group: str = f"{PREFIX}orders"
     health_path: str = "/health"
-    rule: str = "warden-dev-reconcile-5m"
+    rule: str = f"{PREFIX}reconcile-5m"
     namespace: str = "shop"
     catalog: str = "catalog-api"
     cart_worker: str = "cart-worker"

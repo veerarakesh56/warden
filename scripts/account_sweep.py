@@ -39,10 +39,11 @@ import jmespath
 from botocore.exceptions import BotoCoreError, ClientError
 
 from warden import environments
-
-# Where AWS itself serves its global services (IAM, CloudFront, region discovery): AWS's choice, not a deployment's.
-AWS_GLOBAL_REGION = "us-east-1"
 from warden.environments import EnvironmentPolicies
+
+# Where AWS itself serves its global services (IAM, CloudFront, region discovery): AWS's choice, not a deployment's -
+# environments.yaml `aws_global_region`, named there once.
+AWS_GLOBAL_REGION = EnvironmentPolicies.load().aws_global_region
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ROLE = "warden-pg-sweep"
@@ -267,7 +268,7 @@ def main(argv: list[str] | None = None, *, session: Any = None) -> int:
             # both, or it is refused (TagSession: seen live in W0-now, 2026-10-02).
             "Sid": "OnlyTheOperator", "Effect": "Allow",
             "Action": ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"],
-            "Principal": {"AWS": f"arn:aws:iam::{account}:role/warden-ops-operator"}}]}, indent=2) + "\n",
+            "Principal": {"AWS": f"arn:aws:iam::{account}:role/warden-{EnvironmentPolicies.load().runtime_environment}-operator"}}]}, indent=2) + "\n",
             encoding="utf-8")
         print(f"wrote {TRUST_FILE} (gitignored: it holds the account id)")
         return 0

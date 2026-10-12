@@ -53,7 +53,7 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     assert DEPLOY_JOB.index("apply -input=false") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert '!= "None" ]; then' in DEPLOY_JOB
     # Paused there is no way out of the VPC: the migrate step is skipped, and only then (2026-10-10).
-    assert '--name /warden/ops/tf/paused' in DEPLOY_JOB and DEPLOY_JOB.index("tf/paused") < DEPLOY_JOB.index("jq -r .migrate_function")
+    assert '--name "/warden/$RUNTIME_ENV/tf/paused"' in DEPLOY_JOB and DEPLOY_JOB.index("tf/paused") < DEPLOY_JOB.index("jq -r .migrate_function")
     assert DEPLOY_JOB.index("Runtime deploys run from main only") < DEPLOY_JOB.index("configure-aws-credentials")
 
 
@@ -133,3 +133,26 @@ def test_a_pause_retries_only_the_one_known_address_error_and_only_once(tmp_path
                           check=False)
     assert (done.returncode != 0) == (exit_code != 0), done.stdout + done.stderr
     assert (tmp_path / "calls").read_text(encoding="utf-8").split() == calls
+
+
+def test_the_pipeline_names_its_environment_once_as_the_configuration_does_and_no_workflow_names_a_resource():
+    """Owner, 2026-10-12: nothing in the repository is hardcoded. The runtime's environment is environments.yaml
+    `runtime`; this workflow names it once (RUNTIME_ENV, and the `environment:` keys GitHub needs written out), and no
+    workflow line names a resource of one environment (`warden-ops-runtime`)."""
+    import yaml
+
+    from warden.environments import EnvironmentPolicies
+
+    cfg = EnvironmentPolicies.load()
+    doc = yaml.safe_load(FLOW)
+    assert doc["env"]["RUNTIME_ENV"] == cfg.runtime_environment
+    assert {job["environment"] for job in doc["jobs"].values()} == {cfg.runtime_environment}
+    shell = "\n".join(step.get("run", "") for job in doc["jobs"].values() for step in job["steps"])
+    assert 'cluster="warden-$RUNTIME_ENV-runtime"' in shell and '"/warden/$RUNTIME_ENV/tf/paused"' in shell
+    named = re.compile("warden-(?:" + "|".join(map(re.escape, (*cfg.known_environments, cfg.runtime_environment)))
+                       + ")-[a-z0-9]|/warden/(?:" + "|".join(map(re.escape, cfg.known_environments)) + "|"
+                       + re.escape(cfg.runtime_environment) + ")/")
+    offenders = [f"{p.name}:{i}" for p in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+                 for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+                 if named.search(line.split("#", 1)[0])]
+    assert not offenders, offenders

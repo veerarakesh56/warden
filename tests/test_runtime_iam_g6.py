@@ -77,7 +77,10 @@ def test_the_worker_reaches_other_environments_only_through_their_reader_and_act
     for kind, zones in (("actor-trust", ("act",)), ("platform-reader-trust", ("read", "notify", "act"))):
         principals = {p for st in json.loads((ROOT / "iam" / "templates" / f"{kind}.json").read_text(encoding="utf-8"))
                       ["Statement"] for p in _list(st["Principal"]["AWS"])}  # and those roles trust only its zones
-        assert principals == {f"arn:aws:iam::${{account}}:role/warden-{RUNTIME}-{z}" for z in zones}
+        assert principals == {f"arn:aws:iam::${{account}}:role/warden-${{runtime}}-{z}" for z in zones}
+        rendered = json.loads((ROOT / "iam" / "dev" / f"{kind}.json").read_text(encoding="utf-8"))
+        assert {p for st in rendered["Statement"] for p in _list(st["Principal"]["AWS"])} == {
+            f"arn:aws:iam::<ACCOUNT_ID>:role/warden-{RUNTIME}-{z}" for z in zones}  # and rendered: the runtime's own
 
 
 def test_instances_launch_only_from_a_template_with_imdsv2():

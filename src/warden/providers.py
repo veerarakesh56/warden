@@ -179,7 +179,7 @@ class AnthropicProvider:
     def __init__(self, model: str | None = None) -> None:
         from anthropic import Anthropic
 
-        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5"))
+        self.model = pinned(model or (os.environ.get("WARDEN_MODEL") or default_model(self.name)))
         self.version = _sdk_version("anthropic")
         # Explicit base URL: the SDK would otherwise honour ANTHROPIC_BASE_URL and send the key there.
         self._client = Anthropic(base_url=ANTHROPIC_BASE_URL, timeout=_sdk_timeout_s(), max_retries=0)
@@ -215,7 +215,7 @@ class GeminiProvider:
         # ⚠ Model names expire. `gemini-2.0-flash` was the default here and the API answered
         # "no longer available ... use models/gemini-3.6-flash". A hardcoded model id is a dated
         # assumption, which is why WARDEN_MODEL overrides it without touching code.
-        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "gemini-3.6-flash"))
+        self.model = pinned(model or (os.environ.get("WARDEN_MODEL") or default_model(self.name)))
         self.version = _sdk_version("google-genai")
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
@@ -280,7 +280,7 @@ class OpenAICompatProvider:
     def __init__(self, model: str | None = None, base_url: str | None = None) -> None:
         from openai import OpenAI
 
-        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "gpt-4o-mini"))
+        self.model = pinned(model or (os.environ.get("WARDEN_MODEL") or default_model(self.name)))
         self.version = _sdk_version("openai")
         # Passed in by resolve() for the aliases; falls back to the env for an explicit custom host.
         # ALWAYS an explicit base URL: without one the SDK reads OPENAI_BASE_URL on its own, and the
@@ -391,7 +391,7 @@ class ClaudeCliProvider:
 
         # The model that passed WARDEN's replay set (data/providers.yaml, register M20). Not claude-sonnet-5-5: the
         # newer model scored 16 of 30 where this one scored 19 (2026-10-02).
-        self.model = pinned(model or os.environ.get("WARDEN_MODEL", "claude-sonnet-5"))
+        self.model = pinned(model or (os.environ.get("WARDEN_MODEL") or default_model(self.name)))
         self._version = ""
         self._exe = shutil.which("claude")
         if not self._exe:
@@ -660,6 +660,15 @@ DEFAULT_BASE_URLS = {
     "openrouter": "https://openrouter.ai/api/v1",
     "ollama": "http://localhost:11434/v1",
 }
+
+
+def default_model(provider: str) -> str:
+    """The model a provider uses when WARDEN_MODEL names none: data/providers.yaml `defaults`. No model id lives in
+    code - a model's name is dated configuration, and it retires on its vendor's calendar."""
+    model = (load_qualified().get("defaults") or {}).get(provider)
+    if not isinstance(model, str) or not model:
+        raise ProviderError(f"data/providers.yaml names no default model for {provider}; set WARDEN_MODEL")
+    return model
 
 
 def load_qualified() -> dict:

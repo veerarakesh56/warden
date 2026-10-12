@@ -4,14 +4,14 @@
     {
       "Sid": "TheActZoneForOneIncident",
       "Effect": "Allow",
-      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-ops-act"},
+      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-${runtime}-act"},
       "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
       "Condition": {"StringLike": {"sts:SourceIdentity": "inc-*"}}
     },
     {
       "Sid": "NamingWhoApprovedTheIncidentAndThePlan",
       "Effect": "Allow",
-      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-ops-act"},
+      "Principal": {"AWS": "arn:aws:iam::${account}:role/warden-${runtime}-act"},
       "Action": "sts:TagSession",
       "Condition": {
         "Null": {"aws:RequestTag/approver": "false", "aws:RequestTag/incident": "false", "aws:RequestTag/plan": "false"},

@@ -33,8 +33,17 @@ TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # WARDEN's own runtime environment (`runtime:` in environments.yaml) gets no application IAM: its deploy role - the one
 # runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
 RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "trust")
-# The benchmark harness runs only here, as the operator on the laptop (owner, 2026-10-02; audit A-I-18).
-HARNESS_ENVS = ("dev",)
+# The benchmark harness and the undo lab run only where environments.yaml `fault_environments` says, as the operator
+# on the laptop (owner, 2026-10-02; audit A-I-18) - the list is configuration, never named here.
+HARNESS_ENVS = EnvironmentPolicies.load().fault_environments
+
+
+def _install() -> dict[str, str]:
+    """What every template may name beside its own environment: WARDEN's runtime environment (whose zone roles the
+    reader and actor trust) and this repository as GitHub's OIDC token names it - all from environments.yaml."""
+    cfg = EnvironmentPolicies.load()
+    return {"runtime": cfg.runtime_environment or "", "github_repository": cfg.github.get("repository", ""),
+            "github_subject": cfg.github.get("subject", "")}
 
 
 def render(env: str, account: str = "<ACCOUNT_ID>", cluster: str = "<CLUSTER_RESOURCE_ID>") -> dict[str, str]:
@@ -46,7 +55,8 @@ def render(env: str, account: str = "<ACCOUNT_ID>", cluster: str = "<CLUSTER_RES
         # env_sql: the environment as a database user name has it - `_` for `-` (audit A-I-1/A-I-2).
         rendered = json.loads(text.substitute(env=env, env_sql=env.replace("-", "_"), account=account,
                                               cluster_resource_id=cluster, region=names(env).region,
-                                              global_region=EnvironmentPolicies.load().aws_global_region))
+                                              global_region=EnvironmentPolicies.load().aws_global_region,
+                                              **_install()))
         out[kind] = json.dumps(rendered, indent=2) + "\n"
     return out
 
@@ -64,8 +74,8 @@ def render_runtime(env: str, account: str = "<ACCOUNT_ID>") -> dict[str, str]:
     out = {}
     for kind in RUNTIME_KINDS:
         text = string.Template((TEMPLATES / f"runtime-{kind}.json").read_text(encoding="utf-8"))
-        out[kind] = json.dumps(json.loads(text.substitute(env=env, account=account, region=names(env).region)),
-                               indent=2) + "\n"
+        out[kind] = json.dumps(json.loads(text.substitute(env=env, account=account, region=names(env).region,
+                                                          **_install())), indent=2) + "\n"
     return out
 
 

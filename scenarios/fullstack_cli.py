@@ -52,7 +52,7 @@ from typing import Any
 
 import yaml
 
-from scenarios.region import region
+from scenarios.region import EXAMPLE_ACCOUNT, region
 
 from . import ops_fullstack as fs
 from .runner import (
@@ -433,7 +433,7 @@ _DRY_REPORT = {
               "environment": "prod", "summary": "dry run", "started_at": "2026-01-01T00:00:00+00:00",
               "labels": {}},
     "redaction_map_size": 0,
-    "context": {"logs": ["LOG lambda/warden-dev-checkout 2026-01-01T00:00:00Z dry"],
+    "context": {"logs": [f"LOG lambda/{fs.PREFIX}checkout 2026-01-01T00:00:00Z dry"],
                 "metrics": {"lambda_invocations__checkout": 1.0, "dlq_visible__orders": 0.0},
                 "recent_deploys": [], "tool_errors": []},
     "root_cause": {"hypothesis": "dry run", "confidence": 0.8, "evidence": [], "ruled_out": []},
@@ -454,7 +454,7 @@ def dry_env() -> Env:
 
     def extract(report, built):
         data = {"fix_commands": [{"kind": "shell", "source": "runbook", "command":
-                f"aws events enable-rule --name warden-dev-reconcile-5m --region {region()}"}]}
+                f"aws events enable-rule --name {fs.PREFIX}reconcile-5m --region {region()}"}]}
         _write_json(built, data)
         return data
 
@@ -476,7 +476,7 @@ def dry_env() -> Env:
                                "AWS_SESSION_TOKEN": "dry", "KUBECONFIG": "/dry/kubeconfig",
                                "WARDEN_STACK_DB_WRITER_DSN": "postgresql://warden_ro@dry.invalid/shop",
                                "WARDEN_STACK_DB_READER_DSN": "postgresql://warden_ro@dry.invalid/shop",
-                               "arn": "arn:aws:sts::111122223333:assumed-role/warden-dev-reader/dry"},
+                               "arn": f"arn:aws:sts::{EXAMPLE_ACCOUNT}:assumed-role/{fs.PREFIX}reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
         stack_ids=frozenset, faults={fid: stub for fid in fs.FAULTS}, baseline=list,
         sleep=sleep, clock=lambda: now[0], dry_run=True,

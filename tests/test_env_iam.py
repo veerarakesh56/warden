@@ -149,7 +149,8 @@ def test_templates_use_only_the_known_placeholders():
 
     for kind in r.KINDS:
         text = (r.TEMPLATES / f"{kind}.json").read_text(encoding="utf-8")
-        assert set(re.findall(r"\$\{(\w+)\}", text)) <= {"env", "env_sql", "account", "region", "global_region"}, kind
+        assert set(re.findall(r"\$\{(\w+)\}", text)) <= {"env", "env_sql", "account", "region", "global_region", "runtime",
+                                                                  "github_repository", "github_subject"}, kind
 
 
 @pytest.mark.parametrize("env", ENVS)

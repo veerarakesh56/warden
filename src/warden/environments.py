@@ -89,8 +89,13 @@ class EnvPolicy:
 class EnvironmentPolicies:
     def __init__(self, default: EnvPolicy, environments: dict[str, EnvPolicy], runtime: str | None = None,
                  aws_region: str | None = None, display_zone: str | None = None,
-                 aws_global_region: str | None = None) -> None:
+                 aws_global_region: str | None = None, fault_environments: tuple[str, ...] = (),
+                 github: dict[str, str] | None = None) -> None:
         self.runtime_environment = runtime
+        # Where faults may be injected, and this repository's identity for GitHub's OIDC token: configuration, read
+        # by the scripts, the IAM templates and Terraform - no code names an environment or a repository of its own.
+        self.fault_environments = fault_environments
+        self.github = dict(github or {})
         self.aws_region = aws_region
         self.aws_global_region = aws_global_region
         self.display_zone = display_zone
@@ -153,7 +158,16 @@ class EnvironmentPolicies:
         global_region = doc.get("aws_global_region")
         if global_region is not None and not (isinstance(global_region, str) and _REGION.fullmatch(global_region)):
             raise EnvironmentPolicyError(f"`aws_global_region` is not a region name: {global_region!r}")
-        return cls(default, envs, runtime, region, zone, global_region)
+        faults = doc.get("fault_environments") or []
+        if not isinstance(faults, list) or any(f not in envs or envs[f].tier == "prod" for f in faults):
+            raise EnvironmentPolicyError("`fault_environments` must list application environments, none of the prod tier")
+        github = doc.get("github") or {}
+        if not isinstance(github, dict) or any(not isinstance(github.get(k, ""), str) for k in _GITHUB):
+            raise EnvironmentPolicyError("`github` must be a mapping of strings")
+        if github and not all(rx.fullmatch(github.get(k, "")) for k, rx in _GITHUB.items()):
+            raise EnvironmentPolicyError("`github` needs `repository` (owner/name) and `subject` "
+                                         "(owner@owner-id/name@repository-id)")
+        return cls(default, envs, runtime, region, zone, global_region, tuple(faults), github)
 
     @staticmethod
     def _read_source(path: str | os.PathLike[str] | None) -> str:
@@ -189,6 +203,8 @@ class EnvironmentPolicies:
 
 
 _ENV_NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
+_GITHUB = {"repository": re.compile(r"[A-Za-z0-9][\w.-]*/[\w.-]+"),
+           "subject": re.compile(r"[A-Za-z0-9][\w.-]*@\d+/[\w.-]+@\d+")}
 
 
 def _tripwire(name: str, raw: dict[str, Any]) -> str:

@@ -144,9 +144,9 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     assert "for_each             = local.zones" in role and 'name                 = "warden-${var.environment}-${each.key}"' in role
     reader = json.loads((ROOT / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
     assert {p for st in reader["Statement"] for p in st["Principal"]["AWS"]} == {
-        f"arn:aws:iam::${{account}}:role/warden-ops-{z}" for z in ("read", "notify", "act")}
+        f"arn:aws:iam::${{account}}:role/warden-${{runtime}}-{z}" for z in ("read", "notify", "act")}
     actor = json.loads((ROOT / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))
-    assert {st["Principal"]["AWS"] for st in actor["Statement"]} == {"arn:aws:iam::${account}:role/warden-ops-act"}
+    assert {st["Principal"]["AWS"] for st in actor["Statement"]} == {"arn:aws:iam::${account}:role/warden-${runtime}-act"}
     actions = set(re.findall(r'"([a-z0-9-]+:[A-Za-z*]+)"', iam))
     assert not {a for a in actions if a.split(":")[0] in ("lambda", "ecs", "dynamodb", "events", "rds", "elasticache")}
     assert 'role/warden-${e}-${r}' in iam and "each.value.model && length(var.bedrock_model_arns) > 0" in iam

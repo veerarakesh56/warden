@@ -50,8 +50,11 @@ def test_every_name_is_inside_the_labs_prefix_and_every_role_carries_the_boundar
 
 
 def test_the_lab_exists_only_where_its_fault_role_does():
-    lab_envs = re.search(r"lab_environments = (\[[^\]]*\])", TF).group(1)
-    assert tuple(json.loads(lab_envs)) == undo_lab.LAB_ENVS == render_env_iam.HARNESS_ENVS
+    # One list, in environments.yaml: Terraform, the fault script and the IAM renderer all read it.
+    from warden.environments import EnvironmentPolicies
+
+    assert re.search(r'lab_environments = yamldecode\(file\("[^"]*environments\.yaml"\)\)\.fault_environments', TF)
+    assert undo_lab.LAB_ENVS == render_env_iam.HARNESS_ENVS == EnvironmentPolicies.load().fault_environments == (ENV,)
     assert (ROOT / "iam" / ENV / "harness-lab.json").exists()
     assert not (ROOT / "iam" / "prod" / "harness-lab.json").exists()
 

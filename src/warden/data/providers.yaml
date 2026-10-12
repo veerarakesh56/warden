@@ -48,6 +48,13 @@ prompt:
 slo:
   max_escalated: 25
   acted_wrongly: 0
+# The model each provider uses when WARDEN_MODEL names none (owner, 2026-10-12: no model id in code). A default is not
+# a qualification: the model must still be in `qualified` below, or it is refused (register M20).
+defaults:
+  anthropic: claude-sonnet-5
+  claude_cli: claude-sonnet-5
+  gemini: gemini-3.6-flash
+  openai: gpt-4o-mini
 qualified:
   # Claude Sonnet 5 on the Claude API, with the G9-D action vocabulary and each action's meaning in the schema
   # (2026-10-10, $0.75 with three unanswered incidents re-run): 19/30, every incident answered, 0 wrong-and-allowed.

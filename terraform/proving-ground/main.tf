@@ -41,7 +41,7 @@ locals {
     # Project=warden + Environment: what the all-region sweep's tag audit requires (owner rule R53,
     # independent review 2026-09-28). The stack itself is named by Stack.
     Project     = "warden"
-    Environment = var.environment
+    Environment = coalesce(var.environment, yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).fault_environments[0])
     Stack       = "warden-proving-ground"
     ManagedBy   = "terraform"
     # ⛔ There was a `DeleteAfter = formatdate(..., timeadd(timestamp(), "24h"))` here. It broke

@@ -59,8 +59,8 @@ locals {
   env          = terraform.workspace # the environment IS the workspace, as in terraform/fullstack
   environments = keys(yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).environments)
   name         = "warden-${local.env}-lab"
-  # Only where its fault-injection role exists (scripts/undo_lab.py LAB_ENVS; tests/test_undo_lab.py holds them equal).
-  lab_environments = ["dev"]
+  # Only where its fault-injection role exists: environments.yaml `fault_environments`, never named here.
+  lab_environments = yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).fault_environments
   tags = {
     Project     = "warden"
     Environment = local.env

@@ -45,7 +45,7 @@ APPS = ROOT / "scenarios" / "fullstack"
 K8S = ROOT / "k8s" / "fullstack"
 DEFAULT_OUT = pathlib.Path.home() / "warden-fullstack-build"
 LAMBDA_SRC = APPS / "lambdas"
-IMAGE = "warden-dev-app"
+IMAGE = "warden-fullstack-app"  # the local build tag; the pushed image is named by the stack's own repository
 PLACEHOLDER = re.compile(r"__[A-Z_]+__")
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)  # fixed, so an unchanged function builds a byte-identical zip
 

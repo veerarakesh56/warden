@@ -223,7 +223,8 @@ def test_the_roles_trust_only_the_runtime_zones_and_the_actor_needs_the_approval
         doc = json.loads((ROOT / "iam" / "templates" / f"{name}.json").read_text(encoding="utf-8"))
         principals = {p for st in doc["Statement"] for p in ([st["Principal"]["AWS"]] if isinstance(
             st["Principal"]["AWS"], str) else st["Principal"]["AWS"])}
-        assert principals == {f"arn:aws:iam::${{account}}:role/warden-ops-{z}" for z in zones}
+        # The runtime's own environment is the template's `${runtime}` (environments.yaml), never a name written here.
+        assert principals == {f"arn:aws:iam::${{account}}:role/warden-${{runtime}}-{z}" for z in zones}
     actor = json.loads((ROOT / "iam" / "templates" / "actor-trust.json").read_text(encoding="utf-8"))["Statement"]
     tag = next(st for st in actor if st["Action"] == "sts:TagSession")
     assert tag["Condition"]["Null"] == {f"aws:RequestTag/{k}": "false" for k in ("approver", "incident", "plan")}
