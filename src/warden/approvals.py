@@ -118,6 +118,14 @@ class ApproverPolicy(BaseModel):
     def loads(cls, text: str) -> ApproverPolicy:
         return cls.model_validate(yaml.safe_load(text))
 
+    def fingerprint(self) -> str:
+        """This exact list, as a short hash: recorded with every approval it accepts, so a later reader can tell the
+        list was not swapped around one (the approver-list alarm says when it changed, and by whom)."""
+        import hashlib
+
+        return hashlib.sha256(json.dumps(self.model_dump(mode="json"), sort_keys=True,
+                                         separators=(",", ":")).encode()).hexdigest()[:16]
+
     def shown(self, approver: str) -> str:
         """The approver as people read them: `Name (id)` when the list gives a name, else the id."""
         entry = self.approvers.get(approver)

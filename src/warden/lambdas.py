@@ -183,6 +183,45 @@ def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
 
 UNAPPROVED_METRIC = "UnapprovedActorUse"
+APPROVERS_METRIC = "ApproverListChanged"
+_LIST_WRITES = frozenset({"PutParameter", "DeleteParameter", "LabelParameterVersion", "UnlabelParameterVersion"})
+
+
+def _approver_list_write(detail: dict[str, Any]) -> bool:
+    """A CloudTrail record of a write - made or refused - to this runtime's approver list."""
+    from .environments import names
+
+    env = os.environ.get("WARDEN_ENV", "").strip()
+    params = detail.get("requestParameters") or {}
+    return (bool(env) and detail.get("eventSource") == "ssm.amazonaws.com" and detail.get("eventName") in _LIST_WRITES
+            and isinstance(params, dict) and params.get("name") == names(env).ssm + "approvers")
+
+
+def _approvers_changed(detail: dict[str, Any]) -> dict[str, Any]:
+    """The approver list is the root of who may approve: whoever writes it can give an approver any name - or add a
+    passkey of their own (owner, 2026-10-12). Every write to it, and every refused attempt, is put on the record and
+    counted in `ApproverListChanged`, whose alarm pages a person. Who made it is named by kind and by the name an
+    administrator set (a role's, a user's) - never a session name its caller chose."""
+    from . import runtime
+
+    who = detail.get("userIdentity") or {}
+    issuer = ((who.get("sessionContext") or {}).get("sessionIssuer") or {}).get("userName")
+    body = {"event": detail.get("eventName"), "by_kind": who.get("type"), "by": issuer or who.get("userName") or "",
+            "event_id": detail.get("eventID"), "event_time": detail.get("eventTime"),
+            "refused": detail.get("errorCode") or ""}
+    try:
+        runtime.open_audit().append("approvers", "approvers.changed", body)
+    except Exception as e:  # noqa: BLE001 - the page below still goes out, and the log line says why
+        body["audit_error"] = type(e).__name__
+    import boto3
+
+    from .environments import region
+
+    boto3.client("cloudwatch", region_name=region()).put_metric_data(
+        Namespace=f"WARDEN/{os.environ.get('WARDEN_ENV', '')}",
+        MetricData=[{"MetricName": APPROVERS_METRIC, "Value": 1, "Unit": "Count"}])
+    print(json.dumps({"approver_list_changed": body}, default=str))
+    return {"approver_list_changed": True, "refused": bool(body["refused"])}
 
 
 def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
@@ -194,6 +233,8 @@ def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
 
     _configure("lambda-actor-use")
     detail = event.get("detail") or {}
+    if _approver_list_write(detail):
+        return _approvers_changed(detail)
     if not au.is_actor_session(detail):
         return {"ignored": "not a successful AssumeRole of an actor role"}
     log = None

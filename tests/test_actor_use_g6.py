@@ -145,3 +145,60 @@ def test_the_rule_the_trail_and_the_page_are_wired():
     assert 'mode = "COMPLIANCE"' in tf and "object_lock_enabled = true" in tf
     assert tf.count(':trail/${local.witness_trail}"') == 2  # CloudTrail writes for this trail only
     assert 'witness_trail = "warden-${var.environment}-witness"' in tf
+
+
+def _list_write(event="PutParameter", name="/warden/ops/approvers", error="", who=None):
+    d = {"eventSource": "ssm.amazonaws.com", "eventName": event, "eventID": "s-1", "eventTime": "2026-10-12T13:00:00Z",
+         "requestParameters": {"name": name},
+         "userIdentity": who or {"type": "AssumedRole", "arn": "ignored",
+                                 "sessionContext": {"sessionIssuer": {"userName": "console-admin"}}}}
+    if error:
+        d["errorCode"] = error
+    return d
+
+
+def test_every_write_to_the_approver_list_is_recorded_and_pages_made_or_refused(cloudwatch, monkeypatch):
+    """Register G10-33 (owner, 2026-10-12: "if they wanted to, they would write a different name"): whoever writes the
+    approver list decides who may approve. Every write to it - and every refused attempt - is on the record with who
+    made it, and pages."""
+    log = Audit()
+    monkeypatch.setattr("warden.runtime.open_audit", lambda: log)
+    assert lambdas.actor_use({"detail": _list_write()}) == {"approver_list_changed": True, "refused": False}
+    assert lambdas.actor_use({"detail": _list_write("DeleteParameter", error="AccessDenied")})["refused"] is True
+    assert [m["MetricData"][0]["MetricName"] for m in cloudwatch] == [lambdas.APPROVERS_METRIC] * 2
+    (_, kind, made), (_, _, refused) = log.appended
+    assert kind == "approvers.changed" and (made["event"], made["by_kind"], made["by"]) == (
+        "PutParameter", "AssumedRole", "console-admin") and made["refused"] == ""
+    assert refused["refused"] == "AccessDenied" and "ignored" not in str(log.appended)  # never the caller-chosen ARN
+    # Another parameter, another environment's list, a read: none of them is the list being written.
+    for other in (_list_write(name="/warden/ops/tf/paused"), _list_write(name="/warden/dev/approvers"),
+                  _list_write("GetParameter")):
+        assert lambdas.actor_use({"detail": other}).get("ignored") and len(cloudwatch) == 2
+
+
+def test_a_list_write_still_pages_when_the_audit_cannot_be_written(cloudwatch, monkeypatch):
+    def down():
+        raise ConnectionError("audit database unreachable")
+    monkeypatch.setattr("warden.runtime.open_audit", down)
+    assert lambdas.actor_use({"detail": _list_write()})["approver_list_changed"] is True and len(cloudwatch) == 1
+
+
+def test_the_runtime_watches_its_own_approver_list_and_each_approval_names_the_list_it_was_checked_against():
+    import pathlib
+
+    from warden import approvals
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    tf = (root / "terraform" / "modules" / "warden-runtime" / "witness.tf").read_text(encoding="utf-8")
+    rule = tf[tf.index('resource "aws_cloudwatch_event_rule" "approvers_changed"'):]
+    assert 'requestParameters = { name = ["/warden/${var.environment}/approvers"] }' in rule
+    assert all(name in rule for name in lambdas._LIST_WRITES) and 'eventSource       = ["ssm.amazonaws.com"]' in rule
+    assert 'aws_lambda_function.front_door["actor-use"].arn' in rule and "aws_sqs_queue.alarm_dlq.arn" in rule
+    alarm = tf[tf.index('resource "aws_cloudwatch_metric_alarm" "approvers_changed"'):]
+    assert f'metric_name         = "{lambdas.APPROVERS_METRIC}"' in alarm and "alarm_actions       = [var.page_topic_arn]" in alarm
+    one = approvals.ApproverPolicy(approvers={"owner": approvals.Approver(public_key="k", tiers=["T1"])})
+    two = one.model_copy(deep=True)
+    two.approvers["owner"].name = "Someone Else"
+    assert one.fingerprint() != two.fingerprint() and one.fingerprint() == one.model_copy(deep=True).fingerprint()
+    acts = (root / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
+    assert acts.count('"approver_list": self.policy.fingerprint()') == 2  # the passkey's row and the signing key's

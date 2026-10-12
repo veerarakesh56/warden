@@ -383,6 +383,7 @@ class RemediationActivities:
         self.audit.append(plan.incident_id, kind, {"workflow_id": plan.workflow_id, "run_id": _run_id(),
                                                    "latency_s": round(latency, 1), "hasty": latency < HASTY_S,
                                                    "approver": approval.approver,
+                                                   "approver_list": self.policy.fingerprint(),
                                                    "nonce": approval.nonce, "plan_hash": plan.plan_hash,
                                                    # Requirement R50: how many different people this tier needs.
                                                    "required": self.policy.required.get(plan.tier, 1),
@@ -435,6 +436,7 @@ class RemediationActivities:
         self.audit.append(plan.incident_id, "approval.refused" if problems else "approval.accepted", {
             "workflow_id": plan.workflow_id, "run_id": _run_id(), "method": "passkey", "latency_s": round(latency, 1),
             "hasty": latency < HASTY_S, "approver": assertion.approver, "nonce": assertion.nonce,
+            "approver_list": self.policy.fingerprint(),
             "plan_hash": plan.plan_hash, "required": self.policy.required.get(plan.tier, 1),
             "credential_id": enrolled.credential_id if enrolled else "",
             "sign_count": verified.new_sign_count if verified else None, "problems": problems})

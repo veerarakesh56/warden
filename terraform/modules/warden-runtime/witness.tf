@@ -132,6 +132,62 @@ resource "aws_lambda_permission" "actor_use" {
   source_arn    = aws_cloudwatch_event_rule.actor_use.arn
 }
 
+# ----------------------------------------------------------------- the approver list -> the same check -> a page
+# The approver list decides who may approve (owner, 2026-10-12: whoever writes it can give an approver any name, or add
+# a passkey). Every write to it - made or refused - is recorded and pages a person.
+
+resource "aws_cloudwatch_event_rule" "approvers_changed" {
+  name        = "warden-${var.environment}-approvers-changed"
+  description = "WARDEN ${var.environment}: every write to the approver list, made or refused, to the record and a page"
+  # ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS, as the actor rule: no class of management event is left out.
+  state = "ENABLED_WITH_ALL_CLOUDTRAIL_MANAGEMENT_EVENTS"
+  event_pattern = jsonencode({
+    source        = ["aws.ssm"]
+    "detail-type" = ["AWS API Call via CloudTrail"]
+    detail = {
+      eventSource       = ["ssm.amazonaws.com"]
+      eventName         = ["PutParameter", "DeleteParameter", "LabelParameterVersion", "UnlabelParameterVersion"]
+      requestParameters = { name = ["/warden/${var.environment}/approvers"] }
+    }
+  })
+  tags = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_cloudwatch_event_target" "approvers_changed" {
+  rule = aws_cloudwatch_event_rule.approvers_changed.name
+  arn  = aws_lambda_function.front_door["actor-use"].arn
+  retry_policy {
+    maximum_event_age_in_seconds = 3600
+    maximum_retry_attempts       = 8
+  }
+  dead_letter_config {
+    arn = aws_sqs_queue.alarm_dlq.arn
+  }
+}
+
+resource "aws_lambda_permission" "approvers_changed" {
+  statement_id  = "EventBridgeApproverListWrites"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.front_door["actor-use"].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.approvers_changed.arn
+}
+
+resource "aws_cloudwatch_metric_alarm" "approvers_changed" {
+  alarm_name          = "warden-${var.environment}-approvers-changed"
+  alarm_description   = "The list of who may approve WARDEN's plans was written, or a write to it was refused. If that was not you, treat it as a security incident: docs/RUNBOOK-WARDEN-INCIDENT.md."
+  namespace           = "WARDEN/${var.environment}"
+  metric_name         = "ApproverListChanged"
+  statistic           = "Sum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = [var.page_topic_arn]
+  tags                = { Project = "warden", Environment = var.environment }
+}
+
 resource "aws_cloudwatch_metric_alarm" "unapproved_actor" {
   alarm_name          = "warden-${var.environment}-unapproved-actor"
   alarm_description   = "An actor role was assumed without an approval WARDEN's audit holds, or one the check could not read. Treat it as a security incident: docs/RUNBOOK-WARDEN-INCIDENT.md."
