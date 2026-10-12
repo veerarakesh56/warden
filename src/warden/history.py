@@ -55,7 +55,8 @@ def past(alert: Any, log: Any, *, now: datetime | None = None) -> list[dict[str,
 
 def _line(row: dict[str, Any]) -> str:
     how = "is still open" if row["status"] == "open" else ENDED.get(row["status"], f"ended {row['status']}")
-    who = f" · approved by {', '.join(row['approvers'])}" if row["approvers"] else ""
+    # Each approver as their mark: a reader gets the person (chatops.name_people), never the list's id for them.
+    who = f" · approved by {', '.join(f'@@{a}@@' for a in row['approvers'])}" if row["approvers"] else ""
     return f"{both_times(row['at'], seconds=False)} · `{row['entry']}` on `{row['target']}` · {how}{who}"
 
 

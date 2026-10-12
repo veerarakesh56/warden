@@ -20,16 +20,20 @@ def rp(monkeypatch):
 
 
 def test_only_an_approval_link_of_the_exact_shape_gets_through(rp):
-    good = ("Approve as owner", f"https://{RP}/a/{TOKEN}")
-    bad = [("Approve as owner", f"https://evil.example/a/{TOKEN}"), ("Approve as owner", f"https://{RP}/a/{TOKEN}/x"),
-           ("Approve as owner", f"http://{RP}/a/{TOKEN}"), ("Approve as owner", f"https://{RP}.evil.example/a/{TOKEN}"),
-           ("Click <here>", f"https://{RP}/a/{TOKEN}"), ("Approve as owner", f"https://{RP}/a/{TOKEN[:-1]}")]
-    assert chatops.approval_links((good, *bad)) == [f"Approve as owner: https://{RP}/a/{TOKEN}"]
+    label = chatops.LINK_LABEL
+    good = (label, f"https://{RP}/a/{TOKEN}")
+    whose = (f"{label} (link of second)", f"https://{RP}/a/{TOKEN}")  # only where several approvers have a link
+    bad = [(label, f"https://evil.example/a/{TOKEN}"), (label, f"https://{RP}/a/{TOKEN}/x"),
+           (label, f"http://{RP}/a/{TOKEN}"), (label, f"https://{RP}.evil.example/a/{TOKEN}"),
+           ("Click <here>", f"https://{RP}/a/{TOKEN}"), (label, f"https://{RP}/a/{TOKEN[:-1]}"),
+           (f"{label} (link of <!channel>)", f"https://{RP}/a/{TOKEN}"), ("Approve as owner", f"https://{RP}/a/{TOKEN}")]
+    assert chatops.approval_links((good, whose, *bad)) == [good, whose]
+    assert label == "Open the plan to approve or deny"  # it names nobody
 
 
 def test_no_link_leaves_without_an_approval_domain(monkeypatch):
     monkeypatch.delenv("WARDEN_APPROVAL_RP_ID", raising=False)
-    assert chatops.approval_links((("Approve as owner", f"https://{RP}/a/{TOKEN}"),)) == []
+    assert chatops.approval_links(((chatops.LINK_LABEL, f"https://{RP}/a/{TOKEN}"),)) == []
 
 
 class _Sink:
@@ -46,12 +50,54 @@ class _Sink:
 def test_the_links_go_beside_the_gated_text(rp):
     sink = _Sink()
     report = Report(markdown=f"A plan waits. See https://{RP}/a/{TOKEN} or https://evil.example/x", data={"alert": {"id": "inc-1"}},
-                    promotion=(), actions=(("Approve as owner", f"https://{RP}/a/{TOKEN}"),))
+                    promotion=(), actions=((chatops.LINK_LABEL, f"https://{RP}/a/{TOKEN}"),))
     chatops.notify(report, sinks=[sink])
     [text] = sink.sent
     body, links = text.rsplit("\n\n", 1)
     assert "https://" not in body  # the gate removed both URLs the text carried
-    assert links == f"Approve as owner: https://{RP}/a/{TOKEN}"
+    assert links == f"{chatops.LINK_LABEL}: https://{RP}/a/{TOKEN}"
+
+
+def test_in_slack_the_link_is_a_button_and_its_address_is_not_printed(rp, monkeypatch):
+    """Owner, 2026-10-12: "the link should be hidden under a button"."""
+    posted = []
+    monkeypatch.setattr(chatops, "_post_json", lambda url, payload, name: posted.append(payload) or chatops.Notification(
+        sink=name, delivered=True, detail="ok"))
+    link = f"https://{RP}/a/{TOKEN}"
+    report = Report(markdown="A plan waits for an approval.", data={"alert": {"id": "inc-1"}}, promotion=(),
+                    actions=((chatops.LINK_LABEL, link), ("Click <here>", link), (chatops.LINK_LABEL, "https://evil.example/x")))
+    chatops.notify(report, sinks=[chatops.SlackWebhookSink("https://hooks.example.test/x", live=True)])
+    [message] = posted
+    assert "https://" not in message["text"] and message["unfurl_links"] is False
+    section, actions = message["blocks"]
+    assert section == {"type": "section", "text": {"type": "mrkdwn", "text": message["text"]}}
+    assert actions == {"type": "actions", "elements": [{"type": "button", "style": "primary", "url": link,
+                                                        "text": {"type": "plain_text", "text": chatops.LINK_LABEL}}]}
+    # A text too long for a section keeps its parts as they are; the button is its own message after them.
+    long = chatops.slack_messages(["x" * (chatops.SLACK_SECTION_CHARS + 1)], {"links": [[chatops.LINK_LABEL, link]]})
+    assert [sorted(m) for m in long] == [["text"], ["blocks", "text"]] and long[1]["blocks"][0]["type"] == "actions"
+    assert chatops.slack_messages(["one", "two"], {}) == [{"text": "one"}, {"text": "two"}]  # no link: no blocks
+    # Several approvers, each their own link: each button says whose, and none is the primary one.
+    two = chatops.slack_messages(["t"], {"links": [[f"{chatops.LINK_LABEL} (link of a)", link],
+                                                   [f"{chatops.LINK_LABEL} (link of b)", link]]})
+    assert [e["text"]["text"][-11:] for e in two[0]["blocks"][1]["elements"]] == ["(link of a)", "(link of b)"]
+    assert not any("style" in e for e in two[0]["blocks"][1]["elements"])
+
+
+def test_slack_is_told_its_note_of_a_button_click_arrived_and_nothing_is_done_with_it():
+    """Slack sends an app a note of every button click, a link button's too, and marks the button as failed unless
+    it is answered (docs.slack.dev, button element, read 2026-10-12)."""
+    import pathlib
+
+    from test_approval_page import setup as page_setup  # noqa: F401
+    from warden.approval_page import ApprovalPage
+
+    page = ApprovalPage(rp_id=RP, policy=_policy(), plan_of=lambda wf: None, signal=lambda wf, a: None)
+    answered = page.handle("POST", "/s/interact", "payload=%7B%22type%22%3A%22block_actions%22%7D")
+    assert (answered.status, answered.body) == (200, "")
+    assert page.handle("GET", "/s/interact").status == 404
+    tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf")
+    assert '"POST /s/interact"' in tf.read_text(encoding="utf-8")
 
 
 def _policy(with_passkeys=("owner",), tiers=("T1", "T2")):
@@ -74,7 +120,10 @@ def test_a_link_for_each_approver_who_may_approve_the_tier_and_has_a_passkey(rp,
     log = audit.AuditLog(tmp_path / "a.db")
     acts = RemediationActivities(audit=log, policy=_policy(), platform=None)
     links = acts._approval_links(PLAN)  # a T2 plan: "second" may approve T1 only, "nokey" has no passkey
-    assert [label for label, _ in links] == ["Approve as owner"]
+    assert [label for label, _ in links] == [chatops.LINK_LABEL]  # one approver has a link: it names nobody
+    both = RemediationActivities(audit=log, policy=_policy(tiers=("T1",)), platform=None)._approval_links(
+        PLAN.model_copy(update={"tier": "T1"}))
+    assert [label for label, _ in both] == [f"{chatops.LINK_LABEL} (link of owner)", f"{chatops.LINK_LABEL} (link of second)"]
     token = links[0][1].rsplit("/", 1)[1]
     assert chatops.approval_links(links) and AuditLinkStore(log).link(token).approver == "owner"
     assert token not in json.dumps([e["body"] for e in log.entries()])
@@ -106,7 +155,7 @@ def test_the_wait_opens_with_the_links_and_without_a_domain_says_nothing_new(rp,
     _run(world, _no_approval)
     with_links = [r for r in sent if r.actions]
     # As the wait opens, and again at the halfway reminder: two messages carry links, each its own fresh one.
-    assert len(with_links) == 2 and all(r.actions[0][0] == "Approve as owner" for r in with_links)
+    assert len(with_links) == 2 and all(r.actions[0][0] == chatops.LINK_LABEL for r in with_links)
     assert with_links[0].actions[0][1] != with_links[1].actions[0][1]
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
     assert kinds.index("remediation.announce") < kinds.index("workflow.end")

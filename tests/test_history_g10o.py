@@ -46,8 +46,9 @@ def test_the_record_of_a_resource_is_its_earlier_fixes_how_each_ended_and_who_ap
                                                             ("inc-1", "relapsed")]
     text = history.section(rows)
     assert "### This resource before - WARDEN's own record" in text
-    assert f"`events_enable_rule` on `{TARGET}` · worked, then failed again · approved by owner" in text
-    assert "did not work · approved by owner" in text and "is still open" in text
+    # Who approved is each approver's mark: a reader gets the person, never the list's id for them.
+    assert f"`events_enable_rule` on `{TARGET}` · worked, then failed again · approved by @@owner@@" in text
+    assert "did not work · approved by @@owner@@" in text and "is still open" in text
     assert history.section([]) == "" and history.past(_alert(eventbridge_rule="another-rule"), log) == []
     # A label that only qualifies a resource names none: nothing is looked up by a namespace.
     assert history.past(_alert(eventbridge_rule="x", namespace="warden-dev-lab-tick"), log) == []

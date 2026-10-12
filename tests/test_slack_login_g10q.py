@@ -224,8 +224,9 @@ def test_the_kill_switch_reset_asks_slack_who_is_there_first_too(tmp_path):
 
 
 def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_is_still_asked(page_setup, tmp_path):  # noqa: F811
-    """Owner, 2026-10-12: "why do I see that Slack thing again and again". Slack is asked once in twelve hours per
-    browser, not once per link; every decision still takes the passkey; the record says how the member was known."""
+    """Owner, 2026-10-12: "why do I see that Slack thing again and again ... it should be only the first time".
+    Slack is asked once in thirty days per browser, not once per link; every decision still takes the passkey; the
+    record says how the member was known."""
     page, device, _, _ = page_setup
     log = audit.AuditLog(tmp_path / "a.db")
     now = [1_900_000_000.0]
@@ -235,7 +236,7 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
     first = page.new_link("rem-dev-1", "owner")
     kept = _sign_in(page, slack, "a", first).headers["Set-Cookie"]
     assert kept.startswith("warden_who=" + MEMBER + ".") and kept.endswith(
-        "; Max-Age=43200; Path=/; Secure; HttpOnly; SameSite=Lax")
+        "; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Lax")
     who = kept.split(";")[0]
     second = page.new_link("rem-dev-1", "owner")
     assert 'data-slack="1"' in page.handle("GET", f"/a/{second}").body               # another browser: Slack first
@@ -243,7 +244,7 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
     assert len(slack.asked) == 1 and _show(page, device, second).status == 200
     rows = [e["body"] for e in log.entries(kinds=("approval.slack_verified",))]
     assert [(r["slack_user"], r["via"]) for r in rows] == [(MEMBER, "sign-in"), (MEMBER, "remembered")]
-    # Forged, cut, another member's, or past its twelve hours: Slack is asked again.
+    # Forged, cut, another member's, or past its thirty days: Slack is asked again.
     third = page.new_link("rem-dev-1", "owner")
     member, until, mac = who.split("=", 1)[1].split(".")
     other = slack_login.remember(page.slack, OTHER)
@@ -252,7 +253,7 @@ def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_
         assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[bad]).body, bad
     now[0] += slack_login.REMEMBER_S + 1
     assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[who]).body
-    assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == "" and slack_login.REMEMBER_S == 12 * 3600
+    assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == "" and slack_login.REMEMBER_S == 30 * 24 * 3600
     # Sealed with the app's own secret: a value another secret made is nobody.
     stranger = slack_login.SlackLogin(CLIENT, "another-secret", clock=lambda: 1_900_000_000.0)
     assert slack_login.remembered(stranger, slack_login.remember(_login(), MEMBER)) == ""

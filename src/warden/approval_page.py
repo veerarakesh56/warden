@@ -301,6 +301,10 @@ class ApprovalPage:
 
         from .slack_login import REMEMBER_S, SlackLoginError, remember
 
+        if (method, parts) == ("POST", ["interact"]):
+            # Slack tells an app of every button click, a link button's too, and marks the button as failed unless
+            # that is answered. Answered, unread: the click opened the page, and nothing is decided here.
+            return Response(200, {"Content-Type": "text/plain", "Cache-Control": "no-store"}, "")
         if self.slack is None or method != "GET":
             return _json(404, {"error": "not found"})
         redirect = f"{self.origin}/s/callback"

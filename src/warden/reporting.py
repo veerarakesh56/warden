@@ -93,9 +93,10 @@ class Report:
     # (label, url) approval links WARDEN itself minted (register H6): delivered after the gate, never through it, and
     # only in the exact shape chatops.approval_links accepts.
     actions: tuple[tuple[str, str], ...] = ()
-    # (approver id, Slack member id) pairs WARDEN itself read from the approver list: each approver's mark in the
-    # text becomes Slack's mention of that member (chatops.name_people) - never taken from a message's text.
-    people: tuple[tuple[str, str], ...] = ()
+    # (approver id, Slack member id, name) rows WARDEN itself read from the approver list: each approver's mark in
+    # the text becomes Slack's mention of that member, or the name (chatops.name_people) - never taken from a
+    # message's text.
+    people: tuple[tuple[str, str, str], ...] = ()
 
 
 def _promotion_targets(

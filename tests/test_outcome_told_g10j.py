@@ -85,7 +85,10 @@ def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink)
     out = _run(world, _no_approval)
     assert out.status == "expired" and _whats(world) == ["waiting", "expired"]  # not a third "ended" message
     assert f"(T2 - {approvals.TIER_MEANS['T2']}) is waiting for an approval" in sink.texts[0]
-    assert "Only `owner` can approve it: a link opens for nobody else." in sink.texts[0]
+    # A request names nobody (owner, 2026-10-12): who decided is said when they have.
+    assert ("Only an enrolled approver of this risk level can approve it: the link opens for nobody else, and who "
+            "decided is said here when they have.") in sink.texts[0]
+    assert "owner" not in sink.texts[0].split("---")[0]
     assert "Approved by" not in sink.texts[1]  # nobody did
 
 
@@ -219,11 +222,11 @@ def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_re
     page = dataclasses.replace(page, policy=named, store=AuditLinkStore(log, clock=page.clock))
     shell = page.handle("GET", f"/a/{(token := page.new_link('rem-dev-1', 'owner'))}").body
     assert "Asha" not in shell  # nothing of who the link is for before the passkey
-    assert json.loads(_show(page, device, token).body)["approver"] == "Asha Rao (owner)"
+    assert json.loads(_show(page, device, token).body)["approver"] == "Asha Rao"  # the name, not the list's id
     [seen] = [e["body"] for e in log.entries(kinds=("approval.link_viewed",))]
     assert seen["approver"] == "owner" and seen["workflow_id"] == "rem-dev-1"
     assert "you are " in shell and "Approval sent" in shell and 'sent("Denied"' in shell
-    assert named.shown("owner") == "Asha Rao (owner)" and named.shown("nobody") == "nobody"
+    assert named.shown("owner") == "Asha Rao" and named.shown("nobody") == "nobody"
     assert approvals.ApproverPolicy.loads(__import__("yaml").safe_dump(named.model_dump())).approvers["owner"].name == "Asha Rao"
 
 
@@ -286,25 +289,27 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
     real = chatops.notify
     monkeypatch.setattr(chatops, "notify", lambda report, **kw: seen.append(report) or real(report, **kw))
     out = _run(world, _approve_with(owner))
-    assert out.status == "recovered" and all(r.people == (("owner", member),) for r in seen), [r.people for r in seen]
-    # With a member id the text holds no typed name: a reader outside Slack gets the id, where the sentence names them.
-    assert "approved by `owner` (with their signing key)" in sink.texts[0] and "Asha" not in sink.texts[0]
-    assert "@@" not in "".join(sink.texts)
-    assert world["policy"].shown("owner") == "Asha Rao (owner, Platform)"  # the approval page's own view
-    assert world["policy"].said("owner") == "@@owner@@"
-    world["policy"].approvers["owner"].slack = ""
-    assert world["policy"].said("owner") == "`Asha Rao (owner, Platform)`"
-    world["policy"].approvers["owner"].slack = member
+    row = ("owner", member, "Asha Rao (Platform)")
+    assert out.status == "recovered" and all(r.people == (row,) for r in seen), [r.people for r in seen]
+    # A reader outside Slack gets the person's name where the sentence names them - never the list's id for them
+    # (owner, 2026-10-12: "don't use owner at all anywhere ... it feels unprofessional").
+    assert "approved by `Asha Rao (Platform)` (with their signing key)" in sink.texts[0]
+    assert "@@" not in "".join(sink.texts) and not any("owner" in t.split("---")[0] for t in sink.texts)
+    assert world["policy"].shown("owner") == "Asha Rao (Platform)" and world["policy"].said("owner") == "@@owner@@"
+    world["policy"].approvers["owner"].name = ""
+    assert world["policy"].shown("owner") == "owner"  # only where the list gives no name is its id all there is
+    world["policy"].approvers["owner"].name = "Asha Rao"
     # In Slack the mark becomes Slack's own mention, in the sentence - and only an id of exactly Slack's shape does.
     said = "was approved by @@owner@@ (with their passkey); @@nobody@@ and @@other@@ were not asked"
-    assert chatops.name_people(said, {"owner": member, "other": "<!channel>"}, slack=True) == (
-        f"was approved by <@{member}> (approver `owner`) (with their passkey); `nobody` and `other` were not asked")
-    assert chatops.name_people(said, {"owner": member}, slack=False).startswith("was approved by `owner` (with")
+    people = [row, ("other", "<!channel>", "Someone `else`")]
+    assert chatops.name_people(said, people, slack=True) == (
+        f"was approved by <@{member}> (with their passkey); `nobody` and `Someone else` were not asked")
+    assert chatops.name_people(said, people, slack=False).startswith("was approved by `Asha Rao (Platform)` (with")
     assert chatops.to_slack_mrkdwn(f"<@{member}>") == f"&lt;@{member}&gt;"  # one typed into a message is only text
     assert chatops.to_slack_mrkdwn("by @@owner@@") == "by @@owner@@"         # the mark reaches the sink whole
     with pytest.raises(ValueError):
         approvals.Approver(public_key="k", slack="<!channel>")
-    assert world["policy"].people(["owner", "nobody", "owner"]) == (("owner", member),)
+    assert world["policy"].people() == (row,)
 
 
 def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_else(monkeypatch):
@@ -316,11 +321,11 @@ def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_e
     monkeypatch.setattr(chatops, "_post_json", lambda url, payload, name: posted.append(payload) or chatops.Notification(
         sink=name, delivered=True, detail="ok"))
     sink_ = chatops.SlackWebhookSink("https://hooks.example.test/x", live=True)
-    sink_.send("**Approved** by @@owner@@ <b>\n\n---\nfooter", {"people": {"owner": member}})
-    sink_.send("no one named, and @@owner@@ is nobody here", {})
-    assert f"by <@{member}> (approver `owner`) &lt;b&gt;" in posted[0]["text"] and posted[0]["text"].endswith("footer")
-    assert posted[0]["text"].count("<@") == 1
-    assert "<@" not in posted[1]["text"] and "`owner` is nobody here" in posted[1]["text"]
+    sink_.send("**Approved** by @@owner@@ <b>\n\n---\nfooter", {"people": [["owner", member, "Asha Rao"]]})
+    sink_.send("no one named, and @@asha@@ is nobody here", {})
+    assert f"by <@{member}> &lt;b&gt;" in posted[0]["text"] and posted[0]["text"].endswith("footer")
+    assert posted[0]["text"].count("<@") == 1 and "owner" not in posted[0]["text"]
+    assert "<@" not in posted[1]["text"] and "`asha` is nobody here" in posted[1]["text"]
 
     class Plain:
         name = "plain"
@@ -331,6 +336,6 @@ def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_e
 
     from warden.reporting import Report
 
-    chatops.notify(Report(markdown="approved by @@owner@@", data={}, promotion=(), people=(("owner", member),)),
-                   sinks=[Plain()])
-    assert posted[-1] == "approved by `owner`"  # another reader than Slack: the id, no mark, no mention syntax
+    chatops.notify(Report(markdown="approved by @@owner@@", data={}, promotion=(),
+                          people=(("owner", member, "Asha Rao"), ("second", member, "Not Named Here"))), sinks=[Plain()])
+    assert posted[-1] == "approved by `Asha Rao`"  # another reader than Slack: the name - no mark, no mention syntax

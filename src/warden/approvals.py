@@ -127,25 +127,25 @@ class ApproverPolicy(BaseModel):
                                          separators=(",", ":")).encode()).hexdigest()[:16]
 
     def shown(self, approver: str) -> str:
-        """The approver as people read them: `Name (id)` when the list gives a name, else the id."""
+        """The approver as people read them: their name, with their team when the list gives one. The list's own
+        key for them is its id, not a name for a reader (owner, 2026-10-12: a message that said "owner" "feels
+        unprofessional and off") - it is shown only for an approver the list gives no name."""
         entry = self.approvers.get(approver)
         if not entry or not entry.name.strip():
             return approver
-        return f"{entry.name} ({approver}{', ' + entry.team if entry.team.strip() else ''})"
+        return entry.name.strip() + (f" ({entry.team.strip()})" if entry.team.strip() else "")
 
     def said(self, approver: str) -> str:
         """The approver as a MESSAGE names them. A typed name proves nothing to its readers (owner, 2026-10-12: "if
-        they wanted to, they would write a different name"), so with a Slack member id the text holds only a mark
-        for that approver, which the Slack sinks turn into Slack's own mention where the sentence names them
-        (chatops.name_people) - Slack shows that member's real profile, and the member is told. Without one, the
-        name from the list."""
-        entry = self.approvers.get(approver)
-        return f"@@{approver}@@" if entry and entry.slack else f"`{self.shown(approver)}`"
+        they wanted to, they would write a different name"), so the text holds only a mark for that approver. With a
+        Slack member id the Slack sinks turn it into Slack's own mention where the sentence names them
+        (chatops.name_people) - Slack shows that member's real profile, and the member is told. Without one, and for
+        every other reader, it becomes the name from the list."""
+        return f"@@{approver}@@"
 
-    def people(self, approvers: list[str]) -> tuple[tuple[str, str], ...]:
-        """(approver id, Slack member id) of these approvers, for the mentions a message's marks become."""
-        return tuple(dict.fromkeys((a, self.approvers[a].slack) for a in approvers
-                                   if a in self.approvers and self.approvers[a].slack))
+    def people(self) -> tuple[tuple[str, str, str], ...]:
+        """(approver id, Slack member id, name as shown) of every approver: what a message's marks become."""
+        return tuple((a, entry.slack, self.shown(a)) for a, entry in sorted(self.approvers.items()))
 
     def key_of(self, name: str) -> Ed25519PublicKey | None:
         approver = self.approvers.get(name)

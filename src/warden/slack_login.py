@@ -38,8 +38,10 @@ USER_CLAIM = "https://slack.com/user_id"
 TEAM_CLAIM = "https://slack.com/team_id"
 _TIMEOUT_S = 8.0
 # How long a browser that signed in is remembered (owner, 2026-10-12: "why do I see that Slack thing again and
-# again"). Slack is asked once in that time, not once per link; the passkey is still asked for every decision.
-REMEMBER_S = 12 * 3600
+# again ... it should be only the first time"; Slack shows its own consent page at every sign-in). Slack is asked
+# once in that time per browser, not once per link; the passkey is still asked for every decision, and an approver
+# taken off the list approves nothing whatever a browser remembers.
+REMEMBER_S = 30 * 24 * 3600
 
 
 class SlackLoginError(ValueError):
