@@ -367,7 +367,10 @@ class ApprovalPage:
         self.store.mark_viewed(token)
         from . import catalog
 
-        return _json(200, {"approver": self.policy.shown(link.approver), "plan": {
+        return _json(200, {"approver": self.policy.shown(link.approver),
+                           # For the page's countdown: a person read the plan past its link's end and was told only
+                           # "not valid", while a fresh link was already waiting in the channel (live, 2026-10-12).
+                           "link_seconds": max(0, int((link.expires_at - self.clock()).total_seconds())), "plan": {
             # First: what changes, before and after (G9-D) - then the plan's facts.
             "change": "; ".join(catalog.change_of(plan.entry, plan.params, plan.snapshot)),
             "entry": plan.entry, "target": plan.target, "tier": plan.tier,
@@ -491,6 +494,7 @@ h1{font-size:1.375rem;line-height:1.25;letter-spacing:-.01em;margin:1.375rem 1.2
 p{margin:0 0 1rem}
 .lede{margin:0 1.25rem 1.25rem;color:var(--muted);max-width:60ch}
 .me{margin:0 1.25rem;font-weight:600;color:var(--ok)}
+.left{margin:.25rem 1.25rem 0;font-size:.875rem;color:var(--muted)}
 .eyebrow{margin:1.25rem 1.25rem .625rem;font-size:.75rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
 color:var(--muted)}
 .mono,.change{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -635,6 +639,7 @@ _PAGE = _page("WARDEN approval", "Approval", """
 <p id="only" class="lede">This link was made for one approver. Only that person can open it, with their own passkey;
 anyone else sees nothing here and cannot approve the plan.</p>
 <p id="me" class="me" hidden></p>
+<p id="left" class="left" hidden></p>
 <section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h" class="eyebrow">What will change</h2>
 <p id="change" class="change"></p>
 <dl id="facts" class="facts"></dl></section>
@@ -683,12 +688,26 @@ function show(plan, approver) {
   $("only").hidden = true; $("who").hidden = true; $("plan").hidden = false; $("acts").hidden = false;
   $("title").textContent = "Read the plan, then decide"; step(1);
 }
-const sent = t => { $("acts").hidden = true; $("title").textContent = "Done"; $("plan-h").textContent = "The plan";
+const GONE = "This link has expired or was already used; nothing was decided with it. If the plan is still " +
+             "waiting, the newest WARDEN message in the channel has a fresh link.";
+let ticking = 0;
+function countdown(seconds) {
+  const end = Date.now() + seconds * 1000;
+  const tick = () => {
+    const left = Math.max(0, Math.round((end - Date.now()) / 1000));
+    $("left").textContent = "This link works for " + Math.floor(left / 60) + " min " + (left % 60) + " s more.";
+    $("left").hidden = false;
+    if (left === 0) { clearInterval(ticking); $("acts").hidden = true; $("left").hidden = true; say(GONE, "bad"); }
+  };
+  tick(); ticking = setInterval(tick, 1000);
+}
+const sent = t => { clearInterval(ticking); $("left").hidden = true; $("acts").hidden = true; $("title").textContent = "Done"; $("plan-h").textContent = "The plan";
                     step(3);
                     say(t + " You can close this page.", "ok"); };
 async function passkey(name) {
   say("Confirm with your passkey.", "work");
-  const [ok, d] = await post(name); if (!ok) { throw new Error(d.error); }
+  const [ok, d] = await post(name);
+  if (!ok) { throw new Error(d.error === "this approval link is not valid" ? GONE : d.error); }
   const o = d.options; o.challenge = a2b(o.challenge);
   o.allowCredentials = (o.allowCredentials || []).map(c => ({...c, id: a2b(c.id)}));
   const c = await navigator.credentials.get({publicKey: o});
@@ -702,6 +721,7 @@ $("who").addEventListener("click", async () => {
     const [ok, d] = await post("login", {response: await passkey("login-options")});
     if (!ok) { say(d.error, "bad"); return; }
     show(d.plan, d.approver); say("Approve it, deny it, or close this page to leave it waiting.");
+    if (typeof d.link_seconds === "number") { countdown(d.link_seconds); }
   } catch (e) {
     say("Not confirmed: " + e.message + " If this link was not made for you, you cannot approve this plan.", "bad");
   } finally { busy(false); }

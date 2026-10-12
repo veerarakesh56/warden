@@ -245,3 +245,20 @@ def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_
         assert "#000" not in html and "#fff" not in html.lower()
     # Owner, same day: the denial sat behind an arrow. Both decisions are in view once the plan is shown.
     assert "<details" not in approval_page._PAGE and 'id="ok"' in approval_page._PAGE and 'id="no"' in approval_page._PAGE
+
+
+def test_the_page_counts_the_link_down_and_says_where_the_fresh_one_is(setup):
+    """Live, 2026-10-12: an approver read the plan past the end of its 15-minute link, clicked, and was told "this
+    approval link is not valid" - while the plan still had a quarter of an hour and a fresh link was in the channel."""
+    page, device, _, clock = setup
+    token = page.new_link("rem-dev-1", "owner")
+    clock.now = T0 + timedelta(minutes=14, seconds=30)
+    shown = json.loads(_show(page, device, token).body)
+    assert shown["link_seconds"] == 30
+    shell = page.handle("GET", f"/a/{token}").body
+    assert "countdown(d.link_seconds)" in shell and "This link works for " in shell
+    assert "the newest WARDEN message in the channel has a fresh link" in shell
+    assert 'd.error === "this approval link is not valid" ? GONE : d.error' in shell
+    clock.now = T0 + timedelta(minutes=16)
+    late = page.handle("POST", f"/a/{token}/approve-options")
+    assert late.status == 404 and json.loads(late.body)["error"] == "this approval link is not valid"  # what GONE explains
