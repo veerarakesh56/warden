@@ -200,3 +200,24 @@ def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_th
     assert 'query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or []' in lambdas
     src = (ROOT / "src" / "warden").rglob("*.py")
     assert not any(CLIENT in p.read_text(encoding="utf-8") for p in src)  # no app's id is written into the code
+
+
+def test_the_kill_switch_reset_asks_slack_who_is_there_first_too(tmp_path):
+    from test_killswitch_reset_g10m import World
+    from warden import bounds
+    from warden.approval_page import INVITE
+
+    world = World(tmp_path)
+    stranger, slack = _with_slack(world.page, member=OTHER)
+    refused = _sign_in(stranger, slack, "k", world.link())
+    assert refused.status == 403 and "not the approver this link was made for" in refused.body
+    world.page, slack = _with_slack(world.page)
+    token = world.link()
+    assert 'data-slack="1"' in world.page.handle("GET", f"/k/{token}").body
+    for step in ("trips", "reset"):
+        assert world.page.handle("POST", f"/k/{token}/{step}").status == 403
+    assert world.page.handle("GET", f"/s/k/{world.link(INVITE)}").status == 404  # an enrolment's link is no reset's
+    assert world.page.handle("GET", f"/s/x/{token}").status == 404
+    assert _sign_in(world.page, slack, "k", token).headers["Location"] == f"/k/{token}"
+    _, done = world.reset(token)
+    assert done.status == 200 and bounds.killswitch(world.log) is None

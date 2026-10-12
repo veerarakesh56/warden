@@ -265,10 +265,19 @@ class ApprovalPage:
             return False
         return member == entry.slack or (enrolling and not entry.slack)
 
+    def _approver_of(self, kind: str, token: str) -> str | None:
+        """The approver a link of this kind was made for - an approval's (a), an enrolment's (e), a kill switch
+        reset's (k) - or None: not a link, not valid now, or no such kind."""
+        if kind == "a":
+            link = self.store.link(token)
+            return link.approver if link is not None and self.clock() < link.expires_at else None
+        purpose = {"e": INVITE, "k": RESET_INVITE}.get(kind)
+        return self._invited(token, purpose) if purpose else None
+
     def _slack(self, method: str, parts: list[str], query: str, cookies: Any) -> Response:
-        """`/s/a/<token>` and `/s/e/<token>` send the browser to Slack's sign-in; `/s/callback` takes its answer. The
-        link's token never goes to Slack: it stays in a cookie of this site, and Slack carries only that cookie's
-        hash as the state."""
+        """`/s/a/<token>`, `/s/e/<token>` and `/s/k/<token>` send the browser to Slack's sign-in; `/s/callback` takes
+        its answer. The link's token never goes to Slack: it stays in a cookie of this site, and Slack carries only
+        that cookie's hash as the state."""
         import hashlib
         import urllib.parse
 
@@ -277,11 +286,9 @@ class ApprovalPage:
         if self.slack is None or method != "GET":
             return _json(404, {"error": "not found"})
         redirect = f"{self.origin}/s/callback"
-        if len(parts) == 2 and parts[0] in ("a", "e"):
+        if len(parts) == 2 and parts[0] in ("a", "e", "k"):
             kind, token = parts
-            link = self.store.link(token) if kind == "a" else None
-            known = (link is not None and self.clock() < link.expires_at) if kind == "a" else self._invited(token)
-            if not known:
+            if self._approver_of(kind, token) is None:
                 return _notice(404, "This link is not valid.")
             nonce = secrets.token_urlsafe(16)
             value = f"{kind}/{token}.{nonce}"
@@ -298,11 +305,7 @@ class ApprovalPage:
             return _notice(400, "This sign-in did not start on this page. Open the link from the message again.")
         where, nonce = value.rsplit(".", 1)
         kind, _, token = where.partition("/")
-        if kind == "a":
-            link = self.store.link(token)
-            approver = link.approver if link is not None and self.clock() < link.expires_at else None
-        else:
-            approver = self._invited(token)
+        approver = self._approver_of(kind, token)
         if approver is None or approver not in self.policy.approvers:
             return _notice(404, "This link is not valid.")
         try:
@@ -388,7 +391,9 @@ class ApprovalPage:
             return _json(404, {"error": "this reset link is not valid"})
         key, now = f"{token}:reset", self.clock()
         if (method, step) == ("GET", ""):
-            return self._served(_RESET, False)
+            return self._served(_RESET, not self._signed_in(token, approver))
+        if not self._signed_in(token, approver):
+            return _json(403, {"error": "sign in with Slack first"})
         if (method, step) == ("POST", "trips"):
             rows = bounds.trips(self.log)
             if bounds.killswitch(self.log) is None or not rows:
