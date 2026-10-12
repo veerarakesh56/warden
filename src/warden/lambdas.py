@@ -19,8 +19,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import re
+import time
 from datetime import datetime
 from typing import Any
 
@@ -29,6 +31,8 @@ from .intake import AlarmEvent
 from .models import NAME_PATTERN, RESOURCE_LABELS, Alert, Severity
 
 _CONFIGURED: set[str] = set()
+_LOG = logging.getLogger("warden.lambda")
+_LOG.setLevel(logging.INFO)  # the Lambda runtime's root logger shows warnings only: this one line is wanted
 
 
 def _configure(name: str) -> None:
@@ -230,9 +234,18 @@ def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
         # start that first read its settings and opened the audit took 6.5 (live, 2026-10-12 - "Operation timed
         # out" beside the button). Nothing is read from it and nothing is decided by it (approval_page._slack).
         return {"statusCode": 200, "headers": {"Content-Type": "text/plain", "Cache-Control": "no-store"}, "body": ""}
+    cold, t0 = "lambda-approval" not in _CONFIGURED, time.perf_counter()
     _configure("lambda-approval")
-    r = approval_page().handle(method, path, body.decode("utf-8", errors="replace"),
-                               query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or [])
+    t1 = time.perf_counter()
+    page = approval_page()
+    t2 = time.perf_counter()
+    r = page.handle(method, path, body.decode("utf-8", errors="replace"),
+                    query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or [])
+    if cold:
+        # Where a cold start's seconds go, measured where it happens: the first page after a quiet period took 5.6 s
+        # to 9.5 s (live, 2026-10-12), and the cause is decided from these numbers, not guessed. Durations only.
+        _LOG.info("approval cold start: settings=%dms page=%dms request=%dms", (t1 - t0) * 1000, (t2 - t1) * 1000,
+                  (time.perf_counter() - t2) * 1000)
     return {"statusCode": r.status, "headers": r.headers, "body": r.body}
 
 

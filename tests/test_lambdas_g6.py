@@ -143,3 +143,30 @@ def test_slacks_note_of_a_button_click_is_answered_before_anything_is_loaded(mon
         assert out["statusCode"] == 200 and out["body"] == ""
     with pytest.raises(AssertionError):  # every other request is served as before
         lambdas.approval({"rawPath": "/s/interact", "requestContext": {"http": {"method": "GET"}}})
+
+
+def test_a_cold_start_says_where_its_time_went_once_and_the_one_a_person_waits_for_has_a_whole_cpu(monkeypatch, caplog):
+    """Live, 2026-10-12: the approval page's first request after a quiet period took 5.6 s to 9.5 s. Before choosing
+    a fix: measure where the time goes (this line), and give the function the CPU its start-up work needs - both
+    instead of keeping it warm, which would hide the cause and hold rotated secrets stale for hours."""
+    import logging
+    import pathlib
+    import re
+
+    class Page:
+        def handle(self, method, path, body="", query="", cookies=()):
+            from warden.approval_page import Response
+            return Response(404, {}, "{}")
+
+    monkeypatch.setattr(lambdas, "_CONFIGURED", set())
+    monkeypatch.setattr(lambdas, "_configure", lambda name: lambdas._CONFIGURED.add(name))
+    monkeypatch.setattr(lambdas, "approval_page", lambda: Page())
+    event = {"rawPath": "/a/tok", "requestContext": {"http": {"method": "GET"}}}
+    with caplog.at_level(logging.INFO, logger="warden.lambda"):
+        lambdas.approval(event)
+        lambdas.approval(event)  # warm: nothing more is said
+    [line] = [r.getMessage() for r in caplog.records]
+    assert re.fullmatch(r"approval cold start: settings=\d+ms page=\d+ms request=\d+ms", line)  # durations, nothing else
+    tf = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
+    assert re.search(r'approval\s+= \{ handler = "warden\.lambdas\.approval", timeout = 30, memory = 1769 \}', tf)
+    assert "memory_size   = each.value.memory" in tf and tf.count("memory = 512 }") == 3

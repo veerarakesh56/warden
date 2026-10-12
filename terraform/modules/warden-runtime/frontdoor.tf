@@ -15,11 +15,15 @@ locals {
     WARDEN_AUDIT_DSN           = local.audit_dsn
     WARDEN_AUDIT_IAM_AUTH      = "1"
   }
+  # `approval` is the one a person waits for. Lambda gives CPU in proportion to memory, a whole vCPU at 1,769 MB
+  # (AWS's Lambda guide, "Configure Lambda function memory", read 2026-10-12); at 512 MB its cold start - Python
+  # imports, five AWS clients, the audit's connection, all CPU work - had about a third of one and took 5.6 s to
+  # 9.5 s. Billed by the millisecond, a few requests a day: the shorter run costs no more.
   front_doors = {
-    alarm        = { handler = "warden.lambdas.alarm", timeout = 60 }
-    alertmanager = { handler = "warden.lambdas.alertmanager", timeout = 60 }
-    approval     = { handler = "warden.lambdas.approval", timeout = 30 }
-    actor-use    = { handler = "warden.lambdas.actor_use", timeout = 60 }
+    alarm        = { handler = "warden.lambdas.alarm", timeout = 60, memory = 512 }
+    alertmanager = { handler = "warden.lambdas.alertmanager", timeout = 60, memory = 512 }
+    approval     = { handler = "warden.lambdas.approval", timeout = 30, memory = 1769 }
+    actor-use    = { handler = "warden.lambdas.actor_use", timeout = 60, memory = 512 }
   }
 }
 
@@ -37,7 +41,7 @@ resource "aws_lambda_function" "front_door" {
   package_type  = "Image"
   image_uri     = var.runtime_image
   timeout       = each.value.timeout
-  memory_size   = 512
+  memory_size   = each.value.memory
   image_config {
     entry_point = ["/opt/warden/bin/python", "-m", "awslambdaric"]
     command     = [each.value.handler]
