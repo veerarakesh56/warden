@@ -1090,7 +1090,9 @@ def _stack(alert: Alert, ctx: ContextBundle) -> list[Pattern]:
             "The EventBridge rule is disabled, so its target is never invoked.",
             [regioned(f"aws events enable-rule --name {name}" + _on_bus(alert))] if name else [],
             "" if name else "No command: the disabled rule is not named in the evidence.",
-            platform=["Alarm on the target's Invocations dropping to zero for scheduled work."])
+            # Not where the alert IS such an alarm (live, 2026-10-12: the follow-up asked for the alarm that fired).
+            platform=[] if alert.labels.get("alarm") else [
+                "Alarm on the target's Invocations dropping to zero for scheduled work."])
 
     # The k8s crash loop is the `crashloop` pattern above. It gets no command: the bad value is
     # in a ConfigMap, which a rollout undo does not restore and whose previous value WARDEN never saw.

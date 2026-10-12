@@ -112,3 +112,28 @@ def test_a_fix_is_still_promoted_and_names_each_environments_deploy_role():
     assert "## Promotion - apply this fix to the higher environments" in fix
     assert "deploy role `warden-prod-deploy`" in fix and " - account " not in fix
     assert "**Next step: Held for approval" in fix
+
+
+def test_the_timeline_and_the_key_lines_show_the_change_nearest_the_alert_and_an_undo_is_not_promoted():
+    """Live, 2026-10-12 (the owner: "not sure they are correct"): beside a diagnosis citing a change made nine minutes
+    before the alarm, the timeline held only "alert fired", the key lines showed changes five hours old, and a
+    dev-only rule's undo listed pre-prod and prod as places to apply it."""
+    from warden.models import ContextBundle
+    from warden.reporting import _key_log_lines, _timeline
+
+    alert = _alert().model_copy(update={"started_at": "2026-10-12T19:02:59+00:00"})
+    logs = ["CHANGE 2026-10-12T18:54:01Z events.amazonaws.com DisableRule on warden-dev-lab-tick by role/warden-dev-harness request=name",
+            "CHANGE 2026-10-12T18:10:44Z events.amazonaws.com EnableRule on warden-dev-lab-tick by role/warden-dev-actor request=name",
+            "CHANGE 2026-10-12T17:09:41Z events.amazonaws.com DisableRule on warden-dev-lab-tick by role/warden-dev-harness request=name",
+            "CHANGE 2026-10-12T13:50:45Z events.amazonaws.com EnableRule on warden-dev-lab-tick by role/warden-dev-harness request=name",
+            "CHANGE 2026-10-12T13:23:07Z events.amazonaws.com DisableRule on warden-dev-lab-tick by role/warden-dev-harness request=name",
+            "RULE warden-dev-lab-tick State=DISABLED schedule=rate(1 minute)"]
+    said = [what for _, what in _timeline(alert, ContextBundle(logs=logs))]
+    assert said == ["change recorded: `EnableRule on warden-dev-lab-tick by role/warden-dev-actor`",
+                    "change recorded: `DisableRule on warden-dev-lab-tick by role/warden-dev-harness`",
+                    "alert `PodOOMKilled` fired"]  # the hour before the alert, in order; nothing older
+    keys = _key_log_lines(logs)
+    assert keys[0].startswith("CHANGE 2026-10-12T18:54:01Z") and not any("T13:" in k for k in keys) and len(keys) == 4
+    undo = build_report(alert, proposal=_prop(ActionKind.revert_change))
+    assert undo.promotion == () and "## Promotion" not in undo.markdown
+    assert build_report(alert, proposal=_prop(ActionKind.scale_up)).promotion  # a change to replay still is

@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from .environments import EnvironmentPolicies, both_times, default_environment_policies
 from .gate import hedge
 from .knowledge import SignatureMatch
-from .models import Alert, ContextBundle, RemediationProposal, RootCause, Verdict
+from .models import ActionKind, Alert, ContextBundle, RemediationProposal, RootCause, Verdict
 from .playbook import detect as detect_patterns
 from .redaction import redact
 from .remediation import RemediationResult
@@ -99,6 +99,10 @@ class Report:
     people: tuple[tuple[str, str, str], ...] = ()
 
 
+_LOCAL_ONLY = frozenset({ActionKind.revert_change, ActionKind.revert_config, ActionKind.resume_flow,
+                         ActionKind.pause_flow})
+
+
 def _promotion_targets(
     alert: Alert, proposal: RemediationProposal, policies: EnvironmentPolicies
 ) -> list[PromotionTarget]:
@@ -135,12 +139,21 @@ def _promotion_targets(
 # --------------------------------------------------------------------------- evidence extraction
 
 
+# A dated write as WARDEN's own readers record it (aws_stack._read_changes): when, what on what, by whom.
+_CHANGE = re.compile(r"^CHANGE (\d{4}-\d\d-\d\dT[\d:]{8}Z) \S+ (\S+ on \S+ by \S+)")
+_TIMELINE_CHANGES_S = 3600  # the hour before the alert: what changed then belongs on its timeline
+
+
 def _key_log_lines(logs: list[str]) -> list[str]:
     """The lines worth a human's attention: events, WARDEN's own read failures, anything that looks
     like an error - in their original order. Padded with the newest lines if there are too few."""
     picked = [ln for ln in logs if ln.startswith(("EVENT", "NODE-EVENT", "PARTIAL")) or _IMPORTANT.search(ln)]
     if len(picked) < 4:
-        picked += [ln for ln in logs[-(4 - len(picked)):] if ln not in picked]
+        # The newest recorded changes first (their timestamps sort as text): a report padded from the end of the
+        # list showed changes five hours old and not the one that caused the alarm (live, 2026-10-12).
+        changes = sorted((ln for ln in logs if _CHANGE.match(ln) and ln not in picked), reverse=True)
+        rest = [ln for ln in reversed(logs) if ln not in picked and ln not in changes]
+        picked += (changes[:3] + rest + changes[3:])[:4 - len(picked)]  # and a line of the state itself
     if len(picked) > _KEY_LINES:
         # Keep the first error (when it started) and the most recent ones (what it is doing now).
         picked = picked[:2] + ["..."] + picked[-(_KEY_LINES - 3):]
@@ -227,6 +240,13 @@ def _timeline(alert: Alert, ctx: ContextBundle) -> list[tuple[str, str]]:
             label += f" by {who}"
         if at:
             events.append((at, label))
+    # What WARDEN's own readers recorded as changed in the hour before the alert: the timeline held only "alert
+    # fired" beside a diagnosis that cited a change made nine minutes earlier (live, 2026-10-12).
+    for line in ctx.logs:
+        m = _CHANGE.match(line)
+        at = _parse_ts(m.group(1)) if m else None
+        if at and started and 0 <= (started - at).total_seconds() <= _TIMELINE_CHANGES_S:
+            events.append((at, f"change recorded: {untrusted_inline(m.group(2))}"))
     errors = [(t, ln) for ln in ctx.logs if _IMPORTANT.search(ln) and (t := _parse_ts(ln))]
     if errors:
         errors.sort(key=lambda e: e[0])
@@ -522,7 +542,9 @@ def build_report(
     ctx = context or ContextBundle()
     reveal_ids = show_identifiers_enabled() if show_identifiers is None else show_identifiers
 
-    promotion = _promotion_targets(alert, proposal, pol) if proposal else []
+    # Undoing or pausing something in THIS environment is no change to replay in the higher ones: a report on a
+    # dev-only rule someone disabled listed pre-prod and prod as places to "apply this fix" (live, 2026-10-12).
+    promotion = _promotion_targets(alert, proposal, pol) if proposal and proposal.action not in _LOCAL_ONLY else []
     affected = _affected(ctx.logs)
     checked, ordinary_logs = _checked(ctx.logs)
     patterns = detect_patterns(alert, ctx)
@@ -938,7 +960,8 @@ def _render_markdown(d: dict) -> str:
 
     # Only a fix is promoted: a hand-off or "nothing to do" has nothing to apply anywhere (the same report listed
     # three environments in which "a human applies this fix" - there was none).
-    if p and p.get("action") not in ("escalate_to_human", "no_action"):
+    # ...nor an undo or a pause in this one environment (_LOCAL_ONLY): there is nothing of it to replay elsewhere.
+    if p and p.get("action") not in ("escalate_to_human", "no_action", *(a.value for a in _LOCAL_ONLY)):
         lines.append("## Promotion - apply this fix to the higher environments")
         if d["promotion"]:
             for t in d["promotion"]:

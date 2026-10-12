@@ -15,6 +15,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -143,6 +144,9 @@ class Recorded(BaseModel):
 
 # Ends that leave the target in a state nobody knows: the kill switch goes on (bounds.trip).
 PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed", "cancelled_after_apply", "failed_after_apply"})
+
+
+_ISO_TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?\+00:00")
 
 
 class FixOutcome(BaseModel):
@@ -346,6 +350,9 @@ class RemediationActivities:
             said += (" Every automatic fix is stopped until an approver resets the kill switch: `warden killswitch "
                      "link` opens the page that shows why it is on and resets it.")
         if why:
+            # A reason's own timestamp, in UTC and the display zone like every other time in a message.
+            why = [_ISO_TIME.sub(lambda m: environments.both_times(datetime.fromisoformat(m.group(0)), seconds=False), w)
+                   for w in why]
             # The record's reason names the approver by the list's id; a reader gets the person (their mark).
             for name in self.policy.approvers:
                 why = [w.replace(f"denied by {name}", f"denied by {self.policy.said(name)}") for w in why]

@@ -75,5 +75,9 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
              and r["status"] in WENT_BADLY and now - r["at"] <= RECENT]
     if not again:
         return ""
-    return (f" Before you decide: this same fix was applied at {both_times(again[0]['at'], seconds=False)} and "
-            f"{ENDED[again[0]['status']]}" + (f" - {len(again)} times in the last day." if len(again) > 1 else "."))
+    # The latest one's own ending, and how many did not last - not "applied at" its ending's time, nor every one
+    # counted as the latest's kind (live, 2026-10-12: "worked, then failed again - 4 times", of which one had).
+    latest = f"most recently it {ENDED[again[0]['status']]} ({both_times(again[0]['at'], seconds=False)})"
+    if len(again) == 1:
+        return f" Before you decide: this same fix was tried in the last day and did not last - {latest}."
+    return f" Before you decide: this same fix was tried {len(again)} times in the last day and none lasted - {latest}."
