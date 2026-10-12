@@ -174,7 +174,8 @@ resource "aws_apigatewayv2_route" "alertmanager" {
 }
 
 resource "aws_apigatewayv2_route" "approval" {
-  for_each  = toset(["GET /a/{token}", "POST /a/{token}/{step}"])
+  # /a/: approving a plan. /e/: enrolling a passkey, on a link the approver's own key signed.
+  for_each  = toset(["GET /a/{token}", "POST /a/{token}/{step}", "GET /e/{token}", "POST /e/{token}/{step}"])
   api_id    = aws_apigatewayv2_api.front.id
   route_key = each.key
   target    = "integrations/${aws_apigatewayv2_integration.front["approval"].id}"

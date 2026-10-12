@@ -28,6 +28,6 @@ Keys that are not environment secrets:
 |---|---|
 | The audit signing key (KMS, register S12) | KMS has no automatic rotation for asymmetric keys: create a new key, point the signer at it, and keep every retired public key - `warden audit verify` checks each checkpoint with the key it was signed by (G6). |
 | An approver's Ed25519 break-glass key | `warden audit keygen` a new pair, replace the public key in the approvers file through a reviewed change, destroy the old private key. |
-| An approver's passkey | enrol the new passkey, remove the old credential from the approvers file; a lost device is removed at once. |
+| An approver's passkey | `warden enrol --approver <name> --key <their Ed25519 key>` opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`runtime.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
 | The laptop's IAM Roles Anywhere certificate | issue a new certificate from the local CA before the old one expires (docs/OWNER-CONSOLE-STEPS.md). |

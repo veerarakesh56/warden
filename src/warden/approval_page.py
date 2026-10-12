@@ -15,6 +15,10 @@ in tests and behind API Gateway and Lambda (G6). The stores - links, pending cha
 in memory here, the runtime's database in G6. Every response carries a strict Content-Security-Policy (no
 third-party script, nothing framed), HSTS, no caching and no referrer. The relying-party id is configuration
 (WARDEN_APPROVAL_RP_ID: a subdomain of the owner's domain, decision D17), never a literal.
+
+Enrolling a passkey is `/e/<token>`: a link the approver's own Ed25519 key signed (`warden enrol`, made where that key
+is and opened there, never printed), valid 15 minutes, used once. The page runs the ceremony and shows the approver list with the new passkey in it.
+The page cannot write that list: the passkey approves nothing until a person saves the list where WARDEN reads it.
 """
 
 from __future__ import annotations
@@ -26,13 +30,25 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import yaml
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+
 from . import passkeys
-from .approvals import ApproverPolicy, PasskeyAssertion
+from .approvals import ApproverPolicy, PasskeyAssertion, PasskeyCredential
 from .environments import both_times
 
 LINK_TTL = timedelta(minutes=15)
 TYPED_TIERS = frozenset({"T2", "T3"})
 VIEW = "view"  # the tier and plan hash of the who-are-you challenge: no plan is ever "view"
+ENROL = "enrol"  # likewise for an enrolment's challenge
+INVITE = b"warden-enrol:v1:"
+
+
+def invite(key: Any, approver: str, *, now: datetime) -> str:
+    """An enrolment link's token: the approver's own Ed25519 key says "add a passkey for me", for 15 minutes."""
+    claim = json.dumps({"approver": approver, "expires_at": (now + LINK_TTL).isoformat(),
+                        "nonce": secrets.token_urlsafe(16)}, sort_keys=True, separators=(",", ":")).encode()
+    return f"{bytes_to_base64url(claim)}.{bytes_to_base64url(key.sign(INVITE + claim))}"
 
 
 @dataclass
@@ -56,6 +72,7 @@ class MemoryLinkStore:
     def __init__(self) -> None:
         self.links: dict[str, Link] = {}
         self.pending: dict[str, passkeys.Pending] = {}
+        self.spent: set[str] = set()
 
     def add_link(self, token: str, link: Link) -> None:
         self.links[token] = link
@@ -68,6 +85,10 @@ class MemoryLinkStore:
 
     def use_link(self, token: str) -> None:
         self.links.pop(token, None)
+        self.spent.add(token)
+
+    def used(self, token: str) -> bool:
+        return token in self.spent
 
     def put_challenge(self, key: str, pending: passkeys.Pending) -> None:
         self.pending[key] = pending
@@ -119,6 +140,9 @@ class AuditLinkStore:
     def use_link(self, token: str) -> None:
         link = self.link(token)
         self.log.append(link.workflow_id if link else "approval", "approval.link_used", {"key": self._key(token)})
+
+    def used(self, token: str) -> bool:
+        return bool(self._rows("approval.link_used", self._key(token)))
 
     def put_challenge(self, key: str, pending: passkeys.Pending) -> None:
         self.log.append(pending.workflow_id, "approval.challenge", {
@@ -173,6 +197,8 @@ class ApprovalPage:
 
     def handle(self, method: str, path: str, body: str = "") -> Response:
         parts = path.strip("/").split("/")
+        if len(parts) >= 2 and parts[0] == "e":
+            return self._enrol(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
         if len(parts) < 2 or parts[0] != "a":
             return _json(404, {"error": "not found"})
         token, action = parts[1], (parts[2] if len(parts) > 2 else "")
@@ -190,6 +216,56 @@ class ApprovalPage:
                   ("POST", "deny"): self._deny}
         route = routes.get((method.upper(), action))
         return route(token, link, data) if route else _json(404, {"error": "not found"})
+
+    # ------------------------------------------------------------------ enrolment
+
+    def _invited(self, token: str) -> str | None:
+        """The approver an enrolment link names - when their own key signed it, it has not expired, it was not made
+        to last longer than a link does, and it has not been used."""
+        try:
+            claim, signature = (base64url_to_bytes(part) for part in token.split("."))
+            said = json.loads(claim)
+            approver, expires = str(said["approver"]), datetime.fromisoformat(said["expires_at"])
+            self.policy.key_of(approver).verify(signature, INVITE + claim)
+            now = self.clock()
+            return approver if now < expires <= now + LINK_TTL and not self.store.used(token) else None
+        except Exception:  # noqa: BLE001 - whatever is wrong with a link, it invites nobody
+            return None
+
+    def _enrol(self, method: str, token: str, step: str, body: str) -> Response:
+        approver = self._invited(token)
+        if approver is None:
+            return _json(404, {"error": "this enrolment link is not valid"})
+        key = f"{token}:{ENROL}"
+        if (method, step) == ("GET", ""):
+            nonce = secrets.token_urlsafe(16)
+            return Response(200, _headers(nonce, "text/html; charset=utf-8"), _ENROL.replace("{{NONCE}}", nonce))
+        if (method, step) == ("POST", "options"):
+            options, challenge = passkeys.registration_options(rp_id=self.rp_id, rp_name="WARDEN", approver=approver)
+            self.store.put_challenge(key, passkeys.Pending(
+                workflow_id=ENROL, plan_hash=f"{ENROL}:{approver}", tier=ENROL, nonce=secrets.token_urlsafe(16),
+                expires_at=self.clock() + LINK_TTL, challenge=bytes_to_base64url(challenge)))
+            return _json(200, {"options": json.loads(options)})
+        if (method, step) != ("POST", "finish"):
+            return _json(404, {"error": "not found"})
+        pending = self.store.take_challenge(key)
+        if pending is None or self.clock() >= pending.expires_at:
+            return _json(403, {"error": "no challenge is waiting for this answer"})
+        try:
+            made = passkeys.finish_registration(json.loads(body)["response"], approver=approver,
+                                                challenge=base64url_to_bytes(pending.challenge), rp_id=self.rp_id,
+                                                origin=self.origin)
+        except Exception:  # noqa: BLE001 - a ceremony that does not verify enrols nothing, whatever the reason
+            return _json(403, {"error": "the passkey was not accepted"})
+        listed = self.policy.model_copy(deep=True)
+        if any(c.credential_id == made.credential_id for c in listed.approvers[approver].passkeys):
+            return _json(409, {"error": "this passkey is already enrolled"})
+        listed.approvers[approver].passkeys.append(PasskeyCredential(
+            credential_id=made.credential_id, public_key=made.public_key, sign_count=made.sign_count,
+            device_bound=made.device_bound))
+        self.store.use_link(token)  # used once
+        return _json(200, {"approver": approver, "device_bound": made.device_bound,
+                           "approvers": yaml.safe_dump(listed.model_dump(), sort_keys=False)})
 
     # ------------------------------------------------------------------ steps
 
@@ -307,6 +383,56 @@ def _headers(nonce: str, content_type: str) -> dict[str, str]:
 
 def _json(status: int, payload: dict) -> Response:
     return Response(status, _headers(secrets.token_urlsafe(8), "application/json"), json.dumps(payload))
+
+
+# The enrolment page: one button, then the approver list to save. Same rules as the approval page.
+_ENROL = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WARDEN passkey</title>
+<style nonce="{{NONCE}}">body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem}
+button{font:inherit;padding:.5rem 1rem}textarea{font:14px/1.4 monospace;width:100%}[hidden]{display:none}</style></head>
+<body><main>
+<h1>WARDEN passkey</h1>
+<p id="status" role="status" aria-live="polite">Create a passkey on this device to approve plans with it.</p>
+<button id="make" type="button">Create my passkey</button>
+<section id="done" hidden aria-labelledby="done-h"><h2 id="done-h">The approver list, with this passkey</h2>
+<p><label for="list">Save this as WARDEN's approver list. The passkey approves nothing until it is saved
+there.</label></p>
+<textarea id="list" rows="24" readonly></textarea>
+<p><button id="copy" type="button">Copy the list</button></p></section>
+</main>
+<script nonce="{{NONCE}}">
+const base = location.pathname.endsWith("/") ? location.pathname.slice(0, -1) : location.pathname;
+const b2a = b => btoa(String.fromCharCode(...new Uint8Array(b))).split("+").join("-").split("/").join("_")
+  .split("=").join("");
+const a2b = s => Uint8Array.from(atob(s.split("-").join("+").split("_").join("/")), c => c.charCodeAt(0));
+const say = t => { document.getElementById("status").textContent = t; };
+async function post(step, body) {
+  const r = await fetch(base + "/" + step, {method: "POST", headers: {"Content-Type": "application/json"},
+                                            body: JSON.stringify(body || {})});
+  return [r.ok, await r.json()];
+}
+document.getElementById("make").addEventListener("click", async () => {
+  try {
+    const [ok, d] = await post("options"); if (!ok) { say(d.error); return; }
+    const o = d.options; o.challenge = a2b(o.challenge); o.user.id = a2b(o.user.id);
+    o.excludeCredentials = (o.excludeCredentials || []).map(c => ({...c, id: a2b(c.id)}));
+    const c = await navigator.credentials.create({publicKey: o});
+    const [done, r] = await post("finish", {response: {id: c.id, rawId: b2a(c.rawId), type: c.type, response: {
+      clientDataJSON: b2a(c.response.clientDataJSON), attestationObject: b2a(c.response.attestationObject)}}});
+    if (!done) { say(r.error); return; }
+    document.getElementById("list").value = r.approvers;
+    document.getElementById("done").hidden = false; document.getElementById("make").hidden = true;
+    say(r.device_bound ? "Passkey created on this device. Save the list below."
+      : "Passkey created. It is synced between your devices, so it cannot approve the riskiest tier. Save the list below.");
+  } catch (e) { say("Not created: " + e.message); }
+});
+document.getElementById("copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(document.getElementById("list").value); say("Copied."); }
+  catch (e) { document.getElementById("list").select(); say("Select the list and copy it."); }
+});
+</script></body></html>
+"""
 
 
 # The page: no plan in it - the plan arrives only after the first passkey ceremony. Labelled controls, keyboard

@@ -307,6 +307,24 @@ def _approver_key(path: pathlib.Path):
     return audit.load_private_key(path, os.environ.get("WARDEN_APPROVER_KEY_PASSPHRASE", "").encode() or None)
 
 
+def _enrol_command(args: argparse.Namespace) -> int:
+    """A link for enrolling a passkey on the approval page, signed here with the approver's own key - and opened in
+    this machine's browser, never printed: whoever holds the link may use it, and a terminal is an egress (_out)."""
+    import webbrowser
+
+    from .approval_page import invite
+
+    domain = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
+    if not domain:
+        _out("error: WARDEN_APPROVAL_RP_ID is not set: the approval page's domain", err=True)
+        return 1
+    if not webbrowser.open(f"https://{domain}/e/{invite(_approver_key(args.key), args.approver, now=datetime.now(UTC))}"):
+        _out("error: no browser could be opened on this machine", err=True)
+        return 1
+    _out(f"Opened https://{domain} in your browser: create the passkey there within 15 minutes.")
+    return 0
+
+
 def _install_log_gate() -> None:
     """The worker: every record at INFO and above, through the gate (installed for every command in
     `_main` already; the worker also wants temporalio's INFO lines)."""
@@ -636,6 +654,9 @@ def _main(argv: list[str] | None = None) -> int:
     p_approve.add_argument("--approver", required=True)
     p_approve.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
     p_approve.add_argument("--target", help="for T2 and T3: the plan's target, typed as `warden status` shows it")
+    p_enrol = sub.add_parser("enrol", help="open the approval page's 15-minute link for enrolling your passkey")
+    p_enrol.add_argument("--approver", required=True)
+    p_enrol.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
     p_kill = sub.add_parser("killswitch", help="stop every remediation, or reset the stop with a signed approval")
     kill_sub = p_kill.add_subparsers(dest="kill_cmd", required=True)
     kill_sub.add_parser("status")
@@ -662,6 +683,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _audit_command(args)
     if args.cmd in ("worker", "incident", "intake", "status", "approve"):
         return asyncio.run(_workflow_command(args))
+    if args.cmd == "enrol":
+        return _enrol_command(args)
     if args.cmd == "killswitch":
         return _killswitch_command(args)
     if args.cmd == "label":
