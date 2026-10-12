@@ -256,3 +256,25 @@ def test_a_recorded_change_comes_before_a_mapping_that_is_off():
     cut.mappings = (OFF,)  # parked long ago, say: the recorded concurrency cut is the change
     req, why = _undo(cut)
     assert why == "" and req["entry"] == "lambda_restore_concurrency"
+
+
+def _two_writes(first, second, cite_second=True, resource="pricing-api"):
+    alert = _alert(ecs_cluster="shop", ecs_service="pricing-api")
+    lines = [f"CHANGE 2026-10-10T07:40:00Z ecs.amazonaws.com {first} on pricing-api by user/dev",
+             f"CHANGE 2026-10-10T07:50:00Z ecs.amazonaws.com {second} on {resource} by user/dev"]
+    context = ContextBundle(logs=lines, metrics={"x": 1.0})
+    ids = {i.text: i.id for i in evidence.index(context).values()}
+    cause = _cause((ids[lines[1]], f"{second} on {resource}")) if cite_second else _cause()
+    return verify(alert, context, cause, _prop(ActionKind.restart_pods, "pricing-api")).policy_ids
+
+
+def test_a_write_a_later_one_took_back_is_not_a_change_the_fix_left_unaddressed():
+    """Register G10-38. Live, 2026-10-12: a rule's EnableRule, then the DisableRule that caused the alarm - cited -
+    and the report was still held for the EnableRule."""
+    for first, second in (("EnableRule", "DisableRule"), ("StopTask", "StartTask"), ("ResumeProcesses", "SuspendProcesses")):
+        assert "P31-UNADDRESSED-CHANGE" not in _two_writes(first, second)
+    # Only its own opposite, on the same resource, later - and the later one still has to be answered for.
+    assert "P31-UNADDRESSED-CHANGE" in _two_writes("EnableRule", "DisableRule", cite_second=False)
+    assert "P31-UNADDRESSED-CHANGE" in _two_writes("UpdateService", "DisableRule")
+    assert "P31-UNADDRESSED-CHANGE" in _two_writes("EnableRule", "DisableTarget")
+    assert "P31-UNADDRESSED-CHANGE" in _two_writes("EnableRule", "DisableRule", resource="billing-api", cite_second=False)

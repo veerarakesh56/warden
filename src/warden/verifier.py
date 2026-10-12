@@ -484,6 +484,18 @@ def _when(text: str) -> datetime | None:
     return at if at.tzinfo else None
 
 
+# A write and the one that takes it back, by the first word of AWS's event names.
+_OPPOSITES = (("Enable", "Disable"), ("Start", "Stop"), ("Suspend", "Resume"), ("Attach", "Detach"))
+
+
+def _taken_back(event: str, later: set[str]) -> bool:
+    """Did a later write to the same resource take this one back (EnableRule, then DisableRule)? Then it is not the
+    state the alarm fired on, and nothing a fix has to answer for (live, 2026-10-12: a report was held for a rule's
+    EnableRule that the DisableRule after it - the cause, cited - had already taken back)."""
+    return any(event.startswith(a) and b + event[len(a):] in later
+               for pair in _OPPOSITES for a, b in (pair, pair[::-1]))
+
+
 def _p31_unaddressed_change(alert: Alert, context: ContextBundle, root_cause: RootCause,
                             proposal: RemediationProposal) -> str | None:
     """G10 held-out set (2026-10-10, g10-135): a person cut an ECS service's desired count ten minutes before its
@@ -495,8 +507,12 @@ def _p31_unaddressed_change(alert: Alert, context: ContextBundle, root_cause: Ro
     started = _when(alert.started_at)
     names = {n.strip() for k, v in alert.labels.items() if k in RESOURCE_LABELS for n in v.split(",") if n.strip()}
     cited = {c.id for c in root_cause.citations}
-    for item, m in _changes_by_someone(context):
-        if m.group(3) not in names or item.id in cited:
+    changes = [(item, m) for item, m in _changes_by_someone(context) if m.group(3) in names]
+    for item, m in changes:
+        if item.id in cited:
+            continue
+        # The timestamps are one format, so they order as text.
+        if _taken_back(m.group(2), {n.group(2) for _, n in changes if n.group(3) == m.group(3) and n.group(1) > m.group(1)}):
             continue
         at = _when(m.group(1) + "+00:00")
         if started and at and 0 <= (started - at).total_seconds() <= UNADDRESSED_CHANGE_WINDOW_S:
