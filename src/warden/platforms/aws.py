@@ -92,6 +92,10 @@ AWS_RESERVED_UNRESERVED = 100  # AWS keeps this much account concurrency unreser
 # G10-D: undoing a recorded security group change. Only a change in the hours before the alarm went into ALARM.
 SG_CHANGE_BEFORE_ALARM = timedelta(hours=6)
 REVERT_BEFORE_ALARM = SG_CHANGE_BEFORE_ALARM  # every revert family: the change must be this close before the alarm
+# Lambda's write events as CloudTrail names them: the API version is part of the name (read in this account's own trail,
+# 2026-10-12). Looked up by name, never by the service: see _trail_named.
+LAMBDA_CONCURRENCY_WRITES = ("PutFunctionConcurrency20171031", "DeleteFunctionConcurrency20171031")
+LAMBDA_SETTINGS_WRITES = ("UpdateFunctionConfiguration20150331v2",)
 _SG_ID = re.compile(r"sg-[0-9a-f]{8,17}")
 _SG_EVENTS = ("RevokeSecurityGroupEgress", "RevokeSecurityGroupIngress", "AuthorizeSecurityGroupEgress",
               "AuthorizeSecurityGroupIngress")
@@ -1690,6 +1694,20 @@ class AwsPlatform:
         raise AwsPlatformRefused(f"more CloudTrail events for {value} than WARDEN reads in the window; nothing is "
                                  "chosen")
 
+    def _trail_named(self, names: tuple[str, ...], since: datetime, until: datetime,
+                     keep: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
+        """The writes of these exact event names that `keep` accepts, each recorded event once. By NAME, one lookup
+        each: a lookup by a service's event source returns every call to that service, reads included, and a working
+        account passes what WARDEN reads in hours (live, 2026-10-12: 271 Lambda events in six hours, mostly a deploy's
+        reads - and the undo of a cut timeout was refused as "more events than WARDEN reads"). Honest limit: a write
+        under a name not listed is not found here; a value that moved again is still caught by the Config record and
+        the live value (_config_bracket and each family's own check)."""
+        found: dict[str, dict[str, Any]] = {}
+        for name in names:
+            for w in self._trail_writes("EventName", name, since, until, keep):
+                found[w["event"]] = w
+        return list(found.values())
+
     def _config_bracket(self, rtype: str, rid: str, e: dict[str, Any],
                         value_of: Callable[[dict[str, Any]], Any]) -> tuple[Any, Any, str]:
         """(before, after, why): the value AWS Config recorded just before the change and the one it recorded with
@@ -1828,8 +1846,7 @@ class AwsPlatform:
             return e["event_name"].startswith(("PutFunctionConcurrency", "DeleteFunctionConcurrency")) and \
                 _last((e["request"] or {}).get("functionName")) == name
 
-        # By event SOURCE: Lambda's event names carry an API version (`PutFunctionConcurrency20171031`).
-        writes = self._trail_writes("EventSource", "lambda.amazonaws.com", since, self._now(), on_this)
+        writes = self._trail_named(LAMBDA_CONCURRENCY_WRITES, since, self._now(), on_this)
         if isinstance(named, str):
             writes = [w for w in writes if w["event"] == named] or writes
         if len(writes) != 1:
@@ -1903,7 +1920,7 @@ class AwsPlatform:
             return e["event_name"].startswith("UpdateFunctionConfiguration") and \
                 _last((e["request"] or {}).get("functionName")) == name
 
-        writes = self._trail_writes("EventSource", "lambda.amazonaws.com", since, self._now(), on_this)
+        writes = self._trail_named(LAMBDA_SETTINGS_WRITES, since, self._now(), on_this)
         if isinstance(named, str):
             writes = [w for w in writes if w["event"] == named] or writes
         if len(writes) != 1:
@@ -1971,11 +1988,10 @@ class AwsPlatform:
 
     # ------------------------------------------------------------------ G10 v2: a queue's settings, a stream's retention
 
-    def _one_change(self, source: str, names: tuple[str, ...], since: datetime, on_this: Callable[[dict[str, Any]], bool],
+    def _one_change(self, names: tuple[str, ...], since: datetime, on_this: Callable[[dict[str, Any]], bool],
                     named: Any) -> tuple[dict[str, Any] | None, str]:
         """The ONE recorded write of these names to this resource since `since`, or why there is not exactly one."""
-        writes = self._trail_writes("EventSource", source, since, self._now(),
-                                    lambda e: e["event_name"].startswith(names) and on_this(e))
+        writes = self._trail_named(names, since, self._now(), on_this)
         if isinstance(named, str):
             writes = [w for w in writes if w["event"] == named] or writes
         if len(writes) != 1:
@@ -2000,7 +2016,7 @@ class AwsPlatform:
         if onset is None and not isinstance(params.get("event"), str):
             return {**live, "refused": "the alarm is not in ALARM", "state": state}
         since = (onset or self._now()) - REVERT_BEFORE_ALARM
-        e, why = self._one_change("sqs.amazonaws.com", ("SetQueueAttributes",), since,
+        e, why = self._one_change(("SetQueueAttributes",), since,
                                   lambda e: str((e["request"] or {}).get("queueUrl", "")).rstrip("/").endswith("/" + name),
                                   params.get("event"))
         if e is None:
@@ -2161,7 +2177,7 @@ class AwsPlatform:
             r = e["request"] or {}
             return _last(r.get("streamName") or r.get("streamARN") or "") == name
 
-        e, why = self._one_change("kinesis.amazonaws.com", ("DecreaseStreamRetentionPeriod",), since, on_this,
+        e, why = self._one_change(("DecreaseStreamRetentionPeriod",), since, on_this,
                                   params.get("event"))
         if e is None:
             return {**live, "refused": why, "state": state}
@@ -2223,7 +2239,7 @@ class AwsPlatform:
         if onset is None and not isinstance(params.get("event"), str):
             return {**live, "refused": "the alarm is not in ALARM", "state": state}
         since = (onset or self._now()) - REVERT_BEFORE_ALARM
-        e, why = self._one_change("dynamodb.amazonaws.com", ("UpdateTable",), since,
+        e, why = self._one_change(("UpdateTable",), since,
                                   lambda e: _last(_get(e["request"] or {}, "tableName")) == name, params.get("event"))
         if e is None:
             return {**live, "refused": why, "state": state}
