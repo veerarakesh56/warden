@@ -5,6 +5,8 @@
 approvers:
   owner:
     name: Your Name   # shown on the approval page and in the messages that say who approved
+    team: Platform    # optional, shown beside the name
+    slack: ""         # optional: your Slack member id (U...), so those messages mention you
     tiers: [T1, T2, T3]
     public_key: |
       <paste the contents of owner.pub here>

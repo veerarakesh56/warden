@@ -26,7 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from .gate import enforce, sanitise_data
 from .redaction import redact
@@ -95,6 +95,8 @@ class SlackWebhookSink:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         parts = split_for_slack(to_slack_mrkdwn(text))
+        if who := mentions(data.get("mention")):
+            parts[-1] += "\n" + who
         # ⛔ No unfurling: with it on, a URL in a message makes Slack's servers FETCH it - data in the
         # query string leaves without anyone clicking (the outbound gate removes URLs too; this is
         # the second lock).
@@ -157,6 +159,8 @@ class SlackBotSink:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         incident = str((data.get("alert") or {}).get("id", "")) or "unknown"
         parts = split_for_slack(to_slack_mrkdwn(text))
+        if who := mentions(data.get("mention")):
+            parts[-1] += "\n" + who
         status = f"WARDEN · inc-{incident.removeprefix('inc-')} · {parts[0].strip().splitlines()[0][:150]}"
         root = self.threads.get(incident)
         if root is None:
@@ -355,6 +359,16 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
 _APPROVAL_LABEL = re.compile(r"Approve as [A-Za-z0-9._-]{1,64}")
 
 
+_SLACK_MEMBER = re.compile(r"[UW][A-Z0-9]{6,14}")
+
+
+def mentions(ids: Any) -> str:
+    """Slack's mention of each member id, as one line to put after a message - only ids of exactly Slack's shape
+    (a list handed over by WARDEN from the approver list; text is never searched for them)."""
+    ok = [m for m in dict.fromkeys(ids or ()) if isinstance(m, str) and _SLACK_MEMBER.fullmatch(m)]
+    return " ".join(f"<@{m}>" for m in ok)
+
+
 def approval_links(actions: tuple[tuple[str, str], ...]) -> list[str]:
     """The approval links that may leave, as lines: each exactly `https://<the approval domain>/a/<a 43-character
     token>` with an "Approve as <approver>" label. The gate removes every URL from a message - anything a model or
@@ -393,4 +407,6 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None)
         safe_data = {**sanitise_data(safe_data), "gate": gate.verdict, "gate_reasons": gate.reasons}
     links = approval_links(report.actions)
     text = gate.text + ("\n\n" + "\n".join(links) if links else "")
+    if report.mentions:  # after the gate and the scrub: WARDEN's own, from the approver list
+        safe_data = {**safe_data, "mention": list(report.mentions)}
     return [sink.send(text, safe_data) for sink in sinks]

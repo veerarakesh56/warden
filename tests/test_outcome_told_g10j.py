@@ -273,3 +273,37 @@ def test_the_aws_platform_marks_its_own_refusal_of_an_undo_and_not_awss():
         p.rollback("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, live["state"], who=WHO)
     assert own.value.own_check is True and own.value.nothing_changed is True
     assert not hasattr(AwsPlatformRefused("AWS refused x; nothing was changed"), "own_check")
+
+
+def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(world, owner, sink, monkeypatch):  # noqa: F811
+    """Owner, 2026-10-12: "it should say @Rakesh, so people can see in Slack itself who that person is"."""
+    from warden import chatops
+
+    member = "U" + "0" * 3 + "ABCDEFG"  # a placeholder id, built from parts
+    world["policy"].approvers["owner"].name, world["policy"].approvers["owner"].team = "Asha Rao", "Platform"
+    world["policy"].approvers["owner"].slack = member
+    seen = []
+    real = chatops.notify
+    monkeypatch.setattr(chatops, "notify", lambda report, **kw: seen.append(report) or real(report, **kw))
+    out = _run(world, _approve_with(owner))
+    assert out.status == "recovered" and all(r.mentions == (member,) for r in seen), [r.mentions for r in seen]
+    assert "approved by `Asha Rao (owner, Platform)` (with their signing key)" in sink.texts[0]
+    # The mention is put after the gated, escaped text, and only an id of exactly Slack's shape becomes one.
+    assert chatops.mentions([member, member, "<!channel>", "U1", "not an id", None]) == f"<@{member}>"
+    assert chatops.to_slack_mrkdwn(f"<@{member}>") == f"&lt;@{member}&gt;"  # one typed into a message is only text
+    with pytest.raises(ValueError):
+        approvals.Approver(public_key="k", slack="<!channel>")
+    assert world["policy"].slack_ids(["owner", "nobody"]) == (member,)
+
+
+def test_the_slack_sinks_append_the_mention_to_the_last_part(monkeypatch):
+    from warden import chatops
+
+    member, posted = "W" + "A1B2C3D4", []
+    monkeypatch.setattr(chatops, "_post_json", lambda url, payload, name: posted.append(payload) or chatops.Notification(
+        sink=name, delivered=True, detail="ok"))
+    sink_ = chatops.SlackWebhookSink("https://hooks.example.test/x", live=True)
+    sink_.send("**Approved** by someone <b>", {"mention": [member]})
+    sink_.send("no one named", {})
+    assert posted[0]["text"].endswith(f"<@{member}>") and "&lt;b&gt;" in posted[0]["text"]
+    assert "<@" not in posted[1]["text"]

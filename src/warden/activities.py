@@ -333,8 +333,13 @@ class RemediationActivities:
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
         if actions:
             said += " Approve with your passkey on the page below; it shows the exact plan first."
+        # Who the message is about is mentioned too: who may approve while it waits, who approved after.
+        named = ([n for n, a in self.policy.approvers.items() if plan.tier in a.tiers] if what == "waiting"
+                 else [str(b.get("approver")) for b in (e["body"] for e in self.audit.entries(
+                     plan.incident_id, kinds=("approval.accepted",)))
+                     if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()])
         sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=(),
-                           actions=actions), threads=AuditThreads(self.audit))
+                           actions=actions, mentions=self.policy.slack_ids(named)), threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,

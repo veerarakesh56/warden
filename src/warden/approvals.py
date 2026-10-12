@@ -70,6 +70,10 @@ class Approver(BaseModel):
     # How the person is shown to people (owner, 2026-10-12: "it should give its name"): on the approval page once
     # their passkey has said who they are, and in the messages that say who approved. The list's key stays the id.
     name: str = Field(default="", max_length=80)
+    team: str = Field(default="", max_length=80)
+    # The person's Slack member id (`U...`, from their Slack profile): a message that names them mentions them, so a
+    # reader can open who that is. Configuration, like the rest of this list - never in the repository.
+    slack: str = Field(default="", pattern=r"^$|^[UW][A-Z0-9]{6,14}$")
     public_key: str  # PEM: the Ed25519 break-glass key (decision D14)
     tiers: list[str] = Field(default_factory=list)
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
@@ -117,7 +121,14 @@ class ApproverPolicy(BaseModel):
     def shown(self, approver: str) -> str:
         """The approver as people read them: `Name (id)` when the list gives a name, else the id."""
         entry = self.approvers.get(approver)
-        return f"{entry.name} ({approver})" if entry and entry.name.strip() else approver
+        if not entry or not entry.name.strip():
+            return approver
+        return f"{entry.name} ({approver}{', ' + entry.team if entry.team.strip() else ''})"
+
+    def slack_ids(self, approvers: list[str]) -> tuple[str, ...]:
+        """The Slack member ids of these approvers, for the mention a message carries beside its text."""
+        return tuple(dict.fromkeys(self.approvers[a].slack for a in approvers
+                                   if a in self.approvers and self.approvers[a].slack))
 
     def key_of(self, name: str) -> Ed25519PublicKey | None:
         approver = self.approvers.get(name)
