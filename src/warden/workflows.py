@@ -287,8 +287,17 @@ class RemediationWorkflow:
                 if workflow.patched("g10-outcome"):
                     with contextlib.suppress(ActivityError):
                         await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "verified"], **NOTIFY)
+                now_too = workflow.patched("g10-relapse-now")
                 for after in RECHECK_AFTER:
-                    await workflow.sleep(max(since + after - workflow.now(), timedelta(0)))
+                    wait = max(since + after - workflow.now(), timedelta(0))
+                    if now_too and wait > timedelta(0):
+                        # The alarm firing again ends the watch at once (intake signals it): the people are told of the
+                        # relapse then, and the resource is free for the plan its new incident may open (live,
+                        # 2026-10-12: the watch slept to its re-check, and the new plan was silently not opened).
+                        with contextlib.suppress(TimeoutError):
+                            await workflow.wait_condition(lambda: bool(self._alarm_at), timeout=wait)
+                    else:
+                        await workflow.sleep(wait)
                     healthy = not self._alarm_at and await workflow.execute_activity_method(
                         acts.check_success, **_zoned(acts.check_success), args=[plan, req.service], **QUICK)
                     if not healthy:
@@ -298,6 +307,8 @@ class RemediationWorkflow:
                                  else "a health check failed")
                         minutes = int(after.total_seconds() // 60)
                         why = f"{req.service} recovered, then {cause} by the {minutes}-minute re-check"
+                        if now_too and self._alarm_at:
+                            why = f"{req.service} recovered, then {cause}"
                         return await end("relapsed", [why])
             return await end("recovered")
 

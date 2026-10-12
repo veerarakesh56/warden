@@ -11,7 +11,9 @@ An alarm is not an incident. `decide` turns one alarm event into one of:
   start               a new incident, whose id is the fingerprint plus the transition time (C20): the same transition
                       twice is one incident, and the next real one after an OK is a new one
 
-`submit` gathers what `decide` needs from the audit and from Temporal, records the decision and carries it out.
+`submit` gathers what `decide` needs from the audit and from Temporal, records the decision and carries it out. A
+fix that was verified and is still being watched is also told when its resource's alarm fires again: it ends
+`relapsed` at once, and the alarm starts its own incident.
 The fingerprint includes the source, so a caller of the MCP server cannot occupy the id space of real alarms.
 """
 
@@ -64,6 +66,19 @@ def fingerprint(ev: AlarmEvent) -> str:
     return hashlib.sha256(json.dumps(material).encode()).hexdigest()[:16]
 
 
+def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
+    """The open remediation, if any, of a resource this alarm names. By what the alarm's labels name, not only its
+    `service`: an alarm on a schedule's invocations has the ALARM's name for a service and the RULE's in its labels,
+    and the fix was filed under the rule - so the alarm never reached its own fix (live, 2026-10-12). The labels that
+    only qualify a resource (a namespace, a cluster, the alarm's own name) name none."""
+    from .resolver import _QUALIFIERS
+
+    names = {ev.alert.service} | {v.strip() for k, value in ev.alert.labels.items() if k not in _QUALIFIERS
+                                  for v in str(value).split(",") if v.strip()}
+    return next((wid for (env, service), wid in fixes.items() if env == ev.alert.environment and service in names),
+                None)
+
+
 def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict[str, str],
            verifying: dict[tuple[str, str], str], open_count: int) -> Decision:
     """`recent`: this fingerprint's earlier transitions inside FLAP_WINDOW. `open_incidents`: fingerprint -> running
@@ -71,10 +86,10 @@ def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict
     fp = fingerprint(ev)
     if ev.state != "ALARM":
         return Decision(action="ignore", fingerprint=fp, reason=f"state {ev.state}: only ALARM starts an incident")
-    target = (ev.alert.environment, ev.alert.service)
-    if target in verifying:
-        return Decision(action="signal_remediation", workflow_id=verifying[target], fingerprint=fp,
-                        reason=f"{ev.alert.service} is in the verify window of {verifying[target]}")
+    fix = open_fix(ev, verifying)
+    if fix:
+        return Decision(action="signal_remediation", workflow_id=fix, fingerprint=fp,
+                        reason=f"{ev.alert.service} is in the verify window of {fix}")
     if fp in open_incidents:
         return Decision(action="signal_incident", workflow_id=open_incidents[fp], fingerprint=fp,
                         reason=f"incident {open_incidents[fp]} is open for this alarm")
@@ -127,19 +142,29 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
             if await running(b["workflow_id"]):
                 open_count += 1
                 open_incidents.setdefault(b["fingerprint"], b["workflow_id"])
+    # A fix being verified takes the alarm instead of a new incident (C1). One that was verified and is being watched
+    # is told too - it relapsed - and the alarm still starts its incident: a relapse is diagnosed afresh.
     verifying: dict[tuple[str, str], str] = {}
+    watching: dict[tuple[str, str], str] = {}
     for e in reversed(log.entries(kinds=("remediation.plan",), since=now - LOOKBACK)):
         b = e["body"]
         key = (b.get("environment", ""), b.get("service", ""))
-        if key in verifying or b["workflow_id"] in seen:
+        if key in verifying or key in watching or b["workflow_id"] in seen:
             continue
         seen.add(b["workflow_id"])
-        if await stage_of(b["workflow_id"]) == "verifying":
+        stage = await stage_of(b["workflow_id"])
+        if stage == "verifying":
             verifying[key] = b["workflow_id"]
+        elif stage == "watching":
+            watching[key] = b["workflow_id"]
 
     d = decide(ev, recent=recent, open_incidents=open_incidents, verifying=verifying, open_count=open_count)
     log.append(d.workflow_id or f"intake-{fp}", "intake.decision", d.model_dump())
     at = ev.transitioned_at.isoformat()
+    relapsed = open_fix(ev, watching) if d.action in ("start", "escalate_only") else None
+    if relapsed:
+        log.append(relapsed, "intake.relapse", {"workflow_id": relapsed, "fingerprint": fp, "at": at})
+        await client.get_workflow_handle(relapsed).signal(RemediationWorkflow.alarm, at)
     if d.action == "signal_remediation":
         await client.get_workflow_handle(d.workflow_id).signal(RemediationWorkflow.alarm, at)
     elif d.action == "signal_incident":
