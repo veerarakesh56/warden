@@ -556,8 +556,11 @@ def _reads_only(rb: Runbook, alert: Alert, platform: str, action: ActionKind) ->
     rb.checked_by_warden = True
     rb.note = (("WARDEN cannot flush Redis: ElastiCache is VPC-only and WARDEN has no Redis access. "
                 if platform == "elasticache" and action is ActionKind.clear_cache else "")
-               + f"No action in WARDEN's closed set changes {platform} directly; the detected patterns' fix "
-               "commands are aimed at the cause.")
+               # It said "no action in WARDEN's closed set changes eventbridge" above a plan to enable a rule
+               # (live, 2026-10-12): what is true of this runbook is that it prints no such command.
+               + f"This runbook prints no command that changes {platform}: a change WARDEN can make itself comes as "
+               "a fix plan to approve, never as a command here; the detected patterns' fix commands are aimed at "
+               "the cause.")
 
 
 _STACK_BUILDERS = {"lambda": _lambda, "dynamodb": _dynamodb, "aurora": _aurora}

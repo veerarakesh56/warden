@@ -308,10 +308,10 @@ class RemediationActivities:
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
         # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
         # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
-        may = [f"`{self.policy.said(name)}`" for name, a in sorted(self.policy.approvers.items())
+        may = [self.policy.said(name) for name, a in sorted(self.policy.approvers.items())
                if plan.tier in a.tiers]
         need = self.policy.required.get(plan.tier, 1)
-        did = sorted({f"`{self.policy.said(str(b.get('approver')))}` (with their "
+        did = sorted({f"{self.policy.said(str(b.get('approver')))} (with their "
                       f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})"
                       for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
                       if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
@@ -353,13 +353,13 @@ class RemediationActivities:
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
         if actions:
             said += " Approve with your passkey on the page below; it shows the exact plan first."
-        # Who the message is about is mentioned too: who may approve while it waits, who approved after.
+        # Who the message names is mentioned where it names them: who may approve while it waits, who approved after.
         named = ([n for n, a in self.policy.approvers.items() if plan.tier in a.tiers] if what == "waiting"
                  else [str(b.get("approver")) for b in (e["body"] for e in self.audit.entries(
                      plan.incident_id, kinds=("approval.accepted",)))
                      if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()])
         sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=(),
-                           actions=actions, mentions=self.policy.slack_ids(named)), threads=AuditThreads(self.audit))
+                           actions=actions, people=self.policy.people(named)), threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,
@@ -1004,7 +1004,13 @@ class IncidentActivities:
             before = history.past(pack.alert, self.audit)
         except Exception:  # noqa: BLE001 - a record that cannot be read is not a report that cannot be sent
             before = []
-        markdown = report.markdown + timeline.section(changes, unread) + history.section(before) + footer
+        # Before the report's closing line, not after it (owner, 2026-10-12, reading a live message: "things are not
+        # right in place" - both sections stood under "WARDEN proposes and gates").
+        from .reporting import CLOSING
+
+        body, closed = report.markdown.removesuffix(CLOSING), report.markdown.endswith(CLOSING)
+        markdown = (body.rstrip("\n") + "\n" + timeline.section(changes, unread) + history.section(before)
+                    + ("\n\n" + CLOSING if closed else "") + footer)
         sent = send(dataclasses.replace(report, markdown=markdown), threads=AuditThreads(self.audit))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
                                                         "sinks": [n.sink for n in sent],

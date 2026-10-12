@@ -135,15 +135,16 @@ class ApproverPolicy(BaseModel):
 
     def said(self, approver: str) -> str:
         """The approver as a MESSAGE names them. A typed name proves nothing to its readers (owner, 2026-10-12: "if
-        they wanted to, they would write a different name"), so with a Slack member id the message carries the id
-        only and Slack's own mention beside it - Slack shows that member's real profile, and the member is told.
-        Without one, the name from the list."""
+        they wanted to, they would write a different name"), so with a Slack member id the text holds only a mark
+        for that approver, which the Slack sinks turn into Slack's own mention where the sentence names them
+        (chatops.name_people) - Slack shows that member's real profile, and the member is told. Without one, the
+        name from the list."""
         entry = self.approvers.get(approver)
-        return approver if entry and entry.slack else self.shown(approver)
+        return f"@@{approver}@@" if entry and entry.slack else f"`{self.shown(approver)}`"
 
-    def slack_ids(self, approvers: list[str]) -> tuple[str, ...]:
-        """The Slack member ids of these approvers, for the mention a message carries beside its text."""
-        return tuple(dict.fromkeys(self.approvers[a].slack for a in approvers
+    def people(self, approvers: list[str]) -> tuple[tuple[str, str], ...]:
+        """(approver id, Slack member id) of these approvers, for the mentions a message's marks become."""
+        return tuple(dict.fromkeys((a, self.approvers[a].slack) for a in approvers
                                    if a in self.approvers and self.approvers[a].slack))
 
     def key_of(self, name: str) -> Ed25519PublicKey | None:

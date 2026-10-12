@@ -94,9 +94,7 @@ class SlackWebhookSink:
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
-        parts = split_for_slack(to_slack_mrkdwn(text))
-        if who := mentions(data.get("mention")):
-            parts[-1] += "\n" + who
+        parts = split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True))
         # ⛔ No unfurling: with it on, a URL in a message makes Slack's servers FETCH it - data in the
         # query string leaves without anyone clicking (the outbound gate removes URLs too; this is
         # the second lock).
@@ -158,9 +156,7 @@ class SlackBotSink:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         incident = str((data.get("alert") or {}).get("id", "")) or "unknown"
-        parts = split_for_slack(to_slack_mrkdwn(text))
-        if who := mentions(data.get("mention")):
-            parts[-1] += "\n" + who
+        parts = split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True))
         status = f"WARDEN · inc-{incident.removeprefix('inc-')} · {parts[0].strip().splitlines()[0][:150]}"
         root = self.threads.get(incident)
         if root is None:
@@ -362,11 +358,18 @@ _APPROVAL_LABEL = re.compile(r"Approve as [A-Za-z0-9._-]{1,64}")
 _SLACK_MEMBER = re.compile(r"[UW][A-Z0-9]{6,14}")
 
 
-def mentions(ids: Any) -> str:
-    """Slack's mention of each member id, as one line to put after a message - only ids of exactly Slack's shape
-    (a list handed over by WARDEN from the approver list; text is never searched for them)."""
-    ok = [m for m in dict.fromkeys(ids or ()) if isinstance(m, str) and _SLACK_MEMBER.fullmatch(m)]
-    return " ".join(f"<@{m}>" for m in ok)
+_MARK = re.compile(r"@@([A-Za-z0-9._-]{1,64})@@")  # ApproverPolicy.said's mark for an approver, by their id
+
+
+def name_people(text: str, people: Any, *, slack: bool) -> str:
+    """Each approver's mark, as the reader sees it: in Slack, Slack's own mention of the member the approver list
+    gives, with the approver's id - where the sentence names them (owner, 2026-10-12: the id stood in the text and
+    the mention alone at the foot of the message). Anywhere else, and for a mark with no member handed over, the id.
+    Only member ids of exactly Slack's shape, handed over by WARDEN from the approver list, become mentions; one
+    typed into a message stays text (to_slack_mrkdwn), and a mark typed into one can name nobody else."""
+    members = {str(a): m for a, m in dict(people or {}).items() if isinstance(m, str) and _SLACK_MEMBER.fullmatch(m)}
+    return _MARK.sub(lambda m: (f"<@{members[m.group(1)]}> (approver `{m.group(1)}`)" if slack and m.group(1) in members
+                                else f"`{m.group(1)}`"), text)
 
 
 def approval_links(actions: tuple[tuple[str, str], ...]) -> list[str]:
@@ -407,6 +410,9 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None)
         safe_data = {**sanitise_data(safe_data), "gate": gate.verdict, "gate_reasons": gate.reasons}
     links = approval_links(report.actions)
     text = gate.text + ("\n\n" + "\n".join(links) if links else "")
-    if report.mentions:  # after the gate and the scrub: WARDEN's own, from the approver list
-        safe_data = {**safe_data, "mention": list(report.mentions)}
-    return [sink.send(text, safe_data) for sink in sinks]
+    if report.people:  # after the gate and the scrub: WARDEN's own, from the approver list
+        safe_data = {**safe_data, "people": dict(report.people)}
+    # Only Slack has a mention to make of an approver's mark; every other reader gets the approver's id.
+    plain = name_people(text, None, slack=False)
+    return [sink.send(text if isinstance(sink, (SlackWebhookSink, SlackBotSink)) else plain, safe_data)
+            for sink in sinks]

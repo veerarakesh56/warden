@@ -111,6 +111,13 @@ def test_the_incident_message_carries_the_changes_and_the_model_never_sees_them(
     verified = acts.verify(pack, diagnosed)
     acts.notify(pack, diagnosed, verified)
     assert "Changes near the alert - suspects, not causes" in sent[0] and "cafebabe0000" in sent[0]
+    # In the report, not under its closing line (owner, 2026-10-12, reading a live message: "things are not right in
+    # place"): the closing line stays last, once, before WARDEN's own footer.
+    from warden.reporting import CLOSING
+
+    assert sent[0].count(CLOSING) == 1 and sent[0].index("Changes near the alert") < sent[0].index(CLOSING)
+    assert sent[0].index(CLOSING) < sent[0].index("WARDEN · incident")
+    assert sent[0].split(CLOSING)[1].lstrip().startswith("---")  # then only WARDEN's own footer
     assert prompts and not any("cafebabe" in p for p in prompts)
     [row] = [e["body"] for e in log.entries(kinds=("incident.changes",))]
     assert row["found"] == 1 and row["sources"] == ["deploy"]

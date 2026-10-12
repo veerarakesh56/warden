@@ -93,9 +93,9 @@ class Report:
     # (label, url) approval links WARDEN itself minted (register H6): delivered after the gate, never through it, and
     # only in the exact shape chatops.approval_links accepts.
     actions: tuple[tuple[str, str], ...] = ()
-    # Slack member ids WARDEN itself read from the approver list: mentioned beside the gated text, in the one shape
-    # chatops.mentions accepts - never taken from a message's text.
-    mentions: tuple[str, ...] = ()
+    # (approver id, Slack member id) pairs WARDEN itself read from the approver list: each approver's mark in the
+    # text becomes Slack's mention of that member (chatops.name_people) - never taken from a message's text.
+    people: tuple[tuple[str, str], ...] = ()
 
 
 def _promotion_targets(
@@ -490,6 +490,10 @@ _HANDED_OVER = "Handed to a person - WARDEN proposes no change and could not nam
 
 
 # --------------------------------------------------------------------------- build
+
+
+# The report's last lines. What is added to a report after it is built goes before them (activities.notify).
+CLOSING = "---\n_WARDEN proposes and gates. Nothing was executed against production by this tool._"
 
 
 def build_report(
@@ -943,8 +947,7 @@ def _render_markdown(d: dict) -> str:
         else:
             lines.append("- _No higher environment permits this action; nothing to promote._")
         lines.append("")
-    lines.append("---")
-    lines.append("_WARDEN proposes and gates. Nothing was executed against production by this tool._")
+    lines.append(CLOSING)
     return "\n".join(lines)
 
 

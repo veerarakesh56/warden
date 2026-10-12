@@ -47,3 +47,17 @@ def test_every_command_in_the_runbook_parses(command, monkeypatch):
     argv = ["3" if prev == "--trips" else a for prev, a in zip(["", *argv[:-1]], argv, strict=True)]
     with pytest.raises(_Parsed):
         cli.main(argv)
+
+
+def test_a_runbook_with_no_fix_command_does_not_say_wardens_actions_cannot_change_the_platform():
+    """Live, 2026-10-12: above WARDEN's own plan to enable a rule, the runbook said "No action in WARDEN's closed set
+    changes eventbridge directly". What is true is that the runbook prints no such command."""
+    from warden import runbook
+    from warden.models import ActionKind, Alert, Severity
+
+    alert = Alert(alert_id="a", name="n", service="s", environment="dev", severity=Severity.high, summary="",
+                  started_at="2026-10-12T17:18:59+00:00", labels={"eventbridge_rule": "warden-dev-lab-tick"})
+    rb = runbook.Runbook(platform="eventbridge")
+    runbook._reads_only(rb, alert, "eventbridge", ActionKind.revert_change)
+    assert "closed set" not in rb.note and rb.note.startswith("This runbook prints no command that changes eventbridge")
+    assert "comes as a fix plan to approve" in rb.note

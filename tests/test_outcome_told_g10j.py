@@ -286,29 +286,51 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
     real = chatops.notify
     monkeypatch.setattr(chatops, "notify", lambda report, **kw: seen.append(report) or real(report, **kw))
     out = _run(world, _approve_with(owner))
-    assert out.status == "recovered" and all(r.mentions == (member,) for r in seen), [r.mentions for r in seen]
-    # With a member id the text carries the id only: Slack's mention, not a typed name, says who that is.
+    assert out.status == "recovered" and all(r.people == (("owner", member),) for r in seen), [r.people for r in seen]
+    # With a member id the text holds no typed name: a reader outside Slack gets the id, where the sentence names them.
     assert "approved by `owner` (with their signing key)" in sink.texts[0] and "Asha" not in sink.texts[0]
+    assert "@@" not in "".join(sink.texts)
     assert world["policy"].shown("owner") == "Asha Rao (owner, Platform)"  # the approval page's own view
+    assert world["policy"].said("owner") == "@@owner@@"
     world["policy"].approvers["owner"].slack = ""
-    assert world["policy"].said("owner") == "Asha Rao (owner, Platform)"
+    assert world["policy"].said("owner") == "`Asha Rao (owner, Platform)`"
     world["policy"].approvers["owner"].slack = member
-    # The mention is put after the gated, escaped text, and only an id of exactly Slack's shape becomes one.
-    assert chatops.mentions([member, member, "<!channel>", "U1", "not an id", None]) == f"<@{member}>"
+    # In Slack the mark becomes Slack's own mention, in the sentence - and only an id of exactly Slack's shape does.
+    said = "was approved by @@owner@@ (with their passkey); @@nobody@@ and @@other@@ were not asked"
+    assert chatops.name_people(said, {"owner": member, "other": "<!channel>"}, slack=True) == (
+        f"was approved by <@{member}> (approver `owner`) (with their passkey); `nobody` and `other` were not asked")
+    assert chatops.name_people(said, {"owner": member}, slack=False).startswith("was approved by `owner` (with")
     assert chatops.to_slack_mrkdwn(f"<@{member}>") == f"&lt;@{member}&gt;"  # one typed into a message is only text
+    assert chatops.to_slack_mrkdwn("by @@owner@@") == "by @@owner@@"         # the mark reaches the sink whole
     with pytest.raises(ValueError):
         approvals.Approver(public_key="k", slack="<!channel>")
-    assert world["policy"].slack_ids(["owner", "nobody"]) == (member,)
+    assert world["policy"].people(["owner", "nobody", "owner"]) == (("owner", member),)
 
 
-def test_the_slack_sinks_append_the_mention_to_the_last_part(monkeypatch):
+def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_else(monkeypatch):
+    """Owner, 2026-10-12, reading a live message: it said "approved by owner" and the mention stood alone under the
+    footer - "name owner things are not right in place"."""
     from warden import chatops
 
     member, posted = "W" + "A1B2C3D4", []
     monkeypatch.setattr(chatops, "_post_json", lambda url, payload, name: posted.append(payload) or chatops.Notification(
         sink=name, delivered=True, detail="ok"))
     sink_ = chatops.SlackWebhookSink("https://hooks.example.test/x", live=True)
-    sink_.send("**Approved** by someone <b>", {"mention": [member]})
-    sink_.send("no one named", {})
-    assert posted[0]["text"].endswith(f"<@{member}>") and "&lt;b&gt;" in posted[0]["text"]
-    assert "<@" not in posted[1]["text"]
+    sink_.send("**Approved** by @@owner@@ <b>\n\n---\nfooter", {"people": {"owner": member}})
+    sink_.send("no one named, and @@owner@@ is nobody here", {})
+    assert f"by <@{member}> (approver `owner`) &lt;b&gt;" in posted[0]["text"] and posted[0]["text"].endswith("footer")
+    assert posted[0]["text"].count("<@") == 1
+    assert "<@" not in posted[1]["text"] and "`owner` is nobody here" in posted[1]["text"]
+
+    class Plain:
+        name = "plain"
+
+        def send(self, text, data):
+            posted.append(text)
+            return chatops.Notification(sink=self.name, delivered=True, detail="ok")
+
+    from warden.reporting import Report
+
+    chatops.notify(Report(markdown="approved by @@owner@@", data={}, promotion=(), people=(("owner", member),)),
+                   sinks=[Plain()])
+    assert posted[-1] == "approved by `owner`"  # another reader than Slack: the id, no mark, no mention syntax
