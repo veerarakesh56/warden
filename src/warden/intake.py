@@ -47,6 +47,8 @@ class AlarmEvent(BaseModel):
     state: Literal["ALARM", "OK", "INSUFFICIENT_DATA"]
     transitioned_at: datetime
     alert: Alert
+    # A service's own event (lambdas.service_event), not an alarm: nothing later says it cleared.
+    stateless: bool = False
 
     @field_validator("transitioned_at")
     @classmethod
@@ -99,6 +101,9 @@ def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict
                         reason=f"incident {open_incidents[fp]} is open for this alarm")
     if expected and ev.source == "alarm":  # a person who asks for a diagnosis (MCP, CLI) gets one
         name, until = expected[0], expected[1] and expected[1].astimezone(UTC)
+        if ev.stateless:  # no state to look at again when the cover ends: the service says so again if it is so
+            return Decision(action="expected", fingerprint=fp,
+                            reason=f"expected down ({name!r}): a service's event, not an alarm - not looked at again")
         # One held incident per alarm and cover: its id is the cover's end, so a repeat inside it starts no second.
         return Decision(action="expected", workflow_id=f"inc-{fp}-{until:%Y%m%dT%H%M%SZ}" if until else "",
                         fingerprint=fp, reason=f"expected down ({name!r})" + (

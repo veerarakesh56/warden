@@ -86,6 +86,52 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
                             **resources.labels_for(metrics), **elsewhere, "alarm": name}))
 
 
+# What a service says about itself that is an incident with no alarm on it (register G10-40). The shapes as AWS's
+# own pages give them (ECS "service action events" and "service deployment state change events"; RDS "event
+# categories and event messages" - read 2026-10-12).
+_ECS_EVENTS = ("ECS Service Action", "ECS Deployment State Change")
+_RDS_EVENTS = {"RDS DB Instance Event": "rds_instance", "RDS DB Cluster Event": "aurora_cluster"}
+RDS_CATEGORIES = ("failure", "failover", "low storage")
+_ECS_NAME = re.compile(r"[A-Z][A-Z0-9_]{2,63}")  # SERVICE_TASK_START_IMPAIRED, SERVICE_DEPLOYMENT_FAILED, ...
+_RDS_ID = re.compile(r"RDS-EVENT-\d{4}")
+
+
+def service_event(event: dict[str, Any], default_environment: str) -> AlarmEvent | None:
+    """An AWS service's own event that something is wrong, as an intake event; None for anything else. Owner,
+    2026-10-12: WARDEN woke only on an alarm someone had made - a service that cannot start its tasks, a deployment
+    its circuit breaker failed, a database that failed over or ran out of storage were never seen without one.
+    ECS: a WARN or ERROR service event. RDS: an instance's or a cluster's failure, failover or low-storage event.
+    The event's own text (a reason, a message) is the alert's summary: untrusted, as an alarm's description is."""
+    source, kind = event.get("source"), event.get("detail-type")
+    detail = event.get("detail") if isinstance(event.get("detail"), dict) else {}
+    resources_named = event.get("resources") if isinstance(event.get("resources"), list) else []
+    arn = str(resources_named[0]) if resources_named else ""
+    named = re.compile(NAME_PATTERN)
+    if source == "aws.ecs" and kind in _ECS_EVENTS and detail.get("eventType") in ("WARN", "ERROR"):
+        what, text = str(detail.get("eventName") or ""), str(detail.get("reason") or "")
+        cluster, _, service = arn.partition(":service/")[2].partition("/")
+        if not (_ECS_NAME.fullmatch(what) and named.match(cluster) and named.match(service)):
+            return None
+        labels = {"ecs_cluster": cluster, "ecs_service": service}
+    elif source == "aws.rds" and kind in _RDS_EVENTS:
+        categories = detail.get("EventCategories") if isinstance(detail.get("EventCategories"), list) else []
+        what, text = str(detail.get("EventID") or ""), str(detail.get("Message") or "")
+        service = str(detail.get("SourceIdentifier") or "")
+        if not (set(RDS_CATEGORIES) & {str(c) for c in categories} and _RDS_ID.fullmatch(what) and named.match(service)):
+            return None
+        labels = {_RDS_EVENTS[str(kind)]: service}
+    else:
+        return None
+    from .environments import env_of_name
+
+    when = datetime.fromisoformat(str(event.get("time")))
+    return AlarmEvent(
+        source="alarm", rule=f"{what}:{service}", state="ALARM", transitioned_at=when, stateless=True,
+        alert=Alert(alert_id="ev", name=what, severity=Severity.high, service=service,
+                    environment=env_of_name(service) or env_of_name(labels.get("ecs_cluster", "")) or default_environment,
+                    summary=text[:4000], started_at=when.isoformat(), labels=labels))
+
+
 # Labels intake writes itself; a dimension of the same name never stands in for them (L4, G10-F1).
 _OWN_LABELS = ("alarm", "alarm_region")
 
@@ -105,9 +151,9 @@ def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:
 
 def alarm(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     _configure("lambda-alarm")
-    ev = alarm_event(event, os.environ.get("WARDEN_ENV", ""))
+    ev = alarm_event(event, os.environ.get("WARDEN_ENV", "")) or service_event(event, os.environ.get("WARDEN_ENV", ""))
     if ev is None:
-        return {"ignored": "not a CloudWatch alarm state change"}
+        return {"ignored": "not a CloudWatch alarm state change, nor a service event WARDEN takes"}
     return {"decisions": _submit([ev])}
 
 

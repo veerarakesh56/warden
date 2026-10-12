@@ -67,6 +67,59 @@ resource "aws_cloudwatch_event_rule" "alarms" {
   tags = { Project = "warden", Environment = var.environment }
 }
 
+# What a service says about itself with no alarm on it (lambdas.service_event, register G10-40): an ECS service's
+# WARN and ERROR events, an RDS instance's or cluster's failure, failover and low-storage events - of the watched
+# environments' resources only, by their names.
+locals {
+  service_events = {
+    ecs = jsonencode({
+      source        = ["aws.ecs"]
+      "detail-type" = ["ECS Service Action", "ECS Deployment State Change"]
+      detail        = { eventType = ["WARN", "ERROR"] }
+      resources     = [for e in var.watched_environments : { prefix = "arn:aws:ecs:${local.region}:${local.account}:service/warden-${e}-" }]
+    })
+    rds = jsonencode({
+      source        = ["aws.rds"]
+      "detail-type" = ["RDS DB Instance Event", "RDS DB Cluster Event"]
+      detail        = { EventCategories = ["failure", "failover", "low storage"] }
+      resources = flatten([for e in var.watched_environments : [
+        { prefix = "arn:aws:rds:${local.region}:${local.account}:db:warden-${e}-" },
+      { prefix = "arn:aws:rds:${local.region}:${local.account}:cluster:warden-${e}-" }]])
+    })
+  }
+}
+
+resource "aws_cloudwatch_event_rule" "service_events" {
+  for_each      = local.service_events
+  name          = "warden-${var.environment}-${each.key}-events"
+  state         = var.paused ? "DISABLED" : "ENABLED"
+  description   = "WARDEN ${var.environment}: the watched environments' own ${each.key} events that something is wrong, to intake"
+  event_pattern = each.value
+  tags          = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_cloudwatch_event_target" "service_events" {
+  for_each = local.service_events
+  rule     = aws_cloudwatch_event_rule.service_events[each.key].name
+  arn      = aws_lambda_function.front_door["alarm"].arn
+  retry_policy {
+    maximum_event_age_in_seconds = 3600
+    maximum_retry_attempts       = 8
+  }
+  dead_letter_config {
+    arn = aws_sqs_queue.alarm_dlq.arn
+  }
+}
+
+resource "aws_lambda_permission" "service_events" {
+  for_each      = local.service_events
+  statement_id  = "EventBridge${title(each.key)}Events"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.front_door["alarm"].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.service_events[each.key].arn
+}
+
 resource "aws_sqs_queue" "alarm_dlq" {
   name                      = "warden-${var.environment}-alarm-dlq"
   message_retention_seconds = 1209600 # 14 days: a lost alarm is read by a person
@@ -84,7 +137,8 @@ resource "aws_sqs_queue_policy" "alarm_dlq" {
       Principal = { Service = "events.amazonaws.com" }
       Action    = "sqs:SendMessage"
       Resource  = aws_sqs_queue.alarm_dlq.arn
-      Condition = { ArnEquals = { "aws:SourceArn" = [aws_cloudwatch_event_rule.alarms.arn, aws_cloudwatch_event_rule.actor_use.arn] } }
+      Condition = { ArnEquals = { "aws:SourceArn" = concat([aws_cloudwatch_event_rule.alarms.arn, aws_cloudwatch_event_rule.actor_use.arn],
+      [for r in aws_cloudwatch_event_rule.service_events : r.arn]) } }
     }]
   })
 }
