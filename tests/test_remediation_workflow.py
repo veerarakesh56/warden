@@ -129,7 +129,8 @@ def test_an_approved_fix_is_applied_once_verified_and_fully_audited(world, owner
     assert "remediation.check" in kinds  # every real health check is on the record (fourth review)
     assert [k for k in kinds if k != "remediation.check"] == [
         "remediation.plan", "remediation.gate", "approval.accepted", "remediation.precheck",
-        "remediation.intent", bounds.APPLIED, bounds.RESULT, "workflow.end"]
+        "remediation.intent", bounds.APPLIED, bounds.RESULT, "remediation.announce", "workflow.end",
+        "remediation.announce"]  # the approvers are told it is verified, and how it ended (G10-24)
     assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0
 
 
@@ -231,7 +232,7 @@ def test_a_failed_rollback_still_ends_signed_and_trips_the_kill_switch(world, ow
     out = _run(world, _approve_with(owner))
     assert out.status == "rollback_failed" and out.checklist["applied"] and not out.checklist["verified"]
     kinds = [e["kind"] for e in world["log"].entries("inc-42")]
-    assert "remediation.rollback_failed" in kinds and kinds[-1] == "workflow.end"
+    assert "remediation.rollback_failed" in kinds and kinds[-2:] == ["workflow.end", "remediation.announce"]
     assert bounds.killswitch(world["log"]) is not None
     assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0
 

@@ -45,6 +45,28 @@ def _note(text: str) -> None:
 
 
 OFFERED_UNDO = "WARDEN's own offer: the undo of the change the proposal left unaddressed"
+# How an approved plan went, said to the people who approved it (owner's first live approvals, 2026-10-12: one fix
+# was refused by AWS, one applied and verified, and Slack said nothing after "waiting for an approval").
+OUTCOME = {
+    "verified": ("WARDEN applied `{entry}` on `{target}` and it passed its health checks. WARDEN keeps re-checking it "
+                 "and says so if it fails again."),
+    "recovered": "WARDEN's fix `{entry}` on `{target}` held through its re-checks: it is verified.",
+    "relapsed": ("WARDEN's fix `{entry}` on `{target}` worked, then failed again. WARDEN does not undo a fix that had "
+                 "worked: a person decides what happens next."),
+    "rolled_back": "WARDEN's fix `{entry}` on `{target}` did not work, so WARDEN undid it. The incident is still open.",
+    "not_recovered": ("WARDEN's fix `{entry}` on `{target}` did not work, and it has nothing to undo. A person takes "
+                      "over."),
+    "rollback_failed": ("WARDEN's fix `{entry}` on `{target}` did not work and undoing it FAILED: the target's state is "
+                        "unknown."),
+    "refused_at_apply": "WARDEN did not apply the approved plan `{entry}` on `{target}`: nothing was changed.",
+    "apply_failed": "Applying `{entry}` on `{target}` failed part-way: the target's state is unknown.",
+    "drifted": ("`{target}` changed after the plan `{entry}` was made, so WARDEN did not apply it: nothing was "
+                "changed."),
+    "denied": "The plan `{entry}` on `{target}` was denied: nothing was changed.",
+    "refused": "WARDEN could not make the plan `{entry}` on `{target}`: nothing was changed.",
+    "blocked": "WARDEN's own limits stopped the plan `{entry}` on `{target}`: nothing was changed.",
+    "mitigated": "WARDEN applied `{entry}` on `{target}`: the harm is held, not fixed. A person finishes it.",
+}
 
 
 class FixRequest(BaseModel):
@@ -254,8 +276,10 @@ class RemediationActivities:
 
     @activity.defn
     def announce(self, plan: Plan, what: str) -> list[str]:
-        """Tell a person where a plan stands (register H10): `waiting` for an approval, or `expired` with nothing
-        changed. Through the outbound gate, with the incident and its audit head (register S17)."""
+        """Tell a person where a plan stands (register H10): `waiting` for an approval, `expired` with nothing
+        changed, `verified` once the fix passed its checks, or `ended` - how the run ended, read from this run's own
+        signed end row, never from the caller. Through the outbound gate, with the incident and its audit head
+        (register S17)."""
         from .chatops import notify as send
         from .reporting import Report
 
@@ -264,12 +288,26 @@ class RemediationActivities:
             if not actions:
                 return []  # no approval domain: the incident's report already said a plan waits
             what = "waiting"
+        why: list[str] = []
+        if what == "ended":
+            ends = [e["body"] for e in self.audit.entries(plan.incident_id, kinds=("workflow.end",))
+                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id") == _run_id()]
+            if not ends:
+                return []
+            what, why = str(ends[-1].get("status")), [str(r)[:300] for r in (ends[-1].get("reasons") or [])[:3]]
         self.audit.checkpoint()
         head = self.audit.head(plan.incident_id)
-        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({plan.tier}) is waiting for an approval: "
+        tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
+        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval: "
                             f"`warden status {plan.workflow_id}`. Unapproved, it expires and nothing is changed."),
                 "expired": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` expired without an approval. No action "
-                            "was taken; the incident is still open.")}[what]
+                            "was taken; the incident is still open.")}.get(what) or OUTCOME.get(
+            what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
+                                                                                      target=plan.target)
+        if what in PERSON_TAKES_OVER:
+            said += " Every automatic fix is stopped until a person resets the kill switch (`warden killswitch reset`)."
+        if why:
+            said += " Why: " + "; ".join(why)
         footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it with "
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
         if actions:
@@ -280,6 +318,8 @@ class RemediationActivities:
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,
                                                                      "head": head, "delivered": delivered})
+        if what in OUTCOME or why:
+            self.audit.checkpoint()  # said after the end row: a run's record still ends signed
         return delivered
 
     def _approval_links(self, plan: Plan) -> tuple[tuple[str, str], ...]:
@@ -780,6 +820,33 @@ class IncidentActivities:
         _note(f"{alert_id} fix plan " + (f"opened: {req['entry']}" if req else f"not opened: {why}")
               + (f" ({OFFERED_UNDO})" if offer else ""))
         return req or {}
+
+    @activity.defn
+    def no_plan(self, alert_id: str, why: str = "") -> list[str]:
+        """Tell a person that the fix their report holds for approval has no plan to approve, and why (owner's live
+        run, 2026-10-12: the report said "held for approval", the plan was never opened, and nothing said so). `why`:
+        the workflow's own reason; else this run's plan_fix row gives it. Nothing to say when a plan was opened."""
+        from .chatops import notify as send
+        from .reporting import Report
+
+        if not why:
+            rows = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.plan_fix",))
+                    if e["body"].get("run_id") == _run_id()]
+            why = str(rows[-1].get("why") or "") if rows and not rows[-1].get("planned") else ""
+        if not why:
+            return []
+        self.audit.checkpoint()
+        head = self.audit.head(alert_id)
+        said = (f"WARDEN opened no fix plan for this incident: {why[:300]}. There is nothing to approve, and nothing "
+                "changes unless a person acts on the report."
+                f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it with "
+                f"`warden audit show {alert_id}`. Approvals are signed out of band, never given in chat.")
+        sent = send(Report(markdown=said, data={"alert": {"id": alert_id}}, promotion=()),
+                    threads=AuditThreads(self.audit))
+        delivered = [n.sink for n in sent if n.delivered]
+        self.audit.append(alert_id, "incident.no_plan", {"run_id": _run_id(), "why": why[:300], "head": head,
+                                                         "delivered": delivered})
+        return delivered
 
     @activity.defn
     def investigate(self, pack: EvidencePack, requests: list[dict[str, str]]) -> EvidencePack:

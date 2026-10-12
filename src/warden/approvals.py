@@ -32,6 +32,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 from pydantic import BaseModel, Field
 
 TIERS = ("T1", "T2", "T3")
+# What a tier means, in the words of the person asked to approve one (owner, 2026-10-12: a message said "(T1)" and
+# nothing else). Said wherever a tier is shown to a person.
+TIER_MEANS = {"T1": "low risk: one small, bounded change to one resource",
+              "T2": "medium risk: a reversible change to a service's settings or version",
+              "T3": "high risk: hard to undo, or it changes access, the network or infrastructure"}
 CLOCK_SKEW = timedelta(seconds=60)
 MAX_TTL = timedelta(hours=4)
 

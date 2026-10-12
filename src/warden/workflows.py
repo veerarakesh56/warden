@@ -62,7 +62,7 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success"),
          "llm": ("diagnose",),
-         "notify": ("notify", "announce", "finish"), "act": ("apply", "rollback")}
+         "notify": ("notify", "announce", "finish", "no_plan"), "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -89,6 +89,9 @@ END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_
                         "mitigated",
                         "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
                         "failed", "failed_after_apply", "relapsed", "denied"})
+# The ends a person is told of as they happen (announce "ended"). Not `expired`: the ladder said it. Not a cancelled or
+# crashed run: its end row is written on the way out of a failure, where one more step could lose it.
+TOLD = END_STAGES - {"expired", "cancelled", "cancelled_after_apply", "failed", "failed_after_apply"}
 
 
 @workflow.defn
@@ -141,6 +144,11 @@ class RemediationWorkflow:
                                  plan_hash=self._plan.plan_hash if self._plan else "")
             await workflow.execute_activity_method(acts.finish, **_zoned(acts.finish), args=[req.incident_id, wid, outcome], **QUICK)
             done["audited"] = True
+            # The people who approved the plan are told how it ended (owner's first live approvals, 2026-10-12). After
+            # the end row, which the message is read from; a message that fails changes nothing.
+            if self._plan is not None and status in TOLD and workflow.patched("g10-outcome"):
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[self._plan, "ended"], **NOTIFY)
             return outcome.model_copy(update={"checklist": dict(done)})
 
         try:
@@ -272,6 +280,9 @@ class RemediationWorkflow:
                 # WARDEN never reverses its own fix on its own (register C8).
                 self._stage = "watching"
                 since = workflow.now()
+                if workflow.patched("g10-outcome"):
+                    with contextlib.suppress(ActivityError):
+                        await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "verified"], **NOTIFY)
                 for after in RECHECK_AFTER:
                     await workflow.sleep(max(since + after - workflow.now(), timedelta(0)))
                     healthy = not self._alarm_at and await workflow.execute_activity_method(
@@ -406,12 +417,21 @@ class IncidentWorkflow:
                                                              args=[first, diagnosed, verified], **QUICK)
             except ActivityError:
                 req = {}
+            held = ""
             if req:
                 wid = req.pop("workflow_id")
-                with contextlib.suppress(WorkflowAlreadyStartedError):  # one open plan per resource (C3)
+                try:
                     await workflow.start_child_workflow(
                         RemediationWorkflow.run, FixRequest.model_validate(req), id=wid,
                         task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
+                except WorkflowAlreadyStartedError:  # one open plan per resource (C3)
+                    held = (f"an earlier plan for the same resource is still open (`warden status {wid}`) - waiting "
+                            "for its approval, or being watched after its fix")
+            # The report said "held for approval": with no plan to approve, a person is told so, and why.
+            if (not req or held) and workflow.patched("g10-no-plan"):
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity_method(acts.no_plan, **_zoned(acts.no_plan),
+                                                           args=[first.alert_id, held], **NOTIFY)
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
             # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).

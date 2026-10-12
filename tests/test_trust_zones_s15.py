@@ -17,7 +17,7 @@ from warden.cli import _alert_from
 from warden.llm import LLMClient
 from warden.workflows import IncidentWorkflow
 
-EVERY = {"prepare", "investigate", "plan_fix", "diagnose", "verify", "notify", "resolve_plan", "gate", "announce", "check_approval",
+EVERY = {"prepare", "investigate", "plan_fix", "diagnose", "verify", "notify", "no_plan", "resolve_plan", "gate", "announce", "check_approval",
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish"}
 
 

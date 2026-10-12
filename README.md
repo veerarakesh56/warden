@@ -583,7 +583,7 @@ flowchart TB
         PREP[prepare: gather, redact, tripwire,<br/>evidence ids, quarantine to typed facts;<br/>investigate: read more of what the alert names;<br/>plan_fix: an approved proposal opens its fix plan<br/><i>tools, redaction, tripwire, evidence, quarantine, investigation, resolver</i>]
         DIAG[diagnose: ONE model call<br/><i>llm.LLMClient</i> -> <i>providers.py</i><br/>Bedrock - Anthropic - claude_cli - others]
         VER[verify: P0-P24 enforced,<br/>P25-P28 observed only<br/><i>verifier, grounding, numbers, language, decide</i>]
-        NOTE[notify: report through the outbound gate<br/><i>reporting, gate, chatops</i>]
+        NOTE[notify: report through the outbound gate;<br/>no_plan: says when no plan was opened, and why<br/><i>reporting, gate, chatops</i>]
         PREP --> DIAG --> VER --> NOTE
     end
     IW --> PREP
@@ -606,7 +606,7 @@ flowchart TB
         PLAN --> GATE --> APPR --> APPLY --> FIN
     end
     RW --> PLAN
-    APPR -.->|"announce: waiting,<br/>expired (H10)"| NOTE
+    APPR -.->|"announce: waiting, expired,<br/>verified, how it ended (H10)"| NOTE
 
     subgraph PEOPLE[People]
         SIGN[warden approve<br/>Ed25519 break-glass key]

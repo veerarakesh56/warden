@@ -33,7 +33,7 @@ from typing import Any
 import yaml
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
-from . import passkeys
+from . import approvals, passkeys
 from .approvals import ApproverPolicy, PasskeyAssertion, PasskeyCredential
 from .environments import both_times
 
@@ -311,7 +311,8 @@ class ApprovalPage:
         return _json(200, {"plan": {
             # First: what changes, before and after (G9-D) - then the plan's facts.
             "change": "; ".join(catalog.change_of(plan.entry, plan.params, plan.snapshot)),
-            "entry": plan.entry, "target": plan.target, "tier": plan.tier, "environment": plan.environment,
+            "entry": plan.entry, "target": plan.target, "tier": plan.tier,
+            "risk": approvals.TIER_MEANS.get(plan.tier, ""), "environment": plan.environment,
             "values": plan.params, "plan_hash": plan.plan_hash, "made": both_times(plan.created_at),
             "link_expires": both_times(link.expires_at), "type_the_target": plan.tier in TYPED_TIERS}})
 
