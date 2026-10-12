@@ -162,7 +162,8 @@ class AuditLinkStore:
     def note_slack(self, token: str, approver: str, member: dict[str, str]) -> None:
         # Who Slack said was at the page for this link, on the record with the approver it was made for.
         self.log.append("approval", "approval.slack_verified", {
-            "key": self._key(token), "approver": approver, "slack_user": member["user"], "team": member.get("team", "")})
+            "key": self._key(token), "approver": approver, "slack_user": member["user"], "team": member.get("team", ""),
+            "via": member.get("via", "sign-in")})
 
     def slack_of(self, token: str) -> str:
         rows = self._rows("approval.slack_verified", self._key(token))
@@ -228,6 +229,8 @@ class ApprovalPage:
         parts = path.strip("/").split("/")
         if parts[0] == "s":
             return self._slack(method.upper(), parts[1:], query, cookies)
+        if self.slack is not None and len(parts) >= 2:
+            self._recognise(parts[0], parts[1], cookies)
         if len(parts) >= 2 and parts[0] == "e":
             return self._enrol(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
         if len(parts) >= 2 and parts[0] == "k":
@@ -274,6 +277,21 @@ class ApprovalPage:
         purpose = {"e": INVITE, "k": RESET_INVITE}.get(kind)
         return self._invited(token, purpose) if purpose else None
 
+    def _recognise(self, kind: str, token: str, cookies: Any) -> None:
+        """A browser Slack already named in the last hours (slack_login.remember) is not sent to Slack again for
+        each link: its member is noted for this link, on the record as `via: remembered`, when it is the member the
+        link's approver is. Never for an approver with no Slack member yet - that link is made at a real sign-in."""
+        from .slack_login import remembered
+
+        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+        member = remembered(self.slack, value) if value else ""
+        if not member or self.store.slack_of(token):
+            return
+        approver = self._approver_of(kind, token)
+        entry = self.policy.approvers.get(approver) if approver else None
+        if entry is not None and entry.slack and entry.slack == member:
+            self.store.note_slack(token, approver, {"user": member, "team": "", "via": "remembered"})
+
     def _slack(self, method: str, parts: list[str], query: str, cookies: Any) -> Response:
         """`/s/a/<token>`, `/s/e/<token>` and `/s/k/<token>` send the browser to Slack's sign-in; `/s/callback` takes
         its answer. The link's token never goes to Slack: it stays in a cookie of this site, and Slack carries only
@@ -281,7 +299,7 @@ class ApprovalPage:
         import hashlib
         import urllib.parse
 
-        from .slack_login import SlackLoginError
+        from .slack_login import REMEMBER_S, SlackLoginError, remember
 
         if self.slack is None or method != "GET":
             return _json(404, {"error": "not found"})
@@ -320,8 +338,11 @@ class ApprovalPage:
                                 "The approver this link was made for has no Slack identity in the approver list yet. "
                                 "Enrol a passkey again: the enrolment links it.")
         self.store.note_slack(token, approver, member)
+        # This browser is remembered, so the next link does not ask Slack again; the sign-in's own cookie ends by
+        # itself in ten minutes and opens nothing alone (its code is spent).
         return Response(302, {"Location": f"/{kind}/{token}", "Cache-Control": "no-store",
-                              "Set-Cookie": f"{_COOKIE}=; Max-Age=0; Path=/s; Secure; HttpOnly; SameSite=Lax"}, "")
+                              "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
+                                             "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
 
     # ------------------------------------------------------------------ enrolment
 
@@ -550,6 +571,7 @@ def _headers(nonce: str, content_type: str) -> dict[str, str]:
 
 
 _COOKIE = "warden_s"  # holds the link while the browser is at Slack: this site's only, ten minutes, /s alone
+_WHO = "warden_who"  # the member Slack named in this browser, sealed (slack_login.remember): no script can read it
 
 
 def _notice(status: int, text: str) -> Response:

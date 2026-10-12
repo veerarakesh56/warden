@@ -20,6 +20,8 @@ Secrets Manager, read by the approval Lambda only).
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -35,6 +37,9 @@ ISSUER = "https://slack.com"
 USER_CLAIM = "https://slack.com/user_id"
 TEAM_CLAIM = "https://slack.com/team_id"
 _TIMEOUT_S = 8.0
+# How long a browser that signed in is remembered (owner, 2026-10-12: "why do I see that Slack thing again and
+# again"). Slack is asked once in that time, not once per link; the passkey is still asked for every decision.
+REMEMBER_S = 12 * 3600
 
 
 class SlackLoginError(ValueError):
@@ -85,6 +90,27 @@ class SlackLogin:
         if not isinstance(user, str) or not user:
             raise SlackLoginError("Slack named no member")
         return {"user": user, "team": str(team or "")}
+
+
+def _mac(secret: str, text: str) -> str:
+    key = hmac.new(secret.encode(), b"warden-slack-session:v1", hashlib.sha256).digest()
+    return hmac.new(key, text.encode(), hashlib.sha256).hexdigest()
+
+
+def remember(login: SlackLogin, member: str) -> str:
+    """A cookie value that says, for REMEMBER_S, that Slack named this member in this browser - sealed with a key
+    made from the app's secret, so only this runtime can have written it."""
+    text = f"{member}.{int(login.clock()) + REMEMBER_S}"
+    return f"{text}.{_mac(login.client_secret, text)}"
+
+
+def remembered(login: SlackLogin, value: str) -> str:
+    """The member a `remember` value names, or "" - forged, cut, or past its time."""
+    text, _, mac = value.rpartition(".")
+    member, _, until = text.partition(".")
+    if not member or not until.isdigit() or not hmac.compare_digest(mac, _mac(login.client_secret, text)):
+        return ""
+    return member if int(until) > login.clock() else ""
 
 
 def from_environment() -> SlackLogin | None:

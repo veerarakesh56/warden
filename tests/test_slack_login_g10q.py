@@ -129,7 +129,7 @@ def test_a_link_opens_only_after_slack_says_it_is_the_approver_it_was_made_for(p
         blocked = page.handle("POST", f"/a/{token}/{step}")
         assert blocked.status == 403 and json.loads(blocked.body) == {"error": "sign in with Slack first"}
     back = _sign_in(page, slack, "a", token)
-    assert back.status == 302 and back.headers["Location"] == f"/a/{token}" and "Max-Age=0" in back.headers["Set-Cookie"]
+    assert back.status == 302 and back.headers["Location"] == f"/a/{token}"
     assert 'data-slack="0"' in page.handle("GET", f"/a/{token}").body
     assert _show(page, device, token).status == 200  # and now the passkey shows the plan
     # Without a Slack app the page is as it was: the passkey alone.
@@ -221,3 +221,42 @@ def test_the_kill_switch_reset_asks_slack_who_is_there_first_too(tmp_path):
     assert _sign_in(world.page, slack, "k", token).headers["Location"] == f"/k/{token}"
     _, done = world.reset(token)
     assert done.status == 200 and bounds.killswitch(world.log) is None
+
+
+def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_is_still_asked(page_setup, tmp_path):  # noqa: F811
+    """Owner, 2026-10-12: "why do I see that Slack thing again and again". Slack is asked once in twelve hours per
+    browser, not once per link; every decision still takes the passkey; the record says how the member was known."""
+    page, device, _, _ = page_setup
+    log = audit.AuditLog(tmp_path / "a.db")
+    now = [1_900_000_000.0]
+    page = dataclasses.replace(_with_slack(page)[0], store=AuditLinkStore(log, clock=page.clock))
+    slack = Slack()
+    page = dataclasses.replace(page, slack=_login(slack, clock=lambda: now[0]))
+    first = page.new_link("rem-dev-1", "owner")
+    kept = _sign_in(page, slack, "a", first).headers["Set-Cookie"]
+    assert kept.startswith("warden_who=" + MEMBER + ".") and kept.endswith(
+        "; Max-Age=43200; Path=/; Secure; HttpOnly; SameSite=Lax")
+    who = kept.split(";")[0]
+    second = page.new_link("rem-dev-1", "owner")
+    assert 'data-slack="1"' in page.handle("GET", f"/a/{second}").body               # another browser: Slack first
+    assert 'data-slack="0"' in page.handle("GET", f"/a/{second}", cookies=[who]).body  # this one: straight to the passkey
+    assert len(slack.asked) == 1 and _show(page, device, second).status == 200
+    rows = [e["body"] for e in log.entries(kinds=("approval.slack_verified",))]
+    assert [(r["slack_user"], r["via"]) for r in rows] == [(MEMBER, "sign-in"), (MEMBER, "remembered")]
+    # Forged, cut, another member's, or past its twelve hours: Slack is asked again.
+    third = page.new_link("rem-dev-1", "owner")
+    member, until, mac = who.split("=", 1)[1].split(".")
+    other = slack_login.remember(page.slack, OTHER)
+    for bad in (f"warden_who={OTHER}.{until}.{mac}", f"warden_who={member}.{int(until) + 9}.{mac}",
+                f"warden_who={member}.{until}", "warden_who=", f"warden_who={other}", f"other={who.split('=', 1)[1]}"):
+        assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[bad]).body, bad
+    now[0] += slack_login.REMEMBER_S + 1
+    assert 'data-slack="1"' in page.handle("GET", f"/a/{third}", cookies=[who]).body
+    assert slack_login.remembered(page.slack, who.split("=", 1)[1]) == "" and slack_login.REMEMBER_S == 12 * 3600
+    # Sealed with the app's own secret: a value another secret made is nobody.
+    stranger = slack_login.SlackLogin(CLIENT, "another-secret", clock=lambda: 1_900_000_000.0)
+    assert slack_login.remembered(stranger, slack_login.remember(_login(), MEMBER)) == ""
+    # An approver with no Slack member yet is linked at a real sign-in, never from a remembered browser.
+    now[0] = 1_900_000_000.0
+    unlinked = dataclasses.replace(page, policy=page_setup[0].policy)
+    assert 'data-slack="1"' in unlinked.handle("GET", f"/a/{unlinked.new_link('rem-dev-1', 'owner')}", cookies=[who]).body
