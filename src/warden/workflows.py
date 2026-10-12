@@ -231,6 +231,10 @@ class RemediationWorkflow:
             if result.enough:
                 break
         done["approved"] = True
+        # Said to everyone the plan was put to: who approved it, read from this run's accepted approvals.
+        if workflow.patched("g10-approved-said"):
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "approved"], **NOTIFY)
 
         self._stage = "prechecking"
         drift = await workflow.execute_activity_method(acts.precheck, **_zoned(acts.precheck), args=[plan], **QUICK)

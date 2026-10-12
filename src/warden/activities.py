@@ -298,12 +298,30 @@ class RemediationActivities:
         self.audit.checkpoint()
         head = self.audit.head(plan.incident_id)
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
+        # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
+        # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
+        may = [f"`{name}`" for name, a in sorted(self.policy.approvers.items()) if plan.tier in a.tiers]
+        need = self.policy.required.get(plan.tier, 1)
+        did = sorted({f"`{b.get('approver')}` (with their {'passkey' if b.get('method') == 'passkey' else 'signing key'})"
+                      for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
+                      if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
+                      and b.get("plan_hash") == plan.plan_hash})
         said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval: "
-                            f"`warden status {plan.workflow_id}`. Unapproved, it expires and nothing is changed."),
+                            f"`warden status {plan.workflow_id}`. Unapproved, it expires and nothing is changed. "
+                            f"Only {' or '.join(may) or 'an enrolled approver'} can approve it"
+                            + (f", and {need} different approvers are needed" if need > 1 else "")
+                            + ": a link opens for nobody else."),
+                "approved": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` was approved by {' and '.join(did)} at "
+                             f"{environments.both_times(datetime.now(UTC))}. WARDEN checks the target once more, then "
+                             "applies it."),
                 "expired": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` expired without an approval. No action "
                             "was taken; the incident is still open.")}.get(what) or OUTCOME.get(
             what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
                                                                                       target=plan.target)
+        if what == "approved" and not did:
+            return []  # nothing on the record says who: nothing is claimed
+        if did and what in OUTCOME:
+            said += f" Approved by {' and '.join(did)}."
         if what in PERSON_TAKES_OVER:
             said += " Every automatic fix is stopped until a person resets the kill switch (`warden killswitch reset`)."
         if why:

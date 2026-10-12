@@ -59,8 +59,9 @@ def test_a_plan_approved_in_time_gets_no_reminder_and_its_approvers_are_told_how
     """No waiting or expired message - and, since the owner's first live approvals (2026-10-12, G10-24), the
     people who approved it hear that the fix was verified and that it held."""
     out = _run(world, _approve_with(owner))
-    assert out.status == "recovered" and len(sink.texts) == 2, sink.texts
-    assert "passed its health checks" in sink.texts[0] and "held through its re-checks" in sink.texts[1]
+    assert out.status == "recovered" and len(sink.texts) == 3, sink.texts
+    assert "was approved by `owner` (with their signing key)" in sink.texts[0]
+    assert "passed its health checks" in sink.texts[1] and "held through its re-checks" in sink.texts[2]
     assert not any("waiting for an approval" in t or "expired" in t for t in sink.texts)
 
 
@@ -80,5 +81,6 @@ def test_a_plan_approved_after_the_reminder_goes_ahead(world, owner, sink):  # n
 
     out = _run(world, drive, approval_ttl_minutes=1)
     assert out.status == "recovered"
-    assert len(sink.texts) == 3 and "is waiting for an approval" in sink.texts[0], sink.texts
-    assert "passed its health checks" in sink.texts[1] and "held through its re-checks" in sink.texts[2]
+    assert len(sink.texts) == 4 and "is waiting for an approval" in sink.texts[0], sink.texts
+    assert "was approved by `owner`" in sink.texts[1]
+    assert "passed its health checks" in sink.texts[2] and "held through its re-checks" in sink.texts[3]

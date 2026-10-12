@@ -446,6 +446,8 @@ dt{font-weight:600}button{font:inherit;padding:.5rem 1rem}[hidden]{display:none}
 <body><main>
 <h1>WARDEN approval</h1>
 <p id="status" role="status" aria-live="polite">Confirm it is you to see the plan.</p>
+<p id="only">This link was made for one approver. Only that person can open it, with their own passkey; anyone else
+sees nothing here and cannot approve the plan.</p>
 <button id="who" type="button">Show the plan with my passkey</button>
 <section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h">The plan</h2><dl id="facts"></dl>
 <div id="acts"><p id="typed-p" hidden><label for="typed">Type the target exactly to approve it</label><br>
@@ -491,7 +493,9 @@ document.getElementById("who").addEventListener("click", async () => {
     }
     document.getElementById("plan").hidden = false; document.getElementById("who").hidden = true;
     say("Read the plan, then approve it, deny it or close this page.");
-  } catch (e) { say("Not confirmed: " + e.message); } finally { busy(false); }
+  } catch (e) {
+    say("Not confirmed: " + e.message + " If this link was not made for you, you cannot approve this plan.");
+  } finally { busy(false); }
 });
 document.getElementById("ok").addEventListener("click", async () => {
   busy(true);

@@ -53,7 +53,8 @@ def _whats(world):  # noqa: F811
 def test_a_fix_that_did_not_work_and_was_undone_is_said_with_its_reason(world, owner, sink):  # noqa: F811
     world["platform"].healthy_after = None
     out = _run(world, _approve_with(owner))
-    assert out.status == "rolled_back" and _whats(world) == ["rolled_back"]
+    assert out.status == "rolled_back" and _whats(world) == ["approved", "rolled_back"]
+    assert "Approved by `owner` (with their signing key)." in sink.texts[-1]
     assert "did not work, so WARDEN undid it" in sink.texts[-1] and "Why: orders did not recover within" in sink.texts[-1]
     assert "audit head" in sink.texts[-1] and "kill switch" not in sink.texts[-1]
     assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0  # the record still ends signed
@@ -67,7 +68,7 @@ def test_an_approved_plan_the_platform_refused_is_said_as_nothing_changed(world,
 
     world["platform"].apply = refuse
     out = _run(world, _approve_with(owner))
-    assert out.status == "refused_at_apply" and _whats(world) == ["refused_at_apply"]
+    assert out.status == "refused_at_apply" and _whats(world) == ["approved", "refused_at_apply"]
     assert "did not apply the approved plan `k8s_rollout_undo`" in sink.texts[-1]
     assert "nothing was changed" in sink.texts[-1] and "no longer has 3 replica(s)" in sink.texts[-1]
 
@@ -84,6 +85,8 @@ def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink)
     out = _run(world, _no_approval)
     assert out.status == "expired" and _whats(world) == ["waiting", "expired"]  # not a third "ended" message
     assert f"(T2 - {approvals.TIER_MEANS['T2']}) is waiting for an approval" in sink.texts[0]
+    assert "Only `owner` can approve it: a link opens for nobody else." in sink.texts[0]
+    assert "Approved by" not in sink.texts[1]  # nobody did
 
 
 def test_every_end_a_person_is_told_of_has_its_own_words_and_the_unknown_ones_name_the_switch():
@@ -176,3 +179,26 @@ def test_no_plan_says_nothing_when_a_plan_was_opened_or_nothing_is_on_the_record
 def test_each_told_end_is_a_sentence_a_person_can_act_on(status):
     said = OUTCOME[status].format(entry="e", target="t")
     assert said.endswith(".") and "`e`" in said and "`t`" in said
+
+
+def test_the_page_tells_someone_it_was_not_made_for_that_they_cannot_approve(page_setup):  # noqa: F811
+    """Owner, 2026-10-12: "anyone who has access to that Slack can do that, right?" - no, and the page now says so."""
+    page, _, _, _ = page_setup
+    token = page.new_link("rem-dev-1", "owner")
+    shell = page.handle("GET", f"/a/{token}").body
+    assert "Only that person can open it, with their own passkey" in shell
+    assert "If this link was not made for you, you cannot approve this plan." in shell
+    # And it is not only words: an answer from a passkey the approver did not enrol is refused.
+    assert page.handle("POST", f"/a/{token}/login-options").status == 200
+    stranger = page.handle("POST", f"/a/{token}/login", json.dumps({"response": {"id": "someone-elses"}}))
+    assert stranger.status == 403 and "plan" not in json.loads(stranger.body)
+
+
+def test_who_approved_is_read_from_the_record_and_nothing_is_claimed_without_one(world):  # noqa: F811
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+    plan = Plan(workflow_id="rem-dev-1", incident_id="inc-42", entry="k8s_rollout_undo", tier="T2", params={},
+                created_at=PLAN.created_at, target="dev/k8s/shop/orders", environment="dev", plan_hash="h" * 64)
+    assert acts.announce(plan, "approved") == []  # no accepted approval on the record
+    world["log"].append("inc-42", "approval.accepted", {"workflow_id": "rem-dev-1", "run_id": "", "approver": "mallory",
+                                                        "plan_hash": "another plan"})
+    assert acts.announce(plan, "approved") == []  # another plan's approval is not this one's
