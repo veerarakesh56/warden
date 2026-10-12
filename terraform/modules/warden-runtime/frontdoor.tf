@@ -229,12 +229,52 @@ resource "aws_apigatewayv2_route" "alertmanager" {
 
 resource "aws_apigatewayv2_route" "approval" {
   # /a/: approving a plan. /e/: enrolling a passkey, /k/: resetting the kill switch - each on a link the approver's
-  # own key signed.
+  # own key signed. /s/interact: Slack's note of a button click, answered by the function below.
   for_each = toset(["GET /a/{token}", "POST /a/{token}/{step}", "GET /e/{token}", "POST /e/{token}/{step}",
   "GET /k/{token}", "POST /k/{token}/{step}", "GET /s/callback", "GET /s/{kind}/{token}", "POST /s/interact"])
   api_id    = aws_apigatewayv2_api.front.id
   route_key = each.key
-  target    = "integrations/${aws_apigatewayv2_integration.front["approval"].id}"
+  target = "integrations/${each.key == "POST /s/interact" ? aws_apigatewayv2_integration.ack.id :
+  aws_apigatewayv2_integration.front["approval"].id}"
+}
+
+# Slack shows "Operation timed out" beside a button unless its note of the click is answered within three seconds.
+# The approval function, started cold, took 2.7 s to answer even with nothing loaded (measured 2026-10-12): a
+# container image, in the VPC. So the answer is its own function - a few lines of Python, no image, no VPC, no
+# permission at all (its role has no policy), nothing read and nothing decided (ack/ack.py).
+resource "aws_iam_role" "ack" {
+  name                 = "warden-${var.environment}-ack"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: answers Slack's note of a button click - no permission, nothing read"
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_lambda_function" "ack" {
+  function_name    = "warden-${var.environment}-ack"
+  role             = aws_iam_role.ack.arn
+  runtime          = "python3.13"
+  handler          = "ack.handler"
+  filename         = "${path.module}/ack.zip"
+  source_code_hash = filebase64sha256("${path.module}/ack.zip")
+  timeout          = 3
+  memory_size      = 128
+  tags             = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_apigatewayv2_integration" "ack" {
+  api_id                 = aws_apigatewayv2_api.front.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.ack.invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_lambda_permission" "ack" {
+  statement_id  = "HttpApiSlackNote"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ack.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.front.execution_arn}/*/POST/s/interact"
 }
 
 resource "aws_lambda_permission" "api" {

@@ -93,7 +93,9 @@ def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     assert not re.search(r"\b\d{12}\b", tf)  # no account id
     assert not re.search(r"\b(?:ap|us|eu|ca|sa|me|af|il)-[a-z]+-\d\b", tf)  # no region
     module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
-    assert module.count("permissions_boundary = var.permissions_boundary_arn") == 5  # every role the module makes
+    # Every role the module makes carries the boundary - counted against the roles themselves.
+    assert module.count("permissions_boundary = var.permissions_boundary_arn") == module.count(
+        'resource "aws_iam_role" "') == 6
 
 
 EIP_ERROR = "Error: disassociating EC2 EIP (eipassoc-0abc): operation error EC2: DisassociateAddress, UnauthorizedOperation"

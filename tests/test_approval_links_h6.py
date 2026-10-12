@@ -167,3 +167,32 @@ def test_the_wait_opens_with_the_links_and_without_a_domain_says_nothing_new(rp,
     world2["policy"] = _policy()
     _run(world2, _no_approval)
     assert not any(r.actions for r in sent)
+
+
+def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission():
+    """Measured 2026-10-12: the approval function, started cold, answered Slack's note in 2.7 s with nothing loaded -
+    a container image in the VPC - against Slack's limit of three. The answer is its own few lines."""
+    import importlib.util
+    import pathlib
+    import re
+    import zipfile
+
+    module = pathlib.Path(__file__).resolve().parents[1] / "terraform" / "modules" / "warden-runtime"
+    source = (module / "ack" / "ack.py").read_bytes().replace(b"\r\n", b"\n")
+    with zipfile.ZipFile(module / "ack.zip") as z:  # what is deployed is exactly the reviewed source, and only it
+        assert z.namelist() == ["ack.py"] and z.read("ack.py") == source
+    assert b"import" not in source  # it reads nothing and calls nothing
+    spec = importlib.util.spec_from_file_location("ack", module / "ack" / "ack.py")
+    ack = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ack)
+    answered = ack.handler({"body": "payload=%7B%22type%22%3A%22block_actions%22%7D"}, None)
+    assert (answered["statusCode"], answered["body"]) == (200, "")
+    tf = (module / "frontdoor.tf").read_text(encoding="utf-8")
+    fn = tf[tf.index('resource "aws_lambda_function" "ack"'):tf.index('resource "aws_apigatewayv2_integration" "ack"')]
+    assert 'handler          = "ack.handler"' in fn and "vpc_config" not in fn and "environment {" not in fn
+    assert 'source_code_hash = filebase64sha256("${path.module}/ack.zip")' in fn and "role             = aws_iam_role.ack.arn" in fn
+    every = "".join(p.read_text(encoding="utf-8") for p in module.glob("*.tf"))
+    assert not re.search(r"role\s*=\s*aws_iam_role\.ack\.(id|name)", every)       # no policy is given to its role
+    assert "permissions_boundary = var.permissions_boundary_arn" in tf[tf.index('resource "aws_iam_role" "ack"'):tf.index(fn[:40])]
+    assert 'each.key == "POST /s/interact" ? aws_apigatewayv2_integration.ack.id' in tf  # the one route it serves
+    assert 'source_arn    = "${aws_apigatewayv2_api.front.execution_arn}/*/POST/s/interact"' in tf
