@@ -314,6 +314,11 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   through `slack_login.py`: two HTTPS calls with the standard library. An OAuth client library (Authlib) would be a
   dependency for those two calls; the ID token comes straight from Slack's token endpoint over TLS, which OpenID
   Connect Core 3.1.3.7 accepts in place of checking its signature.
+- What is expected to be down: built - `expected.py`, a person's declarations (an environment's nights, weekends
+  and holidays; a service or a resource not in use) read at intake, and Temporal's own start delay to look at the
+  alarm again when the cover ends. AWS Instance Scheduler and a tag convention say when something is stopped, not
+  that its alarms are expected, and Alertmanager's mute intervals cover only alerts that pass through Alertmanager;
+  a CloudWatch alarm has neither. Declared, never inferred.
 - What was done to this resource before: built - `history.py`, a read of WARDEN's own signed audit (the earlier
   fix plans of a resource, how each ended, who approved). An agent memory store or a vector index of past incidents
   would hold a model's own earlier prose, which a later diagnosis must not read (register N9); the audit already

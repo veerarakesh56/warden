@@ -690,6 +690,9 @@ class RemediationActivities:
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, "workflow.end", body)
         self.audit.checkpoint()
+        # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
+        # only the audit could say (live, 2026-10-12). The status and who approved - never a typed reason.
+        _note(f"{incident_id} fix plan {workflow_id} ended {outcome.status} approvers={','.join(body['approvers']) or '-'}")
         if outcome.status == "recovered":
             # Decision D13: the fix is verified, so the incident's page is resolved - and the resolve is on the record.
             from .chatops import page_resolve
@@ -904,6 +907,22 @@ class IncidentActivities:
         self.audit.append(alert_id, "incident.no_plan", {"run_id": _run_id(), "why": why[:300], "head": head,
                                                          "delivered": delivered})
         return delivered
+
+    @activity.defn
+    def after_hold(self, alert: Alert, held: str) -> bool | None:
+        """An alarm intake held as expected down (expected.py), when its cover has ended: is it still firing? The
+        alarm's own state where the backend reads one, else the last transition intake recorded for it. None: neither
+        says - and unknown is not cleared."""
+        read = getattr(self.backend, "alarm_firing", None)
+        try:
+            firing = read(alert) if read else None
+        except Exception:  # noqa: BLE001 - a failed read leaves the record to say
+            firing = None
+        if firing is None:
+            seen = self.audit.entries(f"intake-{alert.alert_id.rsplit('-', 1)[0]}", kinds=("intake.event",))
+            firing = seen[-1]["body"].get("state") == "ALARM" if seen else None
+        self.audit.append(alert.alert_id, "incident.after_hold", {"run_id": _run_id(), "held": held, "firing": firing})
+        return firing
 
     @activity.defn
     def investigate(self, pack: EvidencePack, requests: list[dict[str, str]]) -> EvidencePack:

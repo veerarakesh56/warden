@@ -32,3 +32,33 @@ Keys that are not environment secrets:
 | An approver's passkey | `warden enrol --approver <name> --key <their Ed25519 key>` opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`runtime.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
 | The laptop's IAM Roles Anywhere certificate | issue a new certificate from the local CA before the old one expires (docs/OWNER-CONSOLE-STEPS.md). |
+
+## Expected down: nights, weekends, holidays, not in use (register G10-39)
+
+An alarm on something switched off on purpose is not an incident. Say what is expected down in the plain setting
+`WARDEN_EXPECTED_DOWN` (Parameter Store, `/warden/<env>/env/WARDEN_EXPECTED_DOWN`, a YAML list; the intake reads it
+on its next start, no deploy):
+
+```yaml
+- name: staging nights
+  environments: [staging, qa-staging]
+  zone: Asia/Kolkata
+  hours: "20:00-08:00"
+- name: staging weekends
+  environments: [staging, qa-staging]
+  zone: Asia/Kolkata
+  days: [sat, sun]
+- name: reports service parked
+  services: [reports]
+  zone: Asia/Kolkata
+  until: "2026-11-01T09:00"
+- name: old search cluster, not in use
+  resources: [search-v1]
+```
+
+WHAT: `environments`, `services`, `resources` - every one given must match the alarm. WHEN: `hours`, `days`,
+`dates`, `from`, `until`, in the declaration's `zone` - every one given must hold; none means until the declaration
+is removed. A covered alarm starts no incident and is recorded (`intake.decision`, action `expected`). When the
+cover ends WARDEN looks at the alarm again: still firing, it is an incident from that moment. A declaration that
+cannot be read covers nothing and is said in the intake's log: a typing mistake brings alarms back, it never hides
+one. A person who asks for a diagnosis (CLI, MCP) always gets one.

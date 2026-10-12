@@ -715,6 +715,16 @@ class StackBackend:
                                  max(values) / METRIC_PERIOD_S if stat == "Sum/s" else max(values))
         return got
 
+    def alarm_firing(self, alert: Alert) -> bool | None:
+        """Is the alert's own CloudWatch alarm in ALARM now? None: it names none, or none by that name exists."""
+        name = alert.labels.get("alarm", "")
+        if not name:
+            return None
+        found = self._incident(alert)._cw.describe_alarms(
+            AlarmNames=[name], AlarmTypes=["MetricAlarm", "CompositeAlarm"])
+        states = [a.get("StateValue") for kind in ("MetricAlarms", "CompositeAlarms") for a in found.get(kind) or []]
+        return states[0] == "ALARM" if states else None
+
     def _read_alarm(self, out: _Out, alert: Alert, name: str) -> None:
         """Any alarm, any service (G9-A2a): the alarm exactly as CloudWatch defines it - never its name's or its
         description's text - its own metric over the window, the resource's other recently active metrics, and the

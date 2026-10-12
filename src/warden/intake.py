@@ -8,6 +8,9 @@ An alarm is not an incident. `decide` turns one alarm event into one of:
   signal_incident     the same alarm (fingerprint) has an incident open: it is told, no second one starts (C2)
   escalate_only       the alarm flapped N times in M minutes (C21), or too many incidents are open (C2): a person
                       gets it, on the rules alone, and no model is asked to propose a change
+  expected            a person declared this environment, service or resource down or not in use at this time
+                      (expected.py): no incident now. When the cover ends the alarm is looked at again and, still
+                      firing, is an incident then - a shutdown that did not come back is not missed
   start               a new incident, whose id is the fingerprint plus the transition time (C20): the same transition
                       twice is one incident, and the next real one after an OK is a new one
 
@@ -35,7 +38,7 @@ FLAP_WINDOW = timedelta(minutes=int(os.environ.get("WARDEN_FLAP_MINUTES", "30"))
 MAX_OPEN = int(os.environ.get("WARDEN_MAX_OPEN_INCIDENTS", "10"))
 LOOKBACK = timedelta(days=1)  # how far back open incidents and remediations are looked for
 
-Action = Literal["ignore", "signal_remediation", "signal_incident", "escalate_only", "start"]
+Action = Literal["ignore", "signal_remediation", "signal_incident", "expected", "escalate_only", "start"]
 
 
 class AlarmEvent(BaseModel):
@@ -79,9 +82,11 @@ def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
 
 
 def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict[str, str],
-           verifying: dict[tuple[str, str], str], open_count: int) -> Decision:
+           verifying: dict[tuple[str, str], str], open_count: int,
+           expected: tuple[str, datetime | None] | None = None) -> Decision:
     """`recent`: this fingerprint's earlier transitions inside FLAP_WINDOW. `open_incidents`: fingerprint -> running
-    incident id. `verifying`: (environment, service) -> remediation id in its verify window."""
+    incident id. `verifying`: (environment, service) -> remediation id in its verify window. `expected`: the
+    declaration that covers this alarm now and when its cover ends (expected.covering)."""
     fp = fingerprint(ev)
     if ev.state != "ALARM":
         return Decision(action="ignore", fingerprint=fp, reason=f"state {ev.state}: only ALARM starts an incident")
@@ -92,6 +97,13 @@ def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict
     if fp in open_incidents:
         return Decision(action="signal_incident", workflow_id=open_incidents[fp], fingerprint=fp,
                         reason=f"incident {open_incidents[fp]} is open for this alarm")
+    if expected and ev.source == "alarm":  # a person who asks for a diagnosis (MCP, CLI) gets one
+        name, until = expected[0], expected[1] and expected[1].astimezone(UTC)
+        # One held incident per alarm and cover: its id is the cover's end, so a repeat inside it starts no second.
+        return Decision(action="expected", workflow_id=f"inc-{fp}-{until:%Y%m%dT%H%M%SZ}" if until else "",
+                        fingerprint=fp, reason=f"expected down ({name!r})" + (
+                            f" until {until:%Y-%m-%d %H:%M} UTC: looked at again then" if until
+                            else ": nothing ends that declaration, so nothing is looked at again"))
     wid = f"inc-{fp}-{ev.transitioned_at:%Y%m%dT%H%M%SZ}"
     flips = len(recent) + 1
     if flips >= FLAP_FLIPS:
@@ -109,7 +121,7 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
     from temporalio.common import WorkflowIDReusePolicy
     from temporalio.exceptions import WorkflowAlreadyStartedError
 
-    from . import runtime
+    from . import expected, runtime
     from .workflows import IncidentWorkflow, RemediationWorkflow
 
     queue = task_queue or runtime.TASK_QUEUE
@@ -157,7 +169,8 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
         elif stage == "watching":
             watching[key] = b["workflow_id"]
 
-    d = decide(ev, recent=recent, open_incidents=open_incidents, verifying=verifying, open_count=open_count)
+    d = decide(ev, recent=recent, open_incidents=open_incidents, verifying=verifying, open_count=open_count,
+               expected=expected.covering(ev.alert, now))
     log.append(d.workflow_id or f"intake-{fp}", "intake.decision", d.model_dump())
     at = ev.transitioned_at.isoformat()
     relapsed = open_fix(ev, watching) if d.action in ("start", "escalate_only") else None
@@ -176,4 +189,14 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
                                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
         except WorkflowAlreadyStartedError:
             pass  # the same transition delivered twice: one incident (C20)
+    elif d.action == "expected" and d.workflow_id:
+        # Started now, to run when the cover ends: Temporal holds it, so no schedule and no second trigger to fail.
+        until = datetime.strptime(d.workflow_id.rsplit("-", 1)[1], "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+        alert = ev.alert.model_copy(update={"alert_id": d.workflow_id.removeprefix("inc-")})
+        try:
+            await client.start_workflow(IncidentWorkflow.run, args=[alert, "", d.reason], id=d.workflow_id,
+                                        task_queue=queue, start_delay=max(until - now, timedelta(0)),
+                                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
+        except WorkflowAlreadyStartedError:
+            pass  # this alarm is already held until then
     return d

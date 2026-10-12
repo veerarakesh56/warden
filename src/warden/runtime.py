@@ -290,7 +290,7 @@ def _activities(log: audit.AuditLog, policy: approvals.ApproverPolicy, platform:
     from .changes import from_environment
 
     rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform(), changes=from_environment())
-    return [inc.prepare, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.notify, inc.no_plan,
+    return [inc.after_hold, inc.prepare, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.notify, inc.no_plan,
             rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
             rem.check_success, rem.record_result, rem.rollback, rem.finish]
 

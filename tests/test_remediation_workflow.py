@@ -452,3 +452,16 @@ def test_a_retried_finish_signs_an_end_row_its_first_try_left_unsigned(world, mo
     assert len(world["log"].entries("inc-42", kinds=("workflow.end",))) == 1
     pub = world["log"].key.public_key()
     assert audit.verify(world["db"], pub).unsigned_tail == 0
+
+
+def test_how_a_plan_ended_is_on_the_workers_log_with_no_typed_reason(world, caplog):
+    """Live, 2026-10-12: the owner denied a plan and the worker's log said nothing - only the audit could tell.
+    The status and the approvers' ids are logged; a denial's typed reason is not."""
+    import logging
+
+    from warden.activities import FixOutcome
+
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
+    with caplog.at_level(logging.INFO, logger="warden.incident"):
+        acts.finish("inc-42", "rem-x", FixOutcome(status="denied", reasons=["denied by owner: typed words"], checklist={}))
+    assert [r.getMessage() for r in caplog.records] == ["inc-42 fix plan rem-x ended denied approvers=-"]

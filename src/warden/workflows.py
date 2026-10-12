@@ -40,7 +40,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .catalog import MITIGATES
-    from .models import Alert, RunReport, ingestion_wait
+    from .models import Alert, ContextBundle, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
 # Bounded (audit A-B-L10): Temporal's default retries an activity forever, so a step that kept failing - an audit
@@ -60,7 +60,7 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # the rest - the audit's own steps and the workflows - run on the main queue (the core zone). A workflow on the main
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
-ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success"),
+ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold"),
          "llm": ("diagnose",),
          "notify": ("notify", "announce", "finish", "no_plan"), "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
@@ -366,10 +366,23 @@ class IncidentWorkflow:
         return list(self._repeats)
 
     @workflow.run
-    async def run(self, alert: Alert, escalate_only: str = "") -> RunReport:
+    async def run(self, alert: Alert, escalate_only: str = "", held: str = "") -> RunReport:
         """`escalate_only`: intake's reason to hand this alarm to a person on the rules alone (flapping, a storm),
-        without asking the model to propose a change (registers C21, C2)."""
+        without asking the model to propose a change (registers C21, C2). `held`: why intake held this alarm until
+        now (expected down, register G10-39) - it is an incident only if it is still firing."""
         acts = IncidentActivities
+        if held:  # an input no earlier history carries: they replay unchanged
+            try:
+                firing = await workflow.execute_activity_method(acts.after_hold, **_zoned(acts.after_hold),
+                                                                args=[alert, held], **QUICK)
+            except ActivityError:
+                firing = None  # the alarm could not be read: unknown is not cleared
+            if firing is False:
+                return RunReport(alert=alert, redaction_map_size=0, context=ContextBundle(),
+                                 halted_reason=f"the alarm had cleared when its hold ended ({held}): no incident")
+            # An incident from the moment it was no longer expected: the evidence is read around now, not around
+            # the shutdown.
+            alert = Alert.model_validate(alert).model_copy(update={"started_at": workflow.now().isoformat()})
         # Register R23: read only once the alert's last minutes have reached the log store. A durable timer, so a
         # worker restart does not restart the wait; patched, so histories recorded before it replay unchanged.
         if workflow.patched("r23-ingest-lag"):
