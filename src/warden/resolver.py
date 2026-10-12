@@ -77,6 +77,14 @@ _QUALIFIERS = frozenset({"alarm", "namespace", "ecs_cluster", "eks_cluster", "ap
 _SPECIAL_KINDS = {ActionKind.revert_config: frozenset(), ActionKind.freeze_changes: frozenset({"lambda", "ecs"})}
 
 
+def named_resources(alert: Alert) -> set[str]:
+    """The resources an alert itself names: its service, and what its labels say - not the labels that only qualify
+    one (a namespace, a cluster, the alarm's own name). What intake matches an alarm to an open fix by, and what
+    WARDEN's record of a resource is looked up by."""
+    return {alert.service} | {v.strip() for k, value in alert.labels.items() if k not in _QUALIFIERS
+                              for v in str(value).split(",") if v.strip()}
+
+
 def no_fix_path(alert: Alert, proposal: RemediationProposal) -> str:
     """Why no catalogue entry could carry out this proposal, or "" when one might (G10-B, policy P30).
 

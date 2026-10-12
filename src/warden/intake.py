@@ -71,10 +71,9 @@ def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
     `service`: an alarm on a schedule's invocations has the ALARM's name for a service and the RULE's in its labels,
     and the fix was filed under the rule - so the alarm never reached its own fix (live, 2026-10-12). The labels that
     only qualify a resource (a namespace, a cluster, the alarm's own name) name none."""
-    from .resolver import _QUALIFIERS
+    from .resolver import named_resources
 
-    names = {ev.alert.service} | {v.strip() for k, value in ev.alert.labels.items() if k not in _QUALIFIERS
-                                  for v in str(value).split(",") if v.strip()}
+    names = named_resources(ev.alert)
     return next((wid for (env, service), wid in fixes.items() if env == ev.alert.environment and service in names),
                 None)
 

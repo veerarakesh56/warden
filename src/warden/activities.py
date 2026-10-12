@@ -332,6 +332,16 @@ class RemediationActivities:
                                                                                       target=plan.target)
         if what == "approved" and not did:
             return []  # nothing on the record says who: nothing is claimed
+        if what == "waiting":
+            import contextlib
+
+            from . import history
+
+            # The same fix, on the same target, that ended badly in the last day: said before the decision. A record
+            # that cannot be read does not hold an approval request back.
+            with contextlib.suppress(Exception):
+                said += history.warning(history.plans(self.audit), entry=plan.entry, target=plan.target,
+                                        plan_hash=plan.plan_hash)
         if did and what in OUTCOME:
             said += f" Approved by {' and '.join(did)}."
         if what in PERSON_TAKES_OVER:
@@ -968,7 +978,14 @@ class IncidentActivities:
         changes, unread = timeline.recent(pack.alert, log=self.audit, platform=self.platform)
         self.audit.append(alert_id, "incident.changes", {"run_id": _run_id(), "found": len(changes), "unread": unread,
                                                          "sources": sorted({c["source"] for c in changes})})
-        markdown = report.markdown + timeline.section(changes, unread) + footer
+        # What WARDEN's own record says was done to this resource before (history.py): facts, for the people reading.
+        from . import history
+
+        try:
+            before = history.past(pack.alert, self.audit)
+        except Exception:  # noqa: BLE001 - a record that cannot be read is not a report that cannot be sent
+            before = []
+        markdown = report.markdown + timeline.section(changes, unread) + history.section(before) + footer
         sent = send(dataclasses.replace(report, markdown=markdown), threads=AuditThreads(self.audit))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
                                                         "sinks": [n.sink for n in sent],

@@ -310,6 +310,10 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - Which change broke it: GitHub's Deployments REST API and AWS CloudTrail's LookupEvents, merged with WARDEN's own
   applied fixes - `timeline.py`. Cursor's Rollouts and Sentry's release tracking answer the same question as paid or
   heavy services (2026-09-27 research); three reads cover WARDEN's stages.
+- What was done to this resource before: built - `history.py`, a read of WARDEN's own signed audit (the earlier
+  fix plans of a resource, how each ended, who approved). An agent memory store or a vector index of past incidents
+  would hold a model's own earlier prose, which a later diagnosis must not read (register N9); the audit already
+  holds the facts.
 - Per-incident AWS identity: AWS STS AssumeRole - SourceIdentity, session tags and an inline session policy -
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
