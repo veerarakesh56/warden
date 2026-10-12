@@ -224,8 +224,13 @@ def approval_page() -> Any:
 
 
 def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
-    _configure("lambda-approval")
     method, path, _, body = _http(event)
+    if (method.upper(), path.rstrip("/")) == ("POST", "/s/interact"):
+        # Slack's note of a button click, answered before anything is loaded: Slack allows three seconds, and a cold
+        # start that first read its settings and opened the audit took 6.5 (live, 2026-10-12 - "Operation timed
+        # out" beside the button). Nothing is read from it and nothing is decided by it (approval_page._slack).
+        return {"statusCode": 200, "headers": {"Content-Type": "text/plain", "Cache-Control": "no-store"}, "body": ""}
+    _configure("lambda-approval")
     r = approval_page().handle(method, path, body.decode("utf-8", errors="replace"),
                                query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or [])
     return {"statusCode": r.status, "headers": r.headers, "body": r.body}

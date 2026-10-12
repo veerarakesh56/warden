@@ -129,3 +129,17 @@ def test_the_approver_policy_comes_from_the_file_or_else_from_ssm(monkeypatch, t
     monkeypatch.delenv("WARDEN_ENV")
     with pytest.raises(RuntimeError):
         runtime.approver_policy()
+
+
+def test_slacks_note_of_a_button_click_is_answered_before_anything_is_loaded(monkeypatch):
+    """Live, 2026-10-12: Slack showed "Operation timed out. Apps need to respond within 3 seconds." beside the
+    approval button - a cold start read its settings and opened the audit (6.5 s) before answering a note it ignores."""
+    def never(*a, **k):
+        raise AssertionError("nothing is configured or opened to answer Slack's note")
+    monkeypatch.setattr(lambdas, "_configure", never)
+    monkeypatch.setattr(lambdas, "approval_page", never)
+    for path in ("/s/interact", "/s/interact/"):
+        out = lambdas.approval({"rawPath": path, "body": "payload=%7B%7D", "requestContext": {"http": {"method": "POST"}}})
+        assert out["statusCode"] == 200 and out["body"] == ""
+    with pytest.raises(AssertionError):  # every other request is served as before
+        lambdas.approval({"rawPath": "/s/interact", "requestContext": {"http": {"method": "GET"}}})
