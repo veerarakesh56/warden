@@ -982,9 +982,30 @@ class StackBackend:
         url = self._sqs.get_queue_url(QueueName=name)["QueueUrl"]
         return self._sqs.get_queue_attributes(QueueUrl=url, AttributeNames=attrs).get("Attributes") or {}
 
+    def _read_consumers(self, out: _Out, alert: Alert, q: str, arn: str | None, sfx: str) -> None:
+        """The queue's consumers: the event source mappings AWS holds for exactly this queue (first live run,
+        2026-10-12: a queue's alarm showed nothing of the mapping that had been switched off, and the model proposed
+        a restart). A function the alert names itself is read, mappings and all, by its own reader."""
+        if not arn:
+            return
+        try:
+            esms, _ = _pages(self._lambda.list_event_source_mappings, "EventSourceMappings", next_token="NextMarker",
+                             EventSourceArn=arn)
+        except Exception as exc:  # noqa: BLE001
+            out.lines.append(_partial(f"sqs/{q} consumers", exc))
+            return
+        named = set(_names(alert, "lambda"))
+        for m in esms:
+            fn = str(m.get("FunctionArn", "?")).split(":function:")[-1].split(":")[0]
+            if fn not in named:
+                out.lines.append(f"ESM {fn} <- {q} State={m.get('State')} BatchSize={m.get('BatchSize')} "
+                                 f"LastProcessingResult={m.get('LastProcessingResult')}")
+        if esms:
+            out.metrics[f"sqs_consumers_enabled{sfx}"] = float(sum(m.get("State") == "Enabled" for m in esms))
+
     def _read_sqs(self, out: _Out, alert: Alert, q: str, sfx: str) -> None:
         a = self._queue_attrs(q, ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible",
-                                  "VisibilityTimeout", "RedrivePolicy"])
+                                  "VisibilityTimeout", "RedrivePolicy", "QueueArn"])
         visible, in_flight = a.get("ApproximateNumberOfMessages"), a.get("ApproximateNumberOfMessagesNotVisible")
         for key, val in ((f"sqs_visible{sfx}", visible), (f"sqs_in_flight{sfx}", in_flight),
                          (f"sqs_visibility_timeout_s{sfx}", a.get("VisibilityTimeout"))):
@@ -1004,6 +1025,7 @@ class StackBackend:
                 out.lines.append(_partial(f"sqs/{q} dlq {dlq}", exc))
         out.lines.append(f"QUEUE {q} visible={visible} in_flight={in_flight} dlq={dlq} "
                          f"dlq_visible={dlq_visible} max_receive={max_receive}")
+        self._read_consumers(out, alert, q, a.get("QueueArn"), sfx)
         out.metrics.update(self._cw_read(out, f"sqs/{q}", alert, {
             f"sqs_oldest_age_s{sfx}": ("AWS/SQS", "ApproximateAgeOfOldestMessage", {"QueueName": q}, "Maximum"),
         }))

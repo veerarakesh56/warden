@@ -254,7 +254,10 @@ FOR_ACTION: dict[ActionKind, dict[str, str]] = {
     ActionKind.failover_replica: {"rds": "aurora_failover"},
     # G9-D: the generic classes, as far as an entry carries them out today.
     ActionKind.pause_flow: {"lambda": "lambda_disable_esm", "events": "events_disable_rule"},
-    ActionKind.resume_flow: {"lambda": "lambda_enable_esm", "events": "events_enable_rule"},
+    # A queue's own alarm too (first live run, 2026-10-12): its one switched-off consumer mapping, which the
+    # platform's live read finds by the queue's ARN (AwsPlatform._live_esm).
+    ActionKind.resume_flow: {"lambda": "lambda_enable_esm", "events": "events_enable_rule",
+                             "sqs": "lambda_enable_esm"},
     # A Lambda's reserved concurrency again too (G10-B): the schema tells the model raise_limit means it, and the
     # held-out author's key agreed - so a right answer was never planned. Review H1's harm stays closed by its other
     # half: raise_limit's own evidence words (grounding: throttl, quota, 429, burst) - "too many connections" or an

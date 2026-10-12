@@ -361,6 +361,10 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
                 return None, f"no change WARDEN may undo: {state['refused']}"
             return None, f"no single known-good {name} was read (WARDEN does not choose one)"
         params[name] = next(iter(allowed))
+    if entry.platform != platform:
+        # A fix on another platform's resource that the live read tied to the alert's own (a queue's switched-off
+        # consumer): the label's parameter led the read and is not the entry's.
+        params = {k: v for k, v in params.items() if k in entry.params}
     params = _bounded(entry, params, state)
     if isinstance(params, str):
         return None, params

@@ -104,7 +104,7 @@ _TOOL = re.compile(r"^(logs|metrics|recent_deploys): ")
 # only behind `/` or a kind prefix, never a bare word (fourth review, 2026-09-30, B-N5).
 _SOURCE = re.compile(r"^(?:(?:/|(?:lambda|ecs|sqs|k8s|eventbridge|sns)/)[A-Za-z0-9][A-Za-z0-9._/-]{0,100}"
                      r"|[a-z0-9][a-z0-9._-]{0,60})"
-                     r"(?: (?:logs|metrics|events|deploys|alias|code|history|stopped tasks|changes|zones|nodegroups|versions|workload|(?:dlq|policy) [A-Za-z0-9._-]{1,80}))?$")
+                     r"(?: (?:logs|metrics|events|deploys|alias|code|history|stopped tasks|changes|zones|nodegroups|versions|workload|consumers|(?:dlq|policy) [A-Za-z0-9._-]{1,80}))?$")
 # The shape of a segment WARDEN writes before a tag: a reader tag, a log group, or a pod/container
 # name (DNS names: no space, no bracket, no colon). Kept or not in what the model is shown (_SOURCE),
 # it may stand before the tag; free text ("KeyError", "Ignore previous") may not. Upper case only behind
@@ -117,7 +117,7 @@ _REVISION = re.compile(r"[A-Za-z0-9_-]{1,255}:[0-9]{1,9}")
 # Queue and rule names may carry upper case too (fifth review, 2026-10-01: `sqs/orders dlq Orders-DLQ`,
 # `sns policy <queue>` and `eventbridge/OrdersNightlyRule` read "unclassified").
 _SEGMENT = re.compile(r"(?:[a-z0-9/][a-z0-9._/-]{0,253}|(?:/|(?:lambda|ecs|sqs|k8s|eventbridge|sns)/)[A-Za-z0-9._/-]{1,253})"
-                      r"(?: (?:logs|metrics|events|deploys|alias|code|history|stopped tasks|changes|zones|nodegroups|versions|workload|(?:dlq|policy) [A-Za-z0-9._-]{1,80}"
+                      r"(?: (?:logs|metrics|events|deploys|alias|code|history|stopped tasks|changes|zones|nodegroups|versions|workload|consumers|(?:dlq|policy) [A-Za-z0-9._-]{1,80}"
                       r"|\(previous\)))?")
 # The outcome is the tag WARDEN wrote where it caught the failure (tools.failure_tag), from the
 # exception's type and structured codes. Reading it from the exception's TEXT let a log line choose it:

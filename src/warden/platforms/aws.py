@@ -858,28 +858,43 @@ class AwsPlatform:
     def _live_esm(self, params: dict[str, Any], pause: bool = False) -> dict[str, Any]:
         """The function's mappings that can be turned on (or, to pause, off). With no mapping named, the allowed set is
         every such mapping of the function - the resolver takes it only when there is exactly one."""
-        fn, uuid = params.get("function"), params.get("mapping")
-        if not isinstance(fn, str):
-            return {}
+        fn, uuid, queue, only = params.get("function"), params.get("mapping"), params.get("queue"), None
         lam = self._read("lambda")
-        conf = lam.get_function_configuration(FunctionName=fn)
-        fn_arn, name = _unqualified(conf["FunctionArn"]), conf["FunctionName"]
-        if isinstance(uuid, str):
-            mappings = [lam.get_event_source_mapping(UUID=uuid)]
-        else:
+
+        def listed(**by: str) -> list[dict[str, Any]]:
             mappings, marker = [], None
             for _ in range(5):
-                page = lam.list_event_source_mappings(FunctionName=name, **({"Marker": marker} if marker else {}))
+                page = lam.list_event_source_mappings(**by, **({"Marker": marker} if marker else {}))
                 mappings += page.get("EventSourceMappings") or []
                 marker = page.get("NextMarker")
                 if not marker:
                     break
+            return mappings
+
+        if not isinstance(fn, str) and isinstance(queue, str) and not pause:
+            # A queue's own alarm (first live run, 2026-10-12): the fix is on the queue's consumer. The mappings AWS
+            # holds for exactly this queue's ARN name it; with ONE of them switched off, that function and that
+            # mapping are the allowed set - never a function a log line or the model named.
+            sqs = self._read("sqs")
+            arn = sqs.get_queue_attributes(QueueUrl=sqs.get_queue_url(QueueName=queue)["QueueUrl"],
+                                           AttributeNames=["QueueArn"])["Attributes"]["QueueArn"]
+            off = [m for m in listed(EventSourceArn=arn) if m.get("State") == "Disabled"]
+            if len(off) != 1:
+                return {}
+            fn, only = _unqualified(str(off[0]["FunctionArn"])).rsplit(":", 1)[-1], off[0]["UUID"]
+        if not isinstance(fn, str):
+            return {}
+        conf = lam.get_function_configuration(FunctionName=fn)
+        fn_arn, name = _unqualified(conf["FunctionArn"]), conf["FunctionName"]
+        mappings = [lam.get_event_source_mapping(UUID=uuid)] if isinstance(uuid, str) else listed(FunctionName=name)
         mine = [m for m in mappings if _unqualified(str(m.get("FunctionArn", ""))) == fn_arn]
         want = "Enabled" if pause else "Disabled"
         # A pause only for a queue that keeps its messages a day or more: they wait there. A stream's records expire
         # while a mapping is paused, and so do a short-retention queue's (review H2).
         allowed = {m["UUID"] for m in mine if m.get("State") == want
                    and (not pause or self._keeps(str(m.get("EventSourceArn", ""))))}
+        if only:
+            allowed &= {only}  # the queue's own mapping, not another source's of the same function
         out = {"function": {name}, "mapping": allowed, "environment": self._tags("lambda", fn_arn).get(ENV_TAG)}
         if isinstance(uuid, str) and mine:
             m = mine[0]
