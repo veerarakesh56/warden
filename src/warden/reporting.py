@@ -442,6 +442,44 @@ def _code_findings(logs: list[str]) -> list[dict]:
     return found
 
 
+# A resource of one of these kinds is the data team's to own; any other the alarm names, the platform team's.
+_DATA_KINDS = frozenset({"aurora_cluster", "rds_instance", "dynamodb_table", "docdb_cluster", "docdb_instance",
+                         "elasticache_node", "elasticache_serverless", "memorydb", "opensearch", "redshift"})
+_OFFERED_UNDO = {"P31-UNADDRESSED-CHANGE"}  # held by this policy alone, WARDEN offers the undo itself (activities)
+
+
+def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
+    """Who has something to do about this incident now, and what - on every report (owner, 2026-10-12: "I see only
+    Platform / DevOps here", and only when a fixed pattern had fired). From what the report already holds: the gate's
+    verdict, the kind of resource the alarm names, and whether the evidence points at code or a deploy."""
+    from .resolver import _QUALIFIERS
+    from .resources import LABEL_KEYS
+
+    verdict = data.get("verdict") or {}
+    status, held_by = verdict.get("status"), set(verdict.get("policy_ids") or [])
+    if (data.get("proposal") or {}).get("action") == "escalate_to_human" and status == "auto_safe":
+        oncall = "look at this incident: WARDEN proposes no change and could not name a cause"
+    elif status == "approved_for_human":
+        oncall = "approve or deny the fix plan WARDEN sends next - or read its message saying why no plan was opened"
+    elif status == "escalated" and held_by == _OFFERED_UNDO:
+        oncall = ("decide: WARDEN held the proposed fix because a recent change was left unaddressed, and offers the "
+                  "undo of that change as a plan to approve or deny")
+    elif status in ("escalated", "rejected"):
+        oncall = "decide what to do: WARDEN runs nothing here (the gate verdict below says why)"
+    else:
+        oncall = "nothing to run; check that the alarm clears"
+    out = [["On-call", oncall]]
+    # The labels that name a resource - not the ones that only qualify one (a namespace, a cluster, a stage).
+    kinds = {k for k in alert.labels if k in LABEL_KEYS and k not in _QUALIFIERS}
+    named = sorted({v.strip() for k in kinds for v in str(alert.labels[k]).split(",") if v.strip()})
+    if named:
+        team = "DBA / data" if kinds & _DATA_KINDS else "Platform / DevOps"
+        out.append([team, f"owns {', '.join(named[:3])}: confirm the cause and stop it happening again"])
+    if data.get("code") or (data.get("evidence") or {}).get("recent_deploys"):
+        out.append(["Developers", "the evidence holds a code finding or a recent deploy: review that change"])
+    return out
+
+
 _NEXT_STEP = {
     "rejected": "Blocked by the gate - nothing will run. A person has to look at this.",
     "escalated": "Escalated - a person decides. Nothing runs until then.",
@@ -593,6 +631,7 @@ def build_report(
             "applied_change": remediation.applied_change,
             "principal": remediation.principal,
         }
+    data["who_acts"] = _who_acts(alert, data)
 
     # ⛔ ONE redaction pass over everything, SEEDED WITH THE PIPELINE'S OWN MAP - then, and only
     # then, the operator's identifiers may be put back. Seeded, not restored-and-re-redacted: the
@@ -650,7 +689,12 @@ def _render_markdown(d: dict) -> str:
         # A hand-off the gate lets stand is not "nothing to run": a person was asked to look (the runtime's first
         # report on today's code read "No change proposed - recorded, nothing to run" over an escalation, 2026-10-11).
         handed = bool(p) and p.get("action") == "escalate_to_human" and v["status"] == "auto_safe"
-        lines.append(f"**Next step: {_HANDED_OVER if handed else _NEXT_STEP.get(v['status'], v['status'])}**")
+        offered = v["status"] == "escalated" and set(v.get("policy_ids") or []) == _OFFERED_UNDO
+        lines.append("**Next step: " + (
+            _HANDED_OVER if handed else
+            "Held - a recent change was left unaddressed. WARDEN offers the undo of that change as a plan for a "
+            "person to approve; nothing runs until then." if offered else
+            _NEXT_STEP.get(v['status'], v['status'])) + "**")
     lines.append("")
 
     # ---- summary
@@ -676,6 +720,12 @@ def _render_markdown(d: dict) -> str:
         lines.append(f"- **Diagnosis** (model, confidence {d['root_cause']['confidence']:.2f}): "
                      f"{d['root_cause']['hypothesis']}")
     lines.append("")
+
+    # ---- who acts: on every report, before anything a person has to read to find it
+    if d.get("who_acts"):
+        lines.append("## Who acts now")
+        lines.extend(f"- **{team}**: {what}." for team, what in d["who_acts"])
+        lines.append("")
 
     # ---- what was read
     lines.append("## What WARDEN read")
