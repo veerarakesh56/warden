@@ -655,6 +655,7 @@ box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 3px 0 var(--accent-edge),0 10px 22px
 0 4px 10px var(--glow)}
 .danger{color:var(--bad);background:var(--sheet);border-color:currentColor}
 a.slack{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:.75rem;padding:.75rem 1rem}
+#clear{margin-top:.75rem;color:var(--ink);background:var(--sheet);border-color:var(--line)}
 .danger:active{transform:translateY(1px)}
 button:disabled{opacity:.55;cursor:progress;transform:none}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
@@ -730,11 +731,16 @@ can use it.</p>
 <section id="done" hidden aria-labelledby="done-h"><h2 id="done-h" class="eyebrow">The approver list, with this passkey</h2>
 <div class="pad"><label for="list">Save this as WARDEN's approver list. The passkey approves nothing until it is saved
 there.</label>
-<textarea id="list" rows="14" readonly></textarea></div></section>
+<textarea id="list" rows="14" readonly></textarea>
+<span class="hint">It holds the passkey's public half only: the key itself never leaves your device. T1, T2 and T3 in
+it are the risk levels this approver may decide: T1 low (one small, bounded change to one resource), T2 medium (a
+reversible change to a service's settings or version), T3 high (hard to undo, or it changes access, the network or
+infrastructure).</span></div></section>
 <div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">Create a passkey on this device to
 approve plans with it.</p>
 <button id="make" class="primary" type="button">Create my passkey</button>
-<button id="copy" class="primary" type="button" hidden>Copy the list</button></div>
+<button id="copy" class="primary" type="button" hidden>Copy the list</button>
+<button id="clear" type="button" hidden>Done: clear this page</button></div>
 """, "The page cannot save the list: a person does, where WARDEN reads it.", """
 $("make").addEventListener("click", async () => {
   busy(true);
@@ -758,7 +764,15 @@ $("make").addEventListener("click", async () => {
 $("copy").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText($("list").value); say("Copied. Save it as the approver list.", "ok"); }
   catch (e) { $("list").select(); say("Select the list and copy it."); }
+  $("clear").hidden = false;
 });
+/* Nothing of the list stays on a page left open, or comes back with the browser's Back button. */
+const wipe = () => { $("list").value = ""; $("done").hidden = true; $("copy").hidden = true; $("clear").hidden = true; };
+$("clear").addEventListener("click", () => {
+  wipe(); $("title").textContent = "Done"; step(3);
+  say("Cleared. Save the copied list as the approver list, then close this tab.", "ok");
+});
+window.addEventListener("pagehide", wipe);
 """)
 
 # The approval page: no plan in it - the plan arrives only after the first passkey ceremony.

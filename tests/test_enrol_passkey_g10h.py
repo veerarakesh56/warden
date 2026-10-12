@@ -174,3 +174,19 @@ def test_the_api_routes_the_enrolment_steps_the_page_serves():
     src = (ROOT / "src" / "warden" / "approval_page.py").read_text(encoding="utf-8")
     assert set(re.findall(r'post\("([a-z]+)"', src.split("_ENROL = ")[1].split("_PAGE = ")[0])) == {"options", "finish"}
     assert '("POST", "options")' in src and '("POST", "finish")' in src
+
+
+def test_the_enrolment_page_can_be_cleared_and_says_what_the_list_and_its_risk_levels_are():
+    """Owner, 2026-10-12: after copying the list "there should be something to close it or say done", or the list
+    stays on the page for whoever sees the tab or its history later - and "what does all this T1 T2 T3 mean"."""
+    from warden import approvals
+    from warden.approval_page import _ENROL
+
+    page = " ".join(_ENROL.split())
+    assert '<button id="clear" type="button" hidden>Done: clear this page</button>' in page
+    # Cleared by the button, and when the page is left: nothing comes back with the browser's Back button.
+    assert 'const wipe = () => { $("list").value = "";' in page and 'window.addEventListener("pagehide", wipe)' in page
+    assert '$("clear").addEventListener("click", () => { wipe();' in page
+    assert "public half only: the key itself never leaves your device" in page
+    for tier, meaning in approvals.TIER_MEANS.items():  # the page's words are the ones every message uses
+        assert f"{tier} {meaning.split(' risk: ')[0]} ({meaning.split(' risk: ')[1]})" in page
