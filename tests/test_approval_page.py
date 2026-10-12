@@ -243,3 +243,5 @@ def test_both_pages_need_nothing_their_content_security_policy_refuses_and_keep_
         for control in re.findall(r'<(?:input|textarea) id="([a-z]+)"', html):
             assert f'<label for="{control}">' in html, control  # every control is labelled
         assert "#000" not in html and "#fff" not in html.lower()
+    # Owner, same day: the denial sat behind an arrow. Both decisions are in view once the plan is shown.
+    assert "<details" not in approval_page._PAGE and 'id="ok"' in approval_page._PAGE and 'id="no"' in approval_page._PAGE

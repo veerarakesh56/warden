@@ -67,6 +67,9 @@ class PasskeyCredential(BaseModel):
 
 
 class Approver(BaseModel):
+    # How the person is shown to people (owner, 2026-10-12: "it should give its name"): on the approval page once
+    # their passkey has said who they are, and in the messages that say who approved. The list's key stays the id.
+    name: str = Field(default="", max_length=80)
     public_key: str  # PEM: the Ed25519 break-glass key (decision D14)
     tiers: list[str] = Field(default_factory=list)
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
@@ -110,6 +113,11 @@ class ApproverPolicy(BaseModel):
     @classmethod
     def loads(cls, text: str) -> ApproverPolicy:
         return cls.model_validate(yaml.safe_load(text))
+
+    def shown(self, approver: str) -> str:
+        """The approver as people read them: `Name (id)` when the list gives a name, else the id."""
+        entry = self.approvers.get(approver)
+        return f"{entry.name} ({approver})" if entry and entry.name.strip() else approver
 
     def key_of(self, name: str) -> Ed25519PublicKey | None:
         approver = self.approvers.get(name)

@@ -202,3 +202,26 @@ def test_who_approved_is_read_from_the_record_and_nothing_is_claimed_without_one
     world["log"].append("inc-42", "approval.accepted", {"workflow_id": "rem-dev-1", "run_id": "", "approver": "mallory",
                                                         "plan_hash": "another plan"})
     assert acts.announce(plan, "approved") == []  # another plan's approval is not this one's
+
+
+def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_record(page_setup, tmp_path):  # noqa: F811
+    """Owner, 2026-10-12: once the passkey has said who it is, the page should give the name - and who looked at,
+    approved or denied a plan should be on the record."""
+    import dataclasses
+
+    from warden.approval_page import AuditLinkStore
+
+    page, device, _, _ = page_setup
+    assert json.loads(_show(page, device, page.new_link("rem-dev-1", "owner")).body)["approver"] == "owner"
+    named = page.policy.model_copy(deep=True)
+    named.approvers["owner"].name = "Asha Rao"
+    log = audit.AuditLog(tmp_path / "a.db")
+    page = dataclasses.replace(page, policy=named, store=AuditLinkStore(log, clock=page.clock))
+    shell = page.handle("GET", f"/a/{(token := page.new_link('rem-dev-1', 'owner'))}").body
+    assert "Asha" not in shell  # nothing of who the link is for before the passkey
+    assert json.loads(_show(page, device, token).body)["approver"] == "Asha Rao (owner)"
+    [seen] = [e["body"] for e in log.entries(kinds=("approval.link_viewed",))]
+    assert seen["approver"] == "owner" and seen["workflow_id"] == "rem-dev-1"
+    assert "you are " in shell and "Approval sent" in shell and 'sent("Denied"' in shell
+    assert named.shown("owner") == "Asha Rao (owner)" and named.shown("nobody") == "nobody"
+    assert approvals.ApproverPolicy.loads(__import__("yaml").safe_dump(named.model_dump())).approvers["owner"].name == "Asha Rao"

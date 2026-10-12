@@ -4,6 +4,7 @@
 # below. The private key never goes into this file, the repository, or the worker.
 approvers:
   owner:
+    name: Your Name   # shown on the approval page and in the messages that say who approved
     tiers: [T1, T2, T3]
     public_key: |
       <paste the contents of owner.pub here>

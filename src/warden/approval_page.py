@@ -134,8 +134,11 @@ class AuditLinkStore:
                     viewed=bool(self._rows("approval.link_viewed", key)))
 
     def mark_viewed(self, token: str) -> None:
+        # Who confirmed who they are and was shown which plan, on the record (owner, 2026-10-12: "tracked, so that
+        # later we can look at who did it").
         link = self.link(token)
-        self.log.append(link.workflow_id if link else "approval", "approval.link_viewed", {"key": self._key(token)})
+        self.log.append(link.workflow_id if link else "approval", "approval.link_viewed", {
+            "key": self._key(token), **({"approver": link.approver, "workflow_id": link.workflow_id} if link else {})})
 
     def use_link(self, token: str) -> None:
         link = self.link(token)
@@ -308,7 +311,7 @@ class ApprovalPage:
         self.store.mark_viewed(token)
         from . import catalog
 
-        return _json(200, {"plan": {
+        return _json(200, {"approver": self.policy.shown(link.approver), "plan": {
             # First: what changes, before and after (G9-D) - then the plan's facts.
             "change": "; ".join(catalog.change_of(plan.entry, plan.params, plan.snapshot)),
             "entry": plan.entry, "target": plan.target, "tier": plan.tier,
@@ -431,6 +434,7 @@ border:1px solid var(--line);background:var(--sheet);font-weight:600;font-size:.
 h1{font-size:1.375rem;line-height:1.25;letter-spacing:-.01em;margin:1.375rem 1.25rem .5rem}
 p{margin:0 0 1rem}
 .lede{margin:0 1.25rem 1.25rem;color:var(--muted);max-width:60ch}
+.me{margin:0 1.25rem;font-weight:600;color:var(--ok)}
 .eyebrow{margin:1.25rem 1.25rem .625rem;font-size:.75rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
 color:var(--muted)}
 .mono,.change{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -478,9 +482,8 @@ box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 3px 0 var(--accent-edge),0 10px 22px
 .danger:active{transform:translateY(1px)}
 button:disabled{opacity:.55;cursor:progress;transform:none}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-details{margin-top:1rem}
-summary{cursor:pointer;color:var(--muted);font-size:.875rem;padding:.25rem 0}
-details p{margin:.75rem 0}
+.deny{margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--line)}
+.deny p{margin:0 0 .75rem}
 [hidden]{display:none!important}
 @media (max-width:26rem){.facts{grid-template-columns:1fr}.facts dt{padding-bottom:0}
 .facts dd{border-top:0;padding-top:.125rem}}
@@ -575,6 +578,7 @@ _PAGE = _page("WARDEN approval", "Approval", """
 <h1 id="title">A plan is waiting for your approval</h1>
 <p id="only" class="lede">This link was made for one approver. Only that person can open it, with their own passkey;
 anyone else sees nothing here and cannot approve the plan.</p>
+<p id="me" class="me" hidden></p>
 <section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h" class="eyebrow">What will change</h2>
 <p id="change" class="change"></p>
 <dl id="facts" class="facts"></dl></section>
@@ -584,16 +588,19 @@ anyone else sees nothing here and cannot approve the plan.</p>
 <span class="hint">It is shown above, beside Target.</span></label>
 <input id="typed" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false"></p>
 <button id="ok" class="primary" type="button">Approve this plan with my passkey</button>
-<details><summary>Deny this plan instead</summary>
-<p><label for="why">Reason (optional)</label><input id="why" maxlength="200" autocomplete="off"></p>
-<button id="no" class="danger" type="button">Deny this plan with my passkey</button></details></div></div>
+<div class="deny"><p><label for="why">Or deny it: your reason (optional)</label>
+<input id="why" maxlength="200" autocomplete="off"></p>
+<button id="no" class="danger" type="button">Deny this plan with my passkey</button></div></div></div>
 """, "WARDEN checks every approval again, against this exact plan, before anything changes.", """
 const LABELS = {entry: "Action", target: "Target", environment: "Environment", values: "Exact values",
                 plan_hash: "Plan fingerprint", made: "Plan made", link_expires: "Link expires"};
 const MONO = ["entry", "target", "values", "plan_hash"];
 const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; e.textContent = text;
                                  return e; };
-function show(plan) {
+let me = "";
+function show(plan, approver) {
+  me = String(approver || "");
+  if (me) { $("me").textContent = "Confirmed with your passkey: you are " + me + "."; $("me").hidden = false; }
   const change = $("change"); change.textContent = "";
   for (const line of String(plan.change || "").split("; ")) {
     const at = line.lastIndexOf(" -> ");
@@ -638,7 +645,7 @@ $("who").addEventListener("click", async () => {
   try {
     const [ok, d] = await post("login", {response: await passkey("login-options")});
     if (!ok) { say(d.error, "bad"); return; }
-    show(d.plan); say("Approve it, deny it, or close this page to leave it waiting.");
+    show(d.plan, d.approver); say("Approve it, deny it, or close this page to leave it waiting.");
   } catch (e) {
     say("Not confirmed: " + e.message + " If this link was not made for you, you cannot approve this plan.", "bad");
   } finally { busy(false); }
@@ -649,7 +656,7 @@ $("ok").addEventListener("click", async () => {
     const response = await passkey("approve-options");
     say("Sending your approval. This takes a few seconds; do not click again.", "work");
     const [ok, d] = await post("approve", {response, typed_target: $("typed").value});
-    if (ok) { sent("Approval sent. " + d.note); } else { say(d.error, "bad"); }
+    if (ok) { sent("Approval sent" + (me ? " as " + me : "") + ". " + d.note); } else { say(d.error, "bad"); }
   } catch (e) { say("Not approved: " + e.message, "bad"); } finally { busy(false); }
 });
 $("no").addEventListener("click", async () => {
@@ -658,7 +665,7 @@ $("no").addEventListener("click", async () => {
     const response = await passkey("deny-options");
     say("Sending your denial. This takes a few seconds; do not click again.", "work");
     const [ok, d] = await post("deny", {response, reason: $("why").value});
-    if (ok) { sent(d.note); } else { say(d.error, "bad"); }
+    if (ok) { sent("Denied" + (me ? " as " + me : "") + ". " + d.note); } else { say(d.error, "bad"); }
   } catch (e) { say("Not denied: " + e.message, "bad"); } finally { busy(false); }
 });
 """)
