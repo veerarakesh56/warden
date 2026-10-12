@@ -8,11 +8,14 @@
 # change and WARDEN can set back (scripts/undo_lab.py makes those changes, as the fault-injection role):
 #
 #   orders-write-throttles   the table's write capacity cut            -> dynamodb_restore_capacity
-#   producer-throttles       the producer's reserved concurrency at 0  -> lambda_restore_concurrency
+#   producer-dropped         the producer's reserved concurrency at 0  -> lambda_restore_concurrency
 #   producer-errors          the producer's timeout cut under its work -> lambda_restore_settings
 #   tick-silent              the schedule disabled                     -> events_enable_rule
 #   jobs-age                 the consumer's queue mapping disabled     -> lambda_enable_esm (exploratory: the alarm
 #                            names the queue, the fix is on the function)
+#
+# Terraform never repairs a fault: every setting a fault changes is in `ignore_changes`, so an apply made while one is
+# in place leaves it there (scripts/undo_lab.py restore sets the baseline back).
 #
 # Everything is named warden-<env>-lab-* (the prefix the environment's boundary and WARDEN's reader and actor roles
 # scope to) and tagged Project=warden. An alarm's description never names its cause.
@@ -92,6 +95,10 @@ resource "aws_dynamodb_table" "orders" {
   attribute {
     name = "id"
     type = "S"
+  }
+
+  lifecycle {
+    ignore_changes = [read_capacity, write_capacity] # a fault's, never Terraform's to repair
   }
 
   depends_on = [terraform_data.environment]
@@ -240,6 +247,10 @@ resource "aws_lambda_function" "producer" {
     }
   }
 
+  lifecycle {
+    ignore_changes = [timeout, reserved_concurrent_executions] # a fault's, never Terraform's to repair
+  }
+
   depends_on = [aws_cloudwatch_log_group.producer, aws_iam_role_policy.producer]
 }
 
@@ -283,6 +294,10 @@ resource "aws_lambda_event_source_mapping" "jobs" {
   event_source_arn = aws_sqs_queue.jobs.arn
   function_name    = aws_lambda_function.consumer.arn
   batch_size       = 10
+
+  lifecycle {
+    ignore_changes = [enabled] # a fault's, never Terraform's to repair
+  }
 }
 
 # --------------------------------------------------------------------------- the schedule
@@ -291,6 +306,10 @@ resource "aws_cloudwatch_event_rule" "tick" {
   name                = "${local.name}-tick"
   description         = "The undo lab's clock: the producer, every minute."
   schedule_expression = "rate(1 minute)"
+
+  lifecycle {
+    ignore_changes = [state] # a fault's, never Terraform's to repair
+  }
 }
 
 resource "aws_cloudwatch_event_target" "tick" {
@@ -325,11 +344,13 @@ resource "aws_cloudwatch_metric_alarm" "orders_write_throttles" {
   treat_missing_data  = "notBreaching"
 }
 
-resource "aws_cloudwatch_metric_alarm" "producer_throttles" {
-  alarm_name          = "${local.name}-producer-throttles"
-  alarm_description   = "Invocations of the lab's producer are being throttled."
+# The schedule invokes the producer asynchronously: with no concurrency left Lambda DROPS those events and counts no
+# throttle (seen live 2026-10-12: Throttles stayed empty, AsyncEventsDropped read 1 a minute).
+resource "aws_cloudwatch_metric_alarm" "producer_dropped" {
+  alarm_name          = "${local.name}-producer-dropped"
+  alarm_description   = "Events sent to the lab's producer are being dropped."
   namespace           = "AWS/Lambda"
-  metric_name         = "Throttles"
+  metric_name         = "AsyncEventsDropped"
   dimensions          = { FunctionName = aws_lambda_function.producer.function_name }
   statistic           = "Sum"
   period              = 60
@@ -418,7 +439,7 @@ output "queue" {
 output "alarms" {
   value = {
     table_capacity       = aws_cloudwatch_metric_alarm.orders_write_throttles.alarm_name
-    producer_concurrency = aws_cloudwatch_metric_alarm.producer_throttles.alarm_name
+    producer_concurrency = aws_cloudwatch_metric_alarm.producer_dropped.alarm_name
     producer_timeout     = aws_cloudwatch_metric_alarm.producer_errors.alarm_name
     schedule_disabled    = aws_cloudwatch_metric_alarm.tick_silent.alarm_name
     consumer_disabled    = aws_cloudwatch_metric_alarm.jobs_age.alarm_name

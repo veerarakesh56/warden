@@ -95,7 +95,7 @@ def _alarms() -> dict[str, dict]:
 # alarm -> (the label the alarm's own metric gives, the lab resource it names, the undo that changes it)
 UNDO = {
     "orders-write-throttles": ("dynamodb_table", "table", "dynamodb_restore_capacity"),
-    "producer-throttles": ("lambda", "producer", "lambda_restore_concurrency"),
+    "producer-dropped": ("lambda", "producer", "lambda_restore_concurrency"),
     "producer-errors": ("lambda", "producer", "lambda_restore_concurrency"),  # or lambda_restore_settings: REVERT_ALSO
     "tick-silent": ("eventbridge_rule", "rule", "events_enable_rule"),
 }
@@ -126,6 +126,18 @@ def test_each_alarm_reaches_the_resolver_as_the_resource_its_undo_changes():
         assert asked[0][1][catalog.CATALOG[entry].target_param] == target
         assert resolver.no_fix_path(alert, proposal) == ""
     assert "lambda_restore_settings" in catalog.REVERT_ALSO["lambda"]
+
+
+def test_terraform_never_repairs_a_fault_and_the_dropped_events_alarm_follows_async_invocations():
+    """Seen live 2026-10-12: an apply made while a fault is in place would set it back (and record a change of its
+    own); and at reserved concurrency 0 the schedule's asynchronous events are dropped, not counted as throttles."""
+    ignored = dict(re.findall(r'resource "(\w+)" "\w+" \{(?:(?!^\}).)*?ignore_changes = \[([^\]]*)\]', TF,
+                              re.DOTALL | re.MULTILINE))
+    assert ignored == {"aws_dynamodb_table": "read_capacity, write_capacity",
+                       "aws_lambda_function": "timeout, reserved_concurrent_executions",
+                       "aws_lambda_event_source_mapping": "enabled", "aws_cloudwatch_event_rule": "state"}
+    dropped = next(b for k, n, b in BLOCKS if n == "producer_dropped")
+    assert 'metric_name         = "AsyncEventsDropped"' in dropped and '"Throttles"' not in TF
 
 
 def test_no_alarm_text_names_its_cause():
