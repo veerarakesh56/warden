@@ -42,6 +42,31 @@ def test_the_actor_session_names_the_approvers_the_incident_and_the_plan():
     assert creds == {"aws_access_key_id": "a", "aws_secret_access_key": "s", "aws_session_token": "t"}
 
 
+def test_an_incident_the_audit_names_without_the_prefix_still_gets_the_name_the_actors_trust_requires():
+    """The first live apply (2026-10-12) was refused by STS: the audit's incident id is the alarm's fingerprint and
+    time, the actor role trusts SourceIdentity `inc-*` only, and the tests all said `inc-42`."""
+    import fnmatch
+    import pathlib
+
+    live = "50ac32d0fe243384-20261012T081959Z"
+    sts = _Sts()
+    _mint(sts, incident=live)
+    [call] = sts.calls
+    assert call["SourceIdentity"] == call["RoleSessionName"] == f"inc-{live}"
+    assert {t["Key"]: t["Value"] for t in call["Tags"]}["incident"] == live  # the audit's id, as actor_use reads it
+    templates = pathlib.Path(__file__).resolve().parents[1] / "iam" / "templates"
+    for name in ("actor-trust.json", "platform-reader-trust.json"):
+        trusts = [s["Condition"]["StringLike"]["sts:SourceIdentity"]
+                  for s in json.loads((templates / name).read_text(encoding="utf-8"))["Statement"]
+                  if "sts:SourceIdentity" in s.get("Condition", {}).get("StringLike", {})]
+        assert trusts, name
+        for patterns in trusts:
+            patterns = [patterns] if isinstance(patterns, str) else patterns
+            assert any(fnmatch.fnmatchcase(identity.correlation(live), p) for p in patterns), (name, patterns)
+            assert not any(fnmatch.fnmatchcase(live, p) for p in patterns)  # the bare id is what STS refused
+    assert identity.correlation("inc-42") == "inc-42" and len(identity.correlation("x" * 80)) == 64
+
+
 def test_the_session_allows_only_the_plans_actions_on_its_exact_resources():
     sts = _Sts()
     _mint(sts)

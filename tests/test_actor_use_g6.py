@@ -49,6 +49,13 @@ def _accepted(approver="alice", plan=PLAN, required=1, incident="inc-7"):
 
 def test_a_session_the_audit_shows_approved_has_no_problem():
     assert actor_use.check(_detail(), Audit([_accepted()])) == []
+    # The audit's id without the prefix (a live alarm's): the session is named inc-<id>, its tag is the id.
+    bare = _detail({"approver": "alice", "incident": "a1b2-20261012T081959Z", "plan": PLAN[:16]},
+                   source="inc-a1b2-20261012T081959Z")
+    assert actor_use.check(bare, Audit([_accepted(incident="a1b2-20261012T081959Z")])) == []
+    unnamed = _detail({"approver": "alice", "incident": "a1b2-20261012T081959Z", "plan": PLAN[:16]},
+                      source="a1b2-20261012T081959Z")
+    assert any("source identity" in p for p in actor_use.check(unnamed, Audit([_accepted(incident="a1b2-20261012T081959Z")])))
     two = _detail({"approver": "alice+bob", "incident": "inc-7", "plan": PLAN[:16]})
     assert actor_use.check(two, Audit([_accepted("alice", required=2), _accepted("bob", required=2)])) == []
 

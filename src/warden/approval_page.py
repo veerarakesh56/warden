@@ -447,22 +447,26 @@ dt{font-weight:600}button{font:inherit;padding:.5rem 1rem}[hidden]{display:none}
 <p id="status" role="status" aria-live="polite">Confirm it is you to see the plan.</p>
 <button id="who" type="button">Show the plan with my passkey</button>
 <section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h">The plan</h2><dl id="facts"></dl>
-<p><label for="typed">Type the target exactly to approve it</label><br><input id="typed" autocomplete="off"></p>
+<div id="acts"><p id="typed-p" hidden><label for="typed">Type the target exactly to approve it</label><br>
+<input id="typed" autocomplete="off"></p>
 <button id="ok" type="button">Approve this plan with my passkey</button>
 <p><label for="why">Or deny it (optional reason)</label><br><input id="why" maxlength="200" autocomplete="off"></p>
-<button id="no" type="button">Deny this plan with my passkey</button></section>
+<button id="no" type="button">Deny this plan with my passkey</button></div></section>
 </main>
 <script nonce="{{NONCE}}">
 const base = location.pathname.replace(/\\/$/, "");
 const b2a = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
 const a2b = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
-const say = t => { document.getElementById("status").textContent = t; };
+const say = t => { const s = document.getElementById("status"); s.textContent = t; s.scrollIntoView({block: "center"}); };
+const busy = on => { for (const b of document.querySelectorAll("button")) { b.disabled = on; } };
+const sent = t => { document.getElementById("acts").hidden = true; say(t); };
 async function post(step, body) {
   const r = await fetch(base + "/" + step, {method: "POST", headers: {"Content-Type": "application/json"},
                                             body: JSON.stringify(body || {})});
   return [r.ok, await r.json()];
 }
 async function passkey(step) {
+  say("Confirm with your passkey.");
   const [ok, d] = await post(step); if (!ok) { throw new Error(d.error); }
   const o = d.options; o.challenge = a2b(o.challenge);
   o.allowCredentials = (o.allowCredentials || []).map(c => ({...c, id: a2b(c.id)}));
@@ -472,31 +476,39 @@ async function passkey(step) {
     signature: b2a(c.response.signature), userHandle: c.response.userHandle ? b2a(c.response.userHandle) : null}};
 }
 document.getElementById("who").addEventListener("click", async () => {
+  busy(true);
   try {
     const [ok, d] = await post("login", {response: await passkey("login-options")});
     if (!ok) { say(d.error); return; }
     const dl = document.getElementById("facts"); dl.textContent = "";
+    document.getElementById("typed-p").hidden = !d.plan.type_the_target;
     for (const [k, v] of Object.entries(d.plan)) {
+      if (k === "type_the_target") { continue; }
       const dt = document.createElement("dt"); dt.textContent = k.replace(/_/g, " ");
       const dd = document.createElement("dd"); dd.textContent = typeof v === "string" ? v : JSON.stringify(v);
       dl.append(dt, dd);
     }
-    document.getElementById("plan").hidden = false; say("Read the plan, then approve it or close this page.");
-  } catch (e) { say("Not confirmed: " + e.message); }
+    document.getElementById("plan").hidden = false; document.getElementById("who").hidden = true;
+    say("Read the plan, then approve it, deny it or close this page.");
+  } catch (e) { say("Not confirmed: " + e.message); } finally { busy(false); }
 });
 document.getElementById("ok").addEventListener("click", async () => {
+  busy(true);
   try {
     const response = await passkey("approve-options");
+    say("Sending your approval. This takes a few seconds; do not click again.");
     const [ok, d] = await post("approve", {response, typed_target: document.getElementById("typed").value});
-    say(ok ? "Sent. " + d.note : d.error);
-  } catch (e) { say("Not approved: " + e.message); }
+    if (ok) { sent("Approval sent. " + d.note + " You can close this page."); } else { say(d.error); }
+  } catch (e) { say("Not approved: " + e.message); } finally { busy(false); }
 });
 document.getElementById("no").addEventListener("click", async () => {
+  busy(true);
   try {
     const response = await passkey("deny-options");
+    say("Sending your denial. This takes a few seconds; do not click again.");
     const [ok, d] = await post("deny", {response, reason: document.getElementById("why").value});
-    say(ok ? d.note : d.error);
-  } catch (e) { say("Not denied: " + e.message); }
+    if (ok) { sent(d.note + " You can close this page."); } else { say(d.error); }
+  } catch (e) { say("Not denied: " + e.message); } finally { busy(false); }
 });
 </script></body></html>
 """

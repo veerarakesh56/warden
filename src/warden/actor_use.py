@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from . import identity
+
 # Any account; the role name says which environment's actor it is.
 ACTOR_ROLE = re.compile(r"^arn:aws:iam::\d+:role/warden-[a-z0-9-]+-actor$")
 
@@ -47,7 +49,7 @@ def check(detail: dict[str, Any], audit: Any) -> list[str]:
     if not (incident and plan and named):
         return [f"{role} was assumed without the incident, plan and approver tags an approved session carries"]
     problems = []
-    if params.get("sourceIdentity") != incident:
+    if params.get("sourceIdentity") != identity.correlation(incident):
         problems.append(f"the session's source identity {params.get('sourceIdentity')!r} is not its incident {incident!r}")
     rows = [e["body"] for e in audit.entries(incident, kinds=("approval.accepted",))
             if str(e["body"].get("plan_hash", "")).startswith(plan)]

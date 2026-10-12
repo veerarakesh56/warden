@@ -165,9 +165,8 @@ def _reader_clients(session: Any, cfg: Any, template: str,
             raise ToolError(f"{env!r} is not a configured environment: nothing was read")
         if region and not _REGION_NAME.fullmatch(region):
             raise ToolError(f"{region!r} is not a Region name: nothing was read")
-        # The watched environments' reader roles trust SourceIdentity inc-* only (iam/templates/platform-reader-
-        # trust.json): the bare alert id was refused (2026-10-09). One correlation id, `inc-<alert id>`.
-        key = (env, (incident if incident.startswith("inc-") else f"inc-{incident}")[:64], region)
+        # One correlation id, `inc-<alert id>` (identity.correlation): what the reader roles' trust requires.
+        key = (env, identity.correlation(incident), region)
         with lock:
             hit = held.get(key)
             if hit and hit[0] > time.monotonic():

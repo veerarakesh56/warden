@@ -30,6 +30,13 @@ class IdentityError(ValueError):
     pass
 
 
+def correlation(incident: str) -> str:
+    """The one name an incident goes by in AWS: `inc-<id>`. The watched environments' roles trust that SourceIdentity
+    and no other (iam/templates/*-trust.json), and the audit's own id may come without the prefix - the bare id was
+    refused for the reader on 2026-10-09 and for the actor, at the first live apply, on 2026-10-12."""
+    return (incident if incident.startswith("inc-") else f"inc-{incident}")[:64]
+
+
 def session_policy(actions: Sequence[str], resources: Sequence[str], condition: dict[str, Any] | None = None,
                    also: Sequence[tuple[Sequence[str], Sequence[str]]] = ()) -> str:
     """The session policy: these actions on these resources, nothing else - an intersection with the role's own
@@ -72,8 +79,10 @@ def actor_session(sts: Any, *, role_arn: str, incident: str, plan_hash: str, app
     tags = [{"Key": "approver", "Value": _check("approver", who, _TAG_VALUE)},
             {"Key": "incident", "Value": _check("incident", incident, _TAG_VALUE)},
             {"Key": "plan", "Value": _check("plan hash", plan_hash[:16], _TAG_VALUE)}]
-    resp = sts.assume_role(RoleArn=role_arn, RoleSessionName=_check("incident", incident, _NAME),
-                           SourceIdentity=_check("incident", incident, _NAME), DurationSeconds=MAX_SECONDS,
+    # The audit's id must itself be a name STS takes; the session goes by inc-<id>, the tag keeps the id as the
+    # audit has it (actor_use reads it).
+    name = _check("incident", correlation(_check("incident", incident, _NAME)), _NAME)
+    resp = sts.assume_role(RoleArn=role_arn, RoleSessionName=name, SourceIdentity=name, DurationSeconds=MAX_SECONDS,
                            Tags=tags, Policy=session_policy(actions, resources, condition, also))
     return _credentials(resp)
 

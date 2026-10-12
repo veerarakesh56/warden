@@ -206,3 +206,15 @@ def test_every_catalogue_entry_says_what_it_changes():
         ("the messages waiting in d (42 when planned; the count moves) move to s at 10 a second; moved messages are "
          "not moved back")]
     assert catalog.change_of("lambda_move_alias", {"function": "f"}, {}) == ["lambda_move_alias with function=f"]
+
+
+def test_the_page_says_what_it_is_doing_and_asks_for_the_target_only_when_the_tier_needs_it(setup):
+    """The owner's first live approval (2026-10-12): the page gave no sign while it sent the approval, the status was
+    out of sight above the plan, a second click read "link is not valid", and a T1 plan showed the target box."""
+    page, _, _, _ = setup
+    shell = page.handle("GET", f"/a/{page.new_link('rem-dev-1', 'owner')}").body
+    assert '<p id="typed-p" hidden>' in shell and "hidden = !d.plan.type_the_target" in shell
+    assert 'if (k === "type_the_target") { continue; }' in shell
+    assert "Sending your approval." in shell and "Sending your denial." in shell and "s.scrollIntoView" in shell
+    assert shell.count("busy(true);") == 3 == shell.count("finally { busy(false); }")  # no second click mid-way
+    assert 'document.getElementById("acts").hidden = true' in shell and shell.count("sent(") == 2
