@@ -78,7 +78,7 @@ def test_an_end_that_leaves_the_target_unknown_says_every_fix_is_stopped(world, 
     world["platform"].rollback_error = "422 the count moved"
     out = _run(world, _approve_with(owner))
     assert out.status == "rollback_failed" and bounds.killswitch(world["log"]) is not None
-    assert "undoing it FAILED" in sink.texts[-1] and "`warden killswitch reset`" in sink.texts[-1]
+    assert "undoing it FAILED" in sink.texts[-1] and "`warden killswitch link` opens the page" in sink.texts[-1]
 
 
 def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink):  # noqa: F811
@@ -225,3 +225,51 @@ def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_re
     assert "you are " in shell and "Approval sent" in shell and 'sent("Denied"' in shell
     assert named.shown("owner") == "Asha Rao (owner)" and named.shown("nobody") == "nobody"
     assert approvals.ApproverPolicy.loads(__import__("yaml").safe_dump(named.model_dump())).approvers["owner"].name == "Asha Rao"
+
+
+def test_an_undo_wardens_own_check_refuses_is_not_a_failed_rollback_and_the_switch_stays_off(world, owner, sink):  # noqa: F811
+    """The first live rollback (2026-10-12): the fix was applied, the rule was switched off again by someone else,
+    and WARDEN's undo found nothing to undo - it said "undoing it FAILED: the target's state is unknown" and stopped
+    every automatic fix. The state was known. Only a call that AWS refuses, or one that may be half-made, is that."""
+    class Moved(RuntimeError):
+        nothing_changed = True
+        own_check = True
+
+    def refuse(entry, params, snapshot):
+        raise Moved("rule warden-dev-lab-tick is already disabled; nothing was changed")
+
+    world["platform"].healthy_after = None
+    world["platform"].rollback = refuse
+    out = _run(world, _approve_with(owner))
+    assert out.status == "not_recovered" and bounds.killswitch(world["log"]) is None, out
+    assert out.reasons[1] == "not rolled back: rule warden-dev-lab-tick is already disabled; nothing was changed"
+    assert "did not work, and WARDEN did not undo it" in sink.texts[-1] and "already disabled" in sink.texts[-1]
+    assert "FAILED" not in sink.texts[-1] and "kill switch" not in sink.texts[-1]
+    assert not world["log"].entries("inc-42", kinds=("remediation.rollback_failed",))
+
+
+def test_an_undo_aws_itself_refuses_is_still_a_failed_rollback(world, owner, sink):  # noqa: F811
+    class Denied(RuntimeError):
+        nothing_changed = True  # never written - and WARDEN's change is still in place, not undone
+
+    def refuse(entry, params, snapshot):
+        raise Denied("AWS refused events_enable_rule (AccessDenied); nothing was changed")
+
+    world["platform"].healthy_after = None
+    world["platform"].rollback = refuse
+    out = _run(world, _approve_with(owner))
+    assert out.status == "rollback_failed" and bounds.killswitch(world["log"]) is not None
+
+
+def test_the_aws_platform_marks_its_own_refusal_of_an_undo_and_not_awss():
+    from test_aws_platform_g6 import FN, WHO
+    from test_aws_platform_g6 import Fake as AwsFake
+    from warden.platforms.aws import AwsPlatform, AwsPlatformRefused
+
+    f = AwsFake()
+    p = AwsPlatform(reader=lambda service: f, actor=f.actor, clock=lambda: PLAN.created_at, sleep=lambda s: None)
+    live = p.live("lambda_enable_esm", {"function": FN, "mapping": "u-1"})
+    with pytest.raises(AwsPlatformRefused, match="is already disabled") as own:  # never enabled: nothing to undo
+        p.rollback("lambda_enable_esm", {"function": FN, "mapping": "u-1"}, live["state"], who=WHO)
+    assert own.value.own_check is True and own.value.nothing_changed is True
+    assert not hasattr(AwsPlatformRefused("AWS refused x; nothing was changed"), "own_check")

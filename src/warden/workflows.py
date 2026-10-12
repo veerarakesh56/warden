@@ -325,7 +325,7 @@ class RemediationWorkflow:
                if self._alarm_at else f"{req.service} did not recover within {req.recover_within_minutes} min")
         # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
         # fix left it, unhealthy - a person (sixth review, 2026-10-01).
-        if str(undone).startswith("nothing to roll back"):
+        if str(undone).startswith(("nothing to roll back", "not rolled back")):
             return await end("not_recovered", [why, str(undone)])
         return await end("rolled_back", [why])
 

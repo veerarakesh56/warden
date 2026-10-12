@@ -495,6 +495,23 @@ def _label_command(args: argparse.Namespace) -> int:
 def _killswitch_command(args: argparse.Namespace) -> int:
     from . import approvals, bounds, runtime
 
+    if args.kill_cmd == "link":
+        # The cloud runtime's switch: its audit is reached by the approval page, not by this machine. A link signed
+        # here with the approver's own key, opened in the browser and never printed (as `warden enrol`).
+        import webbrowser
+
+        from .approval_page import RESET_INVITE, invite
+
+        domain = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
+        if not domain:
+            _out("error: WARDEN_APPROVAL_RP_ID is not set: the approval page's domain", err=True)
+            return 1
+        token = invite(_approver_key(args.key), args.approver, now=datetime.now(UTC), purpose=RESET_INVITE)
+        if not webbrowser.open(f"https://{domain}/k/{token}"):
+            _out("error: no browser could be opened on this machine", err=True)
+            return 1
+        _out(f"Opened https://{domain} in your browser: read why the switch is on, then reset it there.")
+        return 0
     log = runtime.open_audit()
     if args.kill_cmd == "on":
         bounds.trip(log, "operator", args.reason)
@@ -662,6 +679,9 @@ def _main(argv: list[str] | None = None) -> int:
     kill_sub.add_parser("status")
     p_on = kill_sub.add_parser("on")
     p_on.add_argument("--reason", required=True)
+    p_link = kill_sub.add_parser("link", help="open the approval page's reset of the cloud runtime's kill switch")
+    p_link.add_argument("--approver", required=True)
+    p_link.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
     p_reset = kill_sub.add_parser("reset")
     p_reset.add_argument("--approver", required=True)
     p_reset.add_argument("--key", required=True, type=pathlib.Path)

@@ -54,8 +54,8 @@ OUTCOME = {
     "relapsed": ("WARDEN's fix `{entry}` on `{target}` worked, then failed again. WARDEN does not undo a fix that had "
                  "worked: a person decides what happens next."),
     "rolled_back": "WARDEN's fix `{entry}` on `{target}` did not work, so WARDEN undid it. The incident is still open.",
-    "not_recovered": ("WARDEN's fix `{entry}` on `{target}` did not work, and it has nothing to undo. A person takes "
-                      "over."),
+    "not_recovered": ("WARDEN's fix `{entry}` on `{target}` did not work, and WARDEN did not undo it: there was "
+                      "nothing for it to undo. A person takes over."),
     "rollback_failed": ("WARDEN's fix `{entry}` on `{target}` did not work and undoing it FAILED: the target's state is "
                         "unknown."),
     "refused_at_apply": "WARDEN did not apply the approved plan `{entry}` on `{target}`: nothing was changed.",
@@ -325,7 +325,8 @@ class RemediationActivities:
         if did and what in OUTCOME:
             said += f" Approved by {' and '.join(did)}."
         if what in PERSON_TAKES_OVER:
-            said += " Every automatic fix is stopped until a person resets the kill switch (`warden killswitch reset`)."
+            said += (" Every automatic fix is stopped until an approver resets the kill switch: `warden killswitch "
+                     "link` opens the page that shows why it is on and resets it.")
         if why:
             said += " Why: " + "; ".join(why)
         footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it with "
@@ -597,6 +598,14 @@ class RemediationActivities:
             extra = {k: v for k, v in (("who", self._who(plan, run)), ("environment", plan.environment)) if k in takes}
             detail = self.platform.rollback(plan.entry, plan.params, plan.snapshot, **extra)
         except Exception as exc:  # noqa: BLE001 - every failure is the same fact: WARDEN's change may still be there
+            if getattr(exc, "nothing_changed", False) and getattr(exc, "own_check", False):
+                # WARDEN's own check refused the undo before any write: the target is no longer as the fix left it
+                # (someone changed it since - or put it back). Nothing is half-made and nothing is unknown, so this is
+                # not a failed rollback and the kill switch stays off: a person takes over (first live rollback,
+                # 2026-10-12: a rule already switched off again was reported "undoing it FAILED, state unknown").
+                detail = f"not rolled back: {_safe_error(exc)}"
+                self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+                return detail
             reason = f"rollback failed: {_safe_error(exc)}"
             self.audit.append(plan.incident_id, "remediation.rollback_failed", {**row, "why": reason})
             # A change WARDEN made may still be in place: no further fix runs until a person resets the switch.

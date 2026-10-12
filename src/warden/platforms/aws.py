@@ -643,6 +643,11 @@ class AwsPlatform:
                  "aurora_failover": self._failover}[entry]
         try:
             return write(params, snapshot, now, who, back)
+        except AwsPlatformRefused as exc:
+            # WARDEN's own check, before any call to AWS: the target is not as the plan (or, undoing, the fix) left
+            # it. Told apart from AWS refusing the call, below: after this one the state is known.
+            exc.own_check = True
+            raise
         except AwsPlatformError:
             raise
         except Exception as exc:

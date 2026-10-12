@@ -170,8 +170,9 @@ def approval_page() -> Any:
     if not rp_id:
         raise RuntimeError("WARDEN_APPROVAL_RP_ID is not set: the passkeys' relying party is the approval domain")
     policy = runtime.approver_policy()
+    log = runtime.open_audit()
     return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
-                        store=AuditLinkStore(runtime.open_audit()))
+                        store=AuditLinkStore(log), log=log)
 
 
 def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:

@@ -42,13 +42,16 @@ TYPED_TIERS = frozenset({"T2", "T3"})
 VIEW = "view"  # the tier and plan hash of the who-are-you challenge: no plan is ever "view"
 ENROL = "enrol"  # likewise for an enrolment's challenge
 INVITE = b"warden-enrol:v1:"
+RESET_INVITE = b"warden-killswitch:v1:"  # a link signed for one purpose opens nothing of the other
+KILLSWITCH = "killswitch"  # the workflow id a reset is an approval of (bounds.reset)
 
 
-def invite(key: Any, approver: str, *, now: datetime) -> str:
-    """An enrolment link's token: the approver's own Ed25519 key says "add a passkey for me", for 15 minutes."""
+def invite(key: Any, approver: str, *, now: datetime, purpose: bytes = INVITE) -> str:
+    """A link's token, signed by the approver's own Ed25519 key for 15 minutes: "add a passkey for me" (enrolment), or
+    "let me reset the kill switch" (RESET_INVITE)."""
     claim = json.dumps({"approver": approver, "expires_at": (now + LINK_TTL).isoformat(),
                         "nonce": secrets.token_urlsafe(16)}, sort_keys=True, separators=(",", ":")).encode()
-    return f"{bytes_to_base64url(claim)}.{bytes_to_base64url(key.sign(INVITE + claim))}"
+    return f"{bytes_to_base64url(claim)}.{bytes_to_base64url(key.sign(purpose + claim))}"
 
 
 @dataclass
@@ -186,6 +189,8 @@ class ApprovalPage:
     # workflow id, Denial -> sent (requirement R28); None: this page offers no deny.
     deny: Callable[[str, Any], None] | None = None
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    # The audit, for the kill switch's reset (the trips it shows and the reset it records); None: no reset here.
+    log: Any = None
 
     @property
     def origin(self) -> str:
@@ -202,6 +207,8 @@ class ApprovalPage:
         parts = path.strip("/").split("/")
         if len(parts) >= 2 and parts[0] == "e":
             return self._enrol(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
+        if len(parts) >= 2 and parts[0] == "k":
+            return self._reset(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
         if len(parts) < 2 or parts[0] != "a":
             return _json(404, {"error": "not found"})
         token, action = parts[1], (parts[2] if len(parts) > 2 else "")
@@ -222,14 +229,14 @@ class ApprovalPage:
 
     # ------------------------------------------------------------------ enrolment
 
-    def _invited(self, token: str) -> str | None:
-        """The approver an enrolment link names - when their own key signed it, it has not expired, it was not made
-        to last longer than a link does, and it has not been used."""
+    def _invited(self, token: str, purpose: bytes = INVITE) -> str | None:
+        """The approver a signed link names - when their own key signed it for this purpose, it has not expired, it
+        was not made to last longer than a link does, and it has not been used."""
         try:
             claim, signature = (base64url_to_bytes(part) for part in token.split("."))
             said = json.loads(claim)
             approver, expires = str(said["approver"]), datetime.fromisoformat(said["expires_at"])
-            self.policy.key_of(approver).verify(signature, INVITE + claim)
+            self.policy.key_of(approver).verify(signature, purpose + claim)
             now = self.clock()
             return approver if now < expires <= now + LINK_TTL and not self.store.used(token) else None
         except Exception:  # noqa: BLE001 - whatever is wrong with a link, it invites nobody
@@ -269,6 +276,55 @@ class ApprovalPage:
         self.store.use_link(token)  # used once
         return _json(200, {"approver": approver, "device_bound": made.device_bound,
                            "approvers": yaml.safe_dump(listed.model_dump(), sort_keys=False)})
+
+    # ------------------------------------------------------------------ the kill switch's reset
+
+    def _reset(self, method: str, token: str, step: str, body: str) -> Response:
+        """Resetting the kill switch where the audit is (first live trip, 2026-10-12: the only reset was a command
+        that needs the audit database, which no laptop reaches in the cloud runtime). The link is signed by the
+        approver's own key; the reset is their passkey over exactly the trips shown - the riskiest tier's rules
+        (bounds.reset_by_passkey): a device-bound passkey, an approver of T3, and the wait after the latest trip."""
+        from . import bounds
+
+        approver = self._invited(token, RESET_INVITE) if self.log is not None else None
+        if approver is None:
+            return _json(404, {"error": "this reset link is not valid"})
+        key, now = f"{token}:reset", self.clock()
+        if (method, step) == ("GET", ""):
+            nonce = secrets.token_urlsafe(16)
+            return Response(200, _headers(nonce, "text/html; charset=utf-8"), _RESET.replace("{{NONCE}}", nonce))
+        if (method, step) == ("POST", "trips"):
+            rows = bounds.trips(self.log)
+            if bounds.killswitch(self.log) is None or not rows:
+                return _json(200, {"on": False})
+            options, pending = passkeys.approval_options(
+                rp_id=self.rp_id, credentials=self._credentials(approver), workflow_id=KILLSWITCH,
+                plan_hash=bounds.trips_hash(self.log), tier="T3", now=now)
+            self.store.put_challenge(key, pending)
+            ready = rows[-1]["at"] + timedelta(minutes=self.policy.cooling_off_minutes.get("T3", 0))
+            return _json(200, {"on": True, "options": json.loads(options), "wait": both_times(ready) if ready > now else "",
+                               "trips": [{"at": both_times(r["at"]), "reason": str(r["body"].get("reason", ""))[:600]}
+                                         for r in rows]})
+        if (method, step) != ("POST", "reset"):
+            return _json(404, {"error": "not found"})
+        pending = self.store.take_challenge(key)
+        try:
+            response = json.loads(body)["response"]
+        except Exception:  # noqa: BLE001 - an answer that cannot be read resets nothing
+            response = None
+        credential = next((c for c in self._credentials(approver)
+                           if isinstance(response, dict) and c.credential_id == response.get("id")), None)
+        if pending is None or credential is None:
+            return _json(403, {"error": "the passkey was not accepted"})
+        verified, problems = passkeys.verify_approval(response, pending=pending, credential=credential,
+                                                      rp_id=self.rp_id, origin=self.origin, now=now, used_nonces=set())
+        if verified is not None:
+            problems = bounds.reset_by_passkey(self.log, verified, policy=self.policy, now=now)
+        if problems:
+            return _json(403, {"error": "the kill switch was not reset", "problems": problems})
+        self.store.use_link(token)  # used once
+        self.log.checkpoint()  # the reset signed the record; the link's last row is signed too
+        return _json(200, {"reset": True})
 
     # ------------------------------------------------------------------ steps
 
@@ -667,6 +723,52 @@ $("no").addEventListener("click", async () => {
     const [ok, d] = await post("deny", {response, reason: $("why").value});
     if (ok) { sent("Denied" + (me ? " as " + me : "") + ". " + d.note); } else { say(d.error, "bad"); }
   } catch (e) { say("Not denied: " + e.message, "bad"); } finally { busy(false); }
+});
+""")
+
+# The kill switch's reset: why it is on, then one passkey ceremony over exactly those trips.
+_RESET = _page("WARDEN kill switch", "Kill switch", """
+<ol class="steps" aria-label="Steps"><li class="done">Open your link</li><li aria-current="step">Read why it is on</li>
+<li>Reset it</li></ol>
+<h1 id="title">Every automatic fix is stopped</h1>
+<p id="only" class="lede">The kill switch goes on when a fix leaves something in a state WARDEN cannot vouch for.
+Read each reason below, look at what it names, and reset the switch only when that is settled.</p>
+<section id="plan" hidden aria-labelledby="plan-h"><h2 id="plan-h" class="eyebrow">Why it is on</h2>
+<dl id="facts" class="facts"></dl></section>
+<div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">Show why the kill switch is on.</p>
+<button id="who" class="primary" type="button">Show the reasons</button>
+<button id="ok" class="primary" type="button" hidden>Reset the kill switch with my passkey</button></div>
+""", "A reset is the riskiest tier's decision: a passkey that stays on one device, and only after a short wait.", """
+const el = (tag, cls, text) => { const e = document.createElement(tag); e.className = cls; e.textContent = text;
+                                 return e; };
+let options = null;
+$("who").addEventListener("click", async () => {
+  busy(true);
+  try {
+    const [ok, d] = await post("trips"); if (!ok) { say(d.error, "bad"); return; }
+    if (!d.on) { $("title").textContent = "The kill switch is off"; $("who").hidden = true; $("only").hidden = true;
+                 step(3); say("Nothing to reset: automatic fixes are running.", "ok"); return; }
+    const dl = $("facts"); dl.textContent = "";
+    for (const t of d.trips) { dl.append(el("dt", "", t.at), el("dd", "", t.reason)); }
+    options = d.options; $("plan").hidden = false; $("who").hidden = true; $("ok").hidden = false; step(2);
+    say(d.wait ? "It can be reset from " + d.wait + "." : "Reset it when what the reasons name is settled.");
+  } catch (e) { say("Not shown: " + e.message, "bad"); } finally { busy(false); }
+});
+$("ok").addEventListener("click", async () => {
+  busy(true);
+  try {
+    say("Confirm with your passkey.", "work");
+    const o = JSON.parse(JSON.stringify(options)); o.challenge = a2b(o.challenge);
+    o.allowCredentials = (o.allowCredentials || []).map(c => ({...c, id: a2b(c.id)}));
+    const c = await navigator.credentials.get({publicKey: o});
+    say("Resetting the kill switch.", "work");
+    const [ok, d] = await post("reset", {response: {id: c.id, rawId: b2a(c.rawId), type: c.type, response: {
+      clientDataJSON: b2a(c.response.clientDataJSON), authenticatorData: b2a(c.response.authenticatorData),
+      signature: b2a(c.response.signature), userHandle: c.response.userHandle ? b2a(c.response.userHandle) : null}}});
+    if (!ok) { say(d.error + (d.problems ? ": " + d.problems.join("; ") : ""), "bad"); return; }
+    $("ok").hidden = true; $("title").textContent = "The kill switch is off"; step(3);
+    say("Reset. Automatic fixes run again. You can close this page.", "ok");
+  } catch (e) { say("Not reset: " + e.message, "bad"); } finally { busy(false); }
 });
 """)
 

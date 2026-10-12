@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from . import approvals
 from .audit import AuditLog
@@ -87,6 +88,32 @@ def reset(log: AuditLog, approval: approvals.SignedApproval, *, policy: approval
     if not problems:
         log.append(rows[-1]["correlation_id"], RESET, {"approver": approval.approver, "nonce": approval.nonce,
                                                        "trips": [r["seq"] for r in rows]})
+        log.checkpoint()
+    return problems
+
+
+def reset_by_passkey(log: AuditLog, verified: Any, *, policy: approvals.ApproverPolicy, now: datetime) -> list[str]:
+    """Turn the kill switch off on a passkey approval the approval page verified (passkeys.verify_approval, tier T3:
+    a device-bound passkey). The same rules as `reset`: the approver may approve T3, the approval is of exactly the
+    trips since the last reset, it was not used before, and the latest trip is as old as T3's cooling-off."""
+    rows = trips(log)
+    if killswitch(log) is None or not rows:
+        return ["the kill switch is not on"]
+    problems = []
+    entry = policy.approvers.get(verified.approver)
+    if entry is None or "T3" not in entry.tiers:
+        problems.append(f"{verified.approver} may not approve T3")
+    if (verified.workflow_id, verified.tier, verified.plan_hash) != ("killswitch", "T3", trips_hash(log)):
+        problems.append("the approval is not of the trips now on the record (a trip was added since)")
+    if verified.nonce in {e["body"]["nonce"] for e in log.entries(kinds=(RESET,))}:
+        problems.append("the approval was already used")
+    cooling = timedelta(minutes=policy.cooling_off_minutes.get("T3", 0))
+    if now < rows[-1]["at"] + cooling:
+        problems.append(f"T3 needs the latest trip to be {cooling} old before it is reset")
+    if not problems:
+        log.append(rows[-1]["correlation_id"], RESET, {
+            "approver": verified.approver, "nonce": verified.nonce, "trips": [r["seq"] for r in rows],
+            "method": "passkey", "credential_id": verified.credential_id})
         log.checkpoint()
     return problems
 
