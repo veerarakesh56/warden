@@ -8,6 +8,7 @@ locals {
     "gemini-api-key", "google-api-key", "openai-api-key", "anthropic-api-key",
     "audit-key-passphrase", "temporal-key", "temporal-api-key", "github-token", "temporal-key-previous",
     "audit-dsn", "alertmanager-token", "alertmanager-token-previous", "pagerduty-routing-key",
+    "slack-client-secret", # Sign in with Slack on the approval page (slack_login.py): the approval Lambda's alone
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
     "temporal-api-key-act",

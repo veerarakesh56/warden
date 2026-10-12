@@ -77,14 +77,16 @@ def test_the_approval_lambda_serves_the_page(monkeypatch):
     seen = []
 
     class Page:
-        def handle(self, method, path, body=""):
+        def handle(self, method, path, body="", query="", cookies=()):
             seen.append((method, path, body))
+            assert (query, cookies) == ("a=1", ["c=2"])  # the query string and the cookies reach the page
             from warden.approval_page import Response
             return Response(404, {"content-type": "application/json"}, "{}")
 
     monkeypatch.setattr(lambdas, "_configure", lambda name: None)
     monkeypatch.setattr(lambdas, "approval_page", lambda: Page())
-    out = lambdas.approval({"rawPath": "/a/tok/login", "body": "{}", "requestContext": {"http": {"method": "POST"}}})
+    out = lambdas.approval({"rawPath": "/a/tok/login", "body": "{}", "requestContext": {"http": {"method": "POST"}},
+                            "rawQueryString": "a=1", "cookies": ["c=2"]})
     assert out == {"statusCode": 404, "headers": {"content-type": "application/json"}, "body": "{}"}
     assert seen == [("POST", "/a/tok/login", "{}")]
 

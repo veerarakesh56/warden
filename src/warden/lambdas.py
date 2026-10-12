@@ -170,15 +170,18 @@ def approval_page() -> Any:
     if not rp_id:
         raise RuntimeError("WARDEN_APPROVAL_RP_ID is not set: the passkeys' relying party is the approval domain")
     policy = runtime.approver_policy()
+    from . import slack_login
+
     log = runtime.open_audit()
     return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
-                        store=AuditLinkStore(log), log=log)
+                        store=AuditLinkStore(log), log=log, slack=slack_login.from_environment())
 
 
 def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     _configure("lambda-approval")
     method, path, _, body = _http(event)
-    r = approval_page().handle(method, path, body.decode("utf-8", errors="replace"))
+    r = approval_page().handle(method, path, body.decode("utf-8", errors="replace"),
+                               query=str(event.get("rawQueryString") or ""), cookies=event.get("cookies") or [])
     return {"statusCode": r.status, "headers": r.headers, "body": r.body}
 
 

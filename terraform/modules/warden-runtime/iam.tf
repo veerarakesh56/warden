@@ -68,7 +68,7 @@ locals {
   }
   # The Lambdas: the codec, their Temporal key, the audit, the Alertmanager webhook's secrets (settings.RESTRICTED).
   lambda_secrets = ["temporal-key", "temporal-key-previous", "temporal-api-key", "audit-dsn", "alertmanager-token",
-  "alertmanager-token-previous"]
+  "alertmanager-token-previous", "slack-client-secret"]
 }
 
 data "aws_iam_policy_document" "ecs_tasks_trust" {

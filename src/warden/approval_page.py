@@ -96,6 +96,12 @@ class MemoryLinkStore:
     def used(self, token: str) -> bool:
         return token in self.spent
 
+    def note_slack(self, token: str, approver: str, member: dict[str, str]) -> None:
+        self.slack = {**getattr(self, "slack", {}), token: member["user"]}
+
+    def slack_of(self, token: str) -> str:
+        return getattr(self, "slack", {}).get(token, "")
+
     def put_challenge(self, key: str, pending: passkeys.Pending) -> None:
         self.pending[key] = pending
 
@@ -153,6 +159,15 @@ class AuditLinkStore:
     def used(self, token: str) -> bool:
         return bool(self._rows("approval.link_used", self._key(token)))
 
+    def note_slack(self, token: str, approver: str, member: dict[str, str]) -> None:
+        # Who Slack said was at the page for this link, on the record with the approver it was made for.
+        self.log.append("approval", "approval.slack_verified", {
+            "key": self._key(token), "approver": approver, "slack_user": member["user"], "team": member.get("team", "")})
+
+    def slack_of(self, token: str) -> str:
+        rows = self._rows("approval.slack_verified", self._key(token))
+        return str(rows[-1].get("slack_user", "")) if rows else ""
+
     def put_challenge(self, key: str, pending: passkeys.Pending) -> None:
         self.log.append(pending.workflow_id, "approval.challenge", {
             "key": self._key(key), "workflow_id": pending.workflow_id, "plan_hash": pending.plan_hash,
@@ -194,6 +209,9 @@ class ApprovalPage:
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
     # The audit, for the kill switch's reset (the trips it shows and the reset it records); None: no reset here.
     log: Any = None
+    # Sign in with Slack (slack_login.SlackLogin), when the runtime has a Slack app: then a link opens only for the
+    # Slack member its approver is, before the passkey. None: the passkey alone, as before.
+    slack: Any = None
 
     @property
     def origin(self) -> str:
@@ -206,8 +224,10 @@ class ApprovalPage:
 
     # ------------------------------------------------------------------ routing
 
-    def handle(self, method: str, path: str, body: str = "") -> Response:
+    def handle(self, method: str, path: str, body: str = "", query: str = "", cookies: Any = ()) -> Response:
         parts = path.strip("/").split("/")
+        if parts[0] == "s":
+            return self._slack(method.upper(), parts[1:], query, cookies)
         if len(parts) >= 2 and parts[0] == "e":
             return self._enrol(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
         if len(parts) >= 2 and parts[0] == "k":
@@ -228,7 +248,77 @@ class ApprovalPage:
                   ("POST", "approve"): self._approve, ("POST", "deny-options"): self._deny_options,
                   ("POST", "deny"): self._deny}
         route = routes.get((method.upper(), action))
+        if route not in (None, self._shell) and not self._signed_in(token, link.approver):
+            return _json(403, {"error": "sign in with Slack first"})
         return route(token, link, data) if route else _json(404, {"error": "not found"})
+
+    # ------------------------------------------------------------------ sign in with Slack
+
+    def _signed_in(self, token: str, approver: str, enrolling: bool = False) -> bool:
+        """Has Slack said that the member at the page for this link is the approver it was made for? True where the
+        runtime has no Slack app. An approver with no Slack member in the list cannot approve where it has one - but
+        can enrol: the enrolment writes the member Slack named into the list it hands back."""
+        if self.slack is None:
+            return True
+        member, entry = self.store.slack_of(token), self.policy.approvers.get(approver)
+        if not member or entry is None:
+            return False
+        return member == entry.slack or (enrolling and not entry.slack)
+
+    def _slack(self, method: str, parts: list[str], query: str, cookies: Any) -> Response:
+        """`/s/a/<token>` and `/s/e/<token>` send the browser to Slack's sign-in; `/s/callback` takes its answer. The
+        link's token never goes to Slack: it stays in a cookie of this site, and Slack carries only that cookie's
+        hash as the state."""
+        import hashlib
+        import urllib.parse
+
+        from .slack_login import SlackLoginError
+
+        if self.slack is None or method != "GET":
+            return _json(404, {"error": "not found"})
+        redirect = f"{self.origin}/s/callback"
+        if len(parts) == 2 and parts[0] in ("a", "e"):
+            kind, token = parts
+            link = self.store.link(token) if kind == "a" else None
+            known = (link is not None and self.clock() < link.expires_at) if kind == "a" else self._invited(token)
+            if not known:
+                return _notice(404, "This link is not valid.")
+            nonce = secrets.token_urlsafe(16)
+            value = f"{kind}/{token}.{nonce}"
+            state = hashlib.sha256(value.encode()).hexdigest()
+            return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
+                                  "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
+                                  "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
+        if parts != ["callback"]:
+            return _json(404, {"error": "not found"})
+        asked = urllib.parse.parse_qs(query)
+        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_COOKIE + "=")), "")
+        code, state = (asked.get(k, [""])[0] for k in ("code", "state"))
+        if not value or not code or hashlib.sha256(value.encode()).hexdigest() != state or "." not in value:
+            return _notice(400, "This sign-in did not start on this page. Open the link from the message again.")
+        where, nonce = value.rsplit(".", 1)
+        kind, _, token = where.partition("/")
+        if kind == "a":
+            link = self.store.link(token)
+            approver = link.approver if link is not None and self.clock() < link.expires_at else None
+        else:
+            approver = self._invited(token)
+        if approver is None or approver not in self.policy.approvers:
+            return _notice(404, "This link is not valid.")
+        try:
+            member = self.slack.member(code, redirect_uri=redirect, nonce=nonce)
+        except SlackLoginError as exc:
+            return _notice(403, f"Slack sign-in failed: {exc}.")
+        wanted = self.policy.approvers[approver].slack
+        if (wanted and member["user"] != wanted) or (not wanted and kind != "e"):
+            # Not said which approver the link is for: a link shows nothing of that before the passkey.
+            return _notice(403, "This Slack account is not the approver this link was made for. Nothing was shown or "
+                                "decided." if wanted else
+                                "The approver this link was made for has no Slack identity in the approver list yet. "
+                                "Enrol a passkey again: the enrolment links it.")
+        self.store.note_slack(token, approver, member)
+        return Response(302, {"Location": f"/{kind}/{token}", "Cache-Control": "no-store",
+                              "Set-Cookie": f"{_COOKIE}=; Max-Age=0; Path=/s; Secure; HttpOnly; SameSite=Lax"}, "")
 
     # ------------------------------------------------------------------ enrolment
 
@@ -251,8 +341,9 @@ class ApprovalPage:
             return _json(404, {"error": "this enrolment link is not valid"})
         key = f"{token}:{ENROL}"
         if (method, step) == ("GET", ""):
-            nonce = secrets.token_urlsafe(16)
-            return Response(200, _headers(nonce, "text/html; charset=utf-8"), _ENROL.replace("{{NONCE}}", nonce))
+            return self._served(_ENROL, not self._signed_in(token, approver, enrolling=True))
+        if not self._signed_in(token, approver, enrolling=True):
+            return _json(403, {"error": "sign in with Slack first"})
         if (method, step) == ("POST", "options"):
             options, challenge = passkeys.registration_options(rp_id=self.rp_id, rp_name="WARDEN", approver=approver)
             self.store.put_challenge(key, passkeys.Pending(
@@ -276,6 +367,9 @@ class ApprovalPage:
         listed.approvers[approver].passkeys.append(PasskeyCredential(
             credential_id=made.credential_id, public_key=made.public_key, sign_count=made.sign_count,
             device_bound=made.device_bound))
+        if self.slack is not None and not listed.approvers[approver].slack:
+            # The member Slack itself named at this enrolment: linked in the list handed back, never typed.
+            listed.approvers[approver].slack = self.store.slack_of(token)
         self.store.use_link(token)  # used once
         return _json(200, {"approver": approver, "device_bound": made.device_bound,
                            "approvers": yaml.safe_dump(listed.model_dump(), sort_keys=False)})
@@ -294,8 +388,7 @@ class ApprovalPage:
             return _json(404, {"error": "this reset link is not valid"})
         key, now = f"{token}:reset", self.clock()
         if (method, step) == ("GET", ""):
-            nonce = secrets.token_urlsafe(16)
-            return Response(200, _headers(nonce, "text/html; charset=utf-8"), _RESET.replace("{{NONCE}}", nonce))
+            return self._served(_RESET, False)
         if (method, step) == ("POST", "trips"):
             rows = bounds.trips(self.log)
             if bounds.killswitch(self.log) is None or not rows:
@@ -336,9 +429,13 @@ class ApprovalPage:
         return [passkeys.Credential(approver, c.credential_id, c.public_key, c.sign_count, c.device_bound)
                 for c in (entry.passkeys if entry else [])]
 
-    def _shell(self, token: str, link: Link, data: dict) -> Response:
+    def _served(self, page: str, slack_first: bool) -> Response:
         nonce = secrets.token_urlsafe(16)
-        return Response(200, _headers(nonce, "text/html; charset=utf-8"), _PAGE.replace("{{NONCE}}", nonce))
+        return Response(200, _headers(nonce, "text/html; charset=utf-8"),
+                        page.replace("{{NONCE}}", nonce).replace("{{SLACK}}", "1" if slack_first else "0"))
+
+    def _shell(self, token: str, link: Link, data: dict) -> Response:
+        return self._served(_PAGE, not self._signed_in(token, link.approver))
 
     def _login_options(self, token: str, link: Link, data: dict) -> Response:
         options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=self._credentials(link.approver),
@@ -447,6 +544,16 @@ def _headers(nonce: str, content_type: str) -> dict[str, str]:
     }
 
 
+_COOKIE = "warden_s"  # holds the link while the browser is at Slack: this site's only, ten minutes, /s alone
+
+
+def _notice(status: int, text: str) -> Response:
+    """A page that only says something: where the Slack sign-in ends without a link to go back to."""
+    nonce = secrets.token_urlsafe(16)
+    return Response(status, _headers(nonce, "text/html; charset=utf-8"),
+                    _NOTICE.replace("{{NONCE}}", nonce).replace("{{SLACK}}", "0").replace("{{TEXT}}", text))
+
+
 def _json(status: int, payload: dict) -> Response:
     return Response(status, _headers(secrets.token_urlsafe(8), "application/json"), json.dumps(payload))
 
@@ -542,6 +649,7 @@ box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 3px 0 var(--accent-edge),0 10px 22px
 .primary:active{transform:translateY(2px);box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 1px 0 var(--accent-edge),
 0 4px 10px var(--glow)}
 .danger{color:var(--bad);background:var(--sheet);border-color:currentColor}
+a.slack{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:.75rem;padding:.75rem 1rem}
 .danger:active{transform:translateY(1px)}
 button:disabled{opacity:.55;cursor:progress;transform:none}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
@@ -568,6 +676,14 @@ const step = n => { [...document.querySelectorAll(".steps li")].forEach((li, i) 
   li.classList.toggle("done", i < n);
   if (i === n) { li.setAttribute("aria-current", "step"); } else { li.removeAttribute("aria-current"); }
   li.setAttribute("aria-label", li.textContent + (i < n ? ", done" : "")); }); };
+if (document.body.dataset.slack === "1") {
+  for (const b of document.querySelectorAll("button")) { b.hidden = true; }
+  const go = document.createElement("a");
+  go.className = "primary slack"; go.textContent = "Sign in with Slack";
+  go.href = "/s" + base;  /* this site's own address for the link, which sends the browser on to Slack */
+  document.querySelector(".bar").append(go);
+  say("First, sign in with Slack: it says which person you are. Then your passkey.");
+}
 async function post(name, body) {
   const r = await fetch(base + "/" + name, {method: "POST", headers: {"Content-Type": "application/json"},
                                             body: JSON.stringify(body || {})});
@@ -579,7 +695,7 @@ _SHELL = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}</title>
 <style nonce="{{NONCE}}">{{STYLE}}</style></head>
-<body data-busy="0"><div class="page">
+<body data-busy="0" data-slack="{{SLACK}}"><div class="page">
 <header class="top"><span class="mark">WARDEN</span><span class="where">{{WHERE}}</span></header>
 <main class="sheet">{{MAIN}}</main>
 <p class="foot">{{FOOT}}</p>
@@ -592,6 +708,12 @@ def _page(title: str, where: str, main: str, foot: str, script: str) -> str:
     return (_SHELL.replace("{{TITLE}}", title).replace("{{WHERE}}", where).replace("{{MAIN}}", main)
             .replace("{{FOOT}}", foot).replace("{{STYLE}}", _STYLE).replace("{{JS}}", _JS).replace("{{SCRIPT}}", script))
 
+
+_NOTICE = _page("WARDEN", "Sign-in", """
+<h1 id="title">Sign-in</h1>
+<p class="lede">{{TEXT}}</p>
+<div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">You can close this page.</p></div>
+""", "WARDEN asks Slack who you are, then your passkey that you are here.", "")
 
 # The enrolment page: one button, then the approver list to save.
 _ENROL = _page("WARDEN passkey", "Passkey", """

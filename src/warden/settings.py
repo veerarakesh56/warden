@@ -42,6 +42,7 @@ LOADABLE = frozenset({
     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_AUDIT_ANCHOR_DAYS",
     "WARDEN_PAGERDUTY_ROUTING_KEY",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "WARDEN_ALERTMANAGER_URL", "WARDEN_APPROVAL_RP_ID",
+    "WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET",
 })
 
 
@@ -69,6 +70,9 @@ RESTRICTED: dict[str, frozenset[str]] = {
     # Paging (decision D13): only what sends messages - the worker, and a manual run that emits its report.
     "WARDEN_PAGERDUTY_ROUTING_KEY": frozenset({"worker", "run"}),
     "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS": frozenset({"lambda-alertmanager"}),
+    # Sign in with Slack (slack_login.py): only the approval page asks Slack who is there.
+    "WARDEN_SLACK_CLIENT_ID": frozenset({"lambda-approval"}),
+    "WARDEN_SLACK_CLIENT_SECRET": frozenset({"lambda-approval"}),
 }
 
 
@@ -79,7 +83,7 @@ SECRETS = frozenset({
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
     "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
-    "WARDEN_PAGERDUTY_ROUTING_KEY",
+    "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_SLACK_CLIENT_SECRET",
 })
 
 
@@ -99,7 +103,8 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
 # The runtime's Lambdas (lambdas.py): the codec, their Temporal key, the audit and the Alertmanager webhook's secrets -
 # what their role may read (terraform/modules/warden-runtime/iam.tf); RESTRICTED narrows it per Lambda.
 LAMBDA_SECRETS = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
-                            "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS"})
+                            "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
+                            "WARDEN_SLACK_CLIENT_SECRET"})
 # One per zone: each zone's own Temporal Cloud service account, so Temporal's audit log names the zone that called.
 PER_ZONE = frozenset({"WARDEN_TEMPORAL_API_KEY"})
 

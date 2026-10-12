@@ -310,6 +310,10 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - Which change broke it: GitHub's Deployments REST API and AWS CloudTrail's LookupEvents, merged with WARDEN's own
   applied fixes - `timeline.py`. Cursor's Rollouts and Sentry's release tracking answer the same question as paid or
   heavy services (2026-09-27 research); three reads cover WARDEN's stages.
+- Who is at the approval page: adopted - Slack's OpenID Connect sign-in (its authorize address and token method),
+  through `slack_login.py`: two HTTPS calls with the standard library. An OAuth client library (Authlib) would be a
+  dependency for those two calls; the ID token comes straight from Slack's token endpoint over TLS, which OpenID
+  Connect Core 3.1.3.7 accepts in place of checking its signature.
 - What was done to this resource before: built - `history.py`, a read of WARDEN's own signed audit (the earlier
   fix plans of a resource, how each ended, who approved). An agent memory store or a vector index of past incidents
   would hold a model's own earlier prose, which a later diagnosis must not read (register N9); the audit already
