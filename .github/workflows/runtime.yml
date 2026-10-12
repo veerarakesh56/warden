@@ -160,7 +160,8 @@ jobs:
         if: env.ACTION == 'apply'
         run: |
           set -o pipefail
-          if terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan" \
+          # 2>&1: Terraform writes its errors to stderr - the retry's first real run saw none of them (2026-10-11).
+          if terraform -chdir=terraform/runtime apply -input=false -no-color "$RUNNER_TEMP/tfplan" 2>&1 \
               | tee "$RUNNER_TEMP/apply.log"; then
             exit 0
           fi

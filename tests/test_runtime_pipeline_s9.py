@@ -124,7 +124,7 @@ def test_a_pause_retries_only_the_one_known_address_error_and_only_once(tmp_path
         'n=$(grep -c apply "$here/calls")\n'
         'answer="$(sed -n "${n}p" "$here/answers")"\n'
         '[ "$answer" = ok ] && { echo "Apply complete!"; exit 0; }\n'
-        'echo "$answer" | tr "|" "\\n"\n'
+        'echo "$answer" | tr "|" "\\n" >&2\n'  # stderr, as Terraform writes its errors
         "exit 1\n", encoding="utf-8", newline="\n")
     fake.chmod(0o755)
     env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": str(tmp_path),
