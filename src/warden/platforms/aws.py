@@ -192,11 +192,20 @@ Actor = Callable[[dict[str, Any], list[str], list[str], dict[str, Any] | None], 
 # read 2026-10-10): AWS::ECS::Service configuration.DesiredCount; AWS::Lambda::Function
 # supplementaryConfiguration.Concurrency.reservedConcurrentExecutions.
 CONFIG_LOOKBACK = timedelta(days=7)  # GetResourceConfigHistory spans at most 7 days a call
-# A fix judged by its alarm is verified for as long as that alarm can take to read OK: its whole evaluation range
-# (EvaluationPeriods x Period - with M of N datapoints the breaching ones must first leave the range), then the
-# metric's own delay and the three consecutive checks. The fixed five minutes rolled back a right fix behind any alarm
-# of 5-minute periods (found reading the workflow, 2026-10-11; never yet run live).
+# A fix judged by its alarm is verified for as long as that alarm can take to read OK, then the metric's own delay and
+# the three consecutive checks. The fixed five minutes rolled back a right fix behind any alarm of 5-minute periods
+# (found reading the workflow, 2026-10-11). And an alarm's own evaluation periods are not the bound either: CloudWatch
+# evaluates over an "evaluation range" WIDER than them, of a width AWS does not publish, and when a metric goes silent
+# (a throttle or error count that is healthy reports nothing) its old breaching datapoints still count until they
+# leave that range (AWS, "How alarm state is evaluated when data is missing", read 2026-10-12: 3 periods -> a range of
+# 5). Seen live on 2026-10-12: throttling stopped within a minute of the restore, and a 2-period, 1-minute alarm read
+# OK 8.4 minutes after it. So: twice the evaluation periods and five more. It is an upper bound - recovery is taken
+# as soon as the alarm reads OK three checks running.
 ALARM_SETTLE_MINUTES = 3
+
+
+def _periods_to_clear(evaluation_periods: int) -> int:
+    return 2 * evaluation_periods + 5
 
 
 def _json(value: Any) -> dict[str, Any]:
@@ -1645,7 +1654,7 @@ class AwsPlatform:
         n = a.get("EvaluationPeriods")
         if period is None or not isinstance(n, int) or n < 1:
             return None
-        return -(-period * n // 60) + ALARM_SETTLE_MINUTES
+        return -(-period * _periods_to_clear(n) // 60) + ALARM_SETTLE_MINUTES
 
     def _trail_writes(self, key: str, value: str, since: datetime, until: datetime,
                       keep: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:

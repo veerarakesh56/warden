@@ -28,10 +28,12 @@ MATH = {"EvaluationPeriods": 2, "Metrics": [{"Id": "e", "Expression": "a/b"}, {"
 
 
 @pytest.mark.parametrize("alarm, minutes", [
-    ({"Period": 300, "EvaluationPeriods": 3}, 18),
-    ({"Period": 60, "EvaluationPeriods": 1}, 4),
-    ({"Period": 90, "EvaluationPeriods": 1}, 5),  # a part of a minute is a whole one
-    (MATH, 13),  # a metric-math alarm: its slowest metric
+    ({"Period": 300, "EvaluationPeriods": 3}, 58),
+    ({"Period": 60, "EvaluationPeriods": 1}, 10),
+    ({"Period": 90, "EvaluationPeriods": 1}, 14),  # 10.5 minutes: a part of a minute is a whole one
+    (MATH, 48),  # a metric-math alarm: its slowest metric
+    # Seen live 2026-10-12: this alarm read OK 8.4 minutes after the fix, with its metric silent from the first one.
+    ({"Period": 60, "EvaluationPeriods": 2}, 12),
     ({}, None), ({"Period": 300}, None), ({"Period": 0, "EvaluationPeriods": 3}, None),
     ({"Period": 300, "EvaluationPeriods": 0}, None), ({"Period": "300", "EvaluationPeriods": 3}, None),
 ])
@@ -62,7 +64,7 @@ class SlowGroups(Groups, Timed):
         return out
 
 
-@pytest.mark.parametrize("grace, minutes", [(300, 10), (301, 11), (0, 5), (None, 5), ("300", 5)])
+@pytest.mark.parametrize("grace, minutes", [(300, 17), (301, 18), (0, 12), (None, 12), ("300", 12)])
 def test_a_groups_new_instances_get_their_own_grace_period_on_top(grace, minutes):
     live = _p(SlowGroups(grace, Period=60, EvaluationPeriods=2)).live("asg_restore_capacity", ASG)
     assert live["event"] == {"a-1"} and live["recover_minutes"] == minutes and "slow_start_s" not in live
