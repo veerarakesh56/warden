@@ -249,6 +249,12 @@ CHANGE_NAMES = 3
 CHANGE_MAX = 20
 _READ_VERBS = ("Describe", "Get", "List", "Lookup", "BatchGet", "Head", "Search", "Scan", "Query")
 CHANGE_PAGES = 5
+# Writes CloudTrail files WITHOUT the resource's name, so a lookup by resource name never finds them (live,
+# 2026-10-12: a schedule switched off nine minutes before its alarm was read as "CHANGE none", and the report ruled a
+# change out). For a resource of these kinds the reader also looks the writes up by event name and keeps the ones
+# whose request names the resource: (the event names, the request fields that carry the name).
+UNNAMED_WRITES = {"eventbridge_rule": (("DisableRule", "EnableRule", "PutRule", "DeleteRule", "PutTargets",
+                                        "RemoveTargets"), ("name", "rule"))}
 # Labels that qualify a resource rather than name one: never looked up as a CloudTrail resource name.
 _NOT_RESOURCES = frozenset({"lambda_qualifier", "apigw_stage", "namespace", "quota_service", "quota_resource"})
 
@@ -272,6 +278,15 @@ def _a_write(e: dict) -> bool:
 
 # A request's top-level field names are AWS's API member names (`desiredCount`, `forceNewDeployment`), never a value.
 _FIELD_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]{0,40}")
+
+
+def _request_names(e: dict, fields: tuple[str, ...], name: str) -> bool:
+    """Does this event's recorded request name the resource, in one of the fields its service uses for it?"""
+    try:
+        r = json.loads(e.get("CloudTrailEvent") or "{}").get("requestParameters")
+    except ValueError:
+        return False
+    return isinstance(r, dict) and any(str(r.get(f, "")).rsplit("/", 1)[-1] == name for f in fields)
 
 
 def _request_fields(e: dict) -> str:
@@ -801,11 +816,12 @@ class StackBackend:
         started = AwsBackend._started_at(alert)
         # The alarm's resources first (their labels), never generic dimension values (`default`, a stage name).
         names = [v for k, v in sorted(alert.labels.items()) if k in LABEL_KEYS and k not in _NOT_RESOURCES and v]
+        kind_of = {v: k for k, v in alert.labels.items() if k in UNNAMED_WRITES}
         names += [v for v in dims.values() if v not in names] if not names else []
+        window = {"StartTime": started - RECENT_DEPLOY_WINDOW, "EndTime": started + timedelta(minutes=5)}
         for n in list(dict.fromkeys(names))[:CHANGE_NAMES]:
             events, broke, truncated = [], None, False
-            kwargs = {"LookupAttributes": [{"AttributeKey": "ResourceName", "AttributeValue": n}],
-                      "StartTime": started - RECENT_DEPLOY_WINDOW, "EndTime": started + timedelta(minutes=5)}
+            kwargs = {"LookupAttributes": [{"AttributeKey": "ResourceName", "AttributeValue": n}], **window}
             for page in range(CHANGE_PAGES + 1):
                 if page == CHANGE_PAGES:
                     truncated = True
@@ -819,6 +835,19 @@ class StackBackend:
                 if not got.get("NextToken"):
                     break
                 kwargs["NextToken"] = got["NextToken"]
+            event_names, fields = UNNAMED_WRITES.get(kind_of.get(n, ""), ((), ()))
+            for event_name in event_names if broke is None else ():
+                try:
+                    got = self._ct.lookup_events(
+                        LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": event_name}], **window)
+                except Exception as exc:  # noqa: BLE001
+                    broke = exc
+                    break
+                truncated = truncated or bool(got.get("NextToken"))
+                seen = {e.get("EventId") for e in events if e.get("EventId")}
+                events += [e for e in got.get("Events") or []
+                           if e.get("EventId") not in seen and _request_names(e, fields, n)]
+            events.sort(key=lambda e: str(e.get("EventTime") or ""), reverse=True)
             writes = [e for e in events if _a_write(e)]
             for e in writes[:CHANGE_MAX]:
                 out.lines.append(f"CHANGE {_z(e.get('EventTime'))} {_safe(e.get('EventSource'))} "

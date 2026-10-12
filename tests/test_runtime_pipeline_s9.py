@@ -29,7 +29,15 @@ def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     # Tags are immutable: a commit already pushed keeps its image and signature, and is neither re-signed nor re-attested
     # here (2026-10-09: the apply after a plan of the same commit failed on the push). The deploy verifies it regardless.
     assert '--image-ids imageTag="$GITHUB_SHA"' in IMAGE_JOB and 'echo "existing=true"' in IMAGE_JOB
-    assert IMAGE_JOB.count("if: steps.push.outputs.existing != 'true'") == 2
+    # ...unless the run that pushed it died before signing (2026-10-12: the signing tool's download failed after the
+    # push, and the commit could never be deployed): an image found without a valid signature and provenance is signed
+    # and attested by this run, and the tool is installed before anything is pushed.
+    assert IMAGE_JOB.count("if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'") == 2
+    assert "if: steps.push.outputs.existing == 'true'" in IMAGE_JOB and 'echo "signed=true"' in IMAGE_JOB
+    assert IMAGE_JOB.index("sigstore/cosign-installer@") < IMAGE_JOB.index('docker push "$REPOSITORY:$GITHUB_SHA"')
+    assert IMAGE_JOB.count("sigstore/cosign-installer@") == 1
+    check = IMAGE_JOB[IMAGE_JOB.index("id: check"):IMAGE_JOB.index("Sign the digest")]
+    assert 'cosign verify "$IMAGE" --certificate-identity "$SIGNER"' in check and "gh attestation verify" in check
     assert "if:" not in DEPLOY_JOB[DEPLOY_JOB.index("Verify the signature"):DEPLOY_JOB.index("cosign verify")]
 
 

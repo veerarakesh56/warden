@@ -190,3 +190,35 @@ def test_a_change_line_names_the_fields_its_request_set_never_their_values():
     assert line.endswith(" by role/deployer request=attributes,queueUrl"), line
     assert "VisibilityTimeout" not in line and "rm" not in line
     assert evidence._kind(line) == "C"
+
+
+def test_a_change_cloudtrail_files_without_the_resources_name_is_still_found():
+    """Live, 2026-10-12 (register G10-31): a schedule was switched off nine minutes before its alarm. EventBridge's
+    write events carry no resource name, so the lookup by resource name found nothing, the reader said "CHANGE none",
+    and the report ruled a recent change out. Such writes are also looked up by event name, kept when their request
+    names the rule."""
+    def rule_event(name, rule, eid, field="name"):
+        e = _event(name)
+        e["EventSource"], e["EventId"] = "events.amazonaws.com", eid
+        e["CloudTrailEvent"] = json.dumps({**json.loads(e["CloudTrailEvent"]), "requestParameters": {field: rule}})
+        return e
+
+    recorded = [rule_event("DisableRule", "warden-dev-tick", "e-1"), rule_event("DisableRule", "another-rule", "e-2"),
+                rule_event("RemoveTargets", "warden-dev-tick", "e-3", field="rule")]
+    b, _, ct = _backend(_alarm(), [])
+
+    def lookup(**kw):
+        key, value = kw["LookupAttributes"][0]["AttributeKey"], kw["LookupAttributes"][0]["AttributeValue"]
+        return {"Events": [e for e in recorded if key == "EventName" and e["EventName"] == value]}
+
+    ct.lookup_events = lookup
+    lines = b._read_all(_alert(sqs="", eventbridge_rule="warden-dev-tick")).lines
+    changes = [ln for ln in lines if ln.startswith("CHANGE ")]
+    assert changes == [
+        "CHANGE 2026-10-10T12:00:00Z events.amazonaws.com DisableRule on warden-dev-tick by role/deployer request=name",
+        "CHANGE 2026-10-10T12:00:00Z events.amazonaws.com RemoveTargets on warden-dev-tick by role/deployer request=rule"]
+    assert not any("another-rule" in ln for ln in lines) and not any(ln.startswith("CHANGE none") for ln in lines)
+    # A resource of a kind whose events do carry its name is looked up once, as before.
+    b, _, ct = _backend(_alarm(), [])
+    b._read_all(_alert())
+    assert [kw["LookupAttributes"][0]["AttributeKey"] for name, kw in ct.calls if name == "lookup_events"] == ["ResourceName"]

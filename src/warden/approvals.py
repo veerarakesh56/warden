@@ -125,6 +125,14 @@ class ApproverPolicy(BaseModel):
             return approver
         return f"{entry.name} ({approver}{', ' + entry.team if entry.team.strip() else ''})"
 
+    def said(self, approver: str) -> str:
+        """The approver as a MESSAGE names them. A typed name proves nothing to its readers (owner, 2026-10-12: "if
+        they wanted to, they would write a different name"), so with a Slack member id the message carries the id
+        only and Slack's own mention beside it - Slack shows that member's real profile, and the member is told.
+        Without one, the name from the list."""
+        entry = self.approvers.get(approver)
+        return approver if entry and entry.slack else self.shown(approver)
+
     def slack_ids(self, approvers: list[str]) -> tuple[str, ...]:
         """The Slack member ids of these approvers, for the mention a message carries beside its text."""
         return tuple(dict.fromkeys(self.approvers[a].slack for a in approvers

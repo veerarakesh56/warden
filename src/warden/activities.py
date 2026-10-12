@@ -300,10 +300,10 @@ class RemediationActivities:
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
         # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
         # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
-        may = [f"`{self.policy.shown(name)}`" for name, a in sorted(self.policy.approvers.items())
+        may = [f"`{self.policy.said(name)}`" for name, a in sorted(self.policy.approvers.items())
                if plan.tier in a.tiers]
         need = self.policy.required.get(plan.tier, 1)
-        did = sorted({f"`{self.policy.shown(str(b.get('approver')))}` (with their "
+        did = sorted({f"`{self.policy.said(str(b.get('approver')))}` (with their "
                       f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})"
                       for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
                       if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()

@@ -287,7 +287,12 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
     monkeypatch.setattr(chatops, "notify", lambda report, **kw: seen.append(report) or real(report, **kw))
     out = _run(world, _approve_with(owner))
     assert out.status == "recovered" and all(r.mentions == (member,) for r in seen), [r.mentions for r in seen]
-    assert "approved by `Asha Rao (owner, Platform)` (with their signing key)" in sink.texts[0]
+    # With a member id the text carries the id only: Slack's mention, not a typed name, says who that is.
+    assert "approved by `owner` (with their signing key)" in sink.texts[0] and "Asha" not in sink.texts[0]
+    assert world["policy"].shown("owner") == "Asha Rao (owner, Platform)"  # the approval page's own view
+    world["policy"].approvers["owner"].slack = ""
+    assert world["policy"].said("owner") == "Asha Rao (owner, Platform)"
+    world["policy"].approvers["owner"].slack = member
     # The mention is put after the gated, escaped text, and only an id of exactly Slack's shape becomes one.
     assert chatops.mentions([member, member, "<!channel>", "U1", "not an id", None]) == f"<@{member}>"
     assert chatops.to_slack_mrkdwn(f"<@{member}>") == f"&lt;@{member}&gt;"  # one typed into a message is only text
