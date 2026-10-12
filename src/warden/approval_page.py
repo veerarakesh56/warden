@@ -37,7 +37,10 @@ from . import approvals, passkeys
 from .approvals import ApproverPolicy, PasskeyAssertion, PasskeyCredential
 from .environments import both_times
 
-LINK_TTL = timedelta(minutes=15)
+LINK_TTL = timedelta(minutes=15)  # an enrolment's or a reset's link, and the least an approval link lasts
+# An approval link lasts as long as its plan waits (activities._approval_links): at most a week, so that far back
+# the Lambda's store looks for it.
+LINK_LIFE_MAX = timedelta(days=8)
 TYPED_TIERS = frozenset({"T2", "T3"})
 VIEW = "view"  # the tier and plan hash of the who-are-you challenge: no plan is ever "view"
 ENROL = "enrol"  # likewise for an enrolment's challenge
@@ -119,7 +122,7 @@ class AuditLinkStore:
         return hashlib.sha256(token.encode()).hexdigest()
 
     def _rows(self, kind: str, key: str) -> list[dict]:
-        since = self.clock() - LINK_TTL - timedelta(hours=1)
+        since = self.clock() - LINK_LIFE_MAX
         return [e["body"] for e in self.log.entries(kinds=(kind,), since=since) if e["body"].get("key") == key]
 
     def add_link(self, token: str, link: Link) -> None:
@@ -695,7 +698,9 @@ function countdown(seconds) {
   const end = Date.now() + seconds * 1000;
   const tick = () => {
     const left = Math.max(0, Math.round((end - Date.now()) / 1000));
-    $("left").textContent = "This link works for " + Math.floor(left / 60) + " min " + (left % 60) + " s more.";
+    const h = Math.floor(left / 3600), m = Math.floor(left % 3600 / 60);
+    $("left").textContent = "This link works for " + (h ? h + " h " + m + " min" : m + " min " + (left % 60) + " s") +
+                            " more.";
     $("left").hidden = false;
     if (left === 0) { clearInterval(ticking); $("acts").hidden = true; $("left").hidden = true; say(GONE, "bad"); }
   };

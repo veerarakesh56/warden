@@ -55,6 +55,14 @@ def _actions(sid: str, kfield: str, values: Any) -> frozenset[ActionKind]:
     return frozenset(out)
 
 
+# How long a fix plan waits for its approval (owner, 2026-10-12: "people won't see it immediately; sometimes they decide
+# after a discussion" - a 30-minute plan behind a 15-minute link ran out on a person twice in one day). A plan made hours
+# ago is still safe to approve: the target is read again before anything is applied, and a target that moved is refused.
+# Per environment (`approval_wait_hours`), never past a week.
+APPROVAL_WAIT_HOURS = 24
+MAX_APPROVAL_WAIT_HOURS = 7 * 24
+
+
 @dataclass(frozen=True)
 class EnvPolicy:
     name: str
@@ -72,6 +80,7 @@ class EnvPolicy:
     # The injection tripwire in this environment: off, on, or required (register R47). The stricter of this and
     # WARDEN_TRIPWIRE applies.
     tripwire: str = "off"
+    approval_wait_hours: int = APPROVAL_WAIT_HOURS
 
     def permits(self, action: ActionKind) -> bool:
         """Is `action` admissible in this environment? Deny wins over allow."""
@@ -118,6 +127,7 @@ class EnvironmentPolicies:
             authorized_principals=self._default.authorized_principals,
             credentials_ref=self._default.credentials_ref,
             tripwire=self._default.tripwire,
+            approval_wait_hours=self._default.approval_wait_hours,
         )
 
     @property
@@ -199,12 +209,21 @@ class EnvironmentPolicies:
             authorized_principals=frozenset(str(p) for p in principals),
             credentials_ref=raw.get("credentials_ref"),
             tripwire=_tripwire(name, raw),
+            approval_wait_hours=_wait_hours(name, raw),
         )
 
 
 _ENV_NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
 _GITHUB = {"repository": re.compile(r"[A-Za-z0-9][\w.-]*/[\w.-]+"),
            "subject": re.compile(r"[A-Za-z0-9][\w.-]*@\d+/[\w.-]+@\d+")}
+
+
+def _wait_hours(name: str, raw: dict[str, Any]) -> int:
+    value = raw.get("approval_wait_hours", APPROVAL_WAIT_HOURS)
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_APPROVAL_WAIT_HOURS:
+        raise EnvironmentPolicyError(f"{name}: approval_wait_hours must be a whole number of hours from 1 to "
+                                     f"{MAX_APPROVAL_WAIT_HOURS}, not {value!r}")
+    return value
 
 
 def _tripwire(name: str, raw: dict[str, Any]) -> str:

@@ -308,6 +308,12 @@ def request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tuple
         return state
 
     request, why = _request_for(alert, proposal, reading)
+    if request:
+        # How long the plan waits for its approval is the environment's own setting (environments.yaml).
+        from .environments import default_environment_policies
+
+        request["approval_ttl_minutes"] = default_environment_policies().for_env(
+            alert.environment).approval_wait_hours * 60
     if request and request["entry"] in windows:
         lo, hi = RECOVER_MINUTES
         request["recover_within_minutes"] = min(max(windows[request["entry"]], lo), hi)

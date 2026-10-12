@@ -29,7 +29,7 @@ from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
 from .observability import _safe_error
 
-MAX_APPROVAL_TTL_MINUTES = 240
+MAX_APPROVAL_TTL_MINUTES = environments.MAX_APPROVAL_WAIT_HOURS * 60  # a week: one timer, whatever its length
 MAX_RECOVER_WITHIN_MINUTES = 120
 
 
@@ -107,6 +107,8 @@ class Plan(BaseModel):
     # `<environment>/<catalog.target_key>`: what the bounds and the mutex key on.
     target: str = ""
     environment: str = ""
+    # How long this plan waits for its approval, as the request asked: what its links and its messages go by.
+    approval_ttl_minutes: int = 0
     # What the plan was made under, in its hash (register O5): the environment, the catalogue, WARDEN's code and
     # the incident's record at that moment.
     basis: dict[str, str] = Field(default_factory=dict)
@@ -204,6 +206,11 @@ def _environment_problems(env: str, entry: catalog.Entry, params: dict[str, Any]
     return problems
 
 
+def _deadline(plan: Plan) -> datetime:
+    """Until when this plan waits for its approval. A plan recorded before it carried its own wait: the old half hour."""
+    return plan.created_at + timedelta(minutes=plan.approval_ttl_minutes or 30)
+
+
 def _basis_now(plan: Plan) -> dict[str, str]:
     return {**plan.basis, "catalog": catalog.fingerprint(), "code": code_version()}
 
@@ -249,7 +256,8 @@ class RemediationActivities:
         plan = Plan(workflow_id=workflow_id, incident_id=req.incident_id, entry=req.entry,
                     tier=entry.tier if entry else "", params=req.params, snapshot=snapshot,
                     plan_hash=plan_hash(req.entry, req.params, snapshot, basis), created_at=datetime.now(UTC),
-                    problems=problems, target=key, environment=req.environment, basis=basis)
+                    problems=problems, target=key, environment=req.environment, basis=basis,
+                    approval_ttl_minutes=req.approval_ttl_minutes)
         self.audit.append(req.incident_id, "remediation.plan",
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
@@ -309,7 +317,9 @@ class RemediationActivities:
                       if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
                       and b.get("plan_hash") == plan.plan_hash})
         said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval: "
-                            f"`warden status {plan.workflow_id}`. Unapproved, it expires and nothing is changed. "
+                            f"`warden status {plan.workflow_id}`. It waits until "
+                            f"{environments.both_times(_deadline(plan), seconds=False)}; unapproved by then, it expires "
+                            "and nothing is changed. "
                             f"Only {' or '.join(may) or 'an enrolled approver'} can approve it"
                             + (f", and {need} different approvers are needed" if need > 1 else "")
                             + ": a link opens for nobody else."),
@@ -350,7 +360,8 @@ class RemediationActivities:
 
     def _approval_links(self, plan: Plan) -> tuple[tuple[str, str], ...]:
         """One approval-page link per approver who may approve this tier and has a passkey enrolled (registers H6,
-        R28), each valid for 15 minutes and recorded in the audit by its hash only. None without an approval domain
+        R28), each valid for as long as the plan waits and recorded in the audit by its hash only - a link shows and
+        does nothing without the approver's passkey, so its life is the plan's. None without an approval domain
         (WARDEN_APPROVAL_RP_ID)."""
         import secrets as _secrets
 
@@ -363,7 +374,7 @@ class RemediationActivities:
         for name, approver in sorted(self.policy.approvers.items()):
             if plan.tier in approver.tiers and approver.passkeys:
                 token = _secrets.token_urlsafe(32)
-                store.add_link(token, Link(plan.workflow_id, name, now + LINK_TTL))
+                store.add_link(token, Link(plan.workflow_id, name, max(_deadline(plan), now + LINK_TTL)))
                 out.append((f"Approve as {name}", f"https://{rp}/a/{token}"))
         return tuple(out)
 
