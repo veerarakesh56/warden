@@ -252,16 +252,75 @@ def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fift
     ids = records.incident_ids(log)
     assert len(ids) == 120 and ids[-1] == old and ids[0] == f"{118:016x}-20261013T{118:06d}Z"  # newest first
 
-    page = dataclasses.replace(page_setup[0], log=log)  # no Slack app here: the page needs no sign-in
-    first, last, beyond = (page.handle("GET", "/r", query=q) for q in ("", "page=3", "page=99"))
+    policy = _named(page_setup[0].policy)
+    policy.approvers["owner"].slack = MEMBER
+    page = dataclasses.replace(page_setup[0], log=log, policy=policy, slack=_login(Slack()))
+    me = ["warden_who=" + slack_login.remember(page.slack, MEMBER)]
+    first, last, beyond = (page.handle("GET", "/r", query=q, cookies=me) for q in ("", "page=3", "page=99"))
     assert first.body.count('<details class="row">') == 50 and "Page 1 of 3" in first.body
     assert "120 incidents on the record" in first.body and 'href="/r?page=2" rel="next">Older' in first.body
     assert last.body.count('<details class="row">') == 20 and "Page 3 of 3" in last.body
     assert old in last.body and "Tuesday 14 October 2025" in last.body and 'rel="prev">Newer' in last.body
     assert beyond.body == last.body.replace(_nonce(last), _nonce(beyond))  # past the end: the last page
-    assert page.handle("GET", f"/r/{old}").status == 200  # a year on, its own page still opens
+    assert page.handle("GET", f"/r/{old}", cookies=me).status == 200  # a year on, its own page still opens
     assert '<h2 class="day">' in first.body and "Tuesday 13 October 2026" in first.body
+
+
+def test_independent_check_fixes_the_records_close_without_sign_in_name_people_and_show_what_was_said(
+        page_setup, tmp_path):  # noqa: F811
+    """The independent check, 2026-10-14: the records were open to anyone where no Slack sign-in was set up; a refused
+    approval's reason named the list's id; the messages kept instead of posted were not shown, every one labelled
+    "Asked for approval"; the list read every incident's whole evidence."""
+    log = _log(tmp_path)
+    _incident(log)
+    log.append(INC, "approval.refused", {"approver": "owner", "problems": ["owner may not approve T3"]})
+    log.append(INC, "remediation.announce", {"what": "waiting", "delivered": ["slack"]})
+    log.append(INC, "remediation.announce", {"what": "approved", "delivered": [], "recorded_only": True,
+                                             "said": "WARDEN's plan was approved by `owner` at 09:00"})
+    log.append(INC, "incident.evidence", {"prompt": "L1 kept evidence", "sha256": "x"})
+    page = dataclasses.replace(page_setup[0], log=log, slack=None)
+    for path in ("/r", f"/r/{INC}"):
+        out = page.handle("GET", path)
+        assert out.status == 503 and INC not in out.body and "Sign-in is not set up" in out.body
+    r = records.record(log, INC, _named(page_setup[0].policy))
+    one = records.incident_page(r)
+    assert "Asha Rao may not approve T3" in one and "owner" not in one.replace("WARDEN", "")
+    assert "What WARDEN told people" in one and "Asked for approval</strong>" in one
+    assert "Approved</strong>" in one and "kept here, not posted" in one and "approved by `Asha Rao`" in one
+    assert "passed its checks - waits for a person" in one  # the verdict in words, not approved_for_human
+    light = records.record(log, INC, _named(page_setup[0].policy), light=True)
+    assert light.evidence == "" and light.report == "" and r.evidence == "L1 kept evidence"
 
 
 def _nonce(r):
     return r.headers["Content-Security-Policy"].split("'nonce-")[1].split("'")[0]
+
+
+def test_an_incident_whose_fix_run_ends_before_any_message_still_gets_its_one_message(tmp_path, monkeypatch):
+    """The independent check, 2026-10-14: a run that failed or was cancelled before asking for approval - or a
+    runtime with no approval domain - left the channel with nothing. The summary goes out once, whatever comes first."""
+    from test_approval_links_h6 import _policy, _Sink
+    from warden.activities import RemediationActivities
+
+    monkeypatch.delenv("WARDEN_APPROVAL_RP_ID", raising=False)
+    sink = _Sink()
+    monkeypatch.setattr(chatops, "resolve_sinks", lambda threads=None: [sink])
+    log = _log(tmp_path)
+    report = "# WARDEN incident report - tick (dev)\n\n## Summary\n- the summary\n\n## What WARDEN read\n- the rest"
+    log.append(INC, "incident.report", {"markdown": report})
+    acts = RemediationActivities(audit=log, policy=_policy(), platform=None)
+    assert acts.summary_owed(INC, "failed") == ["test"]
+    [said] = sink.sent
+    assert said.startswith("# WARDEN incident report - tick (dev)") and "- the summary" in said
+    assert "ended `failed` before it reached a decision" in said and "the rest" not in said
+    assert acts.summary_owed(INC, "cancelled") == [] and len(sink.sent) == 1  # once, never twice
+    # A fresh incident whose summary went nowhere: the first message about its plan carries it, even with no domain.
+    other = "fedcba9876543210-20261014T090000Z"
+    log.append(other, "incident.report", {"markdown": report})
+    assert not acts._summary_said(other)
+    log.append(other, "remediation.announce", {"what": "waiting", "delivered": ["test"], "summary": True})
+    assert acts._summary_said(other)
+    src = (ROOT / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
+    assert "return []  # no approval domain" not in src  # the request goes without buttons, never not at all
+    flow = (ROOT / "src" / "warden" / "workflows.py").read_text(encoding="utf-8")
+    assert 'elif workflow.patched("g10-summary-owed"):' in flow and "acts.summary_owed" in flow

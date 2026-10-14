@@ -387,13 +387,16 @@ class ApprovalPage:
 
         if method != "GET" or len(parts) > 1:
             return _json(404, {"error": "not found"})
-        if self.slack is not None:
-            value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
-            member = remembered(self.slack, value) if value else ""
-            if not member:
-                return self._served_html(200, records.signed_out_page("/s/r"))
-            if not self._may_read(member):
-                return self._served_html(403, records.refused_page())
+        if self.slack is None:
+            # The records have no passkey behind them: with no Slack sign-in to say who is reading, nobody reads them
+            # (independent check, 2026-10-14: they were open to anyone where the runtime had no Slack app).
+            return self._served_html(503, records.unavailable_page())
+        value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+        member = remembered(self.slack, value) if value else ""
+        if not member:
+            return self._served_html(200, records.signed_out_page("/s/r"))
+        if not self._may_read(member):
+            return self._served_html(403, records.refused_page())
         if self.log is None:
             return _json(503, {"error": "the record cannot be read here"})
         if not parts or not parts[0]:
@@ -404,7 +407,7 @@ class ApprovalPage:
             asked = urllib.parse.parse_qs(query).get("page", ["1"])[0]
             page = min(max(int(asked) if asked.isdigit() else 1, 1), pages)
             shown = ids[(page - 1) * records.PER_PAGE:page * records.PER_PAGE]
-            found = [records.record(self.log, i, self.policy) for i in shown]
+            found = [records.record(self.log, i, self.policy, light=True) for i in shown]
             return self._served_html(200, records.list_page([r for r in found if r is not None], page=page,
                                                             pages=pages, total=len(ids)))
         one = records.record(self.log, parts[0], self.policy) if not parts[0].startswith("discuss-") else None

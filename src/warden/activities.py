@@ -336,8 +336,8 @@ class RemediationActivities:
         actions = self._approval_links(plan) if what in ("opening", "waiting") else ()
         opening = what == "opening"
         if opening:
-            if not actions:
-                return []  # no approval domain: the incident's report already said a plan waits
+            # With no approval domain the request still goes, without its buttons: the incident's one message is
+            # never nothing (independent check, 2026-10-14).
             what = "waiting"
         why: list[str] = []
         whole: list[str] = []
@@ -433,9 +433,13 @@ class RemediationActivities:
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
         if actions:
             said += " Approve with your passkey on the page below; it shows the exact plan first."
+        # The incident's summary leads the first message about it that reaches the channel - the request for approval,
+        # or how the run ended if it ended first (independent check, 2026-10-14: a refused or blocked run sent one
+        # line, and the incident's summary never reached anyone).
         reports = [e["body"].get("markdown", "") for e in self.audit.entries(plan.incident_id, kinds=("incident.report",))]
-        if opening and reports and reports[-1]:
-            said = slack_summary(str(reports[-1])) + "\n\n**Fix plan:** " + said  # the incident's one message
+        owed = bool(what not in RECORDED_ONLY and reports and reports[-1] and not self._summary_said(plan.incident_id))
+        if owed:
+            said = slack_summary(str(reports[-1])) + "\n\n**Fix plan:** " + said
         actions = (*actions, *IncidentActivities._record_link(plan.incident_id))
         # Who approved is mentioned where the message says so. A request for an approval names and mentions nobody.
         message = Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=(),
@@ -458,9 +462,40 @@ class RemediationActivities:
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,
-                                                                     "head": head, "delivered": delivered})
+                                                                     "head": head, "delivered": delivered,
+                                                                     "summary": owed})
         if what in OUTCOME or why:
             self.audit.checkpoint()  # said after the end row: a run's record still ends signed
+        return delivered
+
+    def _summary_said(self, incident: str) -> bool:
+        """The incident's summary already reached someone: in its report's own message, or at the top of one about
+        its plan."""
+        rows = self.audit.entries(incident, kinds=("incident.notify", "remediation.announce"))
+        return any(e["body"].get("summary") and e["body"].get("delivered") for e in rows)
+
+    @activity.defn
+    def summary_owed(self, incident_id: str, status: str) -> list[str]:
+        """The incident's one message, when its fix run ended in a way that tells nobody (failed, cancelled, or before
+        a plan was made) and no message has carried its summary yet (independent check, 2026-10-14: the channel was
+        left with nothing at all)."""
+        from .chatops import notify as send
+        from .reporting import Report
+
+        reports = [e["body"].get("markdown", "") for e in self.audit.entries(incident_id, kinds=("incident.report",))]
+        if not reports or not reports[-1] or self._summary_said(incident_id):
+            return []
+        self.audit.checkpoint()
+        head = self.audit.head(incident_id)
+        said = (slack_summary(str(reports[-1])) + f"\n\n**Fix plan:** WARDEN's fix plan for this incident ended "
+                f"`{status}` before it reached a decision. A person decides what happens next; its full record says why."
+                f"\n\n---\nWARDEN · incident `{incident_id}` · audit head `{audit.short(head)}` · check it with "
+                f"`warden audit show {incident_id}`. Approvals are signed out of band, never given in chat.")
+        sent = send(Report(markdown=said, data={"alert": {"id": incident_id}}, promotion=(),
+                           actions=IncidentActivities._record_link(incident_id)), threads=AuditThreads(self.audit))
+        delivered = [n.sink for n in sent if n.delivered]
+        self.audit.append(incident_id, "remediation.announce", {"run_id": _run_id(), "what": status, "head": head,
+                                                                "delivered": delivered, "summary": True})
         return delivered
 
     def _approval_links(self, plan: Plan) -> tuple[tuple[str, str], ...]:
@@ -1168,7 +1203,8 @@ class IncidentActivities:
         sent = send(dataclasses.replace(report, markdown=markdown, people=people), threads=AuditThreads(self.audit))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
                                                         "sinks": [n.sink for n in sent],
-                                                        "delivered": [n.sink for n in sent if n.delivered]})
+                                                        "delivered": [n.sink for n in sent if n.delivered],
+                                                        "summary": mode == "none"})
         return [n.sink for n in sent if n.delivered]
 
     @staticmethod

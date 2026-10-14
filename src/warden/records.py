@@ -48,6 +48,15 @@ STEP = {
     "workflow.end": "Fix run ended", "change.recorded": "Change recorded", "discuss.turn": "Asked about in the discussion",
     "discuss.answer": "WARDEN answered in the discussion", "discuss.reply": "Answer posted",
 }
+# What each message about a fix plan was, by its `what` (activities.announce).
+TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
+        "verified": "Fixed - its health checks passed", "recovered": "Fixed and held", "relapsed": "Failed again",
+        "rolled_back": "Did not work - undone", "not_recovered": "Did not work", "drifted": "Target changed",
+        "refused_at_apply": "Not applied", "rollback_failed": "Undo failed", "apply_failed": "Apply failed",
+        "refused": "Refused before asking", "blocked": "Blocked before asking"}
+# A verdict and a plan's state in words, where the step table would show the machine's.
+PLAIN = {"approved_for_human": "passed its checks - waits for a person", "escalated": "sent to a person",
+         "rejected": "refused", "ran": "ran", "off": "off"}
 _QUIET = {"incident.llm_spend", "incident.llm_reserve", "approval.challenge", "approval.challenge_taken",
           "approval.link", "approval.link_used", "chatops.thread", "discuss.reply"}
 
@@ -81,6 +90,7 @@ class Record:
     evidence: str = ""  # what the model was shown, as kept with the incident (incident.evidence)
     rows: list[dict[str, Any]] = field(default_factory=list)
     shown: Any = None  # approver id -> the name a reader sees; never the list's id
+    named: Any = None  # a machine text with each approver id replaced by their name
 
 
 def incident_ids(log: Any) -> list[str]:
@@ -96,21 +106,31 @@ def incident_ids(log: Any) -> list[str]:
     return sorted(seen, key=lambda c: seen[c], reverse=True)
 
 
-def record(log: Any, incident: str, policy: Any = None) -> Record | None:
-    """One incident from its rows; None when the record holds nothing for it."""
+def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) -> Record | None:
+    """One incident from its rows; None when the record holds nothing for it. `light`: for the list - every row but
+    the kept evidence and the whole report, which only the incident's own page shows."""
     from . import approvals
 
     rows = log.entries(incident)
+    if light:
+        rows = [e for e in rows if e["kind"] not in ("incident.evidence", "incident.report")]
     if not rows:
         return None
     r = Record(id=incident, first=rows[0]["at"], last=rows[-1]["at"], rows=rows)
+    ids = sorted(getattr(policy, "approvers", {}) if policy is not None else {}, key=len, reverse=True)
 
     def shown(approver: str) -> str:
         if policy is not None and approver in getattr(policy, "approvers", {}):
             return policy.shown(approver)
         return "an approver"  # never the list's id
 
-    r.shown = shown
+    def named(text: str) -> str:
+        """Machine text that names an approver by the list's id (a refusal's problems), with their name instead."""
+        for a in ids:
+            text = re.sub(rf"(?<![A-Za-z0-9._-]){re.escape(a)}(?![A-Za-z0-9._-])", shown(a), text)
+        return text
+
+    r.shown, r.named = shown, named
 
     for e in rows:
         kind, b = e["kind"], e["body"]
@@ -151,7 +171,7 @@ def record(log: Any, incident: str, policy: Any = None) -> Record | None:
                                 "hasty": bool(b.get("hasty")), "latency": b.get("latency_s")})
             r.flags += [f"A note from {shown(str(b.get('approver')))} held {t}." for t in approvals.note_tries(note)]
         elif kind == "approval.refused":
-            r.flags.append("An approval was refused: " + "; ".join(str(p) for p in (b.get("problems") or [])[:3]))
+            r.flags.append("An approval was refused: " + named("; ".join(str(p) for p in (b.get("problems") or [])[:3])))
         elif kind == "discuss.turn":
             r.asked += 1
         elif kind == "discuss.answer" and b.get("asks_for_change") and not b.get("approver"):
@@ -285,9 +305,25 @@ def incident_page(r: Record) -> str:
     for e in r.rows:
         if e["kind"] in _QUIET:
             continue
-        said = STEP.get(e["kind"], e["kind"])
+        said = (TOLD.get(str(e["body"].get("what")), "Told people how the fix ended")
+                if e["kind"] == "remediation.announce" else STEP.get(e["kind"], e["kind"]))
+        brief = _brief(e, r.shown)
         steps.append(f'<tr><td><time>{_e(_when(e["at"]))}</time></td><td>{_e(said)}</td>'
-                     f'<td class="mono small">{_e(_brief(e, r.shown))}</td></tr>')
+                     f'<td class="small">{_e(r.named(brief) if r.named else brief)}</td></tr>')
+    told = [e for e in r.rows if e["kind"] == "remediation.announce"]
+    if told:
+        lines = []
+        for e in told:
+            b = e["body"]
+            where = ("kept here, not posted" if b.get("recorded_only")
+                     else "posted in the alerts channel" if b.get("delivered") else "not delivered")
+            text = f'<blockquote class="note">{_e(r.named(str(b["said"])) if r.named else b["said"])}</blockquote>' \
+                if b.get("said") else ""
+            lines.append(f'<li><p><strong>{_e(TOLD.get(str(b.get("what")), "How the fix ended"))}</strong> - '
+                         f'<time>{_e(_when(e["at"]))}</time> - {_e(where)}</p>{text}</li>')
+        told_html = '<h2>What WARDEN told people</h2><ul class="decisions">' + "".join(lines) + "</ul>"
+    else:
+        told_html = ""
     report = ""
     if r.report:
         report = ('<h2>Complete findings</h2><p class="lede">Everything WARDEN found and proposed, as its report says '
@@ -300,7 +336,7 @@ def incident_page(r: Record) -> str:
             f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
             f'<h2>Decisions</h2>{_decisions(r)}'
-            f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{report}'
+            f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
             f'<tbody>{"".join(steps)}</tbody></table></div></details>')
@@ -407,6 +443,8 @@ def _brief(e: dict[str, Any], shown: Any = None) -> str:
             if k == "reasons":
                 v = [f"denied by {shown(m.group(1)) if shown else 'an approver'}" if (m := _DENIED.match(str(w)))
                      else str(w) for w in v]
+            if k in ("status", "verdict") and str(v) in PLAIN:
+                v = PLAIN[str(v)]
             parts.append(f"{k}: {', '.join(map(str, v)) if isinstance(v, list) else v}")
     return "; ".join(parts)[:400]
 
@@ -420,6 +458,11 @@ def signed_out_page(go: str) -> str:
 def missing_page() -> str:
     return _shell("WARDEN records", "Records", "<h1>No such incident</h1><p class=\"lede\">WARDEN's record holds "
                   "nothing under that id. <a href=\"/r\">See every incident</a>.</p>")
+
+
+def unavailable_page() -> str:
+    return _shell("WARDEN records", "Records", "<h1>Sign-in is not set up</h1><p class=\"lede\">WARDEN's records open "
+                  "only after Slack says who is reading, and this runtime has no Slack sign-in configured.</p>")
 
 
 def refused_page() -> str:

@@ -77,7 +77,7 @@ MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
-         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply"),
+         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
          "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
@@ -183,6 +183,12 @@ class RemediationWorkflow:
             if self._plan is not None and status in TOLD and workflow.patched("g10-outcome"):
                 with contextlib.suppress(ActivityError):
                     await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[self._plan, "ended"], **NOTIFY)
+            elif workflow.patched("g10-summary-owed"):
+                # An end that tells nobody - failed, cancelled, or before a plan was made: the incident's one message,
+                # if nothing has carried its summary yet (activities.summary_owed).
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity_method(acts.summary_owed, **_zoned(acts.summary_owed),
+                                                           args=[req.incident_id, status], **NOTIFY)
             return outcome.model_copy(update={"checklist": dict(done)})
 
         try:

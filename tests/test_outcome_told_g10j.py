@@ -54,7 +54,7 @@ def _whats(world):  # noqa: F811
 def test_a_fix_that_did_not_work_and_was_undone_is_said_with_its_reason(world, owner, sink):  # noqa: F811
     world["platform"].healthy_after = None
     out = _run(world, _approve_with(owner))
-    assert out.status == "rolled_back" and _whats(world) == ["approved", "rolled_back"]
+    assert out.status == "rolled_back" and _whats(world) == ["waiting", "approved", "rolled_back"]
     assert "Approved by `owner` (with their signing key)." in sink.texts[-1]
     assert "did not work, so WARDEN undid it" in sink.texts[-1] and "Why: orders did not recover within" in sink.texts[-1]
     assert "audit head" in sink.texts[-1] and "kill switch" not in sink.texts[-1]
@@ -69,7 +69,7 @@ def test_an_approved_plan_the_platform_refused_is_said_as_nothing_changed(world,
 
     world["platform"].apply = refuse
     out = _run(world, _approve_with(owner))
-    assert out.status == "refused_at_apply" and _whats(world) == ["approved", "refused_at_apply"]
+    assert out.status == "refused_at_apply" and _whats(world) == ["waiting", "approved", "refused_at_apply"]
     assert "did not apply the approved plan `k8s_rollout_undo`" in sink.texts[-1]
     assert "nothing was changed" in sink.texts[-1] and "no longer has 3 replica(s)" in sink.texts[-1]
 
@@ -84,7 +84,8 @@ def test_an_end_that_leaves_the_target_unknown_says_every_fix_is_stopped(world, 
 
 def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink):  # noqa: F811
     out = _run(world, _no_approval)
-    assert out.status == "expired" and _whats(world) == ["waiting", "expired"]  # not a third "ended" message
+    # The request, its halfway reminder, the expiry - not a further "ended" message.
+    assert out.status == "expired" and _whats(world) == ["waiting", "waiting", "expired"]
     assert f"(T2 - {approvals.TIER_MEANS['T2']}) is waiting for an approval" in sink.texts[0]
     # A request names nobody (owner, 2026-10-12): who decided is said when they have.
     assert ("Only an enrolled approver of this risk level can approve it: the link opens for nobody else, and who "
@@ -300,7 +301,8 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
     # (owner, 2026-10-12: "don't use owner at all anywhere ... it feels unprofessional").
     # Approved and fixed are kept for the records page (G10-46), named the same way as any reader but Slack.
     told = recorded(world["log"])
-    assert sink.texts == [] and "approved by `Asha Rao (Platform)` (with their signing key)" in told[0]
+    assert len(sink.texts) == 1 and "approved by `Asha Rao (Platform)` (with their signing key)" in told[0]
+    assert "owner" not in sink.texts[0].split("---")[0]  # the request names nobody
     assert "@@" not in "".join(told) and not any("owner" in t for t in told)
     assert world["policy"].shown("owner") == "Asha Rao (Platform)" and world["policy"].said("owner") == "@@owner@@"
     world["policy"].approvers["owner"].name = ""
@@ -366,7 +368,7 @@ def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, 
                                                             plan_hash=plan.plan_hash, reason=typed))
 
     out = _run(world, deny)
-    assert out.status == "denied" and _whats(world) == ["denied"]
+    assert out.status == "denied" and _whats(world) == ["waiting", "denied"]
     said = recorded(world["log"])[-1]
     assert not any("was denied" in t for t in sink.texts)  # on the records page, not in the channel
     assert re.search(r"was denied by `Asha Rao` \(with their passkey\) at \d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ", said)

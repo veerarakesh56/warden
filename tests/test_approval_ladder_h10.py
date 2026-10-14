@@ -49,11 +49,13 @@ def sink(monkeypatch):
 def test_an_unapproved_plan_is_reminded_halfway_then_reported_expired(world, sink):  # noqa: F811
     out = _run(world, _no_approval)
     assert out.status == "expired" and world["platform"].applied == []
-    assert len(sink.texts) == 2, sink.texts
-    assert "is waiting for an approval" in sink.texts[0] and "expired without an approval" in sink.texts[1]
+    # The request as the wait opens (sent even with no approval domain: never nothing), the halfway reminder, the
+    # expiry.
+    assert len(sink.texts) == 3, sink.texts
+    assert all("is waiting for an approval" in t for t in sink.texts[:2]) and "expired without an approval" in sink.texts[2]
     assert all("audit head" in t and "incident `inc-42`" in t for t in sink.texts)
     whats = [e["body"]["what"] for e in world["log"].entries("inc-42", kinds=("remediation.announce",))]
-    assert whats == ["waiting", "expired"]
+    assert whats == ["waiting", "waiting", "expired"]
 
 
 def test_a_plan_approved_in_time_gets_no_reminder_and_its_approvers_are_told_how_it_went(world, owner, sink):  # noqa: F811
@@ -62,7 +64,8 @@ def test_a_plan_approved_in_time_gets_no_reminder_and_its_approvers_are_told_how
     out = _run(world, _approve_with(owner))
     # Nothing in the channel: approved and fixed are on the records page (owner, 2026-10-14), worded as before.
     told = recorded(world["log"])
-    assert out.status == "recovered" and sink.texts == [] and len(told) == 3, (sink.texts, told)
+    assert out.status == "recovered" and len(sink.texts) == 1 and len(told) == 3, (sink.texts, told)
+    assert "is waiting for an approval" in sink.texts[0]  # only the request reached the channel
     assert "was approved by `owner` (with their signing key)" in told[0]
     assert "passed its health checks" in told[1] and "held through its re-checks" in told[2]
     assert not any("waiting for an approval" in t or "expired" in t for t in told)

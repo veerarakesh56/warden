@@ -19,7 +19,7 @@ from warden.workflows import IncidentWorkflow
 
 EVERY = {"after_hold", "prepare", "investigate", "plan_fix", "diagnose", "verify", "notify", "no_plan", "resolve_plan", "gate", "announce", "check_approval",
          "check_passkey", "precheck", "apply", "check_success", "record_result", "rollback", "finish",
-         "discuss_thread", "discuss_evidence", "discuss_answer", "discuss_reply", "discuss_replan"}
+         "discuss_thread", "discuss_evidence", "discuss_answer", "discuss_reply", "discuss_replan", "summary_owed"}
 
 
 def test_every_activity_is_in_exactly_one_zone_and_the_actors_and_model_are_alone():

@@ -602,11 +602,11 @@ flowchart TB
         GATE[gate: bounds, cool-down, kill switch,<br/>change freeze, approval-fatigue cap<br/><i>bounds, freeze</i>]
         APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
         APPLY[precheck - apply - check_success<br/>K=3, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered]
-        FIN[finish: audit row, change record<br/><i>changes.py</i>]
+        FIN[finish: audit row, change record<br/>summary_owed: the incident's one message<br/>when a run ends before any said it<br/><i>changes.py</i>]
         PLAN --> GATE --> APPR --> APPLY --> FIN
     end
     RW --> PLAN
-    APPR -.->|"announce: waiting, expired,<br/>verified, how it ended (H10)"| NOTE
+    APPR -.->|"announce: the request with the incident's summary,<br/>expired, how it ended (H10); approved, denied and<br/>fixed kept on the records page (records.py)"| NOTE
 
     subgraph PEOPLE[People]
         SIGN[warden approve<br/>Ed25519 break-glass key]
