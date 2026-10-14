@@ -287,3 +287,30 @@ def test_what_intake_decided_and_what_a_held_alarm_turned_out_to_be_are_each_one
                 update={"alert_id": "fp9-20261014T040000Z"}), "why")
         assert [r.getMessage() for r in caplog.records] == [
             f"fp9-20261014T040000Z held as expected down; looked at again when the hold ended: {said}"]
+
+
+def test_an_incident_from_a_held_alarm_says_so_under_its_title(tmp_path, monkeypatch):
+    """Register G10-39's stated limit: an alarm held as expected down that became an incident when the hold ended
+    gave a report with no word of the hold."""
+    from warden import chatops
+
+    sent = []
+    monkeypatch.setattr(chatops, "notify", lambda report, sinks=None, threads=None: sent.append(report.markdown) or [])
+    log = audit.AuditLog(tmp_path / "a.db", key=None)
+    acts = IncidentActivities(audit=log, llm_factory=lambda: LLMClient(mock=True))
+    alert = Alert(**DEMO_ALERTS["inc-002"]).model_copy(update={"alert_id": "fp1-20261014T035300Z",
+                                                               "started_at": "2026-10-14T03:53:01+00:00"})
+    log.append(alert.alert_id, "incident.after_hold", {
+        "run_id": "", "firing": True, "first_fired": "2026-10-14T03:44:23+00:00",
+        "held": "expected down ('lab proof') until 2026-10-14 03:53 UTC: looked at again then"})
+    pack = acts.prepare(alert)
+    diagnosed = acts.diagnose(pack)
+    acts.notify(pack, diagnosed, acts.verify(pack, diagnosed))
+    title, blank, held = sent[-1].split("\n")[:3]
+    assert title.startswith("# ") and blank == ""
+    assert held.startswith("**Held first:** this alarm fired at 2026-10-14 03:44Z")
+    assert ("while it was expected down ('lab proof') until 2026-10-14 03:53 UTC; it was still firing when that "
+            "ended, so it is an incident from 2026-10-14 03:53Z") in held
+    # An incident nothing held says nothing of the kind.
+    acts.notify(acts.prepare(Alert(**DEMO_ALERTS["inc-002"])), diagnosed, acts.verify(pack, diagnosed))
+    assert "Held first" not in sent[-1]

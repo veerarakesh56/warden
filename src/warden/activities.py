@@ -149,6 +149,14 @@ class Recorded(BaseModel):
 PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed", "cancelled_after_apply", "failed_after_apply"})
 
 
+def _when_iso(text: str) -> datetime | None:
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
 def _words(text: str) -> str:
     """An approver's own words in a message: data, never markup. One line inside a code span, nothing Slack or HTML
     would act on (reporting.untrusted_inline), no mark that could become someone's mention; the outbound gate and
@@ -968,7 +976,8 @@ class IncidentActivities:
         if firing is None:
             seen = self.audit.entries(f"intake-{alert.alert_id.rsplit('-', 1)[0]}", kinds=("intake.event",))
             firing = seen[-1]["body"].get("state") == "ALARM" if seen else None
-        self.audit.append(alert.alert_id, "incident.after_hold", {"run_id": _run_id(), "held": held, "firing": firing})
+        self.audit.append(alert.alert_id, "incident.after_hold", {"run_id": _run_id(), "held": held, "firing": firing,
+                                                                  "first_fired": alert.started_at})
         _note(f"{alert.alert_id} held as expected down; looked at again when the hold ended: "
               + {True: "still firing - an incident now", False: "cleared - no incident"}.get(firing,
                                                                                         "unknown - an incident now"))
@@ -1062,6 +1071,19 @@ class IncidentActivities:
         body, closed = report.markdown.removesuffix(CLOSING), report.markdown.endswith(CLOSING)
         markdown = (body.rstrip("\n") + "\n" + timeline.section(changes, unread) + history.section(before)
                     + ("\n\n" + CLOSING if closed else "") + footer)
+        # An alarm held while its resource was expected down, and still firing when that ended, says so under the
+        # title: when it first fired, what held it, and that it is an incident from now (register G10-39's limit).
+        held = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.after_hold",))
+                if e["body"].get("firing") is not False]
+        if held:
+            first = _when_iso(str(held[-1].get("first_fired", "")))
+            why = str(held[-1].get("held", "")).split(": looked at again")[0]
+            title, _, rest = markdown.partition("\n")
+            markdown = (f"{title}\n\n**Held first:** this alarm fired"
+                        + (f" at {environments.both_times(first, seconds=False)}" if first else "")
+                        + f" while it was {why}; it was still firing when that ended, so it is an incident from "
+                        f"{environments.both_times(_when_iso(pack.alert.started_at) or datetime.now(UTC), seconds=False)}."
+                        f"\n{rest}")
         people = self.policy.people() if self.policy is not None else ()
         sent = send(dataclasses.replace(report, markdown=markdown, people=people), threads=AuditThreads(self.audit))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
