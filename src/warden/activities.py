@@ -84,6 +84,9 @@ class FixRequest(BaseModel):
     # caps a history at 50k events / 50 MB. The longest verify window allowed here stays near 2k events.
     approval_ttl_minutes: int = Field(30, ge=1, le=MAX_APPROVAL_TTL_MINUTES)
     recover_within_minutes: int = Field(5, ge=1, le=MAX_RECOVER_WITHIN_MINUTES)
+    # How many times this fix has been planned again after the target or WARDEN itself changed under an approved plan
+    # (decision D7: re-plan and ask again, at most REPLAN_MAX times; workflows.RemediationWorkflow).
+    replans: int = Field(0, ge=0, le=2)
 
     @field_validator("environment")
     @classmethod

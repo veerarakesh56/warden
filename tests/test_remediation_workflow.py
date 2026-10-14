@@ -169,11 +169,52 @@ def test_the_kill_switch_blocks_it(world, owner):
     assert out.status == "blocked" and out.reasons == ["the kill switch is on: manual stop"]
 
 
-def test_a_target_that_changed_after_approval_is_not_touched(world, owner):
+def _ends(world):
+    return [(e["body"]["status"], e["body"]["reasons"]) for e in world["log"].entries("inc-42", kinds=("workflow.end",))]
+
+
+def test_a_target_that_changed_after_approval_is_not_touched_and_the_plan_is_made_again(world, owner):
+    """Decision D7: never applied unseen - made again from what WARDEN reads now, and put to the approvers again."""
     world["platform"].drift_on_second_read = True
     out = _run(world, _approve_with(owner))
-    assert out.status == "drifted" and world["platform"].applied == []
-    assert out.reasons == ["the target changed after the plan was made; it needs a new plan"]
+    assert world["platform"].applied == [] and out.status == "expired"  # the new plan waited; nobody approved it
+    (first, why), (last, _) = _ends(world)
+    assert first == "drifted" and why == [
+        "the target changed after the plan was made; it needs a new plan",
+        "WARDEN makes the plan again from what it reads now and asks for an approval once more (1 of 2)"]
+    assert last == "expired"
+
+
+def test_the_plan_made_again_is_applied_once_it_is_approved_in_its_turn(world, owner):
+    world["platform"].drift_on_second_read = True
+
+    async def twice(handle):
+        await _approve_with(owner)(handle)
+        for _ in range(400):  # the next run of the same workflow waits for its own approval
+            if [s for s, _ in _ends(world)] == ["drifted"] and await handle.query(RemediationWorkflow.stage) == "awaiting_approval":
+                break
+            await asyncio.sleep(0.05)
+        await _approve_with(owner)(handle)
+
+    out = _run(world, twice)
+    assert out.status == "recovered" and len(world["platform"].applied) == 1
+    assert [s for s, _ in _ends(world)] == ["drifted", "recovered"]
+    plans = [e["body"]["plan_hash"] for e in world["log"].entries("inc-42", kinds=("remediation.plan",))]
+    assert len(plans) == 2 and plans[0] != plans[1]  # a new plan, with its own approval
+
+
+def test_a_target_that_keeps_changing_is_planned_again_at_most_twice_then_goes_to_a_person(world, owner):
+    from warden.workflows import REPLAN_MAX
+
+    out = _run(world, _no_approval, replans=REPLAN_MAX)  # already planned again twice
+    assert out.status == "expired"  # nothing changed: the cap is on the next drift, tested below
+    world2 = world
+    world2["platform"].drift_on_second_read = True
+    world2["platform"].reads = 0
+    out = _run(world2, _approve_with(owner), replans=REPLAN_MAX)
+    assert out.status == "drifted" and out.reasons == ["the target changed after the plan was made; it needs a new plan"]
+    with pytest.raises(ValueError):
+        FixRequest(**{**REQ, "replans": REPLAN_MAX + 1})
 
 
 def test_a_fix_that_does_not_recover_is_rolled_back(world, owner):
@@ -201,8 +242,9 @@ def test_an_approver_limited_to_t1_cannot_approve_a_t2_fix(world, owner):
 
 
 def test_the_checklist_cannot_be_given_as_input():
+    # `replans` can only lower how often WARDEN plans again (D7); a caller setting it skips nothing.
     assert set(FixRequest.model_fields) == {"incident_id", "entry", "params", "service", "environment",
-                                            "approval_ttl_minutes", "recover_within_minutes"}
+                                            "approval_ttl_minutes", "recover_within_minutes", "replans"}
 
 
 def test_the_ttl_is_honoured(world, owner):

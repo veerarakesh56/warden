@@ -85,6 +85,24 @@ CHECK_EVERY = timedelta(seconds=30)
 CONSECUTIVE_HEALTHY = 3
 RECHECK_AFTER = (timedelta(minutes=15), timedelta(minutes=60))
 # Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
+# Decision D7: when the target, or WARDEN itself, changed under an approved plan, the plan is made again from what
+# WARDEN reads now and put to the approvers again - never applied unseen. Live, 2026-10-12: a deploy a minute before
+# the owner's approval ended the plan "refused at apply", and the fix had to be started again by hand. At most
+# REPLAN_MAX times for one fix: a target that keeps changing goes to a person.
+REPLAN_MAX = 2
+_REPLAN_ON = ("WARDEN's code or catalogue changed after the plan was made", "the target changed after the plan was made")
+
+
+def _plan_again(req: FixRequest, problems: list[str]) -> list[str]:
+    """The line said when the plan is made again - none when it is not: only for a change of the target or of WARDEN
+    itself, nothing else wrong, and under the cap. Patched: histories recorded before it end as they did."""
+    if (not problems or not all(p.startswith(_REPLAN_ON) for p in problems) or req.replans >= REPLAN_MAX
+            or not workflow.patched("g10-replan")):
+        return []
+    return [(f"WARDEN makes the plan again from what it reads now and asks for an approval once more "
+             f"({req.replans + 1} of {REPLAN_MAX})")]
+
+
 END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_apply", "apply_failed", "recovered",
                         "mitigated",
                         "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
@@ -239,7 +257,11 @@ class RemediationWorkflow:
         self._stage = "prechecking"
         drift = await workflow.execute_activity_method(acts.precheck, **_zoned(acts.precheck), args=[plan], **QUICK)
         if drift != []:  # as for the gate: only an explicit empty list is clean
-            return await end("drifted", drift or ["the precheck's answer could not be read"])
+            again = _plan_again(req, drift)
+            outcome = await end("drifted", (drift or ["the precheck's answer could not be read"]) + again)
+            if again:
+                workflow.continue_as_new(req.model_copy(update={"replans": req.replans + 1}))
+            return outcome
         done["prechecked"] = True
 
         self._stage = "applying"
@@ -251,7 +273,11 @@ class RemediationWorkflow:
                 raise  # a cancel, not a failed apply: run() ends it, after apply (ninth review)
             if isinstance(exc.cause, ApplicationError) and exc.cause.type == APPLY_REFUSED:
                 # Refused before anything was touched: nothing to roll back, nothing half-made.
-                return await end("refused_at_apply", [str(exc.cause)])
+                again = _plan_again(req, str(exc.cause).removeprefix("apply refused: ").split("; "))
+                outcome = await end("refused_at_apply", [str(exc.cause), *again])
+                if again:
+                    workflow.continue_as_new(req.model_copy(update={"replans": req.replans + 1}))
+                return outcome
             # The change may be half-made; the state is unknown, so no automatic rollback - a person.
             return await end("apply_failed", [f"apply failed: {exc.cause or exc}"])
         done["applied"] = True
