@@ -402,3 +402,24 @@ def test_a_write_that_never_reached_the_api_server_changed_nothing():
     with pytest.raises(KubernetesPlatformError) as unknown:  # sent, then lost: nobody knows - not "refused"
         _platform(_Reset(replicas=2)).apply("k8s_restart", {"namespace": NS, "deployment": "orders"})
     assert not isinstance(unknown.value, KubernetesPlatformRefused)
+
+
+def test_an_undo_refused_because_the_deployment_moved_is_wardens_own_check_and_an_unread_one_is_not():
+    """As the AWS platform's (register G10-29): an undo WARDEN's own check refuses - the count moved, or the mark is
+    not WARDEN's - leaves a known state and is no failed rollback; the kill switch stays off. A Deployment that could
+    not be read leaves the state unknown: that one is still a failed rollback."""
+    params = {"namespace": NS, "deployment": "orders", "replicas": 4}
+    apps = _Apps(replicas=4)
+    apps.marks["orders"] = {"warden.io/scaled-from": "3"}  # not the count the fix was planned from
+    with pytest.raises(KubernetesPlatformRefused) as mark:
+        _platform(apps).rollback("k8s_scale", params, {"replicas": 2})
+    assert mark.value.own_check is True and mark.value.nothing_changed is True
+    apps = _Apps(replicas=4)
+    apps.marks["orders"] = {"warden.io/scaled-from": "2"}
+    apps.moved_to = 5  # someone scaled it after the fix
+    with pytest.raises(KubernetesPlatformRefused, match="something else scaled it") as moved:
+        _platform(apps).rollback("k8s_scale", params, {"replicas": 2})
+    assert moved.value.own_check is True
+    with pytest.raises(KubernetesPlatformRefused, match="could not read") as unread:
+        _platform(_Apps(replicas=4, fail=True)).rollback("k8s_scale", params, {"replicas": 2})
+    assert getattr(unread.value, "own_check", False) is False

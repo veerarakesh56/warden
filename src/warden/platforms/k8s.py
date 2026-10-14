@@ -216,9 +216,9 @@ class KubernetesPlatform:
                     {"op": "add", "path": "/metadata/annotations", "value": {SCALED_FROM: str(expect)}}]
         elif marks.get(SCALED_FROM) != str(to) and _replicas(dep) == expect:
             # (A count that moved is the `test` op's to refuse, as the server words it.)
-            raise KubernetesPlatformRefused(f"deployment/{deployment} was not scaled up from {to} by WARDEN (its "
-                                          f"{SCALED_FROM} mark is {marks.get(SCALED_FROM)!r}); a step down goes only "
-                                          "back to that count; nothing was changed")
+            raise _own_check(KubernetesPlatformRefused(
+                f"deployment/{deployment} was not scaled up from {to} by WARDEN (its {SCALED_FROM} mark is "
+                f"{marks.get(SCALED_FROM)!r}); a step down goes only back to that count; nothing was changed"))
         else:
             note = [{"op": "test", "path": _MARK, "value": str(to)}, {"op": "remove", "path": _MARK}]
         patch = [{"op": "test", "path": "/spec/replicas", "value": expect},
@@ -231,11 +231,19 @@ class KubernetesPlatform:
             # A 422 is the JSON Patch `test` failing (the count moved) unless the admission policy is what refused it -
             # "test" in a Deployment's name (`latest-api`) read a policy refusal as a moved count (eighth review).
             if getattr(exc, "status", None) == 409 or (getattr(exc, "status", None) == 422 and not _a_policy(exc)):
-                raise KubernetesPlatformRefused(f"deployment/{deployment} no longer has {expect} replica(s): "
-                                              f"something else scaled it; nothing was changed") from exc
+                raise _own_check(KubernetesPlatformRefused(f"deployment/{deployment} no longer has {expect} replica(s): "
+                                                           "something else scaled it; nothing was changed")) from exc
             _refused_by_the_server(exc, deployment)
             raise KubernetesPlatformError(f"scaling deployment/{deployment} failed: {_one_line(exc)}") from exc
         return f"scaled deployment/{deployment} in {self._ns} from {expect} to {to} replica(s)"
+
+
+def _own_check(refused: KubernetesPlatformRefused) -> KubernetesPlatformRefused:
+    """Marked as WARDEN's own check: the target is known, and is not as the plan - or, undoing, the fix - left it.
+    An undo refused this way is not a failed rollback and trips no kill switch (activities.rollback; the AWS platform
+    marks its own the same way). A deployment that could not be read is not marked: its state is not known."""
+    refused.own_check = True
+    return refused
 
 
 def _never_sent(exc: BaseException) -> bool:
