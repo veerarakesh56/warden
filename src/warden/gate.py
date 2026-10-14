@@ -409,9 +409,9 @@ def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = Non
             shares = any(probe[i:i + width] in w for w in withheld for i in range(len(probe) - width + 1))
             safe = probe and not shares and masked.text.rsplit("\n", 1)[-1] == ident
             label = sanitise_text(ident) if safe else f"ref-{hashlib.sha256(alert_id.encode('utf-8')).hexdigest()[:12]}"
-        stub = (f"WARDEN report{f' for alert {label}' if label else ''} was withheld by the outbound "
-                f"gate: it still contained {', '.join(leaks)} after redaction. A person must read the full "
-                "report where WARDEN ran - nothing was sent.")
+        stub = (f"A WARDEN message{f' about {label}' if label else ''} was withheld by the outbound gate: it "
+                f"still contained {', '.join(leaks)} after redaction, so nothing of it was sent. What it was about is "
+                "on WARDEN's record.")
         return GateResult("BLOCK", stub, [f"G5: {k} in the outgoing text" for k in leaks])
     clean = sanitise_text(text)
     if clean != text:

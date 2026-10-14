@@ -53,7 +53,8 @@ OUTCOME = {
                  "and says so if it fails again."),
     "recovered": "WARDEN's fix `{entry}` on `{target}` held through its re-checks: it is verified.",
     "relapsed": ("WARDEN's fix `{entry}` on `{target}` worked, then failed again. WARDEN does not undo a fix that had "
-                 "worked: a person decides what happens next."),
+                 "worked: a person decides what happens next. The alarm that fired again is diagnosed afresh as a new "
+                 "incident - what changed, by whom, why - and its report follows here."),
     "rolled_back": "WARDEN's fix `{entry}` on `{target}` did not work, so WARDEN undid it. The incident is still open.",
     "not_recovered": ("WARDEN's fix `{entry}` on `{target}` did not work, and WARDEN did not undo it: there was "
                       "nothing for it to undo. A person takes over."),
@@ -155,6 +156,12 @@ def _when_iso(text: str) -> datetime | None:
     except ValueError:
         return None
     return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
+def _tried(text: str) -> str:
+    """What the person's words tried, said beside them - or nothing, for ordinary words (approvals.note_tries)."""
+    tries = approvals.note_tries(approvals.note(text))
+    return f" WARDEN noticed in it: {'; '.join(tries)}." if tries else ""
 
 
 def _words(text: str) -> str:
@@ -344,8 +351,9 @@ class RemediationActivities:
                       f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
         # What each wrote with their approval, in their own words - inert, one line each (_words).
         notes = [(str(b.get("approver")), str(b["note"])) for b in gave if b.get("note")]
-        noted = "".join(f" Their note: {_words(n)}" if len(gave) == 1 else f" Note from {self.policy.said(a)}: {_words(n)}"
-                        for a, n in notes)
+        noted = "".join((f" Their note: {_words(n)}" if len(gave) == 1 else f" Note from {self.policy.said(a)}: {_words(n)}")
+                        + _tried(n) for a, n in notes)
+        words = noted if what == "approved" else ""  # the person's own words in this message, if any
         # The plan's id, for whoever looks it up - not a command to type, in a message most readers act on by its
         # button (owner's bar, 2026-10-12: no unexplained jargon).
         said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval "
@@ -373,9 +381,9 @@ class RemediationActivities:
                         if any(w == f"denied by {n}" or w.startswith(f"denied by {n}: ") for w in why)), "")
             if who and ended_at is not None:
                 reason = next((w[len(f"denied by {who}: "):] for w in whole if w.startswith(f"denied by {who}: ")), "")
+                words = f" Their reason: {_words(reason)}{_tried(reason)}" if reason else ""
                 said = (f"WARDEN's plan `{plan.entry}` on `{plan.target}` was denied by {self.policy.said(who)} (with "
-                        f"their passkey) at {environments.both_times(ended_at)}: nothing was changed."
-                        + (f" Their reason: {_words(reason)}" if reason else ""))
+                        f"their passkey) at {environments.both_times(ended_at)}: nothing was changed." + words)
                 why = []
         if what == "waiting":
             import contextlib
@@ -392,6 +400,15 @@ class RemediationActivities:
         if what in PERSON_TAKES_OVER:
             said += (" Every automatic fix is stopped until an approver resets the kill switch: `warden killswitch "
                      "link` opens the page that shows why it is on and resets it.")
+        # The person's own words go only where the gate lets the whole message go: should it hold them back, the
+        # decision is still said - who, how, when - and only their words are not (live, 2026-10-14: a whole denial
+        # message was withheld for the note in it).
+        if words:
+            from .gate import enforce
+
+            if enforce(said).verdict == "BLOCK":
+                said = said.replace(words, " Their note is not shown here: the outbound gate held it back. It is on "
+                                           "WARDEN's record.")
         if why:
             # A reason's own timestamp, in UTC and the display zone like every other time in a message.
             why = [_ISO_TIME.sub(lambda m: environments.both_times(datetime.fromisoformat(m.group(0)), seconds=False), w)

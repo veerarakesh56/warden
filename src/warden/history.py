@@ -41,7 +41,8 @@ def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
                      "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
                      "status": str(end["body"].get("status")) if end else "open",
                      "approvers": [str(a) for a in (end["body"].get("approvers") or [])] if end else [],
-                     "denied_by": _denier(end["body"]) if end else ""})
+                     "denied_by": _denier(end["body"]) if end else "",
+                     "why": str((end["body"].get("reasons") or [""])[0]) if end else ""})
     return sorted(rows, key=lambda r: r["at"], reverse=True)
 
 
@@ -52,6 +53,18 @@ def _denier(end: dict[str, Any]) -> str:
     ok = end.get("status") == "denied" and first.startswith("denied by ") and name.replace(".", "").replace(
         "_", "").replace("-", "").isalnum()
     return name if ok else ""
+
+
+def _iso_said(text: str) -> str:
+    """Every machine timestamp in WARDEN's own reason, as times are written everywhere else."""
+    import re
+
+    def said(m: re.Match[str]) -> str:
+        try:
+            return both_times(datetime.fromisoformat(m.group(0)), seconds=False)
+        except ValueError:
+            return m.group(0)
+    return re.sub(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+[+][0-9]{2}:[0-9]{2}", said, text)
 
 
 def past(alert: Any, log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
@@ -69,6 +82,14 @@ def _line(row: dict[str, Any]) -> str:
     who = f" · approved by {', '.join(f'@@{a}@@' for a in row['approvers'])}" if row["approvers"] else ""
     if row.get("denied_by"):
         who = f" · by @@{row['denied_by']}@@"  # "was denied · by <the person>"
+    # Why a fix did not last or was not applied - "worked, then failed again" alone said nothing of what happened
+    # (owner, 2026-10-14). WARDEN's own reason, cut short and inert; a denial's is the person's words and is not
+    # repeated here.
+    why = str(row.get("why") or "")
+    if why and row["status"] not in ("denied", "recovered", "open"):
+        from .reporting import untrusted_inline
+
+        who += f" · why: {untrusted_inline(_iso_said(why), limit=160)}"
     return f"{both_times(row['at'], seconds=False)} · `{row['entry']}` on `{row['target']}` · {how}{who}"
 
 

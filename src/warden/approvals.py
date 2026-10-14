@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -96,10 +97,44 @@ def note(text: object) -> str:
     this answers with a string of at most NOTE_MAX characters."""
     import unicodedata
 
+    from .redaction import SECRET_KINDS, redact
+
     typed = str(text if text is not None else "").replace("\r\n", "\n").replace("\r", "\n")
-    kept = [ch for ch in typed if ch not in _NOT_TEXT
-            and (ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cs"))]
-    return "".join(kept).strip()[:NOTE_MAX]
+    kept = "".join(ch for ch in typed if ch not in _NOT_TEXT
+                   and (ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cs"))).strip()
+    # Whatever looks like a secret is taken out before the words are kept or said (live, 2026-10-14: a test note with
+    # a password and a key in it had the whole denial message withheld, so nobody was told who denied, or when).
+    # The redactor's own patterns decide; anything else it masks (an address, a host) is put back as typed.
+    masked = redact(kept)
+    out = masked.text
+    for placeholder, value in masked.mapping.items():
+        if placeholder.strip("<>").rsplit("_", 1)[0] in SECRET_KINDS:
+            # The name before it goes too: "password=[removed]" still reads as a password being given.
+            out = re.sub(r"[A-Za-z0-9_.-]*\s*[=:]\s*" + re.escape(placeholder), NOTE_SECRET, out)
+            out = out.replace(placeholder, NOTE_SECRET)
+        else:
+            out = out.replace(placeholder, value)
+    return out[:NOTE_MAX]
+
+
+NOTE_SECRET = "[removed: it looked like a secret]"
+# What a note may try that a reader should be told of beside the decision (owner, 2026-10-14: "it should say that
+# this person approved or denied, and that they tried to do this from the box"). Each is shown as text, or removed;
+# this only names it. Words aimed at an AI are found by plain phrases: WARDEN's model never reads a note at all.
+_TRIES = (
+    ("something that looked like a password or a key, removed", lambda t: NOTE_SECRET in t),
+    ("a link, not made clickable", lambda t: "http://" in t.lower() or "https://" in t.lower() or "](" in t),
+    ("a ping of the channel or a person, not sent", lambda t: "<!" in t or "<@" in t or "@@" in t),
+    ("text written as a command or a heading, shown as plain text", lambda t: "```" in t or "\n#" in "\n" + t),
+    ("words that try to instruct an AI, ignored", lambda t: re.search(
+        r"(?i)\b(ignore|disregard|forget)\b.{0,40}\b(instructions?|rules|prompt)\b|you are now|system prompt|"
+        r"developer mode|jailbreak|act as (an?|the)\b", t) is not None),
+)
+
+
+def note_tries(kept: str) -> list[str]:
+    """What a kept note tried to do, in words, for the message that says the decision: [] for ordinary words."""
+    return [said for said, found in _TRIES if found(kept)]
 
 
 class Denial(BaseModel):
