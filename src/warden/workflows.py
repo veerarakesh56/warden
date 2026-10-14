@@ -41,7 +41,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .catalog import MITIGATES
-    from .discuss import LIMIT, NO_ANSWER, NOT_READ, NOW, Thread, Turn
+    from .discuss import LIMIT, NO_ANSWER, NO_RECORD, NOT_READ, NOW, Thread, Turn
     from .models import Alert, ContextBundle, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -384,7 +384,7 @@ class DiscussWorkflow:
                 evidence = await workflow.execute_activity_method(
                     acts.discuss_evidence, **_zoned(acts.discuss_evidence), args=[thread.incident, fresh], **PREPARE)
                 if evidence is None:
-                    text = f"WARDEN has no record of an incident `{thread.incident}`."
+                    text = NO_RECORD.format(incident=thread.incident)
                 else:
                     text = NO_ANSWER
                     text = await workflow.execute_activity_method(

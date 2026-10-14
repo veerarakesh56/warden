@@ -51,6 +51,11 @@ def test_only_a_person_mentioning_warden_in_its_channel_is_heard():
         assert discuss.turn_of(other, CHANNEL) is None
     assert discuss.incident_in("look at inc-" + ID + " please") == ID and discuss.incident_in("none here") == ""
     assert discuss.incident_in("", "first message: " + ID) == ID  # the thread's first message names it
+    # Every event is logged as what it was and what WARDEN did - never its words.
+    line = discuss.heard(_event(f"<@UWARDEN> secret words {ID}"), CHANNEL)
+    assert line == "discuss: heard app_mention in its channel - answering 1760000000.000100" and "secret" not in line
+    assert discuss.heard(_event("x", channel="C" + "0" * 3 + "OTHER11"), CHANNEL).endswith("in another channel - ignored")
+    assert "{" not in discuss.HEARD and "WARDEN answers in this thread" in discuss.HEARD
 
 
 def test_the_people_are_data_between_markers_and_whether_the_asker_is_an_approver_is_said():
@@ -137,6 +142,8 @@ def test_a_long_thread_keeps_its_first_message_and_the_latest_and_a_busy_inciden
 def test_the_evidence_is_read_again_from_the_alert_on_the_record_and_nothing_without_one(world):
     acts, inc = world["acts"], world["inc"]
     assert acts.discuss_evidence(INCIDENT, False) is None  # no alarm on the record by that id
+    said = discuss.NO_RECORD.format(incident=INCIDENT)
+    assert f"`{INCIDENT}`" in said and "2026-10-14" in said and "alerts channel" in said
     pack = inc.prepare(Alert(**{**DEMO_ALERTS["inc-002"], "alert_id": INCIDENT}))
     inc.verify(pack, inc.diagnose(pack))
     got = acts.discuss_evidence(INCIDENT, False)

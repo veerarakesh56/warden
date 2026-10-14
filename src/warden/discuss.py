@@ -54,6 +54,11 @@ LIMIT = ("This incident's discussion has reached today's limit of WARDEN's answe
          "incident's report in the alerts channel.")
 NO_ANSWER = "WARDEN could not get an answer from its model just now; ask again in a few minutes."
 NOT_READ = "WARDEN could not read this incident's evidence just now; ask again in a few minutes."
+# WARDEN keeps an incident's alarm for its discussion from the day the channel began (incident.alert, 2026-10-14):
+# an older incident, or an id it never saw, gets this - not a bare "no record", which reads as "it never happened".
+NO_RECORD = ("WARDEN has nothing on record to read again for `{incident}`: it keeps an incident's alarm for this "
+             "channel only from 2026-10-14 on, and the id may also be mistyped. Ask about a newer incident, or read "
+             "this one's report in the alerts channel.")
 
 
 class Answer(BaseModel):
@@ -115,6 +120,19 @@ def configured() -> bool:
                                                        "WARDEN_DISCUSS_CHANNEL"))
 
 
+# Said in the thread the moment a mention is heard, before anything is read (owner, 2026-10-14: "I don't even know
+# if it has checked it or not"). A fixed text: nothing a person wrote is in it.
+HEARD = "Looking into it - WARDEN answers in this thread."
+
+
+def heard(event: dict[str, Any], channel: str) -> str:
+    """One log line for an event Slack delivered: what it was and what WARDEN did with it - never its text."""
+    kind = str(event.get("type") or "?")
+    where = "its channel" if event.get("channel") == channel else "another channel"
+    turn = turn_of(event, channel)
+    return f"discuss: heard {kind} in {where} - " + (f"answering {turn.ts}" if turn else "ignored")
+
+
 def turn_of(event: dict[str, Any], channel: str) -> Turn | None:
     """A mention of WARDEN in the discussion channel as a Turn; None for anything else (another channel, a bot, an
     edit, a message that does not mention it)."""
@@ -130,8 +148,12 @@ def turn_of(event: dict[str, Any], channel: str) -> Turn | None:
 
 async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover - a live Slack connection
     """Hold the Socket Mode connection and start one DiscussWorkflow per mention. Every request is acknowledged at
-    once, as Slack requires; the workflow id is the message's own, so a request Slack sends twice starts one."""
+    once, as Slack requires; the workflow id is the message's own, so a request Slack sends twice starts one. Each
+    event is logged (heard), and a mention is answered at once with HEARD in its thread."""
     import asyncio
+    import logging
+
+    log = logging.getLogger("warden.discuss")
 
     from slack_sdk.socket_mode.response import SocketModeResponse
     from slack_sdk.socket_mode.websockets import SocketModeClient
@@ -148,8 +170,11 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
     async def heard(sock: Any, req: Any) -> None:
         await sock.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
         if req.type != "events_api":
+            log.info("discuss: heard a %s request - ignored", req.type)
             return
-        turn = turn_of((req.payload or {}).get("event") or {}, channel)
+        event = (req.payload or {}).get("event") or {}
+        log.info(heard(event, channel))
+        turn = turn_of(event, channel)
         if turn is None:
             return
         try:
@@ -157,7 +182,11 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
                                         task_queue=task_queue,
                                         id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE)
         except WorkflowAlreadyStartedError:
-            pass
+            return  # Slack sent it again: answered once
+        try:
+            await sock.web_client.chat_postMessage(channel=turn.channel, thread_ts=turn.thread_ts, text=HEARD)
+        except Exception as exc:  # noqa: BLE001 - the answer still comes; only the "looking into it" did not
+            log.warning("discuss: could not say it heard %s (%s)", turn.ts, type(exc).__name__)
 
     socket.socket_mode_request_listeners.append(heard)
     await socket.connect()
