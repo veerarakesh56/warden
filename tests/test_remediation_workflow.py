@@ -108,9 +108,16 @@ def _run(world, drive, **req):
 
 
 async def _until_awaiting_approval(handle):
+    from temporalio.service import RPCError
+
     for _ in range(200):
-        if await handle.query(RemediationWorkflow.stage) == "awaiting_approval":
-            return await handle.query(RemediationWorkflow.plan)
+        try:
+            if await handle.query(RemediationWorkflow.stage) == "awaiting_approval":
+                return await handle.query(RemediationWorkflow.plan)
+        except RPCError:
+            # A run that is handing over to its next one (continue-as-new, G10-44) can leave a query unanswered until
+            # its deadline (CI, 2026-10-14: "query deadline exceeded", about one run in six): not there yet.
+            pass
         await asyncio.sleep(0.05)
     raise AssertionError("never reached awaiting_approval")
 
@@ -197,8 +204,11 @@ def test_the_plan_made_again_is_applied_once_it_is_approved_in_its_turn(world, o
 
     async def twice(handle):
         await _approve_with(owner)(handle)
-        for _ in range(400):  # the next run of the same workflow waits for its own approval
-            if [s for s, _ in _ends(world)] == ["drifted"] and await handle.query(RemediationWorkflow.stage) == "awaiting_approval":
+        # The next run of the same workflow makes its own plan: wait for it on WARDEN's record, not by querying a run
+        # that is handing over (that query can hang until its deadline), then approve it in its turn.
+        for _ in range(400):
+            made = world["log"].entries("inc-42", kinds=("remediation.plan",))
+            if [s for s, _ in _ends(world)] == ["drifted"] and len(made) == 2:
                 break
             await asyncio.sleep(0.05)
         await _approve_with(owner)(handle)
