@@ -12,7 +12,10 @@ locals {
     "slack-app-token",     # the discussion channel's Socket Mode connection (discuss.py): the notify zone's alone
     "datadog-api-key",     # Datadog's API key (datadog.py): the read zone's, with the scoped application key below;
     #                        the proving ground's agent sends with it too
-    "datadog-app-key", # Datadog's application key, scoped to logs_read_data, apm_read, timeseries_query
+    "datadog-app-key", # Datadog's application key, scoped to logs_read_data, apm_read, timeseries_query,
+    #                    events_read, monitors_read
+    "datadog-webhook-token", # the bearer secret Datadog's webhook sends (webhooks.receive_datadog); set by the setup
+    #                          script together with the webhook itself
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
     "temporal-api-key-act",

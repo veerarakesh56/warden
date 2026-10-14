@@ -221,7 +221,9 @@ def alertmanager(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     from . import webhooks
 
     _configure("lambda-alertmanager")
-    _, _, headers, body = _http(event)
+    _, path, headers, body = _http(event)
+    if path.rstrip("/") == "/datadog":
+        return _datadog(headers, body)
     # The current bearer secret and, during a rotation, the previous one (register S4).
     secrets = [s for s in (os.environ.get("WARDEN_ALERTMANAGER_TOKEN", ""),
                            os.environ.get("WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "")) if s]
@@ -235,6 +237,24 @@ def alertmanager(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     decisions = _submit(events) if events else []
     return {"statusCode": 202, "headers": {"content-type": "application/json"},
             "body": json.dumps({"accepted": len(decisions), "dropped": len(dropped)})}
+
+
+def _datadog(headers: dict[str, str], body: bytes) -> dict[str, Any]:
+    """A Datadog monitor's webhook (webhooks.receive_datadog): its bearer secret, then Datadog asked whether the
+    monitor is alerting, then intake - as an Alertmanager alert is (register G10-53)."""
+    from . import webhooks
+
+    got = webhooks.receive_datadog(headers, body, secrets=[os.environ.get("WARDEN_DATADOG_WEBHOOK_TOKEN", "")],
+                                   environment=os.environ.get("WARDEN_ENV", ""))
+    if got.status != 202:
+        return {"statusCode": got.status, "body": ""}
+    alerting = webhooks.datadog_alerting(os.environ.get("WARDEN_DATADOG_SITE", "").strip(),
+                                         os.environ.get("WARDEN_DATADOG_API_KEY", "").strip(),
+                                         os.environ.get("WARDEN_DATADOG_APP_KEY", "").strip())
+    events, gone = webhooks.confirm_datadog(got.events, alerting)
+    decisions = _submit(events) if events else []
+    return {"statusCode": 202, "headers": {"content-type": "application/json"},
+            "body": json.dumps({"accepted": len(decisions), "dropped": len(got.refused) + len(gone)})}
 
 
 def approval_page() -> Any:

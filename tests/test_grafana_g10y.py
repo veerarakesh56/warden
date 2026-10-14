@@ -149,7 +149,8 @@ def test_the_read_keys_are_the_read_zones_alone_and_datadogs_have_their_slots():
     a setting the runtime loads (a company that wants it sets its own environment)."""
     assert not any(n.startswith("WARDEN_GRAFANA_") for n in settings.LOADABLE)
     for name in ("WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"):
-        assert name in settings.SECRETS and settings.RESTRICTED[name] == {"worker"}, name
+        # The read zone reads evidence; the webhook's Lambda asks Datadog whether a monitor is alerting (G10-53).
+        assert name in settings.SECRETS and settings.RESTRICTED[name] == {"worker", "lambda-alertmanager"}, name
         assert name in settings.loadable_for("worker", "read"), name
         for zone in ("core", "llm", "notify", "act"):
             assert name not in settings.loadable_for("worker", zone), (name, zone)

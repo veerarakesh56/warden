@@ -237,6 +237,13 @@ resource "aws_apigatewayv2_route" "alertmanager" {
   target    = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
 }
 
+# A Datadog monitor's webhook (webhooks.receive_datadog): the same function, its own bearer secret (register G10-53).
+resource "aws_apigatewayv2_route" "datadog" {
+  api_id    = aws_apigatewayv2_api.front.id
+  route_key = "POST /datadog"
+  target    = "integrations/${aws_apigatewayv2_integration.front["alertmanager"].id}"
+}
+
 resource "aws_apigatewayv2_route" "approval" {
   # /a/: approving a plan. /e/: enrolling a passkey, /k/: resetting the kill switch - each on a link the approver's
   # own key signed. /s/interact: Slack's note of a button click, answered by the function below. /r: WARDEN's records

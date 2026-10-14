@@ -22,7 +22,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
@@ -131,3 +131,109 @@ def alertmanager_active(base_url: str, *, timeout: float = 5.0) -> Callable[[], 
             return set()
 
     return active
+
+
+# ------------------------------------------------------------------ Datadog monitors (register G10-53)
+# Owner, 2026-10-14: alerts from Datadog "for warden to see and immediately work on them". A Datadog webhook carries
+# WARDEN's own payload template (DATADOG_PAYLOAD, read 2026-10-14 from docs.datadoghq.com/integrations/webhooks) and a
+# bearer secret in a custom header - the same who / how much / is it real as Alertmanager's: the secret compared in
+# constant time, the same size limits, and before intake acts the monitor is asked of Datadog itself.
+DATADOG_PAYLOAD = {"event": "$ID", "monitor": "$ALERT_ID", "transition": "$ALERT_TRANSITION", "title": "$EVENT_TITLE",
+                   "date": "$DATE", "tags": "$TAGS", "scope": "$ALERT_SCOPE", "priority": "$ALERT_PRIORITY",
+                   "cycle": "$ALERT_CYCLE_KEY"}
+_DD_STATE = {"Triggered": "ALARM", "Re-Triggered": "ALARM", "Renotify": "ALARM", "No Data": "ALARM",
+             "Re-No Data": "ALARM", "Recovered": "OK"}
+_DD_PRIORITY = {"P1": Severity.critical, "P2": Severity.high, "P3": Severity.medium, "P4": Severity.low,
+                "P5": Severity.low}
+# A Datadog tag WARDEN reads, as the label the rest of WARDEN knows it by.
+_DD_LABELS = {"service": "service", "env": "environment", "kube_deployment": "deployment",
+              "kube_namespace": "namespace", "kube_cluster_name": "eks_cluster", "functionname": "lambda",
+              "dbinstanceidentifier": "aurora_instance"}
+
+
+def _dd_event(alert: dict, environment: str) -> AlarmEvent | None:
+    """One delivery as intake's event, or None for a transition that starts nothing (a warning)."""
+    state = _DD_STATE.get(str(alert.get("transition") or ""))
+    if state is None:
+        return None
+    monitor = str(alert.get("monitor") or "")
+    if not re.fullmatch(r"\d{1,20}", monitor):
+        raise ValueError("no monitor id")
+    tags = {}
+    for tag in re.split(r"[,\s]+", f"{alert.get('scope') or ''},{alert.get('tags') or ''}"):
+        key, _, value = tag.partition(":")
+        if key in _DD_LABELS and value and _DD_LABELS[key] not in tags:
+            tags[_DD_LABELS[key]] = value[:200]
+    when = datetime.fromtimestamp(int(str(alert.get("date") or "0")) / 1000, UTC)
+    title = re.sub(r"^\[[^\]]*\]\s*", "", str(alert.get("title") or "datadog monitor")).strip()[:200]
+    labels = {**tags, "datadog_monitor": monitor, "alarm": f"datadog-{monitor}"}
+    return AlarmEvent(source="alarm", rule=f"datadog-{monitor}", state=state, transitioned_at=when,
+                      alert=Alert(alert_id=f"datadog-{monitor}", name=title or "datadog monitor",
+                                  severity=_DD_PRIORITY.get(str(alert.get("priority") or ""), Severity.high),
+                                  service=tags.get("service") or "unknown",
+                                  environment=tags.get("environment") or environment,
+                                  summary=title, started_at=when.isoformat(), labels=labels))
+
+
+def receive_datadog(headers: dict[str, str], body: bytes, *, secrets: list[str], environment: str) -> Received:
+    """One Datadog webhook delivery: refused whole (401, 413, 400), or one event (or none, for a warning)."""
+    auth = next((v for k, v in headers.items() if k.lower() == "authorization"), None)
+    if not authorized(auth, secrets):
+        return Received(401)
+    if len(body) > MAX_BODY:
+        return Received(413)
+    try:
+        payload = json.loads(body)
+        if not isinstance(payload, dict):
+            raise TypeError("not an object")
+    except (ValueError, TypeError):
+        return Received(400)
+    out = Received(202)
+    try:
+        ev = _dd_event(payload, environment)
+        if ev is not None:
+            out.events.append(ev)
+    except (ValidationError, ValueError, TypeError, OverflowError) as exc:
+        out.refused.append(f"datadog monitor {str(payload.get('monitor', '?'))[:24]}: {type(exc).__name__}")
+    return out
+
+
+def datadog_alerting(site: str, api_key: str, app_key: str, *, timeout: float = 5.0,
+                     get: Callable[[str, dict], dict] | None = None) -> Callable[[str], bool]:
+    """Is a monitor alerting now? Asked of Datadog's own API (GET /api/v1/monitor/<id>, the read key's monitors_read)
+    before intake acts - a forged delivery that passes the secret still names a monitor Datadog is not alerting on.
+    A site that is not Datadog's, or an answer that cannot be read, confirms nothing."""
+    import urllib.request
+
+    from .datadog import SITES
+
+    def fetch(url: str, hdrs: dict) -> dict:
+        req = urllib.request.Request(url, headers=hdrs)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - https to a known Datadog site
+            return json.loads(resp.read() or b"{}")
+
+    fetch = get or fetch
+
+    def alerting(monitor: str) -> bool:
+        if site not in SITES or not re.fullmatch(r"\d{1,20}", monitor) or not (api_key and app_key):
+            return False
+        try:
+            got = fetch(f"https://api.{site}/api/v1/monitor/{monitor}",
+                        {"DD-API-KEY": api_key, "DD-APPLICATION-KEY": app_key, "Accept": "application/json"})
+        except (OSError, ValueError):
+            return False
+        return str(got.get("overall_state")) in ("Alert", "No Data")
+
+    return alerting
+
+
+def confirm_datadog(events: list[AlarmEvent], alerting: Callable[[str], bool]) -> tuple[list[AlarmEvent], list[str]]:
+    """Keep each ALARM whose monitor Datadog says is alerting; OK events pass (a recovery starts nothing)."""
+    kept, dropped = [], []
+    for ev in events:
+        monitor = ev.alert.labels.get("datadog_monitor", "")
+        if ev.state == "ALARM" and not alerting(monitor):
+            dropped.append(f"datadog monitor {monitor}: Datadog does not say it is alerting - not acted on")
+        else:
+            kept.append(ev)
+    return kept, dropped

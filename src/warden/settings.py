@@ -45,7 +45,7 @@ LOADABLE = frozenset({
     "WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_EXPECTED_DOWN",
     "WARDEN_SLACK_APP_TOKEN", "WARDEN_DISCUSS_CHANNEL", "WARDEN_RECORD_VIEWERS",
     # Datadog (datadog.py): its site is plain; the API key and the scoped, read-only application key are secrets.
-    "WARDEN_DATADOG_SITE", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+    "WARDEN_DATADOG_SITE", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
 })
 
 
@@ -81,8 +81,10 @@ RESTRICTED: dict[str, frozenset[str]] = {
     # Who besides the approvers may read WARDEN's records (records.py): only the page that shows them reads it.
     "WARDEN_RECORD_VIEWERS": frozenset({"lambda-approval"}),
     # Datadog's keys: the read zone's worker alone reads evidence.
-    "WARDEN_DATADOG_API_KEY": frozenset({"worker"}),
-    "WARDEN_DATADOG_APP_KEY": frozenset({"worker"}),
+    # The read zone reads evidence with them; the webhook's Lambda asks whether a monitor is alerting.
+    "WARDEN_DATADOG_API_KEY": frozenset({"worker", "lambda-alertmanager"}),
+    "WARDEN_DATADOG_APP_KEY": frozenset({"worker", "lambda-alertmanager"}),
+    "WARDEN_DATADOG_WEBHOOK_TOKEN": frozenset({"lambda-alertmanager"}),
 }
 
 
@@ -94,7 +96,7 @@ SECRETS = frozenset({
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
     "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_SLACK_APP_TOKEN",
-    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
 })
 
 
@@ -116,7 +118,8 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
 # what their role may read (terraform/modules/warden-runtime/iam.tf); RESTRICTED narrows it per Lambda.
 LAMBDA_SECRETS = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
                             "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
-                            "WARDEN_SLACK_CLIENT_SECRET"})
+                            "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY",
+                            "WARDEN_DATADOG_APP_KEY"})
 # One per zone: each zone's own Temporal Cloud service account, so Temporal's audit log names the zone that called.
 PER_ZONE = frozenset({"WARDEN_TEMPORAL_API_KEY"})
 
