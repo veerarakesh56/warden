@@ -27,7 +27,7 @@ def test_the_approver_denies_with_a_passkey_after_seeing_the_plan(setup):
     assert page.handle("POST", f"/a/{token}/deny-options").status == 403  # not before the plan is shown
     _show(page, device, token)
     response = _ceremony(page, device, token, "deny")
-    ok = page.handle("POST", f"/a/{token}/deny", json.dumps({"response": response, "reason": "wrong target"}))
+    ok = page.handle("POST", f"/a/{token}/deny", json.dumps({"response": response, "note": "wrong target"}))
     assert ok.status == 200 and sent == []
     [(wf, d)] = denied
     assert wf == PLAN.workflow_id and d.approver == "owner" and d.plan_hash == PLAN.plan_hash and d.reason == "wrong target"

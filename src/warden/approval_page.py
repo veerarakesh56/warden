@@ -538,9 +538,8 @@ class ApprovalPage:
         problems = self._verify(f"{token}:deny", link, data.get("response"))
         if problems:
             return _json(403, {"error": "the passkey was not accepted", "problems": problems})
-        reason = str(data.get("reason") or "")[:200]
         self.deny(plan.workflow_id, Denial(approver=link.approver, workflow_id=plan.workflow_id,
-                                           plan_hash=plan.plan_hash, reason=reason))
+                                           plan_hash=plan.plan_hash, reason=approvals.note(data.get("note"))))
         self.store.use_link(token)  # used once, either way
         return _json(200, {"sent": True, "note": "The plan is denied; nothing will change."})
 
@@ -556,7 +555,8 @@ class ApprovalPage:
             return _json(403, {"error": "the passkey was not accepted", "problems": problems})
         self.signal(plan.workflow_id, PasskeyAssertion(
             approver=link.approver, workflow_id=pending.workflow_id, plan_hash=pending.plan_hash, tier=pending.tier,
-            nonce=pending.nonce, expires_at=pending.expires_at, challenge=pending.challenge, response=data["response"]))
+            nonce=pending.nonce, expires_at=pending.expires_at, challenge=pending.challenge, response=data["response"],
+            note=approvals.note(data.get("note"))))
         self.store.use_link(token)  # used once
         return _json(200, {"sent": True, "note": "WARDEN re-checks this approval before anything changes."})
 
@@ -681,6 +681,7 @@ box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 3px 0 var(--accent-edge),0 10px 22px
 0 4px 10px var(--glow)}
 .danger{color:var(--bad);background:var(--sheet);border-color:currentColor}
 a.slack{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:.75rem;padding:.75rem 1rem}
+#note{font:inherit;line-height:1.5}
 #clear{margin-top:.75rem;color:var(--ink);background:var(--sheet);border-color:var(--line)}
 .danger:active{transform:translateY(1px)}
 button:disabled{opacity:.55;cursor:progress;transform:none}
@@ -818,9 +819,12 @@ anyone else sees nothing here and cannot approve the plan.</p>
 <div id="acts" hidden><p id="typed-p" hidden><label for="typed">Type the target exactly to approve it
 <span class="hint">It is shown above, beside Target.</span></label>
 <input id="typed" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false"></p>
+<p><label for="note">A note with your decision (optional)
+<span class="hint">Kept on the record and shown with your name in the message, whether you approve or deny. Not a place
+for a password or a key.</span></label>
+<textarea id="note" rows="3" maxlength="2000" autocomplete="off"></textarea></p>
 <button id="ok" class="primary" type="button">Approve this plan with my passkey</button>
-<div class="deny"><p><label for="why">Or deny it: your reason (optional)</label>
-<input id="why" maxlength="200" autocomplete="off"></p>
+<div class="deny"><p>Or deny it: nothing will change.</p>
 <button id="no" class="danger" type="button">Deny this plan with my passkey</button></div></div></div>
 """, "WARDEN checks every approval again, against this exact plan, before anything changes.", """
 const LABELS = {entry: "Action", target: "Target", environment: "Environment", values: "Exact values",
@@ -903,7 +907,7 @@ $("ok").addEventListener("click", async () => {
   try {
     const response = await passkey("approve-options");
     say("Sending your approval. This takes a few seconds; do not click again.", "work");
-    const [ok, d] = await post("approve", {response, typed_target: $("typed").value});
+    const [ok, d] = await post("approve", {response, typed_target: $("typed").value, note: $("note").value});
     if (ok) { sent("Approval sent" + (me ? " as " + me : "") + ". " + d.note); } else { say(d.error, "bad"); }
   } catch (e) { say("Not approved: " + e.message, "bad"); } finally { busy(false); }
 });
@@ -912,7 +916,7 @@ $("no").addEventListener("click", async () => {
   try {
     const response = await passkey("deny-options");
     say("Sending your denial. This takes a few seconds; do not click again.", "work");
-    const [ok, d] = await post("deny", {response, reason: $("why").value});
+    const [ok, d] = await post("deny", {response, note: $("note").value});
     if (ok) { sent("Denied" + (me ? " as " + me : "") + ". " + d.note); } else { say(d.error, "bad"); }
   } catch (e) { say("Not denied: " + e.message, "bad"); } finally { busy(false); }
 });

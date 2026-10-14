@@ -196,3 +196,35 @@ def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission
     assert "permissions_boundary = var.permissions_boundary_arn" in tf[tf.index('resource "aws_iam_role" "ack"'):tf.index(fn[:40])]
     assert 'each.key == "POST /s/interact" ? aws_apigatewayv2_integration.ack.id' in tf  # the one route it serves
     assert 'source_arn    = "${aws_apigatewayv2_api.front.execution_arn}/*/POST/s/interact"' in tf
+
+
+def test_in_slack_the_footer_is_the_small_line_under_the_message_with_no_rule():
+    """Owner, 2026-10-14, of the "---" between a message and its footer: "it doesn't look good"."""
+    link = f"https://{RP}/a/{TOKEN}"
+    foot = "WARDEN · incident `inc-1` · audit head `abc` · check it with `warden audit show inc-1`."
+    text = "The plan was denied by <@" + "U" + "0" * 3 + "ABCDEFG> (with their passkey): nothing was changed.\n\n---\n" + foot
+    [plain] = chatops.slack_messages([text], {})
+    section, context = plain["blocks"]
+    assert plain["text"] == text  # whole, for a notification and for a client that shows no blocks
+    assert section == {"type": "section", "text": {"type": "mrkdwn", "text": text.split("\n\n---\n")[0]}}
+    assert context == {"type": "context", "elements": [{"type": "mrkdwn", "text": foot}]}
+    assert "---" not in json_dumps(plain["blocks"])
+    # With WARDEN's link: the message, its button, then the footer.
+    [asked] = chatops.slack_messages([text], {"links": [[chatops.LINK_LABEL, link]]})
+    assert [b["type"] for b in asked["blocks"]] == ["section", "actions", "context"]
+    # Only the last part of a long report carries it, and only the last rule is the footer's.
+    report = "part one\n---\nnot a footer"
+    parts = chatops.slack_messages([report, "part two\n\n---\n_closing line_\n\n---\n" + foot], {})
+    assert "blocks" not in parts[0] and parts[1]["blocks"][0]["text"]["text"].endswith("_closing line_")
+    assert parts[1]["blocks"][-1]["elements"][0]["text"] == foot
+    # Nothing to set apart, or too long for one block: the text as it is.
+    assert chatops.slack_messages(["no footer here"], {}) == [{"text": "no footer here"}]
+    long = "x" * (chatops.SLACK_SECTION_CHARS + 1) + "\n\n---\n" + foot
+    assert chatops.slack_messages([long], {}) == [{"text": long}]
+    assert chatops.slack_messages(["\n---\n" + foot], {}) == [{"text": "\n---\n" + foot}]
+
+
+def json_dumps(value):
+    import json
+
+    return json.dumps(value)

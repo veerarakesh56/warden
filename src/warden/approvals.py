@@ -79,6 +79,29 @@ class Approver(BaseModel):
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
 
 
+# An approver's own words beside a decision (owner, 2026-10-14: a note with an approval as with a denial, "no matter
+# how lengthy and which kind of characters", tracked and stored, and "no prompt injection risk from those texts").
+# Any characters, any length: never refused, kept up to NOTE_MAX characters. Not text, and so not kept: control codes
+# and the invisible marks that make stored words read differently from how they were typed (zero-width space, byte
+# order mark, word joiner, the direction marks and overrides). The joiners Indic and Arabic scripts and emoji need
+# are text and are kept. The words are data everywhere they go: the audit, and a message - where they are written as
+# one inert line (activities._words). No model is ever shown them: the diagnosis reads the alert and the evidence.
+NOTE_MAX = 2000
+_NOT_TEXT = frozenset(map(chr, [0x200B, 0x200E, 0x200F, 0x061C, 0x2060, 0xFEFF, *range(0x202A, 0x202F),
+                                *range(0x2066, 0x206A)]))
+
+
+def note(text: object) -> str:
+    """What is kept of the words an approver typed with a decision. Whatever is sent - a list, a number, nothing -
+    this answers with a string of at most NOTE_MAX characters."""
+    import unicodedata
+
+    typed = str(text if text is not None else "").replace("\r\n", "\n").replace("\r", "\n")
+    kept = [ch for ch in typed if ch not in _NOT_TEXT
+            and (ch in "\n\t" or unicodedata.category(ch) not in ("Cc", "Cs"))]
+    return "".join(kept).strip()[:NOTE_MAX]
+
+
 class Denial(BaseModel):
     """An approver's "no" (requirement R28), sent by the approval page after a passkey ceremony over the plan. Fail-safe
     by construction: a denial can only end a plan with nothing changed, so the workflow takes it as it comes - for
@@ -87,7 +110,7 @@ class Denial(BaseModel):
     approver: str = Field(pattern=r"^[A-Za-z0-9._-]{1,64}$")
     workflow_id: str
     plan_hash: str
-    reason: str = Field(default="", max_length=200)
+    reason: str = Field(default="", max_length=NOTE_MAX)
 
 
 class PasskeyAssertion(BaseModel):
@@ -103,6 +126,8 @@ class PasskeyAssertion(BaseModel):
     expires_at: datetime
     challenge: str
     response: dict
+    # The approver's own words with this approval (approvals.note): recorded with it, never part of what is verified.
+    note: str = Field(default="", max_length=NOTE_MAX)
 
 
 class ApproverPolicy(BaseModel):

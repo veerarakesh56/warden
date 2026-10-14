@@ -363,7 +363,7 @@ def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, 
     said = sink.texts[-1].split("---")[0]
     assert re.search(r"was denied by `Asha Rao` \(with their passkey\) at \d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ", said)
     assert ": nothing was changed." in said and "Why:" not in said and "owner" not in said
-    assert ("Their reason: not now" in said) == bool(typed) and "Their reason" in said or not typed
+    assert ("Their reason: `not now`" in said) == bool(typed) and ("Their reason" in said) == bool(typed)
     # ...and the resource's record says who, where it said only "was denied".
     [row] = [r for r in history.plans(world["log"]) if r["status"] == "denied"]
     assert row["denied_by"] == "owner" and history._line(row).endswith("· was denied · by @@owner@@")

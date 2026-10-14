@@ -392,6 +392,10 @@ def approval_links(actions: tuple[tuple[str, str], ...]) -> list[tuple[str, str]
 
 
 SLACK_SECTION_CHARS = 3000  # Block Kit's limit for a section's text (docs.slack.dev, read 2026-10-12)
+# Slack's page for the context block states no limit for its text (read 2026-10-14); WARDEN's footer is about 250
+# characters, and this cap only keeps something unforeseen from failing the whole message.
+SLACK_CONTEXT_CHARS = 1900
+_FOOT_RULE = "\n---\n"  # the rule WARDEN's own messages put before their footer (activities.announce, notify)
 
 
 def slack_messages(parts: list[str], data: dict) -> list[dict[str, Any]]:
@@ -401,15 +405,24 @@ def slack_messages(parts: list[str], data: dict) -> list[dict[str, Any]]:
     (`POST /s/interact`); the click decides nothing - the page and the passkey do."""
     messages: list[dict[str, Any]] = [{"text": part} for part in parts]
     links = [(str(pair[0]), str(pair[1])) for pair in data.get("links") or () if len(pair) == 2]
-    if not links:
-        return messages
     buttons = {"type": "actions", "elements": [
         {"type": "button", "text": {"type": "plain_text", "text": label[:75]}, "url": link,
          **({"style": "primary"} if len(links) == 1 else {})} for label, link in links]}
     last = messages[-1]["text"] if messages else ""
-    if messages and len(last) <= SLACK_SECTION_CHARS:
-        messages[-1]["blocks"] = [{"type": "section", "text": {"type": "mrkdwn", "text": last}}, buttons]
-    else:  # too long for a section: the buttons are their own message
+    # WARDEN's own footer - the incident, the audit head - stands after a rule in the text. In Slack it is the small
+    # grey line under the message, with no rule (owner, 2026-10-14, of the "---" between a message and its footer:
+    # "it doesn't look good"). The `text` stays whole: it is what a notification and a client without blocks show.
+    body, rule, foot = last.rpartition(_FOOT_RULE)
+    if not rule or not body.strip() or not foot.strip():
+        body, foot = last, ""
+    if messages and len(body) <= SLACK_SECTION_CHARS and (links or foot):
+        blocks: list[dict[str, Any]] = [{"type": "section", "text": {"type": "mrkdwn", "text": body.rstrip()}}]
+        if links:
+            blocks.append(buttons)
+        if foot:
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": foot.strip()[:SLACK_CONTEXT_CHARS]}]})
+        messages[-1]["blocks"] = blocks
+    elif links:  # too long for a section: the buttons are their own message
         messages.append({"text": LINK_LABEL, "blocks": [buttons]})
     return messages
 

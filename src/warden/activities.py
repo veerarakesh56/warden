@@ -146,6 +146,15 @@ class Recorded(BaseModel):
 PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed", "cancelled_after_apply", "failed_after_apply"})
 
 
+def _words(text: str) -> str:
+    """An approver's own words in a message: data, never markup. One line inside a code span, nothing Slack or HTML
+    would act on (reporting.untrusted_inline), no mark that could become someone's mention; the outbound gate and
+    the redactor then see it as they see all text that leaves. Whole, up to what is kept (approvals.NOTE_MAX)."""
+    from .reporting import untrusted_inline
+
+    return untrusted_inline(approvals.note(text).replace("@@", "@ @"), limit=approvals.NOTE_MAX)
+
+
 _ISO_TIME = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?\+00:00")
 
 
@@ -301,6 +310,7 @@ class RemediationActivities:
                 return []  # no approval domain: the incident's report already said a plan waits
             what = "waiting"
         why: list[str] = []
+        whole: list[str] = []
         ended_at = None
         if what == "ended":
             ends = [e for e in self.audit.entries(plan.incident_id, kinds=("workflow.end",))
@@ -308,18 +318,23 @@ class RemediationActivities:
             if not ends:
                 return []
             body, ended_at = ends[-1]["body"], ends[-1]["at"]
-            what, why = str(body.get("status")), [str(r)[:300] for r in (body.get("reasons") or [])[:3]]
+            whole = [str(r) for r in (body.get("reasons") or [])[:3]]  # a denial's reason is said whole, below
+            what, why = str(body.get("status")), [r[:300] for r in whole]
         self.audit.checkpoint()
         head = self.audit.head(plan.incident_id)
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
         # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
         # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
         need = self.policy.required.get(plan.tier, 1)
+        gave = [b for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
+                if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
+                and b.get("plan_hash") == plan.plan_hash]
         did = sorted({f"{self.policy.said(str(b.get('approver')))} (with their "
-                      f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})"
-                      for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
-                      if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
-                      and b.get("plan_hash") == plan.plan_hash})
+                      f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
+        # What each wrote with their approval, in their own words - inert, one line each (_words).
+        notes = [(str(b.get("approver")), str(b["note"])) for b in gave if b.get("note")]
+        noted = "".join(f" Their note: {_words(n)}" if len(gave) == 1 else f" Note from {self.policy.said(a)}: {_words(n)}"
+                        for a, n in notes)
         # The plan's id, for whoever looks it up - not a command to type, in a message most readers act on by its
         # button (owner's bar, 2026-10-12: no unexplained jargon).
         said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval "
@@ -331,7 +346,7 @@ class RemediationActivities:
                             + ": the link opens for nobody else, and who decided is said here when they have."),
                 "approved": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` was approved by {' and '.join(did)} at "
                              f"{environments.both_times(datetime.now(UTC))}. WARDEN checks the target once more, then "
-                             "applies it."),
+                             "applies it." + noted),
                 "expired": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` expired without an approval. No action "
                             "was taken; the incident is still open.")}.get(what) or OUTCOME.get(
             what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
@@ -346,10 +361,10 @@ class RemediationActivities:
             who = next((n for n in self.policy.approvers
                         if any(w == f"denied by {n}" or w.startswith(f"denied by {n}: ") for w in why)), "")
             if who and ended_at is not None:
-                reason = next((w.partition(": ")[2] for w in why if w.startswith(f"denied by {who}: ")), "")
+                reason = next((w[len(f"denied by {who}: "):] for w in whole if w.startswith(f"denied by {who}: ")), "")
                 said = (f"WARDEN's plan `{plan.entry}` on `{plan.target}` was denied by {self.policy.said(who)} (with "
                         f"their passkey) at {environments.both_times(ended_at)}: nothing was changed."
-                        + (f" Their reason: {reason}" if reason else ""))
+                        + (f" Their reason: {_words(reason)}" if reason else ""))
                 why = []
         if what == "waiting":
             import contextlib
@@ -486,7 +501,9 @@ class RemediationActivities:
             "approver_list": self.policy.fingerprint(),
             "plan_hash": plan.plan_hash, "required": self.policy.required.get(plan.tier, 1),
             "credential_id": enrolled.credential_id if enrolled else "",
-            "sign_count": verified.new_sign_count if verified else None, "problems": problems})
+            "sign_count": verified.new_sign_count if verified else None, "problems": problems,
+            # The approver's own words, as the page kept them (approvals.note): on the record with the decision.
+            **({"note": approvals.note(assertion.note)} if assertion.note else {})})
         if problems:
             return ApprovalResult(problems=problems)
         record = approvals.SignedApproval(approver=assertion.approver, workflow_id=plan.workflow_id,
