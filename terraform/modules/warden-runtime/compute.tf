@@ -2,7 +2,12 @@
 # (register S15), each `warden worker --zone <zone>` from the runtime image with its own task role (iam.tf), in the
 # private subnets of at least two availability zones. On Fargate each task is its own micro-VM - no kernel shared with
 # another zone - and has no instance metadata service, so a task holds only its own zone's role, which writes nothing
-# itself. The task's root filesystem is read-only, as the non-root user.
+# itself. The task's root filesystem is read-only, as the non-root user. The EC2 group below goes in the next apply.
+data "aws_ssm_parameter" "ecs_ami" {
+  # AWS's own pointer to the current ECS-optimized Amazon Linux 2023 image.
+  name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id"
+}
+
 resource "aws_ecs_cluster" "runtime" {
   # warden-<env>-*: the environment boundary lets its deploy role touch ECS services in such clusters only.
   name = "warden-${var.environment}-runtime"
@@ -13,12 +18,162 @@ resource "aws_ecs_cluster" "runtime" {
   tags = { Project = "warden", Environment = var.environment }
 }
 
+data "aws_iam_policy_document" "ec2_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "instance" {
+  name                 = "warden-${var.environment}-ecs-instance"
+  permissions_boundary = var.permissions_boundary_arn
+  description          = "WARDEN ${var.environment}: the ECS container instances (registering with the cluster only)"
+  assume_role_policy   = data.aws_iam_policy_document.ec2_trust.json
+  tags                 = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_iam_role_policy_attachment" "instance" {
+  role       = aws_iam_role.instance.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+}
+
+resource "aws_iam_instance_profile" "instance" {
+  name = "warden-${var.environment}-ecs-instance"
+  role = aws_iam_role.instance.name
+}
+
+resource "aws_security_group" "instances" {
+  name_prefix = "warden-${var.environment}-instances-"
+  description = "WARDEN ${var.environment}: ECS container instances (the ECS agent reaches AWS over HTTPS)"
+  vpc_id      = var.vpc_id
+  egress {
+    description = "HTTPS out: the ECS and ECR endpoints"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = { Project = "warden", Environment = var.environment }
+}
+
+resource "aws_launch_template" "instances" {
+  name_prefix            = "warden-${var.environment}-"
+  image_id               = data.aws_ssm_parameter.ecs_ami.value
+  instance_type          = var.worker_instance_types[0]
+  vpc_security_group_ids = [aws_security_group.instances.id]
+  iam_instance_profile {
+    arn = aws_iam_instance_profile.instance.arn
+  }
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+  block_device_mappings {
+    device_name = "/dev/xvda"
+    ebs {
+      encrypted   = true
+      volume_type = "gp3"
+      volume_size = 30
+    }
+  }
+  user_data = base64encode(<<-EOT
+    #!/bin/bash
+    # Instances launched after the account's ECS ENI trunking (awsvpcTrunking) was turned on, 2026-10-14, hold 4 awsvpc
+    # tasks on an m7i-flex.large, not 2: this line's change replaced the ones launched before (instance_refresh below).
+    cat >> /etc/ecs/ecs.config <<'CFG'
+    ECS_CLUSTER=${aws_ecs_cluster.runtime.name}
+    ECS_AWSVPC_BLOCK_IMDS=true
+    ECS_ENABLE_TASK_IAM_ROLE=true
+    CFG
+  EOT
+  )
+  tag_specifications {
+    resource_type = "instance"
+    tags          = { Project = "warden", Environment = var.environment, Name = "warden-${var.environment}-ecs" }
+  }
+}
+
+# Paused (var.paused), the group, its capacity provider and the services are removed, the instances force-deleted:
+# with no task ECS managed scaling kept CapacityProviderReservation at 100 and never scaled in (2026-10-10).
+resource "aws_autoscaling_group" "instances" {
+  count               = var.paused ? 0 : 1
+  name_prefix         = "warden-${var.environment}-"
+  force_delete        = true # its instances carry scale-in protection; removing the group must not wait on them
+  vpc_zone_identifier = var.private_subnet_ids
+  # Each task has its own network interface (awsvpc), so an instance holds only worker_tasks_per_instance tasks (2 on a
+  # large type without ENI trunking): enough instances for every zone's tasks, plus one for a rolling deployment. The
+  # capacity provider scales between min and max (2026-10-09: max = workers + 1 left a zone's task pending).
+  min_size              = var.worker_instances
+  max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1
+  desired_capacity      = var.worker_instances
+  protect_from_scale_in = true
+  mixed_instances_policy {
+    instances_distribution {
+      on_demand_allocation_strategy            = "prioritized" # the list's order
+      on_demand_base_capacity                  = 0
+      on_demand_percentage_above_base_capacity = 100 # on-demand only (the boundary denies spot)
+    }
+    launch_template {
+      launch_template_specification {
+        launch_template_id = aws_launch_template.instances.id
+        version            = aws_launch_template.instances.latest_version # a new template version reaches the group
+      }
+      dynamic "override" {
+        for_each = var.worker_instance_types
+        content {
+          instance_type = override.value
+        }
+      }
+    }
+  }
+  tag {
+    key                 = "AmazonECSManaged"
+    value               = "true"
+    propagate_at_launch = true
+  }
+  # A new template version replaces the instances, half at a time; the capacity provider's managed draining moves each
+  # instance's tasks first. Scale-in protection would otherwise keep every old instance (2026-10-14).
+  instance_refresh {
+    strategy = "Rolling"
+    preferences {
+      min_healthy_percentage       = 50
+      instance_warmup              = 120
+      scale_in_protected_instances = "Refresh"
+      standby_instances            = "Terminate"
+    }
+  }
+  lifecycle {
+    ignore_changes = [desired_capacity] # the capacity provider scales it
+  }
+}
+
+resource "aws_ecs_capacity_provider" "instances" {
+  count = var.paused ? 0 : 1
+  name  = "warden-${var.environment}-ec2"
+  auto_scaling_group_provider {
+    auto_scaling_group_arn         = aws_autoscaling_group.instances[0].arn
+    managed_termination_protection = "ENABLED"
+    managed_scaling {
+      status          = "ENABLED"
+      target_capacity = 100
+    }
+  }
+  tags = { Project = "warden", Environment = var.environment }
+}
+
 resource "aws_ecs_cluster_capacity_providers" "runtime" {
   count = var.paused ? 0 : 1
   # Fargate (owner decision 2026-10-14): each zone's task in its own micro-VM, no shared kernel, no instance metadata
-  # service at all, and none of the account's EC2 vCPUs - those went to the test stack's EKS node.
-  cluster_name       = aws_ecs_cluster.runtime.name
+  # service at all, and none of the account's EC2 vCPUs - those went to the test stack's EKS node. Detached first, in
+  # an apply of its own: removing the provider and this list together, Terraform deleted the provider first and ECS
+  # refused ("associated with cluster", 2026-10-14). The EC2 resources go in the next apply.
   capacity_providers = ["FARGATE"]
+  cluster_name       = aws_ecs_cluster.runtime.name
   default_capacity_provider_strategy {
     capacity_provider = "FARGATE"
     weight            = 1
@@ -132,6 +287,17 @@ resource "aws_ecs_service" "zone" {
   propagate_tags = "SERVICE"
   tags           = { Project = "warden", Environment = var.environment }
   depends_on     = [aws_ecs_cluster_capacity_providers.runtime]
+}
+
+# One instance of each, before the paused switch made them counted (2026-10-10).
+moved {
+  from = aws_autoscaling_group.instances
+  to   = aws_autoscaling_group.instances[0]
+}
+
+moved {
+  from = aws_ecs_capacity_provider.instances
+  to   = aws_ecs_capacity_provider.instances[0]
 }
 
 moved {

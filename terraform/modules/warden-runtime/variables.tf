@@ -150,6 +150,28 @@ variable "paused" {
   nullable    = false
 }
 
+variable "worker_tasks_per_instance" {
+  description = "How many awsvpc tasks one instance holds: 2 for a large type, more with ECS ENI trunking (AWS's table of supported instances)."
+  type        = number
+  default     = 2
+  nullable    = false
+  validation {
+    condition     = var.worker_tasks_per_instance >= 1
+    error_message = "an instance holds at least one task."
+  }
+}
+
+variable "worker_instance_types" {
+  description = "The EC2 instance types of the ECS capacity provider, tried in this order when one has no capacity (x86_64: the runtime image is built for it). The capacity provider places the zone tasks (zone_sizes) on as many as they need (t3.medium: 2 vCPU, 4 GiB)."
+  type        = list(string)
+  default     = ["t3.medium"]
+  nullable    = false
+  validation {
+    condition     = length(var.worker_instance_types) > 0
+    error_message = "name at least one instance type."
+  }
+}
+
 variable "zone_sizes" {
   description = "CPU units and memory (MiB) of each trust zone's task (register S15). The read zone holds the tripwire model."
   type        = map(object({ cpu = number, memory = number }))

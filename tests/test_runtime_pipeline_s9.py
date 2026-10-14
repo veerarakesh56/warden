@@ -85,7 +85,7 @@ def test_restart_redeploys_the_zone_services_without_an_image_or_a_plan():
 
 def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     tf = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
-    assert re.search(r'\n  source\s+= "\.\./modules/warden-runtime"\n', tf)
+    assert 'source                    = "../modules/warden-runtime"' in tf
     assert 'path = "/warden/${local.env}/tf"' in tf and re.search(r"\n  env\s+= terraform\.workspace\n", tf)
     assert re.search(r"condition\s+= local\.env == local\.runtime\n", tf)  # WARDEN's own environment, nothing else
     assert re.search(r"\n  runtime\s+= local\.config\.runtime\n", tf)
@@ -95,7 +95,7 @@ def test_the_runtime_root_reads_every_per_install_value_from_ssm():
     module = "\n".join(p.read_text(encoding="utf-8") for p in (ROOT / "terraform" / "modules" / "warden-runtime").glob("*.tf"))
     # Every role the module makes carries the boundary - counted against the roles themselves.
     assert module.count("permissions_boundary = var.permissions_boundary_arn") == module.count(
-        'resource "aws_iam_role" "') == 5  # the EC2 instance role went with Fargate (2026-10-14)
+        'resource "aws_iam_role" "') == 6
 
 
 EIP_ERROR = "Error: disassociating EC2 EIP (eipassoc-0abc): operation error EC2: DisassociateAddress, UnauthorizedOperation"
