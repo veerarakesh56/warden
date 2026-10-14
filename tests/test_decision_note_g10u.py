@@ -244,3 +244,11 @@ def test_the_message_names_what_a_note_tried_beside_the_decision_and_nothing_for
     assert said.startswith(" WARDEN noticed in it: ")
     for ordinary in ("rolled back by hand, all good", "wrong target " + TELUGU, "ok " + FAMILY, ""):
         assert _tried(ordinary) == "", ordinary
+    # WARDEN's "removed" mark typed by a person is not WARDEN removing something; a real secret still is. The kept
+    # note passes through note() again later (the message), and the real mark survives that.
+    mimic = approvals.note("I typed " + approvals.NOTE_SECRET + " myself", incoming=True)
+    assert approvals.NOTE_SECRET not in mimic and "(removed: it looked like a secret)" in mimic and _tried(mimic) == ""
+    real = approvals.note("password=" + "Hunter2" + "Secret!", incoming=True)
+    assert approvals.note(real) == real and "a password or a key" in _tried(real)
+    page = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "approval_page.py").read_text(encoding="utf-8")
+    assert page.count('approvals.note(data.get("note"), incoming=True)') == 2 and 'approvals.note(data.get("note"))' not in page

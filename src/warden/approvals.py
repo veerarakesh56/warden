@@ -92,9 +92,11 @@ _NOT_TEXT = frozenset(map(chr, [0x200B, 0x200E, 0x200F, 0x061C, 0x2060, 0xFEFF, 
                                 *range(0x2066, 0x206A)]))
 
 
-def note(text: object) -> str:
+def note(text: object, *, incoming: bool = False) -> str:
     """What is kept of the words an approver typed with a decision. Whatever is sent - a list, a number, nothing -
-    this answers with a string of at most NOTE_MAX characters."""
+    this answers with a string of at most NOTE_MAX characters. `incoming`: the words as the person sent them, at the one
+    place they come in (the approval page) - a copy of WARDEN's own "removed" mark among them is turned to round
+    brackets, so the mark in a kept note always means WARDEN removed something. Every later pass leaves it as it is."""
     import unicodedata
 
     from .redaction import SECRET_KINDS, redact
@@ -105,6 +107,8 @@ def note(text: object) -> str:
     # Whatever looks like a secret is taken out before the words are kept or said (live, 2026-10-14: a test note with
     # a password and a key in it had the whole denial message withheld, so nobody was told who denied, or when).
     # The redactor's own patterns decide; anything else it masks (an address, a host) is put back as typed.
+    if incoming:
+        kept = kept.replace(NOTE_SECRET, "(" + NOTE_SECRET[1:-1] + ")")
     masked = redact(kept)
     out = masked.text
     for placeholder, value in masked.mapping.items():

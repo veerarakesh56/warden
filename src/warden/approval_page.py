@@ -539,7 +539,7 @@ class ApprovalPage:
         if problems:
             return _json(403, {"error": "the passkey was not accepted", "problems": problems})
         self.deny(plan.workflow_id, Denial(approver=link.approver, workflow_id=plan.workflow_id,
-                                           plan_hash=plan.plan_hash, reason=approvals.note(data.get("note"))))
+                                           plan_hash=plan.plan_hash, reason=approvals.note(data.get("note"), incoming=True)))
         self.store.use_link(token)  # used once, either way
         return _json(200, {"sent": True, "note": "The plan is denied; nothing will change."})
 
@@ -556,7 +556,7 @@ class ApprovalPage:
         self.signal(plan.workflow_id, PasskeyAssertion(
             approver=link.approver, workflow_id=pending.workflow_id, plan_hash=pending.plan_hash, tier=pending.tier,
             nonce=pending.nonce, expires_at=pending.expires_at, challenge=pending.challenge, response=data["response"],
-            note=approvals.note(data.get("note"))))
+            note=approvals.note(data.get("note"), incoming=True)))
         self.store.use_link(token)  # used once
         return _json(200, {"sent": True, "note": "WARDEN re-checks this approval before anything changes."})
 
