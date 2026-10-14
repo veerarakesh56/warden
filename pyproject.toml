@@ -220,6 +220,17 @@ wheel-exclude = [
 required-version = ">=0.12.18,<0.13"
 default-groups = []
 
+# torch for Linux from PyTorch's CPU-only index: the runtime image holds the injection tripwire (the `guard` extra, register
+# R47), and PyPI's Linux torch brings CUDA - 43 NVIDIA packages, several GB, for a model that runs on a CPU. Explicit: only
+# torch is taken from it. Elsewhere (a laptop) torch stays PyPI's.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
 [project.scripts]
 warden = "warden.cli:main"
 warden-mcp = "warden.mcp_server:main"

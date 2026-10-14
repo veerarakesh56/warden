@@ -177,7 +177,7 @@ variable "zone_sizes" {
   type        = map(object({ cpu = number, memory = number }))
   default = {
     core   = { cpu = 256, memory = 512 }
-    read   = { cpu = 512, memory = 1536 }
+    read   = { cpu = 1024, memory = 3072 } # Prompt Guard 2 (1.1 GB of weights) and torch: R47, 2026-10-14
     llm    = { cpu = 256, memory = 512 }
     notify = { cpu = 256, memory = 384 }
     act    = { cpu = 256, memory = 384 }

@@ -61,9 +61,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      # Built before the job holds any credential: nothing the build runs can reach AWS.
+      # Built before the job holds any credential: nothing the build runs can reach AWS. The Hugging Face token (the
+      # ops environment's secret HF_TOKEN: the owner's read token for the gated Prompt Guard 2) is a BuildKit secret,
+      # mounted for the one step that fetches the tripwire's weights and kept in no layer (register R47).
       - name: Build the runtime image
-        run: docker build --network=host -f Dockerfile.runtime -t "warden-runtime:$GITHUB_SHA" .
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          test -n "$HF_TOKEN" || { echo "::error::set the secret HF_TOKEN on the ops environment"; exit 1; }
+          docker build --network=host --secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime -t "warden-runtime:$GITHUB_SHA" .
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}

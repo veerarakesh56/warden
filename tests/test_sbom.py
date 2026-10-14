@@ -36,7 +36,8 @@ def test_the_model_bill_names_the_pinned_detector_and_every_qualified_model():
     assert {q["model"] for q in qualified["qualified"]} <= set(models)
 
 
-def test_the_detector_loads_its_pinned_revision_from_safetensors_only(monkeypatch):
+def test_the_detector_loads_its_pinned_revision_from_safetensors_only(monkeypatch, real_classifier):
+    monkeypatch.setattr(tripwire, "_classifier", real_classifier)  # conftest.py's stand-in replaces it elsewhere
     seen = {}
     monkeypatch.setitem(sys.modules, "transformers",
                         types.SimpleNamespace(pipeline=lambda task, **kw: seen.update(kw) or object()))

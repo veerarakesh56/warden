@@ -87,9 +87,10 @@ environments:
 # `approval_wait_hours` (default 72 - three days - and at most 168, a week) is how long a fix plan in that environment waits for its approval -
 # and how long its approval link works. The target is read again before anything is applied, whatever the wait.
 # `tripwire: off | on | required` (default off) sets the injection detector per environment; the stricter of it and
-# WARDEN_TRIPWIRE applies. None sets it yet: the image has no detector (Prompt Guard 2 is a gated model), and
-# `required` would escalate every incident. pre-prod, qa-prod and prod become `required` when an image with the
-# detector ships (register R47, deferred with the owner's agreement 2026-10-02).
+# WARDEN_TRIPWIRE applies. The runtime image carries Prompt Guard 2 (the pinned weights, checked at build:
+# scripts/bake_tripwire.py; register R47, 2026-10-14), so every environment scans (`on`): a flagged text escalates.
+# `required` also escalates an incident the detector could not scan; pre-prod, qa-prod and prod take it once the MCP
+# check and the replay tools run the scan instead of reusing a recorded result (they escalate everything until then).
 
   dev:
     tier: nonprod
@@ -99,6 +100,7 @@ environments:
     deny_actions: []
     authorized_principals: ["*"]
     credentials_ref: warden-dev-deploy
+    tripwire: "on"
 
   staging:
     tier: nonprod
@@ -110,6 +112,7 @@ environments:
     deny_actions: [failover_replica]     # a DB failover is a human call even in staging
     authorized_principals: [svc:warden-staging, role:oncall, role:platform, role:qa]
     credentials_ref: warden-staging-deploy
+    tripwire: "on"
 
   qa-staging:
     tier: nonprod
@@ -121,6 +124,7 @@ environments:
     deny_actions: [failover_replica]
     authorized_principals: [svc:warden-qa, role:qa, role:oncall, role:platform]
     credentials_ref: warden-qa-staging-deploy
+    tripwire: "on"
 
   pre-prod:
     tier: preprod
@@ -132,6 +136,7 @@ environments:
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:release]
     credentials_ref: warden-pre-prod-deploy
+    tripwire: "on"
 
   qa-prod:
     tier: preprod
@@ -143,6 +148,7 @@ environments:
     deny_actions: [scale_down, clear_cache, failover_replica]
     authorized_principals: [role:oncall, role:platform, role:qa-lead]
     credentials_ref: warden-qa-prod-deploy
+    tripwire: "on"
 
   prod:
     tier: prod
@@ -154,3 +160,4 @@ environments:
     deny_actions: [scale_down]   # scaling prod down is a capacity decision a human owns
     authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]
     credentials_ref: warden-prod-deploy
+    tripwire: "on"
