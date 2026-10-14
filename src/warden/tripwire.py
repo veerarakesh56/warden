@@ -162,7 +162,15 @@ def mode(environment: str = "off") -> str:
 
 @functools.cache
 def _classifier() -> Any:
+    import logging
+    import traceback
+
     from transformers import pipeline  # optional: pip install -e ".[guard]"
+
+    # Once per process: which process loads the 1.1 GB detector, and from where - only the read zone should (it runs
+    # prepare); the llm zone's log showed the model's code being imported on 2026-10-14 with no caller known.
+    caller = " <- ".join(f"{f.name}:{f.lineno}" for f in reversed(traceback.extract_stack(limit=8)[:-1]))
+    logging.getLogger(__name__).info("loading the injection detector (pid %d), called from %s", os.getpid(), caller)
 
     # The pinned revision, and safetensors only: a pickle in a model repo is code, and is never loaded.
     return pipeline("text-classification", model=MODEL, revision=REVISION, top_k=None,  # scored by id: _score_ids

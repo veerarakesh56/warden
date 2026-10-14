@@ -97,7 +97,7 @@ def test_the_audit_database_keeps_point_in_time_recovery_and_is_reached_by_the_r
     assert ("condition     = var.audit_db_backup_days >= 7 || (var.aws_free_plan && var.audit_db_backup_days >= 1)"
             in variables)
     root = (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8")
-    assert 'aws_free_plan             = lookup(local.tf, "aws_free_plan", "false") == "true"' in root
+    assert 'aws_free_plan = lookup(local.tf, "aws_free_plan", "false") == "true"' in " ".join(root.split())
     net = (MODULE / "network.tf").read_text(encoding="utf-8")
     ingress = _block(net, "aws_vpc_security_group_ingress_rule", "audit_db_from_runtime")
     assert "referenced_security_group_id = aws_security_group.runtime.id" in ingress and "5432" in ingress
@@ -344,17 +344,15 @@ def test_on_the_aws_free_plan_the_audit_is_one_private_rds_instance_with_the_sam
     assert "aws_rds_cluster.audit" not in others and "aws_db_instance.audit" not in others
 
 
-def test_instances_fall_back_through_a_list_of_types_on_demand_only():
-    """One type's capacity ran out in one AZ (c7i-flex.large, ap-south-2b, 2026-10-09): the group tries the listed
-    types in order, on demand only."""
-    asg = _block((MODULE / "compute.tf").read_text(encoding="utf-8"), "aws_autoscaling_group", "instances")
-    assert 'on_demand_allocation_strategy            = "prioritized"' in asg
-    assert "on_demand_percentage_above_base_capacity = 100" in asg
-    assert "for_each = var.worker_instance_types" in asg and "launch_template_id = aws_launch_template.instances.id" in asg
-    # A template change reaches the instances: the template's own version (not "$Latest", which never changes the group)
-    # and a rolling refresh that replaces scale-in-protected instances (2026-10-14).
-    assert "version            = aws_launch_template.instances.latest_version" in asg and '"$Latest"' not in asg
-    assert 'strategy = "Rolling"' in asg and 'scale_in_protected_instances = "Refresh"' in asg
+def test_no_ec2_instance_is_left_to_run_the_workers():
+    """Fargate (owner, 2026-10-14): the EC2 group, its launch template, capacity provider, instance role and profile,
+    the instances' group and the AMI lookup are gone, and the cluster's only provider is FARGATE."""
+    module = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
+    for gone in ("aws_autoscaling_group", "aws_launch_template", "aws_ecs_capacity_provider", "aws_iam_instance_profile",
+                 'aws_security_group" "instances"', "ecs/optimized-ami", "worker_instance_types", "worker_tasks_per_instance"):
+        assert gone not in module, gone
+    cluster = " ".join(_block(module, "aws_ecs_cluster_capacity_providers", "runtime").split())
+    assert 'capacity_providers = ["FARGATE"]' in cluster
 
 
 def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_only():
@@ -379,24 +377,13 @@ def test_only_the_notify_zone_posts_for_real():
     assert 'each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {}' in compute
 
 
-def test_the_group_can_grow_to_hold_every_zones_tasks_and_a_rolling_deployment():
-    """Each awsvpc task has its own network interface, so a large instance holds 2 tasks without ENI trunking: with
-    max = workers + 1 the read zone's task waited for a place (2026-10-09). The maximum follows from the tasks."""
-    asg = _block((MODULE / "compute.tf").read_text(encoding="utf-8"), "aws_autoscaling_group", "instances")
-    assert "max_size              = ceil(length(var.zone_sizes) * var.worker_instances / var.worker_tasks_per_instance) + 1" in asg
-    assert "min_size              = var.worker_instances" in asg
-
-
 def test_paused_the_runtime_keeps_its_audit_and_stops_its_spend():
     """Between test windows (owner, 2026-10-10): no worker task or instance, no NAT gateway, no alarm intake and no
     self-page for the silent workers; the audit, its key, the secrets, the witness and the anchors are untouched."""
     compute = (MODULE / "compute.tf").read_text(encoding="utf-8")
-    # Removed, not scaled: with no task ECS managed scaling never scaled the instances in (2026-10-10).
-    for block in ("aws_autoscaling_group", "aws_ecs_capacity_provider", "aws_ecs_cluster_capacity_providers"):
-        assert "count = var.paused ? 0 : 1" in " ".join(_block(compute, block, "instances" if "cluster_capacity" not in
-                                                                block else "runtime").split()), block
+    # Removed, not scaled: no service and no capacity provider association while paused (Fargate bills per task).
+    assert "count = var.paused ? 0 : 1" in " ".join(_block(compute, "aws_ecs_cluster_capacity_providers", "runtime").split())
     assert "for_each = var.paused ? {} : local.zones" in " ".join(compute.split())
-    assert "force_delete = true" in " ".join(_block(compute, "aws_autoscaling_group", "instances").split())
     front = (MODULE / "frontdoor.tf").read_text(encoding="utf-8")
     assert 'state       = var.paused ? "DISABLED" : "ENABLED"' in _block(front, "aws_cloudwatch_event_rule", "alarms")
     beat = (MODULE / "heartbeat.tf").read_text(encoding="utf-8")
