@@ -298,10 +298,53 @@ def cluster_role() -> str:
     return yaml.safe_dump(role, sort_keys=False)
 
 
+# Datadog's agent on the test cluster (owner, 2026-10-14: Datadog as the observability tool WARDEN reads beside AWS):
+# logs from every container, Kubernetes metrics, and APM traces by single-step instrumentation in the shop namespace -
+# no code change in the apps. Chart 3.250.3, released 2026-09-29 (github.com/DataDog/helm-charts), two weeks old when
+# pinned; its values as docs.datadoghq.com documents them for single-step APM (read 2026-10-14).
+DATADOG_CHART = "3.250.3"
+DATADOG_SITES = frozenset({"datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu",
+                           "ap1.datadoghq.com", "ap2.datadoghq.com", "uk1.datadoghq.com", "ddog-gov.com",
+                           "us2.ddog-gov.com"})
+
+
+def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
+    """Install Datadog's agent before the apps roll out, so their pods start traced. Its API key is the persistent
+    secret `warden-<env>-datadog-api-key` (pasted once by the owner; never in Terraform state), its site the plain
+    setting `/warden/<env>/tf/datadog_site` (the deploy role reads that path alone). Neither set: nothing is installed, and it says so."""
+    import base64
+
+    env = stack["environment"]
+    try:
+        key = aws("secretsmanager").get_secret_value(SecretId=f"warden-{env}-datadog-api-key")["SecretString"].strip()
+        site = aws("ssm").get_parameter(Name=f"/warden/{env}/tf/datadog_site")["Parameter"]["Value"].strip()
+    except Exception as exc:  # noqa: BLE001 - no key or no site: the stack runs without Datadog
+        print(f"Datadog agent not installed: its key or site is not set ({type(exc).__name__})", flush=True)
+        return False
+    if not key or site not in DATADOG_SITES:
+        print("Datadog agent not installed: the key is empty or the site is not one of Datadog's", flush=True)
+        return False
+    secret = (f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: datadog\n---\napiVersion: v1\nkind: Secret\n"
+              f"metadata:\n  name: datadog-secret\n  namespace: datadog\ntype: Opaque\ndata:\n"
+              f"  api-key: {base64.b64encode(key.encode()).decode()}\n")
+    run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=secret)  # the key over stdin only
+    run(["helm", "repo", "add", "datadog", "https://helm.datadoghq.com", "--force-update"])
+    run(["helm", "upgrade", "--install", "datadog-agent", "datadog/datadog", "--version", DATADOG_CHART,
+         "--namespace", "datadog", "--kubeconfig", kubeconfig, "--wait", "--timeout", "10m",
+         "--set", f"datadog.site={site}", "--set", f"datadog.clusterName={stack['eks_cluster_name']}",
+         "--set", "datadog.apiKeyExistingSecret=datadog-secret",
+         "--set", "datadog.logs.enabled=true", "--set", "datadog.logs.containerCollectAll=true",
+         "--set", "datadog.apm.instrumentation.enabled=true",
+         "--set", "datadog.apm.instrumentation.targets[0].name=shop",
+         "--set", "datadog.apm.instrumentation.targets[0].namespaceSelector.matchNames[0]=shop"])
+    return True
+
+
 def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
     kubeconfig = str(out / "kubeconfig")
     run(["aws", "eks", "update-kubeconfig", "--name", stack["eks_cluster_name"],
          "--region", stack["region"], "--kubeconfig", kubeconfig])
+    deploy_datadog(stack, kubeconfig, aws, run)
     # catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
     # value is its signing key, generated here and sent over stdin. fs-23 removes it.
     manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S)]), {

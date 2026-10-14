@@ -10,6 +10,9 @@ locals {
     "audit-dsn", "alertmanager-token", "alertmanager-token-previous", "pagerduty-routing-key",
     "slack-client-secret", # Sign in with Slack on the approval page (slack_login.py): the approval Lambda's alone
     "slack-app-token",     # the discussion channel's Socket Mode connection (discuss.py): the notify zone's alone
+    "datadog-api-key",     # Datadog's API key (datadog.py): the read zone's, with the scoped application key below;
+    #                        the proving ground's agent sends with it too
+    "datadog-app-key", # Datadog's application key, scoped to logs_read_data, apm_read, timeseries_query
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
     "temporal-api-key-act",

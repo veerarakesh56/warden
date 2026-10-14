@@ -44,6 +44,8 @@ LOADABLE = frozenset({
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "WARDEN_ALERTMANAGER_URL", "WARDEN_APPROVAL_RP_ID",
     "WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_EXPECTED_DOWN",
     "WARDEN_SLACK_APP_TOKEN", "WARDEN_DISCUSS_CHANNEL", "WARDEN_RECORD_VIEWERS",
+    # Datadog (datadog.py): its site is plain; the API key and the scoped, read-only application key are secrets.
+    "WARDEN_DATADOG_SITE", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
 })
 
 
@@ -78,6 +80,9 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_SLACK_APP_TOKEN": frozenset({"worker"}),
     # Who besides the approvers may read WARDEN's records (records.py): only the page that shows them reads it.
     "WARDEN_RECORD_VIEWERS": frozenset({"lambda-approval"}),
+    # Datadog's keys: the read zone's worker alone reads evidence.
+    "WARDEN_DATADOG_API_KEY": frozenset({"worker"}),
+    "WARDEN_DATADOG_APP_KEY": frozenset({"worker"}),
 }
 
 
@@ -89,6 +94,7 @@ SECRETS = frozenset({
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
     "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_SLACK_APP_TOKEN",
+    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
 })
 
 
@@ -99,7 +105,8 @@ _EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", 
                          "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
-    "read": _EVERY_ZONE | {"WARDEN_DB_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN"},
+    "read": _EVERY_ZONE | {"WARDEN_DB_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN",
+                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"},
     "llm": _EVERY_ZONE | {"GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"},
     "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK",
                              "WARDEN_WEBHOOK_URL", "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_GITHUB_TOKEN"},

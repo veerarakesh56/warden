@@ -156,7 +156,11 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     run = Runner({"kustomize": rendered})
     clients = {}
     tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run)
-    assert clients == {}, "no secret is read: catalog-api logs in with an IAM token (Pod Identity)"
+    # catalog-api logs in with an IAM token (Pod Identity): the only secret asked for is Datadog's agent key, which
+    # this stack does not have - so no agent, and the apps deploy as before.
+    assert set(clients) <= {"secretsmanager", "ssm"}
+    assert [kw for name, kw in clients["secretsmanager"].calls] == [{"SecretId": "warden-dev-datadog-api-key"}]
+    assert not any(c[:1] == ["helm"] for c in run.cmds)
     applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c)
     assert not tool.PLACEHOLDER.search(applied)
     assert STACK["ecr_repository_url"] + ":abc123" in applied
@@ -168,6 +172,35 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
         "warden_dev_catalog", "reader.internal", "ap-south-2")
     assert all(key not in " ".join(c) for c in run.cmds)
     assert sum("rollout" in c for c in run.cmds) == 2
+
+
+def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart(tmp_path):
+    """Owner, 2026-10-14: Datadog beside AWS. Its agent is installed before the apps roll out (their pods start traced,
+    no code change), its key read from the persistent secret and sent to the cluster over stdin, never on a command
+    line; the chart pinned; a site that is not Datadog's installs nothing."""
+    import base64
+
+    key = "dd" + "0123456789abcdef" * 2
+    rendered = "\n---\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "k8s" / "fullstack").glob("*.yaml"))
+                              if p.name != "kustomization.yaml")
+    clients = {"secretsmanager": Fake({"get_secret_value": {"SecretString": key + "\n"}}),
+               "ssm": Fake({"get_parameter": {"Parameter": {"Value": "ap1.datadoghq.com"}}})}
+    run = Runner({"kustomize": rendered})
+    tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run)
+    assert all(key not in " ".join(c) for c in run.cmds)  # never on argv
+    assert [kw for _, kw in clients["ssm"].calls] == [{"Name": "/warden/dev/tf/datadog_site"}]  # the deploy role's path
+    secret_in = next(i for c, i in zip(run.cmds, run.inputs) if i and "datadog-secret" in i)
+    assert base64.b64encode(key.encode()).decode() in secret_in and "namespace: datadog" in secret_in
+    helm = next(c for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"])
+    assert helm[helm.index("--version") + 1] == tool.DATADOG_CHART == "3.250.3"
+    for value in ("datadog.site=ap1.datadoghq.com", "datadog.apiKeyExistingSecret=datadog-secret",
+                  "datadog.logs.containerCollectAll=true", "datadog.apm.instrumentation.enabled=true",
+                  "datadog.apm.instrumentation.targets[0].namespaceSelector.matchNames[0]=shop"):
+        assert value in helm, value
+    apps = next(n for n, (c, i) in enumerate(zip(run.cmds, run.inputs)) if i and "kind: ClusterRole" in i)
+    assert run.cmds.index(helm) < apps  # the agent first: the apps' pods start traced
+    clients["ssm"] = Fake({"get_parameter": {"Parameter": {"Value": "evil.example"}}})
+    assert tool.deploy_datadog(STACK, "k", aws_factory(clients), Runner()) is False
 
 
 def test_render_refuses_a_leftover_placeholder():

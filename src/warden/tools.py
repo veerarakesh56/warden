@@ -157,6 +157,19 @@ _DB_BACKENDS: dict[str, str | None] = {
 
 
 def resolve_backend(name: str | None = None):
+    """The evidence source `_base_backend` picks - with Grafana (or a company's own Loki, Tempo and Prometheus) and
+    Datadog beside it, each when its read keys are set (grafana.py, datadog.py). Never beside the recorded fixtures."""
+    base = _base_backend(name)
+    from . import datadog, grafana
+
+    readers = [*([grafana.GrafanaReader()] if grafana.configured() else []),
+               *([datadog.DatadogReader()] if datadog.configured() else [])]
+    if readers and not isinstance(base, FixtureBackend):
+        return grafana.WithSources(base, readers)
+    return base
+
+
+def _base_backend(name: str | None = None):
     """Pick the evidence source from `WARDEN_BACKEND`.
 
         fixture     recorded incidents shipped with the package (default; what CI uses)
