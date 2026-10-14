@@ -14,8 +14,10 @@ alert under it, or the build fails. The worker never reaches Hugging Face and ho
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pathlib
+import subprocess  # nosec B404 - runs this same Python on fixed code, to load the model as the worker does
 import sys
 
 FILES = {
@@ -52,20 +54,33 @@ def fetch(cache: pathlib.Path, token: str) -> pathlib.Path:
     return snapshot
 
 
-def check(cache: pathlib.Path) -> tuple[float, float]:
-    """Load as the worker does - offline, from the cache - and score one injection and one plain alert."""
-    os.environ.update(HF_HUB_CACHE=str(cache), HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
-    from warden import tripwire
+_PROBE = """
+import json, sys
+from warden import tripwire
+out = {"limit": tripwire.threshold()}
+for name, text in (("attack", sys.argv[1]), ("benign", sys.argv[2])):
+    status, hits = tripwire.scan({}, outside={"summary": text}, environment="required")
+    out[name] = {"status": status, "score": hits.get("summary", 0.0)}
+print(json.dumps(out))
+"""
 
-    limit = tripwire.threshold()
-    status, hits = tripwire.scan({}, outside={"summary": ATTACK}, environment="required")
-    attack = hits.get("summary", 0.0)
-    if status != "ran" or limit is None or attack < limit:
-        raise SystemExit(f"the tripwire did not catch the injection: {status}, score {attack}")
-    status, hits = tripwire.scan({}, outside={"summary": BENIGN}, environment="required")
-    if status != "ran" or hits:
-        raise SystemExit(f"the tripwire flagged a plain alert: {status}, {hits}")
-    return attack, 0.0
+
+def check(cache: pathlib.Path) -> tuple[float, float]:
+    """Load as the worker does - a fresh process, offline, from the cache (huggingface_hub reads these settings when it
+    is first imported, so this process, which has fetched, cannot stand in for the worker) - and score one injection
+    and one plain alert."""
+    env = {**os.environ, "HF_HUB_CACHE": str(cache), "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+    run = subprocess.run([sys.executable, "-c", _PROBE, ATTACK, BENIGN], env=env, capture_output=True, text=True,  # nosec B603
+                         check=False, timeout=600)
+    if run.returncode:
+        raise SystemExit(f"the tripwire could not be loaded offline: {(run.stderr.strip().splitlines() or ['?'])[-1]}")
+    got = json.loads(run.stdout.strip().splitlines()[-1])
+    limit, attack, benign = got["limit"], got["attack"], got["benign"]
+    if attack["status"] != "ran" or limit is None or attack["score"] < limit:
+        raise SystemExit(f"the tripwire did not catch the injection: {attack['status']}, score {attack['score']}")
+    if benign["status"] != "ran" or benign["score"]:
+        raise SystemExit(f"the tripwire flagged a plain alert: {benign['status']}, score {benign['score']}")
+    return attack["score"], benign["score"]
 
 
 def main(argv: list[str]) -> int:
