@@ -243,7 +243,9 @@ def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime")
     assert '"slack-app-token",' in (tf / "secrets.tf").read_text(encoding="utf-8")
     assert '"slack-bot-token", "slack-app-token",' in (tf / "iam.tf").read_text(encoding="utf-8")
-    assert "--extra slack" in (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    # The runtime's workers are built from Dockerfile.runtime (runtime.yml); Dockerfile is the general image.
+    for image in ("Dockerfile.runtime", "Dockerfile"):
+        assert "--extra slack" in (ROOT / image).read_text(encoding="utf-8"), image
     assert 'slack = ["slack-sdk>=3.44.1,<3.45"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     cli = (ROOT / "src" / "warden" / "cli.py").read_text(encoding="utf-8")
     assert 'if args.zone == "notify" and discuss.configured():' in cli
