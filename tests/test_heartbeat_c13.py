@@ -84,6 +84,21 @@ def test_the_synthetic_incident_passes_only_when_the_model_answered_and_the_repo
     assert runtime.synthetic() == "the model did not answer"
 
 
+def test_the_synthetic_incident_fails_when_the_injection_detector_did_not_scan(monkeypatch):
+    """Register R47: every environment scans, and the daily synthetic incident proves the detector loads where it runs -
+    the cloud's llm zone loaded it there on 2026-10-14 - not only that the model answers."""
+    from warden import graph
+
+    real = graph.run
+
+    def unscanned(alert, **kw):
+        report = real(alert, **kw)
+        return report.model_copy(update={"context": report.context.model_copy(
+            update={"tripwire": "unavailable: model not loaded (OSError)"})})
+    monkeypatch.setattr(graph, "run", unscanned)
+    assert runtime.synthetic() == "the injection detector did not run (unavailable: model not loaded (OSError))"
+
+
 def test_the_synthetic_runs_once_a_day_and_publishes_only_on_success(monkeypatch):
     clock = {"now": datetime(2026, 10, 3, 0, 0, tzinfo=UTC)}
 

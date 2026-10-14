@@ -124,6 +124,7 @@ SYNTHETIC_INCIDENT = "inc-002"  # a bundled recording (an OOM-killed service): i
 
 def synthetic() -> str:
     """One shadow diagnosis: '' when the model answered and the report passed the outbound gate, else why not."""
+    from . import tripwire
     from .cli import DEMO_ALERTS
     from .gate import enforce
     from .graph import run
@@ -135,6 +136,10 @@ def synthetic() -> str:
     report = run(alert, backend=FixtureBackend())
     if report.verdict is None or "P0-MODEL-UNAVAILABLE" in report.verdict.policy_ids:
         return "the model did not answer"
+    # The injection detector scanned it too (register R47: every environment scans) - so a day the detector cannot
+    # load in the cloud pages, as a day the model cannot answer does.
+    if report.context is not None and not tripwire.ran(report.context.tripwire):
+        return f"the injection detector did not run ({report.context.tripwire})"
     built = build_report(alert, root_cause=report.root_cause, proposal=report.proposal, verdict=report.verdict,
                          context=report.context, redaction_map=report.redaction_map)
     if enforce(built.markdown, alert_id=alert.alert_id).verdict == "BLOCK":
