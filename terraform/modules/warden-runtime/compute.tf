@@ -1,8 +1,8 @@
-# The worker (G6; requirement R20: ECS on an EC2 capacity provider, not Fargate): one service per trust zone (register
-# S15), each `warden worker --zone <zone>` from the runtime image with its own task role (iam.tf), in the private
-# subnets of at least two availability zones. The instances' metadata service needs a session token and is one hop
-# away, and tasks are blocked from it entirely (ECS_AWSVPC_BLOCK_IMDS), so a task holds only its own zone's role, which
-# writes nothing itself. The task's root filesystem is read-only, as the non-root user.
+# The worker (G6; requirement R20, changed by the owner 2026-10-14 from EC2 to Fargate): one service per trust zone
+# (register S15), each `warden worker --zone <zone>` from the runtime image with its own task role (iam.tf), in the
+# private subnets of at least two availability zones. On Fargate each task is its own micro-VM - no kernel shared with
+# another zone - and has no instance metadata service, so a task holds only its own zone's role, which writes nothing
+# itself. The task's root filesystem is read-only, as the non-root user. The EC2 group below goes in the next apply.
 data "aws_ssm_parameter" "ecs_ami" {
   # AWS's own pointer to the current ECS-optimized Amazon Linux 2023 image.
   name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id"
@@ -167,11 +167,14 @@ resource "aws_ecs_capacity_provider" "instances" {
 }
 
 resource "aws_ecs_cluster_capacity_providers" "runtime" {
-  count              = var.paused ? 0 : 1
+  count = var.paused ? 0 : 1
+  # Fargate (owner decision 2026-10-14): each zone's task in its own micro-VM, no shared kernel, no instance metadata
+  # service at all, and none of the account's EC2 vCPUs - those went to the test stack's EKS node. The EC2 provider
+  # stays attached for this one apply: ECS refuses to detach a provider a service still uses.
+  capacity_providers = ["FARGATE", aws_ecs_capacity_provider.instances[0].name]
   cluster_name       = aws_ecs_cluster.runtime.name
-  capacity_providers = [aws_ecs_capacity_provider.instances[0].name]
   default_capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.instances[0].name
+    capacity_provider = "FARGATE"
     weight            = 1
   }
 }
@@ -199,11 +202,19 @@ resource "aws_ecs_task_definition" "zone" {
   for_each                 = local.zones
   family                   = "warden-${var.environment}-${each.key}"
   network_mode             = "awsvpc"
-  requires_compatibilities = ["EC2"]
+  requires_compatibilities = ["FARGATE"]
   cpu                      = var.zone_sizes[each.key].cpu
   memory                   = var.zone_sizes[each.key].memory
   task_role_arn            = aws_iam_role.zone[each.key].arn
   execution_role_arn       = aws_iam_role.execution.arn
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64" # the runtime image is built for it
+  }
+  # /tmp: Fargate has no tmpfs; a task-local volume, gone with the task (the image declares it, Dockerfile.runtime).
+  volume {
+    name = "tmp"
+  }
   container_definitions = jsonencode([{
     name      = "worker"
     image     = var.runtime_image
@@ -212,7 +223,7 @@ resource "aws_ecs_task_definition" "zone" {
     command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]
     user                   = "10001"
     readonlyRootFilesystem = true
-    linuxParameters        = { tmpfs = [{ containerPath = "/tmp", size = 256 }] }
+    mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]
     environment = [for k, v in merge({
       WARDEN_ENV                   = var.environment
       WARDEN_AUDIT_KMS_KEY_ID      = aws_kms_alias.audit_signer.name
@@ -255,9 +266,10 @@ resource "aws_ecs_service" "zone" {
   task_definition = aws_ecs_task_definition.zone[each.key].arn
   desired_count   = var.worker_instances
   capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.instances[0].name
+    capacity_provider = "FARGATE"
     weight            = 1
   }
+  platform_version = "LATEST"
   network_configuration {
     subnets         = var.private_subnet_ids
     security_groups = [aws_security_group.runtime.id]
@@ -266,21 +278,8 @@ resource "aws_ecs_service" "zone" {
     enable   = true
     rollback = true
   }
-  # A zone's copies on different instances in different availability zones: losing one loses one copy, never a
-  # zone. Then packed by memory: spread alone put each task on an instance of its own, and an instance holding a task
-  # is never scaled in (managed termination protection) - 4 instances for 5 small tasks, 2026-10-14. With ECS ENI
-  # trunking on (the account's awsvpcTrunking), an m7i-flex.large holds 4 tasks, not 2 (AWS's table, read 2026-10-14).
-  placement_constraints {
-    type = "distinctInstance"
-  }
-  ordered_placement_strategy {
-    type  = "spread"
-    field = "attribute:ecs.availability-zone"
-  }
-  ordered_placement_strategy {
-    type  = "binpack"
-    field = "memory"
-  }
+  # On Fargate every task is its own micro-VM, spread over the subnets' availability zones by ECS itself: placement
+  # rules are an EC2 matter (Fargate refuses them).
   propagate_tags = "SERVICE"
   tags           = { Project = "warden", Environment = var.environment }
   depends_on     = [aws_ecs_cluster_capacity_providers.runtime]

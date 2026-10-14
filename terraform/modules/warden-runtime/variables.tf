@@ -179,8 +179,8 @@ variable "zone_sizes" {
     core   = { cpu = 256, memory = 512 }
     read   = { cpu = 1024, memory = 3072 } # Prompt Guard 2 (1.1 GB of weights) and torch: R47, 2026-10-14
     llm    = { cpu = 256, memory = 512 }
-    notify = { cpu = 256, memory = 384 }
-    act    = { cpu = 256, memory = 384 }
+    notify = { cpu = 256, memory = 512 } # Fargate's least memory for a quarter vCPU
+    act    = { cpu = 256, memory = 512 }
   }
   validation {
     condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act"])

@@ -269,17 +269,23 @@ def test_the_runtime_image_is_digest_pinned_non_root_and_installs_the_runtime_ex
         assert f"--extra {provider}" in sync, provider
 
 
-def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only():
-    """Requirement R20 (ECS on EC2, not Fargate) and the runtime's own safety: IMDSv2 one hop away and blocked from
-    tasks, a read-only root as the image's non-root user, the worker's task role, and the settings the code reads."""
+def test_the_worker_runs_on_fargate_with_its_own_role_only():
+    """Requirement R20 (owner, 2026-10-14: Fargate, was EC2) and the runtime's own safety: each zone's task in its own
+    micro-VM with no instance metadata service, a read-only root as the image's non-root user with /tmp its only
+    writable place, the worker's task role, and the settings the code reads."""
     from warden import runtime
 
     tf = (MODULE / "compute.tf").read_text(encoding="utf-8")
-    assert 'requires_compatibilities = ["EC2"]' in tf and "FARGATE" not in tf.upper().replace("NOT FARGATE", "")
-    lt = _block(tf, "aws_launch_template", "instances")
-    assert 'http_tokens                 = "required"' in lt and "http_put_response_hop_limit = 1" in lt
-    assert "ECS_AWSVPC_BLOCK_IMDS=true" in lt and "encrypted   = true" in lt
     task = _block(tf, "aws_ecs_task_definition", "zone")
+    assert 'requires_compatibilities = ["FARGATE"]' in task and '"EC2"' not in task
+    assert 'cpu_architecture        = "X86_64"' in task
+    assert 'mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }]' in task
+    assert "linuxParameters" not in task  # Fargate has no tmpfs
+    dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
+    assert 'RUN chmod 1777 /tmp\nVOLUME ["/tmp"]\nUSER warden' in dockerfile  # else the volume is root's 0755
+    service = _block(tf, "aws_ecs_service", "zone")
+    assert 'capacity_provider = "FARGATE"' in service
+    assert "placement_constraints" not in service and "ordered_placement_strategy" not in service  # Fargate refuses them
     assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task and "readonlyRootFilesystem = true" in task
     assert "for_each                 = local.zones" in task
     uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
@@ -294,12 +300,7 @@ def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only()
 
     assert '"WARDEN_AWS_ROLE_ARN_TEMPLATE"' in inspect.getsource(aws.from_environment)
     assert "WARDEN_HEARTBEAT_NAMESPACE" in inspect.getsource(runtime.cloudwatch_publisher)
-    service = _block(tf, "aws_ecs_service", "zone")
     assert "rollback = true" in service and "security_groups = [aws_security_group.runtime.id]" in service
-    # A zone's copies apart, then packed: spread alone kept an instance per task and none could scale in (2026-10-14).
-    strategies = re.findall(r'ordered_placement_strategy \{\s*type\s*=\s*"(\w+)"\s*field\s*=\s*"([^"]+)"', service)
-    assert strategies == [("spread", "attribute:ecs.availability-zone"), ("binpack", "memory")]
-    assert 'type = "distinctInstance"' in service
 
 
 def test_the_audit_is_reached_as_its_writer_with_an_iam_token_and_only_migrate_reads_the_master_secret():

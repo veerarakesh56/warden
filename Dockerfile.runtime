@@ -29,8 +29,11 @@ RUN /opt/warden/bin/python check_package.py "$(/opt/warden/bin/python -c 'import
 # The tripwire's weights (register R47): Prompt Guard 2 at the pinned revision, fetched with the owner's Hugging Face
 # token - a build secret, in no layer - every file checked against the measured copy's hash, then loaded offline and run
 # once (an injection must be caught, a plain alert not), or the build fails. The worker never reaches Hugging Face.
+# CI builds the image to check what else it carries, with no token: WARDEN_DETECTOR=absent there, and runtime.yml - the
+# only build that is deployed - refuses an image without the weights.
 COPY scripts/bake_tripwire.py ./
-RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf
+ARG WARDEN_DETECTOR=baked
+RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR"
 
 FROM public.ecr.aws/docker/library/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
@@ -48,6 +51,10 @@ ENV HF_HUB_CACHE=/opt/hf \
 
 # Non-root, as ./Dockerfile: an incident-response tool that runs as root is its own incident.
 RUN useradd --create-home --uid 10001 warden
+# The task's only writable place (its root filesystem is read-only): on Fargate a volume mounted at a path the image
+# declares as a VOLUME takes that path's permissions, else it is root's 0755 (AWS's bind-mount guide, read 2026-10-14).
+RUN chmod 1777 /tmp
+VOLUME ["/tmp"]
 USER warden
 
 ENTRYPOINT ["warden"]

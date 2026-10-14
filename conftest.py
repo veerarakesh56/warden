@@ -18,7 +18,11 @@ def _flags_nothing(texts, batch_size=16):
 
 @pytest.fixture(autouse=True, scope="session")
 def _tripwire_stand_in():
-    from warden import tripwire
+    try:
+        from warden import tripwire
+    except ImportError:  # a job that tests the apps alone, without WARDEN's dependencies (ci-apps)
+        yield
+        return
 
     _REAL.append(tripwire._classifier)
     patch = pytest.MonkeyPatch()

@@ -36,7 +36,10 @@ def test_the_image_installs_the_detector_with_cpu_only_torch():
 
 
 def test_the_weights_are_baked_at_build_from_the_pinned_revision_with_the_token_as_a_build_secret():
-    assert "RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf" in DOCKERFILE
+    assert ('RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR"'
+            in DOCKERFILE) and "ARG WARDEN_DETECTOR=baked" in DOCKERFILE
+    # The script reaches the build: .dockerignore keeps scripts/ out but these two (a deploy failed on it, 2026-10-14).
+    assert "!scripts/bake_tripwire.py" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "ARG HF" not in DOCKERFILE and "HF_TOKEN" not in DOCKERFILE  # never a build argument or an image variable
     assert "COPY --from=build /opt/hf /opt/hf" in DOCKERFILE
     for setting in ("HF_HUB_CACHE=/opt/hf", "HF_HUB_OFFLINE=1", "TRANSFORMERS_OFFLINE=1", "HF_HOME=/tmp/hf"):
@@ -66,11 +69,33 @@ def test_the_bake_refuses_a_copy_that_is_not_the_measured_one(tmp_path, monkeypa
         raise AssertionError("a changed weight file was accepted")
 
 
-def test_the_pipeline_passes_the_token_as_a_build_secret_only():
+def test_the_pipeline_passes_the_token_as_a_build_secret_only_and_deploys_no_image_without_the_weights():
     wf = (ROOT / ".github" / "workflows" / "runtime.yml").read_text(encoding="utf-8")
     assert "HF_TOKEN: ${{ secrets.HF_TOKEN }}" in wf
     assert '--secret id=hf_token,env=HF_TOKEN -f Dockerfile.runtime' in wf
-    assert "--build-arg" not in wf
+    assert "--build-arg" not in wf  # never WARDEN_DETECTOR=absent, never the token as an argument
+    assert "rglob('model.safetensors')), 'no tripwire weights'" in wf
+    # CI's check build has no token and says so; it is never deployed.
+    ci = (ROOT / ".github" / "workflows" / "ci-tool.yml").read_text(encoding="utf-8")
+    assert "--build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci" in ci
+
+
+def test_the_bake_without_a_token_fails_unless_the_build_says_absent(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(bake_tripwire, "SECRET", tmp_path / "no-such-secret")
+    try:
+        bake_tripwire.main(["bake_tripwire.py", str(tmp_path / "hf"), "baked"])
+    except SystemExit as exc:
+        assert "no Hugging Face token" in str(exc)
+    else:
+        raise AssertionError("a bake without a token passed")
+    assert bake_tripwire.main(["bake_tripwire.py", str(tmp_path / "hf"), "absent"]) == 0
+    assert "NOT baked" in capsys.readouterr().out and not any((tmp_path / "hf").iterdir())
+    for bad in (["bake_tripwire.py", "x"], ["bake_tripwire.py", "x", "maybe"]):
+        try:
+            bake_tripwire.main(bad)
+        except SystemExit:
+            continue
+        raise AssertionError(bad)
 
 
 def test_the_read_zone_has_room_for_the_model():

@@ -165,7 +165,8 @@ jobs:
       # client and the handlers, offer the worker command, and run as the non-root user.
       - name: Build the runtime image and assert what it carries
         run: |
-          docker build --network=host -f Dockerfile.runtime -t warden-runtime:ci .
+          # No Hugging Face token here: the tripwire's weights are left out (runtime.yml bakes them and checks they are in).
+          docker build --network=host --build-arg WARDEN_DETECTOR=absent -f Dockerfile.runtime -t warden-runtime:ci .
           docker run --rm --entrypoint /opt/warden/bin/python warden-runtime:ci -c \
             "import awslambdaric, warden.lambdas as l; assert all(callable(getattr(l, n)) for n in ('alarm', 'alertmanager', 'approval')); print('handlers ok')"
           docker run --rm warden-runtime:ci worker --help | grep -q -- "--platform" || { echo "::error::no worker command"; exit 1; }
