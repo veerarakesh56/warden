@@ -78,6 +78,7 @@ class Record:
     flags: list[str] = field(default_factory=list)
     asked: int = 0
     report: str = ""
+    evidence: str = ""  # what the model was shown, as kept with the incident (incident.evidence)
     rows: list[dict[str, Any]] = field(default_factory=list)
     shown: Any = None  # approver id -> the name a reader sees; never the list's id
 
@@ -135,6 +136,8 @@ def record(log: Any, incident: str, policy: Any = None) -> Record | None:
                 r.flags.append(f"The injection check did not finish ({b.get('status')}): the incident went to a person.")
         elif kind == "incident.report":
             r.report = str(b.get("markdown") or "")
+        elif kind == "incident.evidence":
+            r.evidence = str(b.get("prompt") or "")
         elif kind in ("incident.no_plan",) or (kind == "incident.plan_fix" and not b.get("planned") and b.get("why")):
             r.no_plan = str(b.get("why") or r.no_plan)
         elif kind == "remediation.plan":
@@ -265,17 +268,107 @@ def incident_page(r: Record) -> str:
         said = STEP.get(e["kind"], e["kind"])
         steps.append(f'<tr><td><time>{_e(_when(e["at"]))}</time></td><td>{_e(said)}</td>'
                      f'<td class="mono small">{_e(_brief(e, r.shown))}</td></tr>')
-    report = (f'<details class="block"><summary>The report, as WARDEN wrote it</summary><pre class="report">'
-              f'{_e(r.report)}</pre></details>' if r.report else "")
+    report = ""
+    if r.report:
+        report = ('<h2>Complete findings</h2><p class="lede">Everything WARDEN found and proposed, as its report says '
+                  'it. Open a section, or <button type="button" class="link" id="all">open all</button>.</p>'
+                  + findings(r.report))
+    if r.evidence:
+        report += ('<details class="block"><summary>The evidence WARDEN read, exactly as its model was shown it'
+                   f'</summary><pre class="report">{_e(r.evidence)}</pre></details>')
     main = (f'<p class="back"><a href="/r">All incidents</a></p><h1>{_e(r.alarm or r.id)}</h1>'
             f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
             f'<h2>Decisions</h2>{_decisions(r)}'
             f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{report}'
-            f'<details class="block" open><summary>Every step on the record</summary><div class="scroll"><table>'
+            f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
             f'<tbody>{"".join(steps)}</tbody></table></div></details>')
-    return _shell(f"WARDEN - {r.alarm or r.id}", "Record", main)
+    return _shell(f"WARDEN - {r.alarm or r.id}", "Record", main, script=_OPEN_ALL_JS if r.report else "")
+
+
+_FENCE = "```"
+_INLINE = (
+    (re.compile(r"`([^`\n]+)`"), r"<code>\1</code>"),
+    (re.compile(r"\*\*([^*\n]+)\*\*"), r"<strong>\1</strong>"),
+)
+
+
+def _inline(text: str) -> str:
+    """One line of the report as HTML: escaped first, then only code spans and bold - nothing else becomes markup."""
+    out = _e(text)
+    for pattern, tag in _INLINE:
+        out = pattern.sub(tag, out)
+    if len(text) > 2 and text.startswith("_") and text.endswith("_"):
+        out = f"<em>{out[1:-1]}</em>"
+    return out
+
+
+def _section(lines: list[str]) -> str:
+    """A report section's lines as paragraphs, lists (one level of nesting) and code blocks."""
+    html_out, in_code, code, open_list = [], False, [], False
+    for line in lines:
+        if line.strip().startswith(_FENCE):
+            if in_code:
+                html_out.append(f'<pre class="code">{_e(chr(10).join(code))}</pre>')
+                code, in_code = [], False
+            else:
+                if open_list:
+                    html_out.append("</ul>")
+                    open_list = False
+                in_code = True
+            continue
+        if in_code:
+            code.append(line)
+            continue
+        item = line.lstrip()
+        if item.startswith("- "):
+            if not open_list:
+                html_out.append("<ul>")
+                open_list = True
+            nested = ' class="sub"' if line.startswith("  ") else ""
+            html_out.append(f"<li{nested}>{_inline(item[2:])}</li>")
+            continue
+        if open_list and line.startswith("  ") and item:  # a list item's own second line
+            html_out.append(f'<li class="more-line">{_inline(item)}</li>')
+            continue
+        if open_list:
+            html_out.append("</ul>")
+            open_list = False
+        if item:
+            html_out.append(f"<p>{_inline(item)}</p>")
+    if in_code and code:
+        html_out.append(f'<pre class="code">{_e(chr(10).join(code))}</pre>')
+    if open_list:
+        html_out.append("</ul>")
+    return "".join(html_out)
+
+
+def findings(markdown: str) -> str:
+    """The report WARDEN wrote, section by section, each its own panel that unfolds - the whole of it, in-depth,
+    laid out as a page rather than as a message (owner, 2026-10-14: "complete findings on page to refer if needed")."""
+    head, *parts = re.split(r"(?m)^## ", markdown)
+    intro = [ln for ln in head.splitlines() if ln.strip() and not ln.startswith("# ")]
+    out = [f'<div class="intro">{_section(intro)}</div>'] if intro else []
+    for part in parts:
+        title, _, body = part.partition("\n")
+        if title.strip().startswith("Summary"):
+            continue  # its facts are at the top of the page
+        out.append(f'<details class="block finding"><summary>{_inline(title.strip())}</summary>'
+                   f'<div class="body">{_section(body.splitlines())}</div></details>')
+    return "".join(out)
+
+
+# "Open all" for the findings: a reader who wants everything gets it in one press; nothing is hidden from the page.
+_OPEN_ALL_JS = """
+const all = document.getElementById("all");
+if (all) all.addEventListener("click", () => {
+  const panels = [...document.querySelectorAll("details.finding")];
+  const open = panels.some(d => !d.open);
+  panels.forEach(d => { d.open = open; });
+  all.textContent = open ? "close all" : "open all";
+});
+"""
 
 
 _DENIED = re.compile(r"^denied by ([A-Za-z0-9._-]{1,64})(?:: .*)?$", re.DOTALL)
@@ -351,6 +444,19 @@ a.open{font-weight:600}
 .report{margin:0;padding:1rem;white-space:pre-wrap;overflow-wrap:anywhere;font:.8125rem/1.5 ui-monospace,SFMono-Regular,
 Menlo,Consolas,monospace}
 .scroll{overflow-x:auto}
+.intro{margin:0 1.25rem}
+.finding .body{padding:.25rem 1rem 1rem}
+.finding .body p{margin:.5rem 0}
+.finding .body ul{margin:.375rem 0;padding-left:1.25rem}
+.finding .body li{margin:.25rem 0}
+.finding .body li.sub{margin-left:1.25rem;list-style:circle}
+.finding .body li.more-line{list-style:none;color:var(--muted)}
+.finding code,.intro code{font:.8125rem ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:.0625rem .3125rem;
+border-radius:.3125rem;background:var(--well);overflow-wrap:anywhere}
+pre.code{margin:.5rem 0;padding:.75rem .875rem;border-radius:.625rem;background:var(--well);box-shadow:var(--in);
+overflow-x:auto;font:.8125rem/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+button.link{width:auto;display:inline;padding:0;border:0;background:none;color:var(--accent);font-weight:600;
+text-decoration:underline;cursor:pointer}
 table{width:100%;border-collapse:collapse;font-size:.875rem}
 th,td{text-align:left;vertical-align:top;padding:.5rem .75rem;border-top:1px solid var(--line)}
 th{font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-top:0}
@@ -370,11 +476,11 @@ setTimeout(function again() {
 """.replace("REFRESH_MS", str(REFRESH_S * 1000))
 
 
-def _shell(title: str, where: str, main: str, *, refresh: bool = False) -> str:
+def _shell(title: str, where: str, main: str, *, refresh: bool = False, script: str = "") -> str:
     from .approval_page import _SHELL, _STYLE
 
     return (_SHELL.replace('<div class="page">', '<div class="page wide">').replace("{{TITLE}}", _e(title))
             .replace("{{WHERE}}", _e(where)).replace("{{MAIN}}", main)
             .replace("{{FOOT}}", "Read from WARDEN's signed record. Times in UTC, local time in brackets.")
             .replace("{{STYLE}}", _STYLE + _RECORDS_STYLE).replace("{{JS}}", "")
-            .replace("{{SCRIPT}}", _REFRESH_JS if refresh else "").replace("{{SLACK}}", "0"))
+            .replace("{{SCRIPT}}", (_REFRESH_JS if refresh else "") + script).replace("{{SLACK}}", "0"))

@@ -121,7 +121,7 @@ def test_the_records_open_only_for_an_approver_or_a_listed_viewer_slack_named(pa
     monkeypatch.setenv("WARDEN_RECORD_VIEWERS", f"{OTHER}, ")
     assert page.handle("GET", "/r", cookies=stranger).status == 200
     one = page.handle("GET", f"/r/{INC}", cookies=approver)
-    assert one.status == 200 and "Asha Rao" in one.body and "The report, as WARDEN wrote it" in one.body
+    assert one.status == 200 and "Asha Rao" in one.body and "Complete findings" in one.body
     for path, method in ((f"/r/discuss-{INC}", "GET"), ("/r/no-such", "GET"), ("/r", "POST"), (f"/r/{INC}/x", "GET")):
         assert page.handle(method, path, cookies=approver).status == 404, path
     forged = ["warden_who=" + MEMBER + ".9999999999.forged"]
@@ -207,3 +207,29 @@ def test_a_plans_request_is_the_incidents_one_message_with_its_summary_and_recor
     assert "**Fix plan:** WARDEN's plan" in opening.markdown and "the rest" not in opening.markdown
     assert [label for label, _ in opening.actions] == [chatops.LINK_LABEL, chatops.RECORD_LABEL]
     assert "## Summary" not in sent[1].markdown  # the halfway reminder is the plan alone
+
+
+FINDINGS = chr(10).join([
+    "# WARDEN incident report - tick (dev)", "Alert name `TickSilent`", "", "## Summary", "- in the facts above", "",
+    "## What WARDEN thinks happened  (model)", "The rule was **disabled** at `07:06`.", "",
+    "## Key log lines", "```", "<script>alert(1)</script> line", "```", "",
+    "## Follow-ups by team", "- **On-call**: look <img src=x onerror=alert(2)>", "  - nested `x`", "  second line",
+    "_Identifiers are masked._"])
+
+
+def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(page_setup, tmp_path):  # noqa: F811
+    """Owner, 2026-10-14: "not only summary also complete findings on page to refer if needed to see all the details
+    in depth" - the whole report, each section its own panel, laid out; and the evidence the model was shown."""
+    log = _log(tmp_path)
+    _incident(log)
+    log.append(INC, "incident.report", {"markdown": FINDINGS})
+    log.append(INC, "incident.evidence", {"prompt": "L1 [quarantined] <b>bold?</b>", "sha256": "x"})
+    page = records.incident_page(records.record(log, INC, _named(page_setup[0].policy)))
+    assert page.count('<details class="block finding">') == 3  # every section but the Summary, which is above
+    assert "<summary>What WARDEN thinks happened  (model)</summary>" in page
+    assert "<strong>disabled</strong>" in page and "<code>07:06</code>" in page
+    assert '<li class="sub">nested <code>x</code></li>' in page and "<em>Identifiers are masked.</em>" in page
+    assert '<pre class="code">&lt;script&gt;alert(1)&lt;/script&gt; line</pre>' in page
+    assert "<img" not in page and "look &lt;img src=x onerror=alert(2)&gt;" in page  # an ordinary line stays text
+    assert "The evidence WARDEN read, exactly as its model was shown it" in page and "&lt;b&gt;bold?&lt;/b&gt;" in page
+    assert page.count("<script") == 1 and 'id="all"' in page  # one script: "open all"
