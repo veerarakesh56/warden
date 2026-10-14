@@ -25,6 +25,10 @@ import render_env_iam as r  # after the sys.path line above
 ENVS = r.environments()
 RUNTIME = r.runtime_environment()  # iam/<runtime>/: same kinds, from the runtime-* templates (test_runtime_iam_g6.py)
 LIMIT = 6144
+# Actions no policy grants or denies: GetCallerIdentity "requires no permissions ... you can still perform this
+# operation" under an explicit deny (STS API reference, read 2026-10-14). The deploy policy names it; the environment
+# boundary need not (its statement was dropped on 2026-10-14 to fit LIMIT once instances could be launched).
+NEEDS_NO_PERMISSION = {"sts:GetCallerIdentity"}
 
 
 def _load(env, kind):
@@ -100,6 +104,8 @@ def test_the_deploy_policy_fits_inside_its_boundary(env):
     flat_denies = [a for st in boundary["Statement"] if st["Effect"] == "Deny" and "Condition" not in st
                    and st.get("Resource") == "*" for a in _list(st["Action"])]
     for action in _allows(deploy):
+        if action in NEEDS_NO_PERMISSION:
+            continue
         assert any(fnmatch.fnmatchcase(action.lower(), p.lower()) for p in ceiling), f"{env}: {action} outside the ceiling"
         assert not any(fnmatch.fnmatchcase(action.lower(), p.lower()) for p in flat_denies), \
             f"{env}: {action} granted but flatly denied"
@@ -176,7 +182,9 @@ def test_a_tag_cannot_make_another_resource_its_own(env):
         eks = cond.get("StringLike", {}).get("aws:ResourceTag/aws:eks:cluster-name") == f"warden-{env}-*"
         assert on_create or own or eks, st.get("Sid")
         if on_create:
-            assert all(a.startswith(("Create", "AllocateAddress", "AuthorizeSecurityGroup")) for a in on_create)
+            # RunInstances: the node group's instances, tagged as they are made (EKS needs it, 2026-10-14).
+            assert all(a.startswith(("Create", "AllocateAddress", "AuthorizeSecurityGroup")) or a == "RunInstances"
+                       for a in on_create)
         if eks:
             assert st["Resource"] == "arn:aws:ec2:*:*:security-group/*"
 
@@ -359,9 +367,20 @@ def test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functio
     statements = _load(env, "boundary")["Statement"]
     flat = [a for st in statements if st["Effect"] == "Deny" and "Condition" not in st and st.get("Resource") == "*"
             for a in _list(st["Action"])]
-    for action in ("ecs:RunTask", "ecs:StartTask", "ec2:RunInstances", "ec2:PurchaseHostReservation",
+    for action in ("ecs:RunTask", "ecs:StartTask", "ec2:RunScheduledInstances", "ec2:PurchaseHostReservation",
                    "events:PutResourcePolicy", "logs:PutAccountPolicy"):
         assert any(fnmatch.fnmatchcase(action, p) for p in flat), action
+    # An EKS node group with a launch template needs its caller to hold ec2:RunInstances (AWS's EKS guide,
+    # "Customize managed nodes with launch templates", read 2026-10-14): the 2026-10-14 apply failed on it. Unlike a
+    # task, an instance names its subnet, security groups and template as resources, so the boundary's tag denies
+    # reach them. The boundary denies an instance without IMDSv2 to every role; the deploy role may launch only from
+    # a launch template (its grant's ArnLike needs the key) - the boundary has no room for that deny too (6,144).
+    assert not any(fnmatch.fnmatchcase("ec2:RunInstances", p) for p in flat)
+    by_sid = {st["Sid"]: st for st in statements}
+    assert by_sid["DenyNoImdsv2"]["Resource"] == "arn:aws:ec2:*:*:instance/*"
+    assert by_sid["DenyNoImdsv2"]["Condition"] == {"StringNotEquals": {"ec2:MetadataHttpTokens": "required"}}
+    launch = next(st for st in _load(env, "deploy-ec2")["Statement"] if st["Sid"] == "LaunchFromATemplate")
+    assert launch["Condition"] == {"ArnLike": {"ec2:LaunchTemplate": f"arn:aws:ec2:{_region()}:*:launch-template/*"}}
     for kept in ("ecs:CreateService", "ec2:CreateTags", "logs:PutRetentionPolicy", "events:PutRule"):
         assert not any(fnmatch.fnmatchcase(kept, p) for p in flat), kept
     clusters = next(st for st in statements if st["Sid"] == "DenyOtherClusters")
@@ -457,6 +476,8 @@ def test_every_deploy_grant_lies_inside_the_boundary_on_resources_too(env):
         if st["Effect"] != "Allow" or "NotResource" in st:
             continue
         for action in _list(st["Action"]):
+            if action in NEEDS_NO_PERMISSION:
+                continue
             service = action.split(":")[0].lower()
             for resource in _list(st.get("Resource", "*")):
                 arn = re.match(r"arn:aws:([^:]+):", resource)

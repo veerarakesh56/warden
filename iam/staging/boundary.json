@@ -46,18 +46,15 @@
         "elasticache:*",
         "apigateway:*",
         "ssm:GetParameter",
-        "ssm:GetParameters",
-        "ssm:GetParametersByPath",
+        "ssm:GetParameters*",
         "budgets:ViewBudget",
         "budgets:ModifyBudget",
-        "budgets:TagResource",
-        "budgets:UntagResource",
+        "budgets:*TagResource",
         "budgets:ListTagsForResource",
         "rds-db:connect"
       ],
       "Resource": [
         "arn:aws:s3:::warden-staging-*",
-        "arn:aws:s3:::warden-staging-*/*",
         "arn:aws:dynamodb:ap-south-2:*:table/warden-staging-*",
         "arn:aws:sns:ap-south-2:*:warden-staging-*",
         "arn:aws:secretsmanager:ap-south-2:*:secret:warden-staging-*",
@@ -96,12 +93,10 @@
       "Action": [
         "iam:CreateRole",
         "iam:DeleteRole",
-        "iam:GetRole",
+        "iam:GetRole*",
         "iam:UpdateRole",
-        "iam:TagRole",
-        "iam:UntagRole",
+        "iam:*TagRole",
         "iam:PutRolePolicy",
-        "iam:GetRolePolicy",
         "iam:DeleteRolePolicy",
         "iam:AttachRolePolicy",
         "iam:DetachRolePolicy",
@@ -142,12 +137,6 @@
       "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     },
     {
-      "Sid": "CeilingWhoAmI",
-      "Effect": "Allow",
-      "Action": "sts:GetCallerIdentity",
-      "Resource": "*"
-    },
-    {
       "Sid": "DenyRoleWithoutThisBoundary",
       "Effect": "Deny",
       "Action": [
@@ -162,13 +151,23 @@
       }
     },
     {
+      "Sid": "DenyNoImdsv2",
+      "Effect": "Deny",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:*:*:instance/*",
+      "Condition": {
+        "StringNotEquals": {
+          "ec2:MetadataHttpTokens": "required"
+        }
+      }
+    },
+    {
       "Sid": "DenyAlways",
       "Effect": "Deny",
       "Action": [
         "iam:DeleteRolePermissionsBoundary",
-        "rds:DeleteDBSnapshot",
-        "rds:DeleteDBClusterSnapshot",
-        "ec2:Run*",
+        "rds:DeleteDB*Snapshot",
+        "ec2:RunScheduledInstances",
         "ec2:RequestSpot*",
         "ec2:Purchase*",
         "ec2:CreateFleet",
@@ -218,8 +217,7 @@
         "iam:UpdateRole",
         "iam:UpdateAssumeRolePolicy",
         "iam:DeleteRole",
-        "iam:TagRole",
-        "iam:UntagRole",
+        "iam:*TagRole",
         "iam:PutRolePermissionsBoundary"
       ],
       "Resource": "arn:aws:iam::*:role/warden-staging-deploy"

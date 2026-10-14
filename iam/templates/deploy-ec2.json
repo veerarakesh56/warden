@@ -78,8 +78,20 @@
           "ec2:CreateAction": [
             "Create*",
             "AllocateAddress",
-            "AuthorizeSecurityGroup*"
+            "AuthorizeSecurityGroup*",
+            "RunInstances"
           ]
+        }
+      }
+    },
+    {
+      "Sid": "LaunchFromATemplate",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "ec2:LaunchTemplate": "arn:aws:ec2:${region}:*:launch-template/*"
         }
       }
     },
