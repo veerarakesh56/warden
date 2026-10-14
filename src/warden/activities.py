@@ -966,6 +966,9 @@ class IncidentActivities:
             seen = self.audit.entries(f"intake-{alert.alert_id.rsplit('-', 1)[0]}", kinds=("intake.event",))
             firing = seen[-1]["body"].get("state") == "ALARM" if seen else None
         self.audit.append(alert.alert_id, "incident.after_hold", {"run_id": _run_id(), "held": held, "firing": firing})
+        _note(f"{alert.alert_id} held as expected down; looked at again when the hold ended: "
+              + {True: "still firing - an incident now", False: "cleared - no incident"}.get(firing,
+                                                                                        "unknown - an incident now"))
         return firing
 
     @activity.defn

@@ -158,7 +158,13 @@ def alarm(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     ev = alarm_event(event, os.environ.get("WARDEN_ENV", "")) or service_event(event, os.environ.get("WARDEN_ENV", ""))
     if ev is None:
         return {"ignored": "not a CloudWatch alarm state change, nor a service event WARDEN takes"}
-    return {"decisions": _submit([ev])}
+    decisions = _submit([ev])
+    for d in decisions:
+        # What intake decided, one line per alarm, where whoever operates WARDEN can see it without the database: an
+        # alarm held as expected down left no sign anywhere but the audit (2026-10-14).
+        _LOG.info("intake: %s %s -> %s: %s", ev.state, " ".join(ev.rule.split())[:120], d.get("action"),
+                  " ".join(str(d.get("reason", "")).split())[:240])
+    return {"decisions": decisions}
 
 
 def _http(event: dict[str, Any]) -> tuple[str, str, dict[str, str], bytes]:

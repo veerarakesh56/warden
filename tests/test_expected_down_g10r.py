@@ -259,3 +259,31 @@ def test_an_alarm_still_firing_or_unreadable_when_its_cover_ends_is_an_incident_
     assert started != "2026-10-09T15:00:00+00:00" and datetime.fromisoformat(started).year >= 2026
     assert datetime.fromisoformat(started) > datetime(2026, 10, 10, tzinfo=UTC)  # around now, not the shutdown
     assert seen["report"].verdict is not None
+
+
+def test_what_intake_decided_and_what_a_held_alarm_turned_out_to_be_are_each_one_log_line(monkeypatch, caplog, tmp_path):
+    """2026-10-14: an alarm held as expected down left no sign anywhere but the audit, which no laptop reaches."""
+    import logging
+
+    from test_lambdas_g6 import EVENT
+    from warden import lambdas
+
+    monkeypatch.setattr(lambdas, "_configure", lambda name: None)
+    monkeypatch.setattr(lambdas, "_submit", lambda events: [{"action": "expected",
+                                                             "reason": "expected down ('lab test')\nuntil later"}])
+    with caplog.at_level(logging.INFO, logger="warden.lambda"):
+        lambdas.alarm(EVENT)
+    [line] = [r.getMessage() for r in caplog.records if r.name == "warden.lambda"]
+    assert line.startswith("intake: ALARM ") and line.endswith("-> expected: expected down ('lab test') until later")
+    log = audit.AuditLog(tmp_path / "a.db", key=None)
+    for firing, said in ((False, "cleared - no incident"), (True, "still firing - an incident now"),
+                         (None, "unknown - an incident now")):
+        class Backend:
+            def alarm_firing(self, alert, answer=firing):
+                return answer
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="warden.incident"):
+            IncidentActivities(audit=log, backend=Backend()).after_hold(_alert(alarm="a").model_copy(
+                update={"alert_id": "fp9-20261014T040000Z"}), "why")
+        assert [r.getMessage() for r in caplog.records] == [
+            f"fp9-20261014T040000Z held as expected down; looked at again when the hold ended: {said}"]
