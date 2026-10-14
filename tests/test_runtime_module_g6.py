@@ -296,6 +296,10 @@ def test_the_worker_runs_on_ec2_with_its_metadata_locked_and_its_own_role_only()
     assert "WARDEN_HEARTBEAT_NAMESPACE" in inspect.getsource(runtime.cloudwatch_publisher)
     service = _block(tf, "aws_ecs_service", "zone")
     assert "rollback = true" in service and "security_groups = [aws_security_group.runtime.id]" in service
+    # A zone's copies apart, then packed: spread alone kept an instance per task and none could scale in (2026-10-14).
+    strategies = re.findall(r'ordered_placement_strategy \{\s*type\s*=\s*"(\w+)"\s*field\s*=\s*"([^"]+)"', service)
+    assert strategies == [("spread", "attribute:ecs.availability-zone"), ("binpack", "memory")]
+    assert 'type = "distinctInstance"' in service
 
 
 def test_the_audit_is_reached_as_its_writer_with_an_iam_token_and_only_migrate_reads_the_master_secret():

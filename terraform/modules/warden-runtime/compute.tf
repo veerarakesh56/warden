@@ -253,10 +253,20 @@ resource "aws_ecs_service" "zone" {
     enable   = true
     rollback = true
   }
-  # One task of each zone per instance, the instances spread over the subnets' availability zones: losing one
-  # instance loses one task of each zone, never a zone.
+  # A zone's copies on different instances in different availability zones: losing one loses one copy, never a
+  # zone. Then packed by memory: spread alone put each task on an instance of its own, and an instance holding a task
+  # is never scaled in (managed termination protection) - 4 instances for 5 small tasks, 2026-10-14. With ECS ENI
+  # trunking on (the account's awsvpcTrunking), an m7i-flex.large holds 4 tasks, not 2 (AWS's table, read 2026-10-14).
   placement_constraints {
     type = "distinctInstance"
+  }
+  ordered_placement_strategy {
+    type  = "spread"
+    field = "attribute:ecs.availability-zone"
+  }
+  ordered_placement_strategy {
+    type  = "binpack"
+    field = "memory"
   }
   propagate_tags = "SERVICE"
   tags           = { Project = "warden", Environment = var.environment }
