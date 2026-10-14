@@ -542,3 +542,12 @@ def test_an_apis_access_logs_go_only_to_its_own_environments_group():
                                               "arn:aws:apigateway:*::/apis/*/stages/*"}
         assert st["Condition"] == {"StringNotLike": {"apigateway:Request/AccessLoggingDestination":
                                                      f"arn:aws:logs:*:*:log-group:/aws/vendedlogs/warden-{env}-*"}}
+
+
+def test_the_harness_can_carry_the_operators_source_identity_to_the_reader():
+    """The operator's session carries a source identity, which AWS passes on to every role it assumes: the harness could
+    not assume the reader without sts:SetSourceIdentity in its own policy and in the reader's trust (2026-10-14)."""
+    st = next(s for s in _load("dev", "harness")["Statement"] if s.get("Sid") == "AssumeThisEnvironmentsReader")
+    assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity"]
+    trust = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
+    assert 'actions = ["sts:AssumeRole", "sts:SetSourceIdentity"]' in trust

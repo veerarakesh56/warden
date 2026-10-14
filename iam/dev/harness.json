@@ -130,7 +130,10 @@
     {
       "Sid": "AssumeThisEnvironmentsReader",
       "Effect": "Allow",
-      "Action": "sts:AssumeRole",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:SetSourceIdentity"
+      ],
       "Resource": "arn:aws:iam::*:role/warden-dev-reader"
     },
     {

@@ -224,3 +224,15 @@ def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_rai
         os.environ.pop(name, None)
     with pytest.raises(ClientError):  # a refusal is not "not there": it raises, as before
         settings.load("dev", only=only, ssm=_FakeSSM({}), secrets=Slow(held, refuse=settings.secret_id("dev", "WARDEN_TEAMS_WEBHOOK")))
+
+
+def test_the_never_revert_list_reaches_the_cloud_runtime_from_parameter_store(monkeypatch):
+    """Gap audit, 2026-10-14: WARDEN_NEVER_REVERT_PRINCIPALS was read by the revert check but not loadable, so the cloud
+    runtime could never be told whose changes it must never undo. It is a plain setting, loaded from Parameter Store."""
+    from warden.platforms import aws
+
+    monkeypatch.delenv("WARDEN_NEVER_REVERT_PRINCIPALS", raising=False)
+    fake = _FakeSSM({"/warden/ops/env/WARDEN_NEVER_REVERT_PRINCIPALS": "security-oncall, break-glass"})
+    assert "WARDEN_NEVER_REVERT_PRINCIPALS" in load("ops", ssm=fake, secrets=_FakeSecrets({}))
+    assert aws.never_revert() == frozenset({"security-oncall", "break-glass"})
+    monkeypatch.delenv("WARDEN_NEVER_REVERT_PRINCIPALS", raising=False)

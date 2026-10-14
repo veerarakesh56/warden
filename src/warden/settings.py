@@ -51,6 +51,9 @@ LOADABLE = frozenset({
     "WARDEN_GRAFANA_LOGS_URL", "WARDEN_GRAFANA_LOGS_USER", "WARDEN_GRAFANA_TRACES_URL", "WARDEN_GRAFANA_TRACES_USER",
     "WARDEN_GRAFANA_METRICS_URL", "WARDEN_GRAFANA_METRICS_USER", "WARDEN_GRAFANA_READ_TOKEN",
     "WARDEN_XRAY", "WARDEN_EVIDENCE_TOOLS", "WARDEN_COMMITS", "WARDEN_HISTORY_IN_PROMPT",
+    # Whose changes WARDEN never proposes to undo - a security team, a break-glass identity (platforms/aws.py): plain,
+    # comma-separated. Not loadable before 2026-10-14, so the cloud runtime could never be told (gap audit).
+    "WARDEN_NEVER_REVERT_PRINCIPALS",
 })
 
 

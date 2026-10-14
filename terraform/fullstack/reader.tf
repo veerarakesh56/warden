@@ -14,8 +14,10 @@
 
 data "aws_iam_policy_document" "fs_reader_assume" {
   statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
+    effect = "Allow"
+    # SetSourceIdentity: the harness's session carries the operator's source identity, which AWS passes on to every
+    # role it assumes - without it the harness could not assume this role at all (2026-10-14).
+    actions = ["sts:AssumeRole", "sts:SetSourceIdentity"]
 
     principals {
       type = "AWS"
