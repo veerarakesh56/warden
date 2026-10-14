@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import Any
 
 from .evidence import PATH, Item, tokens
 from .models import ActionKind, RemediationProposal, RootCause
@@ -28,18 +29,27 @@ def _norm(text: str) -> str:
 def citation_problems(root_cause: RootCause, items: dict[str, Item]) -> list[str]:
     if not root_cause.citations:
         return ["the diagnosis cites no evidence"]
-    problems = []
-    for c in root_cause.citations:
-        cid = c.id.strip().strip("[]")
-        item = items.get(cid)
-        quote = _norm(c.quote)
-        if item is None:
-            problems.append(f"{cid or '(blank)'} is not an evidence id")
-        elif len(quote.replace(" ", "")) < MIN_QUOTE:
-            problems.append(f"{cid}: quote {c.quote!r} is too short to check")
-        elif quote not in _norm(item.text):
-            problems.append(f"{cid}: {c.quote[:80]!r} does not appear in that item")
-    return problems
+    return [p for c in root_cause.citations if (p := _citation_problem(c, items))]
+
+
+def _citation_problem(c: Any, items: dict[str, Item]) -> str:
+    """Why one citation does not hold, or "": the id must name an item and the quote appear in it."""
+    cid = c.id.strip().strip("[]")
+    item = items.get(cid)
+    quote = _norm(c.quote)
+    if item is None:
+        return f"{cid or '(blank)'} is not an evidence id"
+    if len(quote.replace(" ", "")) < MIN_QUOTE:
+        return f"{cid}: quote {c.quote!r} is too short to check"
+    if quote not in _norm(item.text):
+        return f"{cid}: {c.quote[:80]!r} does not appear in that item"
+    return ""
+
+
+def ruled_out_checked(ruled: Any, items: dict[str, Item]) -> bool:
+    """A ruled-out cause's reason holds against the evidence: it cites, and every citation is real (as P13 asks of the
+    hypothesis). One that does not is shown as unchecked - it does not hold a fix back."""
+    return bool(ruled.citations) and not any(_citation_problem(c, items) for c in ruled.citations)
 
 
 # P15: what an action's citations must touch. P13 only asks that citations be real; a hijacked model

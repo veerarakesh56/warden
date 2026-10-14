@@ -26,6 +26,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from . import approvals, audit, bounds, catalog, environments, freeze
+from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
 from .observability import _safe_error
@@ -97,26 +98,6 @@ class FixRequest(BaseModel):
         except environments.EnvironmentPolicyError as exc:
             raise ValueError(str(exc)) from None
         return v
-
-
-class Plan(BaseModel):
-    workflow_id: str
-    incident_id: str
-    entry: str
-    tier: str = ""
-    params: dict[str, Any]
-    snapshot: dict[str, Any] = Field(default_factory=dict)
-    plan_hash: str = ""
-    created_at: datetime
-    problems: list[str] = Field(default_factory=list)
-    # `<environment>/<catalog.target_key>`: what the bounds and the mutex key on.
-    target: str = ""
-    environment: str = ""
-    # How long this plan waits for its approval, as the request asked: what its links and its messages go by.
-    approval_ttl_minutes: int = 0
-    # What the plan was made under, in its hash (register O5): the environment, the catalogue, WARDEN's code and
-    # the incident's record at that moment.
-    basis: dict[str, str] = Field(default_factory=dict)
 
 
 APPLY_REFUSED = "ApplyRefused"
@@ -918,6 +899,17 @@ class IncidentActivities:
         for node in (graph.node_ingest, graph.node_gather, graph.node_redact, graph.node_tripwire):
             steps += graph.apply_node(state, node(state))
         prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
+        if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
+            # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
+            # prompt_facts) - off unless measured to help; a record that cannot be read adds nothing.
+            from . import history
+
+            try:
+                past = history.prompt_facts(history.past(alert, self.audit))
+            except Exception:  # noqa: BLE001 - the diagnosis goes on without it
+                past = ""
+            if past:
+                prompt = f"{prompt}\n\n{past}"
         self._record(alert.alert_id, steps)
         # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
         # free text redacted, as everything on the record is.

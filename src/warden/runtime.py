@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-import pathlib
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -32,8 +31,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from . import approvals, audit, codec
+from . import approvals, audit
 from .activities import DiscussActivities, IncidentActivities, Plan, RemediationActivities
+from .runtime_base import (  # noqa: F401 - re-exported: runtime.connect, runtime.open_audit, ... as before
+    _path,
+    approver_policy,
+    audit_anchor,
+    audit_signer,
+    audit_target,
+    connect,
+    open_audit,
+)
 from .workflows import (
     MAIN_QUEUE,
     ZONES,
@@ -61,77 +69,6 @@ class NoPlatform:
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
         raise RuntimeError("no platform is connected")
-
-
-def _path(env: str, default: str | None = None) -> pathlib.Path:
-    value = os.environ.get(env) or default
-    if not value:
-        raise RuntimeError(f"{env} is not set")
-    return pathlib.Path(value).expanduser()
-
-
-def audit_target() -> str | pathlib.Path:
-    """The shared PostgreSQL audit when WARDEN_AUDIT_DSN is set (the runtime's Aurora: a Secrets Manager secret,
-    since a DSN may carry a password), else the SQLite file WARDEN_AUDIT_DB."""
-    dsn = os.environ.get("WARDEN_AUDIT_DSN", "").strip()
-    if dsn:
-        if not audit._is_postgres(dsn):
-            raise RuntimeError("WARDEN_AUDIT_DSN must be a postgresql:// DSN")
-        return dsn
-    db = _path("WARDEN_AUDIT_DB", "~/.warden/audit.db")
-    db.parent.mkdir(parents=True, exist_ok=True)
-    return db
-
-
-def approver_policy() -> approvals.ApproverPolicy:
-    """Who may approve what: the file WARDEN_APPROVERS, or - in the cloud runtime, where a Lambda has no such file - the
-    SSM parameter /warden/<env>/approvers (public keys and tiers only; nothing in it is secret)."""
-    if os.environ.get("WARDEN_APPROVERS"):
-        return approvals.ApproverPolicy.load(_path("WARDEN_APPROVERS"))
-    env = os.environ.get("WARDEN_ENV", "").strip()
-    if not env:
-        raise RuntimeError("WARDEN_APPROVERS is not set, and no WARDEN_ENV names the SSM parameter to read instead")
-    import boto3
-
-    from .environments import names, region
-
-    name = names(env).ssm + "approvers"
-    text = boto3.client("ssm", region_name=region()).get_parameter(Name=name)["Parameter"]["Value"]
-    return approvals.ApproverPolicy.loads(text)
-
-
-def audit_signer() -> Any:
-    """The key that signs checkpoints: the runtime's KMS Ed25519 key when WARDEN_AUDIT_KMS_KEY_ID names one (register
-    S12 - nobody, WARDEN included, can export it), else the local key file WARDEN_AUDIT_KEY."""
-    key_id = os.environ.get("WARDEN_AUDIT_KMS_KEY_ID", "").strip()
-    if key_id:
-        import boto3
-
-        from .environments import region
-
-        return audit.KmsSigner(key_id, boto3.client("kms", region_name=region()))
-    passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or None
-    return audit.load_private_key(_path("WARDEN_AUDIT_KEY"), passphrase)
-
-
-def audit_anchor() -> Any:
-    """Where each checkpoint is also written, out of the database's reach: the S3 Object Lock bucket
-    WARDEN_AUDIT_ANCHOR_BUCKET (register S12), for WARDEN_AUDIT_ANCHOR_DAYS days (default 1, the lab's)."""
-    bucket = os.environ.get("WARDEN_AUDIT_ANCHOR_BUCKET", "").strip()
-    if not bucket:
-        return None
-    import boto3
-
-    from .environments import region
-
-    days = int(os.environ.get("WARDEN_AUDIT_ANCHOR_DAYS", "1"))
-    if days < 1:
-        raise RuntimeError("WARDEN_AUDIT_ANCHOR_DAYS must be at least 1")
-    return audit.S3Anchor(bucket, boto3.client("s3", region_name=region()), retain=timedelta(days=days))
-
-
-def open_audit() -> audit.AuditLog:
-    return audit.AuditLog(audit_target(), key=audit_signer(), anchor=audit_anchor())
 
 
 def skew_problem(before: datetime, server: datetime, after: datetime,
@@ -263,26 +200,6 @@ def cloudwatch_publisher(metric: str = HEARTBEAT_METRIC) -> Any:
 
 
 TYPED_TIERS = frozenset({"T2", "T3"})
-
-
-_LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
-
-
-async def connect(address: str | None = None, key: bytes | None = None) -> Client:
-    """A client for the configured server. Temporal Cloud authenticates by API key over TLS; any server off this
-    machine without a key is refused, never tried (register S15): a worker that talked to a server anyone could
-    reach would take its tasks - and its plans - from anyone."""
-    target = address or os.environ.get("WARDEN_TEMPORAL_ADDRESS", "127.0.0.1:7233")
-    api_key = os.environ.get("WARDEN_TEMPORAL_API_KEY")
-    host = target.rsplit(":", 1)[0]  # host:port, or [ipv6]:port
-    if host not in _LOOPBACK and not api_key:
-        raise RuntimeError(f"refusing an unauthenticated connection to {host}: set WARDEN_TEMPORAL_API_KEY "
-                           "(register S15)")
-    options: dict[str, Any] = {"namespace": os.environ.get("WARDEN_TEMPORAL_NAMESPACE", "default"),
-                               "data_converter": codec.data_converter(key)}
-    if api_key:
-        options.update(api_key=api_key, tls=True)
-    return await Client.connect(target, **options)
 
 
 def _activities(log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any, backend: Any,

@@ -119,3 +119,15 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
     also = (f" It held {'once' if len(held) == 1 else f'{len(held)} times'} in that day, most recently "
             f"{both_times(held[0]['at'], seconds=False)}." if held else "")
     return f" Before you decide: in the last day this same fix did not last {times} - {latest}.{also}"
+
+
+def prompt_facts(rows: list[dict[str, Any]]) -> str:
+    """Past fix plans on this resource for the model (owner, 2026-10-14: show past incidents to the model; off unless
+    WARDEN_HISTORY_IN_PROMPT=1, measured live first). Facts in a fixed vocabulary from the signed record only: when,
+    the catalogue entry, the target, how its run ended - never a reason, a note, a name or a past diagnosis's words
+    (registers N9, G10-48), so nothing a person or a model wrote reaches a later diagnosis."""
+    if not rows:
+        return ""
+    lines = [f"- {r['at'].astimezone(UTC).isoformat(timespec='minutes')} `{r['entry']}` on `{r['target']}`: "
+             f"{ENDED.get(r['status'], 'still open' if r['status'] == 'open' else 'ended')}" for r in rows]
+    return "PAST FIX PLANS ON THIS RESOURCE (WARDEN's signed record; facts, not a diagnosis):\n" + "\n".join(lines)

@@ -257,16 +257,23 @@ def _datadog(headers: dict[str, str], body: bytes) -> dict[str, Any]:
             "body": json.dumps({"accepted": len(decisions), "dropped": len(got.refused) + len(gone)})}
 
 
+# RemediationWorkflow's query and signals by the names it registers (workflows.py; a test holds them equal).
+PLAN_QUERY, APPROVE_SIGNAL, DENY_SIGNAL = "plan", "approve_passkey", "deny"
+
+
 def approval_page() -> Any:
     """The page as the runtime runs it: links and challenges in the audit, the plan read from the workflow, the
-    approval sent to it as a signal."""
-    from . import runtime
+    approval sent to it as a signal. The workflow's query and signals are called by name, so the
+    worker, the activities and the workflows are never imported here: they were most of a cold start's page time
+    (2.5 s, live 2026-10-14)."""
+    from . import runtime_base as runtime  # runtime.py's light half
     from .approval_page import ApprovalPage, AuditLinkStore
-    from .workflows import RemediationWorkflow
+    from .approvals import Plan
 
     def plan_of(workflow_id: str) -> Any:
         async def go() -> Any:
-            return await (await runtime.connect()).get_workflow_handle(workflow_id).query(RemediationWorkflow.plan)
+            return await (await runtime.connect()).get_workflow_handle(workflow_id).query(
+                PLAN_QUERY, result_type=Plan | None)
         try:
             return asyncio.run(go())
         except Exception:  # noqa: BLE001 - a plan that cannot be read is not waiting for an approval
@@ -275,12 +282,12 @@ def approval_page() -> Any:
     def signal(workflow_id: str, assertion: Any) -> None:
         async def go() -> None:
             await (await runtime.connect()).get_workflow_handle(workflow_id).signal(
-                RemediationWorkflow.approve_passkey, assertion)
+                APPROVE_SIGNAL, assertion)
         asyncio.run(go())
 
     def deny(workflow_id: str, denial: Any) -> None:
         async def go() -> None:
-            await (await runtime.connect()).get_workflow_handle(workflow_id).signal(RemediationWorkflow.deny, denial)
+            await (await runtime.connect()).get_workflow_handle(workflow_id).signal(DENY_SIGNAL, denial)
         asyncio.run(go())
 
     rp_id = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()

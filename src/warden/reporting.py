@@ -33,6 +33,7 @@ import os
 import re
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 from .environments import EnvironmentPolicies, both_times, default_environment_policies
 from .gate import hedge
@@ -340,6 +341,48 @@ _STACK_READERS = (
 )
 
 
+def _ruled_out(root_cause: Any, context: ContextBundle | None) -> list[dict[str, Any]]:
+    """Each cause the model ruled out, its reason, and whether that reason holds against the evidence."""
+    from . import evidence
+    from .grounding import ruled_out_checked
+
+    try:
+        items = evidence.view(context) if context is not None else {}
+    except Exception:  # noqa: BLE001 - a view that cannot be built checks nothing: every reason shows unchecked
+        items = {}
+    return [{"cause": hedge(r.cause), "why": hedge(r.why), "cites": [c.id for c in r.citations],
+             "checked": ruled_out_checked(r, items)} for r in root_cause.ruled_out]
+
+
+def _narrowed(d: dict[str, Any]) -> list[str]:
+    """How WARDEN narrowed it down (owner's report bar, 2026-10-12: "narrow to the real root cause"): what the fixed
+    checks found, each other cause and why it was set aside - checked against the evidence or said to be unchecked -
+    and what is left. Nothing here is new: it is the diagnosis's own reasoning, laid out so a person can follow it."""
+    rc = d.get("root_cause") or {}
+    if not rc:
+        return []
+    out = ["## How WARDEN narrowed it down"]
+    patterns = d.get("patterns") or []
+    if patterns:
+        out.append("- **Fixed checks found:** " + "; ".join(p["title"] for p in patterns) + ".")
+    else:
+        out.append("- **Fixed checks found:** none of WARDEN's known patterns in this evidence.")
+    for r in rc.get("ruled_out") or []:
+        why = f" - {r['why']}" if r.get("why") else ""
+        if r.get("checked"):
+            how = f" _(checked against {', '.join(r['cites'])})_"
+        else:
+            how = " _(its reason could not be checked against the evidence)_"
+        out.append(f"- **Ruled out:** {r['cause']}{why}{how}")
+    if not rc.get("ruled_out"):
+        out.append("- **Ruled out:** the diagnosis named no other cause it considered.")
+    cited = ", ".join(c["id"] for c in rc.get("citations") or [])
+    out.append(f"- **Left:** {rc.get('hypothesis', '')}" + (f" _(cited: {cited})_" if cited else "")
+               + ("" if rc.get("grounded", True) else " - **not grounded**: its citations did not hold."))
+    out.append("")
+    return out
+
+
 def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
     """Each component read, and each reader that failed (a failed reader is never silence - P8)."""
     from .aws_backend import LOG_LOOKBACK, METRIC_WINDOW, RECENT_DEPLOY_WINDOW
@@ -618,7 +661,7 @@ def build_report(
             "hypothesis": hedge(root_cause.hypothesis),
             "confidence": root_cause.confidence,
             "evidence": [hedge(e) for e in root_cause.evidence],
-            "ruled_out": [hedge(r) for r in root_cause.ruled_out],
+            "ruled_out": _ruled_out(root_cause, context),
             "citations": [{"id": c.id, "quote": c.quote} for c in root_cause.citations],
             "grounded": not (verdict and "P13-UNGROUNDED" in verdict.policy_ids),
         }
@@ -806,11 +849,8 @@ def _render_markdown(d: dict) -> str:
             lines.append("")
             lines.append("**Based on:**")
             lines.extend(f"- {e}" for e in based_on)
-        if rc["ruled_out"]:
-            lines.append("")
-            lines.append("**Ruled out:**")
-            lines.extend(f"- {r}" for r in rc["ruled_out"])
         lines.append("")
+        lines.extend(_narrowed(d))
 
     if d["patterns"]:
         lines.append("## Patterns detected in the evidence  (fixed checks, not the model)")

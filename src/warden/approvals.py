@@ -25,6 +25,7 @@ import pathlib
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import yaml
 from cryptography.exceptions import InvalidSignature
@@ -167,6 +168,29 @@ class PasskeyAssertion(BaseModel):
     response: dict
     # The approver's own words with this approval (approvals.note): recorded with it, never part of what is verified.
     note: str = Field(default="", max_length=NOTE_MAX)
+
+
+class Plan(BaseModel):
+    """A remediation plan, as the workflow holds it and an approver reviews it. Made by activities.py (which
+    re-exports it); here so the approval page can read one without importing the activities."""
+
+    workflow_id: str
+    incident_id: str
+    entry: str
+    tier: str = ""
+    params: dict[str, Any]
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+    plan_hash: str = ""
+    created_at: datetime
+    problems: list[str] = Field(default_factory=list)
+    # `<environment>/<catalog.target_key>`: what the bounds and the mutex key on.
+    target: str = ""
+    environment: str = ""
+    # How long this plan waits for its approval, as the request asked: what its links and its messages go by.
+    approval_ttl_minutes: int = 0
+    # What the plan was made under, in its hash (register O5): the environment, the catalogue, WARDEN's code and
+    # the incident's record at that moment.
+    basis: dict[str, str] = Field(default_factory=dict)
 
 
 class ApproverPolicy(BaseModel):

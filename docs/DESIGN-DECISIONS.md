@@ -272,7 +272,7 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 **Adopted** (WARDEN's code is the wiring around them):
 
 - Orchestration: Temporal Cloud and the `temporalio` SDK - `workflows.py`, `runtime.py`, `activities.py` (the
-  steps, run as Temporal activities).
+  steps, run as Temporal activities), `runtime_base.py` (runtime's client half, for the approval Lambda).
 - Payload encryption: Temporal's payload-codec interface with `cryptography`'s AES-256-GCM - `codec.py`.
 - Passkey approvals: py_webauthn (duo-labs, BSD-3-Clause) verifies every WebAuthn ceremony - `passkeys.py`.
 - Signatures: `cryptography`'s Ed25519 for approvals and audit checkpoints (`approvals.py`); AWS KMS for the

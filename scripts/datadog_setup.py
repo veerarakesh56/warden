@@ -11,8 +11,9 @@ In one run, and again idempotently - every object is found by its name and updat
   notifying `@webhook-warden`;
 - a dashboard of the same signals.
 
-Keys: the setup application key from a local file (WARDEN_DATADOG_SETUP_KEY_FILE, default ~/.warden/datadog-setup-key
-.txt; revoke it after), the API key from `warden/<env>/datadog-api-key`. The site and the approval domain from the
+Keys: from local files - the setup application key (WARDEN_DATADOG_SETUP_KEY_FILE, default
+~/.warden/datadog-setup-key.txt; revoke it after) and the API key (WARDEN_DATADOG_API_KEY_FILE, default
+~/.warden/datadog-api-key.txt). The site and the approval domain from the
 environment's plain settings. Nothing secret is printed.
 """
 
@@ -22,6 +23,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import secrets
 import sys
 import urllib.error
@@ -139,6 +141,7 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--env", required=True, help="the runtime's environment (its secrets and settings)")
     p.add_argument("--stack", required=True, help="the watched environment the monitors are for")
+    p.add_argument("--domain", default="", help="the approval domain, where the setting is not in Parameter Store")
     args = p.parse_args(argv)
     if aws is None:
         import boto3
@@ -147,8 +150,13 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
     sm, ssm = aws("secretsmanager"), aws("ssm")
     env = args.env
     site = ssm.get_parameter(Name=f"/warden/{env}/env/WARDEN_DATADOG_SITE")["Parameter"]["Value"].strip()
-    domain = ssm.get_parameter(Name=f"/warden/{env}/env/WARDEN_APPROVAL_RP_ID")["Parameter"]["Value"].strip()
-    api_key = sm.get_secret_value(SecretId=f"warden/{env}/datadog-api-key")["SecretString"].strip()
+    domain = args.domain.strip() or ssm.get_parameter(
+        Name=f"/warden/{env}/env/WARDEN_APPROVAL_RP_ID")["Parameter"]["Value"].strip()
+    if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", domain):
+        raise SystemExit(f"{domain!r} is not a domain name")
+    # The API key from the same local folder as the setup key: the operator may store secrets, never read them back.
+    api_key = pathlib.Path(os.environ.get("WARDEN_DATADOG_API_KEY_FILE")
+                           or pathlib.Path.home() / ".warden" / "datadog-api-key.txt").read_text(encoding="utf-8-sig").strip()
     key_file = pathlib.Path(os.environ.get("WARDEN_DATADOG_SETUP_KEY_FILE")
                             or pathlib.Path.home() / ".warden" / "datadog-setup-key.txt")
     app_key = key_file.read_text(encoding="utf-8").strip()

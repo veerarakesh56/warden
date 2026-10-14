@@ -236,7 +236,7 @@ def test_the_api_throttles_logs_and_routes_exactly_what_the_page_and_the_webhook
 
 
 def test_the_lambdas_get_the_names_the_runtime_reads():
-    from warden import runtime
+    from warden import runtime_base as runtime  # where runtime's audit and policy readers live
 
     tf = _frontdoor()
     names = set(re.findall(r"^\s+(WARDEN_[A-Z_]+)\s+=", tf, re.MULTILINE))

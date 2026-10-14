@@ -179,6 +179,9 @@ def test_setup_makes_the_webhook_monitors_and_dashboard_once_and_never_prints_th
     key = tmp_path / "setup-key.txt"
     key.write_text("dd-app-" + "s" * 10 + "\n", encoding="utf-8")
     monkeypatch.setenv("WARDEN_DATADOG_SETUP_KEY_FILE", str(key))
+    api = tmp_path / "api-key.txt"
+    api.write_text("dd-api-" + "k" * 10, encoding="utf-8")
+    monkeypatch.setenv("WARDEN_DATADOG_API_KEY_FILE", str(api))
     aws = Aws()
     dd = DD(aws.stored)
     assert mod.main(["--env", "ops", "--stack", "dev"], aws=aws, call=dd) == 0
