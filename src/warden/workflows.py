@@ -41,7 +41,19 @@ with workflow.unsafe.imports_passed_through():
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .catalog import MITIGATES
-    from .discuss import LIMIT, NO_ANSWER, NO_RECORD, NOT_READ, NOW, Thread, Turn
+    from .discuss import (
+        LIMIT,
+        NEW_PLAN,
+        NO_ANSWER,
+        NO_RECORD,
+        NOT_APPROVER,
+        NOT_READ,
+        NOW,
+        REPLAN_SOON,
+        REPLANNED,
+        Thread,
+        Turn,
+    )
     from .models import Alert, ContextBundle, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -63,7 +75,7 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
-                  "discuss_evidence"),
+                  "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply"),
          "act": ("apply", "rollback")}
@@ -377,6 +389,22 @@ class DiscussWorkflow:
                     "question, and WARDEN answers here.")
         elif thread.over:
             text = LIMIT
+        elif NEW_PLAN.search(turn.text) and workflow.patched("g10-discuss-replan"):
+            text = NOT_READ
+            with contextlib.suppress(ActivityError):
+                got = await workflow.execute_activity_method(
+                    acts.discuss_replan, **_zoned(acts.discuss_replan), args=[turn, thread.incident], **QUICK)
+                why = got.get("why", "")
+                text = (NOT_APPROVER if why == "not an approver"
+                        else REPLAN_SOON.format(incident=thread.incident) if why == "asked again within the hour"
+                        else NO_RECORD.format(incident=thread.incident) if why else NOT_READ)
+                if not why:
+                    # A diagnosis, nothing more: any fix it finds is its own plan, waiting for a passkey.
+                    with contextlib.suppress(WorkflowAlreadyStartedError):
+                        await workflow.start_child_workflow(
+                            IncidentWorkflow.run, Alert.model_validate(got["alert"]), id=f"inc-{got['new']}",
+                            task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
+                    text = REPLANNED.format(incident=thread.incident, new=f"`{got['new']}`")
         else:
             fresh = NOW.search(turn.text) is not None
             text, evidence = NOT_READ, None
@@ -486,7 +514,11 @@ class IncidentWorkflow:
                     break  # e.g. the budget is spent: the earlier answer, on its own evidence, stands (review F8)
                 pack, diagnosed = wider, again
         verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
-        if workflow.patched("s17-notify"):
+        # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
+        # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
+        # plan's request for approval when a plan opens, else on its own with why there is none.
+        one = workflow.patched("g10-one-message")
+        if not one and workflow.patched("s17-notify"):
             # Register S17: a person is told, with the incident id and the audit head to check the message against -
             # before an escalate-only run ends. A notification that fails does not fail the incident: the audit holds
             # the verdict.
@@ -513,6 +545,11 @@ class IncidentWorkflow:
             except ActivityError:
                 req = {}
             held = ""
+            if one:
+                with contextlib.suppress(ActivityError):
+                    await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify),
+                                                           args=[pack, diagnosed, verified, "plan" if req else "none"],
+                                                           **NOTIFY)
             if req:
                 wid = req.pop("workflow_id")
                 try:
@@ -523,10 +560,14 @@ class IncidentWorkflow:
                     held = (f"an earlier plan for the same resource is still open (`warden status {wid}`) - waiting "
                             "for its approval, or being watched after its fix")
             # The report said "held for approval": with no plan to approve, a person is told so, and why.
-            if (not req or held) and workflow.patched("g10-no-plan"):
+            if ((not req and not one) or held) and workflow.patched("g10-no-plan"):
                 with contextlib.suppress(ActivityError):
                     await workflow.execute_activity_method(acts.no_plan, **_zoned(acts.no_plan),
                                                            args=[first.alert_id, held], **NOTIFY)
+        elif one:  # nothing to plan: the report is the incident's one message
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(acts.notify, **_zoned(acts.notify),
+                                                       args=[pack, diagnosed, verified, "none"], **NOTIFY)
         if diagnosed.model_unavailable:
             # Rules only (register M19): the escalation is verified and audited above, and the run ends FAILED, so the
             # incident may be diagnosed again once the model is back (ALLOW_DUPLICATE_FAILED_ONLY, sixth review).

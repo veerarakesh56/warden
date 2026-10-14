@@ -379,6 +379,8 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
 
 LINK_LABEL = "Open the plan to approve or deny"
 _APPROVAL_LABEL = re.compile(re.escape(LINK_LABEL) + r"( \(link of [A-Za-z0-9._-]{1,64}\))?")
+# The incident's page on WARDEN's records (records.py): everything about it, where Slack gets one message.
+RECORD_LABEL = "Full record"
 
 
 _SLACK_MEMBER = re.compile(r"[UW][A-Z0-9]{6,14}")
@@ -411,7 +413,10 @@ def approval_links(actions: tuple[tuple[str, str], ...]) -> list[tuple[str, str]
     if not rp:
         return []
     url = re.compile(rf"https://{re.escape(rp)}/a/[A-Za-z0-9_-]{{43}}")
-    return [(label, link) for label, link in actions if _APPROVAL_LABEL.fullmatch(label) and url.fullmatch(link)]
+    record = re.compile(rf"https://{re.escape(rp)}/r/[A-Za-z0-9._-]{{1,120}}")
+    return [(label, link) for label, link in actions
+            if (_APPROVAL_LABEL.fullmatch(label) and url.fullmatch(link))
+            or (label == RECORD_LABEL and record.fullmatch(link))]
 
 
 SLACK_SECTION_CHARS = 3000  # Block Kit's limit for a section's text (docs.slack.dev, read 2026-10-12)
@@ -428,9 +433,11 @@ def slack_messages(parts: list[str], data: dict) -> list[dict[str, Any]]:
     (`POST /s/interact`); the click decides nothing - the page and the passkey do."""
     messages: list[dict[str, Any]] = [{"text": part} for part in parts]
     links = [(str(pair[0]), str(pair[1])) for pair in data.get("links") or () if len(pair) == 2]
+    # The approval is the one primary button, where it is the only one; the record never looks like a decision.
+    deciding = [label for label, _ in links if label != RECORD_LABEL]
     buttons = {"type": "actions", "elements": [
         {"type": "button", "text": {"type": "plain_text", "text": label[:75]}, "url": link,
-         **({"style": "primary"} if len(links) == 1 else {})} for label, link in links]}
+         **({"style": "primary"} if label != RECORD_LABEL and len(deciding) == 1 else {})} for label, link in links]}
     last = messages[-1]["text"] if messages else ""
     # WARDEN's own footer - the incident, the audit head - stands after a rule in the text. In Slack it is the small
     # grey line under the message, with no rule (owner, 2026-10-14, of the "---" between a message and its footer:

@@ -357,8 +357,16 @@ def _stack_sources(alert: Alert, ctx: ContextBundle) -> list[str]:
         # Reader names as the stack backend writes them: `lambda/<fn> logs`, `aurora-db-writer`, `sqs/<q>`.
         failed = [e for e in errors if re.match(rf"{reader}\b", e)]
         out.append(f"{reader} {names}: {what}" + (f" - **FAILED**: {_c(failed[0][:160])}" if failed else " - read."))
-    out.append("Not read: Redis itself (VPC-only - through the ElastiCache API and CloudWatch only); the source of "
-               "container workloads (inside images WARDEN does not pull).")
+    # What WARDEN could not read, said only for what this alert names (owner, 2026-10-14: a schedule's alarm said
+    # "Not read: Redis itself ..."): plain words, nothing for a component the incident does not involve.
+    unread = []
+    if alert.labels.get("elasticache"):
+        unread.append("the data inside the Redis cache itself (it is reachable only inside its private network; WARDEN "
+                      "reads the cache's settings, events and metrics instead)")
+    if any(alert.labels.get(k) for k in ("ecs_service", "ecs_cluster", "deployment")):
+        unread.append("the program code inside the container images (WARDEN does not download images)")
+    if unread:
+        out.append("Not read: " + "; ".join(unread) + ".")
     return out
 
 
@@ -481,7 +489,8 @@ def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
     if (data.get("proposal") or {}).get("action") == "escalate_to_human" and status == "auto_safe":
         oncall = "look at this incident: WARDEN proposes no change and could not name a cause"
     elif status == "approved_for_human":
-        oncall = "approve or deny the fix plan WARDEN sends next - or read its message saying why no plan was opened"
+        oncall = ("approve or deny the fix plan with the button in this message - or, where there is none, read why "
+                  "here")
     elif status == "escalated" and held_by == _OFFERED_UNDO:
         oncall = ("decide: WARDEN held the proposed fix because a recent change was left unaddressed, and offers the "
                   "undo of that change as a plan to approve or deny")

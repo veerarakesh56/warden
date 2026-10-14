@@ -48,6 +48,19 @@ class Thread(BaseModel):
     incident: str = ""
     lines: list[str] = Field(default_factory=list)  # "<who>: <text>", oldest first, bounded
     over: bool = False  # past today's limit for this incident's discussion: nothing more is read or asked
+    approver: bool = False  # the person who mentioned WARDEN is an enrolled approver (their Slack id, the list's)
+
+
+# Step two (owner, 2026-10-14): an enrolled approver asks for a new plan with these words. WARDEN then diagnoses the
+# incident again from a fresh read - their words reach no model - and a plan, if one comes, goes to the alerts
+# channel for an approver's passkey like any other. Once an hour per incident at most.
+NEW_PLAN = re.compile(r"(?i)\b(new|another|fresh)\s+(fix\s+)?plan\b|\bre-?plan\b|\bdiagnose\s+again\b")
+REPLAN_EVERY = 3600
+REPLANNED = ("WARDEN is diagnosing `{incident}` again from what it reads now, as {new}. If it finds a fix, its plan "
+             "comes to the alerts channel for an approver's passkey; nothing changes before that.")
+NOT_APPROVER = ("Only an enrolled approver can ask WARDEN for a new plan, and the plan still needs their passkey in "
+                "the alerts channel.")
+REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; ask again after that, or read its record."
 
 
 LIMIT = ("This incident's discussion has reached today's limit of WARDEN's answers; ask again tomorrow, or read the "
@@ -105,10 +118,8 @@ def said(answer: Answer, *, approver: bool, fresh: bool) -> str:
     """The reply posted in the thread."""
     text = answer.answer.strip()
     if answer.asks_for_change:
-        text += ("\n\n" + ("Asking WARDEN for a new plan from this channel is the next step being built; for now a "
-                           "new plan comes from a new alarm or `warden` at the command line." if approver else
-                           "Only an enrolled approver can ask WARDEN for a new plan, and the plan still needs their "
-                           "passkey in the alerts channel."))
+        text += "\n\n" + ("To have WARDEN diagnose it again and plan a fix, mention @WARDEN with \"new plan\" in this "
+                          "thread; the plan still needs a passkey in the alerts channel." if approver else NOT_APPROVER)
     if answer.cites:
         text += f"\n\n_Evidence cited: {', '.join(c for c in answer.cites[:12])}._"
     text += "\n_Read " + ("now" if fresh else "as at the alarm") + " - WARDEN changes nothing from this channel._"

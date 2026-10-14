@@ -182,7 +182,15 @@ def test_what_warden_read_lists_each_component_and_each_failed_reader():
         assert f"- {reader} `" in section and "read." in section, reader
     assert "- sqs `warden-dev-orders,warden-dev-notifications`" in section
     assert "**FAILED**: `sqs/warden-dev-orders: AccessDenied on GetQueueAttributes`" in section
-    assert "Not read: Redis itself" in section
+    assert "Not read: the data inside the Redis cache itself" in section  # this alert names a cache and containers
+    assert "the program code inside the container images" in section and "VPC-only" not in section
+    # An alert that names neither says nothing of them (owner, 2026-10-14: a schedule's alarm listed Redis).
+    from warden.models import Alert
+    from warden.reporting import _stack_sources
+
+    only = Alert(alert_id="x", name="n", severity="high", service="s", environment="dev", summary="s",
+                 started_at="2026-10-14T07:14:13Z", labels={"eventbridge_rule": "warden-dev-tick"})
+    assert not any(line.startswith("Not read") for line in _stack_sources(only, c))
 
 
 @pytest.mark.parametrize("fid,platform", [("fs-07", "lambda"), ("fs-19", "alb"), ("fs-27", "eventbridge"),

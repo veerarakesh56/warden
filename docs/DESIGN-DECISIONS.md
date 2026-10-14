@@ -314,6 +314,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   through `slack_login.py`: two HTTPS calls with the standard library. An OAuth client library (Authlib) would be a
   dependency for those two calls; the ID token comes straight from Slack's token endpoint over TLS, which OpenID
   Connect Core 3.1.3.7 accepts in place of checking its signature.
+- WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
+  approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
+  a second service to run and secure, reading a copy of the record; the record already holds every fact.
 - Talking to WARDEN about an incident: adopted - Slack's own Python SDK (slack-sdk, MIT) for the Socket Mode
   connection, so WARDEN needs no public address for it; built - `discuss.py`, which hears only mentions in one channel
   and hands each to a workflow. Slack's Bolt framework adds routing and middleware for many handlers; WARDEN has one.

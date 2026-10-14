@@ -34,6 +34,15 @@ Keys that are not environment secrets:
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
 | The laptop's IAM Roles Anywhere certificate | issue a new certificate from the local CA before the old one expires (docs/OWNER-CONSOLE-STEPS.md). |
 
+## WARDEN's records (registers G10-46, G10-47)
+
+Every incident of the last 30 days is at `https://<the approval domain>/r`: its summary and status in the list, its
+details unfolding beneath it, and a page of its own (the message's "Full record" button) with who approved or denied
+it and their note, anything that tried to steer WARDEN, the whole report and every step, in UTC and local time.
+Sign in with Slack; it opens for the approvers and for the Slack members in the plain setting
+`/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
+denied and fixed are on the record, not posted.
+
 ## Talking to WARDEN about an incident in Slack (register G10-45)
 
 A second Slack channel where anyone asks WARDEN about an incident: mention `@WARDEN` with the incident's id (the one in

@@ -314,3 +314,18 @@ def test_an_incident_from_a_held_alarm_says_so_under_its_title(tmp_path, monkeyp
     # An incident nothing held says nothing of the kind.
     acts.notify(acts.prepare(Alert(**DEMO_ALERTS["inc-002"])), diagnosed, acts.verify(pack, diagnosed))
     assert "Held first" not in sent[-1]
+
+
+def test_a_production_environment_is_never_declared_down_forever():
+    """Owner, 2026-10-14 (the proposed guard): with no hours, days, dates or end, a declaration may name only nonprod
+    environments - one naming prod, pre-prod or an unknown environment covers nothing and is said in the log."""
+    forever = expected.declarations
+    assert [d["name"] for d in forever("- {name: idle, environments: [dev, staging]}")] == ["idle"]
+    for env in ("prod", "pre-prod", "qa-prod", "made-up"):
+        assert forever(f"- {{name: off, environments: [dev, {env}]}}") == [], env
+    bounded = ('- {name: nights, environments: [prod], hours: "22:00-06:00"}\n'
+               '- {name: weekend, environments: [prod], days: [sat]}\n'
+               '- {name: holiday, environments: [prod], dates: ["2026-11-08"]}\n'
+               '- {name: parked, environments: [prod], until: "2026-11-01T09:00"}\n'
+               '- {name: old cluster, resources: [search-v1]}')
+    assert [d["name"] for d in forever(bounded)] == ["nights", "weekend", "holiday", "parked", "old cluster"]

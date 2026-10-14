@@ -148,6 +148,17 @@ class Recorded(BaseModel):
 
 # Ends that leave the target in a state nobody knows: the kill switch goes on (bounds.trip).
 PERSON_TAKES_OVER = frozenset({"rollback_failed", "apply_failed", "cancelled_after_apply", "failed_after_apply"})
+# Said on WARDEN's records page only (records.py): nobody has to act on them. Every other end - expired, undone,
+# failed, relapsed - still comes to the channel, because a person does.
+RECORDED_ONLY = frozenset({"approved", "denied", "verified", "recovered"})
+HELD_BACK = "The outbound gate held this message back; the decision itself is on the record above."
+
+
+def slack_summary(markdown: str) -> str:
+    """A report's top for the channel: its title, the alert, the next step, the summary and who acts - the rest is on
+    the incident's record page, behind the message's "Full record" button."""
+    cut = markdown.find("\n## What WARDEN read")
+    return (markdown[:cut] if cut > 0 else markdown[:2400]).rstrip()
 
 
 def _when_iso(text: str) -> datetime | None:
@@ -323,7 +334,8 @@ class RemediationActivities:
         from .reporting import Report
 
         actions = self._approval_links(plan) if what in ("opening", "waiting") else ()
-        if what == "opening":
+        opening = what == "opening"
+        if opening:
             if not actions:
                 return []  # no approval domain: the incident's report already said a plan waits
             what = "waiting"
@@ -421,9 +433,28 @@ class RemediationActivities:
                   f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
         if actions:
             said += " Approve with your passkey on the page below; it shows the exact plan first."
+        reports = [e["body"].get("markdown", "") for e in self.audit.entries(plan.incident_id, kinds=("incident.report",))]
+        if opening and reports and reports[-1]:
+            said = slack_summary(str(reports[-1])) + "\n\n**Fix plan:** " + said  # the incident's one message
+        actions = (*actions, *IncidentActivities._record_link(plan.incident_id))
         # Who approved is mentioned where the message says so. A request for an approval names and mentions nobody.
-        sent = send(Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=(),
-                           actions=actions, people=self.policy.people()), threads=AuditThreads(self.audit))
+        message = Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=(),
+                         actions=actions, people=self.policy.people())
+        if what in RECORDED_ONLY:
+            # Approved, denied, fixed: written as ever, through the same gate, and kept for WARDEN's records page -
+            # who, how, when and their note - not sent as another message in the channel (owner, 2026-10-14: "i
+            # dont want that records coming here in slack everytime").
+            from .chatops import name_people
+            from .gate import enforce
+
+            kept = enforce(said, alert_id=plan.incident_id)
+            self.audit.append(plan.incident_id, "remediation.announce", {
+                "workflow_id": plan.workflow_id, "run_id": _run_id(), "what": what, "head": head, "delivered": [],
+                "recorded_only": True, "said": name_people(kept.text, self.policy.people(), slack=False)
+                if kept.verdict != "BLOCK" else HELD_BACK})
+            self.audit.checkpoint()
+            return []
+        sent = send(message, threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,
@@ -859,6 +890,13 @@ class IncidentActivities:
 
         self.audit.append(alert.alert_id, "incident.alert", {"run_id": _run_id(), "alert": alert.model_copy(
             update={"summary": redact(alert.summary).text, "name": redact(alert.name).text}).model_dump(mode="json")})
+        # The evidence exactly as the model is shown it - redacted, its untrusted text quarantined, scanned by the
+        # tripwire - kept with the incident, so a question about it later is answered from these same items (the
+        # same ids the diagnosis cited) without reading everything again (owner, 2026-10-14: "why read evidence
+        # again, it should be memory"). Nothing writes into it but this step; the model never does.
+        # ponytail: in the audit row itself (Aurora, encrypted at rest); a separate store if packs grow past ~1 MB.
+        self.audit.append(alert.alert_id, "incident.evidence", {
+            "run_id": _run_id(), "prompt": prompt, "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest()})
         return EvidencePack(alert=state["alert"], context=state["context"], prompt=prompt,
                             backend=str(getattr(self.backend, "name", None) or "fixture"),
                             redacted_logs=state.get("redacted_logs", []),
@@ -979,8 +1017,8 @@ class IncidentActivities:
                 "changes unless a person acts on the report."
                 f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it with "
                 f"`warden audit show {alert_id}`. Approvals are signed out of band, never given in chat.")
-        sent = send(Report(markdown=said, data={"alert": {"id": alert_id}}, promotion=()),
-                    threads=AuditThreads(self.audit))
+        sent = send(Report(markdown=said, data={"alert": {"id": alert_id}}, promotion=(),
+                           actions=self._record_link(alert_id)), threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(alert_id, "incident.no_plan", {"run_id": _run_id(), "why": why[:300], "head": head,
                                                          "delivered": delivered})
@@ -1055,10 +1093,14 @@ class IncidentActivities:
         return total
 
     @activity.defn
-    def notify(self, pack: EvidencePack, diagnosed: Diagnosed, verified: Verified) -> list[str]:
+    def notify(self, pack: EvidencePack, diagnosed: Diagnosed, verified: Verified, mode: str = "") -> list[str]:
         """The incident's report to the configured sinks, through the outbound gate (register S17). Its footer names
         the incident and the head of its audit record - signed first - so a reader can check that a message claiming
-        to be WARDEN's is one: `warden audit show <incident>` lists the same hash. Returns the sinks it reached."""
+        to be WARDEN's is one: `warden audit show <incident>` lists the same hash. Returns the sinks it reached.
+
+        `mode` (one message per incident, G10-46): the whole report is recorded for WARDEN's records page, and Slack
+        gets its summary once - "plan": not here, the plan's request for approval carries it; "none": here, with why
+        no plan was opened and the record's link. "" (a run begun before): the whole report, as before."""
         import dataclasses
 
         from .chatops import notify as send
@@ -1108,11 +1150,33 @@ class IncidentActivities:
                         f"{environments.both_times(_when_iso(pack.alert.started_at) or datetime.now(UTC), seconds=False)}."
                         f"\n{rest}")
         people = self.policy.people() if self.policy is not None else ()
+        if mode:
+            from .gate import enforce
+
+            kept = enforce(markdown, alert_id=alert_id)
+            self.audit.append(alert_id, "incident.report", {"run_id": _run_id(), "markdown": (
+                kept.text if kept.verdict != "BLOCK" else "The report was held back by the outbound gate.")[:60000]})
+            if mode == "plan":
+                return []
+            rows = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.plan_fix",))
+                    if e["body"].get("run_id") == _run_id()]
+            why = str(rows[-1].get("why") or "") if rows and not rows[-1].get("planned") else ""
+            no = (f"\n\n**No fix plan:** {why[:300]}. There is nothing to approve; nothing changes unless a person acts."
+                  if why else "")
+            markdown = slack_summary(markdown) + no + footer
+            report = dataclasses.replace(report, actions=self._record_link(alert_id))
         sent = send(dataclasses.replace(report, markdown=markdown, people=people), threads=AuditThreads(self.audit))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
                                                         "sinks": [n.sink for n in sent],
                                                         "delivered": [n.sink for n in sent if n.delivered]})
         return [n.sink for n in sent if n.delivered]
+
+    @staticmethod
+    def _record_link(incident: str) -> tuple[tuple[str, str], ...]:
+        from .chatops import RECORD_LABEL
+
+        rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
+        return ((RECORD_LABEL, f"https://{rp}/r/{incident}"),) if rp else ()
 
     @activity.defn
     def verify(self, pack: EvidencePack, diagnosed: Diagnosed) -> Verified:
@@ -1172,7 +1236,32 @@ class DiscussActivities:
             "run_id": _run_id(), "channel": turn.channel, "thread_ts": turn.thread_ts, "ts": turn.ts,
             "user": turn.user, "incident": incident, "chars": len(turn.text)})
         turns = len(self.audit.entries(key, kinds=("discuss.turn",), since=datetime.now(UTC) - timedelta(hours=24)))
-        return Thread(incident=incident, lines=lines, over=bool(incident) and turns > DAILY_CALLS)
+        approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
+        return Thread(incident=incident, lines=lines, over=bool(incident) and turns > DAILY_CALLS, approver=approver)
+
+    @activity.defn
+    def discuss_replan(self, turn: Any, incident: str) -> dict[str, Any]:
+        """An approver's "new plan": the incident's alarm as on the record, as a new incident from now - or why not.
+        Nothing a person wrote goes into it. Recorded either way."""
+        from .discuss import REPLAN_EVERY, Turn
+
+        turn = Turn.model_validate(turn)
+        key = f"discuss-{incident}"
+        rows = self.audit.entries(incident, kinds=("incident.alert",))
+        approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
+        recent = self.audit.entries(key, kinds=("discuss.replan",),
+                                    since=datetime.now(UTC) - timedelta(seconds=REPLAN_EVERY))
+        why = ("not an approver" if not approver else "no alarm on the record" if not rows
+               else "asked again within the hour" if any(e["body"].get("started") for e in recent) else "")
+        now = datetime.now(UTC)
+        new = f"{incident.split('-')[0]}-{now:%Y%m%dT%H%M%SZ}"
+        self.audit.append(key, "discuss.replan", {"run_id": _run_id(), "user": turn.user, "ts": turn.ts,
+                                                  "started": "" if why else new, "why": why})
+        if why:
+            return {"why": why}
+        alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(
+            update={"alert_id": new, "started_at": now.isoformat()})
+        return {"alert": alert.model_dump(mode="json"), "new": new}
 
     @activity.defn
     def discuss_evidence(self, incident: str, fresh: bool) -> Any:
@@ -1181,15 +1270,20 @@ class DiscussActivities:
         rows = self.audit.entries(incident, kinds=("incident.alert",))
         if not rows:
             return None
-        alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(update={"alert_id": f"discuss-{incident}"})
-        if fresh:
-            alert = alert.model_copy(update={"started_at": datetime.now(UTC).isoformat()})
-        pack = self.incident.prepare(alert)
+        kept = [e["body"] for e in self.audit.entries(incident, kinds=("incident.evidence",))]
+        good = [b for b in kept if hashlib.sha256(str(b.get("prompt", "")).encode("utf-8")).hexdigest() == b.get("sha256")]
+        if fresh or not good:  # about now, or an incident from before its evidence was kept: read it again
+            alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(update={"alert_id": f"discuss-{incident}"})
+            if fresh:
+                alert = alert.model_copy(update={"started_at": datetime.now(UTC).isoformat()})
+            prompt = self.incident.prepare(alert).prompt
+        else:
+            prompt = str(good[-1]["prompt"])
         said = [f"{e['kind'].split('.')[-1]}: " + ", ".join(f"{k}={str(v)[:300]}" for k, v in e["body"].items()
                                                             if k in ("hypothesis", "action", "target", "confidence",
                                                                      "status", "policies"))
                 for e in self.audit.entries(incident, kinds=("incident.diagnose", "incident.verify"))]
-        return {"evidence": pack.prompt, "diagnosis": "\n".join(said)[-3000:]}
+        return {"evidence": prompt, "diagnosis": "\n".join(said)[-3000:]}
 
     @activity.defn
     def discuss_answer(self, turn: Any, thread: Any, evidence: dict[str, str], fresh: bool) -> str:
@@ -1200,7 +1294,7 @@ class DiscussActivities:
 
         turn, thread = discuss.Turn.model_validate(turn), discuss.Thread.model_validate(thread)
         key = f"discuss-{thread.incident}"
-        approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
+        approver = thread.approver
         since = datetime.now(UTC) - timedelta(hours=24)
         calls = sum(int(e["body"].get("calls", 0)) for e in self.audit.entries(key, kinds=("incident.llm_spend",),
                                                                                 since=since))

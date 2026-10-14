@@ -122,10 +122,12 @@ def test_every_step_is_in_the_signed_audit_log(results):
         rows = log.entries(alert_id)
         # Plus one row of what the run spent on the model, written failed or not (seventh review: the budget is
         # carried across an incident's runs).
-        assert [r["kind"] for r in rows if r["kind"] not in ("incident.llm_spend", "incident.llm_reserve", "incident.alert")] ==             [f"incident.{s['node']}" for s in report.audit], alert_id
+        assert [r["kind"] for r in rows if r["kind"] not in ("incident.llm_spend", "incident.llm_reserve", "incident.alert", "incident.evidence")] ==             [f"incident.{s['node']}" for s in report.audit], alert_id
         assert [r["kind"] for r in rows].count("incident.llm_spend") == 1, alert_id
         # And one row of the alarm as it came in, its text redacted, so the incident can be discussed (G10-45).
         assert [r["kind"] for r in rows].count("incident.alert") == 1, alert_id
+        # And the evidence as the model was shown it, kept for questions about the incident (G10-45).
+        assert [r["kind"] for r in rows].count("incident.evidence") == 1, alert_id
 
 
 def test_a_prepare_that_keeps_failing_ends_the_incident_instead_of_retrying_forever(tmp_path):

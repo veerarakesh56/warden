@@ -80,6 +80,13 @@ REQ = {"incident_id": "inc-42", "entry": "k8s_rollout_undo", "service": "orders"
        "params": {"namespace": "shop", "deployment": "orders", "to_revision": "6"}}
 
 
+def recorded(log, incident="inc-42"):
+    """The messages WARDEN keeps for its records page instead of posting them (activities.RECORDED_ONLY): approved,
+    denied, fixed - each written as before and through the same gate, in order."""
+    return [e["body"]["said"] for e in log.entries(incident, kinds=("remediation.announce",))
+            if e["body"].get("recorded_only")]
+
+
 def _run(world, drive, **req):
     """Start the workflow, let `drive(handle, sign)` interact with it, return the outcome."""
     async def main():

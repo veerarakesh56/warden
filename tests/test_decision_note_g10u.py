@@ -22,6 +22,7 @@ from test_remediation_workflow import (  # noqa: F401
     _run,
     _until_awaiting_approval,
     owner,
+    recorded,
     world,
 )
 from warden import approvals, chatops
@@ -110,7 +111,9 @@ def test_an_approvals_note_is_on_the_record_and_in_the_message_with_who_and_when
     assert out.status == "recovered"
     [row] = [e["body"] for e in world["log"].entries("inc-42", kinds=("approval.accepted",))]
     assert row["note"] == approvals.note(HOSTILE) and row["approver"] == "owner" and row["method"] == "passkey"
-    said = next(t for t in sink.texts if "was approved by" in t)
+    # On the records page, not in the channel (owner, 2026-10-14) - worded as before, through the same gate.
+    assert not any("was approved by" in t for t in sink.texts)
+    said = next(t for t in recorded(world["log"]) if "was approved by" in t)
     body = said.split("---")[0]
     assert "was approved by `Asha Rao` (with their passkey) at " in body and " Their note: `" in body
     # Words, not markup: no mention, no channel ping, no link, no fence or heading of its own, no mark for a person.
@@ -180,8 +183,8 @@ def test_the_owners_own_hostile_note_neither_hides_the_decision_nor_acts_nor_lea
                                                             plan_hash=plan.plan_hash, reason=kept))
 
     out = _run(world, deny)
-    said = sink.texts[-1]
-    assert out.status == "denied" and "withheld" not in said
+    said = recorded(world["log"])[-1]
+    assert out.status == "denied" and "withheld" not in said and not any("was denied" in t for t in sink.texts)
     body = said.split("---")[0]
     assert "was denied by `owner` (with their passkey) at " in body and ": nothing was changed. Their reason: `" in body
     for acts in ("<!", "<@", "](", "https://", "```", "\n#", "@@", "Hunter2", "FAKEFAKE"):
@@ -202,7 +205,7 @@ def test_should_the_gate_hold_back_a_persons_words_the_decision_is_still_said(wo
                                                             plan_hash=plan.plan_hash, reason="anything"))
 
     _run(world, deny)
-    body = sink.texts[-1].split("---")[0]
+    body = recorded(world["log"])[-1].split("---")[0]
     assert "was denied by `owner` (with their passkey) at " in body and "anything" not in body
     assert "Their note is not shown here: the outbound gate held it back. It is on WARDEN's record." in body
 

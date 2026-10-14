@@ -26,6 +26,7 @@ from test_remediation_workflow import (  # noqa: F401
     _no_approval,
     _run,
     owner,
+    recorded,
     world,
 )
 from warden import approvals, audit, bounds, codec
@@ -144,7 +145,8 @@ def _incidents(tmp_path, answers):
         acts = _Acts(audit=log, llm_factory=lambda: LLMClient(mock=True))
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="noplan", workflows=[IncidentWorkflow, RemediationWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.plan_fix, acts.no_plan],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.plan_fix, acts.no_plan,
+                                           acts.notify],
                                activity_executor=ThreadPoolExecutor(2)):
             for n in range(len(answers)):
                 handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
@@ -156,10 +158,13 @@ def _incidents(tmp_path, answers):
 
 
 def test_a_report_that_held_a_fix_for_approval_is_followed_by_why_there_is_no_plan(tmp_path, sink):  # noqa: F811
+    """One message per incident (G10-46): the report's summary says why no plan was opened - no second message."""
     rows = _incidents(tmp_path, [""])
-    assert [r["why"] for r in rows] == [WHY] and rows[0]["delivered"] == ["capture"]
-    assert f"opened no fix plan for this incident: {WHY}" in sink.texts[-1] and "nothing to approve" in sink.texts[-1]
-    assert "incident `inc-002`" in sink.texts[-1] and "audit head" in sink.texts[-1]
+    assert rows == [] and len(sink.texts) == 1, sink.texts
+    [said] = sink.texts
+    assert f"**No fix plan:** {WHY}" in said and "nothing to approve" in said and "## Summary" in said
+    assert "## What WARDEN read" not in said  # the rest is on the record page
+    assert "incident `inc-002`" in said and "audit head" in said
 
 
 def test_a_plan_that_opened_is_not_followed_by_one_and_a_second_on_the_same_resource_says_the_first_is_open(
@@ -293,8 +298,10 @@ def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(worl
     assert out.status == "recovered" and all(r.people == (row,) for r in seen), [r.people for r in seen]
     # A reader outside Slack gets the person's name where the sentence names them - never the list's id for them
     # (owner, 2026-10-12: "don't use owner at all anywhere ... it feels unprofessional").
-    assert "approved by `Asha Rao (Platform)` (with their signing key)" in sink.texts[0]
-    assert "@@" not in "".join(sink.texts) and not any("owner" in t.split("---")[0] for t in sink.texts)
+    # Approved and fixed are kept for the records page (G10-46), named the same way as any reader but Slack.
+    told = recorded(world["log"])
+    assert sink.texts == [] and "approved by `Asha Rao (Platform)` (with their signing key)" in told[0]
+    assert "@@" not in "".join(told) and not any("owner" in t for t in told)
     assert world["policy"].shown("owner") == "Asha Rao (Platform)" and world["policy"].said("owner") == "@@owner@@"
     world["policy"].approvers["owner"].name = ""
     assert world["policy"].shown("owner") == "owner"  # only where the list gives no name is its id all there is
@@ -360,7 +367,8 @@ def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, 
 
     out = _run(world, deny)
     assert out.status == "denied" and _whats(world) == ["denied"]
-    said = sink.texts[-1].split("---")[0]
+    said = recorded(world["log"])[-1]
+    assert not any("was denied" in t for t in sink.texts)  # on the records page, not in the channel
     assert re.search(r"was denied by `Asha Rao` \(with their passkey\) at \d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ", said)
     assert ": nothing was changed." in said and "Why:" not in said and "owner" not in said
     assert ("Their reason: `not now`" in said) == bool(typed) and ("Their reason" in said) == bool(typed)

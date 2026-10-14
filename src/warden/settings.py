@@ -43,7 +43,7 @@ LOADABLE = frozenset({
     "WARDEN_PAGERDUTY_ROUTING_KEY",
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "WARDEN_ALERTMANAGER_URL", "WARDEN_APPROVAL_RP_ID",
     "WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_EXPECTED_DOWN",
-    "WARDEN_SLACK_APP_TOKEN", "WARDEN_DISCUSS_CHANNEL",
+    "WARDEN_SLACK_APP_TOKEN", "WARDEN_DISCUSS_CHANNEL", "WARDEN_RECORD_VIEWERS",
 })
 
 
@@ -76,6 +76,8 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_SLACK_CLIENT_SECRET": frozenset({"lambda-approval"}),
     # The discussion channel's listener (discuss.py): the notify zone's worker alone holds the connection.
     "WARDEN_SLACK_APP_TOKEN": frozenset({"worker"}),
+    # Who besides the approvers may read WARDEN's records (records.py): only the page that shows them reads it.
+    "WARDEN_RECORD_VIEWERS": frozenset({"lambda-approval"}),
 }
 
 

@@ -77,7 +77,7 @@ def test_a_request_for_a_change_is_answered_with_who_may_ask_for_one():
     wants = discuss.Answer(answer="That would mean enabling the rule.", cites=["C2"], asks_for_change=True)
     to_anyone = discuss.said(wants, approver=False, fresh=False)
     assert "Only an enrolled approver can ask WARDEN for a new plan" in to_anyone and "C2" in to_anyone
-    assert "next step being built" in discuss.said(wants, approver=True, fresh=True)
+    assert 'mention @WARDEN with "new plan" in this thread' in discuss.said(wants, approver=True, fresh=True)
     assert to_anyone.endswith("_Read as at the alarm - WARDEN changes nothing from this channel._")
     assert discuss.NOW.search("is it still broken?") and not discuss.NOW.search("why did it break?")
 
@@ -151,6 +151,11 @@ def test_the_evidence_is_read_again_from_the_alert_on_the_record_and_nothing_wit
     [alert_row] = [e["body"]["alert"] for e in world["log"].entries(INCIDENT, kinds=("incident.alert",))]
     assert alert_row["alert_id"] == INCIDENT
     assert acts.discuss_evidence(INCIDENT, True)["evidence"]  # read again around now
+    # Asked about the alarm itself: the evidence kept with the incident, as the diagnosis saw it - nothing re-read.
+    [kept] = [e["body"] for e in world["log"].entries(INCIDENT, kinds=("incident.evidence",))]
+    reads = len(world["log"].entries(f"discuss-{INCIDENT}", kinds=("incident.ingest",)))
+    assert acts.discuss_evidence(INCIDENT, False)["evidence"] == kept["prompt"] == pack.prompt
+    assert len(world["log"].entries(f"discuss-{INCIDENT}", kinds=("incident.ingest",))) == reads
 
 
 def test_an_answer_is_capped_per_incident_per_day_and_knows_an_approver_by_slack(world):
@@ -160,7 +165,10 @@ def test_an_answer_is_capped_per_incident_per_day_and_knows_an_approver_by_slack
     assert said.startswith("(a test answer)") and "changes nothing from this channel" in said
     rows = [e["body"] for e in world["log"].entries(f"discuss-{INCIDENT}", kinds=("discuss.answer",))]
     assert rows[-1]["approver"] is False
-    acts.discuss_answer(_turn("why?", user=APPROVER), thread, {"evidence": "e", "diagnosis": "d"}, False)
+    # Whether the asker is an approver is decided where the approver list is read, from their Slack id.
+    assert acts.discuss_thread(_turn("q", user=APPROVER)).approver and not acts.discuss_thread(_turn("q")).approver
+    acts.discuss_answer(_turn("why?", user=APPROVER), thread.model_copy(update={"approver": True}),
+                        {"evidence": "e", "diagnosis": "d"}, False)
     assert [e["body"] for e in world["log"].entries(f"discuss-{INCIDENT}", kinds=("discuss.answer",))][-1]["approver"] is True
     world["log"].append(f"discuss-{INCIDENT}", "incident.llm_spend", {"attempt": "x", "calls": discuss.DAILY_CALLS, "usd": 0})
     assert acts.discuss_answer(_turn("why?"), thread, {"evidence": "e", "diagnosis": "d"}, False) == discuss.LIMIT
@@ -234,9 +242,47 @@ def test_the_whole_conversation_runs_as_a_workflow_and_changes_nothing(world):
         assert any(m == "chat.postMessage" for m, *_ in world["posted"]), step
     flow = (ROOT / "src" / "warden" / "workflows.py").read_text(encoding="utf-8")
     body = flow[flow.index("class DiscussWorkflow"):flow.index("class ClockWorkflow")]
-    assert "start_child_workflow" not in body and "RemediationWorkflow" not in body
+    # It may start a diagnosis (an approver's new plan, below) - never a fix: a plan waits for a passkey elsewhere.
+    assert body.count("start_child_workflow(") == 1 and "IncidentWorkflow.run" in body
+    assert "RemediationWorkflow" not in body
     assert set(ZONES["notify"]) >= {"discuss_thread", "discuss_reply"} and "discuss_answer" in ZONES["llm"]
     assert "discuss_evidence" in ZONES["read"]
+
+
+def test_an_approvers_new_plan_is_a_fresh_diagnosis_once_an_hour_and_anyone_elses_is_refused(world):
+    """Step two (owner, 2026-10-14: "only approvers can ask for new plan"): their words reach no model; the incident is
+    diagnosed again from what WARDEN reads now, as a new incident whose plan, if any, waits for a passkey."""
+    acts, log = world["acts"], world["log"]
+    pack = world["inc"].prepare(Alert(**{**DEMO_ALERTS["inc-002"], "alert_id": INCIDENT}))
+    world["inc"].verify(pack, world["inc"].diagnose(pack))
+    assert discuss.NEW_PLAN.search("@WARDEN new plan please") and discuss.NEW_PLAN.search("can you re-plan")
+    assert not discuss.NEW_PLAN.search("what was the plan?")
+
+    async def main(text, user, wid):
+        env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
+        async with env, Worker(env.client, task_queue="discuss-test", workflows=[DiscussWorkflow],
+                               activities=[acts.discuss_thread, acts.discuss_evidence, acts.discuss_answer,
+                                           acts.discuss_reply, acts.discuss_replan],
+                               activity_executor=ThreadPoolExecutor(2)):
+            said = await env.client.execute_workflow(DiscussWorkflow.run, _turn(text, user=user), id=wid,
+                                                     task_queue="discuss-test")
+            started = [e["body"]["started"] for e in log.entries(f"discuss-{INCIDENT}", kinds=("discuss.replan",))]
+            child = None
+            if started and started[-1]:
+                child = await env.client.get_workflow_handle(f"inc-{started[-1]}").describe()
+            return said, started, child
+
+    said, started, child = asyncio.run(main("<@UWARDEN> new plan", PERSON, "d1"))
+    assert said == discuss.NOT_APPROVER and started == [""]
+    said, started, child = asyncio.run(main("<@UWARDEN> new plan", APPROVER, "d2"))
+    new = started[-1]
+    assert new.startswith(INCIDENT.split("-")[0] + "-") and new != INCIDENT and discuss.INCIDENT.fullmatch(new)
+    assert said.startswith(f"WARDEN is diagnosing `{INCIDENT}` again") and f"`{new}`" in said and child is not None
+    said, started, _ = asyncio.run(main("<@UWARDEN> new plan", APPROVER, "d3"))
+    assert said.startswith("WARDEN made a new plan") and started[-1] == ""
+    # The approver's words are not in what the new incident reads: its alarm is the record's, its time now.
+    [row] = [e["body"] for e in log.entries(f"discuss-{INCIDENT}", kinds=("discuss.replan",)) if e["body"]["started"]]
+    assert set(row) == {"run_id", "user", "ts", "started", "why"}
 
 
 def test_the_runtime_gives_the_listener_its_token_in_the_notify_zone_alone():

@@ -24,6 +24,7 @@ The page cannot write that list: the passkey approves nothing until a person sav
 from __future__ import annotations
 
 import json
+import os
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -229,6 +230,8 @@ class ApprovalPage:
         parts = path.strip("/").split("/")
         if parts[0] == "s":
             return self._slack(method.upper(), parts[1:], query, cookies)
+        if parts[0] == "r":
+            return self._records(method.upper(), parts[1:], cookies)
         if self.slack is not None and len(parts) >= 2:
             self._recognise(parts[0], parts[1], cookies)
         if len(parts) >= 2 and parts[0] == "e":
@@ -308,6 +311,13 @@ class ApprovalPage:
         if self.slack is None or method != "GET":
             return _json(404, {"error": "not found"})
         redirect = f"{self.origin}/s/callback"
+        if parts == ["r"]:  # the records: no link, the reader's own sign-in (records.py)
+            nonce = secrets.token_urlsafe(16)
+            value = f"r/records.{nonce}"
+            state = hashlib.sha256(value.encode()).hexdigest()
+            return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
+                                  "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
+                                  "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
         if len(parts) == 2 and parts[0] in ("a", "e", "k"):
             kind, token = parts
             if self._approver_of(kind, token) is None:
@@ -327,6 +337,18 @@ class ApprovalPage:
             return _notice(400, "This sign-in did not start on this page. Open the link from the message again.")
         where, nonce = value.rsplit(".", 1)
         kind, _, token = where.partition("/")
+        if kind == "r":
+            try:
+                member = self.slack.member(code, redirect_uri=redirect, nonce=nonce)
+            except SlackLoginError as exc:
+                return _notice(403, f"Slack sign-in failed: {exc}.")
+            if not self._may_read(member["user"]):
+                from .records import refused_page
+
+                return self._served_html(403, refused_page())
+            return Response(302, {"Location": "/r", "Cache-Control": "no-store",
+                                  "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
+                                                 "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
         approver = self._approver_of(kind, token)
         if approver is None or approver not in self.policy.approvers:
             return _notice(404, "This link is not valid.")
@@ -347,6 +369,44 @@ class ApprovalPage:
         return Response(302, {"Location": f"/{kind}/{token}", "Cache-Control": "no-store",
                               "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
                                              "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
+
+    # ------------------------------------------------------------------ records
+
+    def _may_read(self, member: str) -> bool:
+        """WARDEN's records are for its approvers and the people on its viewer list (WARDEN_RECORD_VIEWERS, Slack
+        member ids): the record names resources, people and what they wrote."""
+        viewers = {v.strip() for v in os.environ.get("WARDEN_RECORD_VIEWERS", "").split(",") if v.strip()}
+        return bool(member) and (member in viewers or any(a.slack == member for a in self.policy.approvers.values()))
+
+    def _records(self, method: str, parts: list[str], cookies: Any) -> Response:
+        """`/r`: every incident of the last 30 days; `/r/<incident>`: one, whole (records.py). For a reader Slack
+        named in this browser who may read them; anyone else is asked to sign in, and is not shown that an incident
+        exists."""
+        from . import records
+        from .slack_login import remembered
+
+        if method != "GET" or len(parts) > 1:
+            return _json(404, {"error": "not found"})
+        if self.slack is not None:
+            value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
+            member = remembered(self.slack, value) if value else ""
+            if not member:
+                return self._served_html(200, records.signed_out_page("/s/r"))
+            if not self._may_read(member):
+                return self._served_html(403, records.refused_page())
+        if self.log is None:
+            return _json(503, {"error": "the record cannot be read here"})
+        if not parts or not parts[0]:
+            found = [records.record(self.log, i, self.policy) for i in records.incident_ids(self.log, now=self.clock())]
+            return self._served_html(200, records.list_page([r for r in found if r is not None]))
+        one = records.record(self.log, parts[0], self.policy) if not parts[0].startswith("discuss-") else None
+        if one is None:
+            return self._served_html(404, records.missing_page())
+        return self._served_html(200, records.incident_page(one))
+
+    def _served_html(self, status: int, page: str) -> Response:
+        nonce = secrets.token_urlsafe(16)
+        return Response(status, _headers(nonce, "text/html; charset=utf-8"), page.replace("{{NONCE}}", nonce))
 
     # ------------------------------------------------------------------ enrolment
 

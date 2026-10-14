@@ -27,7 +27,7 @@ def test_every_verdict_tells_the_on_call_what_is_theirs_to_do():
         "quiet": _report(action=ActionKind.no_action, status=VerdictStatus.auto_safe).markdown,
     }
     assert all("## Who acts now" in text for text in said.values())
-    assert "**On-call**: approve or deny the fix plan WARDEN sends next" in said["approved"]
+    assert "**On-call**: approve or deny the fix plan with the button in this message" in said["approved"]
     assert "offers the undo of that change as a plan to approve or deny" in said["offered"]
     assert "**On-call**: decide what to do: WARDEN runs nothing here" in said["escalated"]
     assert "**On-call**: decide what to do: WARDEN runs nothing here" in said["rejected"]
