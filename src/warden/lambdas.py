@@ -136,6 +136,46 @@ def service_event(event: dict[str, Any], default_environment: str) -> AlarmEvent
                     summary=text[:4000], started_at=when.isoformat(), labels=labels))
 
 
+def health_event(event: dict[str, Any], default_environment: str) -> AlarmEvent | None:
+    """An AWS Health notice that one of the watched environments' own resources is affected by an AWS-side issue,
+    as an intake event; None for anything else (owner, 2026-10-12: triggers beyond the alarms someone made). Only an
+    open `issue` scoped to this account, and only for an affected resource whose name says which watched environment
+    it is in: a public notice names no resource of ours, and an instance id names no environment. It goes to a person
+    on the rules alone - no change of WARDEN's mends AWS's own fault - with WARDEN's reads of the resource. The notice's
+    text is the alert's summary: untrusted, as an alarm's description is. The shape is AWS's own page, "AWS Health
+    events Amazon EventBridge schema" (read 2026-10-14)."""
+    if event.get("source") != "aws.health" or event.get("detail-type") != "AWS Health Event":
+        return None
+    detail = event.get("detail") if isinstance(event.get("detail"), dict) else {}
+    if (detail.get("eventTypeCategory") != "issue" or detail.get("eventScopeCode") != "ACCOUNT_SPECIFIC"
+            or detail.get("statusCode") != "open"):
+        return None
+    what = str(detail.get("eventTypeCode") or "")
+    entities = detail.get("affectedEntities") if isinstance(detail.get("affectedEntities"), list) else []
+    named = re.compile(NAME_PATTERN)
+    from .environments import env_of_name
+
+    # The resource's own name: an ARN's last part (after `/` or `:`), or the value itself.
+    names = [re.split(r"[/:]", str(e.get("entityValue") or ""))[-1] for e in entities if isinstance(e, dict)]
+    ours = next((n for n in names if n and named.match(n) and env_of_name(n)), "")
+    if not (_HEALTH_CODE.fullmatch(what) and ours):
+        return None
+    when = datetime.fromisoformat(str(event.get("time")))
+    text = next((str(d.get("latestDescription") or "") for d in detail.get("eventDescription") or []
+                 if isinstance(d, dict)), "")
+    service = str(detail.get("service") or "AWS")
+    return AlarmEvent(
+        source="alarm", rule=f"{what}:{ours}", state="ALARM", transitioned_at=when, stateless=True,
+        escalate=(f"AWS Health reports an issue with {service[:40]} affecting {ours}: an AWS-side fault, which no change "
+                  "of WARDEN's mends - a person follows AWS's notice"),
+        alert=Alert(alert_id="ev", name=what, severity=Severity.high, service=ours,
+                    environment=env_of_name(ours) or default_environment, summary=text[:4000],
+                    started_at=when.isoformat(), labels={}))
+
+
+_HEALTH_CODE = re.compile(r"AWS_[A-Z0-9_]{3,120}")  # AWS_EC2_INSTANCE_STORE_DRIVE_PERFORMANCE_DEGRADED, ...
+
+
 # Labels intake writes itself; a dimension of the same name never stands in for them (L4, G10-F1).
 _OWN_LABELS = ("alarm", "alarm_region")
 
@@ -155,7 +195,8 @@ def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:
 
 def alarm(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     _configure("lambda-alarm")
-    ev = alarm_event(event, os.environ.get("WARDEN_ENV", "")) or service_event(event, os.environ.get("WARDEN_ENV", ""))
+    env = os.environ.get("WARDEN_ENV", "")
+    ev = alarm_event(event, env) or service_event(event, env) or health_event(event, env)
     if ev is None:
         return {"ignored": "not a CloudWatch alarm state change, nor a service event WARDEN takes"}
     decisions = _submit([ev])

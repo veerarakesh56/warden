@@ -28,7 +28,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from .audit import AuditLog
 from .models import Alert
@@ -49,6 +49,9 @@ class AlarmEvent(BaseModel):
     alert: Alert
     # A service's own event (lambdas.service_event), not an alarm: nothing later says it cleared.
     stateless: bool = False
+    # Why this goes to a person on the rules alone, whatever the model would propose (lambdas.health_event: an AWS-side
+    # fault no change of WARDEN's can mend). Empty: decided as any alarm is.
+    escalate: str = Field(default="", max_length=300)
 
     @field_validator("transitioned_at")
     @classmethod
@@ -110,6 +113,8 @@ def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict
                             f" until {until:%Y-%m-%d %H:%M} UTC: looked at again then" if until
                             else ": nothing ends that declaration, so nothing is looked at again"))
     wid = f"inc-{fp}-{ev.transitioned_at:%Y%m%dT%H%M%SZ}"
+    if ev.escalate:
+        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp, reason=ev.escalate)
     flips = len(recent) + 1
     if flips >= FLAP_FLIPS:
         return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp,

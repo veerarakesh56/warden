@@ -82,6 +82,12 @@ locals {
       detail        = { eventType = ["WARN", "ERROR"] }
       resources     = [for e in var.watched_environments : { prefix = "arn:aws:ecs:${local.region}:${local.account}:service/warden-${e}-" }]
     })
+    # AWS Health: an open issue scoped to this account (lambdas.health_event picks the watched resources by name).
+    health = jsonencode({
+      source        = ["aws.health"]
+      "detail-type" = ["AWS Health Event"]
+      detail        = { eventTypeCategory = ["issue"], eventScopeCode = ["ACCOUNT_SPECIFIC"], statusCode = ["open"] }
+    })
     rds = jsonencode({
       source        = ["aws.rds"]
       "detail-type" = ["RDS DB Instance Event", "RDS DB Cluster Event"]
