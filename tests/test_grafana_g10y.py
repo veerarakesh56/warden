@@ -104,6 +104,9 @@ def test_nothing_read_is_said_as_nothing_read_never_as_health():
 
 def test_the_names_it_queries_come_from_the_alert_never_from_text():
     assert grafana.services(_alert(deployment="shop/orders", lambda_="x")) == ["checkout", "orders"]
+    # A service map lists every workload in one label (scenarios/alert-fullstack.yaml): each is read, four at most.
+    assert grafana.services(_alert(deployment="catalog-api,cart-worker", **{"lambda": "a,b,c"})) == [
+        "checkout", "catalog-api", "cart-worker", "a"]
     hostile = _alert(deployment='x"} |= "', ecs_service="ok-svc")
     assert "deployment" not in hostile.labels  # the alert itself drops it: the first layer
     # The second layer, should a label ever reach the reader unchecked: a name that is not a name is not queried.
@@ -266,6 +269,17 @@ def test_datadog_logs_spans_and_metrics_are_read_on_its_own_site_with_its_own_ut
                         "failed_in=payments")
     assert "DATADOG dependency checkout -> payments: failing in 1 of 2 failed spans read" in spans
     assert reader.metrics(_alert()) == {name: 0.42 for name in datadog.QUERIES}
+    # The alert's service may send no numbers (the test stack's `shop`): the next named workload is read instead.
+    seen: list[str] = []
+
+    def only_for_cart_worker(method, url, body):
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query).get("query", [""])[0]
+        seen.append(q)
+        return DD_METRICS if "cart-worker" in q else {}
+
+    mapped = datadog.DatadogReader(env=DD_ENV, call=only_for_cart_worker)
+    assert mapped.metrics(_alert(deployment="catalog-api,cart-worker,orders")) == {n: 0.42 for n in datadog.QUERIES}
+    assert any("catalog-api" in q for q in seen) and "cart-worker" in seen[-1]  # tried in order, stopped at numbers
     for line in reader.logs(_alert()) + spans:
         assert evidence._kind(line) == "L", line  # untrusted text, whatever it says
 

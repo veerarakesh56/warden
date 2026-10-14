@@ -670,6 +670,17 @@ def _api_calls() -> set[tuple[str, str]]:
     return found
 
 
+def _xray_calls() -> set[str]:
+    """X-Ray's reader (src/warden/xray.py) calls a client it is handed (`xray.get_trace_summaries(...)`), not a
+    `self._` one: its calls are collected here, so its grant is held to the code like the rest."""
+    from warden import xray
+
+    found = {f"xray:{''.join(p.title() for p in node.func.attr.split('_'))}" for node in ast.walk(_tree(xray))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and _dotted(node.func.value) == "xray"}
+    assert found, "the AST walk found no X-Ray call - the test itself has rotted"
+    return found
+
+
 def _iam_action(attr: str, method: str) -> str:
     if attr == "_apigw":
         # API Gateway v2 authorises every read as apigateway:GET on the resource path.
@@ -698,7 +709,7 @@ NOT_A_CALL = {"rds-db:connect"}
 
 
 def test_iam_policy_grants_exactly_what_the_code_calls():
-    called = {_iam_action(a, m) for a, m in _api_calls()}
+    called = {_iam_action(a, m) for a, m in _api_calls()} | _xray_calls()
     granted = _granted() - NOT_A_CALL
     assert NOT_A_CALL <= _granted(), "the harness signs WARDEN's database token with the reader role"
     assert len(called) > 20, "the AST walk found too few calls - the test itself has rotted"
@@ -839,7 +850,9 @@ def test_the_readers_grants_are_scoped_to_the_stack_where_aws_allows_it():
         # A group's scaling activities (G10-C2): no resource type, no condition key (service reference, 2026-10-10).
         "autoscaling:DescribeScalingActivities",
         # A workload's subnets, their route tables and network ACLs (G10-C4): EC2 describes take no resource.
-        "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls"}
+        "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls",
+        # Failed traces (G10-54): X-Ray's GetTraceSummaries has no resource type.
+        "xray:GetTraceSummaries"}
 
 
 # The resource part of each ARN format the reader names, from AWS's Service Reference (read 2026-10-01).

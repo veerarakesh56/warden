@@ -144,7 +144,9 @@ class DatadogReader:
         at = _alert_time(alert)
         start, end = (at - METRIC_WINDOW).replace(second=0, microsecond=0), at + METRIC_WINDOW
         out: dict[str, float] = {}
-        for svc in [s for s in services(alert) if _TAG.match(s)][:1]:
+        for svc in [s for s in services(alert) if _TAG.match(s)]:  # the first named workload Datadog has numbers for
+            if out:
+                break
             for name, query in QUERIES.items():
                 got, _ = self._ask("metrics", "GET", "/api/v1/query", query={
                     "from": int(start.timestamp()), "to": int(end.timestamp()), "query": query.format(s=svc)})

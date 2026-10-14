@@ -66,14 +66,16 @@ def _alert_time(alert: Alert) -> datetime:
 
 
 def services(alert: Alert) -> list[str]:
-    """The names to read: the alert's service and the workloads its labels name - nothing from evidence text."""
-    names = [alert.service] + [str(alert.labels.get(k) or "") for k in ("deployment", "ecs_service", "lambda")]
+    """The names to read: the alert's service and the workloads its labels name - nothing from evidence text. A label
+    may list several (`deployment: catalog-api,cart-worker`, a team's service map): each is read, up to four names."""
+    names = [alert.service] + [part for k in ("deployment", "ecs_service", "lambda")
+                               for part in str(alert.labels.get(k) or "").split(",")]
     out: list[str] = []
     for n in names:
         n = n.rsplit("/", 1)[-1].strip()
         if n and _NAME.match(n) and n not in out:
             out.append(n)
-    return out[:3]
+    return out[:4]
 
 
 class GrafanaReader:

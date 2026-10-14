@@ -132,6 +132,8 @@ data "aws_iam_policy_document" "fs_reader" {
       "rds:DescribeDBInstances",
       "rds:DescribeEvents",
       "sts:GetCallerIdentity",
+      # Failed traces of the named services (G10-54, src/warden/xray.py, on with WARDEN_XRAY=1): no resource type.
+      "xray:GetTraceSummaries",
     ]
     resources = ["*"]
   }
