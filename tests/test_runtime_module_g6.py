@@ -350,6 +350,10 @@ def test_instances_fall_back_through_a_list_of_types_on_demand_only():
     assert 'on_demand_allocation_strategy            = "prioritized"' in asg
     assert "on_demand_percentage_above_base_capacity = 100" in asg
     assert "for_each = var.worker_instance_types" in asg and "launch_template_id = aws_launch_template.instances.id" in asg
+    # A template change reaches the instances: the template's own version (not "$Latest", which never changes the group)
+    # and a rolling refresh that replaces scale-in-protected instances (2026-10-14).
+    assert "version            = aws_launch_template.instances.latest_version" in asg and '"$Latest"' not in asg
+    assert 'strategy = "Rolling"' in asg and 'scale_in_protected_instances = "Refresh"' in asg
 
 
 def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_only():

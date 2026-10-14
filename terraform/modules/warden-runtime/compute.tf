@@ -83,6 +83,8 @@ resource "aws_launch_template" "instances" {
   }
   user_data = base64encode(<<-EOT
     #!/bin/bash
+    # Instances launched after the account's ECS ENI trunking (awsvpcTrunking) was turned on, 2026-10-14, hold 4 awsvpc
+    # tasks on an m7i-flex.large, not 2: this line's change replaced the ones launched before (instance_refresh below).
     cat >> /etc/ecs/ecs.config <<'CFG'
     ECS_CLUSTER=${aws_ecs_cluster.runtime.name}
     ECS_AWSVPC_BLOCK_IMDS=true
@@ -119,7 +121,7 @@ resource "aws_autoscaling_group" "instances" {
     launch_template {
       launch_template_specification {
         launch_template_id = aws_launch_template.instances.id
-        version            = "$Latest"
+        version            = aws_launch_template.instances.latest_version # a new template version reaches the group
       }
       dynamic "override" {
         for_each = var.worker_instance_types
@@ -133,6 +135,17 @@ resource "aws_autoscaling_group" "instances" {
     key                 = "AmazonECSManaged"
     value               = "true"
     propagate_at_launch = true
+  }
+  # A new template version replaces the instances, half at a time; the capacity provider's managed draining moves each
+  # instance's tasks first. Scale-in protection would otherwise keep every old instance (2026-10-14).
+  instance_refresh {
+    strategy = "Rolling"
+    preferences {
+      min_healthy_percentage       = 50
+      instance_warmup              = 120
+      scale_in_protected_instances = "Refresh"
+      standby_instances            = "Terminate"
+    }
   }
   lifecycle {
     ignore_changes = [desired_capacity] # the capacity provider scales it
