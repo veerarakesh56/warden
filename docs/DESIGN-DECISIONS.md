@@ -314,6 +314,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   through `slack_login.py`: two HTTPS calls with the standard library. An OAuth client library (Authlib) would be a
   dependency for those two calls; the ID token comes straight from Slack's token endpoint over TLS, which OpenID
   Connect Core 3.1.3.7 accepts in place of checking its signature.
+- Talking to WARDEN about an incident: adopted - Slack's own Python SDK (slack-sdk, MIT) for the Socket Mode
+  connection, so WARDEN needs no public address for it; built - `discuss.py`, which hears only mentions in one channel
+  and hands each to a workflow. Slack's Bolt framework adds routing and middleware for many handlers; WARDEN has one.
 - What is expected to be down: built - `expected.py`, a person's declarations (an environment's nights, weekends
   and holidays; a service or a resource not in use) read at intake, and Temporal's own start delay to look at the
   alarm again when the cover ends. AWS Instance Scheduler and a tag convention say when something is stopped, not

@@ -31,6 +31,7 @@ from temporalio.workflow import ParentClosePolicy
 with workflow.unsafe.imports_passed_through():
     from .activities import (
         APPLY_REFUSED,
+        DiscussActivities,
         FixOutcome,
         FixRequest,
         IncidentActivities,
@@ -40,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .catalog import MITIGATES
+    from .discuss import LIMIT, NO_ANSWER, NOT_READ, NOW, Thread, Turn
     from .models import Alert, ContextBundle, RunReport, ingestion_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
@@ -60,9 +62,11 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # the rest - the audit's own steps and the workflows - run on the main queue (the core zone). A workflow on the main
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
-ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold"),
-         "llm": ("diagnose",),
-         "notify": ("notify", "announce", "finish", "no_plan"), "act": ("apply", "rollback")}
+ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
+                  "discuss_evidence"),
+         "llm": ("diagnose", "discuss_answer"),
+         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply"),
+         "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -354,6 +358,43 @@ class RemediationWorkflow:
         if str(undone).startswith(("nothing to roll back", "not rolled back")):
             return await end("not_recovered", [why, str(undone)])
         return await end("rolled_back", [why])
+
+
+@workflow.defn
+class DiscussWorkflow:
+    """One mention of WARDEN in the discussion channel, answered in its thread (discuss.py): the thread read, the
+    incident's evidence read again, the model's answer, the reply - each step in its zone. It changes nothing, and
+    starts nothing that does."""
+
+    @workflow.run
+    async def run(self, turn: Turn) -> str:
+        acts = DiscussActivities
+        turn = Turn.model_validate(turn)
+        thread = Thread.model_validate(await workflow.execute_activity_method(
+            acts.discuss_thread, **_zoned(acts.discuss_thread), args=[turn], **NOTIFY))
+        if not thread.incident:
+            text = ("Which incident? Mention its id - the one in the footer of any of its messages - with your "
+                    "question, and WARDEN answers here.")
+        elif thread.over:
+            text = LIMIT
+        else:
+            fresh = NOW.search(turn.text) is not None
+            text, evidence = NOT_READ, None
+            try:  # a step that fails still ends in a reply: the person is never left waiting in the thread
+                evidence = await workflow.execute_activity_method(
+                    acts.discuss_evidence, **_zoned(acts.discuss_evidence), args=[thread.incident, fresh], **PREPARE)
+                if evidence is None:
+                    text = f"WARDEN has no record of an incident `{thread.incident}`."
+                else:
+                    text = NO_ANSWER
+                    text = await workflow.execute_activity_method(
+                        acts.discuss_answer, **_zoned(acts.discuss_answer), args=[turn, thread, evidence, fresh],
+                        start_to_close_timeout=timedelta(minutes=5), retry_policy=RetryPolicy(maximum_attempts=1))
+            except ActivityError:
+                pass
+        await workflow.execute_activity_method(acts.discuss_reply, **_zoned(acts.discuss_reply),
+                                               args=[turn, text, thread.incident], **NOTIFY)
+        return text
 
 
 @workflow.defn

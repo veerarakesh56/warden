@@ -36,6 +36,9 @@ anthropic = ["anthropic>=1.0"]
 gemini = ["google-genai>=1.0"]          # free tier: aistudio.google.com
 openai = ["openai>=1.0"]                # also Groq / OpenRouter / Ollama via WARDEN_BASE_URL
 mcp = ["mcp>=2.0"]                      # expose the policy gate to any MCP client
+# The discussion channel (discuss.py): Slack's own SDK and its Socket Mode over websockets. 3.44.1, released
+# 2026-09-03, rather than the newest (two weeks old when this was written).
+slack = ["slack-sdk>=3.44.1,<3.45", "websockets>=16", "aiohttp>=3.9"]  # aiohttp: Slack's async web client
 k8s = ["kubernetes>=30"]                # read a live cluster: WARDEN_BACKEND=k8s
 aws = ["boto3>=1.34"]                   # read a live AWS account (CloudWatch + ECS): WARDEN_BACKEND=aws
 approval = ["webauthn>=3.0.1"]          # passkey approvals over the exact plan (decision D14; BSD-3-Clause,

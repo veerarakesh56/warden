@@ -853,6 +853,12 @@ class IncidentActivities:
             steps += graph.apply_node(state, node(state))
         prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
         self._record(alert.alert_id, steps)
+        # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
+        # free text redacted, as everything on the record is.
+        from .redaction import redact
+
+        self.audit.append(alert.alert_id, "incident.alert", {"run_id": _run_id(), "alert": alert.model_copy(
+            update={"summary": redact(alert.summary).text, "name": redact(alert.name).text}).model_dump(mode="json")})
         return EvidencePack(alert=state["alert"], context=state["context"], prompt=prompt,
                             backend=str(getattr(self.backend, "name", None) or "fixture"),
                             redacted_logs=state.get("redacted_logs", []),
@@ -1124,3 +1130,123 @@ class IncidentActivities:
         _note(f"{pack.alert.alert_id} alarm={pack.alert.labels.get('alarm', '-')} action={diagnosed.proposal.action.value} "
               f"verdict={verdict.status.value} policies={','.join(verdict.policy_ids) or '-'}")
         return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps)
+
+
+class DiscussActivities:
+    """The steps of a discussion of an incident in Slack (discuss.py), each in the zone that holds what it needs: the
+    thread is read and the reply posted in notify (the bot's token), the evidence is read in read (the reader roles),
+    the answer is the model's in llm (the model's key). Every step leaves a row on the incident's discussion record."""
+
+    def __init__(self, *, audit: AuditLog, incident: IncidentActivities, policy: Any = None) -> None:
+        self.audit, self.incident, self.policy = audit, incident, policy
+
+    @activity.defn
+    def discuss_thread(self, turn: Any) -> Any:
+        """The thread the mention is in, as people wrote it - its first message and the latest ones, the mention itself
+        always among them - and the incident it is about. Past today's limit for that incident, `over` says so before
+        anything is read for it."""
+        from . import chatops
+        from .discuss import DAILY_CALLS, MAX_MESSAGES, Thread, Turn, incident_in
+
+        turn = Turn.model_validate(turn)
+        token = os.environ.get("WARDEN_SLACK_BOT_TOKEN", "").strip()
+        got = me = None
+        if token:
+            got, _ = chatops._slack_call("conversations.replies", {"channel": turn.channel, "ts": turn.thread_ts,
+                                                                   "limit": 200}, token, form=True)
+            me, _ = chatops._slack_call("auth.test", {}, token, form=True)
+        messages = [m for m in (got or {}).get("messages") or [] if isinstance(m, dict)]
+        # A thread comes back oldest first, and some installs get only its first 15: the mention is always kept.
+        if turn.ts not in {str(m.get("ts")) for m in messages}:
+            messages.append({"user": turn.user, "text": turn.text, "ts": turn.ts})
+        kept = messages[:1] + messages[1:][-(MAX_MESSAGES - 1):]
+        bot = (me or {}).get("user_id")  # WARDEN's own replies by its id - another app's words never pass as WARDEN's
+
+        def who(m: dict[str, Any]) -> str:
+            return "WARDEN" if bot and m.get("user") == bot else "an app" if m.get("bot_id") else "a person"
+
+        lines = [f"{who(m)}: {' '.join(str(m.get('text', '')).split())[:800]}" for m in kept]
+        incident = incident_in(turn.text, *(str(m.get("text", "")) for m in kept))
+        key = f"discuss-{incident or 'unknown'}"
+        self.audit.append(key, "discuss.turn", {
+            "run_id": _run_id(), "channel": turn.channel, "thread_ts": turn.thread_ts, "ts": turn.ts,
+            "user": turn.user, "incident": incident, "chars": len(turn.text)})
+        turns = len(self.audit.entries(key, kinds=("discuss.turn",), since=datetime.now(UTC) - timedelta(hours=24)))
+        return Thread(incident=incident, lines=lines, over=bool(incident) and turns > DAILY_CALLS)
+
+    @activity.defn
+    def discuss_evidence(self, incident: str, fresh: bool) -> Any:
+        """The incident's evidence read again, as the diagnosis read it - or around now, when the question is about now
+        - with WARDEN's record of what it decided. None: no alarm on the record by that id."""
+        rows = self.audit.entries(incident, kinds=("incident.alert",))
+        if not rows:
+            return None
+        alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(update={"alert_id": f"discuss-{incident}"})
+        if fresh:
+            alert = alert.model_copy(update={"started_at": datetime.now(UTC).isoformat()})
+        pack = self.incident.prepare(alert)
+        said = [f"{e['kind'].split('.')[-1]}: " + ", ".join(f"{k}={str(v)[:300]}" for k, v in e["body"].items()
+                                                            if k in ("hypothesis", "action", "target", "confidence",
+                                                                     "status", "policies"))
+                for e in self.audit.entries(incident, kinds=("incident.diagnose", "incident.verify"))]
+        return {"evidence": pack.prompt, "diagnosis": "\n".join(said)[-3000:]}
+
+    @activity.defn
+    def discuss_answer(self, turn: Any, thread: Any, evidence: dict[str, str], fresh: bool) -> str:
+        """The model's answer to the mention, as the reply to post. Capped per incident per day and by the daily cap
+        every incident shares; the people's words are data to it (discuss.SYSTEM)."""
+        from . import discuss
+        from .llm import LLMClient
+
+        turn, thread = discuss.Turn.model_validate(turn), discuss.Thread.model_validate(thread)
+        key = f"discuss-{thread.incident}"
+        approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
+        since = datetime.now(UTC) - timedelta(hours=24)
+        calls = sum(int(e["body"].get("calls", 0)) for e in self.audit.entries(key, kinds=("incident.llm_spend",),
+                                                                                since=since))
+        today = self.incident._spent_since(since)
+        if calls >= discuss.DAILY_CALLS or today.usd >= DAILY_MAX_USD:
+            return discuss.LIMIT
+        llm = (self.incident.llm_factory or LLMClient)()
+        attempt = secrets.token_hex(8)
+        self.audit.append(key, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
+                                                        "calls": 1})
+        before = llm.cost.model_copy()
+        answer = None
+        try:
+            answer = llm.structured(system=discuss.SYSTEM, schema=discuss.Answer,
+                                    user=discuss.prompt(turn.text, thread, evidence.get("evidence", ""),
+                                                        evidence.get("diagnosis", ""), approver=approver),
+                                    mock_factory=lambda: discuss.Answer(answer="(a test answer)", cites=[]))
+        except Exception as exc:  # noqa: BLE001 - whatever stopped the model, the person is told, never left waiting
+            _note(f"discuss {thread.incident}: no answer from the model ({type(exc).__name__})")
+        finally:
+            now, unanswered = llm.cost, int(getattr(llm, "unanswered", 0) or 0)
+            self.audit.append(key, "incident.llm_spend", {
+                "run_id": _run_id(), "attempt": attempt, "usd": now.usd - before.usd,
+                "calls": now.calls - before.calls - unanswered, "unanswered": unanswered,
+                "input_tokens": now.input_tokens - before.input_tokens,
+                "output_tokens": now.output_tokens - before.output_tokens})
+        if answer is None:
+            return discuss.NO_ANSWER
+        self.audit.append(key, "discuss.answer", {"run_id": _run_id(), "ts": turn.ts, "cites": answer.cites[:20],
+                                                  "asks_for_change": answer.asks_for_change, "approver": approver})
+        return discuss.said(answer, approver=approver, fresh=fresh)
+
+    @activity.defn
+    def discuss_reply(self, turn: Any, text: str, incident: str) -> bool:
+        """The reply, posted in the thread through the outbound gate and the redactor, like every message WARDEN sends."""
+        from .chatops import SlackThreadSink, notify
+        from .discuss import Turn
+        from .reporting import Report
+
+        turn = Turn.model_validate(turn)
+        token = os.environ.get("WARDEN_SLACK_BOT_TOKEN", "").strip()
+        if not token:
+            return False
+        sink = SlackThreadSink(token, turn.channel, turn.thread_ts, live=os.environ.get("WARDEN_CHATOPS_LIVE") == "1")
+        [sent] = notify(Report(markdown=text, data={"alert": {"id": incident or "discussion"}}, promotion=()),
+                        sinks=[sink])
+        self.audit.append(f"discuss-{incident or 'unknown'}", "discuss.reply", {
+            "run_id": _run_id(), "ts": turn.ts, "delivered": sent.delivered, "detail": sent.detail[:200]})
+        return sent.delivered

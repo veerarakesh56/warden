@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:1bc010c7-8897-58ff-afe9-7c01422305a4",
+  "serialNumber": "urn:uuid:f9f66590-2e7c-57b2-bef1-e135b24c8b64",
   "version": 1,
   "metadata": {
     "component": {
@@ -2094,6 +2094,19 @@
         {
           "alg": "SHA-256",
           "content": "ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/slack-sdk@3.44.1",
+      "name": "slack-sdk",
+      "version": "3.44.1",
+      "purl": "pkg:pypi/slack-sdk@3.44.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ca19505423789fa2a3189ff486f989f02e49289f008d0a5813df7255b3fb93ea"
         }
       ]
     },

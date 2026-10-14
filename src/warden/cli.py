@@ -382,6 +382,14 @@ async def _workflow_command(args: argparse.Namespace) -> int:
                 shadow = runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC) if args.zone == "llm" else None
                 if shadow is not None:  # register C13: the daily shadow incident runs where the model is
                     await runtime.synthetic_loop(shadow, log=lambda line: _out(line, err=True))
+                from . import discuss
+
+                if args.zone == "notify" and discuss.configured():  # the discussion channel's listener (discuss.py)
+                    _out("listening in the discussion channel", err=True)
+                    try:
+                        await discuss.listen(client, task_queue=runtime.TASK_QUEUE)
+                    except Exception as exc:  # noqa: BLE001 - the alerts this worker sends never wait on the discussion
+                        _out(f"the discussion channel's listener stopped ({type(exc).__name__}); alerts go on", err=True)
                 await asyncio.Event().wait()
                 return 0
             problem = await runtime.check_clock(client)

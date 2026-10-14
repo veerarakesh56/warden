@@ -18,6 +18,7 @@ is in use. `tests/test_operations_rotation.py` fails if a secret WARDEN can load
 | `WARDEN_AUDIT_DSN` | the runtime's connection to the shared audit (Aurora PostgreSQL) | rotate the audit writer's password with Secrets Manager's managed rotation for the database, then restart the workers so they reconnect | none needed: the audit rows do not change |
 | `WARDEN_AUDIT_KEY_PASSPHRASE` | the local audit signing key's encryption | re-encrypt the key file under a new passphrase, store the new passphrase | none needed: the key itself does not change |
 | `WARDEN_SLACK_BOT_TOKEN` | posting into the incident channel | regenerate the bot token in the Slack app's settings, store it, restart | the old token stops at once: rotate in a quiet hour |
+| `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
 | `WARDEN_DB_DSN`, `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN`, `WARDEN_STACK_DB_READER_DSN` | the database readers and the narrow terminate role | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
@@ -32,6 +33,30 @@ Keys that are not environment secrets:
 | An approver's passkey | `warden enrol --approver <name> --key <their Ed25519 key>` opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`runtime.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
 | The laptop's IAM Roles Anywhere certificate | issue a new certificate from the local CA before the old one expires (docs/OWNER-CONSOLE-STEPS.md). |
+
+## Talking to WARDEN about an incident in Slack (register G10-45)
+
+A second Slack channel where anyone asks WARDEN about an incident: mention `@WARDEN` with the incident's id (the one in
+the footer of its messages) and a question; WARDEN answers in that thread from the incident's own evidence - read again
+as the diagnosis read it, or around now when the question asks about now ("still", "again", "now") - and from what its
+record says it decided. Follow-ups mention `@WARDEN` in the same thread. Anyone may ask; WARDEN changes nothing from
+this channel, and says who may ask for a new plan (an enrolled approver; the plan still needs their passkey in the alerts
+channel). Its answers are capped at 20 per incident a day and count toward the daily model cap every incident shares.
+
+Setup, once, in the Slack app WARDEN signs people in with (api.slack.com/apps):
+
+1. **Socket Mode**: on. WARDEN connects out to Slack; it needs no new public address.
+2. **Basic Information, App-Level Tokens**: generate a token with the scope `connections:write`.
+3. **OAuth & Permissions, Bot Token Scopes**: `app_mentions:read`, `chat:write`, `channels:history`; for a private
+   channel also `groups:history`. Nothing else is needed.
+4. **Event Subscriptions**: on; the bot event `app_mention` only - WARDEN reads a thread when it is mentioned in it,
+   so it needs no other channel message pushed to it. Save, then reinstall the app and copy its Bot User OAuth Token.
+5. In the channel: `/invite @<the app's name>`; copy the channel's ID (its name, then About).
+6. Store the app-level token in the secret `warden/<env>/slack-app-token` and the bot token in
+   `warden/<env>/slack-bot-token`; put the channel ID in the plain setting `/warden/<env>/env/WARDEN_DISCUSS_CHANNEL`.
+   Restart the notify workers. Do not set `WARDEN_SLACK_CHANNEL`: that moves the alerts from the webhook to the bot.
+
+The notify worker holds the connection; if it cannot connect it says so in its log and goes on sending alerts.
 
 ## Expected down: nights, weekends, holidays, not in use (register G10-39)
 

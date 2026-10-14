@@ -23,7 +23,7 @@ COPY src ./src
 # works as documented - it failed on a missing import until 2026-09-25.
 # Only what uv.lock lists, every hash verified (audit A-I-9), compiled to bytecode (the container runs with a
 # read-only root filesystem, so nothing could compile later). The package is installed into /opt/warden.
-RUN uv sync --locked --no-editable --extra k8s --extra anthropic
+RUN uv sync --locked --no-editable --extra k8s --extra anthropic --extra slack
 # Only the shipped kinds of file, compared without letter case (registers R8-O4, R9-O1): the build backend's exclude
 # list matches with case, so a local `SECRET.ENV` or `Prod.TFVARS` under src/ would ship. The build fails instead.
 COPY scripts/check_package.py ./

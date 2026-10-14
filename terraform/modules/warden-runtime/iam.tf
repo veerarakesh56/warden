@@ -62,7 +62,7 @@ locals {
     core   = { secrets = [], assumes = [], model = false }
     read   = { secrets = ["db-dsn", "stack-db-writer-dsn", "stack-db-reader-dsn"], assumes = ["platform-reader"], model = false }
     llm    = { secrets = ["gemini-api-key", "google-api-key", "openai-api-key", "anthropic-api-key"], assumes = [], model = true }
-    notify = { secrets = ["slack-bot-token", "slack-webhook", "teams-webhook", "webhook-url", "pagerduty-routing-key", "github-token"], assumes = ["platform-reader"], model = false }
+    notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "teams-webhook", "webhook-url", "pagerduty-routing-key", "github-token"], assumes = ["platform-reader"], model = false }
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts.
     act = { secrets = ["db-admin-dsn"], assumes = ["platform-reader", "actor"], model = false }
   }

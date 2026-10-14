@@ -112,14 +112,17 @@ _SLACK_API = "https://slack.com/api/"
 _MAX_RETRY_AFTER_S = 10.0
 
 
-def _slack_call(method: str, payload: dict, token: str) -> tuple[dict | None, str]:
+def _slack_call(method: str, payload: dict, token: str, *, form: bool = False) -> tuple[dict | None, str]:
     """One Slack Web API call with the bot token: (response, detail), never an exception. Slack answers HTTP 200 with
     `ok: false` for most failures, so `ok` is what counts. A rate limit (HTTP 429; chat.postMessage allows about one
-    message a second per channel) is waited out once, as its Retry-After says, up to a ceiling."""
-    body = json.dumps(payload).encode("utf-8")
+    message a second per channel) is waited out once, as its Retry-After says, up to a ceiling. `form`: the arguments
+    form-encoded - Slack documents its read methods (conversations.replies, auth.test) as GET, with their arguments in
+    the query or a form; JSON bodies are documented for the methods that write."""
+    body = (urllib.parse.urlencode(payload) if form else json.dumps(payload)).encode("utf-8")
+    kind = "application/x-www-form-urlencoded" if form else "application/json; charset=utf-8"
     for attempt in (1, 2):
         req = urllib.request.Request(_SLACK_API + method, data=body, method="POST", headers={
-            "Content-Type": "application/json; charset=utf-8", "Authorization": f"Bearer {token}"})
+            "Content-Type": kind, "Authorization": f"Bearer {token}"})
         try:
             with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https host
                 answer = json.loads(resp.read() or b"{}")
@@ -174,6 +177,26 @@ class SlackBotSink:
             return Notification(sink=self.name, delivered=False,
                                 detail=f"{len(failed)} of {len(parts)} part(s) failed: {failed[0]}")
         return Notification(sink=self.name, delivered=True, detail=f"thread {root} ({len(parts)} part(s))")
+
+
+class SlackThreadSink:
+    """One reply in one Slack thread, with the bot's token (discuss.py): the thread a person mentioned WARDEN in."""
+
+    name = "slack-thread"
+
+    def __init__(self, token: str, channel: str, thread_ts: str, *, live: bool) -> None:
+        self._token, self.channel, self.thread_ts, self.live = token, channel, thread_ts, live
+
+    def send(self, text: str, data: dict) -> Notification:
+        if not self.live:
+            return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+        parts = slack_messages(split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True)), data)
+        failed = [d for d in (_slack_call("chat.postMessage", {"channel": self.channel, "thread_ts": self.thread_ts,
+                                                               "unfurl_links": False, "unfurl_media": False, **m},
+                                          self._token)[1] for m in parts) if d != "ok"]
+        if failed:
+            return Notification(sink=self.name, delivered=False, detail=f"{len(failed)} part(s) failed: {failed[0]}")
+        return Notification(sink=self.name, delivered=True, detail=f"thread {self.thread_ts}")
 
 
 # Decision D13: PagerDuty through its Events API v2 (read 2026-10-04: https://events.pagerduty.com/v2/enqueue; a
@@ -463,5 +486,5 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None)
     # ...and only Slack has a button for WARDEN's link; every other reader gets it as a line under the text.
     plain = name_people(text, people, slack=False) + (
         "\n\n" + "\n".join(f"{label}: {link}" for label, link in links) if links else "")
-    return [sink.send(text if isinstance(sink, (SlackWebhookSink, SlackBotSink)) else plain, safe_data)
+    return [sink.send(text if isinstance(sink, (SlackWebhookSink, SlackBotSink, SlackThreadSink)) else plain, safe_data)
             for sink in sinks]
