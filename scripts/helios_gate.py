@@ -4,7 +4,8 @@ For each scenario - an outage of every zone the stack uses, plus the resource lo
 terraform/fullstack/helios/scenarios/ - Helios (github.com/veerarakesh56/helios) simulates the saved
 plan and the current state. The change is refused when the plan fails anything under a scenario that
 today's stack survives, or that terraform/fullstack/helios/accepted.json does not accept (the accepted
-set matters only for a first create, when there is no state to compare with). A scenario Helios
+set matters only for a first create, when there is no state to compare with - and, after a first
+create that stopped part-way, for the resources today's state does not hold yet). A scenario Helios
 cannot run refuses the change; one it cannot decide on a plan (exit 3: a value unknown until apply)
 is listed and checked again on the applied state with `--after`, which then fails the job on any
 regression - the change is applied by then, and the job says so.
@@ -78,15 +79,19 @@ def simulate(helios: list[str], document: pathlib.Path, scenario: pathlib.Path):
     return ("error", (r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:300])
 
 
-def judge(name: str, now, before, accepted: dict[str, list[str]]) -> tuple[str, str]:
+def judge(name: str, now, before, accepted: dict[str, list[str]], existing: set[str] | None = None) -> tuple[str, str]:
     """("ok" | "refuse" | "later", why) for one scenario: `now` on the plan or applied state, `before` on the
-    current state (None when there is none)."""
+    current state (None when there is none); `existing`, the addresses the current state holds."""
     if isinstance(now, tuple):
         return "refuse", f"Helios cannot run it: {now[1]}"
     if now == "inconclusive":
         return "later", "inconclusive on the plan (a value unknown until apply): checked on the applied state"
-    # Today's failures when the stack exists; the accepted ones only when there is nothing to compare with.
-    allowed = before if isinstance(before, set) else set(accepted.get(AZ if name.startswith("lose-") else name, []))
+    # Today's failures when the stack exists; the accepted ones only when there is nothing to compare with - or for a
+    # resource today's state does not hold yet: a first create that stopped part-way (2026-10-14, the EKS node group
+    # refused by IAM) is compared with today for what exists and with the accepted failures for the rest.
+    ok = set(accepted.get(AZ if name.startswith("lose-") else name, []))
+    allowed = before | (ok - existing) if isinstance(before, set) and existing is not None else \
+        before if isinstance(before, set) else ok
     new = sorted(now - allowed)
     if new:
         return "refuse", "fails what the stack survives today: " + ", ".join(new)
@@ -123,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {document} is not a `terraform show -json` document")
         return 1
     baseline = _load(args.baseline)
+    existing = {r.get("address") for r in _resources(_root(baseline))} if baseline is not None else None
     accepted = json.loads((helios_dir / "accepted.json").read_text(encoding="utf-8"))
     helios = [args.helios]
     refused = False
@@ -130,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
              "| Scenario | Verdict | Why |", "|---|---|---|"]
     for name, path in scenarios(doc, args.out_dir, helios_dir).items():
         before = simulate(helios, args.baseline, path) if baseline is not None else None
-        verdict, why = judge(name, simulate(helios, document, path), before, accepted)
+        verdict, why = judge(name, simulate(helios, document, path), before, accepted, existing)
         if args.after and verdict == "later":
             verdict, why = "refuse", "inconclusive on the applied state"
         refused |= verdict == "refuse"

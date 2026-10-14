@@ -40,6 +40,17 @@ def test_the_accepted_failures_excuse_nothing_once_the_stack_exists():
     assert verdict == "refuse" and "aws_nat_gateway.this" in why
 
 
+def test_a_create_that_stopped_part_way_is_judged_by_today_for_what_exists_and_accepted_for_the_rest():
+    """2026-10-14: IAM refused the EKS node group mid-create; the re-run was refused because the zone loss fails the
+    node group the half-built stack does not have. What exists is still held to today; what does not, to the accepted
+    failures - so the earlier fix (accepted failures hid an existing resource's new one) still holds."""
+    today = {"aws_vpc.this", "aws_nat_gateway.this", "aws_lb.app"}
+    assert gate.judge("lose-z1", {"aws_nat_gateway.this"}, set(), ACCEPTED, today)[0] == "refuse"  # exists, survived
+    assert gate.judge("lose-z1", {"aws_nat_gateway.this"}, set(), ACCEPTED, {"aws_vpc.this"})[0] == "ok"  # not yet made
+    verdict, why = gate.judge("lose-z1", {"aws_eks_node_group.this"}, set(), ACCEPTED, {"aws_vpc.this"})
+    assert verdict == "refuse" and "aws_eks_node_group.this" in why  # not accepted: refused, made or not
+
+
 def test_what_helios_cannot_run_refuses_and_what_it_cannot_decide_waits_for_the_applied_state():
     assert gate.judge("redis-loss", ("error", "scenario names x"), set(), ACCEPTED)[0] == "refuse"
     assert gate.judge("lose-z1", "inconclusive", set(), ACCEPTED)[0] == "later"
