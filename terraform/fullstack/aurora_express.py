@@ -177,9 +177,19 @@ def create(rds, sm, stack: pathlib.Path, cluster: str | None = None, log=print) 
                           if i["DBInstanceIdentifier"] == writer_of(c)), None)
         other = next((z for z in c.get("AvailabilityZones") or [] if z != writer_az), None)
         log(f"adding reader {reader}" + (f" in {other}" if other else ""))
-        rds.create_db_instance(DBInstanceIdentifier=reader, DBClusterIdentifier=cluster,
-                               Engine="aurora-postgresql", DBInstanceClass="db.serverless",
-                               PromotionTier=1, Tags=TAGS, **({"AvailabilityZone": other} if other else {}))
+        try:
+            rds.create_db_instance(DBInstanceIdentifier=reader, DBClusterIdentifier=cluster,
+                                   Engine="aurora-postgresql", DBInstanceClass="db.serverless",
+                                   PromotionTier=1, Tags=TAGS, **({"AvailabilityZone": other} if other else {}))
+        except Exception as exc:  # one refusal is expected and named; any other still stops the build
+            # The AWS Free plan's limit on database instances (WARDEN's own audit database holds one): "You reached the
+            # maximum number of instances available with free plan accounts" (2026-10-14). The cluster's reader
+            # endpoint then serves the writer; the faults that need a second instance (write-to-reader, failover)
+            # cannot run on this account.
+            if (getattr(exc, "response", None) or {}).get("Error", {}).get("Code") != "InstanceQuotaExceeded":
+                raise
+            log(f"no reader {reader}: the account's plan allows no more database instances - the reader endpoint "
+                "serves the writer, and the reader and failover faults (fs-14, fs-15) cannot run here")
     rds.get_waiter("db_instance_available").wait(
         Filters=[{"Name": "db-cluster-id", "Values": [cluster]}], WaiterConfig=WAIT)
 

@@ -676,6 +676,38 @@ def test_aurora_create_makes_an_express_cluster_with_a_reader_and_records_it(tmp
     assert (raw["db_name"]["value"], raw["db_master_username"]["value"]) == ("shop", "postgres")
 
 
+def test_aurora_create_goes_on_without_a_reader_only_when_the_plan_allows_no_more_instances(tmp_path):
+    """The AWS Free plan refused the reader (InstanceQuotaExceeded, 2026-10-14): the writer and its records are kept
+    and the build goes on, said plainly; any other refusal still stops it."""
+    class Refused(Exception):
+        def __init__(self, code):
+            super().__init__(code)
+            self.response = {"Error": {"Code": code}}
+
+    class PlanLimited(FakeRds):
+        code = "InstanceQuotaExceeded"
+
+        def create_db_instance(self, **kw):
+            self._log("create_db_instance", **kw)
+            raise Refused(self.code)
+
+    said = []
+    ax, rds, sm, stack = _aurora(), PlanLimited(), FakeSm(), _wrapped_stack(tmp_path)
+    found = ax.create(rds, sm, stack, log=said.append)
+    assert found["aurora_writer_instance"] == "warden-dev-aurora-instance-1"
+    assert list(found["aurora_instance_endpoints"]) == ["warden-dev-aurora-instance-1"]
+    assert sm.puts and json.loads(stack.read_text(encoding="utf-8"))["aurora_cluster"]["value"] == "warden-dev-aurora"
+    assert any("fs-14, fs-15" in s for s in said)
+    other = PlanLimited()
+    other.code = "InvalidSubnet"
+    try:
+        ax.create(other, FakeSm(), _wrapped_stack(tmp_path), log=lambda *_: None)
+    except Refused:
+        pass
+    else:
+        raise AssertionError("another refusal was swallowed")
+
+
 def test_aurora_create_twice_changes_nothing_and_refreshes_the_records(tmp_path):
     ax, rds, stack = _aurora(), FakeRds(), _wrapped_stack(tmp_path)
     ax.create(rds, FakeSm(), stack, log=lambda *_: None)

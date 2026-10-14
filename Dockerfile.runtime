@@ -33,7 +33,9 @@ RUN /opt/warden/bin/python check_package.py "$(/opt/warden/bin/python -c 'import
 # only build that is deployed - refuses an image without the weights.
 COPY scripts/bake_tripwire.py ./
 ARG WARDEN_DETECTOR=baked
-RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR"
+# Readable by the worker's non-root user, in the same layer (a chmod later would copy the 1.1 GB again): a cache file
+# left root-only drew "Permission denied" in the cloud's first load (2026-10-14).
+RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR" && chmod -R a+rX /opt/hf
 
 FROM public.ecr.aws/docker/library/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 

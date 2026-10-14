@@ -37,7 +37,7 @@ def test_the_image_installs_the_detector_with_cpu_only_torch():
 
 def test_the_weights_are_baked_at_build_from_the_pinned_revision_with_the_token_as_a_build_secret():
     assert ('RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR"'
-            in DOCKERFILE) and "ARG WARDEN_DETECTOR=baked" in DOCKERFILE
+            ' && chmod -R a+rX /opt/hf' in DOCKERFILE) and "ARG WARDEN_DETECTOR=baked" in DOCKERFILE
     # The script reaches the build: .dockerignore keeps scripts/ out but these two (a deploy failed on it, 2026-10-14).
     assert "!scripts/bake_tripwire.py" in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "ARG HF" not in DOCKERFILE and "HF_TOKEN" not in DOCKERFILE  # never a build argument or an image variable
