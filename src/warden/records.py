@@ -13,10 +13,10 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any
 
-LOOKBACK = timedelta(days=30)
+PER_PAGE = 50  # incidents on one page of the list; every incident stays on the record, without a time limit
 REFRESH_S = 60
 
 # A fix run's end, in words, and how it reads at a glance: the kind is said in words too, never by colour alone.
@@ -83,12 +83,13 @@ class Record:
     shown: Any = None  # approver id -> the name a reader sees; never the list's id
 
 
-def incident_ids(log: Any, *, now: datetime | None = None) -> list[str]:
-    """Every incident on the record in the last LOOKBACK, newest first. A discussion's own reading of an incident
-    (`discuss-...`) is part of that incident, not one of its own."""
-    since = (now or datetime.now(UTC)) - LOOKBACK
+def incident_ids(log: Any) -> list[str]:
+    """Every incident on the record, newest first - with no time limit (owner, 2026-10-14: "should be even available
+    after a year too ... no time limit"): WARDEN's record is append-only, so nothing in it expires. A discussion's own
+    reading of an incident (`discuss-...`) is part of that incident, not one of its own.
+    ponytail: reads every start row; a SELECT DISTINCT on the audit table when there are tens of thousands."""
     seen: dict[str, datetime] = {}
-    for e in log.entries(kinds=("incident.ingest", "incident.after_hold"), since=since):
+    for e in log.entries(kinds=("incident.ingest", "incident.after_hold")):
         cid = str(e["correlation_id"])
         if not cid.startswith("discuss-"):
             seen[cid] = max(seen.get(cid, e["at"]), e["at"])
@@ -237,14 +238,25 @@ def _summary_facts(r: Record) -> list[tuple[str, str]]:
             ("Discussion", _e(f"{r.asked} question(s) in the discussion channel") if r.asked else "")]
 
 
-def list_page(records: list[Record]) -> str:
-    """The list: one row per incident, its summary in view, its details folded beneath it."""
+def _day(t: datetime) -> str:
+    """The day a row starts under: the display zone's date, as people say it."""
+    from .environments import display_zone
+
+    return t.astimezone(display_zone()).strftime("%A %d %B %Y")
+
+
+def list_page(records: list[Record], *, page: int = 1, pages: int = 1, total: int | None = None) -> str:
+    """One page of the list: one row per incident under its day, newest first, its summary in view and its details
+    folded beneath it - and the way to the newer and older pages."""
     if not records:
-        body = '<p class="quiet pad">No incident in the last 30 days.</p>'
+        body = '<p class="quiet pad">No incident on the record yet.</p>'
     else:
-        items = []
+        items, day = [], ""
         for r in records:
             title = r.alarm or r.id
+            if _day(r.first) != day:
+                day = _day(r.first)
+                items.append(f'<h2 class="day">{_e(day)}</h2>')
             items.append(
                 f'<details class="row"><summary><span class="when"><time>{_e(_when(r.first))}</time></span>'
                 f'<span class="what"><strong>{_e(title)}</strong><span class="sub">{_e(r.environment)}'
@@ -254,9 +266,17 @@ def list_page(records: list[Record]) -> str:
                 f'<h3>Decisions</h3>{_decisions(r)}<h3>Anything that tried to steer WARDEN</h3>{_flags(r)}'
                 f'<p><a class="open" href="/r/{_e(r.id)}">Open the full record</a></p></div></details>')
         body = '<div class="rows">' + "".join(items) + "</div>"
-    return _shell("WARDEN records", "Records", "<h1>Incidents</h1><p class=\"lede\">The last 30 days, newest first. "
-                  "Open a row for its details, or its full record for everything WARDEN read and did.</p>" + body,
-                  refresh=True)
+    count = f"{total} incident{'s' if total != 1 else ''} on the record" if total is not None else ""
+    nav = ""
+    if pages > 1:
+        newer = f'<a href="/r?page={page - 1}" rel="prev">Newer</a>' if page > 1 else "<span>Newer</span>"
+        older = f'<a href="/r?page={page + 1}" rel="next">Older</a>' if page < pages else "<span>Older</span>"
+        nav = (f'<nav class="pager" aria-label="Pages">{newer}<span class="quiet">Page {page} of {pages}</span>'
+               f"{older}</nav>")
+    return _shell("WARDEN records", "Records", "<h1>Incidents</h1><p class=\"lede\">Every incident WARDEN has "
+                  "handled, newest first" + (f" - {_e(count)}" if count else "") + ". Open a row for its details, or "
+                  "its full record for everything WARDEN found, read and did.</p>" + nav + body + nav,
+                  refresh=page == 1)
 
 
 def incident_page(r: Record) -> str:
@@ -444,6 +464,12 @@ a.open{font-weight:600}
 .report{margin:0;padding:1rem;white-space:pre-wrap;overflow-wrap:anywhere;font:.8125rem/1.5 ui-monospace,SFMono-Regular,
 Menlo,Consolas,monospace}
 .scroll{overflow-x:auto}
+h2.day{margin:0;padding:1rem 1.25rem .375rem;font-size:.8125rem;font-weight:600;letter-spacing:.06em;
+text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+.pager{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.75rem 1.25rem;
+border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:.875rem}
+.pager a{font-weight:600}
+.pager span:not(.quiet){color:var(--muted)}
 .intro{margin:0 1.25rem}
 .finding .body{padding:.25rem 1rem 1rem}
 .finding .body p{margin:.5rem 0}

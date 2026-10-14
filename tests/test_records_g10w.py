@@ -233,3 +233,35 @@ def test_the_complete_findings_are_on_the_page_section_by_section_and_stay_text(
     assert "<img" not in page and "look &lt;img src=x onerror=alert(2)&gt;" in page  # an ordinary line stays text
     assert "The evidence WARDEN read, exactly as its model was shown it" in page and "&lt;b&gt;bold?&lt;/b&gt;" in page
     assert page.count("<script") == 1 and 'id="all"' in page  # one script: "open all"
+
+
+def test_every_incident_stays_listed_with_no_time_limit_newest_first_by_day_fifty_a_page(page_setup, tmp_path):  # noqa: F811
+    """Owner, 2026-10-14: "should be even available after a year too ... no time limit ... multiple pages should be
+    in order with time date timestamp ... all of them at one place and can open whichever we want"."""
+    from datetime import UTC, datetime, timedelta
+
+    now = [datetime(2026, 10, 14, 8, 0, tzinfo=UTC)]
+    log = audit.AuditLog(tmp_path / "a.db", key=Ed25519PrivateKey.generate(), clock=lambda: now[0])
+    old = "0123456789abcdef-20251014T080000Z"
+    now[0] = datetime(2025, 10, 14, 8, 0, tzinfo=UTC)  # a year ago
+    log.append(old, "incident.ingest", {"node": "ingest", "alert_id": old, "env": "dev"})
+    for n in range(119):
+        now[0] = datetime(2026, 10, 13, 0, 0, tzinfo=UTC) + timedelta(minutes=10 * n)
+        cid = f"{n:016x}-20261013T{n:06d}Z"
+        log.append(cid, "incident.ingest", {"node": "ingest", "alert_id": cid, "env": "dev"})
+    ids = records.incident_ids(log)
+    assert len(ids) == 120 and ids[-1] == old and ids[0] == f"{118:016x}-20261013T{118:06d}Z"  # newest first
+
+    page = dataclasses.replace(page_setup[0], log=log)  # no Slack app here: the page needs no sign-in
+    first, last, beyond = (page.handle("GET", "/r", query=q) for q in ("", "page=3", "page=99"))
+    assert first.body.count('<details class="row">') == 50 and "Page 1 of 3" in first.body
+    assert "120 incidents on the record" in first.body and 'href="/r?page=2" rel="next">Older' in first.body
+    assert last.body.count('<details class="row">') == 20 and "Page 3 of 3" in last.body
+    assert old in last.body and "Tuesday 14 October 2025" in last.body and 'rel="prev">Newer' in last.body
+    assert beyond.body == last.body.replace(_nonce(last), _nonce(beyond))  # past the end: the last page
+    assert page.handle("GET", f"/r/{old}").status == 200  # a year on, its own page still opens
+    assert '<h2 class="day">' in first.body and "Tuesday 13 October 2026" in first.body
+
+
+def _nonce(r):
+    return r.headers["Content-Security-Policy"].split("'nonce-")[1].split("'")[0]

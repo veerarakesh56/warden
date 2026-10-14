@@ -231,7 +231,7 @@ class ApprovalPage:
         if parts[0] == "s":
             return self._slack(method.upper(), parts[1:], query, cookies)
         if parts[0] == "r":
-            return self._records(method.upper(), parts[1:], cookies)
+            return self._records(method.upper(), parts[1:], cookies, query)
         if self.slack is not None and len(parts) >= 2:
             self._recognise(parts[0], parts[1], cookies)
         if len(parts) >= 2 and parts[0] == "e":
@@ -378,7 +378,7 @@ class ApprovalPage:
         viewers = {v.strip() for v in os.environ.get("WARDEN_RECORD_VIEWERS", "").split(",") if v.strip()}
         return bool(member) and (member in viewers or any(a.slack == member for a in self.policy.approvers.values()))
 
-    def _records(self, method: str, parts: list[str], cookies: Any) -> Response:
+    def _records(self, method: str, parts: list[str], cookies: Any, query: str = "") -> Response:
         """`/r`: every incident of the last 30 days; `/r/<incident>`: one, whole (records.py). For a reader Slack
         named in this browser who may read them; anyone else is asked to sign in, and is not shown that an incident
         exists."""
@@ -397,8 +397,16 @@ class ApprovalPage:
         if self.log is None:
             return _json(503, {"error": "the record cannot be read here"})
         if not parts or not parts[0]:
-            found = [records.record(self.log, i, self.policy) for i in records.incident_ids(self.log, now=self.clock())]
-            return self._served_html(200, records.list_page([r for r in found if r is not None]))
+            import urllib.parse
+
+            ids = records.incident_ids(self.log)
+            pages = max(1, -(-len(ids) // records.PER_PAGE))
+            asked = urllib.parse.parse_qs(query).get("page", ["1"])[0]
+            page = min(max(int(asked) if asked.isdigit() else 1, 1), pages)
+            shown = ids[(page - 1) * records.PER_PAGE:page * records.PER_PAGE]
+            found = [records.record(self.log, i, self.policy) for i in shown]
+            return self._served_html(200, records.list_page([r for r in found if r is not None], page=page,
+                                                            pages=pages, total=len(ids)))
         one = records.record(self.log, parts[0], self.policy) if not parts[0].startswith("discuss-") else None
         if one is None:
             return self._served_html(404, records.missing_page())
