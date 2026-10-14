@@ -136,7 +136,7 @@
         "mq:ListBrokers",
         "pi:GetResourceMetrics",
         "rds:DescribeEvents",
-        "sts:GetCallerIdentity"
+        "sts:GetCallerIdentity", "xray:GetTraceSummaries"
       ],
       "Resource": "*",
       "Condition": {

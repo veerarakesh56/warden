@@ -14,6 +14,7 @@ locals {
     #                        the proving ground's agent sends with it too
     "datadog-app-key", # Datadog's application key, scoped to logs_read_data, apm_read, timeseries_query,
     #                    events_read, monitors_read
+    "grafana-read-token",    # Grafana's read-only access-policy token (grafana.py): the read zone's alone
     "datadog-webhook-token", # the bearer secret Datadog's webhook sends (webhooks.receive_datadog); set by the setup
     #                          script together with the webhook itself
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).

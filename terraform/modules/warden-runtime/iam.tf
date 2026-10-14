@@ -60,7 +60,7 @@ locals {
   every_zone_secrets = ["temporal-key", "temporal-key-previous", "audit-dsn", "audit-key-passphrase"]
   zones = {
     core   = { secrets = [], assumes = [], model = false }
-    read   = { secrets = ["db-dsn", "stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key"], assumes = ["platform-reader"], model = false }
+    read   = { secrets = ["db-dsn", "stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "grafana-read-token"], assumes = ["platform-reader"], model = false }
     llm    = { secrets = ["gemini-api-key", "google-api-key", "openai-api-key", "anthropic-api-key"], assumes = [], model = true }
     notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "teams-webhook", "webhook-url", "pagerduty-routing-key", "github-token"], assumes = ["platform-reader"], model = false }
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts.

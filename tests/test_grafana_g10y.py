@@ -6,6 +6,7 @@ Grafana Cloud Free (forever, no card, a Mumbai region, read-only access-policy t
 
 from __future__ import annotations
 
+import json
 import pathlib
 import urllib.error
 import urllib.parse
@@ -144,20 +145,83 @@ def test_grafana_sits_beside_aws_and_its_failure_never_takes_aws_down(monkeypatc
     assert not grafana.configured()
 
 
-def test_the_read_keys_are_the_read_zones_alone_and_datadogs_have_their_slots():
-    """Owner, 2026-10-14: Datadog only, live - its keys have slots; Grafana's reader stays, off: no slot, and not
-    a setting the runtime loads (a company that wants it sets its own environment)."""
-    assert not any(n.startswith("WARDEN_GRAFANA_") for n in settings.LOADABLE)
+def test_the_read_keys_are_the_read_zones_alone_and_every_tool_has_its_slot():
+    """Owner, 2026-10-14: "use all 3 of them ... compare" - Grafana's and Datadog's read keys have their slots, the
+    read zone holds them (and the webhook Lambda Datadog's, to confirm a monitor); X-Ray needs no key."""
+    assert "WARDEN_GRAFANA_READ_TOKEN" in settings.SECRETS and settings.RESTRICTED["WARDEN_GRAFANA_READ_TOKEN"] == {"worker"}
     for name in ("WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"):
-        # The read zone reads evidence; the webhook's Lambda asks Datadog whether a monitor is alerting (G10-53).
         assert name in settings.SECRETS and settings.RESTRICTED[name] == {"worker", "lambda-alertmanager"}, name
+    for name in ("WARDEN_GRAFANA_READ_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"):
         assert name in settings.loadable_for("worker", "read"), name
         for zone in ("core", "llm", "notify", "act"):
             assert name not in settings.loadable_for("worker", zone), (name, zone)
     tf = ROOT / "terraform" / "modules" / "warden-runtime"
     slots = (tf / "secrets.tf").read_text(encoding="utf-8")
-    assert '"datadog-api-key",' in slots and '"datadog-app-key",' in slots and "grafana" not in slots
-    assert '"stack-db-reader-dsn", "datadog-api-key", "datadog-app-key"]' in (tf / "iam.tf").read_text(encoding="utf-8")
+    assert all(f'"{n}",' in slots for n in ("datadog-api-key", "datadog-app-key", "grafana-read-token"))
+    assert ('"stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "grafana-read-token"]'
+            in (tf / "iam.tf").read_text(encoding="utf-8"))
+
+
+# ------------------------------------------------------------------ X-Ray (register G10-54)
+
+class _XRay:
+    def __init__(self, answer):
+        self.answer, self.asked = answer, []
+
+    def get_trace_summaries(self, **kw):
+        self.asked.append(kw)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+XRAY = {"TraceSummaries": [
+    {"Id": "1-a", "StartTime": AT, "Duration": 2.5, "HasFault": True,
+     "Http": {"HttpURL": "https://shop/checkout", "HttpMethod": "POST", "HttpStatus": 502},
+     "FaultRootCauses": [{"Services": [{"Name": "payments", "Type": "remote"}]}]},
+    {"Id": "1-b", "StartTime": AT, "Duration": 1.0, "HasError": True,
+     "Http": {"HttpURL": "https://shop/checkout", "HttpMethod": "POST", "HttpStatus": 500},
+     "ErrorRootCauses": [{"Services": [{"Name": "payments"}, {"Name": "checkout"}]}]}]}
+
+
+def test_xray_reads_failed_traces_with_xrays_own_root_cause_and_never_calls_silence_health():
+    from warden.xray import XRayReader
+
+    fake = _XRay(XRAY)
+    lines = XRayReader(lambda alert: fake).traces(_alert())
+    assert lines[0] == ("XRAY trace checkout 2026-10-14T07:14:13.000Z POST https://shop/checkout status=502 "
+                        "duration_ms=2500 root_cause=payments")
+    assert "XRAY dependency checkout -> payments: X-Ray's root cause in 2 of 2 failed traces read" in lines
+    [ask] = fake.asked
+    assert ask["FilterExpression"] == 'service("checkout") { error = true OR fault = true }' and ask["Sampling"] is False
+    assert (ask["EndTime"] - ask["StartTime"]).total_seconds() == 1800
+    for line in lines:
+        assert evidence._kind(line) == "L", line
+    [none] = XRayReader(lambda alert: _XRay({"TraceSummaries": []})).traces(_alert())
+    assert none.startswith(grafana.PARTIAL) and "not a sign of health" in none
+    assert XRayReader(lambda alert: _XRay(RuntimeError("denied"))).traces(_alert()) == [
+        f"{grafana.PARTIAL}xray traces: RuntimeError - not read"]
+
+
+def test_each_comparison_run_reads_one_tool_and_with_none_named_every_configured_one(monkeypatch):
+    class Base:
+        name = "stack"
+
+        def _incident(self, alert):
+            return self
+
+        def __init__(self):
+            self._clients = {"xray": object()}
+
+    for k, v in {**ENV, **DD_ENV, "WARDEN_XRAY": "1"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("WARDEN_EVIDENCE_TOOLS", raising=False)
+    assert [r.source for r in tools.evidence_tools(Base())] == ["xray", "grafana", "datadog"]
+    for one in ("xray", "grafana", "datadog"):
+        monkeypatch.setenv("WARDEN_EVIDENCE_TOOLS", one)
+        assert [r.source for r in tools.evidence_tools(Base())] == [one]
+    monkeypatch.setenv("WARDEN_EVIDENCE_TOOLS", "none")
+    assert tools.evidence_tools(Base()) == []  # AWS alone
 
 
 # ------------------------------------------------------------------ Datadog, beside it (register G10-52)
@@ -245,3 +309,49 @@ def test_both_tools_sit_beside_aws_each_failure_its_own():
     assert f"{grafana.PARTIAL}grafana logs: TimeoutError - not read" in lines
     assert any(x.startswith("DATADOG log checkout") for x in lines)  # one tool down, the other still read
     assert set(both.metrics(_alert())) == set(datadog.QUERIES)
+
+
+# ------------------------------------------------------------------ the code change behind a deploy (register G10-55)
+
+class _Resp:
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return json.dumps(self.body).encode()
+
+
+def test_the_commit_behind_a_deploy_is_read_and_an_account_id_never_leaves_for_github():
+    from warden.timeline import CommitReader
+
+    account = "1234" + "5678" + "9012"  # an image address's account id, built from parts
+    asked = []
+
+    def opener(req, timeout):
+        asked.append(req.full_url)
+        if req.full_url.endswith("/0badc0de1234"):
+            raise urllib.error.HTTPError(req.full_url, 404, "nf", {}, None)
+        return _Resp({"sha": "abc123def4567890", "commit": {"message": "Cut the cart timeout to 1s\n\nbody",
+                                                           "committer": {"date": "2026-10-14T06:58:00Z"}},
+                      "files": [{"filename": "shop/cart/timeouts.py", "additions": 3, "deletions": 1}]})
+
+    class Base:
+        def deploys(self, alert):
+            return [{"image": f"{account}.dkr.ecr.example/warden-dev-app:abc123def456"},
+                    {"sha": "0badc0de1234"}, {"image": "repo:latest"}, {"revision": "7"}]
+
+    lines = CommitReader(Base(), repo="owner/repo", opener=opener).logs(_alert())
+    assert lines[0] == ("GITHUB commit abc123def456 2026-10-14T06:58:00+00:00 files: "
+                        "shop/cart/timeouts.py(+3/-1) message: Cut the cart timeout to 1s")
+    assert lines[1] == "TOOL-PARTIAL github commit 0badc0de1234: HTTP 404 - not read"
+    assert asked == ["https://api.github.com/repos/owner/repo/commits/abc123def456",
+                     "https://api.github.com/repos/owner/repo/commits/0badc0de1234"]
+    assert not any(account in u for u in asked)  # never sent to GitHub
+    assert evidence._kind(lines[0]) == "L"
+    assert CommitReader(Base(), repo="not a repo", opener=opener).logs(_alert()) == []

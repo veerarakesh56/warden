@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
@@ -124,3 +125,74 @@ def section(changes: list[dict], unread: list[str]) -> str:
     if unread:
         lines.append(f"- not read: {', '.join(unread)}")
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ what changed in the code (register G10-55)
+# Owner, 2026-10-14: what WARDEN misses outside AWS - the code change behind a deploy. For each commit a deploy near
+# the alarm carries (an image tag, a deployment's sha), the files it changed and its message, from GitHub. The message
+# and the file names are written by people: untrusted lines (GITHUB ...), redacted and quarantined like any log.
+# A commit id: 7 to 40 hex characters with at least one letter - never all digits, so an AWS account id (12 digits, in
+# an image address) is never taken for one and sent to GitHub.
+_SHA = re.compile(r"(?=[0-9]*[a-f])[0-9a-f]{7,40}")
+MAX_COMMITS = 3
+MAX_FILES = 15
+
+
+class CommitReader:
+    """The files and message of each commit a deploy near the alarm carries. A public repository needs no token
+    (GitHub allows unauthenticated reads); WARDEN_GITHUB_READ_TOKEN, a read-only token, raises the rate limit."""
+
+    source = "github"
+
+    def __init__(self, base: Any, *, repo: str = "", token: str = "", opener: Any = urllib.request.urlopen) -> None:
+        self.base, self.repo, self.token, self._open = base, repo, token, opener
+
+    def _get(self, path: str) -> Any:
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        req = urllib.request.Request(f"{_API}{path}", headers=headers)
+        with self._open(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - a fixed https host
+            return json.loads(resp.read())
+
+    def logs(self, alert: Any) -> list[str]:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", self.repo or ""):
+            return []
+        try:
+            deploys = self.base.deploys(alert)
+        except Exception:  # noqa: BLE001 - no deploys read: no commits to look up, and the AWS read says why
+            deploys = []
+        shas: list[str] = []
+        for d in deploys:
+            if not isinstance(d, dict):
+                continue
+            # The deploy's own commit, or an image's tag - the part after its last ':' - never the image's address.
+            for v in (d.get("sha"), str(d.get("image") or "").rsplit(":", 1)[-1] if ":" in str(d.get("image") or "")
+                      else ""):
+                v = str(v or "").strip().lower()
+                if _SHA.fullmatch(v) and v not in shas:
+                    shas.append(v)
+        out: list[str] = []
+        for sha in shas[:MAX_COMMITS]:
+            try:
+                c = self._get(f"/repos/{self.repo}/commits/{sha}")
+            except urllib.error.HTTPError as exc:
+                out.append(f"TOOL-PARTIAL github commit {sha[:12]}: HTTP {exc.code} - not read")
+                continue
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                out.append(f"TOOL-PARTIAL github commit {sha[:12]}: {type(exc).__name__} - not read")
+                continue
+            info = c.get("commit") or {}
+            when = _when((info.get("committer") or {}).get("date"))
+            files = ", ".join(f"{str(f.get('filename'))[:120]}(+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
+                              for f in (c.get("files") or [])[:MAX_FILES])
+            first = " ".join(str(info.get("message") or "").splitlines()[:1])[:200]
+            out.append(f"GITHUB commit {str(c.get('sha') or sha)[:12]} {when.isoformat() if when else '?'} "
+                       f"files: {files or '-'} message: {first}")
+        return out
+
+    def traces(self, alert: Any) -> list[str]:
+        return []
+
+    def metrics(self, alert: Any) -> dict[str, float]:
+        return {}

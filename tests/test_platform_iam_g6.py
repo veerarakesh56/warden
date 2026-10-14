@@ -206,6 +206,11 @@ def test_the_reader_role_holds_exactly_the_platforms_reads():
 
     # The evidence readers' (aws_stack + aws_backend, G9-A2b) and the state table's (aws_describe, G9-A2c).
     evidence = {_iam_action(a, m) for a, m in _api_calls()} | {d.action for d in aws_describe.TABLE.values()}
+    # And X-Ray's reader (xray.py, G10-54): each X-Ray call it makes, as its IAM action.
+    import re
+
+    xray_src = (pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "xray.py").read_text(encoding="utf-8")
+    evidence |= {"xray:" + "".join(w.title() for w in m.split("_")) for m in re.findall(r"xray\.([a-z_]+)\(", xray_src)}
     assert reads <= reader_iam.granted()
     assert reader_iam.granted() - reads <= evidence, sorted(reader_iam.granted() - reads - evidence)
 

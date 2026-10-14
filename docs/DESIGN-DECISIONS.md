@@ -317,7 +317,8 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - Observability tools beside AWS: built - `datadog.py` (Datadog's Logs and Spans Search and timeseries query, one
   scoped read-only application key; the live proof, owner's choice 2026-10-14 - the tool companies buy most) and
   `grafana.py` (LogQL, TraceQL and PromQL - Grafana Cloud, or a company's own Loki, Tempo and Prometheus; tested on
-  recorded answers, off unless configured). Each is three HTTP reads; their vendors' agents and SDKs write
+  recorded answers, off unless configured), and `xray.py` (X-Ray's trace summaries with its own root causes, in
+  the incident's reader role - the apps' traces sent there with OpenTelemetry). Each is a few reads; their vendors' agents and SDKs write
   telemetry, which WARDEN only reads. Datadog's own agent is adopted to send the test stack's telemetry in.
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be

@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .models import Alert, ContextBundle
 
@@ -160,13 +161,40 @@ def resolve_backend(name: str | None = None):
     """The evidence source `_base_backend` picks - with Grafana (or a company's own Loki, Tempo and Prometheus) and
     Datadog beside it, each when its read keys are set (grafana.py, datadog.py). Never beside the recorded fixtures."""
     base = _base_backend(name)
+    if isinstance(base, FixtureBackend):
+        return base
+    readers = evidence_tools(base)
+    if readers:
+        from .grafana import WithSources
+
+        return WithSources(base, readers)
+    return base
+
+
+def evidence_tools(base: Any) -> list[Any]:
+    """The observability tools read beside AWS: each that is configured - X-Ray (WARDEN_XRAY=1, over the incident's
+    reader role), Grafana, Datadog - narrowed to WARDEN_EVIDENCE_TOOLS when it names some (the live comparison runs
+    each tool alone: "xray", "grafana", "datadog"; "none" reads AWS alone)."""
     from . import datadog, grafana
 
-    readers = [*([grafana.GrafanaReader()] if grafana.configured() else []),
-               *([datadog.DatadogReader()] if datadog.configured() else [])]
-    if readers and not isinstance(base, FixtureBackend):
-        return grafana.WithSources(base, readers)
-    return base
+    chosen = {t.strip() for t in os.environ.get("WARDEN_EVIDENCE_TOOLS", "").lower().split(",") if t.strip()}
+    readers: list[Any] = []
+    if os.environ.get("WARDEN_XRAY", "").strip() == "1" and hasattr(base, "_incident"):
+        from .xray import XRayReader
+
+        readers.append(XRayReader(lambda alert: base._incident(alert)._clients["xray"]))
+    if os.environ.get("WARDEN_COMMITS", "").strip() == "1":
+        from .environments import default_environment_policies
+        from .timeline import CommitReader
+
+        repo = (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
+                or str(default_environment_policies().github.get("repository", "")))
+        readers.append(CommitReader(base, repo=repo, token=os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip()))
+    if grafana.configured():
+        readers.append(grafana.GrafanaReader())
+    if datadog.configured():
+        readers.append(datadog.DatadogReader())
+    return [r for r in readers if not chosen or r.source in chosen]
 
 
 def _base_backend(name: str | None = None):
