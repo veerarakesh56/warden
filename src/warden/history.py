@@ -71,13 +71,18 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
             now: datetime | None = None) -> str:
     """One sentence for the approval request when this same fix on this same target ended badly in the last day."""
     now = now or datetime.now(UTC)
-    again = [r for r in rows if r["entry"] == entry and r["target"] == target and r["plan_hash"] != plan_hash
-             and r["status"] in WENT_BADLY and now - r["at"] <= RECENT]
+    same = [r for r in rows if r["entry"] == entry and r["target"] == target and r["plan_hash"] != plan_hash
+            and now - r["at"] <= RECENT]
+    again = [r for r in same if r["status"] in WENT_BADLY]
     if not again:
         return ""
     # The latest one's own ending, and how many did not last - not "applied at" its ending's time, nor every one
     # counted as the latest's kind (live, 2026-10-12: "worked, then failed again - 4 times", of which one had).
     latest = f"most recently it {ENDED[again[0]['status']]} ({both_times(again[0]['at'], seconds=False)})"
-    if len(again) == 1:
-        return f" Before you decide: this same fix was tried in the last day and did not last - {latest}."
-    return f" Before you decide: this same fix was tried {len(again)} times in the last day and none lasted - {latest}."
+    times = "once" if len(again) == 1 else f"{len(again)} times"
+    # ...and what did hold is said too: "none lasted" stood beside a run of the same fix that had worked an hour
+    # before (live, 2026-10-12).
+    held = [r for r in same if r["status"] == "recovered"]
+    also = (f" It held {'once' if len(held) == 1 else f'{len(held)} times'} in that day, most recently "
+            f"{both_times(held[0]['at'], seconds=False)}." if held else "")
+    return f" Before you decide: in the last day this same fix did not last {times} - {latest}.{also}"

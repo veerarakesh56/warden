@@ -137,3 +137,35 @@ def test_the_timeline_and_the_key_lines_show_the_change_nearest_the_alert_and_an
     undo = build_report(alert, proposal=_prop(ActionKind.revert_change))
     assert undo.promotion == () and "## Promotion" not in undo.markdown
     assert build_report(alert, proposal=_prop(ActionKind.scale_up)).promotion  # a change to replay still is
+
+
+def test_a_follow_ups_heading_is_printed_only_with_a_follow_up_under_it():
+    """Live, 2026-10-12: once the one follow-up a report had was left out - it asked for the alarm that had fired -
+    the heading stood there with nothing under it."""
+    from warden.models import ContextBundle
+
+    logs = ["RULE warden-dev-lab-tick State=DISABLED schedule=rate(1 minute)"]
+
+    def report(**labels):
+        alert = _alert().model_copy(update={"labels": {"eventbridge_rule": "warden-dev-lab-tick", **labels}})
+        return build_report(alert, proposal=_prop(ActionKind.revert_change), context=ContextBundle(logs=logs)).markdown
+
+    fired_by_that_alarm = report(alarm="warden-dev-lab-tick-silent")
+    assert "Scheduled rule disabled" in fired_by_that_alarm and "## Follow-ups by team" not in fired_by_that_alarm
+    with_one = report()  # no such alarm yet: the follow-up is worth making, under its heading
+    assert "## Follow-ups by team" in with_one and "Alarm on the target's Invocations dropping to zero" in with_one
+
+
+def test_based_on_is_the_models_reasoning_not_the_ids_the_citations_already_show():
+    """Live, 2026-10-12: a report's "Based on" was "C2, C18, M9, C1" - four ids, each shown with its quote two lines
+    above, and no word of reasoning."""
+    from warden.models import Citation, RootCause
+
+    def said(evidence):
+        cause = RootCause(hypothesis="h", confidence=0.9, evidence=evidence,
+                          citations=[Citation(id="C2", quote="DisableRule"), Citation(id="M9", quote="rule_enabled=0")])
+        return build_report(_alert(), root_cause=cause, proposal=_prop()).markdown
+
+    assert "**Based on:**" not in said(["C2", " M9 "]) and "**Cited evidence**" in said(["C2", "M9"])
+    mixed = said(["C2", "C2 shows the most recent change is DisableRule", "L7"])
+    assert "**Based on:**\n- C2 shows the most recent change is DisableRule\n- L7" in mixed  # an uncited id stays

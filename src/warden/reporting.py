@@ -789,10 +789,14 @@ def _render_markdown(d: dict) -> str:
             lines.append("")
             lines.append("**Cited evidence** (evidence id: quoted span):")
             _code(lines, [f"{c['id']}: {c['quote']}" for c in rc["citations"]])
-        if rc["evidence"]:
+        # A bare evidence id the citations above already show with its quote says nothing a second time: a report's
+        # "Based on" was the four ids "C2, C18, M9, C1" and no word of reasoning (live, 2026-10-12).
+        shown = {c["id"] for c in rc["citations"]}
+        based_on = [e for e in rc["evidence"] if not (re.fullmatch(r"[A-Z]\d{1,4}", e.strip()) and e.strip() in shown)]
+        if based_on:
             lines.append("")
             lines.append("**Based on:**")
-            lines.extend(f"- {e}" for e in rc["evidence"])
+            lines.extend(f"- {e}" for e in based_on)
         if rc["ruled_out"]:
             lines.append("")
             lines.append("**Ruled out:**")
@@ -935,7 +939,9 @@ def _render_markdown(d: dict) -> str:
     # ---- follow-ups by team
     teams = (("On-call - now", "oncall"), ("Developers", "developers"),
              ("Platform / DevOps", "platform"), ("DBA", "dba"), ("Prevention", "prevention"))
-    if d["patterns"]:
+    # Only where a pattern has a follow-up for some team: a heading with nothing under it was printed once the one
+    # follow-up a report had was left out (live, 2026-10-12).
+    if any(pat[key] for pat in d["patterns"] for _, key in teams):
         lines.append("## Follow-ups by team")
         many = len(d["patterns"]) > 1
         for title, key in teams:

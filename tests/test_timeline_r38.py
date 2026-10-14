@@ -129,3 +129,28 @@ def test_a_deployment_with_an_unreadable_time_is_left_out(bad):
     got = timeline.github_deployments("o/r", "t", "dev", NOW - timedelta(hours=6), NOW,
                                       opener=lambda req, timeout: _Resp(json.dumps(rows).encode()))
     assert got == []
+
+
+def test_the_changes_section_carries_the_change_the_evidence_recorded_for_the_alerts_own_resource():
+    """Live, 2026-10-12: the section listed WARDEN's own earlier fixes and not the DisableRule that caused the alarm -
+    an EventBridge rule's events name no resource, so the account-wide read did not find it, while the evidence
+    held it as a CHANGE line all along."""
+    alert = Alert(alert_id="a", name="n", service="s", environment="dev", severity=Severity.high, summary="",
+                  started_at="2026-10-12T20:39:59+00:00", labels={"eventbridge_rule": "warden-dev-lab-tick"})
+    own = {"at": datetime(2026, 10, 12, 19, 15, 34, tzinfo=UTC), "source": "warden",
+           "what": "events_enable_rule on dev/events:warden-dev-lab-tick", "who": "WARDEN"}
+    seen_twice = {"at": datetime(2026, 10, 12, 18, 54, 1, 400000, tzinfo=UTC), "source": "cloudtrail",
+                  "what": "DisableRule on warden-dev-lab-tick", "who": "role/warden-dev-harness"}
+    logs = ["CHANGE 2026-10-12T20:30:45Z events.amazonaws.com DisableRule on warden-dev-lab-tick by role/warden-dev-harness request=name",
+            "CHANGE 2026-10-12T18:54:01Z events.amazonaws.com DisableRule on warden-dev-lab-tick by role/warden-dev-harness request=name",
+            "CHANGE 2026-10-12T13:50:45Z events.amazonaws.com EnableRule on warden-dev-lab-tick by role/warden-dev-harness request=name",
+            "CHANGE none on warden-dev-lab-tick in the 6 h before the alert", "RULE warden-dev-lab-tick State=DISABLED"]
+    got = timeline.with_evidence([own, seen_twice], logs, alert)
+    assert [(c["at"].strftime("%H:%M:%S"), c["source"], c["what"], c["who"]) for c in got] == [
+        ("20:30:45", "cloudtrail", "DisableRule on warden-dev-lab-tick", "role/warden-dev-harness"),  # the cause, first
+        ("19:15:34", "warden", "events_enable_rule on dev/events:warden-dev-lab-tick", "WARDEN"),
+        ("18:54:01", "cloudtrail", "DisableRule on warden-dev-lab-tick", "role/warden-dev-harness")]  # once, not twice
+    # ...and nothing older than the six hours the section is about (13:50 is), nor past its limit.
+    assert "DisableRule on warden-dev-lab-tick · by role/warden-dev-harness" in timeline.section(got, [])
+    many = [f"CHANGE 2026-10-12T20:{m:02d}:00Z events.amazonaws.com PutRule on r{m} by user/a" for m in range(30)]
+    assert len(timeline.with_evidence([], many, alert)) == timeline.MOST

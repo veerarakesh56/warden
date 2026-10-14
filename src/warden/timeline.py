@@ -90,6 +90,29 @@ def recent(alert: Any, *, log: Any, platform: Any = None, now: datetime | None =
     return changes[:MOST], unread
 
 
+def with_evidence(changes: list[dict], logs: list[str], alert: Any) -> list[dict]:
+    """The changes, with the ones WARDEN's own readers recorded for the alert's resources in its evidence (the CHANGE
+    lines, by event name). The account-wide read above finds a write by the resource it names, and some services'
+    events name none - an EventBridge rule's - so the section listed WARDEN's own earlier fixes and not the
+    DisableRule that caused the alarm (live, 2026-10-12). Newest first, at most MOST, each change once."""
+    from .reporting import _CHANGE
+
+    started = _when(alert.started_at) if getattr(alert, "started_at", "") else None
+    found = list(changes)
+    seen = {(c["at"].replace(microsecond=0), str(c["what"]).split(" ")[0]) for c in changes}
+    for line in logs:
+        m = _CHANGE.match(line)
+        at = _when(m.group(1)) if m else None
+        if at is None or (started and not started - BEFORE <= at <= started + timedelta(minutes=5)):
+            continue
+        what, _, who = m.group(2).rpartition(" by ")
+        if (at.replace(microsecond=0), what.split(" ")[0]) not in seen:
+            seen.add((at.replace(microsecond=0), what.split(" ")[0]))
+            found.append({"at": at, "source": "cloudtrail", "what": what, "who": who})
+    found.sort(key=lambda c: c["at"], reverse=True)
+    return found[:MOST]
+
+
 def section(changes: list[dict], unread: list[str]) -> str:
     """The report's section: suspects, not causes."""
     if not changes and not unread:

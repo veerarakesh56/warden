@@ -318,8 +318,10 @@ class RemediationActivities:
                       for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
                       if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
                       and b.get("plan_hash") == plan.plan_hash})
-        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval: "
-                            f"`warden status {plan.workflow_id}`. It waits until "
+        # The plan's id, for whoever looks it up - not a command to type, in a message most readers act on by its
+        # button (owner's bar, 2026-10-12: no unexplained jargon).
+        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval "
+                            f"(plan `{plan.workflow_id}`). It waits until "
                             f"{environments.both_times(_deadline(plan), seconds=False)}; unapproved by then, it expires "
                             "and nothing is changed. "
                             "Only an enrolled approver of this risk level can approve it"
@@ -1005,6 +1007,7 @@ class IncidentActivities:
         from . import timeline
 
         changes, unread = timeline.recent(pack.alert, log=self.audit, platform=self.platform)
+        changes = timeline.with_evidence(changes, pack.context.logs, pack.alert)
         self.audit.append(alert_id, "incident.changes", {"run_id": _run_id(), "found": len(changes), "unread": unread,
                                                          "sources": sorted({c["source"] for c in changes})})
         # What WARDEN's own record says was done to this resource before (history.py): facts, for the people reading.

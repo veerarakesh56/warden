@@ -77,14 +77,20 @@ def test_an_approval_request_says_when_the_same_fix_on_the_same_target_just_ende
     plans = [{"entry": "k8s_rollout_undo", "target": target, "plan_hash": "old", "status": "rolled_back",
               "at": NOW - timedelta(hours=2)}]
     said = history.warning(plans, entry="k8s_rollout_undo", target=target, plan_hash="new", now=NOW)
-    assert said.startswith(" Before you decide: this same fix was tried in the last day and did not last - most "
-                           "recently it did not work and was undone (") and said.endswith(").")
+    assert said.startswith(" Before you decide: in the last day this same fix did not last once - most recently it "
+                           "did not work and was undone (") and said.endswith(").")
     # Several: counted as what they were - none lasted - and only the latest one's own ending is said of it (live,
     # 2026-10-12: "worked, then failed again - 4 times in the last day", of which one had).
     twice = [*plans, {**plans[0], "status": "relapsed", "at": NOW - timedelta(hours=5)}]
     both = history.warning(twice, entry="k8s_rollout_undo", target=target, plan_hash="new", now=NOW)
-    assert "was tried 2 times in the last day and none lasted - most recently it did not work and was undone (" in both
-    assert "worked, then failed again" not in both and "applied at" not in both
+    assert "in the last day this same fix did not last 2 times - most recently it did not work and was undone (" in both
+    assert "worked, then failed again" not in both and "applied at" not in both and "It held" not in both
+    # A run of the same fix that held is said beside them: "none lasted" stood next to one that had (live, 2026-10-12).
+    mixed = [{**plans[0], "status": "recovered", "at": NOW - timedelta(hours=1)}, *twice,
+             {**plans[0], "status": "recovered", "at": NOW - timedelta(hours=30)}]  # older than a day: not counted
+    said = history.warning(mixed, entry="k8s_rollout_undo", target=target, plan_hash="new", now=NOW)
+    assert "did not last 2 times - most recently it did not work and was undone (" in said
+    assert said.count("It held once in that day, most recently ") == 1 and "none lasted" not in said
     for other in ({"entry": "k8s_restart"}, {"target": "dev/k8s:shop/cart"}, {"status": "recovered"},
                   {"status": "expired"}, {"plan_hash": "new"}, {"at": NOW - timedelta(hours=30)}):
         assert history.warning([{**plans[0], **other}], entry="k8s_rollout_undo", target=target, plan_hash="new",
@@ -103,5 +109,5 @@ def test_the_second_request_for_a_fix_that_was_just_undone_says_so(world, owner,
     assert not any("Before you decide" in t for t in sink.texts)
     sink.texts.clear()
     assert _run(world, _no_approval).status == "expired"
-    assert "Before you decide: this same fix was tried in the last day and did not last" in sink.texts[0]
+    assert "Before you decide: in the last day this same fix did not last once" in sink.texts[0]
     assert "did not work and was undone" in sink.texts[0]
