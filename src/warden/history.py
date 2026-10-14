@@ -40,8 +40,18 @@ def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
                      "environment": b.get("environment"), "service": b.get("service"),
                      "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
                      "status": str(end["body"].get("status")) if end else "open",
-                     "approvers": [str(a) for a in (end["body"].get("approvers") or [])] if end else []})
+                     "approvers": [str(a) for a in (end["body"].get("approvers") or [])] if end else [],
+                     "denied_by": _denier(end["body"]) if end else ""})
     return sorted(rows, key=lambda r: r["at"], reverse=True)
+
+
+def _denier(end: dict[str, Any]) -> str:
+    """Who denied the plan, from its end row's own reason (`denied by <approver>`, workflows.py) - or ""."""
+    first = str((end.get("reasons") or [""])[0])
+    name = first.removeprefix("denied by ").split(":")[0].strip()
+    ok = end.get("status") == "denied" and first.startswith("denied by ") and name.replace(".", "").replace(
+        "_", "").replace("-", "").isalnum()
+    return name if ok else ""
 
 
 def past(alert: Any, log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
@@ -57,6 +67,8 @@ def _line(row: dict[str, Any]) -> str:
     how = "is still open" if row["status"] == "open" else ENDED.get(row["status"], f"ended {row['status']}")
     # Each approver as their mark: a reader gets the person (chatops.name_people), never the list's id for them.
     who = f" · approved by {', '.join(f'@@{a}@@' for a in row['approvers'])}" if row["approvers"] else ""
+    if row.get("denied_by"):
+        who = f" · by @@{row['denied_by']}@@"  # "was denied · by <the person>"
     return f"{both_times(row['at'], seconds=False)} · `{row['entry']}` on `{row['target']}` · {how}{who}"
 
 

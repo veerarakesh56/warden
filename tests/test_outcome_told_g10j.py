@@ -339,3 +339,33 @@ def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_e
     chatops.notify(Report(markdown="approved by @@owner@@", data={}, promotion=(),
                           people=(("owner", member, "Asha Rao"), ("second", member, "Not Named Here"))), sinks=[Plain()])
     assert posted[-1] == "approved by `Asha Rao`"  # another reader than Slack: the name - no mark, no mention syntax
+
+
+@pytest.mark.parametrize("typed", ["not now", ""])
+def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, typed):  # noqa: F811
+    """Owner, 2026-10-14: "that denied thing also should show how denied and all ... earlier that denied didn't show
+    that Rakesh denied it". The message read "was denied: nothing was changed. Why: denied by owner"."""
+    import re
+
+    from test_remediation_workflow import RemediationWorkflow, _until_awaiting_approval
+    from warden import history
+    from warden.approvals import Denial
+
+    world["policy"].approvers["owner"].name = "Asha Rao"
+
+    async def deny(handle):
+        plan = await _until_awaiting_approval(handle)
+        await handle.signal(RemediationWorkflow.deny, Denial(approver="owner", workflow_id=handle.id,
+                                                            plan_hash=plan.plan_hash, reason=typed))
+
+    out = _run(world, deny)
+    assert out.status == "denied" and _whats(world) == ["denied"]
+    said = sink.texts[-1].split("---")[0]
+    assert re.search(r"was denied by `Asha Rao` \(with their passkey\) at \d{4}-\d\d-\d\d \d\d:\d\d:\d\dZ", said)
+    assert ": nothing was changed." in said and "Why:" not in said and "owner" not in said
+    assert ("Their reason: not now" in said) == bool(typed) and "Their reason" in said or not typed
+    # ...and the resource's record says who, where it said only "was denied".
+    [row] = [r for r in history.plans(world["log"]) if r["status"] == "denied"]
+    assert row["denied_by"] == "owner" and history._line(row).endswith("· was denied · by @@owner@@")
+    assert history._denier({"status": "denied", "reasons": ["denied by x; rm -rf"]}) == ""  # only an approver's id
+    assert history._denier({"status": "expired", "reasons": ["denied by owner"]}) == ""

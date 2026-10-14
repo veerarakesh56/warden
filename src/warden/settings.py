@@ -130,16 +130,26 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
         import boto3  # only when an environment is actually named
 
         secrets = boto3.client("secretsmanager")
-    for name in wanted:
+    def fetch(name: str) -> Any:
         try:
-            value = secrets.get_secret_value(SecretId=secret_id(env, name, zone))
+            return secrets.get_secret_value(SecretId=secret_id(env, name, zone))
         except Exception as exc:  # a secret this environment does not have is simply not loaded; others raise
             if _code(exc) == "ResourceNotFoundException":
-                continue
+                return None
             raise
-        if isinstance(value.get("SecretString"), str):
-            os.environ[name] = value["SecretString"]
-            loaded.append(name)
+
+    if wanted:
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Fetched at the same time, not one after another: five in a row were 1.3 s of the approval page's cold
+        # start (measured 2026-10-14). Each is still its own call under the caller's own permission, and a failure
+        # of any still raises - `map` hands the results back in order and re-raises the first error it meets.
+        with ThreadPoolExecutor(max_workers=min(8, len(wanted))) as pool:
+            values = list(pool.map(fetch, wanted))
+        for name, value in zip(wanted, values, strict=True):
+            if value is not None and isinstance(value.get("SecretString"), str):
+                os.environ[name] = value["SecretString"]
+                loaded.append(name)
     return sorted(loaded)
 
 

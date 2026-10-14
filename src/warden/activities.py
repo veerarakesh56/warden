@@ -301,12 +301,14 @@ class RemediationActivities:
                 return []  # no approval domain: the incident's report already said a plan waits
             what = "waiting"
         why: list[str] = []
+        ended_at = None
         if what == "ended":
-            ends = [e["body"] for e in self.audit.entries(plan.incident_id, kinds=("workflow.end",))
+            ends = [e for e in self.audit.entries(plan.incident_id, kinds=("workflow.end",))
                     if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id") == _run_id()]
             if not ends:
                 return []
-            what, why = str(ends[-1].get("status")), [str(r)[:300] for r in (ends[-1].get("reasons") or [])[:3]]
+            body, ended_at = ends[-1]["body"], ends[-1]["at"]
+            what, why = str(body.get("status")), [str(r)[:300] for r in (body.get("reasons") or [])[:3]]
         self.audit.checkpoint()
         head = self.audit.head(plan.incident_id)
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
@@ -336,6 +338,19 @@ class RemediationActivities:
                                                                                       target=plan.target)
         if what == "approved" and not did:
             return []  # nothing on the record says who: nothing is claimed
+        if what == "denied":
+            # Who said no, how and when - said as an approval is (owner, 2026-10-14: "earlier that denied didn't show
+            # that Rakesh denied it": the message read "was denied ... Why: denied by owner"). A denial reaches the
+            # workflow only from the approval page, after the approver's passkey over this exact plan
+            # (approval_page._deny); who it was is this run's own signed end row.
+            who = next((n for n in self.policy.approvers
+                        if any(w == f"denied by {n}" or w.startswith(f"denied by {n}: ") for w in why)), "")
+            if who and ended_at is not None:
+                reason = next((w.partition(": ")[2] for w in why if w.startswith(f"denied by {who}: ")), "")
+                said = (f"WARDEN's plan `{plan.entry}` on `{plan.target}` was denied by {self.policy.said(who)} (with "
+                        f"their passkey) at {environments.both_times(ended_at)}: nothing was changed."
+                        + (f" Their reason: {reason}" if reason else ""))
+                why = []
         if what == "waiting":
             import contextlib
 

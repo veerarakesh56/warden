@@ -185,3 +185,42 @@ def test_a_diagnosis_run_never_loads_the_terminate_roles_dsn(monkeypatch):
     monkeypatch.delenv("WARDEN_MODEL", raising=False)
     assert main(["run", "--incident", "inc-001"]) == 0
     assert os.environ.get("WARDEN_MODEL") == "m-1" and "WARDEN_DB_ADMIN_DSN" not in os.environ
+
+
+def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_raises():
+    """Measured 2026-10-14: five secrets fetched one after another were 1.3 s of the approval page's cold start."""
+    import os
+    import threading
+    import time
+
+    from botocore.exceptions import ClientError
+
+    from warden import settings
+
+    class Slow(_FakeSecrets):
+        def __init__(self, secrets, refuse=""):
+            super().__init__(secrets)
+            self.refuse, self.inside, self.most, self.lock = refuse, 0, 0, threading.Lock()
+
+        def get_secret_value(self, *, SecretId):
+            with self.lock:
+                self.inside += 1
+                self.most = max(self.most, self.inside)
+            time.sleep(0.05)
+            with self.lock:
+                self.inside -= 1
+            if SecretId == self.refuse:
+                raise ClientError({"Error": {"Code": "AccessDeniedException"}}, "GetSecretValue")
+            return super().get_secret_value(SecretId=SecretId)
+
+    only = frozenset({"WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_AUDIT_DSN", "OPENAI_API_KEY"})
+    held = {settings.secret_id("dev", "WARDEN_SLACK_WEBHOOK"): "hook", settings.secret_id("dev", "WARDEN_AUDIT_DSN"): "dsn"}
+    slow = Slow(held)
+    loaded = settings.load("dev", only=only, ssm=_FakeSSM({}), secrets=slow)
+    assert loaded == ["WARDEN_AUDIT_DSN", "WARDEN_SLACK_WEBHOOK"] and slow.most > 1  # together; the missing two skipped
+    assert os.environ["WARDEN_SLACK_WEBHOOK"] == "hook" and "OPENAI_API_KEY" not in os.environ
+    assert sorted(slow.asked) == sorted(settings.secret_id("dev", n) for n in only)  # each asked once, its own call
+    for name in only:
+        os.environ.pop(name, None)
+    with pytest.raises(ClientError):  # a refusal is not "not there": it raises, as before
+        settings.load("dev", only=only, ssm=_FakeSSM({}), secrets=Slow(held, refuse=settings.secret_id("dev", "WARDEN_TEAMS_WEBHOOK")))
