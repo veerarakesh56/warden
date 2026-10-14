@@ -334,10 +334,16 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
          "--set", f"datadog.site={site}", "--set", f"datadog.clusterName={stack['eks_cluster_name']}",
          "--set", "datadog.apiKeyExistingSecret=datadog-secret",
          "--set", "datadog.logs.enabled=true", "--set", "datadog.logs.containerCollectAll=true",
+         # Every metric and log from this agent carries the stack's env (the monitors filter on it); the pods' own
+         # tags.datadoghq.com labels (k8s/fullstack) give env and service per workload.
+         "--set", f"datadog.tags[0]=env:{stack['environment']}",
          # The apps' OpenTelemetry data, from the collector on the same node (deploy_otel): every tool gets the same
          # spans, so the comparison is fair - no second, Datadog-only instrumentation.
          "--set", "datadog.otlp.receiver.protocols.grpc.enabled=true",
-         "--set", "datadog.otlp.receiver.protocols.grpc.endpoint=0.0.0.0:4317"])
+         "--set", "datadog.otlp.receiver.protocols.grpc.endpoint=0.0.0.0:4317",
+         # The apps' OpenTelemetry logs too, with their severity: the apps log to stdout, which Datadog files as info,
+         # so without these no log is ever status:error (both checked against chart 3.250.3's values, 2026-10-14).
+         "--set", "datadog.otlp.logs.enabled=true"])
     return True
 
 
@@ -361,6 +367,7 @@ def otel_config(region: str, *, grafana_url: str = "", datadog: bool = False) ->
         exporters["otlp/datadog"] = {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}
         traces.append("otlp/datadog")
         metrics.append("otlp/datadog")
+        logs.append("otlp/datadog")
     pipelines = {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": traces}}
     if metrics:
         pipelines["metrics"] = {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": metrics}

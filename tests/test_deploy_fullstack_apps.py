@@ -194,7 +194,9 @@ def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart
     helm = next(c for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"])
     assert helm[helm.index("--version") + 1] == tool.DATADOG_CHART == "3.250.3"
     for value in ("datadog.site=ap1.datadoghq.com", "datadog.apiKeyExistingSecret=datadog-secret",
-                  "datadog.logs.containerCollectAll=true", "datadog.otlp.receiver.protocols.grpc.enabled=true"):
+                  "datadog.logs.containerCollectAll=true", "datadog.otlp.receiver.protocols.grpc.enabled=true",
+                  # The monitors filter on env and status:error: the env tag, and logs with their severity (OTLP).
+                  f"datadog.tags[0]=env:{STACK['environment']}", "datadog.otlp.logs.enabled=true"):
         assert value in helm, value
     # The apps are traced once, by OpenTelemetry, for every tool alike - no Datadog-only instrumentation beside it.
     assert not any("apm.instrumentation" in v for v in helm)
@@ -341,6 +343,8 @@ def test_one_collector_sends_the_same_data_to_xray_grafana_and_datadog_before_th
 
     full = tool.otel_config("ap-south-2", grafana_url="https://otlp.example.test/otlp", datadog=True)
     assert full["service"]["pipelines"]["traces"]["exporters"] == ["awsxray", "otlphttp/grafana", "otlp/datadog"]
+    # Logs to both tools alike, with their severity (Datadog would file the apps' stdout lines as info).
+    assert full["service"]["pipelines"]["logs"]["exporters"] == ["otlphttp/grafana", "otlp/datadog"]
     assert full["exporters"]["awsxray"] == {"region": "ap-south-2"}
     assert full["exporters"]["otlphttp/grafana"]["headers"] == {"Authorization": "Basic ${env:GRAFANA_OTLP_AUTH}"}
     alone = tool.otel_config("ap-south-2")

@@ -195,15 +195,16 @@ def test_settings_come_from_the_store_and_the_environment_is_put_back(monkeypatc
     monkeypatch.delenv("WARDEN_DATADOG_API_KEY", raising=False)
     asked = {}
 
-    def load(*, only):
-        asked["only"] = only
+    def load(env, *, only):
+        asked["env"], asked["only"] = env, only
         os.environ["WARDEN_DATADOG_API_KEY"] = "from-store"
         return ["WARDEN_DATADOG_API_KEY"]
 
     monkeypatch.setattr(settings, "load", load)
     before = dict(os.environ)
-    values = ce.evidence_settings(["none", "datadog"])
-    assert values == {"WARDEN_DATADOG_API_KEY": "from-store"}
+    assert ce.evidence_settings(["none", "datadog"]) == {}  # no store named: this shell only
+    values = ce.evidence_settings(["none", "datadog"], store="ops")
+    assert values == {"WARDEN_DATADOG_API_KEY": "from-store"} and asked["env"] == "ops"
     assert asked["only"] == frozenset(ce.SETTINGS["datadog"])
     assert dict(os.environ) == before
     assert ce._missing("datadog", values) == ["WARDEN_DATADOG_SITE", "WARDEN_DATADOG_APP_KEY"]

@@ -7,6 +7,10 @@ metadata:
     app: cart-worker
     project: warden
     environment: __ENVIRONMENT__  # read by WARDEN before any change (P18, register S6)
+    # Datadog's standard labels: its agent tags this workload's container logs and Kubernetes metrics env and service
+    # from them (the monitors filter on both, scripts/datadog_setup.py).
+    tags.datadoghq.com/env: __ENVIRONMENT__
+    tags.datadoghq.com/service: cart-worker
 spec:
   replicas: 1
   selector:
@@ -30,6 +34,8 @@ spec:
       labels:
         app: cart-worker
         project: warden
+        tags.datadoghq.com/env: __ENVIRONMENT__
+        tags.datadoghq.com/service: cart-worker
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 10

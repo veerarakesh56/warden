@@ -18,9 +18,9 @@ XRAY / GRAFANA / DATADOG / GITHUB lines, and whether a dependency line named the
 The order of the tools rotates from fault to fault, so no tool is always the one that reads the fault the latest.
 
 The tools' settings: WARDEN's environment is built from nothing (runner.py), so the chosen tool's settings are added to
-that one run's environment only, never recorded on disk. They come from this shell, or - with WARDEN_ENV set - from
-that environment's SSM parameters and Secrets Manager secrets (src/warden/settings.py load), read with this shell's
-credentials; this process's environment is put back afterwards.
+that one run's environment only, never recorded on disk. They come from this shell, or from the
+--settings-env environment's SSM parameters and Secrets Manager secrets (default the WARDEN runtime's - environments.yaml `runtime` - where
+scripts/observability_setup.py keeps them; src/warden/settings.py load), read with this shell's credentials; this process's environment is put back afterwards.
 
 Before a live run: the stack soaked (`python -m scenarios.fullstack_cli soak`), WARDEN_PROVIDER and its key set, as
 for any Wave 4 diagnose. The run directory (--run) is the harness's, outside the repository.
@@ -49,6 +49,8 @@ import yaml
 from scenarios import fullstack_cli as cli
 from scenarios import ops_fullstack as fs
 from scenarios import score
+
+from warden import environments
 
 TOOLS = ("none", "xray", "grafana", "datadog")
 
@@ -100,14 +102,15 @@ def _environ_restored():
         os.environ.update(saved)
 
 
-def evidence_settings(tools: list[str], *, load: bool = True) -> dict[str, str]:
-    """The chosen tools' settings, from this shell or - with WARDEN_ENV - from SSM and Secrets Manager."""
+def evidence_settings(tools: list[str], *, store: str = "") -> dict[str, str]:
+    """The chosen tools' settings, from this shell or - with `store` - from that environment's SSM and Secrets
+    Manager: the WARDEN runtime's (`ops`, where scripts/observability_setup.py keeps them), not the stack's own."""
     names = frozenset(n for t in tools for n in SETTINGS[t])
     with _environ_restored():
-        if load and names and os.environ.get("WARDEN_ENV"):
+        if store and names:
             from warden import settings
 
-            settings.load(only=names)
+            settings.load(store, only=names)
         return {n: os.environ[n] for n in names if os.environ.get(n, "").strip()}
 
 
@@ -411,6 +414,9 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
     ap.add_argument("--run", default=os.environ.get("WARDEN_FS_RUN") or str(cli.DEFAULT_RUN),
                     help="the harness's run directory (its soak and the faults' saved prior state)")
     ap.add_argument("--dry-run", action="store_true", help="print the plan; touch nothing")
+    ap.add_argument("--settings-env", default=environments.default_environment_policies().runtime_environment or "",
+                    help="the environment whose store holds the tools' settings (default: the WARDEN runtime's, "
+                         "environments.yaml `runtime`; '' for this shell only)")
     ap.add_argument("--warden-timeout", type=float, default=900)
     ap.add_argument("--settle-minutes", type=float, default=20)
     args = ap.parse_args(argv)
@@ -428,14 +434,14 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
 
     if args.dry_run:
         # Names only, and from this shell only: a dry run reads no store.
-        print("\n".join(plan(faults, tools, evidence_settings(tools, load=False))))
-        if os.environ.get("WARDEN_ENV"):
-            print(f"  (a live run first loads the missing settings for WARDEN_ENV={os.environ['WARDEN_ENV']})")
+        print("\n".join(plan(faults, tools, evidence_settings(tools))))
+        if args.settings_env:
+            print(f"  (a live run first loads the missing settings from the {args.settings_env} environment's store)")
         return 0
     if not args.out:
         ap.error("--out is required for a live run")
 
-    values = evidence_settings(tools)
+    values = evidence_settings(tools, store=args.settings_env)
     not_ready = {t: _missing(t, values) for t in tools if _missing(t, values)}
     if not_ready:
         print("STOPPED before any inject: " + "; ".join(f"{t} needs {', '.join(m)}" for t, m in not_ready.items()),
