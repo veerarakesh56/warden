@@ -110,20 +110,51 @@ def catalog(page_size: int, ttl: int) -> list[dict]:
     return items
 
 
+def _tracer():
+    """OpenTelemetry's tracer when the image runs under `opentelemetry-instrument` (the collector sends the same spans
+    to X-Ray, Grafana and Datadog), else None: http.server has no instrumentation of its own, so each request's span is
+    made here - vendor-neutral, the OpenTelemetry API only."""
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        return None
+    return trace.get_tracer("shop-app")
+
+
 class Handler(BaseHTTPRequestHandler):
     routes: ClassVar[dict] = {}
 
     def do_GET(self) -> None:
-        route = self.routes.get(self.path.split("?")[0])
+        path = self.path.split("?")[0]
+        tracer = _tracer()
+        if tracer is None:
+            return self._get(path, None)
+        from opentelemetry.trace import SpanKind
+
+        with tracer.start_as_current_span(f"GET {path}", kind=SpanKind.SERVER,
+                                          attributes={"http.request.method": "GET", "url.path": path}) as span:
+            return self._get(path, span)
+
+    def _get(self, path: str, span) -> None:
+        route = self.routes.get(path)
         if route is None:
-            return self.reply(404, {"error": "not found"})
+            return self.reply(404, {"error": "not found"}, span)
         try:
-            self.reply(200, route())
+            self.reply(200, route(), span)
         except Exception as exc:
             log.exception("GET %s failed", self.path)
-            self.reply(500, {"error": type(exc).__name__})
+            if span is not None:
+                span.record_exception(exc)
+            self.reply(500, {"error": type(exc).__name__}, span)
 
-    def reply(self, status: int, body: object) -> None:
+    def reply(self, status: int, body: object, span=None) -> None:
+        if span is not None:
+            from opentelemetry.trace import Status, StatusCode
+
+            span.set_attribute("http.response.status_code", status)
+            if status >= 500:
+                span.set_status(Status(StatusCode.ERROR))
+
         data = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")

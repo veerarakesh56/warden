@@ -65,6 +65,8 @@ spec:
           env:
             - name: APP_ROLE
               value: catalog-api
+            - name: OTEL_SERVICE_NAME
+              value: catalog-api
             # Required at start (scenarios/fullstack/app/app.py); fs-23 removes the key.
             - name: CATALOG_SIGNING_KEY
               valueFrom:
@@ -74,6 +76,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: catalog-config
+            - configMapRef:
+                name: otel-config
           readinessProbe:
             httpGet:
               path: /ready

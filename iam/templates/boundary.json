@@ -9,7 +9,7 @@
         "ecs:*",
         "ecr:*",
         "eks:*",
-        "eks-auth:AssumeRoleForPodIdentity",
+        "eks-auth:AssumeRoleForPodIdentity", "xray:*",
         "rds:*",
         "logs:*",
         "cloudwatch:*",

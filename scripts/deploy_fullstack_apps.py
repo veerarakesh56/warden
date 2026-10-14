@@ -334,17 +334,102 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
          "--set", f"datadog.site={site}", "--set", f"datadog.clusterName={stack['eks_cluster_name']}",
          "--set", "datadog.apiKeyExistingSecret=datadog-secret",
          "--set", "datadog.logs.enabled=true", "--set", "datadog.logs.containerCollectAll=true",
-         "--set", "datadog.apm.instrumentation.enabled=true",
-         "--set", "datadog.apm.instrumentation.targets[0].name=shop",
-         "--set", "datadog.apm.instrumentation.targets[0].namespaceSelector.matchNames[0]=shop"])
+         # The apps' OpenTelemetry data, from the collector on the same node (deploy_otel): every tool gets the same
+         # spans, so the comparison is fair - no second, Datadog-only instrumentation.
+         "--set", "datadog.otlp.receiver.protocols.grpc.enabled=true",
+         "--set", "datadog.otlp.receiver.protocols.grpc.endpoint=0.0.0.0:4317"])
     return True
+
+
+# The OpenTelemetry collector: AWS's distribution, v0.50.0 (released 2026-08-31, github.com/aws-observability/
+# aws-otel-collector; its awsxray, otlp and otlphttp exporters unchanged in it, read 2026-10-14).
+OTEL_IMAGE = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
+
+
+def otel_config(region: str, *, grafana_url: str = "", datadog: bool = False) -> dict:
+    """The collector's configuration for the tools that are set up: X-Ray always (traces, by the pod's IAM role),
+    Grafana when its OTLP address and key are given, Datadog when its agent is on the cluster."""
+    exporters: dict = {"awsxray": {"region": region}}
+    traces, metrics, logs = ["awsxray"], [], []
+    if grafana_url:
+        exporters["otlphttp/grafana"] = {"endpoint": grafana_url,
+                                         "headers": {"Authorization": "Basic ${env:GRAFANA_OTLP_AUTH}"}}
+        traces.append("otlphttp/grafana")
+        metrics.append("otlphttp/grafana")
+        logs.append("otlphttp/grafana")
+    if datadog:
+        exporters["otlp/datadog"] = {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}
+        traces.append("otlp/datadog")
+        metrics.append("otlp/datadog")
+    pipelines = {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": traces}}
+    if metrics:
+        pipelines["metrics"] = {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": metrics}
+    if logs:
+        pipelines["logs"] = {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"], "exporters": logs}
+    return {"receivers": {"otlp": {"protocols": {"grpc": {"endpoint": "0.0.0.0:4317"},
+                                                 "http": {"endpoint": "0.0.0.0:4318"}}}},
+            "processors": {"memory_limiter": {"check_interval": "1s", "limit_percentage": 80,
+                                              "spike_limit_percentage": 20}, "batch": {}},
+            "exporters": exporters, "service": {"pipelines": pipelines}}
+
+
+def deploy_otel(stack: dict, kubeconfig: str, aws, datadog: bool, run=run) -> dict:
+    """The collector in the observability namespace, before the apps roll out. Grafana's OTLP address and key from
+    the persistent `/warden/<env>/tf/grafana_otlp_url` and `warden-<env>-grafana-otlp-auth` (`<instance id>:<token>`,
+    sent to the cluster over stdin); neither set, Grafana is left out."""
+    import base64
+
+    import yaml
+
+    env = stack["environment"]
+    grafana_url, auth = "", ""
+    try:
+        grafana_url = aws("ssm").get_parameter(Name=f"/warden/{env}/tf/grafana_otlp_url")["Parameter"]["Value"].strip()
+        auth = aws("secretsmanager").get_secret_value(SecretId=f"warden-{env}-grafana-otlp-auth")["SecretString"].strip()
+    except Exception as exc:  # noqa: BLE001 - no Grafana: the collector sends to the others
+        print(f"Grafana left out of the collector: its address or key is not set ({type(exc).__name__})", flush=True)
+        grafana_url = auth = ""
+    if not grafana_url.startswith("https://") or ":" not in auth:
+        grafana_url = auth = ""
+    config = otel_config(stack["region"], grafana_url=grafana_url, datadog=datadog)
+    ns = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "observability"}}
+    sa = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "otel-collector", "namespace": "observability"}}
+    cm = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "otel-collector", "namespace": "observability"},
+          "data": {"config.yaml": yaml.safe_dump(config, sort_keys=False)}}
+    docs = [ns, sa, cm]
+    env_vars = [{"name": "HOST_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.hostIP"}}}]
+    if grafana_url:
+        docs.append({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+                     "metadata": {"name": "grafana-otlp", "namespace": "observability"},
+                     "data": {"auth": base64.b64encode(base64.b64encode(auth.encode())).decode()}})
+        env_vars.append({"name": "GRAFANA_OTLP_AUTH", "valueFrom": {"secretKeyRef": {"name": "grafana-otlp", "key": "auth"}}})
+    labels = {"app": "otel-collector"}
+    docs.append({"apiVersion": "apps/v1", "kind": "Deployment",
+                 "metadata": {"name": "otel-collector", "namespace": "observability", "labels": labels},
+                 "spec": {"replicas": 1, "selector": {"matchLabels": labels}, "template": {
+                     "metadata": {"labels": labels},
+                     "spec": {"serviceAccountName": "otel-collector",
+                              "containers": [{"name": "collector", "image": OTEL_IMAGE,
+                                              "args": ["--config=/conf/config.yaml"], "env": env_vars,
+                                              "ports": [{"containerPort": 4317}, {"containerPort": 4318}],
+                                              "resources": {"requests": {"cpu": "100m", "memory": "200Mi"},
+                                                            "limits": {"memory": "400Mi"}},
+                                              "volumeMounts": [{"name": "conf", "mountPath": "/conf"}]}],
+                              "volumes": [{"name": "conf", "configMap": {"name": "otel-collector"}}]}}}})
+    docs.append({"apiVersion": "v1", "kind": "Service", "metadata": {"name": "otel-collector", "namespace": "observability"},
+                 "spec": {"selector": labels, "ports": [{"name": "grpc", "port": 4317}, {"name": "http", "port": 4318}]}})
+    run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=yaml.safe_dump_all(docs, sort_keys=False))
+    run(["kubectl", "--kubeconfig", kubeconfig, "-n", "observability", "rollout", "status", "deployment/otel-collector",
+         "--timeout=300s"])
+    return config
 
 
 def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
     kubeconfig = str(out / "kubeconfig")
     run(["aws", "eks", "update-kubeconfig", "--name", stack["eks_cluster_name"],
          "--region", stack["region"], "--kubeconfig", kubeconfig])
-    deploy_datadog(stack, kubeconfig, aws, run)
+    datadog = deploy_datadog(stack, kubeconfig, aws, run)
+    deploy_otel(stack, kubeconfig, aws, datadog, run)
     # catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
     # value is its signing key, generated here and sent over stdin. fs-23 removes it.
     manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S)]), {

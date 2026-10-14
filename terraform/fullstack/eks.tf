@@ -245,3 +245,40 @@ resource "aws_eks_pod_identity_association" "catalog" {
   service_account = "catalog-api"
   role_arn        = aws_iam_role.catalog_pod.arn
 }
+
+# The OpenTelemetry collector (k8s: the observability namespace, deploy_fullstack_apps.deploy_otel): the apps' traces to
+# X-Ray, and the same data to Grafana and Datadog (owner, 2026-10-14: "use all 3 of them ... compare"). It may send
+# traces and read sampling rules - nothing else.
+resource "aws_iam_role" "otel_collector" {
+  name                 = "${local.name}-otel-collector"
+  permissions_boundary = local.permissions_boundary
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+      Principal = { Service = "pods.eks.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "otel_collector_xray" {
+  name = "${local.name}-otel-xray"
+  role = aws_iam_role.otel_collector.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "SendTracesToXRay"
+      Effect   = "Allow"
+      Action   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets"]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "otel_collector" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "observability"
+  service_account = "otel-collector"
+  role_arn        = aws_iam_role.otel_collector.arn
+}

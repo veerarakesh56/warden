@@ -48,9 +48,13 @@ spec:
           env:
             - name: APP_ROLE
               value: cart-worker
+            - name: OTEL_SERVICE_NAME
+              value: cart-worker
           envFrom:
             - configMapRef:
                 name: catalog-config
+            - configMapRef:
+                name: otel-config
           livenessProbe:
             httpGet:
               path: /health

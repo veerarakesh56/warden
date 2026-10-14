@@ -5,7 +5,8 @@ FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4d
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    OTEL_SDK_DISABLED=true
 
 WORKDIR /app
 # requirements.txt carries a hash for every package (compiled from requirements.in), so pip refuses
@@ -17,4 +18,6 @@ COPY app.py .
 # Numeric, so Kubernetes runAsNonRoot can verify it without an /etc/passwd lookup.
 USER 10001
 EXPOSE 8080
-CMD ["python", "/app/app.py"]
+# Under OpenTelemetry's launcher: its settings come from the OTEL_* environment (k8s/fullstack); with none set it
+# exports nothing and the app runs as before.
+CMD ["opentelemetry-instrument", "python", "/app/app.py"]

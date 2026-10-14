@@ -16,6 +16,25 @@ data:
   CATALOG_CACHE_TTL_S: "60"
   CART_WORKER_INTERVAL_S: "5"
 ---
+# OpenTelemetry for the shop's pods (the image has it off): traces, metrics and logs to the collector in the
+# observability namespace, which sends the same data to X-Ray, Grafana and Datadog (owner, 2026-10-14: "use all 3").
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-config
+  namespace: shop
+  labels:
+    project: warden
+data:
+  OTEL_SDK_DISABLED: "false"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"
+  OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+  OTEL_TRACES_EXPORTER: "otlp"
+  OTEL_METRICS_EXPORTER: "otlp"
+  OTEL_LOGS_EXPORTER: "otlp"
+  OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
+  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=__ENVIRONMENT__"
+---
 # ⛔ A TEMPLATE. No real value is ever written here; the deploy tool generates the signing key at
 # apply time (over stdin). No database password: catalog-api logs in with an IAM token.
 apiVersion: v1

@@ -161,7 +161,7 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     assert set(clients) <= {"secretsmanager", "ssm"}
     assert [kw for name, kw in clients["secretsmanager"].calls] == [{"SecretId": "warden-dev-datadog-api-key"}]
     assert not any(c[:1] == ["helm"] for c in run.cmds)
-    applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c)
+    applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c and i and "kind: ClusterRole" in i)
     assert not tool.PLACEHOLDER.search(applied)
     assert STACK["ecr_repository_url"] + ":abc123" in applied
     assert "kind: ClusterRole" in applied and "name: warden-readonly" in applied
@@ -171,13 +171,13 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     assert len(key) == 64 and (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
         "warden_dev_catalog", "reader.internal", "ap-south-2")
     assert all(key not in " ".join(c) for c in run.cmds)
-    assert sum("rollout" in c for c in run.cmds) == 2
+    assert sum("rollout" in c for c in run.cmds) == 3  # the collector, then the two apps
 
 
 def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart(tmp_path):
-    """Owner, 2026-10-14: Datadog beside AWS. Its agent is installed before the apps roll out (their pods start traced,
-    no code change), its key read from the persistent secret and sent to the cluster over stdin, never on a command
-    line; the chart pinned; a site that is not Datadog's installs nothing."""
+    """Owner, 2026-10-14: Datadog beside AWS. Its agent is installed before the collector and the apps (it receives
+    their OpenTelemetry data and collects their logs), its key read from the persistent secret and sent to the cluster
+    over stdin, never on a command line; the chart pinned; a site that is not Datadog's installs nothing."""
     import base64
 
     key = "dd" + "0123456789abcdef" * 2
@@ -188,15 +188,16 @@ def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart
     run = Runner({"kustomize": rendered})
     tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run)
     assert all(key not in " ".join(c) for c in run.cmds)  # never on argv
-    assert [kw for _, kw in clients["ssm"].calls] == [{"Name": "/warden/dev/tf/datadog_site"}]  # the deploy role's path
+    assert {"Name": "/warden/dev/tf/datadog_site"} in [kw for _, kw in clients["ssm"].calls]  # the deploy role's path
     secret_in = next(i for c, i in zip(run.cmds, run.inputs) if i and "datadog-secret" in i)
     assert base64.b64encode(key.encode()).decode() in secret_in and "namespace: datadog" in secret_in
     helm = next(c for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"])
     assert helm[helm.index("--version") + 1] == tool.DATADOG_CHART == "3.250.3"
     for value in ("datadog.site=ap1.datadoghq.com", "datadog.apiKeyExistingSecret=datadog-secret",
-                  "datadog.logs.containerCollectAll=true", "datadog.apm.instrumentation.enabled=true",
-                  "datadog.apm.instrumentation.targets[0].namespaceSelector.matchNames[0]=shop"):
+                  "datadog.logs.containerCollectAll=true", "datadog.otlp.receiver.protocols.grpc.enabled=true"):
         assert value in helm, value
+    # The apps are traced once, by OpenTelemetry, for every tool alike - no Datadog-only instrumentation beside it.
+    assert not any("apm.instrumentation" in v for v in helm)
     apps = next(n for n, (c, i) in enumerate(zip(run.cmds, run.inputs)) if i and "kind: ClusterRole" in i)
     assert run.cmds.index(helm) < apps  # the agent first: the apps' pods start traced
     clients["ssm"] = Fake({"get_parameter": {"Parameter": {"Value": "evil.example"}}})
@@ -329,3 +330,35 @@ def test_an_extra_a_requirement_asks_for_is_followed(tmp_path):
     assert tool.missing_dependencies(tmp_path, extras={"boto3": {"crt"}}) == ["awscrt"]
     _dist(tmp_path, "awscrt")
     assert tool.missing_dependencies(tmp_path, extras={"boto3": {"crt"}}) == []
+
+
+def test_one_collector_sends_the_same_data_to_xray_grafana_and_datadog_before_the_apps_start(tmp_path):
+    """Owner, 2026-10-14: "use all 3 of them ... and compare" - one OpenTelemetry collector, the same spans to every
+    tool; X-Ray always (by the pod's IAM role), Grafana and Datadog when set up; Grafana's key over stdin only."""
+    import base64
+
+    import yaml
+
+    full = tool.otel_config("ap-south-2", grafana_url="https://otlp.example.test/otlp", datadog=True)
+    assert full["service"]["pipelines"]["traces"]["exporters"] == ["awsxray", "otlphttp/grafana", "otlp/datadog"]
+    assert full["exporters"]["awsxray"] == {"region": "ap-south-2"}
+    assert full["exporters"]["otlphttp/grafana"]["headers"] == {"Authorization": "Basic ${env:GRAFANA_OTLP_AUTH}"}
+    alone = tool.otel_config("ap-south-2")
+    assert alone["service"]["pipelines"] == {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"],
+                                                        "exporters": ["awsxray"]}}
+    auth = "1825235:" + "glc_" + "t" * 20
+    clients = {"secretsmanager": Fake({"get_secret_value": {"SecretString": auth}}),
+               "ssm": Fake({"get_parameter": {"Parameter": {"Value": "https://otlp.example.test/otlp"}}})}
+    run = Runner()
+    config = tool.deploy_otel(STACK, "k", aws_factory(clients), True, run)
+    assert "otlphttp/grafana" in config["exporters"] and "otlp/datadog" in config["exporters"]
+    assert all(auth not in " ".join(c) for c in run.cmds)  # never on argv
+    docs = list(yaml.safe_load_all(run.inputs[0]))
+    secret = next(d for d in docs if d["kind"] == "Secret")
+    assert base64.b64decode(base64.b64decode(secret["data"]["auth"])).decode() == auth
+    dep = next(d for d in docs if d["kind"] == "Deployment")
+    assert dep["spec"]["template"]["spec"]["containers"][0]["image"] == tool.OTEL_IMAGE.replace(":v", ":v")
+    assert tool.OTEL_IMAGE.endswith(":v0.50.0")
+    k8s = (ROOT / "k8s" / "fullstack" / "config.yaml").read_text(encoding="utf-8")
+    assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"' in k8s
+    assert "OTEL_SDK_DISABLED=true" in (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
