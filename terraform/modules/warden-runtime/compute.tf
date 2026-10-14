@@ -270,6 +270,9 @@ resource "aws_ecs_service" "zone" {
     weight            = 1
   }
   platform_version = "LATEST"
+  # A change of capacity provider (EC2 to Fargate, 2026-10-14) needs a fresh deployment; the AWS provider refuses
+  # it otherwise. It rolls the tasks only when the service itself changes.
+  force_new_deployment = true
   network_configuration {
     subnets         = var.private_subnet_ids
     security_groups = [aws_security_group.runtime.id]

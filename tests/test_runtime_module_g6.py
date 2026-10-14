@@ -284,7 +284,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
     assert 'RUN chmod 1777 /tmp\nVOLUME ["/tmp"]\nUSER warden' in dockerfile  # else the volume is root's 0755
     service = _block(tf, "aws_ecs_service", "zone")
-    assert 'capacity_provider = "FARGATE"' in service
+    assert 'capacity_provider = "FARGATE"' in service and "force_new_deployment = true" in service  # the provider needs it
     assert "placement_constraints" not in service and "ordered_placement_strategy" not in service  # Fargate refuses them
     assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task and "readonlyRootFilesystem = true" in task
     assert "for_each                 = local.zones" in task
