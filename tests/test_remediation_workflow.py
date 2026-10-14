@@ -206,12 +206,15 @@ def test_the_plan_made_again_is_applied_once_it_is_approved_in_its_turn(world, o
     async def twice(handle):
         await _approve_with(owner)(handle)
         # The next run of the same workflow makes its own plan: wait for it on WARDEN's record, not by querying a run
-        # that is handing over (that query can hang until its deadline), then approve it in its turn.
-        for _ in range(400):
+        # that is handing over (that query can hang until its deadline), then approve it in its turn. Up to 60 s of
+        # wall time: 20 s ran out once under the gate's four parallel workers (2026-10-14) and approved too early.
+        for _ in range(1200):
             made = world["log"].entries("inc-42", kinds=("remediation.plan",))
             if [s for s, _ in _ends(world)] == ["drifted"] and len(made) == 2:
                 break
             await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("the plan made again never reached the record")
         await _approve_with(owner)(handle)
 
     out = _run(world, twice)
