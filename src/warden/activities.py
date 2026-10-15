@@ -334,6 +334,8 @@ class RemediationActivities:
         self.audit.checkpoint()
         head = self.audit.head(plan.incident_id)
         tier = f"{plan.tier} - {approvals.TIER_MEANS[plan.tier]}" if plan.tier in approvals.TIER_MEANS else plan.tier
+        shown = (catalog.shown_target(plan.environment, plan.entry, plan.params) if plan.entry in catalog.CATALOG
+                 else plan.target)
         # Who may approve this tier, and who did (owner, 2026-10-12: "anyone in the channel can click it, and nobody
         # can see who approved"). Both from WARDEN's own record: the approver list, and this run's accepted approvals.
         need = self.policy.required.get(plan.tier, 1)
@@ -349,20 +351,20 @@ class RemediationActivities:
         words = noted if what == "approved" else ""  # the person's own words in this message, if any
         # The plan's id, for whoever looks it up - not a command to type, in a message most readers act on by its
         # button (owner's bar, 2026-10-12: no unexplained jargon).
-        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` ({tier}) is waiting for an approval "
+        said = {"waiting": (f"WARDEN's plan `{plan.entry}` on `{shown}` ({tier}) is waiting for an approval "
                             f"(plan `{plan.workflow_id}`). It waits until "
                             f"{environments.both_times(_deadline(plan), seconds=False)}; unapproved by then, it expires "
                             "and nothing is changed. "
                             "Only an enrolled approver of this risk level can approve it"
                             + (f", and {need} different approvers are needed" if need > 1 else "")
                             + ": the link opens for nobody else, and who decided is said here when they have."),
-                "approved": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` was approved by {' and '.join(did)} at "
+                "approved": (f"WARDEN's plan `{plan.entry}` on `{shown}` was approved by {' and '.join(did)} at "
                              f"{environments.both_times(datetime.now(UTC))}. WARDEN checks the target once more, then "
                              "applies it." + noted),
-                "expired": (f"WARDEN's plan `{plan.entry}` on `{plan.target}` expired without an approval. No action "
+                "expired": (f"WARDEN's plan `{plan.entry}` on `{shown}` expired without an approval. No action "
                             "was taken; the incident is still open.")}.get(what) or OUTCOME.get(
             what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
-                                                                                      target=plan.target)
+                                                                                      target=shown)
         if what == "approved" and not did:
             return []  # nothing on the record says who: nothing is claimed
         if what == "denied":
@@ -375,7 +377,7 @@ class RemediationActivities:
             if who and ended_at is not None:
                 reason = next((w[len(f"denied by {who}: "):] for w in whole if w.startswith(f"denied by {who}: ")), "")
                 words = f" Their reason: {_words(reason)}{_tried(reason)}" if reason else ""
-                said = (f"WARDEN's plan `{plan.entry}` on `{plan.target}` was denied by {self.policy.said(who)} (with "
+                said = (f"WARDEN's plan `{plan.entry}` on `{shown}` was denied by {self.policy.said(who)} (with "
                         f"their passkey) at {environments.both_times(ended_at)}: nothing was changed." + words)
                 why = []
         if what == "waiting":

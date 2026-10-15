@@ -399,6 +399,21 @@ def target_key(name: str, params: dict[str, Any]) -> str:
     return entry.platform + ":" + "/".join(str(params.get(p, "")) for p in entry.target_params)
 
 
+# A target named by an id a person cannot read is shown by its owner: an event source mapping's UUID - also the shape
+# of many API keys, so the outbound gate withheld the whole approval request that named it (fs-07, live, 2026-10-15).
+_SHOWN_BY = {"mapping": ("function", "event source mapping of {}")}
+
+
+def shown_target(environment: str, name: str, params: dict[str, Any]) -> str:
+    """The plan's target as a person reads it in a message; target_key stays the key the bounds and mutex use."""
+    entry = CATALOG[name]
+    parts = []
+    for p in entry.target_params:
+        owner, said = _SHOWN_BY.get(p, ("", ""))
+        parts.append(said.format(params[owner]) if owner and params.get(owner) else str(params.get(p, "")))
+    return f"{environment}/{entry.platform}:" + "/".join(parts)
+
+
 def fingerprint() -> str:
     """What the catalogue allows, as one hash: a plan made under one catalogue is not applied under another
     (register O5). The `relative` limits are code, covered by the code hash (activities.code_version)."""
