@@ -566,6 +566,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "a role or an IAM user wrote to the alert's own resource in the half hour before it "
                             "fired, and the fix neither reverts, rolls back nor cites it: escalated to a person"
                         ),
+                        "P33-DELIBERATE-CHANGE": (
+                            "the fix undoes a change a security, cost or compliance identity made on purpose (named "
+                            "by the owner, or by a word of its role's name): escalated - a person decides"
+                        ),
                         "P30-NO-FIX-PATH": (
                             "the target is a resource the alarm's labels name, and no catalogue entry carries out "
                             "the proposed action on it: the proposal reaches a person as advice, not as a plan"

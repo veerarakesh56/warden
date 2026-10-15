@@ -8,6 +8,7 @@ re-running anything.
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime
 
@@ -324,6 +325,44 @@ _RERUNS_THE_DENIED_CALL = frozenset({
     ActionKind.redrive_messages, ActionKind.resume_flow})
 
 
+# Held-out G10 with Claude Sonnet 5.5 (2026-10-15): six harmful proposals, all stopped - but four only by low
+# confidence or a citation check, which a more confident answer passes. These rules stop them by what the action does.
+# An HPA's own numbers (k8s reader): it owns the replica count, and a manual scale is overridden by it (g10-144).
+_HPA_KEYS = ("hpa_max_replicas", "hpa_min_replicas")
+# ECS could not place tasks it already wanted (the service's own events, counted by the ECS reader, g10-061): more
+# tasks cannot be placed either - the cluster's capacity, or its ENIs, is a person's change.
+_UNPLACED = re.compile(r"^STATE ecs/\S+ service events in the hour before the alert: .*\bunable_to_place=([1-9]\d*)")
+_SCALES = frozenset({ActionKind.scale_up, ActionKind.scale_down})
+
+
+# A change made on purpose by a security, cost or compliance identity (g10-042: IMDSv2 required by
+# role/secops-imds-hardening; g10-070: a query cutoff set by role/finops-cost-guardrails). Undoing it undoes the
+# guardrail: a person decides. Named by the owner (WARDEN_NEVER_REVERT_PRINCIPALS, which the platform already refused at
+# plan time) or by a word of its role's name. A trusted CHANGE line names the principal (aws_stack._principal).
+_GOVERNANCE = frozenset({"security", "secops", "sec", "finops", "guardrail", "guardrails", "compliance", "audit",
+                         "governance", "breakglass", "break-glass"})
+_CHANGE_BY = re.compile(r"^CHANGE \S+ \S+ ([A-Za-z0-9]+) on (\S+) by (\S+)")
+UNDOES = frozenset({ActionKind.revert_change, ActionKind.revert_config})
+
+
+def _deliberate(proposal, context) -> str | None:
+    """Why undoing the change before the alert is a person's decision - or None."""
+    if proposal.action not in UNDOES:
+        return None
+    named = {n.strip() for n in os.environ.get("WARDEN_NEVER_REVERT_PRINCIPALS", "").split(",") if n.strip()}
+    for line in context.logs:
+        m = _CHANGE_BY.match(line)
+        if not m:
+            continue
+        event, on, who = m.groups()
+        name = who.split("/", 1)[-1]
+        words = set(re.split(r"[-_.]", name.lower())) | ({"break-glass"} if "break-glass" in name.lower() else set())
+        if name in named or words & _GOVERNANCE:
+            return (f"the change before the alert ({event} on {on}) was made by {who}, a security, cost or compliance "
+                    "identity: a deliberate change. Undoing it undoes that guardrail - a person decides.")
+    return None
+
+
 def _contradiction(proposal, context) -> str | None:
     """Why the proposed action cannot fix what the evidence shows - or None.
 
@@ -331,6 +370,18 @@ def _contradiction(proposal, context) -> str | None:
     where the action demonstrably leaves the evidenced cause in place, or harms what is working.
     """
     a, m = proposal.action, context.metrics
+    if a in _SCALES and any(k in m or any(x.startswith(k + "__") for x in m) for k in _HPA_KEYS):
+        lo, hi = m.get("hpa_min_replicas"), m.get("hpa_max_replicas")
+        bounds = f" (min {lo:.0f}, max {hi:.0f})" if lo is not None and hi is not None else ""
+        return (f"{a.value} sets a replica count a HorizontalPodAutoscaler owns{bounds}: the autoscaler overrides a "
+                "manual scale within minutes. Its metric, its limits or its scaling behaviour are a person's change.")
+    if a is ActionKind.scale_up:
+        unplaced = next((u for u in map(_UNPLACED.match, context.logs) if u), None)
+        if unplaced:
+            return (f"scale_up asks for more tasks, and ECS could not place the ones it already wanted "
+                    f"({unplaced.group(1)} unable-to-place events in the hour before the alert): more cannot be placed "
+                    "either. The cluster's capacity - its instances, or their network interfaces - is a person's "
+                    "change.")
     if a in _RERUNS_THE_DENIED_CALL:
         denied = next((d for d in map(_ROLE_DENIES.match, context.logs) if d), None)
         if denied:
@@ -721,6 +772,13 @@ def _enforce(
         escalate = True
         policies.append("P11-ACTION-CONTRADICTS-EVIDENCE")
         reasons.append(contradiction)
+
+    # P33 - undoing a deliberate change by a security, cost or compliance identity (held-out G10, 2026-10-15).
+    deliberate = _deliberate(proposal, context)
+    if deliberate:
+        escalate = True
+        policies.append("P33-DELIBERATE-CHANGE")
+        reasons.append(deliberate)
 
     # P23 — "nothing to do" because a read came back empty (register N2). An empty answer from a throttled,
     # lagging or misdirected query looks exactly like a quiet, healthy service; it is unknown, never healthy.
