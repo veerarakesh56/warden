@@ -1674,9 +1674,9 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
 
 # Performance Insights' heaviest statements, as numbers and names only (2026-10-15: "do you see the queries").
 TOP_SQL = 5
-_SQL_VERB = re.compile(r"^\s*(?:/\*.*?\*/\s*)*([A-Za-z]+)", re.S)
+_SQL_VERB = re.compile(r"^\s*(?:/\*.*?\*/\s*)*([A-Za-z]+)", re.DOTALL)
 _SQL_TABLE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+((?:[A-Za-z_][A-Za-z0-9_$]{0,62}\.)?[A-Za-z_][A-Za-z0-9_$]{0,62})",
-                        re.I)
+                        re.IGNORECASE)
 _SQL_VERBS = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "COPY", "VACUUM", "ANALYZE", "CREATE", "ALTER",
                         "DROP", "LOCK", "BEGIN", "COMMIT", "CALL", "MERGE", "SET", "SHOW", "TRUNCATE", "REFRESH"})
 
