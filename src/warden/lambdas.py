@@ -258,7 +258,7 @@ def _datadog(headers: dict[str, str], body: bytes) -> dict[str, Any]:
 
 
 # RemediationWorkflow's query and signals by the names it registers (workflows.py; a test holds them equal).
-PLAN_QUERY, APPROVE_SIGNAL, DENY_SIGNAL = "plan", "approve_passkey", "deny"
+PLAN_QUERY, APPROVE_SIGNAL, DENY_SIGNAL, SIGNED_SIGNAL = "plan", "approve_passkey", "deny", "approve"
 
 
 def approval_page() -> Any:
@@ -290,6 +290,11 @@ def approval_page() -> Any:
             await (await runtime.connect()).get_workflow_handle(workflow_id).signal(DENY_SIGNAL, denial)
         asyncio.run(go())
 
+    def signed(workflow_id: str, approval: Any) -> None:
+        async def go() -> None:
+            await (await runtime.connect()).get_workflow_handle(workflow_id).signal(SIGNED_SIGNAL, approval)
+        asyncio.run(go())
+
     rp_id = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
     if not rp_id:
         raise RuntimeError("WARDEN_APPROVAL_RP_ID is not set: the passkeys' relying party is the approval domain")
@@ -298,7 +303,7 @@ def approval_page() -> Any:
 
     log = runtime.open_audit()
     return ApprovalPage(rp_id=rp_id, policy=policy, plan_of=plan_of, signal=signal, deny=deny,
-                        store=AuditLinkStore(log), log=log, slack=slack_login.from_environment())
+                        store=AuditLinkStore(log), log=log, slack=slack_login.from_environment(), signed=signed)
 
 
 def approval(event: dict[str, Any], context: Any = None) -> dict[str, Any]:

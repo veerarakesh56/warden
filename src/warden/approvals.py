@@ -246,6 +246,11 @@ class ApproverPolicy(BaseModel):
         return key if isinstance(key, Ed25519PublicKey) else None
 
 
+def plan_request(approver: str, incident: str, issued_at: str) -> bytes:
+    """What a limited approver signs to be shown an incident's waiting plan (approval_page._signed_plan)."""
+    return f"warden-plan-request\n{approver}\n{incident}\n{issued_at}".encode()
+
+
 def sign(key: Ed25519PrivateKey, *, approver: str, workflow_id: str, plan_hash: str, tier: str,
          ttl: timedelta = timedelta(minutes=30), now: datetime | None = None) -> SignedApproval:
     if tier not in TIERS:

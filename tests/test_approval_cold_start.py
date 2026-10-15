@@ -60,3 +60,6 @@ def test_the_names_called_are_the_ones_the_workflow_registers():
     assert d.queries[lambdas.PLAN_QUERY].ret_type == (Plan | None)
     assert d.signals[lambdas.APPROVE_SIGNAL].arg_types == [PasskeyAssertion]
     assert d.signals[lambdas.DENY_SIGNAL].arg_types == [Denial]
+    from warden.approvals import SignedApproval
+
+    assert d.signals[lambdas.SIGNED_SIGNAL].arg_types == [SignedApproval]

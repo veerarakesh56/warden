@@ -214,6 +214,9 @@ class ApprovalPage:
     # Sign in with Slack (slack_login.SlackLogin), when the runtime has a Slack app: then a link opens only for the
     # Slack member its approver is, before the passkey. None: the passkey alone, as before.
     slack: Any = None
+    # workflow id, SignedApproval -> sent: a LIMITED approver's signed approval (the bench approver, owner
+    # 2026-10-15). None: this page takes no signed approval.
+    signed: Callable[[str, Any], None] | None = None
 
     @property
     def origin(self) -> str:
@@ -240,6 +243,8 @@ class ApprovalPage:
             return self._reset(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
         if len(parts) < 2 or parts[0] != "a":
             return _json(404, {"error": "not found"})
+        if parts[1] == "signed" and len(parts) == 3 and method.upper() == "POST":
+            return self._signed_request(parts[2], body)
         token, action = parts[1], (parts[2] if len(parts) > 2 else "")
         link = self.store.link(token)
         if link is None or self.clock() >= link.expires_at:
@@ -257,6 +262,61 @@ class ApprovalPage:
         if route not in (None, self._shell) and not self._signed_in(token, link.approver):
             return _json(403, {"error": "sign in with Slack first"})
         return route(token, link, data) if route else _json(404, {"error": "not found"})
+
+    # ------------------------------------------------------------------ a limited approver's signed approval
+
+    def _signed_request(self, step: str, body: str) -> Response:
+        """`/a/signed/plan` and `/a/signed/approve`: an approver limited to some environments (the bench approver,
+        owner 2026-10-15) asks for an incident's waiting plan with a signed request, then sends a signed approval of
+        it. Every check of approvals.check runs here and again in the workflow; an approver with no environment list
+        - a person - never uses this path."""
+        if self.signed is None or self.log is None or step not in ("plan", "approve"):
+            return _json(404, {"error": "not found"})
+        try:
+            data = json.loads(body) if body else {}
+        except ValueError:
+            return _json(400, {"error": "the request is not JSON"})
+        approver = self.policy.approvers.get(str(data.get("approver", "")))
+        if approver is None or not approver.environments:
+            return _json(403, {"error": "not an approver this path is for"})
+        if step == "plan":
+            return self._signed_plan(str(data["approver"]), data)
+        try:
+            approval = approvals.SignedApproval.model_validate(data)
+        except Exception:  # noqa: BLE001 - a malformed approval is refused whole
+            return _json(400, {"error": "not a signed approval"})
+        plan = self.plan_of(approval.workflow_id)
+        if plan is None:
+            return _json(404, {"error": "no plan is waiting under that id"})
+        used = {e["body"].get("nonce") for e in self.log.entries(kinds=("approval.accepted",))}
+        problems = approvals.check(approval, policy=self.policy, workflow_id=plan.workflow_id, plan_hash=plan.plan_hash,
+                                   tier=plan.tier, plan_created_at=plan.created_at, used_nonces=used,
+                                   now=self.clock(), environment=plan.environment)
+        if problems:
+            return _json(403, {"error": "; ".join(problems)})
+        self.signed(plan.workflow_id, approval)
+        return _json(202, {"sent": plan.workflow_id})
+
+    def _signed_plan(self, name: str, data: dict) -> Response:
+        """The incident's waiting plan, to the limited approver who signed `plan-request|approver|incident|time` in
+        the last five minutes - only a plan in an environment and a tier it may approve."""
+        incident, issued = str(data.get("incident", "")), str(data.get("issued_at", ""))
+        try:
+            at = datetime.fromisoformat(issued)
+            key = self.policy.key_of(name)
+            key.verify(bytes.fromhex(str(data.get("signature", ""))), approvals.plan_request(name, incident, issued))
+        except Exception:  # noqa: BLE001 - an unparsable time, an unknown key or a bad signature: refused the same
+            return _json(403, {"error": "the request is not signed by that approver"})
+        if abs(self.clock() - at) > timedelta(minutes=5):
+            return _json(403, {"error": "the request is too old"})
+        rows = self.log.entries(incident, kinds=("remediation.plan",))
+        wid = str((rows[-1]["body"] if rows else {}).get("workflow_id", ""))
+        plan = self.plan_of(wid) if wid else None
+        approver = self.policy.approvers[name]
+        if plan is None or plan.environment not in approver.environments or plan.tier not in approver.tiers:
+            return _json(404, {"error": "no plan this approver may approve is waiting for that incident"})
+        return _json(200, {"workflow_id": plan.workflow_id, "plan_hash": plan.plan_hash, "tier": plan.tier,
+                           "environment": plan.environment, "entry": plan.entry, "target": plan.target})
 
     # ------------------------------------------------------------------ sign in with Slack
 
