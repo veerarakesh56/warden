@@ -131,8 +131,8 @@ def test_the_records_open_only_for_an_approver_or_a_listed_viewer_slack_named(pa
 def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(page_setup, tmp_path, monkeypatch):  # noqa: F811
     monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
 
-    def sign_in(page, slack):
-        out = page.handle("GET", "/s/r")
+    def sign_in(page, slack, path="/s/r"):
+        out = page.handle("GET", path)
         assert out.status == 302 and out.headers["Location"].startswith(slack_login.AUTHORIZE)
         cookie = out.headers["Set-Cookie"].split(";")[0]
         asked = urllib.parse.parse_qs(urllib.parse.urlparse(out.headers["Location"]).query)
@@ -149,6 +149,13 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
     page = dataclasses.replace(page, slack=_login(stranger))
     refused = sign_in(page, stranger)
     assert refused.status == 403 and "Set-Cookie" not in refused.headers
+    # 2026-10-15: a report's "Full record" button landed on the list once signed in. The incident opened is where
+    # the reader comes back to - only an incident id's shape travels through Slack's sign-in.
+    page = dataclasses.replace(page, slack=_login(slack))
+    signed_out = page.handle("GET", f"/r/{INC}")
+    assert f'href="/s/r/{INC}"' in signed_out.body
+    assert sign_in(page, slack, f"/s/r/{INC}").headers["Location"] == f"/r/{INC}"
+    assert page.handle("GET", "/s/r/a%2Fb..c d").status == 404 and page.handle("GET", "/s/r/x/y").status == 404
 
 
 def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_setup, tmp_path):  # noqa: F811

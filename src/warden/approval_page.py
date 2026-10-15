@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -371,9 +372,10 @@ class ApprovalPage:
         if self.slack is None or method != "GET":
             return _json(404, {"error": "not found"})
         redirect = f"{self.origin}/s/callback"
-        if parts == ["r"]:  # the records: no link, the reader's own sign-in (records.py)
+        if parts == ["r"] or (len(parts) == 2 and parts[0] == "r" and _INCIDENT_ID.fullmatch(parts[1])):
+            # The records: no link, the reader's own sign-in (records.py) - and the incident to come back to, if any.
             nonce = secrets.token_urlsafe(16)
-            value = f"r/records.{nonce}"
+            value = f"r/{parts[1] if len(parts) == 2 else 'records'}.{nonce}"
             state = hashlib.sha256(value.encode()).hexdigest()
             return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
                                   "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
@@ -406,7 +408,8 @@ class ApprovalPage:
                 from .records import refused_page
 
                 return self._served_html(403, refused_page())
-            return Response(302, {"Location": "/r", "Cache-Control": "no-store",
+            back = token if token != "records" and _INCIDENT_ID.fullmatch(token) else ""
+            return Response(302, {"Location": f"/r/{back}" if back else "/r", "Cache-Control": "no-store",
                                   "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
                                                  "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
         approver = self._approver_of(kind, token)
@@ -454,7 +457,10 @@ class ApprovalPage:
         value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
         member = remembered(self.slack, value) if value else ""
         if not member:
-            return self._served_html(200, records.signed_out_page("/s/r"))
+            # Back to the page the reader opened after Slack's sign-in, not to the list (2026-10-15: a report's "Full
+            # record" button landed on every incident once signed in). Only an incident id's shape travels.
+            back = parts[0] if parts and _INCIDENT_ID.fullmatch(parts[0] or "") else ""
+            return self._served_html(200, records.signed_out_page(f"/s/r/{back}" if back else "/s/r"))
         if not self._may_read(member):
             return self._served_html(403, records.refused_page())
         if self.log is None:
@@ -726,6 +732,8 @@ def _headers(nonce: str, content_type: str) -> dict[str, str]:
 
 _COOKIE = "warden_s"  # holds the link while the browser is at Slack: this site's only, ten minutes, /s alone
 _WHO = "warden_who"  # the member Slack named in this browser, sealed (slack_login.remember): no script can read it
+# An incident id's shape (chatops: the "Full record" link's): all that travels through Slack's sign-in, and back.
+_INCIDENT_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
 
 
 def _notice(status: int, text: str) -> Response:
