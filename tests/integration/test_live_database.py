@@ -99,6 +99,22 @@ def test_postgres_metrics_come_back_from_a_real_server():
 
 
 @needs_pg
+def test_postgres_access_lists_the_real_databases_and_who_may_connect():
+    """Research 2026-10-15, item 8: the catalog read parses on a real server, names the database the test is in and
+    the login it connects as, and says a database that does not exist is not there."""
+    conn = _connect_or_fail(_Postgres, PG_DSN, "postgres")
+    lines = _Postgres.access(conn)
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_database()")
+        here = cur.fetchone()[0]
+    conn.close()
+    assert lines[0].startswith("STATE postgres login_roles=") and PG_USER in lines[0].split("=", 1)[1].split(","), lines
+    mine = [ln for ln in lines if ln.startswith(f"STATE postgres database {here} ")]
+    assert mine and PG_USER in mine[0].split("connect_roles=", 1)[1].split(","), lines
+    assert not any(" database warden_no_such_db " in ln for ln in lines)
+
+
+@needs_pg
 def test_postgres_activity_names_a_blocked_session_and_its_blocker_on_a_real_server(monkeypatch):
     """The session-level evidence added after RDS Wave 3, against a real catalog: pg_blocking_pids,
     host(client_addr) and the pool breakdown must parse and return real rows, not just pass a stub."""

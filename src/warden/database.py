@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 from urllib.parse import urlparse
 
 from .models import Alert
@@ -140,6 +141,30 @@ class _Postgres:
             for pid, state, age, q in rows
         ]
         return lines + cls._unageable(conn)
+
+    # Research 2026-10-15, item 8: the database and its roles as the server itself lists them. On 2026-10-14 the
+    # real cause - the application's database and roles had never been created - was in no evidence item: WARDEN
+    # read sessions and counts, never whether what the application connects to exists. Names come from the
+    # server's catalog, never from a log line, and only plain identifiers are shown.
+    _NAME = re.compile(r"[A-Za-z0-9_.-]{1,63}")
+    ACCESS_LIMIT = 20
+
+    @classmethod
+    def access(cls, conn) -> list[str]:
+        """`STATE postgres login_roles=...` and, per database, the login roles that may connect to it - trusted
+        configuration (evidence kind C), so "database shop does not exist" in a log has a fact to stand on."""
+        plain = cls._NAME.fullmatch
+        roles = [r for (r,) in cls._rows(conn, "SELECT rolname FROM pg_roles WHERE rolcanlogin AND rolname NOT LIKE "
+                                               "'rds%%' ORDER BY rolname LIMIT %s", (cls.ACCESS_LIMIT,)) if plain(r)]
+        lines = [f"STATE postgres login_roles={','.join(roles) or '(none)'}"]
+        for db, may in cls._rows(conn, (
+                "SELECT d.datname, coalesce(string_agg(r.rolname, ',' ORDER BY r.rolname) FILTER ("
+                "WHERE has_database_privilege(r.oid, d.oid, 'CONNECT')), '') FROM pg_database d "
+                "LEFT JOIN pg_roles r ON r.rolcanlogin AND r.rolname = ANY(%s) "
+                "WHERE NOT d.datistemplate GROUP BY d.datname ORDER BY d.datname LIMIT %s"), (roles, cls.ACCESS_LIMIT)):
+            if plain(db):
+                lines.append(f"STATE postgres database {db} connect_roles={may or '(none)'}")
+        return lines
 
     @classmethod
     def activity(cls, conn) -> list[str]:
@@ -543,6 +568,11 @@ class DatabaseBackend:
                 lines += adapter.activity(conn)
             except Exception as exc:  # noqa: BLE001 - partial, reported as such
                 lines.append(f"{PARTIAL_PREFIX}activity: {failure(exc)}")
+        if hasattr(adapter, "access"):  # which databases exist and who may connect (research 2026-10-15, item 8)
+            try:
+                lines += adapter.access(conn)
+            except Exception as exc:  # noqa: BLE001 - partial, reported as such
+                lines.append(f"{PARTIAL_PREFIX}access: {failure(exc)}")
         return lines
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:

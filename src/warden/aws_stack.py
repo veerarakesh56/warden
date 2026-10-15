@@ -1320,6 +1320,8 @@ class StackBackend:
         for line in db.logs(alert):
             if line.startswith(PARTIAL_PREFIX):
                 out.lines.append(_partial(f"aurora-db-{role}", line))
+            elif prefix and line.startswith("STATE postgres "):
+                continue  # one cluster, one catalog: the writer's lines already hold it
             else:
                 out.lines.append(f"[{role}] {line}" if prefix else line)
 

@@ -553,8 +553,9 @@ def test_a_partial_from_the_adapter_reaches_gather_with_its_prefix_intact():
     conn = _SqlStub({
         "state_change > now()": [(3,)],
         "pg_stat_activity": [],
+        "pg_roles": [],  # the catalog read (database.access): its STATE lines are not this test's
     })
-    lines = DatabaseBackend(engine="postgres", conn=conn).logs(_alert())
+    lines = [ln for ln in DatabaseBackend(engine="postgres", conn=conn).logs(_alert()) if not ln.startswith("STATE ")]
     assert len(lines) == 1
     assert lines[0].startswith(PARTIAL_PREFIX), f"prefix was mangled: {lines[0]!r}"
     assert "stuck connection" not in lines[0]
