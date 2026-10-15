@@ -95,8 +95,8 @@ def test_every_action_is_pinned_to_a_full_commit_sha():
     uses = [(f.name, m.group(1)) for f in CI.parent.glob("*.yml")
             for m in re.finditer(r"^\s*-?\s*uses:\s*(\S+)", f.read_text(encoding="utf-8"), re.MULTILINE)]
     assert uses
-    # This repository's own workflows (`./.github/workflows/...`; `$/` was an undocumented spelling GitHub accepted) are
-    # pinned by the commit that calls them.
+    # This repository's own workflows - `$/.github/workflows/...`, GitHub's self-repository syntax (zizmor's
+    # self-repository audit requires it) - are pinned by the commit that calls them.
     loose = [(f, u) for f, u in uses if not u.startswith(("./", "$/"))
              and not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", u)]
     assert loose == [], loose

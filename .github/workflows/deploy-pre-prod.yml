@@ -46,11 +46,11 @@ concurrency:
 jobs:
   infra-validate:
     if: inputs.part == 'infra'
-    uses: ./.github/workflows/_infra-validate.yml
+    uses: $/.github/workflows/_infra-validate.yml
   infra:
     if: inputs.part == 'infra'
     needs: infra-validate
-    uses: ./.github/workflows/_infra-deploy.yml
+    uses: $/.github/workflows/_infra-deploy.yml
     with:
       environment: pre-prod
       action: ${{ inputs.infra_action }}
@@ -63,11 +63,11 @@ jobs:
 
   apps-check:
     if: inputs.part == 'apps'
-    uses: ./.github/workflows/_apps-check.yml
+    uses: $/.github/workflows/_apps-check.yml
   apps:
     if: inputs.part == 'apps'
     needs: apps-check
-    uses: ./.github/workflows/_apps-deploy.yml
+    uses: $/.github/workflows/_apps-deploy.yml
     with:
       environment: pre-prod
       target: ${{ inputs.apps_target }}

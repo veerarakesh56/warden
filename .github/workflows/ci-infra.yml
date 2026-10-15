@@ -80,4 +80,4 @@ concurrency:
 
 jobs:
   check:
-    uses: ./.github/workflows/_infra-validate.yml
+    uses: $/.github/workflows/_infra-validate.yml

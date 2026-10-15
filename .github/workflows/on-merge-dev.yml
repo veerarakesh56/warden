@@ -70,11 +70,11 @@ jobs:
   infra-validate:
     needs: changes
     if: needs.changes.outputs.infra == '1'
-    uses: ./.github/workflows/_infra-validate.yml
+    uses: $/.github/workflows/_infra-validate.yml
   infra-plan:
     needs: [changes, infra-validate]
     if: needs.changes.outputs.infra == '1'
-    uses: ./.github/workflows/_infra-deploy.yml
+    uses: $/.github/workflows/_infra-deploy.yml
     with:
       environment: dev
       action: plan
@@ -86,11 +86,11 @@ jobs:
   apps-check:
     needs: changes
     if: needs.changes.outputs.infra == '0' && needs.changes.outputs.target != ''
-    uses: ./.github/workflows/_apps-check.yml
+    uses: $/.github/workflows/_apps-check.yml
   apps:
     needs: [changes, apps-check]
     if: needs.changes.outputs.infra == '0' && needs.changes.outputs.target != ''
-    uses: ./.github/workflows/_apps-deploy.yml
+    uses: $/.github/workflows/_apps-deploy.yml
     with:
       environment: dev
       target: ${{ needs.changes.outputs.target }}
