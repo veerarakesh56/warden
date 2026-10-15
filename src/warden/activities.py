@@ -1201,10 +1201,10 @@ class IncidentActivities:
 
     @staticmethod
     def _record_link(incident: str) -> tuple[tuple[str, str], ...]:
-        from .chatops import RECORD_LABEL
+        from .chatops import ALL_LABEL, RECORD_LABEL
 
         rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
-        return ((RECORD_LABEL, f"https://{rp}/r/{incident}"),) if rp else ()
+        return ((RECORD_LABEL, f"https://{rp}/r/{incident}"), (ALL_LABEL, f"https://{rp}/r")) if rp else ()
 
     @activity.defn
     def verify(self, pack: EvidencePack, diagnosed: Diagnosed) -> Verified:

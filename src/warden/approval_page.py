@@ -413,7 +413,26 @@ class ApprovalPage:
         one = records.record(self.log, parts[0], self.policy) if not parts[0].startswith("discuss-") else None
         if one is None:
             return self._served_html(404, records.missing_page())
-        return self._served_html(200, records.incident_page(one))
+        approver = self._approver_for(member, one)
+        if "approve=1" in query.split("&"):
+            # The record's own button: a fresh link for this reader and this plan, the same the Slack message gives -
+            # it opens the plan; the decision is still the approver's passkey (`?approve=1`: API Gateway routes only
+            # GET /r/{incident}).
+            if not approver:
+                return _json(404, {"error": "nothing here for you to approve"})
+            token = self.new_link(str(one.plan["workflow_id"]), approver)
+            return Response(303, {"Location": f"/a/{token}", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+                            "")
+        return self._served_html(200, records.incident_page(one, approve=f"/r/{one.id}?approve=1" if approver else ""))
+
+    def _approver_for(self, member: str, r: Any) -> str:
+        """The approver this Slack member is, when the incident's plan waits for an approval their tier allows and
+        they have a passkey to give it; otherwise ''."""
+        if r.status != "Waiting for approval" or not r.plan.get("workflow_id"):
+            return ""
+        tier = str(r.plan.get("tier") or "")
+        return next((a for a, e in sorted(self.policy.approvers.items())
+                     if e.slack and e.slack == member and tier in e.tiers and e.passkeys), "")
 
     def _served_html(self, status: int, page: str) -> Response:
         nonce = secrets.token_urlsafe(16)

@@ -151,6 +151,63 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
     assert refused.status == 403 and "Set-Cookie" not in refused.headers
 
 
+def test_open_all_opens_every_panel_and_every_page_leads_to_all_incidents(page_setup, tmp_path):  # noqa: F811
+    """Owner, 2026-10-15: "open all ... didnt open all, the evidence ... every step on the record these 2 didnt open";
+    "all the records should be in one place ... that link is missing"."""
+    log = _log(tmp_path)
+    _incident(log)
+    log.append(INC, "incident.evidence", {"prompt": "what the model saw"})
+    r = records.record(log, INC, _named(page_setup[0].policy))
+    page = records.incident_page(r)
+    assert 'querySelectorAll("details.block")' in page and 'id="all"' in page
+    assert page.count('<details class="block') == page.count("details class=\"block finding\"") + 2  # evidence, steps
+    bare = records.record(log, INC, _named(page_setup[0].policy))
+    bare.report = ""
+    assert 'id="all"' in records.incident_page(bare)  # the button with no report too
+    for p in (page, records.list_page([r]), records.missing_page(), records.refused_page()):
+        assert '<a class="nav" href="/r">All incidents</a>' in p
+
+
+def _waiting(log, tier="T1"):
+    log.append(INC, "incident.ingest", {"node": "ingest", "alert_id": INC, "env": "dev"})
+    log.append(INC, "remediation.plan", {"workflow_id": "rem-dev-9", "entry": "events_enable_rule", "tier": tier,
+                                         "target": "rule/tick", "plan_hash": "h"})
+
+
+def test_a_waiting_plans_record_gives_its_approver_a_button_that_opens_the_plan(page_setup, tmp_path, monkeypatch):  # noqa: F811
+    """Owner, 2026-10-15: "the approve button i dont see here why". Only for an approver of the plan's tier with a
+    passkey, only while it waits; it opens the approval page with a fresh link, and approves nothing itself."""
+    monkeypatch.delenv("WARDEN_RECORD_VIEWERS", raising=False)
+    page, _ = _page(page_setup, tmp_path)
+    (tmp_path / "w").mkdir()
+    log = _log(tmp_path / "w")
+    _waiting(log)
+    page = dataclasses.replace(page, log=log)
+    me = ["warden_who=" + slack_login.remember(page.slack, MEMBER)]
+    out = page.handle("GET", f"/r/{INC}", cookies=me)
+    assert out.status == 200 and f'href="/r/{INC}?approve=1"' in out.body and records.APPROVE_LABEL in out.body
+    go = page.handle("GET", f"/r/{INC}", query="approve=1", cookies=me)
+    assert go.status == 303 and go.headers["Location"].startswith("/a/") and len(go.headers["Location"]) == 3 + 43
+    link = page.store.link(go.headers["Location"][3:])
+    assert (link.workflow_id, link.approver) == ("rem-dev-9", "owner")
+    assert not [e for e in log.entries(INC) if e["kind"].startswith("approval.accepted")]  # nothing approved
+    # A viewer who is not an approver: the record, no button, and the action refused.
+    monkeypatch.setenv("WARDEN_RECORD_VIEWERS", OTHER)
+    them = ["warden_who=" + slack_login.remember(page.slack, OTHER)]
+    assert "?approve=1" not in page.handle("GET", f"/r/{INC}", cookies=them).body
+    assert page.handle("GET", f"/r/{INC}", query="approve=1", cookies=them).status == 404
+    # A tier the approver may not approve, or a plan that ended: no button.
+    for tier, ended in (("T3", False), ("T1", True)):
+        (tmp_path / f"{tier}{ended}").mkdir()
+        log = _log(tmp_path / f"{tier}{ended}")
+        _waiting(log, tier)
+        if ended:
+            log.append(INC, "workflow.end", {"workflow_id": "rem-dev-9", "status": "expired", "reasons": []})
+        other = dataclasses.replace(page, log=log)
+        assert "?approve=1" not in other.handle("GET", f"/r/{INC}", cookies=me).body, (tier, ended)
+        assert other.handle("GET", f"/r/{INC}", query="approve=1", cookies=me).status == 404
+
+
 def test_the_runtime_routes_the_records_and_reads_the_viewer_list_in_the_approval_page_alone():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /r", "GET /r/{incident}", "GET /s/r"' in tf
@@ -168,10 +225,12 @@ def test_only_wardens_own_record_link_leaves_beside_the_approval_and_it_never_lo
     bad = [(chatops.RECORD_LABEL, "https://evil.example/r/x"), (chatops.RECORD_LABEL, "https://approve.example.test/r/a/b"),
            ("Full record!", good[1]), (chatops.RECORD_LABEL, "https://approve.example.test/r/" + "x" * 121)]
     approve = (chatops.LINK_LABEL, f"https://approve.example.test/a/{token}")
-    assert chatops.approval_links((approve, good, *bad)) == [approve, good]
-    [msg] = chatops.slack_messages(["text\n---\nfoot"], {"links": [list(approve), list(good)]})
+    every = (chatops.ALL_LABEL, "https://approve.example.test/r")
+    bad += [(chatops.ALL_LABEL, "https://approve.example.test/r/x"), (chatops.ALL_LABEL, "https://evil.example/r")]
+    assert chatops.approval_links((approve, good, every, *bad)) == [approve, good, every]
+    [msg] = chatops.slack_messages(["text\n---\nfoot"], {"links": [list(approve), list(good), list(every)]})
     styles = {e["text"]["text"]: e.get("style") for e in msg["blocks"][1]["elements"]}
-    assert styles == {chatops.LINK_LABEL: "primary", chatops.RECORD_LABEL: None}
+    assert styles == {chatops.LINK_LABEL: "primary", chatops.RECORD_LABEL: None, chatops.ALL_LABEL: None}
 
 
 def test_the_channel_gets_the_reports_top_and_the_rest_waits_on_the_record_page():
@@ -205,7 +264,7 @@ def test_a_plans_request_is_the_incidents_one_message_with_its_summary_and_recor
     opening = sent[0]
     assert opening.markdown.startswith("# WARDEN incident report - orders (dev)") and "- the summary" in opening.markdown
     assert "**Fix plan:** WARDEN's plan" in opening.markdown and "the rest" not in opening.markdown
-    assert [label for label, _ in opening.actions] == [chatops.LINK_LABEL, chatops.RECORD_LABEL]
+    assert [label for label, _ in opening.actions] == [chatops.LINK_LABEL, chatops.RECORD_LABEL, chatops.ALL_LABEL]
     assert "## Summary" not in sent[1].markdown  # the halfway reminder is the plan alone
 
 

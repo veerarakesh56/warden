@@ -299,8 +299,10 @@ def list_page(records: list[Record], *, page: int = 1, pages: int = 1, total: in
                   refresh=page == 1)
 
 
-def incident_page(r: Record) -> str:
-    """One incident: its summary, decisions and flags, the report as WARDEN wrote it, and every step on the record."""
+def incident_page(r: Record, *, approve: str = "") -> str:
+    """One incident: its summary, decisions and flags, the report as WARDEN wrote it, and every step on the record.
+    `approve`: this site's own address that opens the plan for the reader, when they may approve it now (owner,
+    2026-10-15: "the approve button i dont see here")."""
     steps = []
     for e in r.rows:
         if e["kind"] in _QUIET:
@@ -327,20 +329,23 @@ def incident_page(r: Record) -> str:
     report = ""
     if r.report:
         report = ('<h2>Complete findings</h2><p class="lede">Everything WARDEN found and proposed, as its report says '
-                  'it. Open a section, or <button type="button" class="link" id="all">open all</button>.</p>'
-                  + findings(r.report))
+                  'it. Open a section to read it.</p>' + findings(r.report))
     if r.evidence:
         report += ('<details class="block"><summary>The evidence WARDEN read, exactly as its model was shown it'
                    f'</summary><pre class="report">{_e(r.evidence)}</pre></details>')
+    act = (f'<p class="pad act"><a class="primary button" href="{_e(approve)}">{_e(APPROVE_LABEL)}</a>'
+           '<span class="hint">Your passkey decides; this only opens the plan.</span></p>') if approve else ""
     main = (f'<p class="back"><a href="/r">All incidents</a></p><h1>{_e(r.alarm or r.id)}</h1>'
-            f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>'
+            f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>{act}'
+            '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
+            'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
             f'<h2>Decisions</h2>{_decisions(r)}'
             f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
             f'<tbody>{"".join(steps)}</tbody></table></div></details>')
-    return _shell(f"WARDEN - {r.alarm or r.id}", "Record", main, script=_OPEN_ALL_JS if r.report else "")
+    return _shell(f"WARDEN - {r.alarm or r.id}", "Record", main, script=_OPEN_ALL_JS)
 
 
 _FENCE = "```"
@@ -415,16 +420,18 @@ def findings(markdown: str) -> str:
     return "".join(out)
 
 
-# "Open all" for the findings: a reader who wants everything gets it in one press; nothing is hidden from the page.
+# "Open all": every panel on the page - the findings, the evidence the model was shown, every step (owner,
+# 2026-10-15: "open all ... didnt open all, the evidence ... every step on the record these 2 didnt open").
 _OPEN_ALL_JS = """
 const all = document.getElementById("all");
 if (all) all.addEventListener("click", () => {
-  const panels = [...document.querySelectorAll("details.finding")];
+  const panels = [...document.querySelectorAll("details.block")];
   const open = panels.some(d => !d.open);
   panels.forEach(d => { d.open = open; });
-  all.textContent = open ? "close all" : "open all";
+  all.textContent = open ? "Close all sections" : "Open all sections";
 });
 """
+APPROVE_LABEL = "Open the plan to approve or deny"
 
 
 _DENIED = re.compile(r"^denied by ([A-Za-z0-9._-]{1,64})(?:: .*)?$", re.DOTALL)
@@ -501,6 +508,10 @@ border:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
 a{color:var(--accent)}
 a.open{font-weight:600}
 .back{margin:1rem 1.25rem 0;font-size:.875rem}
+.top .nav{margin-left:auto;font-weight:600;font-size:.875rem}
+.act{display:grid;gap:.375rem;max-width:26rem}
+a.button{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:.75rem;padding:.75rem 1rem}
+.tools{padding-bottom:0}
 .block{margin:1.5rem 1.25rem 0;border:1px solid var(--line);border-radius:.75rem;overflow:hidden}
 .block>summary{padding:.75rem 1rem;font-weight:600;cursor:pointer;background:var(--well)}
 .block:last-child{margin-bottom:1.25rem}
@@ -548,7 +559,11 @@ setTimeout(function again() {
 def _shell(title: str, where: str, main: str, *, refresh: bool = False, script: str = "") -> str:
     from .approval_page import _SHELL, _STYLE
 
+    # Every records page names the way to all of them in its header (owner, 2026-10-15: "all the records should be
+    # in one place ... that link is missing").
     return (_SHELL.replace('<div class="page">', '<div class="page wide">').replace("{{TITLE}}", _e(title))
+            .replace('<span class="where">{{WHERE}}</span>',
+                     '<span class="where">{{WHERE}}</span><a class="nav" href="/r">All incidents</a>')
             .replace("{{WHERE}}", _e(where)).replace("{{MAIN}}", main)
             .replace("{{FOOT}}", "Read from WARDEN's signed record. Times in UTC, local time in brackets.")
             .replace("{{STYLE}}", _STYLE + _RECORDS_STYLE).replace("{{JS}}", "")
