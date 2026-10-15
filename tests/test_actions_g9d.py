@@ -95,7 +95,7 @@ def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_ask
     from warden.llm import LLMClient, ModelRefused
 
     p = providers.AnthropicProvider.__new__(providers.AnthropicProvider)
-    p.model, p.name, p.version = "claude-sonnet-5", "anthropic", "test"
+    p.model, p.name, p.version, p.effort = "claude-sonnet-5-5", "anthropic", "test", "medium"
     sent = []
     resp = types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text='{"root_cause": {')],
                                  stop_reason="max_tokens", usage=types.SimpleNamespace(input_tokens=1000,
@@ -107,4 +107,25 @@ def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_ask
     with pytest.raises(ModelRefused, match="cut off"):
         client.structured(system="s", user="u", schema=Diagnosis)
     assert len(sent) == 1 and client.cost.usd > 0  # asked once, and charged
-    assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 8192
+    assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 16384  # room for thinking and the answer
+    # The model's own price (2026-10-15): Sonnet 5.5 at $2 in / $10 out per million, not one price for every model.
+    assert client.cost.usd == pytest.approx(1000 / 1e6 * 2.0 + 4096 / 1e6 * 10.0)
+    # The stated thinking effort is sent, so a comparison of two models compares the models.
+    assert sent[0]["extra_body"] == {"output_config": {"effort": "medium"}}
+
+
+def test_each_claude_model_has_its_own_price_and_effort_and_a_thinking_models_time(monkeypatch):
+    import pytest
+
+    from warden import llm, providers
+
+    monkeypatch.delenv("WARDEN_PRICE_IN", raising=False)
+    monkeypatch.delenv("WARDEN_PRICE_OUT", raising=False)
+    monkeypatch.delenv("WARDEN_MODEL_EFFORT", raising=False)
+    assert llm.model_prices("claude-sonnet-5-5") == (2.0, 10.0)
+    assert llm.model_prices("claude-opus-5-5") == (4.0, 20.0)
+    assert providers.model_effort("claude-sonnet-5-5") == providers.model_effort("claude-opus-5-5") == "medium"
+    assert providers.AnthropicProvider.default_timeout_s >= 240
+    monkeypatch.setenv("WARDEN_MODEL_EFFORT", "max")
+    with pytest.raises(providers.ProviderError):
+        providers.model_effort("claude-opus-5-5")

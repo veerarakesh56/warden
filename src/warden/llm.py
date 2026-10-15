@@ -35,6 +35,20 @@ PRICE_PER_MTOK_IN = float(os.environ.get("WARDEN_PRICE_IN", "3.00"))
 PRICE_PER_MTOK_OUT = float(os.environ.get("WARDEN_PRICE_OUT", "15.00"))
 MAX_PROMPT_TOKENS = int(os.environ.get("WARDEN_MAX_PROMPT_TOKENS", "60000"))
 
+
+def model_prices(model: str) -> tuple[float, float]:
+    """USD per 1M tokens (input, output) for `model`: WARDEN_PRICE_IN/OUT when a person sets them, else the model's
+    own row in data/providers.yaml `prices`, else the defaults above. One price for every model under-counted Opus 5.5
+    ($4/$20) and over-counted Sonnet ($2/$10) against the incident's USD ceiling (2026-10-15)."""
+    if os.environ.get("WARDEN_PRICE_IN") or os.environ.get("WARDEN_PRICE_OUT"):
+        return PRICE_PER_MTOK_IN, PRICE_PER_MTOK_OUT
+    from .providers import load_qualified
+
+    row = (load_qualified().get("prices") or {}).get(model)
+    if isinstance(row, (list, tuple)) and len(row) == 2:
+        return float(row[0]), float(row[1])
+    return PRICE_PER_MTOK_IN, PRICE_PER_MTOK_OUT
+
 # Wall-clock ceiling for a single model call. The budget above stops COST; this stops TIME. Without
 # it a slow, retrying or hung provider hangs the whole run forever — observed live: a Gemini key
 # that had just been rotated made the SDK retry past every internal timeout, and `warden run` never
@@ -102,11 +116,7 @@ class LLMClient:
         self.max_usd = float(max_usd if max_usd is not None else os.environ.get("WARDEN_MAX_USD", "0.50"))
         if not math.isfinite(self.max_usd) or self.max_usd <= 0:
             raise ValueError(f"the model budget must be a positive number of USD, not {self.max_usd!r}")
-        # A price that is not a finite, non-negative number switched the USD ceiling off: nan made every
-        # cost nan, a negative price made it shrink (fourth review, 2026-09-30). Zero is a free tier.
-        for name, price in (("WARDEN_PRICE_IN", PRICE_PER_MTOK_IN), ("WARDEN_PRICE_OUT", PRICE_PER_MTOK_OUT)):
-            if not math.isfinite(price) or price < 0:
-                raise ValueError(f"{name} must be a non-negative number of USD per 1M tokens, not {price!r}")
+
         # Per incident: the explicit argument, else WARDEN_MAX_CALLS (the cloud llm zone: 6, owner 2026-10-10), else 8.
         if max_calls is None:
             raw = os.environ.get("WARDEN_MAX_CALLS", "8")
@@ -120,6 +130,13 @@ class LLMClient:
         self.unanswered = 0
         self.mock = (os.environ.get("WARDEN_MOCK") == "1") if mock is None else mock
         self._provider = provider if provider is not None else (None if self.mock else resolve())
+        # The model's own prices (model_prices). A price that is not a finite, non-negative number switched the USD
+        # ceiling off: nan made every cost nan, a negative price made it shrink (fourth review, 2026-09-30). Zero is a
+        # free tier.
+        self.price_in, self.price_out = model_prices(self.model)
+        for name, price in (("WARDEN_PRICE_IN", self.price_in), ("WARDEN_PRICE_OUT", self.price_out)):
+            if not math.isfinite(price) or price < 0:
+                raise ValueError(f"{name} must be a non-negative number of USD per 1M tokens, not {price!r}")
         if call_timeout_s is None:
             # Function-level import: providers must not import llm at module load (cycle).
             from .providers import call_timeout_s as _provider_timeout
@@ -149,7 +166,7 @@ class LLMClient:
     # ------------------------------------------------------------------ budget
 
     def _charge(self, in_tok: int, out_tok: int) -> None:
-        usd = (in_tok / 1e6) * PRICE_PER_MTOK_IN + (out_tok / 1e6) * PRICE_PER_MTOK_OUT
+        usd = (in_tok / 1e6) * self.price_in + (out_tok / 1e6) * self.price_out
         self.cost.add(in_tok, out_tok, usd)
         if self.cost.usd > self.max_usd:
             raise BudgetExceeded(
@@ -196,7 +213,7 @@ class LLMClient:
         est_in = (len(system) + len(prompt)) // 4
         if est_in > MAX_PROMPT_TOKENS:
             raise BudgetExceeded(f"prompt of ~{est_in} tokens exceeds the {MAX_PROMPT_TOKENS} ceiling")
-        est_usd = (est_in / 1e6) * PRICE_PER_MTOK_IN
+        est_usd = (est_in / 1e6) * self.price_in
 
         last: Exception | None = None
         attempts = 0

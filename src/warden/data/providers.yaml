@@ -48,6 +48,16 @@ prompt:
 slo:
   max_escalated: 25
   acted_wrongly: 0
+# USD per 1M tokens (input, output) per model, read from Anthropic's model overview on 2026-10-15: what the incident's
+# USD ceiling counts (llm.model_prices). WARDEN_PRICE_IN/OUT override it.
+prices:
+  claude-sonnet-5-5: [2.0, 10.0]
+  claude-opus-5-5: [4.0, 20.0]
+# How hard each model is asked to think (providers.model_effort): one level for both, so comparing them compares the
+# models (2026-10-15). WARDEN_MODEL_EFFORT overrides it.
+effort:
+  claude-sonnet-5-5: medium
+  claude-opus-5-5: medium
 # The model each provider uses when WARDEN_MODEL names none (owner, 2026-10-12: no model id in code). A default is not
 # a qualification: the model must still be in `qualified` below, or it is refused (register M20).
 defaults:

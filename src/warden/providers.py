@@ -169,19 +169,37 @@ def call_timeout_s(provider: Any = None) -> float:
 
 
 # Room for the whole answer: at 1500 one incident's answer was cut off three times in a row (2026-10-10), and at 4096
-# a cloud incident's (warden-dev-orders-age, 2026-10-14 20:39 UTC) - it went to a person with no diagnosis. Output is
-# charged as used (8192 at $15 per million is $0.12), and the incident's USD cap (llm.py) still stops the run.
-MAX_OUTPUT_TOKENS = 8192
+# a cloud incident's (warden-dev-orders-age, 2026-10-14 20:39 UTC) - it went to a person with no diagnosis. Claude's
+# 5.5 models think before they answer (adaptive thinking, on by default) and the thinking counts against this cap:
+# 16384 leaves room for both (2026-10-15). Output is charged as used, and the incident's USD cap (llm.py) still stops
+# the run.
+MAX_OUTPUT_TOKENS = 16384
+EFFORTS = ("low", "medium", "high")
+
+
+def model_effort(model: str) -> str:
+    """How hard the model is asked to think: WARDEN_MODEL_EFFORT, else data/providers.yaml `effort` for the model, else
+    "" (the model's own default). Claude Sonnet 5.5 defaults to high and Opus 5.5 to medium; one stated level for both
+    makes a comparison of the two a comparison of the models."""
+    level = (os.environ.get("WARDEN_MODEL_EFFORT") or (load_qualified().get("effort") or {}).get(model) or "")
+    level = str(level).strip().lower()
+    if level and level not in EFFORTS:
+        raise ProviderError(f"effort {level!r} is not one of {', '.join(EFFORTS)}")
+    return level
 
 
 class AnthropicProvider:
     name = "anthropic"
+    # A thinking model writes up to MAX_OUTPUT_TOKENS before its answer is complete: the 45 s default cut such a call
+    # off (2026-10-15). WARDEN_LLM_TIMEOUT still overrides it.
+    default_timeout_s = 240.0
 
     def __init__(self, model: str | None = None) -> None:
         from anthropic import Anthropic
 
         self.model = pinned(model or (os.environ.get("WARDEN_MODEL") or default_model(self.name)))
         self.version = _sdk_version("anthropic")
+        self.effort = model_effort(self.model)
         # Explicit base URL: the SDK would otherwise honour ANTHROPIC_BASE_URL and send the key there.
         self._client = Anthropic(base_url=ANTHROPIC_BASE_URL, timeout=_sdk_timeout_s(), max_retries=0)
 
@@ -191,7 +209,9 @@ class AnthropicProvider:
             max_tokens=MAX_OUTPUT_TOKENS,
             system=system,
             messages=[{"role": "user", "content": user}],
+            **({"extra_body": {"output_config": {"effort": self.effort}}} if self.effort else {}),
         )
+        # Thinking blocks are the model's working, never its answer: only text is read.
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         # A cut-off answer read as "invalid JSON" three times, and the incident went to a person as "model
         # unavailable" (qualification 2026-10-10, ecs-07, at 1500 tokens). Returned flagged: the client charges it and
