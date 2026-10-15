@@ -155,6 +155,14 @@ def _retag_aws_line(tag: str, line: str) -> str:
 NEEDED_CLIENTS = ("lambda", "logs", "cloudwatch", "ecs", "sqs", "dynamodb", "elasticache", "rds", "elbv2",
                   "apigatewayv2", "secretsmanager", "sns", "events", "sts", "ec2", "eks", "pi", "cloudtrail",
                   "autoscaling", "stepfunctions")
+# Research 2026-10-15, item 9: an AccessDenied in the evidence, checked against the role's own policies with the IAM
+# policy simulator. AWS's standard denial text names the action and, usually, the resource; the ROLE simulated is only
+# ever one the trusted configuration names (a TASKROLE line) in the incident's environment - a log line chooses at
+# most which action is simulated, read-only, never whose permissions are read.
+_DENIED = re.compile(r"is not authorized to perform: ([a-z0-9-]{2,40}:[A-Za-z0-9*]{2,80})"
+                     r"(?: on resource: (arn:aws[a-z-]{0,20}:[A-Za-z0-9:/_.*+=,@-]{3,400}))?")
+_TASKROLE_LINE = re.compile(r"^TASKROLE (?:ecs|lambda)/\S+ role=([A-Za-z0-9+=,.@_-]{1,64})$")
+SIMULATE_MAX = 3
 # G10-C1: an ECS service's last stopped tasks, its events in the hour before the alert, and how each is classified.
 STOPPED_TASKS = 10
 ECS_EVENT_WINDOW = timedelta(hours=1)
@@ -530,6 +538,9 @@ class StackBackend:
         self._asg = clients["autoscaling"]
         self._sfn = clients["stepfunctions"]
         self._clients = clients  # every other service's client, made when an alarm names one (aws_describe.py)
+        # The IAM policy simulator, for an AccessDenied in the evidence (research 2026-10-15, item 9): made on first use
+        # where the clients are; a test that injects no IAM client simulates nothing.
+        self._iam = clients["iam"] if hasattr(clients, "__missing__") or "iam" in clients else None
         self._account_id = ""
         self._sleep = time.sleep
         # AwsBackend over the SAME clients: its logs read also serves the Lambda log groups.
@@ -673,7 +684,39 @@ class StackBackend:
             total.lines += r.lines
             total.metrics.update(r.metrics)
             total.deploys += r.deploys
+        try:
+            self._simulate_denials(total, alert)
+        except Exception as exc:  # noqa: BLE001 - the evidence read stands without it
+            total.lines.append(_partial("iam-simulate", exc))
         return total
+
+    def _simulate_denials(self, out: _Out, alert: Alert) -> None:
+        """Each AccessDenied in the evidence for an action a trusted TASKROLE line's role performs, run through the IAM
+        policy simulator: `STATE iam simulate role=... action=... resource=... decision=...` - whether the role's own
+        policies allow it, and which statement decided. "allowed" means the denial came from elsewhere: a resource
+        policy, a boundary, a session policy or an organization policy."""
+        from .environments import names
+
+        prefix = names(alert.environment).prefix + "-"
+        roles = sorted({m.group(1) for line in out.lines if (m := _TASKROLE_LINE.match(line))
+                        and m.group(1).startswith(prefix)})
+        asked = list(dict.fromkeys((m.group(1), m.group(2) or "*") for line in out.lines
+                                   for m in _DENIED.finditer(line)))
+        if not roles or not asked or self._iam is None:
+            return
+        account = self._account()
+        for action, resource in asked[:SIMULATE_MAX]:
+            if resource != "*" and (f":{account}:" not in resource and ":::" not in resource or prefix not in resource):
+                resource = "*"  # another account's, or not this environment's: the action alone is asked
+            for role in roles:
+                got = self._iam.simulate_principal_policy(PolicySourceArn=f"arn:aws:iam::{account}:role/{role}",
+                                                    ActionNames=[action], ResourceArns=[resource])
+                for r in (got.get("EvaluationResults") or [])[:1]:
+                    by = sorted({str(s.get("SourcePolicyId", "")) for s in r.get("MatchedStatements") or []
+                                 if s.get("SourcePolicyId")})[:3]
+                    out.lines.append(f"STATE iam simulate role={role} action={_safe(action)} "
+                                     f"resource={_safe(resource)} decision={_safe(r.get('EvalDecision'))} "
+                                     f"by={','.join(_safe(b) for b in by) or 'none'}")
 
     # ------------------------------------------------------------------ shared helpers
 
@@ -956,6 +999,8 @@ class StackBackend:
             f"reserved_concurrency={'none' if conc is None else conc} env=[{','.join(env)}] "
             f"{sg_part}version={latest} alias_live={live or '-'}"
         )
+        if cfg.get("Role"):  # the identity the function's code runs as: what a denied call must be granted back to
+            out.lines.append(f"TASKROLE lambda/{fn} role={str(cfg['Role']).rsplit('/', 1)[-1]}")
         if sgs:
             self._read_network_changes(out, alert, sgs, (cfg.get("VpcConfig") or {}).get("SubnetIds") or [])
 

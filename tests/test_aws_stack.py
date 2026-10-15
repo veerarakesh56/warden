@@ -643,7 +643,7 @@ _CLIENT_PREFIX = {
     "_ddb": "dynamodb", "_ec": "elasticache", "_rds": "rds", "_elb": "elasticloadbalancing",
     "_ec2": "ec2", "_eks": "eks", "_pi": "pi",
     "_apigw": "apigateway", "_sm": "secretsmanager", "_sns": "sns", "_events": "events", "_sts": "sts",
-    "_ct": "cloudtrail", "_asg": "autoscaling", "_sfn": "states",
+    "_ct": "cloudtrail", "_asg": "autoscaling", "_sfn": "states", "_iam": "iam",
 }
 _NOT_CLIENTS = {"_aws", "_bound"}  # the reused AwsBackend (its calls are collected from aws_backend.py); the
 # per-incident backends of the cloud runtime (G9-A2b), whose calls are this module's own
@@ -730,7 +730,9 @@ def test_every_granted_action_is_a_read():
     for action in _granted() - NOT_A_CALL:
         verb = action.split(":", 1)[1]
         # StartQuery / StopQuery run and cancel a Logs Insights query: IAM's own access level for both is Read.
-        assert (action in ("apigateway:GET", "logs:StartQuery", "logs:StopQuery", "rds:DownloadDBLogFilePortion")
+        # SimulatePrincipalPolicy evaluates the role's policies and returns a decision: IAM's access level for it is Read.
+        assert (action in ("apigateway:GET", "logs:StartQuery", "logs:StopQuery", "rds:DownloadDBLogFilePortion",
+                           "iam:SimulatePrincipalPolicy")
                 or verb.startswith(("Describe", "Get", "List", "Filter", "Lookup"))), action
     for forbidden in ("secretsmanager:GetSecretValue", "s3:GetObject", "ssm:GetParameter"):
         assert not any(a.startswith(forbidden) for a in _granted()), forbidden

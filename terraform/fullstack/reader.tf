@@ -47,6 +47,8 @@ data "aws_iam_policy_document" "fs_reader" {
       "elasticache:DescribeReplicationGroups",
       "eks:DescribeCluster",
       "events:DescribeRule",
+      # An AccessDenied in the evidence, checked against the role's own policies (aws_stack._simulate_denials).
+      "iam:SimulatePrincipalPolicy",
       "lambda:GetAlias",
       "lambda:GetFunction",
       "lambda:GetFunctionConcurrency",
@@ -69,6 +71,7 @@ data "aws_iam_policy_document" "fs_reader" {
       "arn:aws:elasticache:${local.reader_arn}:replicationgroup:${local.name}-*",
       "arn:aws:eks:${local.reader_arn}:cluster/${local.name}-*",
       "arn:aws:events:${local.reader_arn}:rule/${local.name}-*",
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-*",
       "arn:aws:lambda:${local.reader_arn}:function:${local.name}-*",
       "arn:aws:logs:${local.reader_arn}:log-group:/aws/lambda/${local.name}-*",
       "arn:aws:logs:${local.reader_arn}:log-group:/ecs/${local.name}-*",

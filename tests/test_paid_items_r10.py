@@ -43,6 +43,7 @@ FREE = {
     ("_eks", "list_nodegroups"), ("_eks", "describe_nodegroup"), ("_asg", "describe_scaling_activities"),
     ("_sfn", "list_executions"), ("_sfn", "describe_execution"),
     ("_ec2", "describe_subnets"), ("_ec2", "describe_route_tables"), ("_ec2", "describe_network_acls"),  # G10-C4
+    ("_iam", "simulate_principal_policy"),  # IAM is offered at no additional charge (research 2026-10-15, item 9)
 }
 
 

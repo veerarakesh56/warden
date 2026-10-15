@@ -27,6 +27,7 @@
         "events:ListTagsForResource",
         "firehose:DescribeDeliveryStream",
         "glue:GetJobRuns",
+        "iam:SimulatePrincipalPolicy",
         "kinesis:DescribeStreamSummary",
         "lambda:GetAlias",
         "lambda:GetFunction",
@@ -68,6 +69,7 @@
         "arn:aws:events:ap-south-2:*:rule/warden-dev-*",
         "arn:aws:firehose:ap-south-2:*:deliverystream/warden-dev-*",
         "arn:aws:glue:ap-south-2:*:job/warden-dev-*",
+        "arn:aws:iam::*:role/warden-dev-*",
         "arn:aws:kinesis:ap-south-2:*:stream/warden-dev-*",
         "arn:aws:lambda:ap-south-2:*:function:warden-dev-*",
         "arn:aws:memorydb:ap-south-2:*:cluster/warden-dev-*",
@@ -85,7 +87,7 @@
       ]
     },
     {
-      "Sid": "TheEvidenceReadersLogsOfThisEnvironment",
+      "Sid": "LogsOfThisEnvironment",
       "Effect": "Allow",
       "Action": [
         "logs:FilterLogEvents",
@@ -151,7 +153,7 @@
       }
     },
     {
-      "Sid": "IdNamedResourcesOfThisEnvironment",
+      "Sid": "IdNamedResourcesOfThisEnv",
       "Effect": "Allow",
       "Action": [
         "acm:DescribeCertificate",
@@ -183,7 +185,7 @@
       ]
     },
     {
-      "Sid": "ZonalShiftStateOfThisEnvironmentsLoadBalancers",
+      "Sid": "ZonalShiftOfThisEnvsLoadBalancers",
       "Effect": "Allow",
       "Action": "arc-zonal-shift:GetManagedResource",
       "Resource": [
@@ -192,7 +194,7 @@
       ]
     },
     {
-      "Sid": "StagesOfThisEnvironmentsApis",
+      "Sid": "StagesOfThisEnvsApis",
       "Effect": "Allow",
       "Action": "apigateway:GET",
       "Resource": "arn:aws:apigateway:ap-south-2::/restapis/*/stages/*",

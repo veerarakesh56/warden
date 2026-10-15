@@ -101,6 +101,7 @@
         "iam:AttachRolePolicy",
         "iam:DetachRolePolicy",
         "iam:PutRolePermissionsBoundary",
+        "iam:SimulatePrincipalPolicy",
         "iam:List*",
         "iam:*InstanceProfile",
         "iam:PassRole",
