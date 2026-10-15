@@ -353,15 +353,21 @@ def _log_failed_reads(errors: list[str]) -> None:
     (2026-10-15: "every log/telemetry source failed", with nothing in the worker's log)."""
     from .evidence import tool_error_text
 
-    failed = set()
+    failed, cut = set(), set()
     for e in errors:
-        if not any(f"[{o}" in e for o in OUTCOMES):
-            continue  # an empty or cut read, not a failure
         # `<reader>[ <source>]: <outcome>[ on <operation>]`, from fixed words and WARDEN's own reader names only - the
         # T item's own text (the first version named only the tool, "logs", for every stack read).
-        failed.add(tool_error_text(e))
-    if failed:
-        _log.warning("%d read(s) failed: %s", len(failed), "; ".join(sorted(failed)))
+        text = tool_error_text(e)
+        if any(f"[{o}" in e for o in OUTCOMES):
+            failed.add(text)
+        else:
+            # A cut or partial read: no outcome to name, but the verifier counts it (P8), so the log names WHERE -
+            # 2026-10-15, fs-22 run 2: P8-PARTIAL-CONTEXT fired and the worker's log said nothing at all.
+            cut.add(text.removesuffix(": failed (unclassified)"))
+    said = ([f"{len(failed)} read(s) failed: {'; '.join(sorted(failed))}"] if failed else []) + \
+        ([f"{len(cut)} read(s) incomplete: {'; '.join(sorted(cut))}"] if cut else [])
+    if said:
+        _log.warning("%s", " | ".join(said))
 
 
 def gather(

@@ -84,6 +84,30 @@ def test_the_synthetic_incident_passes_only_when_the_model_answered_and_the_repo
     assert runtime.synthetic() == "the model did not answer"
 
 
+def test_the_synthetic_incident_reads_its_recording_and_fails_when_it_reads_nothing(monkeypatch):
+    """fs-22 run 2, 2026-10-15: the day's incident id was looked up as the fixture's name, so the synthetic read no
+    evidence from its first day, and passed."""
+    from warden import graph
+
+    seen = []
+    real = graph.run
+
+    def watch(alert, **kw):
+        report = real(alert, **kw)
+        seen.append(report.context)
+        return report
+    monkeypatch.setattr(graph, "run", watch)
+    assert runtime.synthetic() == ""
+    assert seen[0].logs and not seen[0].tool_errors
+
+    def blind(alert, **kw):
+        report = real(alert, **kw)
+        return report.model_copy(update={"context": report.context.model_copy(
+            update={"logs": [], "metrics": {}, "recent_deploys": [], "tool_errors": ["logs: [failed] x"]})})
+    monkeypatch.setattr(graph, "run", blind)
+    assert runtime.synthetic() == "the recorded evidence was not read"
+
+
 def test_the_synthetic_incident_fails_when_the_injection_detector_did_not_scan(monkeypatch):
     """Register R47: every environment scans, and the daily synthetic incident proves the detector loads where it runs -
     the cloud's llm zone loaded it there on 2026-10-14 - not only that the model answers."""

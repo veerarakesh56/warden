@@ -132,10 +132,21 @@ def synthetic() -> str:
     from .reporting import build_report
     from .tools import FixtureBackend
 
+    class _Recording(FixtureBackend):
+        """The bundled recording, under the day's own incident id. Looked up by that id, it was never found: from
+        the first day the synthetic read no evidence at all, passed anyway, and logged three failed reads at every
+        worker start (fs-22 run 2, 2026-10-15)."""
+
+        def _load(self, alert_id: str) -> dict:
+            return super()._load(SYNTHETIC_INCIDENT)
+
     alert = Alert(**{**DEMO_ALERTS[SYNTHETIC_INCIDENT], "alert_id": f"synthetic-{datetime.now(UTC):%Y%m%d}"})
-    report = run(alert, backend=FixtureBackend())
+    report = run(alert, backend=_Recording())
     if report.verdict is None or "P0-MODEL-UNAVAILABLE" in report.verdict.policy_ids:
         return "the model did not answer"
+    # The evidence path is part of what this proves: a run that read nothing is a failure, never a pass.
+    if report.context is None or report.context.tool_errors or report.context.is_empty():
+        return "the recorded evidence was not read"
     # The injection detector scanned it too (register R47: every environment scans) - so a day the detector cannot
     # load in the cloud pages, as a day the model cannot answer does.
     if report.context is not None and not tripwire.ran(report.context.tripwire):
