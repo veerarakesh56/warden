@@ -108,7 +108,8 @@
       "Effect": "Allow",
       "Action": [
         "sts:AssumeRole",
-        "sts:SetSourceIdentity"
+        "sts:SetSourceIdentity",
+        "sts:TagSession"
       ],
       "Resource": "arn:aws:iam::*:role/warden-${env}-reader"
     },
