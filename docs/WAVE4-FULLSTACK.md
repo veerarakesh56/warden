@@ -45,7 +45,10 @@ Each is usable alone: someone can take only the infra, only the apps, or only WA
 never deploys application code (it creates functions with a placeholder and ignores code changes);
 the apps pipeline and the harness read `stack.json` and never call terraform.
 
-Operating sequence for this wave: infra up -> apps deployed -> **soak** until every component is
+Operating sequence for this wave: infra up -> apps deployed -> **`bootstrap-db`** (the database `shop`, its
+table and its users; run as the harness role `warden-dev-harness`, because no pipeline role may log in as the master
+user - audit A-I-1; skipped once, on the 2026-10-14 build: five alarms fired, unseen until the first harness `status` on
+2026-10-15) -> **soak** until every component is
 healthy and at least 30 minutes have passed -> for each fault, step by step and each step started by
 the operator: `inject`, `diagnose` (WARDEN, with Claude through the `claude` CLI on the owner's Max
 plan), `fix`, `verify`, `revert` -> after the last fault, **watch** for at least 30 minutes before
@@ -281,7 +284,7 @@ after the script runs, so the user name is the scope):
 | `app` | order-processor Lambda role; orders-api's NEW ECS task role `warden-pg-fs-orders-api-task` | `lambda.tf` (Sid `ConnectAsApp`), `ecs.tf` |
 | `catalog` | reconciler Lambda role (it reads the reader); catalog-api through EKS Pod Identity, role `warden-pg-fs-catalog-pod` | `lambda.tf` (Sid `ConnectAsCatalog`), `eks.tf` |
 | `warden_ro` | WARDEN - the token is signed by the harness with the assumed `warden-pg-fs-reader` credentials | `reader.tf` (the reader-policy test's one named exception: not an API call) |
-| `postgres` | the operator only: `bootstrap-db` and the harness's admin connection | `terraform/proving-ground/operator-policy.json` (Sid `PgLogin`) |
+| `postgres` | the harness role only: `bootstrap-db` and the harness's admin connection (the operator until 2026-10-14) | `iam/templates/harness.json` (Sid `DatabaseAsTheMasterUserForFaultsAndAsTheReader`) |
 
 The permissions boundary gained `rds-db:connect` (the owner applies it) - every `warden-pg-fs-*`
 role carries it, so without it none of these grants would take effect.
@@ -361,7 +364,7 @@ allow - catalog-api would have had no AWS credentials at baseline. The boundary 
 - Endpoints follow `<cluster>.cluster-<id>` and `.cluster-ro-<id>` - yes.
 - A boundary-limited role can use `rds-db:connect`, and Pod Identity credentials reach a pod that does not mount its token - yes: catalog-api reads the Aurora reader with an IAM token from its Pod Identity role.
 - `Tags` on `CreateDBCluster` - accepted.
-- `DatabaseName` - **rejected**. The database is created by the apps pipeline's `bootstrap-db` step, which connects to `postgres` first.
+- `DatabaseName` - **rejected**. The database is created by `bootstrap-db` (`scripts/deploy_fullstack_apps.py`, run by hand, not by the apps pipeline), which connects to `postgres` first.
 - `ModifyDBCluster` of the capacity - accepted (0.5-2 ACU).
 - The writer is named `<cluster>-instance-1` - inside the operator's `db:warden-pg-fs-*` scope.
 - The reader was created in a different AZ from the writer - yes.
