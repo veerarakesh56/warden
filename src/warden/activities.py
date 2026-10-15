@@ -1084,7 +1084,13 @@ class IncidentActivities:
         from . import graph
         from .llm import LLMClient
 
-        llm = (self.llm_factory or LLMClient)()
+        try:
+            llm, refused = (self.llm_factory or LLMClient)(), ""
+        except Exception as exc:  # noqa: BLE001 - any model that cannot be built is the rules-only diagnosis
+            # Live, 2026-10-15: the runtime named a model that was no longer qualified (register M20 refused it, as it
+            # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
+            # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
+            llm, refused = LLMClient(mock=True), f"no qualified model could be used ({_safe_error(exc)})"
         # One budget per incident, across its runs. A FAILED run may run again (ALLOW_DUPLICATE_FAILED_ONLY) - also
         # one that failed because it spent its budget - and each run built a fresh client: five restarts spent
         # $3.00 against a $0.50 cap (seventh review, 2026-10-01). Every run records what it spent, failed or not,
@@ -1096,8 +1102,8 @@ class IncidentActivities:
         today = self._spent_since(datetime.now(UTC) - timedelta(hours=24))
         over = (today.usd + max(llm.max_usd - before.usd, 0.0) > DAILY_MAX_USD
                 or today.input_tokens + today.output_tokens >= DAILY_MAX_TOKENS)
-        if over or escalate_only:
-            reason = escalate_only or (f"the daily model cap is reached (${today.usd:.2f} of ${DAILY_MAX_USD:.2f}, "
+        if over or escalate_only or refused:
+            reason = escalate_only or refused or (f"the daily model cap is reached (${today.usd:.2f} of ${DAILY_MAX_USD:.2f}, "
                                        f"{today.input_tokens + today.output_tokens} of {DAILY_MAX_TOKENS} tokens in 24 h)")
             state = {"alert": pack.alert, "context": pack.context, "llm": llm, "model_unavailable": reason}
             steps = graph.apply_node(state, graph.node_diagnose(state))

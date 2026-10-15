@@ -53,6 +53,14 @@ resource "terraform_data" "environment_is_known" {
       condition     = alltrue([for k in ["page_topic_arn", "watched_environments"] : contains(keys(local.tf), k)])
       error_message = "set /warden/<env>/tf/page_topic_arn and watched_environments in SSM first."
     }
+    # Register M20 at deploy time (live, 2026-10-15: SSM tf/model still named a model taken off the qualified list, and
+    # every diagnosis was refused at run time). The model the llm worker is given must be one WARDEN qualified.
+    precondition {
+      condition = lookup(local.tf, "model", "") == "" || contains(
+        [for e in yamldecode(file("${path.module}/../../src/warden/data/providers.yaml")).qualified : e.model
+      if e.provider == lookup(local.tf, "model_provider", "")], lookup(local.tf, "model", ""))
+      error_message = "SSM /warden/<env>/tf/model is not a qualified model for tf/model_provider (src/warden/data/providers.yaml, register M20)."
+    }
   }
 }
 

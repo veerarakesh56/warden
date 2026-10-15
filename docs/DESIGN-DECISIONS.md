@@ -225,8 +225,11 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
   Sonnet 5.5 17 correct, none wrong and allowed - qualified; Opus 5.5 15 - below the bar of 17, not qualified. The 172
   held-out G10 cases, re-scored under today's gate: Sonnet 5.5 160 correct, 6 harmful proposals (every one stopped),
   77 right fixes put to a person, 137 right outcomes, $3.15; Opus 5.5 162, 1, 72, 136, $9.00; neither let a harm
-  through. The cloud names no model and runs the provider's default, so the default is the pin. Every Sonnet 5 entry
-  was removed from the qualified list; the cloud had been running it, as the default, until this change.
+  through. Every Sonnet 5 entry was removed from the qualified list, and the defaults are Sonnet 5.5. The cloud's model
+  is SSM /warden/ops/tf/model, which Terraform passes to the llm worker - it still named claude-sonnet-5 (corrected
+  2026-10-15: an earlier note here said the cloud ran the default), so M20 refused it and one incident failed silently;
+  it is now claude-sonnet-5-5, the deploy refuses an unqualified model, and a model that cannot be built is the
+  rules-only diagnosis said plainly.
 - *(Superseded 2026-10-15)* **Claude Sonnet 5 on the Claude API for the cloud window** (owner, 2026-10-09: the owner's API credits; replaces the
   Gemini choice below). Qualified on the API the same day with the SDK the runtime image ships - 20 of 30 correct,
   none wrong and allowed, every incident answered, $0.48; an earlier run on an older SDK scored 18 (both pass;
