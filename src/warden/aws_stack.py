@@ -481,6 +481,10 @@ def _env_items(variables: dict) -> list[str]:
 class StackBackend:
     """Reads every resource the alert's labels name, one isolated reader each."""
     reads_live_store = True  # its store receives log lines late: evidence waits for them (R23)
+    # How long one whole read may take (tools.gather): every resource the alert names, in parallel, a Logs Insights
+    # query among them (INSIGHTS_WAIT_S, 10 s alone) - and, behind grafana.WithSources, each outside source after it.
+    # The 5 s per-tool default cut such a read off and lost the logs view (inventory review, 2026-10-15).
+    read_timeout_s = float(os.environ.get("WARDEN_STACK_READ_TIMEOUT_S", "120"))
 
 
     name = "stack"

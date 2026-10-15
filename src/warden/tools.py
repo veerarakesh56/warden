@@ -388,7 +388,9 @@ def gather(
 ) -> ContextBundle:
     """Run every tool, keep what worked, record what did not."""
     backend = backend or FixtureBackend()
-    timeout = TOOL_TIMEOUT_S if timeout is None else timeout
+    # A backend that reads many sources says how long its whole read may take (aws_stack.StackBackend.read_timeout_s);
+    # the explicit argument still wins.
+    timeout = max(TOOL_TIMEOUT_S, float(getattr(backend, "read_timeout_s", 0) or 0)) if timeout is None else timeout
     bundle = ContextBundle()
 
     for name, fn, sink in (
