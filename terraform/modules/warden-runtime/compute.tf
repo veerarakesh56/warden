@@ -127,11 +127,11 @@ resource "aws_ecs_service" "zone" {
     enable   = true
     rollback = true
   }
-  # With two or more copies, a deploy replaces them one at a time and starts no extra task: the account's Fargate
-  # vCPU limit refused the extra tasks a default rolling deploy starts, and ECS rolled every zone back (2026-10-15).
-  # One copy keeps ECS's defaults - 50/100 with one task could never replace it.
-  deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 100
-  deployment_maximum_percent         = var.worker_instances > 1 ? 100 : 200
+  # A deploy starts no extra task: the account's Fargate vCPU limit refused the extra tasks a default rolling deploy
+  # starts, and ECS rolled zones back (2026-10-15, twice). Two or more copies are replaced one at a time; one copy is
+  # stopped and then started again - a short gap Temporal absorbs, its work waiting in the zone's queue.
+  deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 0
+  deployment_maximum_percent         = 100
   # On Fargate every task is its own micro-VM, spread over the subnets' availability zones by ECS itself: placement
   # rules are an EC2 matter (Fargate refuses them).
   propagate_tags = "SERVICE"

@@ -180,7 +180,7 @@ def test_a_deploy_fails_unless_every_zone_runs_the_new_image():
         assert must in step, must
 
 
-def test_two_copies_are_replaced_one_at_a_time_and_one_copy_keeps_the_defaults():
+def test_a_deploy_never_starts_an_extra_task():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
-    assert "deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 100" in tf
-    assert "deployment_maximum_percent         = var.worker_instances > 1 ? 100 : 200" in tf
+    assert "deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 0" in tf
+    assert "deployment_maximum_percent         = 100" in tf
