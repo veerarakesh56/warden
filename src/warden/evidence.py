@@ -132,7 +132,7 @@ READ_OPERATIONS = frozenset({
     "DescribeDBClusters", "DescribeDBInstances", "DescribeDBLogFiles", "DownloadDBLogFilePortion",
     "DescribeCacheClusters", "DescribeReplicationGroups",
     "DescribeEvents", "DescribeRule", "DescribeSecret", "DescribeSecurityGroups", "DescribeTable",
-    "DescribeTargetGroups", "DescribeTargetHealth", "GetAlias", "GetApis", "GetFunction", "SimulatePrincipalPolicy",
+    "DescribeTargetGroups", "DescribeTargetHealth", "GetAlias", "GetApis", "GetFunction", "SimulatePrincipalPolicy", "DescribeAlarmHistory",
     "GetFunctionConcurrency", "GetFunctionConfiguration", "GetQueueAttributes", "GetQueueUrl",
     "ListEventSourceMappings", "ListSubscriptionsByTopic", "ListVersionsByFunction", "GetCallerIdentity",
     # The universal alarm reader (aws_stack._read_alarm, G9-A2a).

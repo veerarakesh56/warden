@@ -68,6 +68,15 @@
       }
     },
     {
+      "Sid": "AlarmHistoryOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "cloudwatch:DescribeAlarmHistory",
+      "Resource": [
+        "arn:aws:cloudwatch:ap-south-2:*:alarm:warden-prod-*",
+        "arn:aws:cloudwatch:us-east-1:*:alarm:warden-prod-*"
+      ]
+    },
+    {
       "Sid": "GlobalServicesAlarmsOfThisEnvironment",
       "Effect": "Allow",
       "Action": "cloudwatch:DescribeAlarms",

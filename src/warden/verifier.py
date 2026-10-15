@@ -446,7 +446,9 @@ def _p28_language(alert: Alert, context: ContextBundle, root_cause: RootCause,
 # shaped like one WARDEN writes (evidence._SEGMENT), as in tool_error_text.
 _BENIGN_TAIL = re.compile(r"\[output truncated\] (?:kept the newest|stopped after \d+ pages, "
                           r"the alert-time lines read first|\d+ line\(s\) cut to)")
-_SECONDARY_READ = re.compile(r"alb zones|appconfig|alarm-siblings metrics|lambda/[\w.-]+ code")
+# The alarm's own history and the IAM simulator's answer (research 2026-10-15, items 9 and 10) are secondary too: the
+# alarm, its metric and the denial line they bear on are read whatever becomes of them.
+_SECONDARY_READ = re.compile(r"alb zones|appconfig|alarm-siblings metrics|lambda/[\w.-]+ code|alarm history|iam-simulate")
 # A container that has not started has no log to read, and its pod's own state lines say why (G10 held-out, 2026-10-11:
 # two right rollbacks were held by nothing but these). Kubernetes' own two answers, with their reason - never a bare 400.
 _NO_LOG_YET = re.compile(r"\[rejected as a bad request\] \(400\) (?:pod \S+ does not have a host assigned$"

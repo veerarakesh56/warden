@@ -68,6 +68,15 @@
       }
     },
     {
+      "Sid": "AlarmHistoryOfThisEnvironment",
+      "Effect": "Allow",
+      "Action": "cloudwatch:DescribeAlarmHistory",
+      "Resource": [
+        "arn:aws:cloudwatch:${region}:*:alarm:warden-${env}-*",
+        "arn:aws:cloudwatch:${global_region}:*:alarm:warden-${env}-*"
+      ]
+    },
+    {
       "Sid": "GlobalServicesAlarmsOfThisEnvironment",
       "Effect": "Allow",
       "Action": "cloudwatch:DescribeAlarms",

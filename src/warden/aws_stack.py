@@ -163,6 +163,8 @@ _DENIED = re.compile(r"is not authorized to perform: ([a-z0-9-]{2,40}:[A-Za-z0-9
                      r"(?: on resource: (arn:aws[a-z-]{0,20}:[A-Za-z0-9:/_.*+=,@-]{3,400}))?")
 _TASKROLE_LINE = re.compile(r"^TASKROLE (?:ecs|lambda)/\S+ role=([A-Za-z0-9+=,.@_-]{1,64})$")
 SIMULATE_MAX = 3
+# Research 2026-10-15, item 10: how far back an alarm's own history is read.
+ALARM_HISTORY = timedelta(hours=24)
 # G10-C1: an ECS service's last stopped tasks, its events in the hour before the alert, and how each is classified.
 STOPPED_TASKS = 10
 ECS_EVENT_WINDOW = timedelta(hours=1)
@@ -785,6 +787,7 @@ class StackBackend:
             raise ToolError("no metric alarm by that name (a composite alarm is read through the alarms it names)")
         a = found[0]
         self._read_appconfig(out, str(a.get("AlarmArn") or ""))
+        self._alarm_history(out, alert, name)
         ns, metric = a.get("Namespace"), a.get("MetricName")
         dims = {str(d.get("Name")): str(d.get("Value")) for d in a.get("Dimensions") or []}
         threshold = (f"threshold {_safe(a.get('ComparisonOperator'))} {a.get('Threshold')} "
@@ -831,6 +834,33 @@ class StackBackend:
                 others[f"alarm_sibling_{_key(ns.split('/')[-1])}_{_key(other)}"] = (ns, other, dims, "Maximum")
         out.metrics.update(self._cw_read(out, "alarm-siblings", alert, others))
         self._read_changes(out, alert, dims)
+
+    def _alarm_history(self, out: _Out, alert: Alert, name: str) -> None:
+        """Research 2026-10-15, item 10: the alarm's own history in the ALARM_HISTORY before the alert, from AWS's
+        structured fields only (never the summary text) - how often it changed state and went into ALARM (a flapping
+        alarm), and when its settings last changed (a threshold moved under it)."""
+        started = AwsBackend._started_at(alert)
+        try:
+            got = self._cw.describe_alarm_history(AlarmName=name, StartDate=started - ALARM_HISTORY,
+                                                  EndDate=started + timedelta(minutes=5), MaxRecords=100,
+                                                  ScanBy="TimestampDescending")
+        except Exception as exc:  # noqa: BLE001 - the alarm and its metric stand without it
+            out.lines.append(_partial("alarm history", exc))
+            return
+        items = got.get("AlarmHistoryItems") or []
+        states = [i for i in items if i.get("HistoryItemType") == "StateUpdate"]
+
+        def _new_state(item: dict) -> str:
+            try:
+                return str(((json.loads(item.get("HistoryData") or "{}").get("newState")) or {}).get("stateValue"))
+            except (ValueError, AttributeError):
+                return ""
+        into = sum(_new_state(i) == "ALARM" for i in states)
+        configs = [i for i in items if i.get("HistoryItemType") == "ConfigurationUpdate"]
+        out.lines.append(f"ALARM history {int(ALARM_HISTORY.total_seconds() // 3600)}h before the alert: "
+                         f"state_changes={len(states)} into_alarm={into} "
+                         f"last_config_update={_z(_parse_time(configs[0].get('Timestamp'))) if configs else 'none'}"
+                         + (" (more than one page)" if got.get("NextToken") else ""))
 
     def _read_appconfig(self, out: _Out, alarm_arn: str) -> None:
         """G9-D: the AppConfig configuration this alarm guards (its environment's monitors name the alarm) and that

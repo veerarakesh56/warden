@@ -24,6 +24,8 @@ BENIGN = [
     "logs: appconfig: [throttled] ...",
     "metrics: alarm-siblings metrics: [throttled] ...",
     "logs: lambda/warden-dev-checkout code: [denied on GetFunction] ...",
+    "logs: alarm history: [access denied on DescribeAlarmHistory] ...",
+    "logs: iam-simulate: [access denied on SimulatePrincipalPolicy] ...",
     # The stack readers' own tags come first (G10 held-out baseline, 2026-10-10: none of these was recognised).
     ("logs: lambda/warden-dev-checkout logs: logs: [output truncated] kept the newest 120 lines and 30 older error "
      "line(s), dropped 900 (raise WARDEN_AWS_LOG_MAX_LINES to see more)"),

@@ -42,6 +42,8 @@ data "aws_iam_policy_document" "fs_reader" {
     effect = "Allow"
     actions = [
       "cloudwatch:DescribeAlarms",
+      # The alarm's own history before the alert (aws_stack._alarm_history, research 2026-10-15).
+      "cloudwatch:DescribeAlarmHistory",
       "dynamodb:DescribeTable",
       "ecs:DescribeServices",
       "elasticache:DescribeReplicationGroups",

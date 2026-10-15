@@ -22,6 +22,7 @@ BILLED = {
     # The universal alarm reader (G9-A2a): 1 million CloudWatch API requests a month free, then billed (read 2026-10-10).
     ("_cw", "list_metrics"): "CloudWatch API requests",
     ("_cw", "describe_alarms"): "CloudWatch API requests",
+    ("_cw", "describe_alarm_history"): "CloudWatch API requests",  # one per alarm read (research 2026-10-15)
 }
 # Control-plane reads AWS does not bill, and the halves of a billed query (results, cancel) the query already pays for.
 FREE = {
