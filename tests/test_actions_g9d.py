@@ -107,4 +107,4 @@ def test_an_answer_cut_off_at_the_output_cap_is_charged_said_plainly_and_not_ask
     with pytest.raises(ModelRefused, match="cut off"):
         client.structured(system="s", user="u", schema=Diagnosis)
     assert len(sent) == 1 and client.cost.usd > 0  # asked once, and charged
-    assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 4096
+    assert sent[0]["max_tokens"] == providers.MAX_OUTPUT_TOKENS >= 8192

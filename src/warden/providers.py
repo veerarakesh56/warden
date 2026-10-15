@@ -168,9 +168,10 @@ def call_timeout_s(provider: Any = None) -> float:
 # --------------------------------------------------------------------------- anthropic
 
 
-# Room for the whole answer: at 1500 one incident's answer was cut off three times in a row (2026-10-10). Output is
-# charged as used, and the incident's USD cap (llm.py) still stops the run.
-MAX_OUTPUT_TOKENS = 4096
+# Room for the whole answer: at 1500 one incident's answer was cut off three times in a row (2026-10-10), and at 4096
+# a cloud incident's (warden-dev-orders-age, 2026-10-14 20:39 UTC) - it went to a person with no diagnosis. Output is
+# charged as used (8192 at $15 per million is $0.12), and the incident's USD cap (llm.py) still stops the run.
+MAX_OUTPUT_TOKENS = 8192
 
 
 class AnthropicProvider:
