@@ -166,3 +166,21 @@ def test_the_pipeline_names_its_environment_once_as_the_configuration_does_and_n
                  for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
                  if named.search(line.split("#", 1)[0])]
     assert not offenders, offenders
+
+
+def test_a_deploy_fails_unless_every_zone_runs_the_new_image():
+    """2026-10-15: the apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit), rolled
+    every zone back - and the workflow said success. The deploy now ends only when each service has one deployment,
+    COMPLETED, on the image just built."""
+    deploy = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
+    step = deploy[deploy.index("- name: Every zone runs the image just built"):]
+    assert deploy.index("apply the plan just made") < deploy.index("Every zone runs the image just built")
+    for must in ("aws ecs wait services-stable", "length(deployments)", "rolloutState", '"$image" != "$IMAGE"',
+                 'exit "$bad"'):
+        assert must in step, must
+
+
+def test_two_copies_are_replaced_one_at_a_time_and_one_copy_keeps_the_defaults():
+    tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
+    assert "deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 100" in tf
+    assert "deployment_maximum_percent         = var.worker_instances > 1 ? 100 : 200" in tf

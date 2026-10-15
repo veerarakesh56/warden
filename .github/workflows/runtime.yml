@@ -223,6 +223,39 @@ jobs:
             echo "::error::the migrate Lambda failed: $(cat "$RUNNER_TEMP/migrate.json")"
             exit 1
           fi
+      # A deploy is done when every zone runs the image just built - not when Terraform has asked for it. On
+      # 2026-10-15 the apply succeeded, ECS could not start the new tasks (the account's Fargate vCPU limit) and
+      # rolled every zone back, and this workflow said success.
+      - name: Every zone runs the image just built
+        if: env.ACTION == 'apply'
+        run: |
+          if [ "$(aws ssm get-parameter --name "/warden/$RUNTIME_ENV/tf/paused" --query Parameter.Value --output text 2>/dev/null)" = "true" ]; then
+            echo "paused: no zone runs"
+            exit 0
+          fi
+          cluster="warden-$RUNTIME_ENV-runtime"
+          services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
+          test -n "$services" || { echo "::error::no services in $cluster"; exit 1; }
+          # shellcheck disable=SC2086
+          aws ecs wait services-stable --cluster "$cluster" --services $services || true
+          bad=0
+          for svc in $services; do
+            # shellcheck disable=SC2086
+            read -r name count state td <<< "$(aws ecs describe-services --cluster "$cluster" --services "$svc" \
+              --query 'services[0].[serviceName, length(deployments), deployments[0].rolloutState, deployments[0].taskDefinition]' \
+              --output text)"
+            image=$(aws ecs describe-task-definition --task-definition "$td" \
+              --query 'taskDefinition.containerDefinitions[0].image' --output text)
+            if [ "$count" != 1 ] || [ "$state" != COMPLETED ] || [ "$image" != "$IMAGE" ]; then
+              echo "::error::$name is not on the new image (deployments $count, rollout $state)"
+              aws ecs describe-services --cluster "$cluster" --services "$svc" \
+                --query 'services[0].events[0:3].message' --output text
+              bad=1
+            else
+              echo "$name runs the new image"
+            fi
+          done
+          exit "$bad"
 
   restart:
     if: inputs.action == 'restart'
