@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:1f2e471f-34d0-5d1c-9765-bd00b16e3095",
+  "serialNumber": "urn:uuid:ff35cb96-49ef-5399-8c8a-3106c7b5692d",
   "version": 1,
   "metadata": {
     "component": {
@@ -568,6 +568,19 @@
         {
           "alg": "SHA-256",
           "content": "367be21a201db9523eddf8aeac7048f2602c1b308691c97640d5e72ed188007e"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/hypothesis@6.168.3",
+      "name": "hypothesis",
+      "version": "6.168.3",
+      "purl": "pkg:pypi/hypothesis@6.168.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "a43388f9067678fef6e13bdff325b6cfa6961a590498bb37f7ff31589c83bc75"
         }
       ]
     },
