@@ -291,6 +291,33 @@ class AuditLog:
                 self.anchor.put(last[0], last[1], signature)
         return last[0]
 
+    def intact(self, seqs: Any) -> set[int]:
+        """The rows among `seqs` whose stored hash is their own content's, which link to the row before them, and
+        which a signed checkpoint already covers: facts a later diagnosis is shown were not written or changed after
+        the fact (research 2026-10-15: a memory read must verify where it came from; `history.plans` read rows
+        without checking). ponytail: two rows read per seq and the checkpoint's signature not re-checked here - the
+        whole chain and every signature is `warden audit verify`."""
+        want = sorted({int(s) for s in seqs if isinstance(s, int) and s > 0})
+        if not want:
+            return set()
+        top = self.store.run("SELECT MAX(seq) FROM checkpoints").fetchone()
+        signed = int(top[0]) if top and top[0] is not None else 0
+        ok: set[int] = set()
+        for s in want:
+            if s > signed:
+                continue
+            rows = self.store.run("SELECT seq, at, correlation_id, kind, body, prev, hash FROM entries "
+                                  "WHERE seq IN (?, ?) ORDER BY seq", (s - 1, s)).fetchall()
+            by = {r[0]: r for r in rows}
+            row, before = by.get(s), by.get(s - 1)
+            if row is None or (s > 1 and before is None):
+                continue
+            prev = before[6] if before else GENESIS
+            if row[5] == prev and _hash(row[5], *row[:5]) == row[6] and (
+                    before is None or _hash(before[5], *before[:5]) == before[6]):
+                ok.add(s)
+        return ok
+
     def head(self, correlation_id: str) -> str:
         """The hash of the latest row of one correlation id ("" if it has none): the record a plan was made on."""
         row = self.store.run("SELECT hash FROM entries WHERE correlation_id = ? ORDER BY seq DESC LIMIT 1",

@@ -905,11 +905,15 @@ class IncidentActivities:
             from . import history
 
             try:
-                past = history.prompt_facts(history.past(alert, self.audit))
+                shown = history.for_prompt(history.past(alert, self.audit), self.audit)
+                past = history.prompt_facts(shown)
             except Exception:  # noqa: BLE001 - the diagnosis goes on without it
-                past = ""
+                shown, past = [], ""
             if past:
                 prompt = f"{prompt}\n\n{past}"
+                # Which past runs the model was shown, on the record beside its diagnosis (research 2026-10-15): a
+                # wrong diagnosis that followed history can be traced to the rows that led it.
+                steps.append({"node": "history_shown", "seqs": [s for r in shown for s in r["seqs"]]})
         self._record(alert.alert_id, steps)
         # The alarm as it came in, so the incident can be discussed later from its own evidence (discuss.py). Its
         # free text redacted, as everything on the record is.

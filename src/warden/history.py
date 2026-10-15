@@ -36,7 +36,8 @@ def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
     for e in log.entries(kinds=("remediation.plan",), since=since):
         b = e["body"]
         end = ends.get((b.get("workflow_id"), b.get("run_id")))
-        rows.append({"at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
+        rows.append({"seqs": [e["seq"], *([end["seq"]] if end else [])],
+                     "at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
                      "environment": b.get("environment"), "service": b.get("service"),
                      "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
                      "status": str(end["body"].get("status")) if end else "open",
@@ -121,6 +122,24 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
     return f" Before you decide: in the last day this same fix did not last {times} - {latest}.{also}"
 
 
+_TARGET = __import__("re").compile(r"[A-Za-z0-9:/._@+=,-]{1,200}")
+# What the model may be shown of a past run: a fix that ran to an end. Not one still open, and not a denial - a
+# person's "no" is not a fact about the resource (research 2026-10-15).
+_SHOWN = frozenset(ENDED) - {"denied"}
+
+
+def for_prompt(rows: list[dict[str, Any]], log: Any) -> list[dict[str, Any]]:
+    """The past runs a diagnosis may be shown, with the research's safeguards (2026-10-15): only rows the signed
+    record vouches for (AuditLog.intact), only today's catalogue entries on a target of a resource's shape, only runs
+    that ended - so a forged, altered or half-written row, or a fix since removed, never reaches the model."""
+    from .catalog import CATALOG
+
+    seqs = [s for r in rows for s in r.get("seqs", ())]
+    good = log.intact(seqs) if seqs else set()
+    return [r for r in rows if r.get("seqs") and set(r["seqs"]) <= good and r["entry"] in CATALOG
+            and _TARGET.fullmatch(r["target"]) and r["status"] in _SHOWN]
+
+
 def prompt_facts(rows: list[dict[str, Any]]) -> str:
     """Past fix plans on this resource for the model (owner, 2026-10-14: show past incidents to the model; off unless
     WARDEN_HISTORY_IN_PROMPT=1, measured live first). Facts in a fixed vocabulary from the signed record only: when,
@@ -130,4 +149,5 @@ def prompt_facts(rows: list[dict[str, Any]]) -> str:
         return ""
     lines = [f"- {r['at'].astimezone(UTC).isoformat(timespec='minutes')} `{r['entry']}` on `{r['target']}`: "
              f"{ENDED.get(r['status'], 'still open' if r['status'] == 'open' else 'ended')}" for r in rows]
-    return "PAST FIX PLANS ON THIS RESOURCE (WARDEN's signed record; facts, not a diagnosis):\n" + "\n".join(lines)
+    return ("PAST FIX PLANS ON THIS RESOURCE (WARDEN's signed record of earlier incidents - not evidence of this one;"
+            " cite only this incident's evidence ids, and judge this incident on its own evidence):\n" + "\n".join(lines))

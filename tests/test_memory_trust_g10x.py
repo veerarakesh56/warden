@@ -101,7 +101,9 @@ def test_past_incidents_reach_a_diagnosis_only_as_fixed_facts_and_only_when_swit
              "status": "denied", "approvers": [], "denied_by": "owner", "why": "denied by owner: a note",
              "incident": "y", "plan_hash": "g"}]
     said = history.prompt_facts(rows)
-    assert said.splitlines() == ["PAST FIX PLANS ON THIS RESOURCE (WARDEN's signed record; facts, not a diagnosis):",
+    assert said.splitlines() == [("PAST FIX PLANS ON THIS RESOURCE (WARDEN's signed record of earlier incidents - not "
+                                  "evidence of this one; cite only this incident's evidence ids, and judge this incident"
+                                  " on its own evidence):"),
                                  "- 2026-10-14T07:16+00:00 `events_enable_rule` on `rule/tick`: did not work and was undone",
                                  "- 2026-10-13T09:00+00:00 `events_enable_rule` on `rule/tick`: was denied"]
     for never in ("ignore previous", "a note", "owner", "approve"):
@@ -110,4 +112,39 @@ def test_past_incidents_reach_a_diagnosis_only_as_fixed_facts_and_only_when_swit
     acts = _src("activities.py")
     prepare = _function(acts, "prepare")
     assert 'os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1"' in prepare
-    assert "history.prompt_facts(history.past(alert, self.audit))" in prepare
+    assert "history.for_prompt(history.past(alert, self.audit), self.audit)" in prepare
+    assert '"node": "history_shown"' in prepare
+
+
+def test_a_diagnosis_is_shown_only_past_runs_the_signed_record_vouches_for(tmp_path):
+    """Research, 2026-10-15 (memory poisoning: MINJA, Unit 42, FARMA): a memory read verifies where each row came from.
+    Only rows a signed checkpoint covers and whose hashes hold, only today's catalogue entries on a resource-shaped
+    target, only runs that ended - not open, not denied - reach the model."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from warden import audit, history
+
+    log = audit.AuditLog(tmp_path / "a.db", key=Ed25519PrivateKey.generate(), checkpoint_every=10_000)
+
+    def run(inc, entry, target, end):
+        wf = f"rem-{inc}"
+        log.append(inc, "remediation.plan", {"workflow_id": wf, "run_id": "r", "entry": entry, "target": target,
+                                             "environment": "dev", "service": "tick", "plan_hash": inc})
+        if end:
+            log.append(inc, "workflow.end", {"workflow_id": wf, "run_id": "r", "status": end, "reasons": []})
+
+    run("i1", "events_enable_rule", "rule/tick", "recovered")
+    run("i2", "events_enable_rule", "rule/tick", "denied")
+    run("i3", "events_enable_rule", "rule/tick", None)            # still open
+    run("i4", "no_such_entry", "rule/tick", "recovered")          # not in today's catalogue
+    run("i6", "events_enable_rule", "rule/tock", "rolled_back")   # tampered below
+    run("i5", "events_enable_rule", "rule/tick; rm -rf", "recovered")  # not a resource's shape
+    log.checkpoint()
+    run("i7", "events_enable_rule", "rule/tick", "recovered")     # after the last checkpoint: unsigned
+    db = log.db
+    db.execute("DROP TRIGGER entries_no_update")
+    db.execute("UPDATE entries SET body = replace(body, 'rolled_back', 'recovered') WHERE correlation_id = 'i6' "
+               "AND kind = 'workflow.end'")
+    shown = history.for_prompt(history.plans(log), log)
+    assert [r["incident"] for r in shown] == ["i1"], [r["incident"] for r in shown]
+    assert log.intact([]) == set() and log.intact(["x", 0, -1]) == set()
