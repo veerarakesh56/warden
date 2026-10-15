@@ -36,3 +36,11 @@ def test_the_mirror_workflow_copies_exactly_the_images_in_use_by_digest():
     assert {u.split("@")[0] for u in used} >= {"python:3.13-slim", "postgres:16", "mysql:8", "redis:7", "mongo:7"}
     assert used == listed, (used ^ listed)
     assert "--preserve-digests" in flow and "packages: write" in flow
+
+
+def test_the_k3d_cluster_image_comes_from_the_mirror_and_is_in_its_list():
+    ci = (ROOT / ".github/workflows/ci-tool.yml").read_text(encoding="utf-8")
+    ref = re.search(r"K3S_IMAGE: (\S+)", ci).group(1)
+    assert ref.startswith("ghcr.io/veerarakesh56/warden-mirror/rancher/k3s:") and "@sha256:" in ref, ref
+    flow = (ROOT / ".github/workflows/mirror-images.yml").read_text(encoding="utf-8")
+    assert ref.removeprefix("ghcr.io/veerarakesh56/warden-mirror/") in flow
