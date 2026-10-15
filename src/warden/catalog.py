@@ -414,6 +414,43 @@ def shown_target(environment: str, name: str, params: dict[str, Any]) -> str:
     return f"{environment}/{entry.platform}:" + "/".join(parts)
 
 
+# Research 2026-10-16 ("who will change this field back, and when?"): a runtime fix lasts only as long as whatever else
+# owns the field leaves it. Each entry says how long its fix lasts and what has to follow, and the approver reads it
+# before deciding - a rollback the next deploy undoes, or a value the next infrastructure apply sets back, is not a fix
+# that holds. A new entry without one fails tests/test_fix_lasts.py.
+_RESTORES = ("restores", ("it puts back the state from before the change. The change was made outside the normal "
+                         "path: find who made it and why, so it is not made again."))
+_UNTIL_DEPLOY = ("until_deploy", ("it lasts until the next deploy of this code or configuration. Revert or fix the "
+                                  "change in Git first, or the next deploy brings it back."))
+_UNTIL_APPLY = ("until_apply", ("infrastructure as code may declare this value; if it does, its next apply sets it "
+                                "back. Change the value there too."))
+_UNTIL_SCALED = ("until_scaled", ("an autoscaler or infrastructure as code may own this count and set it back; if "
+                                  "one does, change it there."))
+_TEMPORARY = ("temporary", "it holds the harm, not the cause: the cause still needs its own fix.")
+_ONE_OFF = ("one_off", "a one-off action that nothing changes back; the cause still needs its own fix.")
+LASTS: dict[str, tuple[str, str]] = {
+    "lambda_move_alias": _UNTIL_DEPLOY, "lambda_restore_config": _UNTIL_DEPLOY,
+    "lambda_set_reserved_concurrency": _UNTIL_APPLY, "lambda_enable_esm": _RESTORES, "lambda_disable_esm": _TEMPORARY,
+    "events_enable_rule": _RESTORES, "events_disable_rule": _TEMPORARY, "sqs_redrive_dlq": _ONE_OFF,
+    "athena_stop_query": _ONE_OFF, "apigw_raise_stage_throttle": _UNTIL_APPLY, "arc_zonal_shift": _TEMPORARY,
+    "appconfig_revert": _UNTIL_DEPLOY, "codepipeline_freeze": _TEMPORARY, "dynamodb_raise_capacity": _UNTIL_APPLY,
+    "ecs_rollback_service": _UNTIL_DEPLOY, "ecs_restart_service": _ONE_OFF, "ecs_scale_service": _UNTIL_SCALED,
+    "k8s_rollout_undo": _UNTIL_DEPLOY, "k8s_restart": _ONE_OFF, "k8s_scale": _UNTIL_SCALED,
+    "db_terminate_idle_in_tx": _ONE_OFF, "db_terminate_blocker": _ONE_OFF, "aurora_failover": _TEMPORARY,
+    "infra_restore_baseline": _RESTORES, "ec2_revert_sg_change": _RESTORES, "ec2_restore_route": _RESTORES,
+    "ecs_restore_desired": _RESTORES, "lambda_restore_concurrency": _RESTORES, "lambda_restore_settings": _RESTORES,
+    "sqs_restore_attributes": _RESTORES, "kinesis_restore_retention": _RESTORES, "dynamodb_restore_capacity": _RESTORES,
+    "asg_restore_capacity": _RESTORES, "asg_resume_processes": _RESTORES, "apigw_restore_stage": _RESTORES,
+    "elb_reregister_targets": _RESTORES, "kms_cancel_key_deletion": _RESTORES, "secrets_restore_secret": _RESTORES,
+}
+
+
+def lasts(name: str) -> str:
+    """How long the entry's fix lasts and what has to follow, as one sentence for the approver - or empty."""
+    kind = LASTS.get(name)
+    return f"How long it lasts: {kind[1]}" if kind else ""
+
+
 def fingerprint() -> str:
     """What the catalogue allows, as one hash: a plan made under one catalogue is not applied under another
     (register O5). The `relative` limits are code, covered by the code hash (activities.code_version)."""

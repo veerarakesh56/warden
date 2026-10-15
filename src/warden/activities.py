@@ -366,7 +366,8 @@ class RemediationActivities:
                             f"(plan `{plan.workflow_id}`). It waits until "
                             f"{environments.both_times(_deadline(plan), seconds=False)}; unapproved by then, it expires "
                             "and nothing is changed. "
-                            "Only an enrolled approver of this risk level can approve it"
+                            + (f"{catalog.lasts(plan.entry)} " if catalog.lasts(plan.entry) else "")
+                            + "Only an enrolled approver of this risk level can approve it"
                             + (f", and {need} different approvers are needed" if need > 1 else "")
                             + ": the link opens for nobody else, and who decided is said here when they have."),
                 "approved": (f"WARDEN's plan `{plan.entry}` on `{shown}` was approved by {' and '.join(did)} at "
