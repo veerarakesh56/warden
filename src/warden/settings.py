@@ -57,6 +57,9 @@ LOADABLE = frozenset({
     # Each environment's EKS cluster, `env=cluster[,env=cluster]` (aws_stack.eks_cluster_of): a Kubernetes alert that
     # does not name its cluster - a Datadog monitor grouped by workload - is read in its environment's (2026-10-15).
     "WARDEN_EKS_CLUSTERS",
+    # The watched database's DSNs carry no password: each read signs an IAM token in the incident's reader role
+    # (aws_stack.iam_dsn).
+    "WARDEN_STACK_DB_IAM_AUTH",
 })
 
 

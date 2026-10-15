@@ -205,6 +205,12 @@
       "Resource": "arn:aws:apigateway:ap-south-2::/account"
     },
     {
+      "Sid": "TheDatabaseAsItsReadOnlyUserOnly",
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_dev_ro"
+    },
+    {
       "Sid": "NeverApiKeys",
       "Effect": "Deny",
       "Action": "apigateway:GET",

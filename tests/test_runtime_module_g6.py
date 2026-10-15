@@ -363,7 +363,9 @@ def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_onl
     net = (MODULE / "network.tf").read_text(encoding="utf-8")
     sg = _block(net, "aws_security_group", "runtime")
     ports = sorted(int(p) for p in re.findall(r"from_port\s*=\s*(\d+)", sg))
-    assert ports == [443, 5432, 7233]
+    assert ports == [443, 5432, 5432, 7233]
+    # The second 5432: the watched databases' public endpoints (Aurora express), only when switched on (2026-10-15).
+    assert 'dynamic "egress"' in sg and "for_each = var.watched_db_egress ? [1] : []" in sg
     assert "security_groups = [aws_security_group.audit_db.id]" in sg and "ingress" not in sg
     module = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
     assert "aws_vpc_security_group_egress_rule" not in module

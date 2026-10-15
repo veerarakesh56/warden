@@ -27,6 +27,18 @@ resource "aws_security_group" "runtime" {
     protocol        = "tcp"
     security_groups = [aws_security_group.audit_db.id]
   }
+  # The watched databases, where an Aurora express cluster is reached only at its public endpoint (no VPC): off unless
+  # tf/watched_db_egress is true. The reads sign in as the read-only user with an IAM token (aws_stack.iam_dsn).
+  dynamic "egress" {
+    for_each = var.watched_db_egress ? [1] : []
+    content {
+      description = "PostgreSQL to the watched databases (public endpoints)"
+      from_port   = 5432
+      to_port     = 5432
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
   tags = { Project = "warden", Environment = var.environment }
 }
 

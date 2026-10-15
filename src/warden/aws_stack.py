@@ -43,6 +43,7 @@ import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .aws_backend import (
     CONNECT_TIMEOUT,
@@ -1273,6 +1274,8 @@ class StackBackend:
         dsn = os.environ.get(env)
         if not dsn:
             raise ToolError(f"{env} is not set; the {'reader' if prefix else 'writer'} sessions were not read")
+        if os.environ.get("WARDEN_STACK_DB_IAM_AUTH") == "1":
+            dsn = iam_dsn(self._rds, dsn)
         db = self._db_factory(dsn)
         role = "reader" if prefix else "writer"
         try:
@@ -1656,6 +1659,21 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
     if any(st.get("Effect") == "Deny" and matches(st, unknown=True) for st in statements):
         return False
     return any(st.get("Effect") == "Allow" and matches(st, unknown=False) for st in statements)
+
+
+def iam_dsn(rds: Any, dsn: str) -> str:
+    """The DSN with a 15-minute IAM token as its password, signed by `rds`'s own credentials - in the cloud runtime the
+    incident's environment reader role - when the DSN carries no password: no database password exists anywhere,
+    and the role's rds-db:connect on the read-only user decides (2026-10-15: the cloud read no database at all). The
+    token lives only in this DSN, in memory."""
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    parts = conninfo_to_dict(dsn)
+    if parts.get("password") or not parts.get("host") or not parts.get("user"):
+        return dsn
+    token = rds.generate_db_auth_token(DBHostname=parts["host"], Port=int(parts.get("port") or 5432),
+                                       DBUsername=parts["user"])
+    return make_conninfo(dsn, password=token, sslmode="require")
 
 
 def eks_cluster_of(environment: str) -> str:

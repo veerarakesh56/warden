@@ -143,6 +143,13 @@ variable "worker_instances" {
   }
 }
 
+variable "watched_db_egress" {
+  description = "Let the workers reach a watched PostgreSQL at a public endpoint (Aurora express) on 5432."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "paused" {
   description = "Between test windows: no worker task, no instance, no alarm intake, no self-pages for a silent worker. The audit, its keys, the secrets and the witness stay; set false and apply to resume."
   type        = bool

@@ -69,6 +69,7 @@ module "runtime" {
   bedrock_model_arns       = lookup(local.csv, "bedrock_model_arns", [])
   audit_db_instances       = tonumber(lookup(local.tf, "audit_db_instances", "2"))
   worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
+  watched_db_egress        = lookup(local.tf, "watched_db_egress", "false") == "true"
   audit_db_backup_days     = try(tonumber(local.tf["audit_db_backup_days"]), null)
   aws_free_plan            = lookup(local.tf, "aws_free_plan", "false") == "true"
   paused                   = local.paused
