@@ -106,7 +106,7 @@ class Target:
     namespace: str = "shop"
     catalog: str = "catalog-api"
     cart_worker: str = "cart-worker"
-    k8s_replicas: dict[str, int] = field(default_factory=lambda: {"catalog-api": 2, "cart-worker": 1})
+    k8s_replicas: dict[str, int] = field(default_factory=lambda: {"catalog-api": 2, "cart-worker": 2})
     configmap: str = "catalog-config"
     config_key: str = "CATALOG_PAGE_SIZE"
     k8s_secret: str = "catalog-secret"

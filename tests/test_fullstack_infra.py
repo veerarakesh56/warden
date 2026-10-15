@@ -357,7 +357,7 @@ def test_the_namespace_enforces_restricted_pod_security():
     assert ns["metadata"]["labels"]["project"] == "warden"
 
 
-@pytest.mark.parametrize("name,replicas", [("catalog-api", 2), ("cart-worker", 1)])
+@pytest.mark.parametrize("name,replicas", [("catalog-api", 2), ("cart-worker", 2)])
 def test_deployments_pass_restricted_pod_security(name, replicas):
     dep = next(d for d in _k8s_docs() if d["kind"] == "Deployment" and d["metadata"]["name"] == name)
     assert dep["metadata"]["namespace"] == "shop" and dep["spec"]["replicas"] == replicas

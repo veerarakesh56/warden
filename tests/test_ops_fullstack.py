@@ -90,9 +90,9 @@ class World:
                 "env": [{"name": "API_TOKEN", "valueFrom": {"secretKeyRef": {"name": "catalog-secret", "key": "API_TOKEN"}}}],
                 "readinessProbe": {"httpGet": {"path": "/health", "port": 8080}}}]}}},
                 "status": {"readyReplicas": 2, "updatedReplicas": 2}},
-            "cart-worker": {"spec": {"replicas": 1, "template": {"metadata": {}, "spec": {"containers": [{
+            "cart-worker": {"spec": {"replicas": 2, "template": {"metadata": {}, "spec": {"containers": [{
                 "name": "cart-worker", "image": "ecr/app:v1"}]}}},
-                "status": {"readyReplicas": 1, "updatedReplicas": 1}},
+                "status": {"readyReplicas": 2, "updatedReplicas": 2}},
         }
 
     def snapshot(self) -> dict:

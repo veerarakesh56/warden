@@ -12,7 +12,7 @@ metadata:
     tags.datadoghq.com/env: __ENVIRONMENT__
     tags.datadoghq.com/service: cart-worker
 spec:
-  replicas: 1
+  replicas: 2  # like production (owner, 2026-10-15); was 1
   selector:
     matchLabels:
       app: cart-worker

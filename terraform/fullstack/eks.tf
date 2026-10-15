@@ -104,11 +104,12 @@ resource "aws_iam_role_policy_attachment" "eks_node" {
   policy_arn = each.value
 }
 
-# 1 x m7i-flex.large ON_DEMAND (2 vCPU, 8 GiB, 29 pods). Changed 2026-09-26 from t3.medium: the
+# 2 x m7i-flex.large ON_DEMAND, one per private subnet's zone (owner, 2026-10-15: counts like production); was 1.
+# Each: 2 vCPU, 8 GiB, 29 pods. Changed 2026-09-26 from t3.medium: the
 # account is on the AWS Free plan, which refuses instance types that are not Free Tier eligible
 # (in ap-south-2: t3/t4g/t8i micro+small, c7i-flex.large, m7i-flex.large). t3.small takes 11 pods,
 # too few for system pods + shop + a rollout; m7i-flex.large is the eligible type with room.
-# Still 2 vCPU, so fs-25 (8 CPU requested) stays unschedulable. Spot would add an unplanned second
+# Still 2 vCPU a node, so fs-25 (8 CPU requested) stays unschedulable. Spot would add an unplanned second
 # fault mid-run.
 resource "aws_eks_node_group" "this" {
   cluster_name    = aws_eks_cluster.this.name
@@ -124,9 +125,9 @@ resource "aws_eks_node_group" "this" {
   }
 
   scaling_config {
-    desired_size = 1
-    min_size     = 1
-    max_size     = 1
+    desired_size = 2
+    min_size     = 2
+    max_size     = 2
   }
 
   update_config {
