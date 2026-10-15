@@ -150,6 +150,7 @@ def slack_summary(markdown: str) -> str:
 # before it are put beside its evidence as changes, like a person's deploy: the diagnosis weighs them - cites one as
 # the cause, or finds another - and nothing is assumed either way.
 OWN_FIX_WINDOW = timedelta(minutes=int(os.environ.get("WARDEN_OWN_FIX_WINDOW_MIN", "60")))
+_OWN_FIX = "by WARDEN (its own fix "
 
 
 def _when_iso(text: str) -> datetime | None:
@@ -395,6 +396,10 @@ class RemediationActivities:
 
             from . import history
 
+            # WARDEN's own earlier fix beside this incident's evidence: said, with whether this diagnosis named it the
+            # cause - the approver decides knowing both (owner, 2026-10-15).
+            said += self._own_fix_said(plan.incident_id)
+
             # The same fix, on the same target, that ended badly in the last day: said before the decision. A record
             # that cannot be read does not hold an approval request back.
             with contextlib.suppress(Exception):
@@ -461,6 +466,25 @@ class RemediationActivities:
         if what in OUTCOME or why:
             self.audit.checkpoint()  # said after the end row: a run's record still ends signed
         return delivered
+
+    def _own_fix_said(self, incident: str) -> str:
+        """One sentence per earlier fix of WARDEN's put beside this incident's evidence (IncidentActivities._own_fixes),
+        and whether the diagnosis cited it. Empty: none, or a record that cannot be read."""
+        try:
+            steps = [e["body"] for e in self.audit.entries(incident, kinds=("incident.own_fixes",))]
+            diag = [e["body"] for e in self.audit.entries(incident, kinds=("incident.diagnose",))]
+        except Exception:  # noqa: BLE001 - the request goes out without it
+            return ""
+        if not steps:
+            return ""
+        fixes, items = steps[-1].get("fixes") or [], set(steps[-1].get("items") or [])
+        cited = set(diag[-1].get("cited") or []) if diag else set()
+        said = "; ".join(f"`{f.get('entry')}` on `{f.get('on')}` (incident `{f.get('incident')}`), "
+                         f"{f.get('minutes_before')} min before this alarm started" for f in fixes[:3])
+        verdict = ("This diagnosis cites that change as part of the cause." if items & cited else
+                   "This diagnosis does not cite it: it found another cause. Connected or not, check that fix's record "
+                   "before deciding.")
+        return f" Before you decide: WARDEN's own fix was applied in this environment shortly before - {said}. {verdict}"
 
     def _summary_said(self, incident: str) -> bool:
         """The incident's summary already reached someone: in its report's own message, or at the top of one about
@@ -978,6 +1002,12 @@ class IncidentActivities:
                         update={"logs": [*state["context"].logs, *(line for line, _ in own)]})
                     steps.append({"node": "own_fixes", "fixes": [link for _, link in own]})
         prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
+        own_step = next((s for s in steps if s.get("node") == "own_fixes"), None)
+        if own_step is not None:
+            from . import evidence
+
+            # The ids the model is shown them by, so a citation of one can be told from a citation of anything else.
+            own_step["items"] = [i.id for i in evidence.index(state["context"]).values() if _OWN_FIX in i.text]
         if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
             # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
             # prompt_facts) - off unless measured to help; a record that cannot be read adds nothing.
@@ -1035,8 +1065,8 @@ class IncidentActivities:
                 minutes = int((started - at).total_seconds() // 60)
                 where = ("the same resource as this alarm" if on in named_resources(alert)
                          else "a different resource from this alarm's")
-                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {b.get('action_class')} on {on} by "
-                        f"WARDEN (its own fix {b.get('workflow_id')} for incident {e['correlation_id']}, "
+                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {b.get('action_class')} on {on} "
+                        f"{_OWN_FIX}{b.get('workflow_id')} for incident {e['correlation_id']}, "
                         f"applied {minutes} min before this alarm started, on {where})")
                 link = {"incident": str(e["correlation_id"]), "workflow_id": str(b.get("workflow_id") or ""),
                         "entry": str(b.get("action_class") or ""), "on": on, "minutes_before": str(minutes)}

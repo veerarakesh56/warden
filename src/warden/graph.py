@@ -681,6 +681,9 @@ def _diagnose(state: WardenState, llm: LLMClient) -> WardenState:
         "need_evidence": [r.model_dump() for r in d.need_evidence],
         "audit": [{"node": "diagnose", "confidence": rc.confidence, "hypothesis": rc.hypothesis,
                    "action": proposal.action.value, "target": proposal.target, "provenance": provenance,
+                   # Which evidence it cited: whether it named WARDEN's own earlier fix as the cause (activities.
+                   # _own_fix_said) is read from these, never from its prose.
+                   "cited": [c.id for c in rc.citations],
                    "need_evidence": [r.model_dump() for r in d.need_evidence]}],
     }
 
