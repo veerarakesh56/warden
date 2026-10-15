@@ -61,7 +61,7 @@ otlp = ["opentelemetry-exporter-otlp-proto-http>=1.20"]
 all-providers = ["anthropic>=1.0", "google-genai>=1.0", "openai>=1.0"]
 # The injection tripwire (WARDEN_TRIPWIRE, policy P16). Install torch from the CPU index to keep it
 # small: pip install torch --index-url https://download.pytorch.org/whl/cpu
-guard = ["transformers>=4.50", "torch>=2.4", "huggingface_hub>=0.30"]
+guard = ["transformers>=4.50", "torch>=2.4", "huggingface_hub>=2.1.1"]
 
 # CI-only tools and the apps pipeline's helpers. Locked with everything else in uv.lock - every
 # version AND its hash (audit A-I-9: unpinned installs ran while a job held cloud credentials) - and
