@@ -48,6 +48,16 @@ class RoutedPlatform:
         answers = [p.healthy(service) for p in self._by_kind.values() if p.knows(service)]
         return bool(answers) and all(answers)
 
+    def alarm_state(self, alarm: str, environment: str | None = None) -> str | None:
+        """A CloudWatch alarm's state (OK, ALARM, INSUFFICIENT_DATA) as a platform that reads alarms sees it, in the
+        plan's environment; None when no connected platform reads alarms."""
+        p = next((p for p in self._by_kind.values() if hasattr(p, "alarm_state")), None)
+        if p is None:
+            return None
+        if environment and hasattr(p, "for_environment"):
+            p = p.for_environment(environment)
+        return p.alarm_state(alarm)
+
     def healthy_for(self, entry: str, service: str, params: dict[str, Any] | None = None,
                     environment: str | None = None) -> bool:
         """Health as the platform that carries out `entry` sees it - only that one (sixth review, 2026-10-01: a

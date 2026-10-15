@@ -699,13 +699,34 @@ class RemediationActivities:
             healthy = bool(routed(plan.entry, service, params=plan.params, **_env(routed, plan.environment)))
         else:
             healthy = bool(routed(plan.entry, service) if routed else self.platform.healthy(service))
+        # Success is the symptom gone, not only the change landed (research 2026-10-15, item 12): the CloudWatch
+        # alarm that opened the incident, read live, must not still be in ALARM. Read only when the fix's own check
+        # passed; a state that cannot be read, or INSUFFICIENT_DATA, keeps the check's verdict - a good fix is never
+        # rolled back for want of a reading. CloudWatch's intake forwards ALARM transitions only, so the record
+        # holds no OK: the alarm itself is asked.
+        alarm, state = self._incident_alarm(plan.incident_id), None
+        read = getattr(self.platform, "alarm_state", None)
+        if healthy and alarm and read:
+            try:
+                state = read(alarm, **_env(read, plan.environment))
+            except Exception:  # noqa: BLE001 - unknown keeps the fix's own verdict
+                state = None
+            if state == "ALARM":
+                healthy = False
         # Every real check is on the record with its run: the verdict is taken from these rows, never from
         # what an activity result or the workflow claims (fourth review, 2026-09-30: run 1's "healthy"
         # replayed into run 2 marked a fix verified with no health check made).
         self.audit.append(plan.incident_id, "remediation.check",
                           {"workflow_id": plan.workflow_id, "run_id": _run_id(), "plan_hash": plan.plan_hash,
-                           "healthy": healthy})
+                           "healthy": healthy, **({"alarm": alarm, "alarm_state": state} if alarm else {})})
         return healthy
+
+    def _incident_alarm(self, incident_id: str) -> str:
+        """The CloudWatch alarm that opened the incident, from the incident's own record (intake sets `via` last, so
+        a sender's label never says it); "" for any other source."""
+        rows = self.audit.entries(incident_id, kinds=("incident.alert",))
+        labels = ((rows[-1]["body"].get("alert") or {}).get("labels") or {}) if rows else {}
+        return str(labels.get("alarm", "")) if labels.get("via") == "cloudwatch" else ""
 
     @activity.defn
     def record_result(self, plan: Plan, service: str, ok: bool, consecutive: int = 1) -> Recorded:

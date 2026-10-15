@@ -552,6 +552,12 @@ class AwsPlatform:
     def knows(self, service: str) -> bool:
         return False  # health is asked by entry (healthy_for), never by a bare name that two kinds could share
 
+    def alarm_state(self, alarm: str) -> str | None:
+        """The alarm's state as CloudWatch reports it, through this environment's reader; None when it is not found."""
+        got = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm", "CompositeAlarm"])
+        found = (got.get("MetricAlarms") or []) + (got.get("CompositeAlarms") or [])
+        return str(found[0].get("StateValue")) if found else None
+
     def healthy(self, service: str, entry: str | None = None, params: dict[str, Any] | None = None) -> bool:
         check = {"lambda_move_alias": self._lambda_healthy, "lambda_set_reserved_concurrency": self._lambda_healthy,
                  "lambda_enable_esm": self._esm_healthy, "events_enable_rule": self._rule_healthy,
