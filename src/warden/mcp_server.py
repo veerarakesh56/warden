@@ -58,6 +58,28 @@ def _count(args: dict, key: str, ceiling: int = 1000) -> int:
     except (TypeError, ValueError):
         return 0
 
+# What each tool does to the world, as MCP's tool annotations say it (research 2026-10-15, item 16): a client may
+# warn on, or refuse, a tool that is not read-only. Hints only - WARDEN's own checks decide - and every tool has
+# one: tests/test_mcp_annotations.py holds this table to the tools served.
+ANNOTATIONS = {
+    "verify_remediation": types.ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
+    "redact_text": types.ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
+    "describe_policy": types.ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
+    "gather_incident_context": types.ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=True),
+    "workflow_status": types.ToolAnnotations(read_only_hint=True, idempotent_hint=True, open_world_hint=False),
+    # Starts a diagnosis: reads the environment, calls the model and posts the report. Changes nothing it reads.
+    "start_incident_diagnosis": types.ToolAnnotations(read_only_hint=False, destructive_hint=False,
+                                                      idempotent_hint=False, open_world_hint=True),
+    # Asks for a fix: nothing is applied until a person signs the approval, but what is applied then is a change.
+    "request_remediation": types.ToolAnnotations(read_only_hint=False, destructive_hint=True,
+                                                 idempotent_hint=False, open_world_hint=True),
+}
+
+
+def _annotated(tools: list[types.Tool]) -> list[types.Tool]:
+    return [t.model_copy(update={"annotations": ANNOTATIONS[t.name]}) for t in tools]
+
+
 def _tools() -> list[types.Tool]:
     return [
         types.Tool(
@@ -570,12 +592,17 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
         return _err(f"{type(exc).__name__}: {exc}")
 
 
+def listed_tools() -> list[types.Tool]:
+    """The tools this client is shown: the read tools, the workflow tools its profile allows, each annotated."""
+    allowed = profile()
+    return _annotated(_tools() + [t for t in _workflow_tools() if t.name in allowed])
+
+
 def build_server() -> Server:
     client = None
 
     async def on_list_tools(ctx, params):
-        allowed = profile()
-        return types.ListToolsResult(tools=_tools() + [t for t in _workflow_tools() if t.name in allowed])
+        return types.ListToolsResult(tools=listed_tools())
 
     async def on_call_tool(ctx, params):
         nonlocal client
