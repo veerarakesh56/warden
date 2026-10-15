@@ -46,7 +46,8 @@ jobs:
             name_tag=${ref%@*}; digest=${ref#*@}; name=${name_tag%%:*}
             for try in 1 2 3; do
               if skopeo copy --all --preserve-digests --retry-times 3 \
-                  "docker://public.ecr.aws/docker/library/${ref}" "docker://ghcr.io/${owner}/warden-mirror/${name_tag}"; then
+                  "docker://public.ecr.aws/docker/library/${name}@${digest}" \
+                  "docker://ghcr.io/${owner}/warden-mirror/${name_tag}"; then
                 break
               fi
               [ "$try" = 3 ] && exit 1
