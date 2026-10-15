@@ -1,0 +1,58 @@
+name: "Mirror · base images"
+
+# Copies each base and service image CI and the Dockerfiles use, BY DIGEST, from AWS's public mirror into this
+# repository's GitHub Container Registry. Anonymous pulls from public.ecr.aws on GitHub's shared runners failed six
+# times with "429 toomanyrequests: Data limit exceeded" (2026-10-10 to 2026-10-15); a package this repository's
+# workflow pushes takes the repository's visibility (public), and the pin by digest means the same bytes from either
+# registry. Run it by hand when a digest changes; tests/test_base_image_mirror.py holds the list and the references
+# equal.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-images
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # name:tag@digest - one per line; the target is ghcr.io/<owner>/warden-mirror/<name>:<tag>, digest kept.
+      IMAGES: |
+        python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+        postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+        mysql:8@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
+        redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
+        mongo:7@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
+      OWNER: ${{ github.repository_owner }}
+      ACTOR: ${{ github.actor }}
+      TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: copy each image by digest, then read it back by that digest
+        run: |
+          set -euo pipefail
+          owner=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          printf '%s' "$TOKEN" | skopeo login ghcr.io -u "$ACTOR" --password-stdin
+          while read -r ref; do
+            [ -n "$ref" ] || continue
+            name_tag=${ref%@*}; digest=${ref#*@}; name=${name_tag%%:*}
+            for try in 1 2 3; do
+              if skopeo copy --all --preserve-digests --retry-times 3 \
+                  "docker://public.ecr.aws/docker/library/${ref}" "docker://ghcr.io/${owner}/warden-mirror/${name_tag}"; then
+                break
+              fi
+              [ "$try" = 3 ] && exit 1
+              sleep $((try * 60))
+            done
+            got=$(skopeo inspect --raw "docker://ghcr.io/${owner}/warden-mirror/${name}@${digest}" | sha256sum | cut -d' ' -f1)
+            [ "sha256:${got}" = "$digest" ] || { echo "digest changed for ${name_tag}: sha256:${got}"; exit 1; }
+            echo "mirrored ${name_tag} at ${digest}"
+          done <<< "$IMAGES"
