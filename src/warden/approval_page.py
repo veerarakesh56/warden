@@ -272,8 +272,8 @@ class ApprovalPage:
         it. Every check of approvals.check runs here and again in the workflow; an approver with no environment list
         - a person - never uses this path. `/a/signed/record`: that approver reads the record of an incident in its
         environments, read only (owner, 2026-10-15: access to WARDEN's incidents and records, for dev)."""
-        if (self.log is None or step not in ("plan", "approve", "record")
-                or (step != "record" and self.signed is None)):
+        if (self.log is None or step not in ("plan", "approve", "record", "deny")
+                or (step in ("plan", "approve") and self.signed is None) or (step == "deny" and self.deny is None)):
             return _json(404, {"error": "not found"})
         try:
             data = json.loads(body) if body else {}
@@ -286,6 +286,8 @@ class ApprovalPage:
             return self._signed_plan(str(data["approver"]), data)
         if step == "record":
             return self._signed_record(str(data["approver"]), data)
+        if step == "deny":
+            return self._signed_deny(str(data["approver"]), data)
         try:
             approval = approvals.SignedApproval.model_validate(data)
         except Exception:  # noqa: BLE001 - a malformed approval is refused whole
@@ -312,6 +314,27 @@ class ApprovalPage:
         if abs(self.clock() - at) > timedelta(minutes=5):
             return _json(403, {"error": "the request is too old"})
         return None
+
+    def _signed_deny(self, name: str, data: dict) -> Response:
+        """A waiting plan denied, with its reason, by the limited approver who signed `deny-request|approver|workflow|
+        plan hash|reason|time` in the last five minutes - only a plan in an environment and a tier it may approve. A
+        denial can only end a plan with nothing changed; the workflow takes it for this exact plan only."""
+        wid, ph, reason = (str(data.get(k, "")) for k in ("workflow_id", "plan_hash", "reason"))
+        refused = self._signature_refused(name, data, approvals.deny_request(name, wid, ph, reason,
+                                                                            str(data.get("issued_at", ""))))
+        if refused:
+            return refused
+        plan = self.plan_of(wid) if wid else None
+        approver = self.policy.approvers[name]
+        if (plan is None or plan.plan_hash != ph or plan.environment not in approver.environments
+                or plan.tier not in approver.tiers):
+            return _json(404, {"error": "no plan this approver may deny is waiting under that id and hash"})
+        try:
+            denial = approvals.Denial(approver=name, workflow_id=wid, plan_hash=ph, reason=reason)
+        except Exception:  # noqa: BLE001 - a reason past NOTE_MAX, or a malformed name: refused whole
+            return _json(400, {"error": "not a denial"})
+        self.deny(wid, denial)
+        return _json(202, {"denied": wid})
 
     def _signed_record(self, name: str, data: dict) -> Response:
         """An incident's record - or, with no incident, the latest RECORD_LIST of them - to the limited approver who

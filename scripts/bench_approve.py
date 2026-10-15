@@ -5,6 +5,7 @@ incident's waiting plan and approving it through the approval page's signed path
     python scripts/bench_approve.py --incident <id>                # shows the plan this approver may approve
     python scripts/bench_approve.py --incident <id> --approve      # signs and sends the approval
     python scripts/bench_approve.py --record <id|latest>           # reads a record (dev only, read only)
+    python scripts/bench_approve.py --incident <id> --deny "<why>"  # denies the waiting plan, with the reason
 
 The key lives at WARDEN_BENCH_KEY (default ~/.warden-bench/bench-approver.pem), never in the repository. The approval
 domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) unless --domain names it. Every approval it sends is
@@ -64,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--environment", default="", help="with --new-key: the one environment the bench may approve in")
     ap.add_argument("--incident", default="")
     ap.add_argument("--approve", action="store_true")
+    ap.add_argument("--deny", default=None, help="deny the waiting plan, with this reason")
     ap.add_argument("--domain", default="")
     ap.add_argument("--record", default="", help="read an incident's record, or `latest` for the newest ones")
     args = ap.parse_args(argv)
@@ -101,6 +103,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no plan to approve ({status}): {plan.get('error', '')}")
         return 1
     print(f"plan {plan['workflow_id']}: {plan['entry']} on {plan['target']} - tier {plan['tier']}, {plan['environment']}")
+    if args.deny is not None:
+        issued = datetime.now(UTC).isoformat()
+        status, got = _post(domain, "deny", {
+            "approver": NAME, "workflow_id": plan["workflow_id"], "plan_hash": plan["plan_hash"], "reason": args.deny,
+            "issued_at": issued, "signature": key.sign(approvals.deny_request(
+                NAME, plan["workflow_id"], plan["plan_hash"], args.deny, issued)).hex()})
+        print("denied as the bench approver" if status == 202 else f"refused ({status}): {got.get('error', '')}")
+        return 0 if status == 202 else 1
     if not args.approve:
         return 0
     a = approvals.sign(key, approver=NAME, workflow_id=plan["workflow_id"], plan_hash=plan["plan_hash"], tier=plan["tier"])

@@ -246,6 +246,11 @@ class ApproverPolicy(BaseModel):
         return key if isinstance(key, Ed25519PublicKey) else None
 
 
+def deny_request(approver: str, workflow_id: str, plan_hash: str, reason: str, issued_at: str) -> bytes:
+    """What a limited approver signs to deny a waiting plan, with its reason (approval_page._signed_deny)."""
+    return f"warden-deny-request\n{approver}\n{workflow_id}\n{plan_hash}\n{reason}\n{issued_at}".encode()
+
+
 def record_request(approver: str, incident: str, issued_at: str) -> bytes:
     """What a limited approver signs to read an incident's record, or with no incident the latest ones
     (approval_page._signed_record) - read only."""
