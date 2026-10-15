@@ -318,8 +318,9 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
             except WorkflowAlreadyStartedError:
                 return _err(f"a remediation for {key} in {req.environment} is already open ({wid})")
             _STARTED.add(wid)
-            return _ok({"workflow_id": wid, "next": "a person reviews it with `warden status` and approves "
-                                                    "with `warden approve`; this server cannot"})
+            return _ok({"workflow_id": wid, "next": "a person reviews the plan on the approval page - the button in "
+                                                    "its Slack message - and approves it with their passkey; this "
+                                                    "server cannot"})
         if name == "workflow_status":
             wid = str(args.get("workflow_id", ""))
             if wid not in _STARTED:

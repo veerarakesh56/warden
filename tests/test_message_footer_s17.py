@@ -1,5 +1,7 @@
 """Register S17, fake "WARDEN" messages: each message names its incident and the head of its audit record, and
-`warden audit show` lists the same hash - so a message can be checked against the record it claims to come from."""
+the incident's Full record page shows the same hash with its signatures checked - so a message can be checked against
+the record it claims to come from. (It named `warden audit show` until 2026-10-15: a command nobody could run - the
+audit database is private and the runtime's containers take no shell.)"""
 
 from __future__ import annotations
 
@@ -68,7 +70,8 @@ def test_the_message_names_the_incident_and_the_head_of_its_signed_record(monkey
     [text] = sink.texts
     [row] = log.entries("inc-001", kinds=("incident.notify",))
     assert f"incident `inc-001` · audit head `{row['body']['head'][:16]}`" in text
-    assert "warden audit show inc-001" in text and row["body"]["delivered"] == ["capture"]
+    assert "check it on its Full record page, which shows the same head with its signatures checked" in text
+    assert "warden audit show" not in text and row["body"]["delivered"] == ["capture"]
     assert row["body"]["head"] in {e["hash"] for e in log.entries("inc-001")}
 
 
@@ -126,5 +129,5 @@ def test_a_hash_that_begins_with_sixteen_digits_is_still_shown_and_sent():
     shown = audit_mod.short(digest)
     assert shown == "4507307866213908a" and digest.startswith(shown)
     assert audit_mod.short("2d79092d9c4d96c0" + "0" * 48) == "2d79092d9c4d96c0"
-    footer = f"WARDEN · incident `inc-001` · audit head `{shown}` · check it with `warden audit show inc-001`"
+    footer = f"WARDEN · incident `inc-001` · audit head `{shown}` · check it on its Full record page"
     assert enforce(footer).verdict != "BLOCK" and shown in redact(footer).text

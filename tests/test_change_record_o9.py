@@ -28,7 +28,8 @@ def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, own
     plan = world["log"].entries("inc-42", kinds=("remediation.plan",))[-1]["body"]
     assert plan["entry"] in title and "recovered" in title
     assert plan["plan_hash"] in body and "owner" in body and "a single approver" in body
-    assert "warden audit show inc-42" in body
+    # Where a reader checks the head: the incident's Full record page (the command it named could not be run).
+    assert "the same as on the incident's Full record page, signatures checked" in body and "audit show" not in body
     assert re.search(r"Ended:\*\* recovered at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z", body), body
     row = world["log"].entries("inc-42", kinds=("change.recorded",))[-1]["body"]
     assert row["url"].endswith("/issues/1") and row["detail"] == "opened"

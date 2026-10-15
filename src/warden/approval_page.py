@@ -366,7 +366,8 @@ class ApprovalPage:
             "service": r.service, "severity": r.severity, "status": r.status, "hypothesis": r.hypothesis,
             "confidence": r.confidence, "action": r.action, "target": r.target, "verdict": r.verdict,
             "policies": r.policies, "plan": r.plan, "no_plan": r.no_plan, "decisions": r.decisions, "also": r.also,
-            "report": r.report}, default=str)))
+            "report": r.report, "audit_head": r.head, "signed_ok": r.signed_ok, "unsigned": r.unsigned,
+            "broken": r.broken}, default=str)))
 
     def _signed_plan(self, name: str, data: dict) -> Response:
         """The incident's waiting plan, to the limited approver who signed `plan-request|approver|incident|time` in

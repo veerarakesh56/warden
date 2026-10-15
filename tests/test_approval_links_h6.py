@@ -205,7 +205,7 @@ def test_the_note_is_answered_by_a_function_with_nothing_in_it_and_no_permission
 def test_in_slack_the_footer_is_the_small_line_under_the_message_with_no_rule():
     """Owner, 2026-10-14, of the "---" between a message and its footer: "it doesn't look good"."""
     link = f"https://{RP}/a/{TOKEN}"
-    foot = "WARDEN · incident `inc-1` · audit head `abc` · check it with `warden audit show inc-1`."
+    foot = "WARDEN · incident `inc-1` · audit head `abc` · check it on its Full record page."
     text = "The plan was denied by <@" + "U" + "0" * 3 + "ABCDEFG> (with their passkey): nothing was changed.\n\n---\n" + foot
     [plain] = chatops.slack_messages([text], {})
     section, context = plain["blocks"]

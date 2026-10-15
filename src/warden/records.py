@@ -93,6 +93,13 @@ class Record:
     also: list[str] = field(default_factory=list)  # other alerts on the same resource that joined it (intake.grouped)
     rows: list[dict[str, Any]] = field(default_factory=list)
     shown: Any = None  # approver id -> the name a reader sees; never the list's id
+    # The record's own integrity, checked when it is read (not `light`): the incident's audit head - the hash every
+    # Slack footer names - and how many of its rows a signed checkpoint covers and are intact, how many are not signed
+    # yet, and how many do not check out (owner, 2026-10-15: a footer's command nobody could run).
+    head: str = ""
+    signed_ok: int = 0
+    unsigned: int = 0
+    broken: int = 0
     named: Any = None  # a machine text with each approver id replaced by their name
 
 
@@ -120,6 +127,16 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
     if not rows:
         return None
     r = Record(id=incident, first=rows[0]["at"], last=rows[-1]["at"], rows=rows)
+    if not light and hasattr(log, "intact"):
+        try:
+            seqs = [int(e["seq"]) for e in rows]
+            through, ok = log.signed_through(), log.intact(seqs)
+            r.head = log.head(incident)
+            r.signed_ok = len(ok)
+            r.unsigned = sum(1 for s in seqs if s > through)
+            r.broken = len(seqs) - r.signed_ok - r.unsigned
+        except Exception:  # noqa: BLE001 - the page still shows the record; its check says it could not run
+            r.head, r.broken = r.head or "", -1
     ids = sorted(getattr(policy, "approvers", {}) if policy is not None else {}, key=len, reverse=True)
 
     def shown(approver: str) -> str:
@@ -308,6 +325,22 @@ def list_page(records: list[Record], *, page: int = 1, pages: int = 1, total: in
                   refresh=page == 1)
 
 
+def integrity(r: Record) -> str:
+    """The record's check, in words: its audit head - the one the Slack footers name - and what the signatures say."""
+    if not r.head:
+        return ""
+    from .audit import short
+
+    if r.broken < 0:
+        state = "its signatures could not be checked just now"
+    elif r.broken:
+        state = f"{r.broken} row(s) DO NOT CHECK OUT - the record was changed after it was written"
+    else:
+        state = (f"{r.signed_ok} row(s) signed and intact"
+                 + (f", the newest {r.unsigned} not signed yet (a checkpoint signs them shortly)" if r.unsigned else ""))
+    return f"Signed record: audit head {short(r.head)} - {len(r.rows)} row(s), {state}. Checked when this page opened."
+
+
 def incident_page(r: Record, *, approve: str = "") -> str:
     """One incident: its summary, decisions and flags, the report as WARDEN wrote it, and every step on the record.
     `approve`: this site's own address that opens the plan for the reader, when they may approve it now (owner,
@@ -344,8 +377,9 @@ def incident_page(r: Record, *, approve: str = "") -> str:
                    f'</summary><pre class="report">{_e(r.evidence)}</pre></details>')
     act = (f'<p class="pad act"><a class="primary button" href="{_e(approve)}">{_e(APPROVE_LABEL)}</a>'
            '<span class="hint">Your passkey decides; this only opens the plan.</span></p>') if approve else ""
+    checked = f'<p class="small mono">{_e(integrity(r))}</p>' if integrity(r) else ""
     main = (f'<p class="back"><a href="/r">All incidents</a></p><h1>{_e(r.alarm or r.id)}</h1>'
-            f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>{act}'
+            f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>{checked}{act}'
             '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
             'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'

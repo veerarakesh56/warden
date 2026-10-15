@@ -410,8 +410,9 @@ class RemediationActivities:
             for name in self.policy.approvers:
                 why = [w.replace(f"denied by {name}", f"denied by {self.policy.said(name)}") for w in why]
             said += " Why: " + "; ".join(why)
-        footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it with "
-                  f"`warden audit show {plan.incident_id}`. Approvals are signed out of band, never given in chat.")
+        footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it on "
+                  "its Full record page, which shows the same head with its signatures checked. Approvals are signed out "
+                  "of band, never given in chat.")
         if actions:
             said += " Approve with your passkey on the page below; it shows the exact plan first."
         # The incident's summary leads the first message about it that reaches the channel - the request for approval,
@@ -470,8 +471,9 @@ class RemediationActivities:
         head = self.audit.head(incident_id)
         said = (slack_summary(str(reports[-1])) + f"\n\n**Fix plan:** WARDEN's fix plan for this incident ended "
                 f"`{status}` before it reached a decision. A person decides what happens next; its full record says why."
-                f"\n\n---\nWARDEN · incident `{incident_id}` · audit head `{audit.short(head)}` · check it with "
-                f"`warden audit show {incident_id}`. Approvals are signed out of band, never given in chat.")
+                f"\n\n---\nWARDEN · incident `{incident_id}` · audit head `{audit.short(head)}` · check it on its "
+                "Full record page, which shows the same head with its signatures checked. Approvals are signed out of "
+                "band, never given in chat.")
         sent = send(Report(markdown=said, data={"alert": {"id": incident_id}}, promotion=(),
                            actions=IncidentActivities._record_link(incident_id)), threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
@@ -1069,8 +1071,9 @@ class IncidentActivities:
         head = self.audit.head(alert_id)
         said = (f"WARDEN opened no fix plan for this incident: {why[:300]}. There is nothing to approve, and nothing "
                 "changes unless a person acts on the report."
-                f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it with "
-                f"`warden audit show {alert_id}`. Approvals are signed out of band, never given in chat.")
+                f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it on its "
+                "Full record page, which shows the same head with its signatures checked. Approvals are signed out of "
+                "band, never given in chat.")
         sent = send(Report(markdown=said, data={"alert": {"id": alert_id}}, promotion=(),
                            actions=self._record_link(alert_id)), threads=AuditThreads(self.audit))
         delivered = [n.sink for n in sent if n.delivered]
@@ -1164,7 +1167,8 @@ class IncidentActivities:
     def notify(self, pack: EvidencePack, diagnosed: Diagnosed, verified: Verified, mode: str = "") -> list[str]:
         """The incident's report to the configured sinks, through the outbound gate (register S17). Its footer names
         the incident and the head of its audit record - signed first - so a reader can check that a message claiming
-        to be WARDEN's is one: `warden audit show <incident>` lists the same hash. Returns the sinks it reached.
+        to be WARDEN's is one: its Full record page shows the same hash, its signatures checked. Returns the sinks it
+        reached.
 
         `mode` (one message per incident, G10-46): the whole report is recorded for WARDEN's records page, and Slack
         gets its summary once - "plan": not here, the plan's request for approval carries it; "none": here, with why
@@ -1180,9 +1184,9 @@ class IncidentActivities:
         report = build_report(pack.alert, root_cause=diagnosed.root_cause, proposal=diagnosed.proposal,
                               verdict=verified.verdict, context=pack.context, show_identifiers=False,
                               backend=pack.backend)
-        footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it with "
-                  f"`warden audit show {alert_id}`. WARDEN never asks for an approval in chat: approvals are signed "
-                  "out of band.")
+        footer = (f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it on its "
+                  "Full record page, which shows the same head with its signatures checked. WARDEN never asks for an "
+                  "approval in chat: approvals are signed out of band.")
         # Requirement R38: the changes near the alert, for the people reading it - suspects, never the cause.
         from . import timeline
 

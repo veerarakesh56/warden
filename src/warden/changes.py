@@ -3,7 +3,7 @@
 A fix that changed a live system must leave a record where a team already looks for changes, not only in WARDEN's
 own audit. After a run that applied something, its end is written as a GitHub issue in a configured repository:
 what was changed, where, at which tier, the exact plan hash, who approved it, how it ended, when (UTC and the
-display zone), and the audit head to check it against (`warden audit show <incident>`).
+display zone), and the audit head to check it against (on the incident's Full record page).
 
 The text leaves WARDEN, so it passes the outbound gate first; a gate that blocks it sends nothing. The token is a
 Secrets Manager secret (WARDEN_GITHUB_TOKEN, a fine-grained token limited to issues on that one repository), and the
@@ -40,7 +40,7 @@ def issue_text(*, incident_id: str, end: dict, plan: dict, head: str, at: dateti
         (f"- **Approved by:** {approvers} (required: {end.get('required', '?')}"
          f"{', a single approver' if end.get('single_approver') else ''})"),
         f"- **Ended:** {end.get('status', '?')} at {both_times(at)}",
-        f"- **Audit head:** `{short(head)}`, check with `warden audit show {incident_id}`",
+        f"- **Audit head:** `{short(head)}`, the same as on the incident's Full record page, signatures checked",
     ])
     return title[:256], body
 

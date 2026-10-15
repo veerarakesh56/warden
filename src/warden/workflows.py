@@ -632,8 +632,10 @@ class IncidentWorkflow:
                         RemediationWorkflow.run, FixRequest.model_validate(req), id=wid,
                         task_queue=workflow.info().task_queue, parent_close_policy=ParentClosePolicy.ABANDON)
                 except WorkflowAlreadyStartedError:  # one open plan per resource (C3)
-                    held = (f"an earlier plan for the same resource is still open (`warden status {wid}`) - waiting "
-                            "for its approval, or being watched after its fix")
+                    # Where a reader can see it: the records page (2026-10-15: `warden status` needs a Temporal key
+                    # that only the runtime holds, so the command it named could not be run by anyone reading this).
+                    held = (f"an earlier plan for the same resource (`{wid}`) is still open - waiting for its "
+                            "approval, or being watched after its fix; the records page (All incidents) shows it")
             # The report said "held for approval": with no plan to approve, a person is told so, and why.
             if ((not req and not one) or held) and workflow.patched("g10-no-plan"):
                 with contextlib.suppress(ActivityError):

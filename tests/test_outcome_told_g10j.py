@@ -172,7 +172,8 @@ def test_a_plan_that_opened_is_not_followed_by_one_and_a_second_on_the_same_reso
         tmp_path, sink):  # noqa: F811
     rows = _incidents(tmp_path, [dict(REQUEST), dict(REQUEST)])
     assert len(rows) == 1, rows  # the first opened its plan; the second met it still open (one per resource, C3)
-    assert "an earlier plan for the same resource is still open (`warden status rem-dev-test`)" in rows[0]["why"]
+    assert "an earlier plan for the same resource (`rem-dev-test`) is still open" in rows[0]["why"]
+    assert "records page" in rows[0]["why"] and "warden status" not in rows[0]["why"]
     assert "opened no fix plan" in sink.texts[-1] and "rem-dev-test" in sink.texts[-1]
 
 

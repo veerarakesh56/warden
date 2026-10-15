@@ -207,7 +207,7 @@ ANCHOR_RETENTION = timedelta(days=1)
 
 
 def short(digest: str) -> str:
-    """A hash as a person sees it, in a footer or `warden audit show`: its first 16 hex characters - longer when
+    """A hash as a person sees it, in a footer, on a record page or in `warden audit show`: its first 16 hex characters - longer when
     those are all digits, up to the first letter. Sixteen digits read as a phone or card number to redaction and
     the outbound gate, which then blocked the whole message (about one hash in 2,000; CI, 2026-10-03)."""
     end = 16
@@ -338,6 +338,11 @@ class AuditLog:
                     before is None or _hash(before[5], *before[:5]) == before[6]):
                 ok.add(s)
         return ok
+
+    def signed_through(self) -> int:
+        """The last row a signed checkpoint covers (0 when none does): rows after it are not signed yet."""
+        top = self.store.run("SELECT MAX(seq) FROM checkpoints").fetchone()
+        return int(top[0]) if top and top[0] is not None else 0
 
     def head(self, correlation_id: str) -> str:
         """The hash of the latest row of one correlation id ("" if it has none): the record a plan was made on."""
