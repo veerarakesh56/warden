@@ -33,6 +33,7 @@
         "lambda:GetFunction",
         "lambda:GetFunctionConcurrency",
         "lambda:GetFunctionConfiguration",
+        "lambda:ListAliases",
         "lambda:ListTags",
         "lambda:ListVersionsByFunction",
         "memorydb:DescribeClusters",
@@ -99,7 +100,7 @@
       ]
     },
     {
-      "Sid": "EventSourceMappingsOfThisEnvironmentsFunctions",
+      "Sid": "EsmsOfThisEnvsFunctions",
       "Effect": "Allow",
       "Action": "lambda:GetEventSourceMapping",
       "Resource": "arn:aws:lambda:ap-south-2:*:event-source-mapping:*",

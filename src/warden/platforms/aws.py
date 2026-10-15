@@ -697,11 +697,20 @@ class AwsPlatform:
 
     def _live_alias(self, params: dict[str, Any]) -> dict[str, Any]:
         fn, alias = params.get("function"), params.get("alias")
-        if not isinstance(fn, str) or not isinstance(alias, str):
+        if not isinstance(fn, str) or (alias is not None and not isinstance(alias, str)):
             return {}
         lam = self._read("lambda")
         conf = lam.get_function_configuration(FunctionName=fn)
         arn, name = conf["FunctionArn"], conf["FunctionName"]
+        if alias is None:
+            # The alarm names the function only (fs-01, live, 2026-10-15: its Errors alarm has FunctionName alone; the
+            # diagnosis was right - version 4, now live, broke it - and no plan was opened). The function's own
+            # aliases, read live: exactly one is the one moved back; more, and WARDEN does not choose between them.
+            names = sorted(str(a["Name"]) for a in self._aliases(name))
+            if len(names) != 1:
+                return {"function": {name}, "alias": set(),
+                        "refused": f"{name} has {len(names)} aliases and the alarm names none of them"}
+            alias = names[0]
         got = lam.get_alias(FunctionName=name, Name=alias)
         current = got["FunctionVersion"]
         weights = (got.get("RoutingConfig") or {}).get("AdditionalVersionWeights") or {}
@@ -717,6 +726,16 @@ class AwsPlatform:
                 "rollout": "progressing" if weights else "complete",
                 "state": {"function": name, "alias": alias, "version": current,
                           "revision": got.get("RevisionId"), "where": self._where(arn)}}
+
+    def _aliases(self, fn: str) -> list[dict[str, Any]]:
+        out, marker = [], None
+        for _ in range(10):  # bounded: a function with more aliases than this is a person's to choose among
+            page = self._read("lambda").list_aliases(FunctionName=fn, **({"Marker": marker} if marker else {}))
+            out += page.get("Aliases") or []
+            marker = page.get("NextMarker")
+            if not marker:
+                return out
+        raise AwsPlatformError(f"{fn} has more aliases than WARDEN reads; the alias to move was not chosen")
 
     def _versions(self, fn: str) -> list[dict[str, Any]]:
         out, marker = [], None

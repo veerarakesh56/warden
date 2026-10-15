@@ -59,7 +59,8 @@ def test_no_plan_when_the_target_is_not_the_labelled_resource_or_no_single_known
         assert req is None and "no single known-good to_version" in why
     req, why = resolver.request_for(_alert(**{"lambda": "warden-dev-orders"}),
                                     _proposal(ActionKind.rollback_deploy, "warden-dev-orders"), lambda e, p: {})
-    assert req is None and "no Lambda alias" in why
+    # No alias named and none read live (fs-01, 2026-10-15: the live read now looks for the function's one alias).
+    assert req is None and "no single known-good alias was read" in why
     req, why = resolver.request_for(_alert(**labels), _proposal(ActionKind.escalate_to_human, "warden-dev-orders"),
                                     lambda e, p: {})
     assert req is None

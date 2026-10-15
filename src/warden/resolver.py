@@ -369,9 +369,11 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
         params["alarm"] = alarm
     if entry.name == "lambda_move_alias":
         alias = alert.labels.get("lambda_qualifier", "")
-        if not alias or alias.isdigit() or alias == "$LATEST":
-            return None, "the alarm names no Lambda alias to move"
-        params["alias"] = alias
+        if alias.isdigit() or alias == "$LATEST":
+            return None, "the alarm names a Lambda version, not an alias, so there is no alias to move"
+        if alias:
+            params["alias"] = alias
+        # With none named, the platform's live read finds the function's one alias, or refuses (AwsPlatform._live_alias).
     state = live(entry.name, params)
     if consumer and consumer not in (state.get("function") or ()):
         return None, (f"the alarm names the queue {params.get('queue')}, and its one switched-off consumer is not "

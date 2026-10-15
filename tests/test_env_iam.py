@@ -499,7 +499,7 @@ def test_the_harness_policy_is_devs_only_and_names_its_own_cluster(tmp_path, mon
     policy = json.loads((ROOT / "iam" / "dev" / "harness.json").read_text(encoding="utf-8"))
     for st in policy["Statement"]:
         resources = _list(st["Resource"])
-        if st["Sid"] in ("ReadTheStack", "TaskDefinitionsTakeNoName", "EventSourceMappingsOfThisEnvironmentsFunctions",
+        if st["Sid"] in ("ReadTheStack", "TaskDefinitionsTakeNoName", "EventSourceMappingsOfThisEnvironmentsFunctions", "EsmsOfThisEnvsFunctions",
                          "SecurityGroupRulesOfThisEnvironmentOnly"):
             assert "Condition" in st, st["Sid"]  # region, function ARN or the environment's tags
             continue

@@ -86,6 +86,9 @@ def _exercise() -> tuple[set[str], set[str], set[str]]:
         p.healthy(params[catalog.CATALOG[entry].target_param], entry=entry,
                   params=params)
     p.changes(NOW, NOW, "dev")  # the change timeline's CloudTrail read (requirement R38)
+    # An alarm that names the function only: its one alias is read live (fs-01, 2026-10-15).
+    f.list_aliases = lambda FunctionName, **kw: {"Aliases": [{"Name": "live"}]}
+    p.live("lambda_move_alias", {"function": FN})
     # The rollbacks, each from the state its apply left.
     f.alias["FunctionVersion"] = "3"
     p.rollback("lambda_move_alias", plans["lambda_move_alias"], {**p.live("lambda_move_alias", plans["lambda_move_alias"])["state"], "version": "9"}, who=WHO)
