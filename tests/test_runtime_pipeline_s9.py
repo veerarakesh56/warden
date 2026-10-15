@@ -175,7 +175,7 @@ def test_a_deploy_fails_unless_every_zone_runs_the_new_image():
     deploy = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
     step = deploy[deploy.index("- name: Every zone runs the image just built"):]
     assert deploy.index("apply the plan just made") < deploy.index("Every zone runs the image just built")
-    for must in ("aws ecs wait services-stable", "length(deployments)", "rolloutState", '"$image" != "$IMAGE"',
+    for must in ("seq 1 50", "length(deployments)", "rolloutState", '"$image" != "$IMAGE"',
                  'exit "$bad"'):
         assert must in step, must
 

@@ -236,8 +236,17 @@ jobs:
           cluster="warden-$RUNTIME_ENV-runtime"
           services=$(aws ecs list-services --cluster "$cluster" --query 'serviceArns[]' --output text)
           test -n "$services" || { echo "::error::no services in $cluster"; exit 1; }
-          # shellcheck disable=SC2086
-          aws ecs wait services-stable --cluster "$cluster" --services $services || true
+          # Up to 25 minutes: ECS retries a task it could not place until the old tasks free their vCPUs, and the read
+          # zone's 2.5 GB image takes minutes to pull - one 10-minute `wait services-stable` gave up on a rollout that
+          # completed four minutes later (2026-10-15).
+          for _ in $(seq 1 50); do
+            # shellcheck disable=SC2086
+            pending=$(aws ecs describe-services --cluster "$cluster" --services $services \
+              --query 'length(services[?length(deployments) != `1` || deployments[0].rolloutState != `COMPLETED`])' \
+              --output text)
+            [ "$pending" = 0 ] && break
+            sleep 30
+          done
           bad=0
           for svc in $services; do
             # shellcheck disable=SC2086
