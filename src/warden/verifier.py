@@ -146,6 +146,13 @@ def symptoms(context) -> list[str]:
         out.append(f"replica lag is {replica_lag_s(m):.0f}s")
     # The full stack (docs/WAVE4-CONTRACT.md B): counts of failures and explicit off states, each
     # possibly suffixed `__<short>` per resource. Only counts > 0 and states == 0 - no thresholds.
+    # Messages waiting and none being received: an explicit state, counted - the queue is not being consumed.
+    for key, value in m.items():
+        if (key == "sqs_visible" or key.startswith("sqs_visible__")) and value > 0:
+            sfx = key[len("sqs_visible"):]
+            if m.get(f"sqs_in_flight{sfx}") == 0:
+                who = f" ({sfx[2:]})" if sfx else ""
+                out.append(f"{value:.0f} message(s) waiting in the queue{who}, none being processed")
     for base, what, broken in _STACK_SYMPTOMS:
         for key, value in m.items():
             if (key == base or key.startswith(base + "__")) and broken(value):
@@ -160,6 +167,9 @@ _STACK_SYMPTOMS = (
     ("lambda_throttles", "Lambda throttles", _POSITIVE),
     ("lambda_reserved_concurrency", "Lambda reserved concurrency is", _OFF),
     ("lambda_esm_enabled", "queue event source mapping enabled", _OFF),
+    # A queue's own reader (fs-07, live, 2026-10-15: "no errors and no failing component" over a queue whose only
+    # consumer was switched off and 95 orders waiting).
+    ("sqs_consumers_enabled", "queue consumers enabled", _OFF),
     ("dlq_visible", "messages in the dead-letter queue", _POSITIVE),
     ("ddb_read_throttle_events", "DynamoDB read throttle events", _POSITIVE),
     ("ddb_write_throttle_events", "DynamoDB write throttle events", _POSITIVE),

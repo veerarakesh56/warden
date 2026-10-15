@@ -166,6 +166,8 @@ def test_a_report_that_held_a_fix_for_approval_is_followed_by_why_there_is_no_pl
     assert f"**No fix plan:** {WHY}" in said and "nothing to approve" in said and "## Summary" in said
     assert "## What WARDEN read" not in said  # the rest is on the record page
     assert "incident `inc-002`" in said and "audit head" in said
+    # With no plan, the on-call line says so - not "approve or deny ... with the button in this message" (fs-07, live).
+    assert "with the button in this message" not in said and "no fix plan could be opened (why below)" in said
 
 
 def test_a_plan_that_opened_is_not_followed_by_one_and_a_second_on_the_same_resource_says_the_first_is_open(

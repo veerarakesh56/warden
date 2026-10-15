@@ -1240,6 +1240,12 @@ class IncidentActivities:
             why = str(rows[-1].get("why") or "") if rows and not rows[-1].get("planned") else ""
             no = (f"\n\n**No fix plan:** {why[:300]}. There is nothing to approve; nothing changes unless a person acts."
                   if why else "")
+            if why:
+                # The on-call line was written for a plan to approve; with none, it must not say there is a button
+                # (fs-07, live, 2026-10-15: "approve or deny ... with the button in this message" above "No fix plan").
+                markdown = markdown.replace(
+                    "approve or deny the fix plan with the button in this message - or, where there is none, read why "
+                    "here", "no fix plan could be opened (why below): decide what to do; WARDEN runs nothing here")
             markdown = slack_summary(markdown) + no + footer
             report = dataclasses.replace(report, actions=self._record_link(alert_id))
         sent = send(dataclasses.replace(report, markdown=markdown, people=people), threads=AuditThreads(self.audit))
