@@ -1,7 +1,7 @@
 """CI and the images pull Docker's official images from this repository's own mirror (ghcr.io/<owner>/warden-mirror,
 filled by mirror-images.yml), same digests. Docker Hub refused GitHub's shared runners with 429 Too Many Requests
 (2026-10-10), and so did AWS's public mirror, six times ("Data limit exceeded", 2026-10-10 to 2026-10-15).
-rancher/k3s has no mirror there and stays on Docker Hub."""
+rancher/k3s comes from Docker Hub into the same mirror (a Docker Hub pull failed the k3d job, 2026-10-15)."""
 
 from __future__ import annotations
 
