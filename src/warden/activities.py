@@ -510,7 +510,7 @@ class RemediationActivities:
         used = {e["body"]["nonce"] for e in self.audit.entries(kinds=("approval.accepted",))}
         problems = approvals.check(approval, policy=self.policy, workflow_id=plan.workflow_id,
                                    plan_hash=plan.plan_hash, tier=plan.tier, plan_created_at=plan.created_at,
-                                   used_nonces=used)
+                                   used_nonces=used, environment=plan.environment)
         if any(a.approver == approval.approver for a in accepted):
             problems.append(f"{approval.approver} has already approved this plan")
         kind = "approval.refused" if problems else "approval.accepted"
@@ -543,6 +543,8 @@ class RemediationActivities:
             problems.append(f"{assertion.approver!r} is not an approver")
         elif plan.tier not in approver.tiers:
             problems.append(f"{assertion.approver} may not approve {plan.tier}")
+        elif approver.environments and plan.environment not in approver.environments:
+            problems.append(f"{assertion.approver} may not approve in {plan.environment or 'this environment'}")
         if (assertion.workflow_id, assertion.plan_hash, assertion.tier) != (plan.workflow_id, plan.plan_hash, plan.tier):
             problems.append("the passkey approval is for a different plan")
         cooling = timedelta(minutes=self.policy.cooling_off_minutes.get(plan.tier, 0))

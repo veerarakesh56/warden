@@ -78,6 +78,9 @@ class Approver(BaseModel):
     slack: str = Field(default="", pattern=r"^$|^[UW][A-Z0-9]{6,14}$")
     public_key: str  # PEM: the Ed25519 break-glass key (decision D14)
     tiers: list[str] = Field(default_factory=list)
+    # The environments whose plans this approver may approve; empty: every one. The bench approver (owner, 2026-10-15)
+    # is `dev` only - a test identity never approves a change anywhere else.
+    environments: list[str] = Field(default_factory=list)
     passkeys: list[PasskeyCredential] = Field(default_factory=list)
 
 
@@ -256,7 +259,8 @@ def sign(key: Ed25519PrivateKey, *, approver: str, workflow_id: str, plan_hash: 
 
 
 def check(approval: SignedApproval, *, policy: ApproverPolicy, workflow_id: str, plan_hash: str,
-          tier: str, plan_created_at: datetime, used_nonces: set[str], now: datetime | None = None) -> list[str]:
+          tier: str, plan_created_at: datetime, used_nonces: set[str], now: datetime | None = None,
+          environment: str = "") -> list[str]:
     """Every reason this approval must NOT be acted on. An empty list means it is valid."""
     now = now or datetime.now(UTC)
     problems: list[str] = []
@@ -269,6 +273,9 @@ def check(approval: SignedApproval, *, policy: ApproverPolicy, workflow_id: str,
         return [f"the signature is not {approval.approver}'s"]
     if tier not in policy.approvers[approval.approver].tiers:
         problems.append(f"{approval.approver} may not approve {tier}")
+    allowed = policy.approvers[approval.approver].environments
+    if allowed and environment not in allowed:
+        problems.append(f"{approval.approver} may not approve in {environment or 'this environment'}")
     if approval.tier != tier:
         problems.append(f"approval is for {approval.tier}, the plan is {tier}")
     if approval.workflow_id != workflow_id:
