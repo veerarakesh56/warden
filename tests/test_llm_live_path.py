@@ -57,8 +57,13 @@ def _client(provider, **kw):
         'Here is the result:\n{"answer": "yes", "score": 1}\nHope that helps.',
         # reasoning in a ```text fence FIRST, then the JSON in a later fence (Anthropic, no JSON-mode)
         '```text\nlet me think about this\n```\n```json\n{"answer": "yes", "score": 1}\n```',
+        # a draft first, then the final answer: the span from the first "{" to the last "}" joined them (2026-10-15)
+        'Draft: {"answer": "no", "score": 0}\nOn reflection:\n{"answer": "yes", "score": 1}',
+        # braces inside strings and nested objects do not split the answer
+        'x {"answer": "yes", "score": 1} and a stray } brace',
     ],
-    ids=["bare", "json-fence", "plain-fence", "prose-wrapped", "reasoning-fence-then-json"],
+    ids=["bare", "json-fence", "plain-fence", "prose-wrapped", "reasoning-fence-then-json", "draft-then-final",
+         "stray-brace"],
 )
 def test_extract_json_handles_every_shape_providers_actually_return(raw):
     assert extract_json(raw) == '{"answer": "yes", "score": 1}'
@@ -68,6 +73,13 @@ def test_extract_json_handles_every_shape_providers_actually_return(raw):
 def test_extract_json_refuses_rather_than_guessing(raw):
     with pytest.raises(ValueError):
         extract_json(raw)
+
+
+def test_a_nested_answer_comes_back_whole_and_a_broken_one_still_fails_validation():
+    nested = '{"a": {"b": [1, {"c": "}"}]}, "d": 2}'
+    assert extract_json("prose " + nested) == nested
+    with pytest.raises(ValueError):
+        extract_json('{"answer": "yes", "score": ')  # cut off: no complete object, no closing brace
 
 
 # --------------------------------------------------------------------- the live call path

@@ -317,6 +317,21 @@ def extract_json(text: str) -> str:
         # first fenced block that actually contains an object, else fall back to the whole response.
         fenced = [p.removeprefix("json").strip() for p in original.split("```")[1::2]]
         candidate = next((p for p in fenced if "{" in p and "}" in p), original)
+    # The LAST complete top-level object: a model may draft its answer before the final one, and the span from the
+    # first "{" to the last "}" then joins the two into one invalid text (Anthropic's guidance for its current models,
+    # read 2026-10-15). With no complete object at all, that span is still returned, so validation says why.
+    decoder, found, i = json.JSONDecoder(), None, candidate.find("{")
+    while i != -1:
+        try:
+            value, end = decoder.raw_decode(candidate, i)
+        except ValueError:
+            i = candidate.find("{", i + 1)
+            continue
+        if isinstance(value, dict):
+            found = candidate[i:end]
+        i = candidate.find("{", end)
+    if found is not None:
+        return found
     start, end = candidate.find("{"), candidate.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ValueError("no JSON object found in model output")
