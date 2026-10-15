@@ -5,7 +5,7 @@
 #           .alertmanager, .approval) - AWS's runtime interface client in a non-AWS base image, as AWS documents.
 # Base images by digest (audit A-I-24), the same two as ./Dockerfile; Dependabot (docker) proposes new digests.
 FROM ghcr.io/astral-sh/uv:0.12.21@sha256:a7aed3216253ee804de3e2d8afa5073baa1a177335345d43845cd4165e43b711 AS uv
-FROM public.ecr.aws/docker/library/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
+FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS build
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/warden \
     UV_PYTHON_DOWNLOADS=never \
@@ -37,7 +37,7 @@ ARG WARDEN_DETECTOR=baked
 # left root-only drew "Permission denied" in the cloud's first load (2026-10-14).
 RUN --mount=type=secret,id=hf_token /opt/warden/bin/python bake_tripwire.py /opt/hf "$WARDEN_DETECTOR" && chmod -R a+rX /opt/hf
 
-FROM public.ecr.aws/docker/library/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
+FROM ghcr.io/veerarakesh56/warden-mirror/python:3.13-slim@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

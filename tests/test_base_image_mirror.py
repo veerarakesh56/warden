@@ -1,5 +1,6 @@
-"""CI and the images pull Docker's official images from AWS's public mirror (public.ecr.aws/docker/library), same
-digests: Docker Hub refused GitHub's shared runners with 429 Too Many Requests and turned CI red twice (2026-10-10).
+"""CI and the images pull Docker's official images from this repository's own mirror (ghcr.io/<owner>/warden-mirror,
+filled by mirror-images.yml), same digests. Docker Hub refused GitHub's shared runners with 429 Too Many Requests
+(2026-10-10), and so did AWS's public mirror, six times ("Data limit exceeded", 2026-10-10 to 2026-10-15).
 rancher/k3s has no mirror there and stays on Docker Hub."""
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ def test_official_images_come_from_the_mirror_pinned_by_digest():
         refs = re.findall(rf"(?:FROM |image: )(\S*{OFFICIAL}:\S+)", text)
         assert refs, f
         for ref, _ in refs:
-            assert ref.startswith("public.ecr.aws/docker/library/") and "@sha256:" in ref, (f, ref)
+            assert ref.startswith("ghcr.io/veerarakesh56/warden-mirror/") and "@sha256:" in ref, (f, ref)
 
 
 

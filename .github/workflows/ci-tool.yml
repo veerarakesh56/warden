@@ -477,7 +477,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
+        image: ghcr.io/veerarakesh56/warden-mirror/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: warden
           POSTGRES_PASSWORD: warden
@@ -487,7 +487,7 @@ jobs:
           --health-cmd "pg_isready -U warden" --health-interval 5s
           --health-timeout 5s --health-retries 20
       mysql:
-        image: public.ecr.aws/docker/library/mysql:8@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
+        image: ghcr.io/veerarakesh56/warden-mirror/mysql:8@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
         env:
           MYSQL_ROOT_PASSWORD: warden
           MYSQL_DATABASE: warden
@@ -496,13 +496,13 @@ jobs:
           --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pwarden" --health-interval 5s
           --health-timeout 5s --health-retries 30
       redis:
-        image: public.ecr.aws/docker/library/redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
+        image: ghcr.io/veerarakesh56/warden-mirror/redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
         ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping" --health-interval 5s
           --health-timeout 5s --health-retries 20
       mongo:
-        image: public.ecr.aws/docker/library/mongo:7@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
+        image: ghcr.io/veerarakesh56/warden-mirror/mongo:7@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
         ports: ["27017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
