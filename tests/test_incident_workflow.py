@@ -54,7 +54,7 @@ def _run_workflows(alerts, tmp_path, converter):
         env = await WorkflowEnvironment.start_time_skipping(data_converter=converter)
         out = {}
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             for alert in alerts:
                 handle = await env.client.start_workflow(IncidentWorkflow.run, alert, id=f"inc-{alert.alert_id}",
@@ -120,10 +120,19 @@ def test_every_step_is_in_the_signed_audit_log(results):
     by_workflow, log = results
     for alert_id, (report, _) in by_workflow.items():
         rows = log.entries(alert_id)
+        kinds = [r["kind"] for r in rows]
+        # A fix that would reach a person is diagnosed once more (the second opinion, 2026-10-15): that diagnosis and
+        # its comparison are the workflow's own steps, after the pipeline's - set aside here, and counted.
+        second = "incident.second_opinion" in kinds
+        if second:
+            cut = kinds.index("incident.second_opinion")
+            again = max(i for i, k in enumerate(kinds[:cut]) if k == "incident.diagnose")
+            kinds = kinds[:again] + kinds[again + 1:cut] + kinds[cut + 1:]
         # Plus one row of what the run spent on the model, written failed or not (seventh review: the budget is
         # carried across an incident's runs).
-        assert [r["kind"] for r in rows if r["kind"] not in ("incident.llm_spend", "incident.llm_reserve", "incident.alert", "incident.evidence")] ==             [f"incident.{s['node']}" for s in report.audit], alert_id
-        assert [r["kind"] for r in rows].count("incident.llm_spend") == 1, alert_id
+        assert [k for k in kinds if k not in ("incident.llm_spend", "incident.llm_reserve", "incident.alert",
+                                              "incident.evidence")] == [f"incident.{s['node']}" for s in report.audit], alert_id
+        assert [r["kind"] for r in rows].count("incident.llm_spend") == (2 if second else 1), alert_id
         # And one row of the alarm as it came in, its text redacted, so the incident can be discussed (G10-45).
         assert [r["kind"] for r in rows].count("incident.alert") == 1, alert_id
         # And the evidence as the model was shown it, kept for questions about the incident (G10-45).
@@ -148,7 +157,7 @@ def test_a_prepare_that_keeps_failing_ends_the_incident_instead_of_retrying_fore
         acts = _Broken(audit=log, llm_factory=lambda: LLMClient(mock=True))
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
                                                      id="inc-broken", task_queue=QUEUE)

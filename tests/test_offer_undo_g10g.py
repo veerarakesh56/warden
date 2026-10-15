@@ -133,7 +133,7 @@ def test_the_workflow_opens_the_offered_plan_and_only_for_p31_alone(tmp_path, po
         acts = _Acts(audit=log, llm_factory=lambda: LLMClient(mock=True))
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="offer", workflows=[IncidentWorkflow, RemediationWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.plan_fix],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion, acts.plan_fix],
                                activity_executor=ThreadPoolExecutor(2)):
             handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
                                                      id="inc-offer", task_queue="offer")

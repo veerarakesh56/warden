@@ -171,7 +171,7 @@ def test_an_escalate_only_incident_asks_no_model_and_ends_on_the_record():
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         alert = Alert(**DEMO_ALERTS["inc-001"])
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             h = await env.client.start_workflow(IncidentWorkflow.run, args=[alert, "the alarm is flapping"],
                                                 id="inc-flap", task_queue="q")

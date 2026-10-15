@@ -234,7 +234,7 @@ def _run(tmp_path, firing):
         acts = _Acts(audit=log, llm_factory=lambda: LLMClient(mock=True))
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="held-test", workflows=[IncidentWorkflow],
-                               activities=[acts.after_hold, acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.after_hold, acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             old = Alert(**DEMO_ALERTS["inc-002"]).model_copy(update={"started_at": "2026-10-09T15:00:00+00:00"})
             handle = await env.client.start_workflow(IncidentWorkflow.run, args=[old, "", "expected down ('nights')"],

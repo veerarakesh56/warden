@@ -1269,6 +1269,41 @@ class IncidentActivities:
               f"verdict={verdict.status.value} policies={','.join(verdict.policy_ids) or '-'}")
         return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps)
 
+    @activity.defn
+    def second_opinion(self, pack: EvidencePack, first: Diagnosed, second: Diagnosed, verified: Verified) -> Verified:
+        """The first answer's verdict, kept only when a second, independent diagnosis of the same evidence names the
+        same action on the same target (owner, 2026-10-15). Otherwise - or when no second answer could be had - the
+        fix is escalated under SECOND_OPINION: a person decides, and nothing is offered for approval. Both answers go
+        on the record."""
+        a, b = first.proposal, second.proposal
+        agree = not second.model_unavailable and a.action == b.action and _same_target(a.target, b.target)
+        self.audit.append(pack.alert.alert_id, "incident.second_opinion", {
+            "run_id": _run_id(), "agree": agree, "first": {"action": a.action.value, "target": a.target},
+            "second": ({"action": b.action.value, "target": b.target} if not second.model_unavailable
+                       else {"unavailable": str(second.model_unavailable)[:200]})})
+        if agree:
+            return verified
+        why = (f"no second opinion could be had ({str(second.model_unavailable)[:120]})" if second.model_unavailable
+               else f"two independent diagnoses disagree: `{a.action.value}` on `{a.target}`, then "
+                    f"`{b.action.value}` on `{b.target}`")
+        from .models import VerdictStatus
+
+        verdict = verified.verdict.model_copy(update={
+            "status": VerdictStatus.escalated, "requires_approval": True,
+            "policy_ids": [*verified.verdict.policy_ids, SECOND_OPINION],
+            "reasons": [*verified.verdict.reasons, f"{why}: a person decides, and no fix is offered for approval."]})
+        _note(f"{pack.alert.alert_id} second opinion: {'unavailable' if second.model_unavailable else 'differs'} - "
+              "escalated")
+        return verified.model_copy(update={"verdict": verdict})
+
+
+# The policy a disagreement of two independent diagnoses escalates under (IncidentActivities.second_opinion).
+SECOND_OPINION = "P32-SECOND-OPINION-DIFFERS"
+
+
+def _same_target(a: str, b: str) -> bool:
+    return " ".join(str(a).lower().split()) == " ".join(str(b).lower().split())
+
 
 class DiscussActivities:
     """The steps of a discussion of an incident in Slack (discuss.py), each in the zone that holds what it needs: the

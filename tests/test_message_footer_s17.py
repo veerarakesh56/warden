@@ -50,7 +50,7 @@ def _incident(monkeypatch, provider=None):
         acts = IncidentActivities(audit=log, llm_factory=factory)
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.notify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion, acts.notify],
                                activity_executor=ThreadPoolExecutor(2)):
             h = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-001"]), id="inc-s17",
                                                 task_queue="q")

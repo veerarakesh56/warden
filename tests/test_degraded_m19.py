@@ -52,7 +52,7 @@ def _incident(provider, seed=None):
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         alert = _alert_from(next(iter(DEMO_ALERTS)))
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-degraded", task_queue="q")
             with contextlib.suppress(Exception):

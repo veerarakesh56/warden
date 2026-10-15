@@ -565,6 +565,20 @@ class IncidentWorkflow:
                     diagnosed, verified = again, checked
             except ActivityError:
                 pass  # the first answer, verified, stands
+        # A second, independent opinion before any fix reaches a person (owner, 2026-10-15: "better and more double
+        # checks ... the model sometimes makes mistakes"): the model asked once more on the same evidence; if the two
+        # answers name another action or another target, the fix is escalated, never offered. It can only take an
+        # approval away. Within the llm zone's budget; patched, so histories recorded before it replay unchanged.
+        if (str(getattr(verified.verdict.status, "value", verified.verdict.status)) == "approved_for_human"
+                and not diagnosed.model_unavailable and workflow.patched("second-opinion")):
+            try:
+                second = await workflow.execute_activity_method(
+                    acts.diagnose, **_zoned(acts.diagnose), args=[pack, escalate_only],
+                    start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
+            except ActivityError:
+                second = diagnosed.model_copy(update={"model_unavailable": "the second diagnosis could not be made"})
+            verified = await workflow.execute_activity_method(
+                acts.second_opinion, **_zoned(acts.second_opinion), args=[pack, diagnosed, second, verified], **QUICK)
         # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
         # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
         # plan's request for approval when a plan opens, else on its own with why there is none.

@@ -134,7 +134,7 @@ def _run(tmp_path, asks: int, widen: bool = True):
         acts = _Acts(audit=log, llm_factory=lambda: LLMClient(mock=True))
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.investigate, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.investigate, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
                                                      id=f"inc-ask-{asks}", task_queue=QUEUE)
@@ -144,19 +144,21 @@ def _run(tmp_path, asks: int, widen: bool = True):
     return seen
 
 
+# Each count of `diagnose` holds one more call than the investigation makes: the incident's fix would reach a person,
+# so its last answer gets a second opinion (2026-10-15).
 def test_the_model_decides_without_more_evidence_and_nothing_more_is_read(tmp_path):
-    assert _run(tmp_path, asks=0) == {"prepare": 1, "investigate": 0, "diagnose": 1}
+    assert _run(tmp_path, asks=0) == {"prepare": 1, "investigate": 0, "diagnose": 1 + 1}
 
 
 def test_a_request_is_read_then_the_model_decides_again(tmp_path):
-    assert _run(tmp_path, asks=1) == {"prepare": 1, "investigate": 1, "diagnose": 2}
+    assert _run(tmp_path, asks=1) == {"prepare": 1, "investigate": 1, "diagnose": 2 + 1}
 
 
 def test_when_nothing_is_accepted_the_model_is_not_asked_again(tmp_path):
     """Review F4: a round whose requests were all refused re-ran the model on the same evidence."""
-    assert _run(tmp_path, asks=99, widen=False) == {"prepare": 1, "investigate": 1, "diagnose": 1}
+    assert _run(tmp_path, asks=99, widen=False) == {"prepare": 1, "investigate": 1, "diagnose": 1 + 1}
 
 
 def test_a_model_that_keeps_asking_is_stopped_after_the_last_round(tmp_path):
     assert INVESTIGATE_ROUNDS == 2
-    assert _run(tmp_path, asks=99) == {"prepare": 1, "investigate": 2, "diagnose": 3}
+    assert _run(tmp_path, asks=99) == {"prepare": 1, "investigate": 2, "diagnose": 3 + 1}

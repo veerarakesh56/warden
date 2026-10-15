@@ -59,7 +59,7 @@ def _run(tmp_path: pathlib.Path, *, fresh: bool, empty_first: bool) -> tuple[int
         acts = _Acts(audit=log, llm_factory=lambda: LLMClient(mock=True))
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.reread, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.reread, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-reread", task_queue="q")
             await asyncio.wait_for(h.result(), 120)

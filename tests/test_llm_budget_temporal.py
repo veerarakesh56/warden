@@ -51,7 +51,7 @@ def test_a_failing_model_is_paid_for_once_per_incident():
         acts = IncidentActivities(audit=log, llm_factory=factory)
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             h = await env.client.start_workflow(IncidentWorkflow.run, _alert_from(next(iter(DEMO_ALERTS))),
                                                 id="budget-once", task_queue="q")
@@ -116,7 +116,7 @@ def test_a_failed_incident_may_run_again_but_a_completed_one_may_not():
         alert = _alert_from(next(iter(DEMO_ALERTS)))
         policy = WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             first = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-again", task_queue="q",
                                                     id_reuse_policy=policy)
@@ -163,7 +163,7 @@ def test_an_incident_restarted_after_failing_keeps_one_budget():
         alert = _alert_from(next(iter(DEMO_ALERTS)))
         ended = []
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             for _ in range(5):
                 h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-restarted", task_queue="q",
@@ -210,7 +210,7 @@ def test_a_provider_outage_does_not_use_up_the_incidents_ceiling():
         alert = _alert_from(next(iter(DEMO_ALERTS)))
         ended = []
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             for i in range(4):
                 down["now"] = i < 3
@@ -274,7 +274,7 @@ def test_the_next_run_starts_from_both_the_usd_and_the_calls_spent():
         acts = IncidentActivities(audit=log, llm_factory=factory)
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-carried", task_queue="q")
             with contextlib.suppress(Exception):
@@ -371,7 +371,7 @@ def _first_call_sees(rows):
         acts = IncidentActivities(audit=log, llm_factory=factory)
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue="q", workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.diagnose, acts.verify],
+                               activities=[acts.prepare, acts.diagnose, acts.verify, acts.second_opinion],
                                activity_executor=ThreadPoolExecutor(2)):
             h = await env.client.start_workflow(IncidentWorkflow.run, alert, id="inc-reserved", task_queue="q")
             with contextlib.suppress(Exception):

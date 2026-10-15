@@ -56,7 +56,7 @@ def _run(tmp_path, first: Verdict):
         acts = _Acts(audit=log, llm_factory=lambda: LLMClient(mock=True))
         env = await WorkflowEnvironment.start_time_skipping(data_converter=codec.data_converter(os.urandom(32)))
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[IncidentWorkflow],
-                               activities=[acts.prepare, acts.investigate, acts.diagnose, acts.verify, acts.notify,
+                               activities=[acts.prepare, acts.investigate, acts.diagnose, acts.verify, acts.second_opinion, acts.notify,
                                            acts.plan_fix],
                                activity_executor=ThreadPoolExecutor(2)):
             handle = await env.client.start_workflow(IncidentWorkflow.run, Alert(**DEMO_ALERTS["inc-002"]),
@@ -69,7 +69,8 @@ def _run(tmp_path, first: Verdict):
 
 def test_a_misquoted_answer_is_asked_once_more_with_the_checks_words(tmp_path):
     seen = _run(tmp_path, _held("P13-UNGROUNDED"))
-    assert (seen["diagnose"], seen["verify"]) == (2, 2)
+    # The repaired answer is approved, so it gets a second opinion too (2026-10-15): one more diagnosis.
+    assert (seen["diagnose"], seen["verify"]) == (2 + 1, 2)
     assert "WARDEN'S CHECKS HELD YOUR PREVIOUS ANSWER (P13-UNGROUNDED)" in seen["prompts"][1]
     assert "HELD YOUR PREVIOUS ANSWER" not in seen["prompts"][0]
 
