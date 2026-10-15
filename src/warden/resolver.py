@@ -346,6 +346,16 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
     if proposal.action is ActionKind.revert_change and _bare(alert, proposal.target) in _target_groups(alert):
         return _deregistered(alert, proposal, live)
     found = _platform(alert, proposal.target)
+    consumer = ""
+    if found is None and proposal.action is ActionKind.resume_flow:
+        # A queue's alarm and its switched-off consumer named by its function (fs-07, live, 2026-10-15: the diagnosis
+        # was right - "the event source mapping for warden-dev-orders is disabled" - and named the function
+        # warden-dev-order-processor, which the alarm does not name, so no plan was opened). The plan is still on what
+        # the alarm names - its one queue, whose switched-off mapping the live read finds by the queue's ARN - and only
+        # when that mapping's function is the one the diagnosis named.
+        queue = alert.labels.get("sqs", "")
+        if queue and "," not in queue:
+            found, consumer = _platform(alert, queue), _bare(alert, proposal.target)
     if found is None:
         return None, "the proposal's target is not a resource the alert's labels name"
     platform, params = found
@@ -363,6 +373,9 @@ def _request_for(alert: Alert, proposal: RemediationProposal, live: Any) -> tupl
             return None, "the alarm names no Lambda alias to move"
         params["alias"] = alias
     state = live(entry.name, params)
+    if consumer and consumer not in (state.get("function") or ()):
+        return None, (f"the alarm names the queue {params.get('queue')}, and its one switched-off consumer is not "
+                      f"{consumer}")
     if proposal.action is ActionKind.revert_change and platform in catalog.REVERT_ALSO:
         entry, state = _the_recorded_change(entry, params, state, platform, live)
         if entry is None:

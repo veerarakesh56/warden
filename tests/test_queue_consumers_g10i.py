@@ -108,6 +108,13 @@ def test_resume_flow_on_the_alarms_queue_is_planned_as_switching_its_mapping_on(
                        "EventSourceArn": QUEUE_ARN})
     req, why = resolver.request_for(alert, proposal, lambda e, params: _platform(f).live(e, params))
     assert req is None and "no single known-good" in why
-    # A function the model names, on a queue's alarm, is still no target (independent review 2026-10-10, F6).
+    # Independent review 2026-10-10, F6: what the model names never becomes a target. A function it names on a queue's
+    # alarm leads to no plan of its own: when that function IS the queue's one switched-off consumer (fs-07, live,
+    # 2026-10-15), the plan is exactly the queue's - read by the queue's ARN, the same entry, function and mapping as
+    # the queue-named proposal above; any other function, nothing.
+    queue_plan = resolver.request_for(alert, proposal, lambda e, params: _platform(Queue()).live(e, params))[0]
     req, why = resolver.request_for(alert, _prop(ActionKind.resume_flow, FN), lambda e, params: _platform(Queue()).live(e, params))
-    assert req is None and "not a resource the alert's labels name" in why
+    assert why == "" and req == queue_plan
+    req, why = resolver.request_for(alert, _prop(ActionKind.resume_flow, "warden-dev-another-fn"),
+                                    lambda e, params: _platform(Queue()).live(e, params))
+    assert req is None and "is not warden-dev-another-fn" in why
