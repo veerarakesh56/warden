@@ -160,7 +160,8 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     # this stack does not have - so no agent, and the apps deploy as before.
     assert set(clients) <= {"secretsmanager", "ssm"}
     assert [kw for name, kw in clients["secretsmanager"].calls] == [{"SecretId": "warden-dev-datadog-api-key"}]
-    assert not any(c[:1] == ["helm"] for c in run.cmds)
+    assert not any(c[:1] == ["helm"] and "datadog" in " ".join(c) for c in run.cmds)  # no key: no agent
+    assert any(c[:4] == ["helm", "upgrade", "--install", "argocd"] for c in run.cmds)  # Argo CD always (2026-10-16)
     applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c and i and "kind: ClusterRole" in i)
     assert not tool.PLACEHOLDER.search(applied)
     assert STACK["ecr_repository_url"] + ":abc123" in applied
@@ -366,3 +367,43 @@ def test_one_collector_sends_the_same_data_to_xray_grafana_and_datadog_before_th
     k8s = (ROOT / "k8s" / "fullstack" / "config.yaml").read_text(encoding="utf-8")
     assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"' in k8s
     assert "OTEL_SDK_DISABLED=true" in (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _no_chart_download(monkeypatch):
+    """No test downloads a chart: the package is a stand-in whose sha256 is the pinned one for that test."""
+    import hashlib
+
+    monkeypatch.setattr(tool, "_fetch_chart", lambda url: b"argo-cd chart package")
+    monkeypatch.setattr(tool, "ARGOCD_CHART_SHA256", hashlib.sha256(b"argo-cd chart package").hexdigest())
+
+
+def test_argocd_is_installed_from_the_checked_package_with_its_settings(tmp_path):
+    """Owner, 2026-10-16: GitOps for the cluster. Argo CD v3.5.4 (chart 10.9.7) from the argo-helm release's own
+    package - installed only if its sha256 is the pinned one - with helm/argo-cd/values.yaml."""
+    run = Runner({})
+    tool.deploy_argocd("kc", tmp_path, run)
+    helm = next(c for c in run.cmds if c[:3] == ["helm", "upgrade", "--install"])
+    assert helm[3] == "argocd" and helm[4] == str(tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz")
+    assert helm[helm.index("--namespace") + 1] == "argocd" and helm[helm.index("--values") + 1] == str(tool.ARGOCD_VALUES)
+    assert (tmp_path / f"argo-cd-{tool.ARGOCD_CHART}.tgz").read_bytes() == b"argo-cd chart package"
+    assert tool.ARGOCD_CHART == "10.9.7" and tool.ARGOCD_CHART_URL.startswith("https://github.com/argoproj/argo-helm/")
+
+
+def test_a_chart_package_that_is_not_the_pinned_one_installs_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(tool, "_fetch_chart", lambda url: b"something else")
+    run = Runner({})
+    with pytest.raises(SystemExit, match="not the pinned one"):
+        tool.deploy_argocd("kc", tmp_path, run)
+    assert not any(c[:1] == ["helm"] for c in run.cmds)
+
+
+def test_argocd_settings_name_no_login_no_load_balancer_and_deny_by_default():
+    import yaml
+
+    v = yaml.safe_load(tool.ARGOCD_VALUES.read_text(encoding="utf-8"))
+    assert v["configs"]["cm"]["admin.enabled"] is False and v["dex"]["enabled"] is False
+    assert v["configs"]["cm"]["exec.enabled"] is False and v["configs"]["rbac"]["policy.default"] == ""
+    assert v["server"]["service"]["type"] == "ClusterIP" and v["notifications"]["enabled"] is False
+    for part in ("controller", "repoServer", "server", "applicationSet", "redis"):
+        assert v[part]["resources"]["requests"] and v[part]["resources"]["limits"]["memory"], part

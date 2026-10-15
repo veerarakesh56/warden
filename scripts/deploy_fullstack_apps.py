@@ -308,6 +308,38 @@ DATADOG_SITES = frozenset({"datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.
                            "us2.ddog-gov.com"})
 
 
+# Argo CD (owner, 2026-10-16: GitOps for the cluster - the shop is synced from manifests/ in this repository). The
+# chart's own package, fetched from the argo-helm release and installed only if its bytes are these: a pinned version
+# number alone would install whatever the repository serves under it. Settings: helm/argo-cd/values.yaml (why each).
+ARGOCD_CHART = "10.9.7"  # Argo CD v3.5.4 - the oldest release fixing the Critical advisories of 2026-10-07
+ARGOCD_CHART_URL = f"https://github.com/argoproj/argo-helm/releases/download/argo-cd-{ARGOCD_CHART}/argo-cd-{ARGOCD_CHART}.tgz"
+ARGOCD_CHART_SHA256 = "c3c595b857a5a4a76e622b36cfacd4127120202bcfa6536fc65f01382a10f035"
+ARGOCD_VALUES = ROOT / "helm" / "argo-cd" / "values.yaml"
+
+
+def _fetch_chart(url: str) -> bytes:
+    import urllib.request
+
+    if not url.startswith("https://"):
+        raise SystemExit(f"a chart is fetched over https only, not {url!r}")
+    with urllib.request.urlopen(url, timeout=60) as resp:  # nosec B310 - https only (above); its bytes are checked after
+        return resp.read()
+
+
+def deploy_argocd(kubeconfig: str, out: pathlib.Path, run=run) -> None:
+    """Install or upgrade Argo CD in namespace argocd, from the checked chart package, and wait for it."""
+    import hashlib
+
+    package = _fetch_chart(ARGOCD_CHART_URL)
+    got = hashlib.sha256(package).hexdigest()
+    if got != ARGOCD_CHART_SHA256:
+        raise SystemExit(f"the Argo CD chart package is not the pinned one (sha256 {got}): nothing installed")
+    chart = out / f"argo-cd-{ARGOCD_CHART}.tgz"
+    chart.write_bytes(package)
+    run(["helm", "upgrade", "--install", "argocd", str(chart), "--namespace", "argocd", "--create-namespace",
+         "--kubeconfig", kubeconfig, "--values", str(ARGOCD_VALUES), "--wait", "--timeout", "10m"])
+
+
 def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
     """Install Datadog's agent before the apps roll out, so their pods start traced. Its API key is the persistent
     secret `warden-<env>-datadog-api-key` (pasted once by the owner; never in Terraform state), its site the plain
@@ -437,6 +469,7 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
          "--region", stack["region"], "--kubeconfig", kubeconfig])
     datadog = deploy_datadog(stack, kubeconfig, aws, run)
     deploy_otel(stack, kubeconfig, aws, datadog, run)
+    deploy_argocd(kubeconfig, out, run=run)
     # catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
     # value is its signing key, generated here and sent over stdin. fs-23 removes it.
     manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S)]), {

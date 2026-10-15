@@ -1,0 +1,60 @@
+# Argo CD for the dev cluster: chart argo-cd 10.9.7 = Argo CD v3.5.4 (chart published 2026-10-07; tag commit
+# 21df5931761042f748aa7de35c12d5c685cb810b; package sha256 c3c595b857a5a4a76e622b36cfacd4127120202bcfa6536fc65f01382a10f035,
+# checked before install). v3.5.4 is the floor: it fixes the four Critical advisories of 2026-10-07 (repo-server command
+# execution through Kustomize/Jsonnet, AppProject limits bypassed by PreDelete/PostDelete hooks). Every release with the
+# fix is under two weeks old, so the age rule gives way to the security one: the OLDEST carrying the fix is pinned.
+# v3.5.5 adds only bug fixes in features not used here (config management plugins, the hydrator, the UI).
+# Installed by the apps pipeline (scripts/deploy_fullstack_apps.py deploy_argocd), the way the Datadog agent is. Every
+# key below is read from that chart's own values.yaml, both 10.9.7 and 10.10.5 (research 2026-10-16:
+# C:\work\warden\reports\GitOps and runtime remediation paths.md).
+#
+# Nobody logs in to it: the Applications are Kubernetes objects the pipeline applies, and WARDEN acts on the workloads
+# through the Kubernetes API with its own restricted service account (k8s/remediation-rbac.yaml) - restarts and the
+# replicas an HPA owns, which the shop Application tells Argo CD to ignore. Anything else is a pull request to
+# manifests/, which Argo CD syncs.
+
+# Kept when the chart is removed: the lab's teardown deletes the Applications first (their resources finalizer cleans
+# the shop objects up while the controller still runs), then the chart, then these CRDs.
+crds:
+  keep: true
+
+# No SSO and no local login: there is no one to sign in.
+dex:
+  enabled: false
+# Notifications go through WARDEN's own channels, not Argo CD's.
+notifications:
+  enabled: false
+
+configs:
+  cm:
+    admin.enabled: false
+    exec.enabled: false
+    statusbadge.enabled: false
+  rbac:
+    # Deny by default: no account and no group may do anything through Argo CD's API.
+    policy.default: ""
+
+# Small, explicit requests on the lab's two 2-vCPU nodes (non-HA: one of each).
+controller:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+repoServer:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 384Mi}
+server:
+  # Inside the cluster only: no load balancer, no ingress. A person who wants the UI port-forwards with their own access.
+  service:
+    type: ClusterIP
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {memory: 256Mi}
+applicationSet:
+  resources:
+    requests: {cpu: 25m, memory: 64Mi}
+    limits: {memory: 192Mi}
+redis:
+  resources:
+    requests: {cpu: 25m, memory: 32Mi}
+    limits: {memory: 128Mi}
