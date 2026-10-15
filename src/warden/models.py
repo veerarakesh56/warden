@@ -103,6 +103,26 @@ def ingestion_wait(started_at: str, now: datetime) -> timedelta:
     return min(max(started + LOG_INGEST_LAG - now, timedelta(0)), LOG_INGEST_LAG)
 
 
+# Research 2026-10-15, item 3 (owner: "5 to 20 minutes of delay"): a read that came back empty right after the
+# alert may only be early - CloudWatch's 5-minute metrics, Datadog's and Grafana's ingestion (measured on fs-22: logs
+# +1.0 min, the monitor +2.6 min). Such an incident reads once more, when the alert is REREAD_AT old (never sooner
+# than REREAD_MIN from now); an alert older than REREAD_WITHIN at its first read is not waited for again.
+REREAD_AT = timedelta(minutes=7)
+REREAD_MIN = timedelta(seconds=60)
+REREAD_WITHIN = timedelta(minutes=20)
+
+
+def reread_wait(started_at: str, now: datetime) -> timedelta | None:
+    """How long to wait before the one re-read of an incident whose first read found a source empty; None for no
+    re-read (no start time, or the alert was already REREAD_WITHIN old). A start ahead of our clock counts as now."""
+    if not started_at:
+        return None
+    age = max(now - datetime.fromisoformat(started_at), timedelta(0))
+    if age >= REREAD_WITHIN:
+        return None
+    return max(REREAD_AT - age, REREAD_MIN)
+
+
 def _zoned_timestamp(value: str) -> str:
     if value:
         from datetime import datetime

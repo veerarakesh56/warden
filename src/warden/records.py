@@ -36,6 +36,7 @@ STEP = {
     "incident.ingest": "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
     "incident.diagnose": "Diagnosis", "incident.investigate": "Read more of what the alarm names",
+    "incident.reread": "Read again: a source was empty right after the alarm",
     "incident.verify": "Safety policies checked", "incident.changes": "Recent changes looked up",
     "incident.report": "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
     "incident.no_plan": "No fix plan", "incident.after_hold": "Looked at again after expected down",

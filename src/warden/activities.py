@@ -1092,6 +1092,20 @@ class IncidentActivities:
             return pack
         return self.prepare(alert)
 
+    @activity.defn
+    def reread(self, pack: EvidencePack) -> EvidencePack:
+        """The incident's evidence read again, once, because a source answered with nothing right after the alert
+        (research 2026-10-15, item 3). Which sources the second read filled and the alert's age at it go on the
+        record: the measured lag of each source, where a later "nothing found" can be weighed against it."""
+        again = self.prepare(pack.alert)
+        before, after = set(pack.context.empty_reads), set(again.context.empty_reads)
+        age = (datetime.now(UTC) - datetime.fromisoformat(pack.alert.started_at)).total_seconds() \
+            if pack.alert.started_at else None
+        self.audit.append(pack.alert.alert_id, "incident.reread", {
+            "run_id": _run_id(), "empty_first": sorted(before), "filled": sorted(before - after),
+            "still_empty": sorted(after), "alert_age_s": None if age is None else round(age)})
+        return again
+
     def _spent_since(self, since: datetime) -> CostRecord:
         """What every incident spent on the model since `since`, reservations of unfinished calls included."""
         total = CostRecord()

@@ -54,7 +54,7 @@ with workflow.unsafe.imports_passed_through():
         Thread,
         Turn,
     )
-    from .models import Alert, ContextBundle, RunReport, ingestion_wait
+    from .models import Alert, ContextBundle, RunReport, ingestion_wait, reread_wait
 
 STEPS = ("planned", "policy", "approved", "prechecked", "applied", "verified", "audited")
 # Bounded (audit A-B-L10): Temporal's default retries an activity forever, so a step that kept failing - an audit
@@ -74,7 +74,7 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # the rest - the audit's own steps and the workflows - run on the main queue (the core zone). A workflow on the main
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
-ZONES = {"read": ("prepare", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
+ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
@@ -511,6 +511,15 @@ class IncidentWorkflow:
             if wait > timedelta(0):
                 await workflow.sleep(wait)
         pack = await workflow.execute_activity_method(acts.prepare, **_zoned(acts.prepare), args=[alert], **PREPARE)
+        # A source that answered with nothing right after the alert may only be early (research 2026-10-15, item 3):
+        # read once more when the alert is old enough for its slowest source, on a durable timer. One re-read at most;
+        # what it filled, and the alert's age then, go on the record. Patched: earlier histories replay unchanged.
+        if pack.context.empty_reads and workflow.patched("reread-once"):
+            wait = reread_wait(pack.alert.started_at, workflow.now())
+            if wait is not None:
+                await workflow.sleep(wait)
+                pack = await workflow.execute_activity_method(acts.reread, **_zoned(acts.reread), args=[pack],
+                                                              **PREPARE)
         # ONE attempt (audit A-C-7): the model client retries inside one budget and one call ceiling; a
         # Temporal retry built a fresh client, and so a fresh budget - $1.20 spent against a $0.50 cap
         # (fourth review, 2026-09-30).

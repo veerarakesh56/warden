@@ -214,7 +214,7 @@ def _activities(log: audit.AuditLog, policy: approvals.ApproverPolicy, platform:
 
     rem = RemediationActivities(audit=log, policy=policy, platform=platform or NoPlatform(), changes=from_environment())
     talk = DiscussActivities(audit=log, incident=inc, policy=policy)
-    return [inc.after_hold, inc.prepare, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.notify, inc.no_plan,
+    return [inc.after_hold, inc.prepare, inc.reread, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.notify, inc.no_plan,
             rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
             rem.check_success, rem.record_result, rem.rollback, rem.finish, rem.summary_owed,
             talk.discuss_thread, talk.discuss_evidence, talk.discuss_answer, talk.discuss_reply, talk.discuss_replan]
