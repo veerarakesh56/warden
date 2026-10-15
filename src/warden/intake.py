@@ -61,11 +61,21 @@ class AlarmEvent(BaseModel):
         return v.astimezone(UTC)
 
 
+# Alarms from different rules or tools on the same resource, within this long of an open incident's start, are that
+# incident (fs-22, 2026-10-15: one broken config became three incidents - two Datadog monitors and a CloudWatch alarm).
+GROUP_WINDOW = timedelta(minutes=int(os.environ.get("WARDEN_GROUP_WINDOW_MIN", "15")))
+
+
 class Decision(BaseModel):
     action: Action
     workflow_id: str = ""
     fingerprint: str
     reason: str
+    # An alarm that joined an open incident on the same resource (GROUP_WINDOW), not the same alarm repeating.
+    grouped: bool = False
+    # What a started incident names, for grouping a later alarm into it: its environment and its resources.
+    environment: str = ""
+    resources: list[str] = Field(default_factory=list)
 
 
 def fingerprint(ev: AlarmEvent) -> str:
@@ -88,10 +98,12 @@ def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
 
 def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict[str, str],
            verifying: dict[tuple[str, str], str], open_count: int,
-           expected: tuple[str, datetime | None] | None = None) -> Decision:
+           expected: tuple[str, datetime | None] | None = None,
+           related: dict[str, tuple[str, set[str]]] | None = None) -> Decision:
     """`recent`: this fingerprint's earlier transitions inside FLAP_WINDOW. `open_incidents`: fingerprint -> running
     incident id. `verifying`: (environment, service) -> remediation id in its verify window. `expected`: the
-    declaration that covers this alarm now and when its cover ends (expected.covering)."""
+    declaration that covers this alarm now and when its cover ends (expected.covering). `related`: incident id ->
+    (environment, resources) of each running incident started inside GROUP_WINDOW."""
     fp = fingerprint(ev)
     if ev.state != "ALARM":
         return Decision(action="ignore", fingerprint=fp, reason=f"state {ev.state}: only ALARM starts an incident")
@@ -102,6 +114,15 @@ def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict
     if fp in open_incidents:
         return Decision(action="signal_incident", workflow_id=open_incidents[fp], fingerprint=fp,
                         reason=f"incident {open_incidents[fp]} is open for this alarm")
+    if ev.source == "alarm" and related:
+        from .resolver import named_resources
+
+        names = named_resources(ev.alert)
+        for wid, (env, resources) in related.items():
+            same = sorted(names & resources)
+            if env == ev.alert.environment and same:
+                return Decision(action="signal_incident", workflow_id=wid, fingerprint=fp, grouped=True,
+                                reason=f"names {same[0]}, as open incident {wid} does: the same fault")
     if expected and ev.source == "alarm":  # a person who asks for a diagnosis (MCP, CLI) gets one
         name, until = expected[0], expected[1] and expected[1].astimezone(UTC)
         if ev.stateless:  # no state to look at again when the cover ends: the service says so again if it is so
@@ -154,6 +175,7 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
             return ""
 
     open_incidents: dict[str, str] = {}
+    related: dict[str, tuple[str, set[str]]] = {}
     open_count = 0
     seen: set[str] = set()
     for e in reversed(log.entries(kinds=("intake.decision",), since=now - LOOKBACK)):
@@ -163,6 +185,8 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
             if await running(b["workflow_id"]):
                 open_count += 1
                 open_incidents.setdefault(b["fingerprint"], b["workflow_id"])
+                if b.get("resources") and e["at"] >= now - GROUP_WINDOW:
+                    related[b["workflow_id"]] = (str(b.get("environment") or ""), set(b["resources"]))
     # A fix being verified takes the alarm instead of a new incident (C1). One that was verified and is being watched
     # is told too - it relapsed - and the alarm still starts its incident: a relapse is diagnosed afresh.
     verifying: dict[tuple[str, str], str] = {}
@@ -180,8 +204,17 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
             watching[key] = b["workflow_id"]
 
     d = decide(ev, recent=recent, open_incidents=open_incidents, verifying=verifying, open_count=open_count,
-               expected=expected.covering(ev.alert, now))
+               expected=expected.covering(ev.alert, now), related=related)
+    if d.action in ("start", "escalate_only"):
+        from .resolver import named_resources
+
+        d = d.model_copy(update={"environment": ev.alert.environment, "resources": sorted(named_resources(ev.alert))})
     log.append(d.workflow_id or f"intake-{fp}", "intake.decision", d.model_dump())
+    if d.grouped:
+        # On the incident's own record: which other alarm said the same, and where it came from (records.py).
+        log.append(d.workflow_id.removeprefix("inc-"), "intake.grouped", {
+            "rule": ev.rule[:200], "name": ev.alert.name[:200], "via": ev.alert.labels.get("via", ""),
+            "at": ev.transitioned_at.isoformat()})
     at = ev.transitioned_at.isoformat()
     relapsed = open_fix(ev, watching) if d.action in ("start", "escalate_only") else None
     if relapsed:

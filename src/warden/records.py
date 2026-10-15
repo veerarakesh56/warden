@@ -31,6 +31,7 @@ ENDED = {
 
 # Each step on the record, in plain words, for an incident's page.
 STEP = {
+    "intake.grouped": "Another alert on the same resource joined this incident",
     "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
     "incident.ingest": "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
@@ -88,6 +89,7 @@ class Record:
     asked: int = 0
     report: str = ""
     evidence: str = ""  # what the model was shown, as kept with the incident (incident.evidence)
+    also: list[str] = field(default_factory=list)  # other alerts on the same resource that joined it (intake.grouped)
     rows: list[dict[str, Any]] = field(default_factory=list)
     shown: Any = None  # approver id -> the name a reader sees; never the list's id
     named: Any = None  # a machine text with each approver id replaced by their name
@@ -159,6 +161,11 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
             r.report = str(b.get("markdown") or "")
         elif kind == "incident.evidence":
             r.evidence = str(b.get("prompt") or "")
+        elif kind == "intake.grouped":
+            from .reporting import ALERT_SOURCES
+
+            src = ALERT_SOURCES.get(str(b.get("via") or ""), "")
+            r.also.append(str(b.get("name") or b.get("rule") or "") + (f" ({src})" if src else ""))
         elif kind in ("incident.no_plan",) or (kind == "incident.plan_fix" and not b.get("planned") and b.get("why")):
             r.no_plan = str(b.get("why") or r.no_plan)
         elif kind == "remediation.plan":
@@ -255,6 +262,7 @@ def _summary_facts(r: Record) -> list[tuple[str, str]]:
             ("Safety check", _e(r.verdict.replace("_", " ") + (f" ({', '.join(r.policies)})" if r.policies else ""))
              if r.verdict else ""),
             ("Fix plan", plan or (_e("None: " + r.no_plan) if r.no_plan else "")),
+            ("Also fired", _e("; ".join(r.also)) if r.also else ""),
             ("Discussion", _e(f"{r.asked} question(s) in the discussion channel") if r.asked else "")]
 
 

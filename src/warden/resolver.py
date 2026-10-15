@@ -72,7 +72,9 @@ def _platform(alert: Alert, target: str) -> tuple[str, dict[str, str]] | None:
 # The label that names each platform's resource (the last of _PLATFORM_LABELS), and labels that only qualify one.
 _NAMING_LABEL = {labels[-1][0]: platform for platform, labels in _PLATFORM_LABELS.items()}
 _QUALIFIERS = frozenset({"alarm", "namespace", "ecs_cluster", "eks_cluster", "apigw_stage", "selector", "log_group",
-                         "cluster", "lambda_qualifier", "service", "environment", "region", "account"})
+                         "cluster", "lambda_qualifier", "service", "environment", "region", "account",
+                         # Where an alert came from and which monitor said so: never a resource (2026-10-15).
+                         "via", "datadog_monitor", "alarm_region"})
 # The resource kinds each special path is reached from (_configuration: the AppConfig application, never a label).
 _SPECIAL_KINDS = {ActionKind.revert_config: frozenset(), ActionKind.freeze_changes: frozenset({"lambda", "ecs"})}
 
