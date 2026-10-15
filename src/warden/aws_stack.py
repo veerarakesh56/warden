@@ -603,7 +603,9 @@ class StackBackend:
         readers: list[tuple[str, object]] = []
         # Any alarm on any service (G9-A2a): the alarm as CloudWatch defines it, its metric and the resource's others,
         # and the writes to the resource. The per-service readers below add each service's own state.
-        if lab.get("alarm"):
+        # Not for a Datadog monitor's alert: its `alarm` label is the monitor (`datadog-<id>`), not a CloudWatch alarm,
+        # and the read was refused as a CloudWatch read of a name no reader may read (2026-10-15, fs-22).
+        if lab.get("alarm") and not lab.get("datadog_monitor"):
             readers.append(("alarm", lambda out: self._read_alarm(out, alert, lab["alarm"])))
         # The state of any other main service's resource the alarm names (G9-A2c): one closed table of reads.
         from . import aws_describe
@@ -722,8 +724,8 @@ class StackBackend:
     def alarm_firing(self, alert: Alert) -> bool | None:
         """Is the alert's own CloudWatch alarm in ALARM now? None: it names none, or none by that name exists."""
         name = alert.labels.get("alarm", "")
-        if not name:
-            return None
+        if not name or alert.labels.get("datadog_monitor"):
+            return None  # a Datadog monitor's alert names no CloudWatch alarm
         found = self._incident(alert)._cw.describe_alarms(
             AlarmNames=[name], AlarmTypes=["MetricAlarm", "CompositeAlarm"])
         states = [a.get("StateValue") for kind in ("MetricAlarms", "CompositeAlarms") for a in found.get(kind) or []]

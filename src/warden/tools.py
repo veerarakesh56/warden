@@ -61,9 +61,6 @@ from .observability import _safe_error, span
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 
 _log = logging.getLogger("warden.tools")
-# The sources WARDEN's own readers name at the start of a partial line ("datadog logs: ..."); only these are logged.
-_SOURCES = ("cloudwatch", "datadog", "grafana", "xray", "x-ray", "kubernetes", "k8s", "database", "postgres", "ecs",
-            "lambda", "sqs", "alb", "aurora", "redis", "dynamodb", "eventbridge", "config", "cloudtrail")
 
 # Wall-clock ceiling per tool. Threads are used rather than signals because signal-based timeouts
 # are POSIX-main-thread only, and this has to behave identically on Windows and in a container.
@@ -354,14 +351,15 @@ def _log_failed_reads(errors: list[str]) -> None:
     """One WARNING per incident naming each read that failed and how, in OUTCOMES' words only - never the error's
     text, which can quote a log line. The cloud's failed reads were visible only inside each incident's record
     (2026-10-15: "every log/telemetry source failed", with nothing in the worker's log)."""
+    from .evidence import tool_error_text
+
     failed = set()
     for e in errors:
-        how = next((o for o in OUTCOMES if f"[{o}" in e), "")
-        if not how:
+        if not any(f"[{o}" in e for o in OUTCOMES):
             continue  # an empty or cut read, not a failure
-        tool, _, rest = e.partition(": ")
-        word = rest.split(" ", 1)[0].lower().rstrip(":")
-        failed.add(f"{tool}{' ' + word if word in _SOURCES else ''} [{how}]")
+        # `<reader>[ <source>]: <outcome>[ on <operation>]`, from fixed words and WARDEN's own reader names only - the
+        # T item's own text (the first version named only the tool, "logs", for every stack read).
+        failed.add(tool_error_text(e))
     if failed:
         _log.warning("%d read(s) failed: %s", len(failed), "; ".join(sorted(failed)))
 

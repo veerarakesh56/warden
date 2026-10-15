@@ -95,6 +95,16 @@ def test_writes_that_happened_are_changes_by_principal_kind_never_the_session_na
     assert asked == {"warden-dev-jobs"}
 
 
+def test_a_datadog_monitors_alert_is_never_read_as_a_cloudwatch_alarm():
+    """fs-22, 2026-10-15: a Datadog alert's `alarm` label is the monitor (`datadog-<id>`); read as a CloudWatch alarm
+    it was refused - the reader role may read only the environment's own alarms - and counted as a failed read."""
+    b, cw, _ = _backend(_alarm())
+    alert = _alert(datadog_monitor="123", alarm="datadog-123")
+    b._read_all(alert)
+    assert not [c for c in cw.calls if c[0] == "describe_alarms"]
+    assert b.alarm_firing(alert) is None
+
+
 def test_no_write_on_a_fresh_alert_is_not_yet_no_change(monkeypatch):
     """CloudTrail lists a write about 5 minutes after it (research 2026-10-15): read at the alert's +2 min, "CHANGE none"
     ruled out the change made just before the alarm. Until the alert is CLOUDTRAIL_DELIVERY old it says so."""
