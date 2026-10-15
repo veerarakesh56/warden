@@ -122,10 +122,29 @@ def migrate(dsn: str, writer_role: str | None = None, *, iam_login: bool = False
                 db.execute(f"GRANT SELECT, INSERT ON {t} TO {writer_role}")
 
 
+class _Rows:
+    """A statement's result, read whole while the store's lock is held: a cursor left to be read later shared the
+    one connection with another thread's statements."""
+
+    def __init__(self, cursor: Any) -> None:
+        self._rows = cursor.fetchall() if getattr(cursor, "description", True) else []
+        self.rowcount = getattr(cursor, "rowcount", -1)
+
+    def fetchone(self) -> Any:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list:
+        return list(self._rows)
+
+
 class _Store:
-    """The few statements the log runs, on SQLite (a file) or PostgreSQL (a `postgresql://` DSN)."""
+    """The few statements the log runs, on SQLite (a file) or PostgreSQL (a `postgresql://` DSN). One connection, used
+    by every activity thread of a worker: each statement and each transaction holds the lock, so no thread's read
+    lands inside another's BEGIN ... COMMIT (2026-10-15: "cannot rollback - no transaction is active" and "bad
+    parameter or other API misuse" failed a workflow test twice in CI)."""
 
     def __init__(self, target: str | pathlib.Path) -> None:
+        self._lock = threading.RLock()
         self.pg = _is_postgres(target)
         if self.pg:
             self.db = _pg_connect(str(target))
@@ -133,23 +152,25 @@ class _Store:
             self.db = sqlite3.connect(str(target), isolation_level=None, check_same_thread=False)
             self.db.executescript(_SCHEMA)
 
-    def run(self, sql: str, params: tuple | list = ()) -> Any:
-        return self.db.execute(sql.replace("?", "%s") if self.pg else sql, params)
+    def run(self, sql: str, params: tuple | list = ()) -> _Rows:
+        with self._lock:
+            return _Rows(self.db.execute(sql.replace("?", "%s") if self.pg else sql, params))
 
     @contextlib.contextmanager
     def transaction(self):
-        if self.pg:
-            with self.db.transaction():
-                self.db.execute("SELECT pg_advisory_xact_lock(%s)", (_PG_LOCK,))
+        with self._lock:
+            if self.pg:
+                with self.db.transaction():
+                    self.db.execute("SELECT pg_advisory_xact_lock(%s)", (_PG_LOCK,))
+                    yield
+                return
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
                 yield
-            return
-        self.db.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-            self.db.execute("COMMIT")
-        except BaseException:
-            self.db.execute("ROLLBACK")
-            raise
+                self.db.execute("COMMIT")
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
 
     def insert_checkpoint(self, seq: int, head: str, signature: str) -> int:
         sql = ("INSERT INTO checkpoints VALUES (?, ?, ?) ON CONFLICT (seq) DO NOTHING" if self.pg

@@ -28,8 +28,9 @@ class _Conn:
             def fetchone(self):
                 return (len(conn.rows), f"h{len(conn.rows)}") if sql.startswith("SELECT seq, hash") and conn.rows else None
 
-            def fetchall(self):
-                return []
+            def fetchall(self):  # as a real cursor: the rows fetchone would have given
+                row = self.fetchone()
+                return [row] if row else []
         if sql.startswith("INSERT INTO entries"):
             self.rows.append(params)
         return _Cur()
