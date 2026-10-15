@@ -104,7 +104,12 @@ def main(argv: list[str] | None = None) -> int:
     session = boto3.Session()
     account = session.client("sts").get_caller_identity()["Account"]
     envs = args.env or sorted(p.parent.name for p in (ROOT / "iam").glob("*/boundary.json"))
-    results = check(session.client("iam"), account, envs)
+    iam, results = session.client("iam"), []
+    for env in envs:
+        found = check(iam, account, [env])
+        # By default only the environments made in this account: one with nothing in it was never created.
+        if args.env or any(v != "NOT IN ACCOUNT" for _, v in found):
+            results += found
     for name, verdict in results:
         print(f"{verdict:22} {name}")
     return 1 if any(v in ("DIFFERS",) or v.startswith("UNREADABLE") for _, v in results) else 0
