@@ -50,8 +50,9 @@ def test_another_alarm_in_the_environment_starts_its_incident_and_tells_the_watc
                                   log))
     assert d.action == "start" and d.after_fix == ["rem-dev-9"]  # not another environment's fix
     told = [c for c in client.calls if c[:3] == ("signal", "rem-dev-9", "side_effect")]
-    assert len(told) == 1 and f"`{ev.rule}` started at" in told[0][3]
-    assert f"diagnosed as incident `{d.workflow_id.removeprefix('inc-')}`" in told[0][3]
+    # The signal names the incident, never the alarm's own words (security review M2, 2026-10-16).
+    assert len(told) == 1 and told[0][3].startswith(f"incident {d.workflow_id.removeprefix('inc-')} started at")
+    assert ev.rule not in told[0][3]
     assert [c[0] for c in client.calls] == ["start", "signal"]  # the incident first: a fix that ended holds nothing back
     assert [e["body"]["incident"] for e in log.entries(kinds=("intake.side_effect",))] == [d.workflow_id]
 
@@ -113,12 +114,14 @@ def _intake_saw(log, wid="rem-dev-6a3fb36ac419b7e0"):
 
 
 def test_a_watched_fix_with_another_alarm_after_it_is_not_called_fixed_nor_undone():
-    said = "`warden-dev-db-connections` started at 2026-10-15T17:30:00+00:00, diagnosed as incident `abc`"
+    said = "alarm `warden-dev-db-connections` started at 2026-10-15T17:30:00+00:00, diagnosed as incident `abc`"
     out, took, log = _watched_then(lambda h: None, signal_with_log=True)
     assert out.status == "side_effects", out
     assert out.reasons == [f"orders passed its own checks, but after the fix: {said}"]  # from the record
     assert took < RECHECK_AFTER[0]  # said at once, not at the next re-check
-    assert [e["body"]["ok"] for e in log.entries(kinds=(bounds.RESULT,))] == [True, False]  # the breaker counts it
+    # Recorded, not counted (security review M1, 2026-10-16): an alarm anyone can raise must not trip the breaker.
+    assert [e["body"]["ok"] for e in log.entries(kinds=(bounds.RESULT,))] == [True]
+    assert len(log.entries(kinds=("remediation.side_effects",))) == 1
     assert not log.entries(kinds=("remediation.rollback",))  # never undone on its own
 
 

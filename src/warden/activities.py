@@ -497,7 +497,11 @@ class RemediationActivities:
     def side_effects(self, plan: Plan) -> list[str]:
         """Other alarms intake recorded as starting in this fix's environment after this run applied it (intake.side_
         effect, kept under the fix's workflow id) - from the record, never from the signal that said so. Each is a
-        failed result for the breaker, as a relapse is. Empty: none on the record."""
+        failure for the breaker: they may be unrelated, and an alarm anyone can raise must not trip the kill switch
+        (security review, 2026-10-16). The fix is counted as failed only when a later incident's diagnosis cites it
+        (IncidentActivities._connected). Recorded once per run. Empty: none on the record."""
+        from .reporting import untrusted_inline
+
         run = _run_id()
         applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
                    if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
@@ -507,11 +511,14 @@ class RemediationActivities:
         rows = [e["body"] for e in self.audit.entries(plan.workflow_id, kinds=("intake.side_effect",), since=applied[-1])]
         if not rows:
             return []
-        bounds.record_result(self.audit, plan.incident_id, service=plan.target, ok=False, now=datetime.now(UTC),
-                             limits=self.limits, workflow_id=plan.workflow_id, run_id=run, plan_hash=plan.plan_hash,
-                             side_effects=[str(r.get("incident", "")) for r in rows])
-        return [f"`{str(r.get('rule', ''))[:120].replace('`', '')}` started at {r.get('at')}, diagnosed as incident "
-                f"`{str(r.get('incident', '')).removeprefix('inc-')}`" for r in rows[:5]]
+        if not any(e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id") == run
+                   for e in self.audit.entries(plan.incident_id, kinds=("remediation.side_effects",))):
+            self.audit.append(plan.incident_id, "remediation.side_effects", {
+                "workflow_id": plan.workflow_id, "run_id": run, "plan_hash": plan.plan_hash,
+                "incidents": [str(r.get("incident", "")) for r in rows]})
+        # An alarm's name is its author's text: said as inert, quoted words (security review M2, 2026-10-16).
+        return [f"alarm {untrusted_inline(str(r.get('rule', '')), limit=120)} started at {r.get('at')}, diagnosed as "
+                f"incident `{str(r.get('incident', '')).removeprefix('inc-')}`" for r in rows[:5]]
 
     @activity.defn
     def again_alert(self, incident_id: str, why: str) -> dict[str, Any]:
@@ -520,6 +527,12 @@ class RemediationActivities:
         record. Recorded."""
         rows = self.audit.entries(incident_id, kinds=("incident.alert",))
         if not rows:
+            return {}
+        # One generation only (security review M3, 2026-10-16): a fix made from a re-diagnosis that fails again goes to
+        # a person, never into another automatic diagnosis - no chain of fixes on fixes.
+        if any(e["body"].get("new") == incident_id for e in self.audit.entries(kinds=("remediation.rediagnose",))):
+            self.audit.append(incident_id, "remediation.rediagnose", {"run_id": _run_id(), "new": "",
+                                                                      "why": why[:300], "refused": "already a re-diagnosis"})
             return {}
         now = datetime.now(UTC)
         new = f"{incident_id.split('-')[0]}-{now:%Y%m%dT%H%M%SZ}"
@@ -1007,8 +1020,12 @@ class IncidentActivities:
         if own_step is not None:
             from . import evidence
 
-            # The ids the model is shown them by, so a citation of one can be told from a citation of anything else.
-            own_step["items"] = [i.id for i in evidence.index(state["context"]).values() if _OWN_FIX in i.text]
+            # The ids the model is shown them by, so a citation of one can be told from a citation of anything else - each
+            # fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's (review L2).
+            items = [i for i in evidence.index(state["context"]).values() if i.id.startswith("C") and _OWN_FIX in i.text]
+            for fix in own_step["fixes"]:
+                fix["item"] = next((i.id for i in items if f"{_OWN_FIX}{fix['workflow_id']} " in i.text), "")
+            own_step["items"] = [f["item"] for f in own_step["fixes"] if f["item"]]
         if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
             # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
             # prompt_facts) - off unless measured to help; a record that cannot be read adds nothing.
@@ -1048,6 +1065,7 @@ class IncidentActivities:
         """WARDEN's fixes applied in this alarm's environment in the OWN_FIX_WINDOW before it started: one CHANGE line
         each, as aws_stack writes a person's write (verifier._CHANGE_LINE reads it the same way), and the link both
         records keep. A record that cannot be read adds nothing."""
+        from .aws_stack import _safe
         from .resolver import named_resources
 
         started = _when_iso(alert.started_at) or datetime.now(UTC)
@@ -1062,20 +1080,23 @@ class IncidentActivities:
                     continue  # this incident's own fix
                 plan = next((p["body"] for p in self.audit.entries(e["correlation_id"], kinds=("remediation.plan",))
                              if p["body"].get("workflow_id") == b.get("workflow_id")), {})
-                on = str(plan.get("service") or "").strip() or "?"
+                on = _safe(str(plan.get("service") or "").strip() or "?")
+                wid, inc = _safe(b.get("workflow_id")), _safe(e["correlation_id"])
                 minutes = int((started - at).total_seconds() // 60)
                 where = ("the same resource as this alarm" if on in named_resources(alert)
                          else "a different resource from this alarm's")
-                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {b.get('action_class')} on {on} "
-                        f"{_OWN_FIX}{b.get('workflow_id')} for incident {e['correlation_id']}, "
+                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {_safe(b.get('action_class'))} on {on} "
+                        f"{_OWN_FIX}{wid} for incident {inc}, "
                         f"applied {minutes} min before this alarm started, on {where})")
                 link = {"incident": str(e["correlation_id"]), "workflow_id": str(b.get("workflow_id") or ""),
                         "entry": str(b.get("action_class") or ""), "on": on, "minutes_before": str(minutes)}
                 out.append((line, link))
-                # The earlier fix's own record says a later alarm was looked at beside it, and which.
-                self.audit.append(str(e["correlation_id"]), "incident.later_alarm", {
-                    "run_id": _run_id(), "workflow_id": link["workflow_id"], "incident": alert.alert_id,
-                    "minutes_after": link["minutes_before"]})
+                # The earlier fix's own record says a later alarm was looked at beside it, and which - once.
+                if not any(r["body"].get("incident") == alert.alert_id and r["body"].get("workflow_id") == link["workflow_id"]
+                           for r in self.audit.entries(str(e["correlation_id"]), kinds=("incident.later_alarm",))):
+                    self.audit.append(str(e["correlation_id"]), "incident.later_alarm", {
+                        "run_id": _run_id(), "workflow_id": link["workflow_id"], "incident": alert.alert_id,
+                        "minutes_after": link["minutes_before"]})
         except Exception:  # noqa: BLE001 - the diagnosis goes on without it
             return out
         return out
@@ -1092,6 +1113,7 @@ class IncidentActivities:
             # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
             # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
             llm, refused = LLMClient(mock=True), f"no qualified model could be used ({_safe_error(exc)})"
+            _note(f"ERROR {pack.alert.alert_id}: {refused} - rules-only diagnosis (security review L4)")
         # One budget per incident, across its runs. A FAILED run may run again (ALLOW_DUPLICATE_FAILED_ONLY) - also
         # one that failed because it spent its budget - and each run built a fresh client: five restarts spent
         # $3.00 against a $0.50 cap (seventh review, 2026-10-01). Every run records what it spent, failed or not,
@@ -1389,9 +1411,30 @@ class IncidentActivities:
         rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
         return ((RECORD_LABEL, f"https://{rp}/r/{incident}"), (ALL_LABEL, f"https://{rp}/r")) if rp else ()
 
+    def _connected(self, alert_id: str, diagnosed: Diagnosed) -> None:
+        """An earlier fix of WARDEN's that this diagnosis cites as part of the cause is counted as a failed result of that
+        fix, once (owner, 2026-10-15: investigate and link; security review M1: never for an alarm merely starting)."""
+        try:
+            steps = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.own_fixes",))]
+        except Exception:  # noqa: BLE001 - nothing to link
+            return
+        cited = {c.id for c in diagnosed.root_cause.citations}
+        for fix in (steps[-1].get("fixes") or []) if steps else []:
+            if not fix.get("item") or fix["item"] not in cited:
+                continue
+            plan = next((p["body"] for p in self.audit.entries(fix["incident"], kinds=("remediation.plan",))
+                         if p["body"].get("workflow_id") == fix["workflow_id"]), None)
+            if plan is None or any(r["body"].get("connected_by") == alert_id
+                                   for r in self.audit.entries(fix["incident"], kinds=(bounds.RESULT,))):
+                continue
+            bounds.record_result(self.audit, fix["incident"], service=str(plan.get("target", "")), ok=False,
+                                 now=datetime.now(UTC), workflow_id=fix["workflow_id"], connected_by=alert_id)
+
     @activity.defn
     def verify(self, pack: EvidencePack, diagnosed: Diagnosed) -> Verified:
         from . import graph
+
+        self._connected(pack.alert.alert_id, diagnosed)
 
         state = {"alert": pack.alert, "context": pack.context, "root_cause": diagnosed.root_cause,
                  "proposal": diagnosed.proposal, "model_unavailable": diagnosed.model_unavailable}

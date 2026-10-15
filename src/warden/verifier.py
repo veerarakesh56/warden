@@ -356,8 +356,17 @@ def _deliberate(proposal, context) -> str | None:
             continue
         event, on, who = m.groups()
         name = who.split("/", 1)[-1]
-        words = set(re.split(r"[-_.]", name.lower())) | ({"break-glass"} if "break-glass" in name.lower() else set())
-        if name in named or words & _GOVERNANCE:
+        # Whole words, split at `-_.` and at capitals too: `AWSReservedSSO_SecurityAudit_x` holds "security" and
+        # "audit" (security review M4); `securitygroups-tool` holds neither, and `second-shift-ops` no "sec". A part
+        # the redactor masked (an SSO role's random suffix) is no word.
+        readable = re.sub(r"<[A-Z_]+_\d+>", " ", name)
+        tokens = {t.lower() for part in re.split(r"[-_.\s]", readable)
+                  for t in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+", part)}
+        if not tokens:
+            # Nothing of the principal is readable (security review M4, 2026-10-16): not known to be no guardrail.
+            return (f"the change before the alert ({event} on {on}) was made by a principal WARDEN cannot read ({who}): "
+                    "whether it was a deliberate security, cost or compliance change is not known - a person decides.")
+        if name in named or tokens & _GOVERNANCE or "break-glass" in name.lower():
             return (f"the change before the alert ({event} on {on}) was made by {who}, a security, cost or compliance "
                     "identity: a deliberate change. Undoing it undoes that guardrail - a person decides.")
     return None

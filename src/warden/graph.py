@@ -391,6 +391,17 @@ def node_gather(state: WardenState) -> WardenState:
     }
 
 
+# An IAM Identity Center role's opaque 16-hex suffix, in a change line from any source: the live reader drops it at the
+# source (aws_stack._principal, 2026-10-11), and a line recorded or read elsewhere still carries it - the redactor's
+# entropy backstop then hid the whole actor (`by <HIGHENTROPY_1>`), so no one could read who made the change and P33
+# could not see a guardrail role (security review M4, 2026-10-16). The suffix names nothing a person reads.
+_SSO_SUFFIX = re.compile(r"\b(role/AWSReservedSSO_[A-Za-z0-9+=,.@-]+?)_[0-9a-f]{16}\b")
+
+
+def _readable_actor(line: str) -> str:
+    return _SSO_SUFFIX.sub(r"\1", line) if line.startswith("CHANGE ") else line
+
+
 def node_redact(state: WardenState) -> WardenState:
     """Nothing downstream of here sees a real identifier.
 
@@ -410,7 +421,7 @@ def node_redact(state: WardenState) -> WardenState:
     # the keys that name a resource WARDEN reads.
     deploy_keys = [(i, k) for i, d in enumerate(context.recent_deploys) for k in d]
     labels = list(alert.labels.items())
-    texts = [*context.logs,
+    texts = [*(_readable_actor(line) for line in context.logs),
              *(str(context.recent_deploys[i][k]) for i, k in deploy_keys),
              alert.summary, alert.name,
              *(v if k in RESOURCE_LABELS else f"{k}={v}" for k, v in labels),

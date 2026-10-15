@@ -423,7 +423,9 @@ class RemediationWorkflow:
         why = (f"{req.service}'s alarm fired again during the verify window, at {self._alarm_at} (register C1)"
                if self._alarm_at else f"{req.service} did not recover within {req.recover_within_minutes} min")
         if self._side_effects:
-            why += "; also, after the fix: " + "; ".join(self._side_effects)
+            # A count, never the signal's own words (security review M2): the record says which alarms they were.
+            n = len(self._side_effects)
+            why += f"; also, {n} other alarm{'s' if n > 1 else ''} started after the fix (see the record)"
         # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
         # fix left it, unhealthy - a person (sixth review, 2026-10-01).
         if str(undone).startswith(("nothing to roll back", "not rolled back")):

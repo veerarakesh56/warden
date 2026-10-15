@@ -242,7 +242,7 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
             pass  # the same transition delivered twice: one incident (C20)
         # Each of WARDEN's fixes in the environment that was being checked is told, after the incident started: a
         # fix that ended meanwhile cannot be told, and that holds no alarm back.
-        said = f"`{ev.rule[:120].replace('`', '')}` started at {at}, diagnosed as incident `{d.workflow_id.removeprefix('inc-')}`"
+        said = f"incident {d.workflow_id.removeprefix('inc-')} started at {at}"  # never the alarm's own words (M2)
         for fix in d.after_fix:
             log.append(fix, "intake.side_effect", {"workflow_id": fix, "incident": d.workflow_id, "rule": ev.rule[:200],
                                                    "at": at})
