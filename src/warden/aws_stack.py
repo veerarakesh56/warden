@@ -270,6 +270,10 @@ CLOUDTRAIL_DELIVERY = timedelta(minutes=int(os.environ.get("WARDEN_CLOUDTRAIL_DE
 # whose request names the resource: (the event names, the request fields that carry the name).
 UNNAMED_WRITES = {"eventbridge_rule": (("DisableRule", "EnableRule", "PutRule", "DeleteRule", "PutTargets",
                                         "RemoveTargets"), ("name", "rule"))}
+# A queue's consumer switched off or removed (fs-07, live, 2026-10-15): CloudTrail files the write as Lambda's
+# UpdateEventSourceMapping20150331 with no resource name, only the mapping's id - so a lookup by the queue's name never
+# found it, and "who changed it" was left out. The queue's own mappings (by its ARN) say which ids are its.
+QUEUE_MAPPING_WRITES = ("UpdateEventSourceMapping20150331", "DeleteEventSourceMapping20150331")
 # Labels that qualify a resource rather than name one: never looked up as a CloudTrail resource name.
 _NOT_RESOURCES = frozenset({"lambda_qualifier", "apigw_stage", "namespace", "quota_service", "quota_resource"})
 
@@ -941,6 +945,21 @@ class StackBackend:
                 seen = {e.get("EventId") for e in events if e.get("EventId")}
                 events += [e for e in got.get("Events") or []
                            if e.get("EventId") not in seen and _request_names(e, fields, n)]
+            if broke is None and alert.labels.get("sqs") == n:
+                try:
+                    mine = self._queue_mappings(n)
+                except Exception:  # noqa: BLE001 - the queue's own reader says its read failed; no change is ruled out
+                    mine = set()
+                try:
+                    for event_name in QUEUE_MAPPING_WRITES if mine else ():
+                        got = self._ct.lookup_events(
+                            LookupAttributes=[{"AttributeKey": "EventName", "AttributeValue": event_name}], **window)
+                        truncated = truncated or bool(got.get("NextToken"))
+                        seen = {e.get("EventId") for e in events if e.get("EventId")}
+                        events += [e for e in got.get("Events") or [] if e.get("EventId") not in seen
+                                   and any(_request_names(e, ("uUID",), u) for u in mine)]
+                except Exception as exc:  # noqa: BLE001 - CloudTrail allows 2 lookups a second; keep what was read
+                    broke = exc
             events.sort(key=lambda e: str(e.get("EventTime") or ""), reverse=True)
             writes = [e for e in events if _a_write(e)]
             for e in writes[:CHANGE_MAX]:
@@ -1106,6 +1125,15 @@ class StackBackend:
                 out.lines.append(_partial(f"lambda/{fn} code", exc))
 
     # ------------------------------------------------------------------ sqs
+
+    def _queue_mappings(self, name: str) -> set[str]:
+        """The ids of the event source mappings AWS holds for exactly this queue (by its ARN)."""
+        arn = self._queue_attrs(name, ["QueueArn"]).get("QueueArn")
+        if not arn:
+            return set()
+        esms, _ = _pages(self._lambda.list_event_source_mappings, "EventSourceMappings", next_token="NextMarker",
+                         EventSourceArn=arn)
+        return {str(m["UUID"]) for m in esms if m.get("UUID")}
 
     def _queue_attrs(self, name: str, attrs: list[str]) -> dict:
         url = self._sqs.get_queue_url(QueueName=name)["QueueUrl"]

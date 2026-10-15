@@ -26,7 +26,8 @@
         "kms:ListAliases",
         "elasticache:Describe*",
         "apigateway:GET",
-        "secretsmanager:ListSecrets"
+        "secretsmanager:ListSecrets",
+        "cloudtrail:LookupEvents"
       ],
       "Resource": "*",
       "Condition": {
