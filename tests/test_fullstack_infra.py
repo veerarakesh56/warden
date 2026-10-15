@@ -1038,3 +1038,14 @@ def test_a_health_alarm_reads_missing_data_as_failure_and_an_error_alarm_does_no
         breaching = re.search(r'missing\s*=\s*"breaching"', v) is not None
         assert breaching == (name in health), name
     assert 'treat_missing_data  = lookup(each.value, "missing", "notBreaching")' in text
+
+
+def test_the_cloud_read_role_may_only_view_the_cluster():
+    import re
+
+    tf = (ROOT / "terraform" / "fullstack" / "eks.tf").read_text(encoding="utf-8")
+    block = tf[tf.index('resource "aws_eks_access_policy_association" "warden_reader"'):]
+    block = block[:block.index("\n}\n")]
+    assert re.search(r'policy_arn\s+= "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"', block)
+    assert "Admin" not in block
+    assert '${local.name}-platform-reader"' in tf

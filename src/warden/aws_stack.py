@@ -1543,7 +1543,14 @@ class StackBackend:
                 out.lines.append(f"EVENT states {_safe(machine)} failure: {str(d['cause'])[:300]}")
 
     def _read_k8s(self, out: _Out, alert: Alert, ns: str, dep: str, sfx: str) -> None:
-        k8s = self._k8s_factory()
+        cluster = alert.labels.get("eks_cluster", "")
+        if cluster and self._k8s_factory is _default_k8s and "eks" in self._clients and "sts" in self._clients:
+            # The cluster the alert names, in this backend's own role (the incident's reader role in the cloud).
+            from .k8s_backend import eks_backend
+
+            k8s = eks_backend(self._clients["eks"], self._clients["sts"], cluster)
+        else:
+            k8s = self._k8s_factory()
         # ponytail: assumes the Deployment's pods carry app=<deployment> (true for the shop manifests).
         a = alert.model_copy(update={"labels": {"namespace": ns, "deployment": dep, "selector": f"app={dep}"}})
         for raw in k8s.logs(a):

@@ -66,6 +66,23 @@ resource "aws_eks_access_entry" "admin" {
   principal_arn = each.value
 }
 
+# WARDEN's cloud read role views the cluster - pods, events, pod logs, rollouts - and never Secrets
+# (AmazonEKSViewPolicy). It signs in with its own EKS token (k8s_backend.eks_backend): before this the cloud runtime
+# could read nothing in the cluster, "credentials rejected or missing" (2026-10-15).
+resource "aws_eks_access_entry" "warden_reader" {
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-platform-reader"
+}
+
+resource "aws_eks_access_policy_association" "warden_reader" {
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = aws_eks_access_entry.warden_reader.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+  access_scope {
+    type = "cluster"
+  }
+}
+
 resource "aws_eks_access_policy_association" "admin" {
   for_each      = aws_eks_access_entry.admin
   cluster_name  = aws_eks_cluster.this.name

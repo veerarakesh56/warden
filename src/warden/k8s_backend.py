@@ -59,6 +59,7 @@ import json
 import os
 import re
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from .models import Alert
 from .tools import PARTIAL_PREFIX, ToolError, deploy_in_window, failure, failure_tag
@@ -97,6 +98,43 @@ INTERESTING_EVENT_REASONS = {
     "ScalingReplicaSet",
 }
 DEAD_PHASES = {"Failed", "Succeeded"}
+
+
+def eks_token(sts: Any, cluster: str, *, expires: int = 60) -> str:
+    """A bearer token for an EKS cluster, signed with the caller's own AWS credentials - the way `aws eks get-token`
+    makes one: a presigned STS GetCallerIdentity that names the cluster (x-k8s-aws-id). EKS maps the role to its access
+    entry; the token lives 15 minutes at most, and is never written anywhere."""
+    import base64
+
+    def name_cluster(request: Any, **_: Any) -> None:
+        request.headers["x-k8s-aws-id"] = cluster
+
+    sts.meta.events.register("before-sign.sts.GetCallerIdentity", name_cluster)
+    try:
+        url = sts.generate_presigned_url("get_caller_identity", Params={}, ExpiresIn=expires, HttpMethod="GET")
+    finally:
+        sts.meta.events.unregister("before-sign.sts.GetCallerIdentity", name_cluster)
+    return "k8s-aws-v1." + base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+
+
+def eks_backend(eks: Any, sts: Any, cluster: str) -> KubernetesBackend:
+    """A KubernetesBackend on an EKS cluster in the caller's own role - no kubeconfig, no in-cluster identity: the cloud
+    runtime reads a cluster in the incident's environment reader role (2026-10-15: every pod, event and log read there
+    failed "credentials rejected or missing"). The cluster's own CA is verified."""
+    import base64
+    import tempfile
+
+    from kubernetes import client
+
+    c = eks.describe_cluster(name=cluster)["cluster"]
+    with tempfile.NamedTemporaryFile("wb", suffix=".crt", delete=False) as ca:
+        ca.write(base64.b64decode(c["certificateAuthority"]["data"]))
+    cfg = client.Configuration()
+    cfg.host, cfg.ssl_ca_cert, cfg.verify_ssl = c["endpoint"], ca.name, True
+    cfg.api_key = {"authorization": "Bearer " + eks_token(sts, cluster)}
+    api = client.ApiClient(cfg)
+    return KubernetesBackend(core=client.CoreV1Api(api), apps=client.AppsV1Api(api),
+                             autoscaling=client.AutoscalingV1Api(api))
 
 
 class KubernetesBackend:
