@@ -22,6 +22,7 @@ The fingerprint includes the source, so a caller of the MCP server cannot occupy
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -76,6 +77,10 @@ class Decision(BaseModel):
     # What a started incident names, for grouping a later alarm into it: its environment and its resources.
     environment: str = ""
     resources: list[str] = Field(default_factory=list)
+    # WARDEN's own fixes in this alarm's environment, on other resources, being verified or watched when it started:
+    # told of it (RemediationWorkflow.side_effect). The incident is started as any other - connected or not is for
+    # its diagnosis to say (owner, 2026-10-15).
+    after_fix: list[str] = Field(default_factory=list)
 
 
 def fingerprint(ev: AlarmEvent) -> str:
@@ -208,7 +213,10 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
     if d.action in ("start", "escalate_only"):
         from .resolver import named_resources
 
-        d = d.model_copy(update={"environment": ev.alert.environment, "resources": sorted(named_resources(ev.alert))})
+        names = named_resources(ev.alert)
+        others = sorted({w for (env, service), w in {**verifying, **watching}.items()
+                         if env == ev.alert.environment and service not in names})
+        d = d.model_copy(update={"environment": ev.alert.environment, "resources": sorted(names), "after_fix": others})
     log.append(d.workflow_id or f"intake-{fp}", "intake.decision", d.model_dump())
     if d.grouped:
         # On the incident's own record: which other alarm said the same, and where it came from (records.py).
@@ -232,6 +240,14 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
                                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
         except WorkflowAlreadyStartedError:
             pass  # the same transition delivered twice: one incident (C20)
+        # Each of WARDEN's fixes in the environment that was being checked is told, after the incident started: a
+        # fix that ended meanwhile cannot be told, and that holds no alarm back.
+        said = f"`{ev.rule[:120].replace('`', '')}` started at {at}, diagnosed as incident `{d.workflow_id.removeprefix('inc-')}`"
+        for fix in d.after_fix:
+            log.append(fix, "intake.side_effect", {"workflow_id": fix, "incident": d.workflow_id, "rule": ev.rule[:200],
+                                                   "at": at})
+            with contextlib.suppress(Exception):  # recorded above; the run may have just ended
+                await client.get_workflow_handle(fix).signal(RemediationWorkflow.side_effect, said)
     elif d.action == "expected" and d.workflow_id:
         # Started now, to run when the cover ends: Temporal holds it, so no schedule and no second trigger to fail.
         until = datetime.strptime(d.workflow_id.rsplit("-", 1)[1], "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)

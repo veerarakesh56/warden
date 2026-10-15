@@ -27,6 +27,7 @@ ENDED = {
     "apply_failed": ("Apply failed - state unknown", "bad"), "drifted": ("Target changed - not applied", "warn"),
     "denied": ("Denied", "warn"), "expired": ("Expired - nothing changed", "warn"),
     "cancelled_after_apply": ("Stopped after applying", "bad"), "failed_after_apply": ("Failed after applying", "bad"),
+    "side_effects": ("Worked, but other alarms started after it", "bad"),
 }
 
 # Each step on the record, in plain words, for an incident's page.
@@ -41,6 +42,8 @@ STEP = {
     "incident.report": "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
     "incident.no_plan": "No fix plan", "incident.after_hold": "Looked at again after expected down",
     "incident.evidence": "Evidence kept for questions",
+    "intake.side_effect": "Another alarm started while this fix was checked", "remediation.rediagnose": "Diagnosed again",
+    "incident.later_alarm": "Another alarm started after this fix - diagnosed beside it",
     "remediation.plan": "Fix plan made", "remediation.gate": "Fix plan checked", "remediation.announce": "Asked for approval",
     "approval.link_viewed": "Approval page opened", "approval.slack_verified": "Signed in with Slack",
     "approval.accepted": "Approved", "approval.refused": "An approval was refused",
@@ -55,7 +58,8 @@ TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Deni
         "verified": "Fixed - its health checks passed", "recovered": "Fixed and held", "relapsed": "Failed again",
         "rolled_back": "Did not work - undone", "not_recovered": "Did not work", "drifted": "Target changed",
         "refused_at_apply": "Not applied", "rollback_failed": "Undo failed", "apply_failed": "Apply failed",
-        "refused": "Refused before asking", "blocked": "Blocked before asking"}
+        "refused": "Refused before asking", "blocked": "Blocked before asking",
+        "side_effects": "Worked, but other alarms started after it"}
 # A verdict and a plan's state in words, where the step table would show the machine's.
 PLAIN = {"approved_for_human": "passed its checks - waits for a person", "escalated": "sent to a person",
          "rejected": "refused", "ran": "ran", "off": "off"}

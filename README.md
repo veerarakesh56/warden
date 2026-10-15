@@ -601,7 +601,7 @@ flowchart TB
         PLAN[resolve_plan: catalogue entry -> exact plan<br/>from live state, plan hash; environment<br/>and self-target checks <i>catalog, environments</i>]
         GATE[gate: bounds, cool-down, kill switch,<br/>change freeze, approval-fatigue cap<br/><i>bounds, freeze</i>]
         APPR[check_approval / check_passkey<br/>signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
-        APPLY[precheck - apply - check_success<br/>K=3, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered]
+        APPLY[precheck - apply - check_success<br/>K=3, re-checks at T+15 and T+60<br/>record_result; rollback when not recovered<br/>side_effects: other alarms after the fix<br/>again_alert: diagnosed again after a relapse]
         FIN[finish: audit row, change record<br/>summary_owed: the incident's one message<br/>when a run ends before any said it<br/><i>changes.py</i>]
         PLAN --> GATE --> APPR --> APPLY --> FIN
     end

@@ -23,8 +23,9 @@ RECENT = timedelta(hours=24)
 ENDED = {"recovered": "worked", "relapsed": "worked, then failed again", "rolled_back": "did not work and was undone",
          "not_recovered": "did not work", "rollback_failed": "did not work, and its undo failed",
          "apply_failed": "failed part-way", "refused_at_apply": "was not applied", "drifted": "was not applied",
-         "expired": "was not approved in time", "denied": "was denied", "mitigated": "held the harm, not fixed"}
-WENT_BADLY = frozenset({"relapsed", "rolled_back", "not_recovered", "rollback_failed", "apply_failed"})
+         "expired": "was not approved in time", "denied": "was denied", "mitigated": "held the harm, not fixed",
+         "side_effects": "worked, but other alarms started after it"}
+WENT_BADLY = frozenset({"relapsed", "rolled_back", "not_recovered", "rollback_failed", "apply_failed", "side_effects"})
 
 
 def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:

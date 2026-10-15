@@ -122,7 +122,7 @@ def _plan_again(req: FixRequest, problems: list[str]) -> list[str]:
 END_STAGES = frozenset({"refused", "blocked", "expired", "drifted", "refused_at_apply", "apply_failed", "recovered",
                         "mitigated",
                         "rollback_failed", "not_recovered", "rolled_back", "cancelled", "cancelled_after_apply",
-                        "failed", "failed_after_apply", "relapsed", "denied"})
+                        "failed", "failed_after_apply", "relapsed", "denied", "side_effects"})
 # The ends a person is told of as they happen (announce "ended"). Not `expired`: the ladder said it. Not a cancelled or
 # crashed run: its end row is written on the way out of a failure, where one more step could lose it.
 TOLD = END_STAGES - {"expired", "cancelled", "cancelled_after_apply", "failed", "failed_after_apply"}
@@ -136,6 +136,7 @@ class RemediationWorkflow:
         self._stage = "planning"
         self._applying = False  # set the moment apply is sent: from then on the target's state is not known
         self._alarm_at = ""  # the target's alarm fired during the verify window (register C1)
+        self._side_effects: list[str] = []  # other alarms in the environment that started after the fix (intake)
 
     @workflow.signal
     def approve(self, approval: SignedApproval) -> None:
@@ -157,6 +158,14 @@ class RemediationWorkflow:
         working: the run stops verifying and rolls back. Before the change it is the incident itself, and ignored."""
         if self._stage in ("verifying", "watching"):
             self._alarm_at = at
+
+    @workflow.signal
+    def side_effect(self, what: str) -> None:
+        """Another alarm in this fix's environment started while it was verified or watched (owner, 2026-10-15: "fixes
+        might break things or cause even bigger other problems"). It may be this fix's doing, or not: its own incident
+        diagnoses it with this fix beside its evidence (activities._own_fixes)."""
+        if self._stage in ("verifying", "watching") and len(self._side_effects) < 5:
+            self._side_effects.append(what[:300])
 
     @workflow.query
     def stage(self) -> str:
@@ -206,6 +215,35 @@ class RemediationWorkflow:
                 # run fails visibly.
                 await end("failed_after_apply" if self._applying else "failed", [f"a step failed: {exc.cause or exc}"])
             raise
+
+    async def _side_effects_end(self, req: FixRequest, acts, plan: Plan, end) -> FixOutcome | None:
+        """The fix passed its own checks, and other alarms started after it: not called fixed, and not undone either -
+        they may be unrelated; each alarm's own incident says whether it is connected. What they were is read from the
+        record intake wrote (activities.side_effects), never from the signal: a signal the record does not bear out
+        is dropped, and the run goes on (success is never an input, and neither is failure)."""
+        seen = await workflow.execute_activity_method(acts.side_effects, **_zoned(acts.side_effects), args=[plan],
+                                                      **QUICK)
+        if not seen:
+            self._side_effects = []
+            return None
+        return await end("side_effects", [f"{req.service} passed its own checks, but after the fix: " + "; ".join(seen)])
+
+    async def _diagnose_again(self, req: FixRequest, acts, why: str) -> list[str]:
+        """The incident's alarm as a new incident from now (as an approver's "new plan" makes one): the line said, or
+        none when the record holds no alarm or the step fails - the relapse is said either way."""
+        try:
+            got = await workflow.execute_activity_method(acts.again_alert, **_zoned(acts.again_alert),
+                                                         args=[req.incident_id, why], **QUICK)
+        except ActivityError:
+            return []
+        if not got:
+            return []
+        with contextlib.suppress(WorkflowAlreadyStartedError):
+            await workflow.start_child_workflow(IncidentWorkflow.run, Alert.model_validate(got["alert"]),
+                                                id=f"inc-{got['new']}", task_queue=workflow.info().task_queue,
+                                                parent_close_policy=ParentClosePolicy.ABANDON)
+        return [(f"WARDEN diagnoses the incident again from what it reads now, as `{got['new']}`, with this fix "
+                 "beside its evidence: any fix it finds is a new plan for an approver")]
 
     async def _steps(self, req: FixRequest, acts, wid: str, done: dict, end) -> FixOutcome:
         plan = self._plan = await workflow.execute_activity_method(acts.resolve_plan, **_zoned(acts.resolve_plan), args=[req, wid], **QUICK)
@@ -323,6 +361,9 @@ class RemediationWorkflow:
                      and recorded.run_id == workflow.info().run_id)
         if recovered:
             done["verified"] = True
+            side = workflow.patched("g10-side-effects")
+            if side and self._side_effects and (ended := await self._side_effects_end(req, acts, plan, end)):
+                return ended
             if workflow.patched("g9-mitigated") and plan.entry in MITIGATES:
                 # A pause holds the harm and fixes nothing (review H2): the page stays open, a person resumes it.
                 return await end("mitigated", [f"{req.service} is mitigated, not fixed: {MITIGATES[plan.entry]}"])
@@ -343,9 +384,13 @@ class RemediationWorkflow:
                         # relapse then, and the resource is free for the plan its new incident may open (live,
                         # 2026-10-12: the watch slept to its re-check, and the new plan was silently not opened).
                         with contextlib.suppress(TimeoutError):
-                            await workflow.wait_condition(lambda: bool(self._alarm_at), timeout=wait)
+                            await workflow.wait_condition(lambda: bool(self._alarm_at) or (side and bool(self._side_effects)),
+                                                          timeout=wait)
                     else:
                         await workflow.sleep(wait)
+                    if side and self._side_effects and not self._alarm_at and (
+                            ended := await self._side_effects_end(req, acts, plan, end)):
+                        return ended
                     healthy = not self._alarm_at and await workflow.execute_activity_method(
                         acts.check_success, **_zoned(acts.check_success), args=[plan, req.service], **QUICK)
                     if not healthy:
@@ -357,7 +402,13 @@ class RemediationWorkflow:
                         why = f"{req.service} recovered, then {cause} by the {minutes}-minute re-check"
                         if now_too and self._alarm_at:
                             why = f"{req.service} recovered, then {cause}"
-                        return await end("relapsed", [why])
+                        again = []
+                        if not self._alarm_at and workflow.patched("g10-rediagnose"):
+                            # No alarm fired, so none starts an incident: WARDEN thinks again itself - the cause, the
+                            # fix, the plan - from what it reads now, with this fix beside the evidence (owner,
+                            # 2026-10-15). Any fix it finds is a new plan for an approver.
+                            again = await self._diagnose_again(req, acts, why)
+                        return await end("relapsed", [why, *again])
             return await end("recovered")
 
         self._stage = "rolling_back"
@@ -371,6 +422,8 @@ class RemediationWorkflow:
             return await end("rollback_failed", [f"{req.service} did not recover, and {exc.cause or exc}"])
         why = (f"{req.service}'s alarm fired again during the verify window, at {self._alarm_at} (register C1)"
                if self._alarm_at else f"{req.service} did not recover within {req.recover_within_minutes} min")
+        if self._side_effects:
+            why += "; also, after the fix: " + "; ".join(self._side_effects)
         # A change with nothing to undo (a restart, a closed session) is not "rolled back": the target is as the
         # fix left it, unhealthy - a person (sixth review, 2026-10-01).
         if str(undone).startswith(("nothing to roll back", "not rolled back")):

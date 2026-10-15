@@ -94,7 +94,7 @@ def _run(world, drive, **req):
         acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"],
                                      limits=world.get("limits", bounds.DEFAULT_LIMITS), changes=world.get("changes"))
         methods = [acts.resolve_plan, acts.gate, acts.announce, acts.check_approval, acts.check_passkey, acts.precheck,
-                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish]
+                   acts.apply, acts.check_success, acts.record_result, acts.rollback, acts.finish, acts.again_alert, acts.side_effects]
         async with env, Worker(env.client, task_queue=QUEUE, workflows=[RemediationWorkflow], activities=methods,
                                activity_executor=ThreadPoolExecutor(4)):
             handle = await env.client.start_workflow(RemediationWorkflow.run, FixRequest(**{**REQ, **req}),

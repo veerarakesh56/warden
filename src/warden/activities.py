@@ -69,6 +69,10 @@ OUTCOME = {
     "refused": "WARDEN could not make the plan `{entry}` on `{target}`: nothing was changed.",
     "blocked": "WARDEN's own limits stopped the plan `{entry}` on `{target}`: nothing was changed.",
     "mitigated": "WARDEN applied `{entry}` on `{target}`: the harm is held, not fixed. A person finishes it.",
+    "side_effects": ("WARDEN's fix `{entry}` on `{target}` passed its own checks, but other alarms in the same "
+                     "environment started after it. WARDEN does not call it fixed, and does not undo it on its own: "
+                     "they may be unrelated. Each is diagnosed as its own incident with this fix beside its evidence, "
+                     "and its report says whether they are connected; a person decides what happens to this fix."),
 }
 
 
@@ -140,6 +144,12 @@ def slack_summary(markdown: str) -> str:
     the incident's record page, behind the message's "Full record" button."""
     cut = markdown.find("\n## What WARDEN read")
     return (markdown[:cut] if cut > 0 else markdown[:2400]).rstrip()
+
+
+# Owner, 2026-10-15: a fix can break something else. WARDEN's own fixes applied in an alarm's environment this long
+# before it are put beside its evidence as changes, like a person's deploy: the diagnosis weighs them - cites one as
+# the cause, or finds another - and nothing is assumed either way.
+OWN_FIX_WINDOW = timedelta(minutes=int(os.environ.get("WARDEN_OWN_FIX_WINDOW_MIN", "60")))
 
 
 def _when_iso(text: str) -> datetime | None:
@@ -457,6 +467,41 @@ class RemediationActivities:
         its plan."""
         rows = self.audit.entries(incident, kinds=("incident.notify", "remediation.announce"))
         return any(e["body"].get("summary") and e["body"].get("delivered") for e in rows)
+
+    @activity.defn
+    def side_effects(self, plan: Plan) -> list[str]:
+        """Other alarms intake recorded as starting in this fix's environment after this run applied it (intake.side_
+        effect, kept under the fix's workflow id) - from the record, never from the signal that said so. Each is a
+        failed result for the breaker, as a relapse is. Empty: none on the record."""
+        run = _run_id()
+        applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
+                   if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                   and e["body"].get("plan_hash") == plan.plan_hash]
+        if not applied:
+            return []
+        rows = [e["body"] for e in self.audit.entries(plan.workflow_id, kinds=("intake.side_effect",), since=applied[-1])]
+        if not rows:
+            return []
+        bounds.record_result(self.audit, plan.incident_id, service=plan.target, ok=False, now=datetime.now(UTC),
+                             limits=self.limits, workflow_id=plan.workflow_id, run_id=run, plan_hash=plan.plan_hash,
+                             side_effects=[str(r.get("incident", "")) for r in rows])
+        return [f"`{str(r.get('rule', ''))[:120].replace('`', '')}` started at {r.get('at')}, diagnosed as incident "
+                f"`{str(r.get('incident', '')).removeprefix('inc-')}`" for r in rows[:5]]
+
+    @activity.defn
+    def again_alert(self, incident_id: str, why: str) -> dict[str, Any]:
+        """The incident's alarm as on the record, as a new incident from now - as an approver's "new plan" makes one
+        (discuss_replan) - after WARDEN's fix of it failed a re-check with no alarm to start one. Empty: no alarm on the
+        record. Recorded."""
+        rows = self.audit.entries(incident_id, kinds=("incident.alert",))
+        if not rows:
+            return {}
+        now = datetime.now(UTC)
+        new = f"{incident_id.split('-')[0]}-{now:%Y%m%dT%H%M%SZ}"
+        self.audit.append(incident_id, "remediation.rediagnose", {"run_id": _run_id(), "new": new, "why": why[:300]})
+        alert = Alert.model_validate(rows[0]["body"]["alert"]).model_copy(
+            update={"alert_id": new, "started_at": now.isoformat()})
+        return {"alert": alert.model_dump(mode="json"), "new": new}
 
     @activity.defn
     def summary_owed(self, incident_id: str, status: str) -> list[str]:
@@ -925,6 +970,13 @@ class IncidentActivities:
         steps: list[dict[str, Any]] = []
         for node in (graph.node_ingest, graph.node_gather, graph.node_redact, graph.node_tripwire):
             steps += graph.apply_node(state, node(state))
+            if node is graph.node_gather:
+                # Before redaction, so the line is masked with the rest of the evidence, one map.
+                own = self._own_fixes(alert)
+                if own:
+                    state["context"] = state["context"].model_copy(
+                        update={"logs": [*state["context"].logs, *(line for line, _ in own)]})
+                    steps.append({"node": "own_fixes", "fixes": [link for _, link in own]})
         prompt = graph._evidence_blob(state)  # built HERE, with the map, which then goes out of scope
         if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
             # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
@@ -960,6 +1012,42 @@ class IncidentActivities:
                             redacted_logs=state.get("redacted_logs", []),
                             redacted_deploys=state.get("redacted_deploys", []),
                             masked=len(state.get("redaction_map", {})), steps=steps)
+
+    def _own_fixes(self, alert: Alert) -> list[tuple[str, dict[str, str]]]:
+        """WARDEN's fixes applied in this alarm's environment in the OWN_FIX_WINDOW before it started: one CHANGE line
+        each, as aws_stack writes a person's write (verifier._CHANGE_LINE reads it the same way), and the link both
+        records keep. A record that cannot be read adds nothing."""
+        from .resolver import named_resources
+
+        started = _when_iso(alert.started_at) or datetime.now(UTC)
+        out = []
+        try:
+            applied = self.audit.entries(kinds=(bounds.APPLIED,), since=started - OWN_FIX_WINDOW)
+            for e in applied:
+                b, at = e["body"], e["at"]
+                if str(b.get("service", "")).partition("/")[0] != alert.environment or at > started:
+                    continue
+                if e["correlation_id"] == alert.alert_id:
+                    continue  # this incident's own fix
+                plan = next((p["body"] for p in self.audit.entries(e["correlation_id"], kinds=("remediation.plan",))
+                             if p["body"].get("workflow_id") == b.get("workflow_id")), {})
+                on = str(plan.get("service") or "").strip() or "?"
+                minutes = int((started - at).total_seconds() // 60)
+                where = ("the same resource as this alarm" if on in named_resources(alert)
+                         else "a different resource from this alarm's")
+                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {b.get('action_class')} on {on} by "
+                        f"WARDEN (its own fix {b.get('workflow_id')} for incident {e['correlation_id']}, "
+                        f"applied {minutes} min before this alarm started, on {where})")
+                link = {"incident": str(e["correlation_id"]), "workflow_id": str(b.get("workflow_id") or ""),
+                        "entry": str(b.get("action_class") or ""), "on": on, "minutes_before": str(minutes)}
+                out.append((line, link))
+                # The earlier fix's own record says a later alarm was looked at beside it, and which.
+                self.audit.append(str(e["correlation_id"]), "incident.later_alarm", {
+                    "run_id": _run_id(), "workflow_id": link["workflow_id"], "incident": alert.alert_id,
+                    "minutes_after": link["minutes_before"]})
+        except Exception:  # noqa: BLE001 - the diagnosis goes on without it
+            return out
+        return out
 
     @activity.defn
     def diagnose(self, pack: EvidencePack, escalate_only: str = "") -> Diagnosed:
