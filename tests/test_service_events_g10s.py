@@ -40,7 +40,7 @@ def _rds(categories=("failure",), kind="RDS DB Instance Event", event_id="RDS-EV
 def test_an_ecs_service_that_cannot_start_its_tasks_or_whose_deployment_failed_is_an_incident():
     ev = lambdas.service_event(_ecs(), "ops")
     assert (ev.source, ev.state, ev.stateless, ev.rule) == ("alarm", "ALARM", True, "SERVICE_TASK_START_IMPAIRED:warden-dev-checkout")
-    assert ev.alert.labels == {"ecs_cluster": "warden-dev-shop", "ecs_service": "warden-dev-checkout"}
+    assert ev.alert.labels == {"ecs_cluster": "warden-dev-shop", "ecs_service": "warden-dev-checkout", "via": "aws-event"}
     assert (ev.alert.name, ev.alert.service, ev.alert.environment) == ("SERVICE_TASK_START_IMPAIRED", "warden-dev-checkout", "dev")
     assert ev.transitioned_at.isoformat() == "2026-10-12T19:55:38+00:00" == ev.alert.started_at
     failed = lambdas.service_event(_ecs("SERVICE_DEPLOYMENT_FAILED", "ERROR", "ECS Deployment State Change",
@@ -55,12 +55,12 @@ def test_an_ecs_service_that_cannot_start_its_tasks_or_whose_deployment_failed_i
 
 def test_a_database_that_failed_failed_over_or_is_low_on_storage_is_an_incident():
     ev = lambdas.service_event(_rds(), "ops")
-    assert ev.alert.labels == {"rds_instance": "warden-dev-orders"} and ev.rule == "RDS-EVENT-0031:warden-dev-orders"
+    assert ev.alert.labels == {"rds_instance": "warden-dev-orders", "via": "aws-event"} and ev.rule == "RDS-EVENT-0031:warden-dev-orders"
     assert ev.alert.environment == "dev" and ev.alert.summary.startswith("DB instance put into") and ev.stateless
     assert lambdas.service_event(_rds(("low storage",), event_id="RDS-EVENT-0007"), "ops") is not None
     assert lambdas.service_event(_rds(("maintenance", "failure")), "ops") is not None
     cluster = lambdas.service_event(_rds(("failover",), "RDS DB Cluster Event", "RDS-EVENT-0069"), "ops")
-    assert cluster.alert.labels == {"aurora_cluster": "warden-dev-orders"}
+    assert cluster.alert.labels == {"aurora_cluster": "warden-dev-orders", "via": "aws-event"}
     assert lambdas.RDS_CATEGORIES == ("failure", "failover", "low storage")
 
 

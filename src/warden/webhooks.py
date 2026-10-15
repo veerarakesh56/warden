@@ -68,7 +68,8 @@ def _event(alert: dict, environment: str) -> AlarmEvent:
                     service=labels.get("service") or labels.get("job") or "unknown",
                     environment=labels.get("environment") or environment,
                     summary=str((alert.get("annotations") or {}).get("summary", ""))[:4000],
-                    started_at=started, labels=labels))
+                    # Where the alert came from, set last: a sender's own `via` label never says it.
+                    started_at=started, labels={**labels, "via": "alertmanager"}))
 
 
 def receive(headers: dict[str, str], body: bytes, *, secrets: list[str], environment: str) -> Received:
@@ -166,7 +167,7 @@ def _dd_event(alert: dict, environment: str) -> AlarmEvent | None:
             tags[_DD_LABELS[key]] = value[:200]
     when = datetime.fromtimestamp(int(str(alert.get("date") or "0")) / 1000, UTC)
     title = re.sub(r"^\[[^\]]*\]\s*", "", str(alert.get("title") or "datadog monitor")).strip()[:200]
-    labels = {**tags, "datadog_monitor": monitor, "alarm": f"datadog-{monitor}"}
+    labels = {**tags, "datadog_monitor": monitor, "alarm": f"datadog-{monitor}", "via": "datadog"}
     return AlarmEvent(source="alarm", rule=f"datadog-{monitor}", state=state, transitioned_at=when,
                       alert=Alert(alert_id=f"datadog-{monitor}", name=title or "datadog monitor",
                                   severity=_DD_PRIORITY.get(str(alert.get("priority") or ""), Severity.high),

@@ -87,7 +87,7 @@ def alarm_event(event: dict[str, Any], default_environment: str) -> AlarmEvent |
                     # The alarm label last, and raw dimension names never a resource label: a dimension named
                     # `alarm` or `log_group` chose what was read (independent review 2026-10-10, L4).
                     labels={**{k: v for k, v in dims.items() if k not in RESOURCE_LABELS and k not in _OWN_LABELS},
-                            **resources.labels_for(metrics), **elsewhere, "alarm": name}))
+                            **resources.labels_for(metrics), **elsewhere, "alarm": name, "via": "cloudwatch"}))
 
 
 # What a service says about itself that is an incident with no alarm on it (register G10-40). The shapes as AWS's
@@ -133,7 +133,7 @@ def service_event(event: dict[str, Any], default_environment: str) -> AlarmEvent
         source="alarm", rule=f"{what}:{service}", state="ALARM", transitioned_at=when, stateless=True,
         alert=Alert(alert_id="ev", name=what, severity=Severity.high, service=service,
                     environment=env_of_name(service) or env_of_name(labels.get("ecs_cluster", "")) or default_environment,
-                    summary=text[:4000], started_at=when.isoformat(), labels=labels))
+                    summary=text[:4000], started_at=when.isoformat(), labels={**labels, "via": "aws-event"}))
 
 
 def health_event(event: dict[str, Any], default_environment: str) -> AlarmEvent | None:
@@ -170,14 +170,14 @@ def health_event(event: dict[str, Any], default_environment: str) -> AlarmEvent 
                   "of WARDEN's mends - a person follows AWS's notice"),
         alert=Alert(alert_id="ev", name=what, severity=Severity.high, service=ours,
                     environment=env_of_name(ours) or default_environment, summary=text[:4000],
-                    started_at=when.isoformat(), labels={}))
+                    started_at=when.isoformat(), labels={"via": "aws-health"}))
 
 
 _HEALTH_CODE = re.compile(r"AWS_[A-Z0-9_]{3,120}")  # AWS_EC2_INSTANCE_STORE_DRIVE_PERFORMANCE_DEGRADED, ...
 
 
 # Labels intake writes itself; a dimension of the same name never stands in for them (L4, G10-F1).
-_OWN_LABELS = ("alarm", "alarm_region")
+_OWN_LABELS = ("alarm", "alarm_region", "via")
 
 
 def _submit(events: list[AlarmEvent]) -> list[dict[str, Any]]:

@@ -42,7 +42,7 @@ def test_a_triggered_monitor_is_an_alarm_with_wardens_labels_and_datadogs_own_ti
     assert ev.alert.name == "warden dev: catalog-api error logs" and ev.alert.severity == Severity.critical
     assert (ev.alert.service, ev.alert.environment) == ("catalog-api", "dev")
     assert ev.alert.labels == {"environment": "dev", "service": "catalog-api", "deployment": "catalog-api",
-                               "namespace": "shop", "datadog_monitor": "12345", "alarm": "datadog-12345"}
+                               "namespace": "shop", "datadog_monitor": "12345", "alarm": "datadog-12345", "via": "datadog"}
     assert [e.state for e in _receive(_delivery("Recovered")).events] == ["OK"]
     assert [e.state for e in _receive(_delivery("No Data")).events] == ["ALARM"]  # silence is a signal
     assert _receive(_delivery("Warn")).events == []  # a warning starts nothing
@@ -218,3 +218,17 @@ def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token
     assert aws.stored == {} and dd.webhook is None and not dd.boards
     assert len(dd.monitors) == 4
     assert all("kube_cluster_name" in m["query"] for m in dd.monitors.values() if m["type"] == "query alert")
+
+
+def test_a_report_says_where_its_alert_came_from_in_wardens_own_words():
+    """Owner, 2026-10-15: "i dont know whats their sources are i mean datadog or grafana or xray". Each intake stamps
+    `via` last; the report names it only from WARDEN's own list, never a value a sender chose."""
+    from warden import reporting
+    from warden.models import Alert, Severity
+
+    def header(via):
+        a = Alert(alert_id="a", name="n", service="s", environment="dev", severity=Severity.high, summary="",
+                  started_at="2026-10-15T00:00:00+00:00", labels={"via": via} if via else {})
+        return reporting.build_report(a).markdown
+    assert "Source **Datadog monitor**" in header("datadog") and "Source **CloudWatch alarm**" in header("cloudwatch")
+    assert "Source" not in header("") and "Source" not in header("grafana-forged")

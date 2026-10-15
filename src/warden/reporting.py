@@ -610,6 +610,7 @@ def build_report(
             "environment": alert.environment,
             "summary": alert.summary,
             "started_at": alert.started_at,
+            "via": alert.labels.get("via", ""),
         },
         "sources": _sources(alert, backend, ctx),
         "impact": symptoms(ctx),
@@ -751,6 +752,10 @@ def _code(lines: list[str], items: list[str]) -> None:
     lines.append("```")
 
 
+ALERT_SOURCES = {"cloudwatch": "CloudWatch alarm", "datadog": "Datadog monitor", "alertmanager": "Prometheus Alertmanager",
+                 "aws-event": "AWS service event", "aws-health": "AWS Health"}
+
+
 def _render_markdown(d: dict) -> str:
     a = d["alert"]
     ev = d["evidence"]
@@ -761,6 +766,10 @@ def _render_markdown(d: dict) -> str:
 
     lines.append(f"# WARDEN incident report - {a['service']} ({a['environment']})")
     lines.append(f"Alert name {untrusted_inline(a['name'])}")
+    # Where the alert came from (owner, 2026-10-15: "i dont know whats their sources are i mean datadog or grafana or
+    # xray"): only WARDEN's own intake words, never a value a sender chose.
+    if a.get("via") in ALERT_SOURCES:
+        lines.append(f"Source **{ALERT_SOURCES[a['via']]}**")
     started = _parse_ts(a.get("started_at") or "")
     lines.append(f"Severity **{a['severity']}** | alert {_c(a['id'])} | started "
                  f"{both_times(started) if started else a.get('started_at') or 'unknown'}")
