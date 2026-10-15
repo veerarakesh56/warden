@@ -183,4 +183,6 @@ def test_a_deploy_fails_unless_every_zone_runs_the_new_image():
 def test_a_deploy_never_starts_an_extra_task():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "compute.tf").read_text(encoding="utf-8")
     assert "deployment_minimum_healthy_percent = var.worker_instances > 1 ? 50 : 0" in tf
-    assert "deployment_maximum_percent         = 100" in tf
+    assert "deployment_maximum_percent         = var.worker_instances > 1 ? 150 : 100" in tf
+    # ECS refuses a maximum of 100% while Availability Zone rebalancing is on (2026-10-15).
+    assert 'availability_zone_rebalancing      = var.worker_instances > 1 ? "ENABLED" : "DISABLED"' in tf
