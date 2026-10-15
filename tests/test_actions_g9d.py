@@ -124,7 +124,8 @@ def test_each_claude_model_has_its_own_price_and_effort_and_a_thinking_models_ti
     monkeypatch.delenv("WARDEN_MODEL_EFFORT", raising=False)
     assert llm.model_prices("claude-sonnet-5-5") == (2.0, 10.0)
     assert llm.model_prices("claude-opus-5-5") == (4.0, 20.0)
-    assert providers.model_effort("claude-sonnet-5-5") == providers.model_effort("claude-opus-5-5") == "medium"
+    # Sonnet 5.5 qualified at effort high (2026-10-15); Opus 5.5 is not qualified and keeps the shared medium.
+    assert (providers.model_effort("claude-sonnet-5-5"), providers.model_effort("claude-opus-5-5")) == ("high", "medium")
     assert providers.AnthropicProvider.default_timeout_s >= 240
     monkeypatch.setenv("WARDEN_MODEL_EFFORT", "max")
     with pytest.raises(providers.ProviderError):

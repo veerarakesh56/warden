@@ -56,21 +56,27 @@ prices:
 # How hard each model is asked to think (providers.model_effort): one level for both, so comparing them compares the
 # models (2026-10-15). WARDEN_MODEL_EFFORT overrides it.
 effort:
-  claude-sonnet-5-5: medium
+  claude-sonnet-5-5: high
   claude-opus-5-5: medium
 # The model each provider uses when WARDEN_MODEL names none (owner, 2026-10-12: no model id in code). A default is not
 # a qualification: the model must still be in `qualified` below, or it is refused (register M20).
 defaults:
-  anthropic: claude-sonnet-5
-  claude_cli: claude-sonnet-5
+  anthropic: claude-sonnet-5-5
+  claude_cli: claude-sonnet-5-5
   gemini: gemini-3.6-flash
   openai: gpt-4o-mini
 qualified:
+  # The production model from 2026-10-15 (owner: only Claude Sonnet 5.5 and Opus 5.5; never Sonnet 5 again). Both at
+  # effort high on the same 30 incidents, today's code: Sonnet 5.5 17/30, 0 wrong-and-allowed - meets the bar; Opus 5.5
+  # 15/30 - below it (NOT qualified). On the 172 held-out G10 cases, re-scored under today's gate (no model call):
+  # Sonnet 5.5 correct 160, harmful proposals 6 (every one stopped), right fix to a person 77, right outcome 137, harm
+  # allowed 0, $3.15; Opus 5.5 correct 162, harmful 1, right fix 72, right outcome 136, harm allowed 0, $9.00.
+  - {"provider": "anthropic", "model": "claude-sonnet-5-5", "version": "anthropic 1.4.0", "measured": "2026-10-15T14:56Z", "prompt": "d435b59f7f1545c23af17b23125de453170a2180c8ab0f7ce7050e3891ba0084", "budget_usd": 8.0, "spent_usd": 0.4212, "correct": 17, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0, "unanswered": 0, "escalated": 24, "acted_right": 5, "escalated_a_right_fix": 8, "abstained_right": 4, "stopped_a_wrong_answer": 11, "acted_wrongly": 0, "ungraded": 2}
   # The narrowing change (G10-57, 2026-10-14): each other cause the model rules out comes with why and its citations,
   # checked like the hypothesis's, and the report's "How WARDEN narrowed it down" lays them out. Measured on the
   # laptop's SDK (1.4.0, which scored 2 below 1.11.0 the last time both ran), $0.59: 22/30 (19 before), every incident
   # answered, 0 wrong-and-allowed, 22 escalated (the SLO's limit is 25), 0 acted wrongly.
-  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.4.0", "measured": "2026-10-14T10:58Z", "prompt": "d435b59f7f1545c23af17b23125de453170a2180c8ab0f7ce7050e3891ba0084", "budget_usd": 5.0, "spent_usd": 0.591, "correct": 22, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0, "unanswered": 0, "escalated": 22, "acted_right": 7, "escalated_a_right_fix": 9, "abstained_right": 6, "stopped_a_wrong_answer": 6, "acted_wrongly": 0, "ungraded": 2}
+  # REMOVED 2026-10-15 (owner: never use Sonnet 5 again): {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.4.0", "measured": "2026-10-14T10:58Z", "prompt": "d435b59f7f1545c23af17b23125de453170a2180c8ab0f7ce7050e3891ba0084", "budget_usd": 5.0, "spent_usd": 0.591, "correct": 22, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0, "unanswered": 0, "escalated": 22, "acted_right": 7, "escalated_a_right_fix": 9, "abstained_right": 6, "stopped_a_wrong_answer": 6, "acted_wrongly": 0, "ungraded": 2}
   # Claude Sonnet 5 on the Claude API, with the G9-D action vocabulary and each action's meaning in the schema
   # (2026-10-10, $0.75 with three unanswered incidents re-run): 19/30, every incident answered, 0 wrong-and-allowed.
   # The first measurement of the vocabulary (no meanings, $0.50) was NOT qualified: raise_limit for an OOM after a
@@ -97,7 +103,7 @@ qualified:
   # wrong-and-allowed, escalated 22 - within the 18-22 band. The 30 recordings predate the readers, so the gains
   # show on the held-out set (docs/bench/heldout-g10-2026-10-10), not here.
   # Before (code of 2026-10-10 09:29Z): {"measured": "2026-10-10T09:29Z", "correct": 22, "runs": 30, "wrong_and_allowed": 0}
-  - {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.4.0", "measured": "2026-10-10T12:51Z", "correct": 21, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
+  # REMOVED 2026-10-15 (owner: never use Sonnet 5 again): {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.4.0", "measured": "2026-10-10T12:51Z", "correct": 21, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
 # Measured on the PREVIOUS prompt (03300eac..., 2026-10-03) and so no longer qualified until measured again on this one
 # (the Claude Max CLI, the local development backend; free):
 #  {"provider": "claude_cli", "model": "claude-fable-5-1", "version": "claude-cli 2.1.287", "measured": "2026-10-02T19:16Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 0, "errors": 0}
@@ -105,4 +111,4 @@ qualified:
 #  {"provider": "anthropic", "model": "claude-sonnet-5", "version": "anthropic 1.11.0", "measured": "2026-10-09T10:14Z", "correct": 20, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 2, "errors": 0}
   # The Claude Max CLI (the local development backend) on this prompt and code 397346f (free; one run of 30, every
   # incident answered): 18/30, 0 wrong-and-allowed. Before (prompt of 2026-10-02): 19/30.
-  - {"provider": "claude_cli", "model": "claude-sonnet-5", "version": "claude-cli 2.1.296", "measured": "2026-10-10T12:55Z", "correct": 18, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0}
+  # REMOVED 2026-10-15 (owner: never use Sonnet 5 again): {"provider": "claude_cli", "model": "claude-sonnet-5", "version": "claude-cli 2.1.296", "measured": "2026-10-10T12:55Z", "correct": 18, "runs": 30, "wrong_and_allowed": 0, "no_evidence_fixes_allowed": 1, "errors": 0}

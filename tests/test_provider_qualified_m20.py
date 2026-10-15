@@ -49,11 +49,17 @@ def test_the_shipped_list_loads_and_every_entry_meets_its_bar():
         assert entry["correct"] >= doc["bar"]["min_correct"]
 
 
-def test_the_cli_default_is_a_qualified_model(monkeypatch):
-    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/claude")
-    monkeypatch.delenv("WARDEN_MODEL", raising=False)
+def test_the_production_default_is_a_qualified_model_and_sonnet_5_is_gone(monkeypatch):
+    """Owner, 2026-10-15: only Claude Sonnet 5.5 and Opus 5.5 - never Sonnet 5 again. The cloud names no model, so it
+    runs the anthropic default: that is Sonnet 5.5, qualified; Sonnet 5 is neither a default nor qualified anywhere."""
+    doc = providers.load_qualified()
+    assert doc["defaults"]["anthropic"] == "claude-sonnet-5-5"
+    assert any(e["provider"] == "anthropic" and e["model"] == "claude-sonnet-5-5" for e in doc["qualified"])
+    assert "claude-sonnet-5" not in doc["defaults"].values()
+    assert not [e for e in doc["qualified"] if e["model"] == "claude-sonnet-5"]
     monkeypatch.delenv("WARDEN_QUALIFYING", raising=False)
-    assert qualified(ClaudeCliProvider()).model == "claude-sonnet-5"
+    with pytest.raises(providers.ProviderError):
+        qualified(_cli(monkeypatch, model="claude-sonnet-5"))
 
 
 def test_reverify_puts_stored_answers_through_todays_gate(tmp_path):

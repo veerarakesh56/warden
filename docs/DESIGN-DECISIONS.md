@@ -220,7 +220,14 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
   plan as session tags, a session policy naming the plan's exact resources, and AWS's own record of each session held
   to the audit (actor_use.py) - comes from STS and CloudTrail, free and in the account. A company that runs Teleport
   can add it as an adapter; nothing in WARDEN requires it.
-- **Claude Sonnet 5 on the Claude API for the cloud window** (owner, 2026-10-09: the owner's API credits; replaces the
+- **Claude Sonnet 5.5, effort high, on the Claude API** (owner, 2026-10-15: only Sonnet 5.5 and Opus 5.5, never
+  Sonnet 5 again). Both measured at effort high on today's code. The 30 recorded incidents (the qualification bar):
+  Sonnet 5.5 17 correct, none wrong and allowed - qualified; Opus 5.5 15 - below the bar of 17, not qualified. The 172
+  held-out G10 cases, re-scored under today's gate: Sonnet 5.5 160 correct, 6 harmful proposals (every one stopped),
+  77 right fixes put to a person, 137 right outcomes, $3.15; Opus 5.5 162, 1, 72, 136, $9.00; neither let a harm
+  through. The cloud names no model and runs the provider's default, so the default is the pin. Every Sonnet 5 entry
+  was removed from the qualified list; the cloud had been running it, as the default, until this change.
+- *(Superseded 2026-10-15)* **Claude Sonnet 5 on the Claude API for the cloud window** (owner, 2026-10-09: the owner's API credits; replaces the
   Gemini choice below). Qualified on the API the same day with the SDK the runtime image ships - 20 of 30 correct,
   none wrong and allowed, every incident answered, $0.48; an earlier run on an older SDK scored 18 (both pass;
   src/warden/data/providers.yaml). Sonnet 5, not the newer Sonnet 5.5, which failed the same bar.
