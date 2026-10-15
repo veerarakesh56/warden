@@ -138,6 +138,12 @@
       "Resource": "arn:aws:iam::*:role/warden-dev-reader"
     },
     {
+      "Sid": "ReadThisEnvironmentsStackFileOnly",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::warden-dev-tfstate-*/fullstack/stack.json"
+    },
+    {
       "Sid": "DatabaseAsTheMasterUserForFaultsAndAsTheReader",
       "Effect": "Allow",
       "Action": "rds-db:connect",

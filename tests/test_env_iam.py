@@ -544,6 +544,16 @@ def test_an_apis_access_logs_go_only_to_its_own_environments_group():
                                                      f"arn:aws:logs:*:*:log-group:/aws/vendedlogs/warden-{env}-*"}}
 
 
+def test_the_harness_reads_the_stack_file_and_never_the_terraform_state():
+    """The infra deploy publishes stack.json (non-sensitive outputs only) beside the state; the harness reads that one
+    object (2026-10-15) - never terraform.tfstate, which holds every sensitive value in plaintext."""
+    st = next(s for s in _load("dev", "harness")["Statement"] if s.get("Sid") == "ReadThisEnvironmentsStackFileOnly")
+    assert st["Effect"] == "Allow" and _list(st["Action"]) == ["s3:GetObject"]
+    assert _list(st["Resource"]) == ["arn:aws:s3:::warden-dev-tfstate-*/fullstack/stack.json"]
+    others = [s for s in _load("dev", "harness")["Statement"] if s.get("Sid") != st["Sid"]]
+    assert not any("tfstate" in r for s in others for r in _list(s.get("Resource", [])))
+
+
 def test_the_harness_can_carry_the_operators_source_identity_to_the_reader():
     """The operator's session carries a source identity, which AWS passes on to every role it assumes: the harness could
     not assume the reader without sts:SetSourceIdentity in its own policy and in the reader's trust (2026-10-14), nor
