@@ -16,6 +16,8 @@ on:
       - "scenarios/fullstack/app/**"
       - "scenarios/fullstack/lambdas/**"
       - "k8s/**"
+      - "manifests/**"
+      - "helm/**"
       - "terraform/fullstack/**"
       # The deploy's own tools install from the lock: a lock change runs this, and deploys nothing unless code changed.
       - "uv.lock"
@@ -54,7 +56,7 @@ jobs:
             case "$f" in
               terraform/fullstack/*) infra=1 ;;
               scenarios/fullstack/lambdas/*) apps=1 ;;
-              scenarios/fullstack/app/*|k8s/*) apps=1; others=1 ;;
+              scenarios/fullstack/app/*|k8s/*|manifests/*|helm/*) apps=1; others=1 ;;
             esac
           done <<< "$files"
           target=""

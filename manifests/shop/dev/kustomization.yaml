@@ -1,0 +1,20 @@
+# The dev environment's shop: the base, with dev's name where the workloads carry their environment - WARDEN reads the
+# Deployment's `environment` label before any change (P18, register S6), Datadog's monitors filter on its env tag,
+# and the OpenTelemetry data names it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+labels:
+  - pairs:
+      environment: dev
+      tags.datadoghq.com/env: dev
+    includeTemplates: true
+patches:
+  - target:
+      kind: ConfigMap
+      name: otel-config
+    patch: |-
+      - op: replace
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: deployment.environment=dev

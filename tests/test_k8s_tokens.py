@@ -12,7 +12,8 @@ NEEDS_A_TOKEN = {("job.yaml", "Job")}
 
 
 def _docs():
-    for path in sorted((ROOT / "k8s").rglob("*.yaml")):
+    # And what Argo CD syncs (manifests/, 2026-10-16): a token mounted there is mounted all the same.
+    for path in sorted([*(ROOT / "k8s").rglob("*.yaml"), *(ROOT / "manifests").rglob("*.yaml")]):
         for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
             if doc:
                 yield path, doc

@@ -1,0 +1,80 @@
+# The shop under Argo CD (owner, 2026-10-16). Applied by the apps pipeline with the commit being deployed:
+# __REVISION__ is that commit, __IMAGE__ its image, __REPO_URL__ this repository. Field names checked against the
+# Application and AppProject CRDs that chart argo-cd 10.9.7 installs.
+#
+# The project allows exactly the shop's kinds, in the shop namespace, from this repository: nothing cluster-wide.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: shop
+  namespace: argocd
+  labels:
+    project: warden
+spec:
+  description: "The shop's workloads, synced from manifests/shop"
+  sourceRepos:
+    - "__REPO_URL__"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: shop
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: apps, kind: Deployment}
+    - {group: autoscaling, kind: HorizontalPodAutoscaler}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: rbac.authorization.k8s.io, kind: RoleBinding}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shop
+  namespace: argocd
+  labels:
+    project: warden
+  # Deleting the Application deletes what it synced, while the controller still runs (the lab's teardown order).
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: shop
+  source:
+    repoURL: "__REPO_URL__"
+    targetRevision: "__REVISION__"
+    path: manifests/shop/__ENVIRONMENT__
+    kustomize:
+      images:
+        - "shop-app=__IMAGE__"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: shop
+  syncPolicy:
+    automated:
+      enabled: true
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+      - FailOnSharedResource=true
+      - CreateNamespace=false
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  # Fields something else owns, which self-heal must not set back (research 2026-10-16, "who owns the field"):
+  # a restart (WARDEN's or a person's) writes this annotation, and catalog-api's replicas are its HPA's.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+    - group: apps
+      kind: Deployment
+      name: catalog-api
+      jsonPointers:
+        - /spec/replicas

@@ -1209,14 +1209,29 @@ def _restart(c, t, name) -> None:
         "metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": _now().isoformat()}}}}})
 
 
+# Argo CD marks what it syncs (v3 tracks by annotation; the label is the older method). A direct change to such an
+# object is undone by its self-heal within seconds, so a fault injected that way would heal itself before WARDEN saw
+# it - and the run would prove nothing. Such a fault is a commit to manifests/ instead (owner decision pending,
+# 2026-10-16); until then it is refused, said plainly.
+_ARGO_MARKS = ("argocd.argoproj.io/tracking-id", "argocd.argoproj.io/instance")
+
+
+def _not_argo_managed(obj: dict, what: str) -> None:
+    meta = obj.get("metadata") or {}
+    if any(k in (meta.get("annotations") or {}) or k in (meta.get("labels") or {}) for k in _ARGO_MARKS):
+        raise OpError(f"{what} is synced by Argo CD, whose self-heal undoes a direct change within seconds: this fault "
+                      "is injected as a commit to manifests/, not as a patch on the cluster")
+
+
 def _jp(key: str) -> str:
     return key.replace("~", "~0").replace("/", "~1")
 
 
 def fs22_inject(c, t):
     _guard(c, t, "k8s", t.namespace)
-    data = dict(_to_dict(c.core.read_namespaced_config_map(name=t.configmap, namespace=t.namespace))
-                .get("data") or {})
+    cm = _to_dict(c.core.read_namespaced_config_map(name=t.configmap, namespace=t.namespace))
+    _not_argo_managed(cm, f"configmap/{t.configmap}")
+    data = dict(cm.get("data") or {})
     _save(t, "fs-22", {"data": data})
     c.core.patch_namespaced_config_map(name=t.configmap, namespace=t.namespace, body=[
         {"op": "replace", "path": "/data", "value": {**data, t.config_key: "not-a-number"}}])
@@ -1275,6 +1290,7 @@ def _patch_container_field(c, t, fid: str, dep_name: str, key: str, new_value: A
     """JSON-patch one container field, saving the exact prior value (None = it was absent)."""
     _guard(c, t, "k8s", t.namespace)
     dep = _dep(c, t, dep_name)
+    _not_argo_managed(dep, f"deployment/{dep_name}")
     i = _cidx(dep, dep_name)
     prior = dep["spec"]["template"]["spec"]["containers"][i].get(key)
     _save(t, fid, {"deployment": dep_name, "key": key, "value": copy.deepcopy(prior)})

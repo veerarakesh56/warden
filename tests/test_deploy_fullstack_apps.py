@@ -148,14 +148,27 @@ def test_deploy_ecs_logs_in_over_stdin_and_updates_the_service():
                                "taskDefinition": "arn:td:9"}) in clients["ecs"].calls
 
 
-def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(tmp_path):
+REV = "0123456789abcdef0123456789abcdef01234567"
+
+
+def _pipeline_render():
+    """What `kubectl kustomize k8s/shop-pipeline` prints: its files, placeholders unfilled."""
+    return "\n---\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "k8s" / "shop-pipeline").glob("*.yaml"))
+                           if p.name != "kustomization.yaml")
+
+
+def _synced(revision=REV, sync="Synced", health="Healthy", phase="Succeeded"):
+    return json.dumps({"status": {"sync": {"revision": revision, "status": sync}, "health": {"status": health},
+                                  "operationState": {"phase": phase, "message": "sync of the commit"}}})
+
+
+def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(tmp_path, monkeypatch):
     import yaml
 
-    rendered = "\n---\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "k8s" / "fullstack").glob("*.yaml"))
-                              if p.name != "kustomization.yaml")
-    run = Runner({"kustomize": rendered})
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
+    run = Runner({"kustomize": _pipeline_render(), "get application shop": _synced()})
     clients = {}
-    tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run)
+    tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run, revision=REV, sleep=lambda s: None)
     # catalog-api logs in with an IAM token (Pod Identity): the only secret asked for is Datadog's agent key, which
     # this stack does not have - so no agent, and the apps deploy as before.
     assert set(clients) <= {"secretsmanager", "ssm"}
@@ -164,30 +177,39 @@ def test_deploy_k8s_fills_every_placeholder_and_keeps_the_signing_key_off_argv(t
     assert any(c[:4] == ["helm", "upgrade", "--install", "argocd"] for c in run.cmds)  # Argo CD always (2026-10-16)
     applied = next(i for c, i in zip(run.cmds, run.inputs) if "apply" in c and i and "kind: ClusterRole" in i)
     assert not tool.PLACEHOLDER.search(applied)
-    assert STACK["ecr_repository_url"] + ":abc123" in applied
     assert "kind: ClusterRole" in applied and "name: warden-readonly" in applied
     docs = [d for d in yaml.safe_load_all(applied) if d]
     key = next(d for d in docs if d["kind"] == "Secret")["stringData"]["CATALOG_SIGNING_KEY"]
-    config = next(d for d in docs if d["kind"] == "ConfigMap")["data"]
+    config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "shop-infra")["data"]
     assert len(key) == 64 and (config["DB_USER"], config["DB_HOST"], config["AWS_REGION"]) == (
         "warden_dev_catalog", "reader.internal", "ap-south-2")
+    assert next(d for d in docs if d["kind"] == "Namespace")["metadata"]["labels"]["environment"] == "dev"
     assert all(key not in " ".join(c) for c in run.cmds)
-    assert sum("rollout" in c for c in run.cmds) == 3  # the collector, then the two apps
+    # The shop's workloads are Argo CD's: the Application, pinned to this commit and its image, then a wait for it.
+    app_in = next(i for i in run.inputs if i and "kind: Application" in i)
+    app = next(d for d in yaml.safe_load_all(app_in) if d and d["kind"] == "Application")
+    src = app["spec"]["source"]
+    assert (src["repoURL"], src["targetRevision"], src["path"]) == ("https://github.com/owner/warden", REV,
+                                                                    "manifests/shop/dev")
+    assert src["kustomize"]["images"] == [f"shop-app={STACK['ecr_repository_url']}:abc123"]
+    assert app["spec"]["syncPolicy"]["automated"] == {"enabled": True, "prune": True, "selfHeal": True}
+    assert not tool.PLACEHOLDER.search(app_in)
+    assert any("get application shop" in " ".join(c) for c in run.cmds)
+    assert sum("rollout" in c for c in run.cmds) == 1  # the collector's; the apps' health is Argo CD's
 
 
-def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart(tmp_path):
+def test_datadogs_agent_goes_on_first_with_its_key_over_stdin_and_a_pinned_chart(tmp_path, monkeypatch):
     """Owner, 2026-10-14: Datadog beside AWS. Its agent is installed before the collector and the apps (it receives
     their OpenTelemetry data and collects their logs), its key read from the persistent secret and sent to the cluster
     over stdin, never on a command line; the chart pinned; a site that is not Datadog's installs nothing."""
     import base64
 
     key = "dd" + "0123456789abcdef" * 2
-    rendered = "\n---\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "k8s" / "fullstack").glob("*.yaml"))
-                              if p.name != "kustomization.yaml")
     clients = {"secretsmanager": Fake({"get_secret_value": {"SecretString": key + "\n"}}),
                "ssm": Fake({"get_parameter": {"Parameter": {"Value": "ap1.datadoghq.com"}}})}
-    run = Runner({"kustomize": rendered})
-    tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/warden")
+    run = Runner({"kustomize": _pipeline_render(), "get application shop": _synced()})
+    tool.deploy_k8s(STACK, "abc123", tmp_path, aws_factory(clients), run, revision=REV, sleep=lambda s: None)
     assert all(key not in " ".join(c) for c in run.cmds)  # never on argv
     assert {"Name": "/warden/dev/tf/datadog_site"} in [kw for _, kw in clients["ssm"].calls]  # the deploy role's path
     secret_in = next(i for c, i in zip(run.cmds, run.inputs) if i and "datadog-secret" in i)
@@ -364,7 +386,7 @@ def test_one_collector_sends_the_same_data_to_xray_grafana_and_datadog_before_th
     dep = next(d for d in docs if d["kind"] == "Deployment")
     assert dep["spec"]["template"]["spec"]["containers"][0]["image"] == tool.OTEL_IMAGE.replace(":v", ":v")
     assert tool.OTEL_IMAGE.endswith(":v0.50.0")
-    k8s = (ROOT / "k8s" / "fullstack" / "config.yaml").read_text(encoding="utf-8")
+    k8s = (ROOT / "manifests" / "shop" / "base" / "config.yaml").read_text(encoding="utf-8")
     assert 'OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability:4318"' in k8s
     assert "OTEL_SDK_DISABLED=true" in (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
 
@@ -407,3 +429,37 @@ def test_argocd_settings_name_no_login_no_load_balancer_and_deny_by_default():
     assert v["server"]["service"]["type"] == "ClusterIP" and v["notifications"]["enabled"] is False
     for part in ("controller", "repoServer", "server", "applicationSet", "redis"):
         assert v[part]["resources"]["requests"] and v[part]["resources"]["limits"]["memory"], part
+
+
+def test_a_sync_that_failed_or_never_reached_the_commit_fails_the_deploy(monkeypatch):
+    """Dev is run as production (owner, 2026-10-16): the deploy says why Argo CD did not deploy the commit, and fails."""
+    with pytest.raises(SystemExit, match="sync of 0123456789ab failed"):
+        tool.wait_synced("kc", REV, Runner({"get application shop": _synced(phase="Failed", health="Degraded")}),
+                         sleep=lambda s: None)
+    with pytest.raises(SystemExit, match="did not sync 0123456789ab to Healthy"):
+        tool.wait_synced("kc", REV, Runner({"get application shop": _synced(revision="f" * 40)}), sleep=lambda s: None)
+    tool.wait_synced("kc", REV, Runner({"get application shop": _synced()}), sleep=lambda s: None)  # synced: returns
+
+
+def test_the_shops_workloads_render_for_dev_with_no_placeholder_and_the_hpa_owns_catalogs_replicas():
+    import shutil
+    import subprocess
+
+    import yaml
+
+    if not shutil.which("kubectl"):
+        pytest.skip("kubectl renders kustomize")
+    out = subprocess.run(["kubectl", "kustomize", str(ROOT / "manifests" / "shop" / "dev")], capture_output=True,
+                         text=True, check=True).stdout
+    assert not tool.PLACEHOLDER.search(out) and "unset" not in out
+    docs = {(d["kind"], d["metadata"]["name"]): d for d in yaml.safe_load_all(out) if d}
+    catalog, worker = docs[("Deployment", "catalog-api")], docs[("Deployment", "cart-worker")]
+    assert "replicas" not in catalog["spec"] and worker["spec"]["replicas"] == 2
+    for dep in (catalog, worker):
+        assert dep["metadata"]["labels"]["environment"] == "dev"  # WARDEN reads it before any change (P18)
+        assert dep["spec"]["template"]["metadata"]["labels"]["tags.datadoghq.com/env"] == "dev"
+        c = dep["spec"]["template"]["spec"]["containers"][0]
+        assert c["image"] == "shop-app" and {"catalog-config", "shop-infra", "otel-config"} == {
+            e["configMapRef"]["name"] for e in c["envFrom"]}
+    assert docs[("ConfigMap", "otel-config")]["data"]["OTEL_RESOURCE_ATTRIBUTES"] == "deployment.environment=dev"
+    assert not any(k == "Secret" or k == "Namespace" for k, _ in docs)  # the pipeline's, never Git's

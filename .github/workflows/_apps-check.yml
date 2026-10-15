@@ -39,5 +39,7 @@ jobs:
       - run: pytest tests/test_deploy_fullstack_apps.py tests/test_fullstack_infra.py tests/test_supply_chain.py tests/test_k8s_tokens.py tests/test_redis_tls_r8.py tests/test_api_auth_ai13.py -q
       - name: build artifacts (zips + image)
         run: python scripts/deploy_fullstack_apps.py --out "$RUNNER_TEMP/build" build --tag "${GITHUB_SHA::12}"
-      - name: render k8s/fullstack
-        run: kubectl kustomize k8s/fullstack > /dev/null
+      - name: render the shop (what Argo CD syncs, and what the pipeline applies)
+        run: |
+          kubectl kustomize manifests/shop/dev > /dev/null
+          kubectl kustomize k8s/shop-pipeline > /dev/null

@@ -24,7 +24,7 @@ application code:
 | pipeline | what | how | reads |
 |---|---|---|---|
 | infra | this directory | `terraform apply` locally, or `.github/workflows/deploy-<env>.yml` (by hand; part: infra) | - |
-| apps | Lambdas, container image, `k8s/fullstack` | `scripts/deploy_fullstack_apps.py`, or `.github/workflows/deploy-<env>.yml` (by hand; part: apps) | `stack.json` |
+| apps | Lambdas, container image, the shop (`manifests/shop`, synced by Argo CD; `k8s/shop-pipeline`) | `scripts/deploy_fullstack_apps.py`, or `.github/workflows/deploy-<env>.yml` (by hand; part: apps), or a merge to main for dev (`on-merge-dev.yml`) | `stack.json` |
 | WARDEN CI | the tool | `.github/workflows/ci-tool.yml` | - |
 
 Lambdas are created from a placeholder zip, ECS from a placeholder container that answers 200 on
@@ -141,7 +141,7 @@ Then the apps pipeline:
 run `deploy ecs` again after re-generating stack.json.
 
 `deploy k8s` also applies the ClusterRole `warden-readonly` from `k8s/rbac.yaml` (the six reads);
-`k8s/fullstack/warden-rbac.yaml` binds it in `shop` only.
+`manifests/shop/base/warden-rbac.yaml` binds it in `shop` only.
 
 ## Destroy
 

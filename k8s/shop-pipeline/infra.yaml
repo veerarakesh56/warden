@@ -1,0 +1,16 @@
+# Owned by the apps pipeline, not by Argo CD: the endpoints and names of the infrastructure under the shop, from
+# Terraform's outputs (stack.json) - they change whenever the stack is rebuilt, and the shop's Deployments read them
+# with envFrom. Filled by scripts/deploy_fullstack_apps.py, which refuses to apply a placeholder left unfilled.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-infra
+  namespace: shop
+  labels:
+    project: warden
+data:
+  REDIS_HOST: "__REDIS_HOST__"
+  DB_HOST: "__DB_READER_HOST__"
+  DB_NAME: "__DB_NAME__"
+  DB_USER: "__DB_USER_CATALOG__" # IAM database login (Pod Identity), read-only; named for the environment
+  AWS_REGION: "__REGION__"

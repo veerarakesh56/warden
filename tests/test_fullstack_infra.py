@@ -1,4 +1,4 @@
-"""Wave 4 infrastructure, checked offline: terraform/fullstack, the policies, k8s/fullstack, the
+"""Wave 4 infrastructure, checked offline: terraform/fullstack, the policies, the shop's manifests, the
 apps' handlers, the bootstrap SQL and the two pipeline workflows.
 
 What `terraform validate` cannot see: names outside the prefix the boundary scopes IAM to, a role
@@ -19,7 +19,9 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 TF = ROOT / "terraform" / "fullstack"
 TF_FILES = sorted(TF.glob("*.tf"))
-K8S = ROOT / "k8s" / "fullstack"
+# The shop: its workloads in Git (Argo CD syncs manifests/shop), and what the apps pipeline owns (k8s/shop-pipeline).
+K8S = ROOT / "manifests" / "shop" / "base"
+K8S_PIPELINE = ROOT / "k8s" / "shop-pipeline"
 APPS = ROOT / "scenarios" / "fullstack"
 BOUNDARY = ROOT / "terraform" / "proving-ground" / "operator-policy-boundary.json"
 OPERATOR_FS = TF / "operator-policy-fullstack.json"   # the operator's current policy (still attached; to be replaced in W0-now)
@@ -340,14 +342,18 @@ def test_the_fullstack_operator_policy_never_widens_iam():
 
 def _k8s_docs() -> list[dict]:
     docs = []
-    for f in sorted(K8S.glob("*.yaml")):
-        docs += [d for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d]
+    for f in sorted([*K8S.glob("*.yaml"), *K8S_PIPELINE.glob("*.yaml")]):
+        docs += [d for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d and d.get("kind") != "Kustomization"]
     return docs
 
 
 def test_the_kustomization_lists_every_manifest():
-    kust = yaml.safe_load((K8S / "kustomization.yaml").read_text(encoding="utf-8"))
-    assert sorted(kust["resources"]) == sorted(p.name for p in K8S.glob("*.yaml") if p.name != "kustomization.yaml")
+    for folder in (K8S, K8S_PIPELINE):
+        kust = yaml.safe_load((folder / "kustomization.yaml").read_text(encoding="utf-8"))
+        assert sorted(kust["resources"]) == sorted(p.name for p in folder.glob("*.yaml") if p.name != "kustomization.yaml")
+    # What Argo CD syncs holds no Namespace and no Secret: those are the pipeline's (a Secret's value is never in Git).
+    synced = [d["kind"] for f in K8S.glob("*.yaml") for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d]
+    assert "Namespace" not in synced and "Secret" not in synced
 
 
 def test_the_namespace_enforces_restricted_pod_security():
@@ -357,10 +363,11 @@ def test_the_namespace_enforces_restricted_pod_security():
     assert ns["metadata"]["labels"]["project"] == "warden"
 
 
-@pytest.mark.parametrize("name,replicas", [("catalog-api", 2), ("cart-worker", 2)])
+# catalog-api: no replicas in Git - its HPA owns the count (Argo CD is told to ignore it, k8s/argocd/shop.yaml).
+@pytest.mark.parametrize("name,replicas", [("catalog-api", None), ("cart-worker", 2)])
 def test_deployments_pass_restricted_pod_security(name, replicas):
     dep = next(d for d in _k8s_docs() if d["kind"] == "Deployment" and d["metadata"]["name"] == name)
-    assert dep["metadata"]["namespace"] == "shop" and dep["spec"]["replicas"] == replicas
+    assert dep["metadata"]["namespace"] == "shop" and dep["spec"].get("replicas") == replicas
     # WARDEN selects pods by app=<deployment name>.
     assert dep["spec"]["selector"]["matchLabels"] == {"app": name}
     pod = dep["spec"]["template"]["spec"]
@@ -375,7 +382,7 @@ def test_deployments_pass_restricted_pod_security(name, replicas):
         assert sc["capabilities"]["drop"] == ["ALL"] and not sc.get("privileged")
         assert c["resources"]["requests"] and c["resources"]["limits"]
         assert "livenessProbe" in c
-        assert c["image"] == "__IMAGE__"
+        assert c["image"] == "shop-app"  # the commit's image, set by the shop Application
 
 
 def test_secret_is_a_template_with_no_real_value():
@@ -386,7 +393,7 @@ def test_secret_is_a_template_with_no_real_value():
     # No password (IAM login); the one key is what catalog-api refuses to start without (fs-23).
     assert list(secret["stringData"]) == ["CATALOG_SIGNING_KEY"]
     assert '"CATALOG_SIGNING_KEY"' in (APPS / "app" / "app.py").read_text(encoding="utf-8")
-    manifests = "".join(f.read_text(encoding="utf-8") for f in K8S.glob("*.yaml"))
+    manifests = "".join(f.read_text(encoding="utf-8") for f in [*K8S.glob("*.yaml"), *K8S_PIPELINE.glob("*.yaml")])
     assert not re.search(r"(?i)password", re.sub(r"#[^\n]*", "", manifests))
 
 
@@ -508,7 +515,7 @@ def test_apps_ci_triggers_only_on_app_code_and_the_deploy_never_calls_terraform(
     wf = _workflow("ci-apps.yml")
     paths = wf["on"]["push"]["paths"]
     assert not any(p.startswith("terraform/") for p in paths)
-    assert "scenarios/fullstack/**" in paths and "k8s/fullstack/**" in paths
+    assert "scenarios/fullstack/**" in paths and "manifests/**" in paths
     assert "workflow_dispatch" not in wf["on"]
     deploy = _workflow("_apps-deploy.yml")
     assert deploy["on"] == {"workflow_call": deploy["on"]["workflow_call"]}
@@ -825,7 +832,7 @@ def test_workloads_opt_out_of_the_observability_addons_auto_instrumentation():
     rejected - no catalog-api pod could be created (first real deploy, 2026-09-26)."""
     import yaml as _yaml
     for name in ("catalog-api.yaml", "cart-worker.yaml"):
-        for doc in _yaml.safe_load_all((ROOT / "k8s" / "fullstack" / name).read_text(encoding="utf-8")):
+        for doc in _yaml.safe_load_all((ROOT / "manifests" / "shop" / "base" / name).read_text(encoding="utf-8")):
             if doc and doc.get("kind") == "Deployment":
                 ann = doc["spec"]["template"]["metadata"].get("annotations") or {}
                 for lang in ("java", "python", "nodejs", "dotnet"):

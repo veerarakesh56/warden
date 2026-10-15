@@ -16,9 +16,11 @@ it and never calls terraform; WARDEN's own CI is a third. Everything lands OUTSI
                 IAM database tokens as user app; DB_USER injected from the metadata secret),
                 update-service, wait until stable. Records the revision in stack.json as
                 `ecs_baseline_task_definition` - the revision the harness reverts to.
-  deploy k8s    kubectl kustomize k8s/fullstack, fill the placeholders from stack.json and a
-                generated signing key (over stdin, never argv), apply with the ClusterRole from
-                k8s/rbac.yaml, wait for both rollouts.
+  deploy k8s    the agents and Argo CD; then what the pipeline owns (k8s/shop-pipeline: the
+                namespace, the Secret with a generated signing key over stdin, the infrastructure's
+                endpoints from stack.json) with the ClusterRole from k8s/rbac.yaml; then the shop
+                Application (k8s/argocd/shop.yaml) pinned to this commit and its image, and waits
+                until Argo CD has synced exactly that commit and the shop is Healthy.
   deploy all    build, then lambdas, ecs, k8s.
   bootstrap-db  scenarios/fullstack/sql/bootstrap.sql as the master user postgres, logged in with
                 an IAM token signed by YOUR credentials (rds-db:connect on dbuser:*/postgres,
@@ -42,7 +44,11 @@ import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 APPS = ROOT / "scenarios" / "fullstack"
-K8S = ROOT / "k8s" / "fullstack"
+# The shop's workloads are in Git (manifests/shop, synced by Argo CD); the pipeline applies only what it owns.
+MANIFESTS = ROOT / "manifests" / "shop"
+K8S_PIPELINE = ROOT / "k8s" / "shop-pipeline"
+SHOP_APP = ROOT / "k8s" / "argocd" / "shop.yaml"
+SYNC_TIMEOUT_S, SYNC_POLL_S = 600, 10
 DEFAULT_OUT = pathlib.Path.home() / "warden-fullstack-build"
 LAMBDA_SRC = APPS / "lambdas"
 IMAGE = "warden-fullstack-app"  # the local build tag; the pushed image is named by the stack's own repository
@@ -286,7 +292,7 @@ def render(manifest: str, values: dict[str, str]) -> str:
         manifest = manifest.replace(f"__{key}__", value)
     left = sorted(set(PLACEHOLDER.findall(manifest)))
     if left:
-        raise SystemExit(f"unfilled placeholders in k8s/fullstack: {left}")
+        raise SystemExit(f"unfilled placeholders: {left}")
     return manifest
 
 
@@ -367,7 +373,7 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
          "--set", "datadog.apiKeyExistingSecret=datadog-secret",
          "--set", "datadog.logs.enabled=true", "--set", "datadog.logs.containerCollectAll=true",
          # Every metric and log from this agent carries the stack's env (the monitors filter on it); the pods' own
-         # tags.datadoghq.com labels (k8s/fullstack) give env and service per workload.
+         # tags.datadoghq.com labels (manifests/shop) give env and service per workload.
          "--set", f"datadog.tags[0]=env:{stack['environment']}",
          # The apps' OpenTelemetry data, from the collector on the same node (deploy_otel): every tool gets the same
          # spans, so the comparison is fair - no second, Datadog-only instrumentation.
@@ -463,17 +469,17 @@ def deploy_otel(stack: dict, kubeconfig: str, aws, datadog: bool, run=run) -> di
     return config
 
 
-def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
+def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision: str | None = None,
+               sleep=None) -> None:
     kubeconfig = str(out / "kubeconfig")
     run(["aws", "eks", "update-kubeconfig", "--name", stack["eks_cluster_name"],
          "--region", stack["region"], "--kubeconfig", kubeconfig])
     datadog = deploy_datadog(stack, kubeconfig, aws, run)
     deploy_otel(stack, kubeconfig, aws, datadog, run)
     deploy_argocd(kubeconfig, out, run=run)
-    # catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
+    # What the pipeline owns. catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
     # value is its signing key, generated here and sent over stdin. fs-23 removes it.
-    manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S)]), {
-        "IMAGE": f"{stack['ecr_repository_url']}:{tag}",
+    manifest = render(run(["kubectl", "--kubeconfig", kubeconfig, "kustomize", str(K8S_PIPELINE)]), {
         "REDIS_HOST": stack["redis_primary_endpoint"],
         "DB_READER_HOST": stack["aurora_reader_endpoint"],
         "DB_NAME": stack["db_name"],
@@ -483,9 +489,66 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run) -> None:
         "CATALOG_SIGNING_KEY": secrets.token_hex(32),
     })
     run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=cluster_role() + "---\n" + manifest)
-    for deployment in ("catalog-api", "cart-worker"):
-        run(["kubectl", "--kubeconfig", kubeconfig, "-n", "shop", "rollout", "status",
-             f"deployment/{deployment}", "--timeout=300s"])
+    # The workloads: Argo CD syncs manifests/shop/<env> at exactly this commit, with this commit's image.
+    rev = revision or commit()
+    app = render(SHOP_APP.read_text(encoding="utf-8"), {
+        "REPO_URL": repo_url(), "REVISION": rev, "IMAGE": f"{stack['ecr_repository_url']}:{tag}",
+        "ENVIRONMENT": stack["environment"]})
+    run(["kubectl", "--kubeconfig", kubeconfig, "apply", "-f", "-"], input=app)
+    wait_synced(kubeconfig, rev, run, sleep=sleep)
+
+
+_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def commit() -> str:
+    """The full commit being deployed: CI's own, else this checkout's HEAD. Argo CD syncs exactly it."""
+    import os
+
+    sha = os.environ.get("GITHUB_SHA") or run(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).strip()
+    if not _SHA.fullmatch(sha):
+        raise SystemExit(f"not a commit id: {sha!r}")
+    return sha
+
+
+def repo_url() -> str:
+    """This repository's https URL, which Argo CD reads (public: no credential): CI's own, else the origin remote."""
+    import os
+
+    if os.environ.get("GITHUB_REPOSITORY"):
+        return f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{os.environ['GITHUB_REPOSITORY']}"
+    url = run(["git", "-C", str(ROOT), "remote", "get-url", "origin"]).strip().removesuffix(".git")
+    if url.startswith("git@github.com:"):
+        url = "https://github.com/" + url.removeprefix("git@github.com:")
+    if not re.fullmatch(r"https://github\.com/[\w.-]+/[\w.-]+", url):
+        raise SystemExit(f"the origin remote is not a GitHub https or ssh URL: {url!r}")
+    return url
+
+
+def wait_synced(kubeconfig: str, revision: str, run=run, sleep=None) -> None:
+    """Until Argo CD has synced exactly `revision` and the shop is Healthy - or say why not. A sync that failed is not
+    waited out; one that never reaches the commit fails the deploy (a commit not pushed, a repository Argo CD cannot
+    read), as it would in production."""
+    import json
+    import time
+
+    sleep = sleep or time.sleep
+    seen = "no status yet"
+    for _ in range(SYNC_TIMEOUT_S // SYNC_POLL_S):
+        raw = run(["kubectl", "--kubeconfig", kubeconfig, "-n", "argocd", "get", "application", "shop", "-o", "json"])
+        status = (json.loads(raw) if raw.strip() else {}).get("status") or {}
+        sync, health = status.get("sync") or {}, status.get("health") or {}
+        phase = (status.get("operationState") or {}).get("phase", "")
+        seen = (f"revision {sync.get('revision', '?')[:12]}, sync {sync.get('status', '?')}, health "
+                f"{health.get('status', '?')}, operation {phase or '-'}")
+        if sync.get("revision") == revision and phase in ("Failed", "Error"):
+            raise SystemExit(f"Argo CD's sync of {revision[:12]} failed: {seen}: "
+                             f"{(status.get('operationState') or {}).get('message', '')[:400]}")
+        if sync.get("revision") == revision and sync.get("status") == "Synced" and health.get("status") == "Healthy":
+            print(f"Argo CD: shop synced at {revision[:12]} and Healthy", flush=True)
+            return
+        sleep(SYNC_POLL_S)
+    raise SystemExit(f"Argo CD did not sync {revision[:12]} to Healthy in {SYNC_TIMEOUT_S} s: {seen}")
 
 
 _DB_USER = re.compile(r"warden_[a-z0-9_]{1,40}_(?:app|catalog|ro)")

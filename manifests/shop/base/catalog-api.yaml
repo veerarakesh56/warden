@@ -18,13 +18,11 @@ metadata:
   labels:
     app: catalog-api
     project: warden
-    environment: __ENVIRONMENT__  # read by WARDEN before any change (P18, register S6)
     # Datadog's standard labels: its agent tags this workload's container logs and Kubernetes metrics env and service
     # from them (the monitors filter on both, scripts/datadog_setup.py).
-    tags.datadoghq.com/env: __ENVIRONMENT__
     tags.datadoghq.com/service: catalog-api
 spec:
-  replicas: 2
+  # No replicas here: the HorizontalPodAutoscaler below owns the count, and Argo CD is told so (k8s/argocd).
   selector:
     matchLabels:
       app: catalog-api
@@ -50,7 +48,6 @@ spec:
       labels:
         app: catalog-api
         project: warden
-        tags.datadoghq.com/env: __ENVIRONMENT__
         tags.datadoghq.com/service: catalog-api
     spec:
       serviceAccountName: catalog-api
@@ -64,7 +61,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: app
-          image: __IMAGE__
+          image: shop-app  # the commit's image, set by the shop Application
           ports:
             - name: http
               containerPort: 8080
@@ -82,6 +79,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: catalog-config
+            - configMapRef:
+                name: shop-infra
             - configMapRef:
                 name: otel-config
           readinessProbe:

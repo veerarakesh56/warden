@@ -113,7 +113,7 @@ def test_every_test_that_reads_a_path_the_tool_ci_skips_runs_where_that_path_tri
     flows = root / ".github" / "workflows"
     runs = {
         "terraform/fullstack": (flows / "_infra-validate.yml").read_text(encoding="utf-8"),
-        "k8s/fullstack": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
+        "manifests/shop": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
         "scenarios/fullstack/": (flows / "_apps-check.yml").read_text(encoding="utf-8"),
         ".github/workflows": (flows / "scan-workflows.yml").read_text(encoding="utf-8"),
     }

@@ -132,8 +132,8 @@ def queried_services() -> list[str]:
 
 
 def traced_services() -> list[str]:
-    """The workloads the test stack sends traces from (OTEL_SERVICE_NAME in k8s/fullstack)."""
-    text = "".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "k8s" / "fullstack").glob("*.yaml")))
+    """The workloads the test stack sends traces from (OTEL_SERVICE_NAME in manifests/shop)."""
+    text = "".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "manifests" / "shop" / "base").glob("*.yaml")))
     return sorted(set(re.findall(r"name: OTEL_SERVICE_NAME\s+value: ([\w.-]+)", text)))
 
 

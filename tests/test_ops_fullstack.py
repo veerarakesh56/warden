@@ -1125,3 +1125,21 @@ def test_fs12_revert_still_fails_loudly_when_sessions_never_go(monkeypatch):
     with pytest.raises(fs.OpError, match="2 held session"):
         fs._revert_held(c, t, "fs-12", attempts=3)
     assert "fs-12" in t.saved  # nothing marked done: a later revert can still end them
+
+
+def test_a_fault_on_what_argo_cd_syncs_is_refused_and_the_pipelines_secret_still_breaks():
+    """2026-10-16: the shop is synced by Argo CD, whose self-heal undoes a direct change within seconds - a fault
+    injected that way would heal itself before WARDEN saw it. fs-22, 24, 25 and 26 refuse, changing nothing; fs-23
+    breaks the Secret, which the apps pipeline owns, not Argo CD."""
+    w, c, t = make()
+    mark = {"annotations": {"argocd.argoproj.io/tracking-id": "shop:apps/Deployment:shop/x"}}
+    read_cm, read_dep = c.core.read_namespaced_config_map, c.apps.read_namespaced_deployment
+    c.core.read_namespaced_config_map = lambda **kw: {**read_cm(**kw), "metadata": mark}
+    c.apps.read_namespaced_deployment = lambda **kw: {**read_dep(**kw), "metadata": mark}
+    before = w.snapshot()
+    for fid in ("fs-22", "fs-24", "fs-25", "fs-26"):
+        with pytest.raises(OpError, match="synced by Argo CD"):
+            fs.FAULTS[fid].inject(c, t)
+    assert w.snapshot() == before
+    fs.FAULTS["fs-23"].inject(c, t)
+    assert w.snapshot() != before

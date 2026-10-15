@@ -1,13 +1,16 @@
 name: "CI · apps"
 
-# The code that runs ON the full stack (Lambdas, the container image, k8s/fullstack), checked on every
+# The code that runs ON the full stack (Lambdas, the container image, the shop's manifests), checked on every
 # change to it: lint, tests, every artifact built. No credentials. Deploying it: Deploy · <env>.
 on:
   push:
     branches: [main]
     paths:
       - "scenarios/fullstack/**"
-      - "k8s/fullstack/**"
+      - "manifests/**"
+      - "k8s/shop-pipeline/**"
+      - "k8s/argocd/**"
+      - "helm/**"
       - "scripts/deploy_fullstack_apps.py"
       - "tests/test_deploy_fullstack_apps.py"
       - "tests/test_fullstack_infra.py"
@@ -24,7 +27,10 @@ on:
   pull_request:
     paths:
       - "scenarios/fullstack/**"
-      - "k8s/fullstack/**"
+      - "manifests/**"
+      - "k8s/shop-pipeline/**"
+      - "k8s/argocd/**"
+      - "helm/**"
       - "scripts/deploy_fullstack_apps.py"
       - "tests/test_deploy_fullstack_apps.py"
       - "tests/test_fullstack_infra.py"

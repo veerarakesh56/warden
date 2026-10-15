@@ -1,4 +1,6 @@
-# fs-22 writes an invalid value into catalog-config; fs-23 removes a key from catalog-secret.
+# The shop's own settings, in Git (Argo CD syncs them). fs-22 writes an invalid value into catalog-config. The
+# endpoints of the infrastructure under it are not here: they come from Terraform's outputs, in the pipeline's
+# ConfigMap shop-infra (k8s/shop-pipeline/infra.yaml).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,11 +9,6 @@ metadata:
   labels:
     project: warden
 data:
-  REDIS_HOST: "__REDIS_HOST__"
-  DB_HOST: "__DB_READER_HOST__"
-  DB_NAME: "__DB_NAME__"
-  DB_USER: "__DB_USER_CATALOG__" # IAM database login (Pod Identity), read-only; named for the environment
-  AWS_REGION: "__REGION__"
   CATALOG_PAGE_SIZE: "20"
   CATALOG_CACHE_TTL_S: "60"
   CART_WORKER_INTERVAL_S: "5"
@@ -33,17 +30,4 @@ data:
   OTEL_METRICS_EXPORTER: "otlp"
   OTEL_LOGS_EXPORTER: "otlp"
   OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
-  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=__ENVIRONMENT__"
----
-# ⛔ A TEMPLATE. No real value is ever written here; the deploy tool generates the signing key at
-# apply time (over stdin). No database password: catalog-api logs in with an IAM token.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: catalog-secret
-  namespace: shop
-  labels:
-    project: warden
-type: Opaque
-stringData:
-  CATALOG_SIGNING_KEY: "__CATALOG_SIGNING_KEY__"
+  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=unset"  # set by the environment's overlay (manifests/shop/dev)
