@@ -443,6 +443,25 @@ class ClockWorkflow:
 MODEL_UNAVAILABLE = "ModelUnavailable"
 
 
+# Checks an answer can pass by being better grounded: a citation that does not quote its item, a target not in the
+# evidence, citations that do not bear on the action, a number not in the evidence, too little cited. Everything else
+# (safety, environment, tier, injection, freeze, bounds) is final.
+REPAIRABLE = frozenset({"P13-UNGROUNDED", "P14-TARGET-NOT-IN-EVIDENCE", "P15-CITATIONS-DO-NOT-SUPPORT-ACTION",
+                        "P27-NUMBER-NOT-IN-EVIDENCE", "P9-THIN-EVIDENCE"})
+REPAIR_NOTE_CHARS = 800
+
+
+def repair_note(verdict: Any) -> str:
+    """What the model is told when its answer was held only by REPAIRABLE checks; "" otherwise."""
+    ids = set(getattr(verdict, "policy_ids", None) or [])
+    if not ids or not ids <= REPAIRABLE:
+        return ""
+    said = "; ".join(str(r) for r in getattr(verdict, "reasons", None) or [])[:REPAIR_NOTE_CHARS]
+    return ("\n\nWARDEN'S CHECKS HELD YOUR PREVIOUS ANSWER (" + ", ".join(sorted(ids)) + "): " + said +
+            "\nAnswer again from the same evidence: cite only items that exist, quote them exactly, and name only "
+            "targets the evidence names. If the evidence cannot support a fix, say so and propose escalate_to_human.")
+
+
 @workflow.defn
 class IncidentWorkflow:
     """One alert, diagnosed: prepare (read + redact, the redaction map never leaves it) -> diagnose
@@ -520,6 +539,23 @@ class IncidentWorkflow:
                     break  # e.g. the budget is spent: the earlier answer, on its own evidence, stands (review F8)
                 pack, diagnosed = wider, again
         verified = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[pack, diagnosed], **QUICK)
+        # One repair round (research 2026-10-15: a model fixes an error when told exactly where it is, and rules-based
+        # feedback is the strongest kind): an answer held ONLY by checks a better answer can pass is asked once more,
+        # with the checks' own words. Safety policies are never fed back - the model must not learn to argue past
+        # them. Within the llm zone's budget (6 calls, US$0.25 per incident); patched, so histories replay unchanged.
+        note = repair_note(verified.verdict)
+        if note and not diagnosed.model_unavailable and workflow.patched("verify-repair"):
+            try:
+                again = await workflow.execute_activity_method(
+                    acts.diagnose, **_zoned(acts.diagnose),
+                    args=[pack.model_copy(update={"prompt": pack.prompt + note}), escalate_only],
+                    start_to_close_timeout=timedelta(minutes=10), retry_policy=RetryPolicy(maximum_attempts=1))
+                if not again.model_unavailable:
+                    checked = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify),
+                                                                     args=[pack, again], **QUICK)
+                    diagnosed, verified = again, checked
+            except ActivityError:
+                pass  # the first answer, verified, stands
         # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
         # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
         # plan's request for approval when a plan opens, else on its own with why there is none.
