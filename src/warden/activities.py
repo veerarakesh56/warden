@@ -1217,6 +1217,11 @@ class IncidentActivities:
                         + f" while it was {why}; it was still firing when that ended, so it is an incident from "
                         f"{environments.both_times(_when_iso(pack.alert.started_at) or datetime.now(UTC), seconds=False)}."
                         f"\n{rest}")
+        # Fixed before and failing again (owner, 2026-10-15): said under the title, so the channel's message carries it.
+        said_again = history.again(before)
+        if said_again:
+            title, _, rest = markdown.partition("\n")
+            markdown = f"{title}\n\n{said_again}\n{rest}"
         people = self.policy.people() if self.policy is not None else ()
         if mode:
             from .gate import enforce

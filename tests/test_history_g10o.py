@@ -54,6 +54,22 @@ def test_the_record_of_a_resource_is_its_earlier_fixes_how_each_ended_and_who_ap
     assert history.past(_alert(eventbridge_rule="x", namespace="warden-dev-lab-tick"), log) == []
 
 
+def test_a_resource_fixed_before_and_failing_again_is_said_in_the_channels_message():
+    """Owner, 2026-10-15: "after deployment something breaks after some time - not only tagging them, should also
+    report in the Slack". The record page had it; the channel's message (the report's top) did not."""
+    from warden.activities import slack_summary
+
+    log = _log()
+    _ran(log, "inc-1", "recovered")
+    _ran(log, "inc-2", "not_recovered", run="r2", plan_hash="h2")
+    rows = history.past(_alert(), log)
+    line = history.again(rows)
+    assert line.startswith("**Again:** WARDEN fixed this resource before - ")
+    assert f"`events_enable_rule` on `{TARGET}` · worked · approved by @@owner@@" in line
+    assert history.again([r for r in rows if r["status"] == "not_recovered"]) == ""  # never fixed: not "again"
+    assert line in slack_summary(f"# WARDEN incident report\n\n{line}\n\n## What WARDEN read\n- evidence")
+
+
 def test_the_record_holds_no_prose_of_a_past_diagnosis():
     log = _log()
     _ran(log, "inc-1", "rolled_back")

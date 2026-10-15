@@ -94,6 +94,22 @@ def _line(row: dict[str, Any]) -> str:
     return f"{both_times(row['at'], seconds=False)} · `{row['entry']}` on `{row['target']}` · {how}{who}"
 
 
+# The earlier fixes that make this incident a failure AGAIN: one that worked (or worked and failed again) on this
+# resource in LOOKBACK. Owner, 2026-10-15: when something breaks again after a fix, Slack must say so, not only the
+# record page.
+FIXED_BEFORE = frozenset({"recovered", "relapsed", "mitigated"})
+
+
+def again(rows: list[dict[str, Any]]) -> str:
+    """The Slack message's line for an incident on a resource WARDEN fixed before - its newest such fix - or ""."""
+    fixed = [r for r in rows if r["status"] in FIXED_BEFORE]
+    if not fixed:
+        return ""
+    more = f" ({len(fixed) - 1} more earlier, on the full record)" if len(fixed) > 1 else ""
+    return (f"**Again:** WARDEN fixed this resource before - {_line(fixed[0])}{more}. It is failing again: whether that "
+            "fix is related is for the diagnosis and a person to judge.")
+
+
 def section(rows: list[dict[str, Any]]) -> str:
     """The report's section: WARDEN's record of this resource, as facts."""
     if not rows:
