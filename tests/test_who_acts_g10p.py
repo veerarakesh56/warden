@@ -44,7 +44,16 @@ def test_a_fix_held_only_for_an_unaddressed_change_says_wardens_own_offer_is_com
 
 def test_the_team_that_owns_the_resource_is_named_by_its_kind_and_developers_when_code_or_a_deploy_is_in_the_evidence():
     rule = _report().markdown
-    assert "**Platform / DevOps**: owns warden-dev-tick: confirm the cause and stop it happening again." in rule
+    # What would stop it happening again, for the kind of fix proposed (owner, 2026-10-15: "what are the counter
+    # measures") - a scale-up's here.
+    assert ("**Platform / DevOps**: owns warden-dev-tick: confirm the cause, then stop it happening again - size the "
+            "service from its measured peak, with an alarm before it runs out of headroom.") in rule
+    assert "**Who changed it**" not in rule  # no change in the evidence: nobody is named
+    change = ("CHANGE 2026-10-15T11:57:16Z ecs.amazonaws.com UpdateService on warden-dev-tick by "
+              "role/warden-dev-deploy request=desiredCount")
+    changed = _report(logs=[change]).markdown
+    assert ("**Who changed it**: the newest change before the alert was `UpdateService` on `warden-dev-tick` at "
+            "2026-10-15T11:57:16Z by `role/warden-dev-deploy`") in changed
     assert "**Developers**" not in rule and "**DBA / data**" not in rule
     table = _report(labels={"dynamodb_table": "warden-dev-orders", "alarm": "a"}).markdown
     assert "**DBA / data**: owns warden-dev-orders" in table

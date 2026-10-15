@@ -520,6 +520,41 @@ _DATA_KINDS = frozenset({"aurora_cluster", "rds_instance", "dynamodb_table", "do
 _OFFERED_UNDO = {"P31-UNADDRESSED-CHANGE"}  # held by this policy alone, WARDEN offers the undo itself (activities)
 
 
+# What would stop it happening again, by the kind of fix WARDEN proposed (owner, 2026-10-15: "what are the counter
+# measures"). Fixed words for a class of cause, never the model's prose; a person still judges them.
+_PREVENT = {
+    "revert_config": "check configuration values before they ship (the service refused this one), and roll config out "
+                     "in stages so a bad value reaches one replica first",
+    "rollback_deploy": "add a pre-release check or canary that would have caught this version, and keep automatic "
+                       "rollback on for the service",
+    "revert_change": "make changes to this resource through reviewed infrastructure code, not by hand",
+    "scale_up": "size the service from its measured peak, with an alarm before it runs out of headroom",
+    "raise_limit": "set the limit from measured peak use, with an alarm at 80% of it",
+    "restart_pods": "find what wedges the process (memory, connections, a lock) - a restart only clears it for now",
+    "terminate_connections": "set idle and idle-in-transaction timeouts, and size the connection pool to the database",
+    "cancel_query": "set a statement timeout, and review the query and its indexes",
+    "redrive_messages": "fix the consumer's error before redriving, and alarm on the dead-letter queue's depth",
+    "resume_flow": "alarm when a consumer or trigger is disabled, and limit who may disable it",
+    "pause_flow": "fix what the paused consumer or trigger did before resuming it",
+    "failover_replica": "check the replica's health and lag regularly, so a failover finds it ready",
+    "shift_traffic": "keep enough capacity in each zone to take a zone's traffic",
+    "clear_cache": "find what filled or poisoned the cache, and bound its size and entry lifetime",
+    "freeze_changes": "find the change that broke it before releasing again",
+}
+# A write CloudTrail recorded before the alert (aws_stack._read_changes): when, what, on which resource, by whom - the
+# principal by kind and an administrator-set name, never a session name.
+_CHANGE_LINE = re.compile(r"^CHANGE (\S+) \S+ ([A-Za-z0-9]+) on (\S+) by (\S+)")
+
+
+def _changed_by(logs: list[str]) -> str:
+    """The newest write before the alert, as "Event on resource at time by principal" - or ""."""
+    found = sorted((m.groups() for m in map(_CHANGE_LINE.match, logs) if m), reverse=True)
+    if not found:
+        return ""
+    at, event, on, by = found[0]
+    return f"`{event}` on `{on}` at {at} by `{by}`"
+
+
 def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
     """Who has something to do about this incident now, and what - on every report (owner, 2026-10-12: "I see only
     Platform / DevOps here", and only when a fixed pattern had fired). From what the report already holds: the gate's
@@ -547,7 +582,13 @@ def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
     named = sorted({v.strip() for k in kinds for v in str(alert.labels[k]).split(",") if v.strip()})
     if named:
         team = "DBA / data" if kinds & _DATA_KINDS else "Platform / DevOps"
-        out.append([team, f"owns {', '.join(named[:3])}: confirm the cause and stop it happening again"])
+        prevent = _PREVENT.get(str((data.get("proposal") or {}).get("action") or ""))
+        out.append([team, f"owns {', '.join(named[:3])}: confirm the cause, then stop it happening again"
+                    + (f" - {prevent}" if prevent else "")])
+    changed = data.get("changed_by") or ""
+    if changed:
+        out.append(["Who changed it", (f"the newest change before the alert was {changed}: that person or "
+                                       "pipeline should look first")])
     if data.get("code") or (data.get("evidence") or {}).get("recent_deploys"):
         out.append(["Developers", "the evidence holds a code finding or a recent deploy: review that change"])
     return out
@@ -711,6 +752,7 @@ def build_report(
             "applied_change": remediation.applied_change,
             "principal": remediation.principal,
         }
+    data["changed_by"] = _changed_by(list(ctx.logs))
     data["who_acts"] = _who_acts(alert, data)
 
     # ⛔ ONE redaction pass over everything, SEEDED WITH THE PIPELINE'S OWN MAP - then, and only
