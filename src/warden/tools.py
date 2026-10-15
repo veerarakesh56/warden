@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
@@ -347,6 +348,15 @@ def _numbers(metrics: object) -> dict[str, float]:
     return out
 
 
+# A third-party source that answered and found nothing (datadog.py, grafana.py, xray.py: "no error lines for ...",
+# "no failed traces/spans for ..."). Not a failed read: an EMPTY one - unknown, never a sign of health (P23 still
+# refuses "no action" on it), re-read once while the alert is young (item 3), and no longer a reason for P8 to hold
+# every fix (fs-22 run 2, 2026-10-15: Grafana's empty answer held the plan). The segments before it are WARDEN's own
+# reader tags; an application's text never starts a TOOL-PARTIAL line.
+_NOTHING_FOUND = re.compile(r"^(?:[a-z0-9/_.-]+(?: [a-z]+)?: )*?(datadog|grafana|xray) (logs|traces): "
+                            r"no (?:error lines|failed traces|failed spans) for \S+ between ")
+
+
 def _log_failed_reads(errors: list[str]) -> None:
     """One WARNING per incident naming each read that failed and how, in OUTCOMES' words only - never the error's
     text, which can quote a log line. The cloud's failed reads were visible only inside each incident's record
@@ -398,6 +408,12 @@ def gather(
                         # the run's ONE placeholder map; scrubbing them here with a fresh map gave
                         # `<IPV4_1>` two meanings - one host in a tool error, another in the logs.
                         text = p[len(PARTIAL_PREFIX):]
+                        found = _NOTHING_FOUND.match(text)
+                        if found:
+                            source = f"{found.group(1)} {found.group(2)}"
+                            if source not in bundle.empty_reads:
+                                bundle.empty_reads.append(source)
+                            continue
                         bundle.tool_errors.append(text if text.startswith(f"{name}: ") else f"{name}: {text}")
                     sp.set_attribute("warden.tool.partial_failures", len(partial))
                     if sink == "logs":
