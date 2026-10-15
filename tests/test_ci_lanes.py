@@ -95,7 +95,10 @@ def test_every_action_is_pinned_to_a_full_commit_sha():
     uses = [(f.name, m.group(1)) for f in CI.parent.glob("*.yml")
             for m in re.finditer(r"^\s*-?\s*uses:\s*(\S+)", f.read_text(encoding="utf-8"), re.MULTILINE)]
     assert uses
-    loose = [(f, u) for f, u in uses if not u.startswith("$/") and not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", u)]
+    # This repository's own workflows (`./.github/workflows/...`; `$/` was an undocumented spelling GitHub accepted) are
+    # pinned by the commit that calls them.
+    loose = [(f, u) for f, u in uses if not u.startswith(("./", "$/"))
+             and not re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", u)]
     assert loose == [], loose
 
 
@@ -194,3 +197,29 @@ def test_every_ci_image_build_uses_the_hosts_network():
         encoding="utf-8")
     builds = re.findall(r"docker build[^\n]*", text)
     assert builds and all("--network=host" in b for b in builds), builds
+
+
+def test_only_dev_deploys_on_merge_and_infra_only_plans_there():
+    """Owner, 2026-10-16: dev is run as production and a merge to main reaches it - dev alone (the account has no room
+    for another environment). Infra never applies on a push: it plans, and its apply is a reviewed second step
+    (apply-plan) that applies exactly that plan. The merge workflow shares Deploy · dev's queue."""
+    import pathlib
+
+    import yaml
+
+    flows = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
+    deployers = {}
+    for f in flows.glob("*.yml"):
+        wf = yaml.safe_load(f.read_text(encoding="utf-8"))
+        calls = [j for j in (wf.get("jobs") or {}).values()
+                 if str(j.get("uses", "")).endswith(("/_apps-deploy.yml", "/_infra-deploy.yml"))]
+        if calls and "push" in wf[True]:
+            deployers[f.name] = (wf, calls)
+    assert set(deployers) == {"on-merge-dev.yml"}, sorted(deployers)
+    wf, calls = deployers["on-merge-dev.yml"]
+    assert wf[True]["push"]["branches"] == ["main"]
+    assert wf["concurrency"] == {"group": "deploy-dev", "cancel-in-progress": False}
+    for job in calls:
+        assert job["with"]["environment"] == "dev"
+        if job["uses"].endswith("/_infra-deploy.yml"):
+            assert job["with"]["action"] == "plan"  # never apply or destroy on a push

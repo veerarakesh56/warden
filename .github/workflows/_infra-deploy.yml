@@ -22,6 +22,15 @@ on:
       stack:
         type: string
         default: fullstack
+      # apply-plan only (owner, 2026-10-16: infra applies only a plan someone reviewed): the plan run's id and the
+      # SHA-256 of the plan file the reviewer read. The plan is applied only if both match, and only at the commit it
+      # was made from.
+      plan_run_id:
+        type: string
+        default: ""
+      plan_sha256:
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -49,7 +58,7 @@ jobs:
           exit 1
       - name: A known action
         run: |
-          case "$ACTION" in plan|apply|destroy) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
+          case "$ACTION" in plan|apply|apply-plan|destroy) ;; *) echo "::error::unknown action: $ACTION"; exit 1 ;; esac
           case "$STACK" in fullstack|undo-lab) ;; *) echo "::error::unknown stack: $STACK"; exit 1 ;; esac
       - name: The environment names its region
         run: |
@@ -110,7 +119,7 @@ jobs:
           # The environment IS the workspace; terraform refuses any other (main.tf precondition).
           terraform -chdir="terraform/$STACK" workspace select -or-create "$WARDEN_ENV"
       - name: plan, and Helios on it (R56)
-        if: env.ACTION != 'destroy'
+        if: env.ACTION == 'plan' || env.ACTION == 'apply'
         run: |
           set -o pipefail
           terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/before.json"
@@ -119,8 +128,43 @@ jobs:
           # Refuses the change when it fails anything under a scenario today's stack survives.
           python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
             --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: keep the plan for review (private state bucket, never a public artifact)
+        if: env.ACTION == 'plan'
+        env:
+          RUN: ${{ github.run_id }}
+        run: |
+          # A run's artifacts are downloadable by anyone signed in to GitHub on a public repository, and a plan holds
+          # every ARN (the account id): the plan is kept in the private state bucket, with the commit it was made at.
+          sum=$(sha256sum "$RUNNER_TEMP/tfplan" | cut -d' ' -f1)
+          aws s3 cp "$RUNNER_TEMP/tfplan" "s3://$BUCKET/$STACK/plans/$RUN.tfplan" --only-show-errors
+          printf '{"commit":"%s","sha256":"%s","stack":"%s","environment":"%s"}\n' "$GITHUB_SHA" "$sum" "$STACK" "$WARDEN_ENV" \
+            > "$RUNNER_TEMP/plan-meta.json"
+          aws s3 cp "$RUNNER_TEMP/plan-meta.json" "s3://$BUCKET/$STACK/plans/$RUN.json" --only-show-errors
+          { echo "### Plan kept for review"; echo "run \`$RUN\` · commit \`$GITHUB_SHA\` · plan sha256 \`$sum\`";
+            echo "Apply exactly this plan: Deploy · <env> → infra_action apply-plan, with this run id and sha256."; } \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: fetch the reviewed plan, and Helios on it again (R56)
+        if: env.ACTION == 'apply-plan'
+        env:
+          PLAN_RUN: ${{ inputs.plan_run_id }}
+          PLAN_SHA: ${{ inputs.plan_sha256 }}
+        run: |
+          set -o pipefail
+          [[ "$PLAN_RUN" =~ ^[0-9]{1,20}$ ]] || { echo "::error::plan_run_id must be a run id"; exit 1; }
+          [[ "$PLAN_SHA" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::plan_sha256 must be the plan's 64-hex sha256"; exit 1; }
+          aws s3 cp "s3://$BUCKET/$STACK/plans/$PLAN_RUN.tfplan" "$RUNNER_TEMP/tfplan" --only-show-errors
+          aws s3 cp "s3://$BUCKET/$STACK/plans/$PLAN_RUN.json" "$RUNNER_TEMP/plan-meta.json" --only-show-errors
+          # The bytes the reviewer read, made at this very commit for this stack and environment - or nothing is applied.
+          echo "$PLAN_SHA  $RUNNER_TEMP/tfplan" | sha256sum -c - || { echo "::error::the plan is not the one reviewed"; exit 1; }
+          jq -e --arg c "$GITHUB_SHA" --arg s "$STACK" --arg e "$WARDEN_ENV" \
+            '.commit == $c and .stack == $s and .environment == $e' "$RUNNER_TEMP/plan-meta.json" > /dev/null \
+            || { echo "::error::the plan was made at another commit, stack or environment: plan again"; exit 1; }
+          terraform -chdir="terraform/$STACK" show -json > "$RUNNER_TEMP/before.json"
+          terraform -chdir="terraform/$STACK" show -json "$RUNNER_TEMP/tfplan" > "$RUNNER_TEMP/plan.json"
+          python scripts/helios_gate.py --helios "$HELIOS_BIN" --stack "$STACK" --plan "$RUNNER_TEMP/plan.json" \
+            --baseline "$RUNNER_TEMP/before.json" --out-dir "$RUNNER_TEMP/helios-scenarios" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: apply and publish stack.json
-        if: env.ACTION == 'apply'
+        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan'
         run: |
           # The plan Helios checked, and nothing else.
           terraform -chdir="terraform/$STACK" apply -input=false -no-color "$RUNNER_TEMP/tfplan"
@@ -141,7 +185,7 @@ jobs:
           fi
           aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/$STACK/stack.json" --only-show-errors
       - name: Helios on the applied state (R56)
-        if: env.ACTION == 'apply'
+        if: env.ACTION == 'apply' || env.ACTION == 'apply-plan'
         run: |
           set -o pipefail
           # The scenarios a plan could not decide (values unknown until apply), and every other one again.

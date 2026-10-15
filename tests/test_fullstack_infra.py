@@ -762,7 +762,9 @@ def test_aurora_status_says_whether_the_cluster_is_up():
 def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
     text = (ROOT / ".github" / "workflows" / "_infra-deploy.yml").read_text(encoding="utf-8")
     # One workflow, two stacks (2026-10-11): Aurora is the full stack's only, and the undo lab never reaches it.
-    assert text.index('"terraform/$STACK" apply') < text.index("aurora_express.py create") < text.index("aws s3 cp")
+    # The stack.json upload (a plan kept for review is copied to the bucket earlier, 2026-10-16).
+    assert (text.index('"terraform/$STACK" apply') < text.index("aurora_express.py create")
+            < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"'))
     assert text.index("aurora_express.py destroy") < text.index('"terraform/$STACK" destroy')
     # A re-apply keeps the apps deploy's baseline revision (lost once, 2026-10-15), merged in before the upload.
     keep = text.index('select(.key == "ecs_baseline_task_definition")')
