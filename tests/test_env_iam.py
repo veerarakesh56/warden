@@ -544,6 +544,28 @@ def test_an_apis_access_logs_go_only_to_its_own_environments_group():
                                                      f"arn:aws:logs:*:*:log-group:/aws/vendedlogs/warden-{env}-*"}}
 
 
+_HARNESS_CLIENTS = {"lam": "lambda", "ddb": "dynamodb", "ec": "elasticache", "elbv2": "elasticloadbalancing",
+                    "cw": "cloudwatch", "secrets": "secretsmanager", "events": "events", "sqs": "sqs", "ec2": "ec2",
+                    "rds": "rds", "ecs": "ecs", "iam": "iam"}
+
+
+def test_every_aws_call_the_fault_scripts_make_is_allowed_by_the_harness_policy():
+    """The first live status run with the harness (2026-10-15) was refused cloudwatch:DescribeAlarms, lambda:ListTags
+    and elasticache:ListTagsForResource: the policy was written by hand from the calls remembered. Every call through
+    the harness's clients (`c.<client>.<method>(`) now maps to an allowed action."""
+    src = "".join((ROOT / "scenarios" / f).read_text(encoding="utf-8") for f in ("ops_fullstack.py", "fullstack_cli.py"))
+    calls = set(re.findall(r"\bc\.(" + "|".join(_HARNESS_CLIENTS) + r")\.([a-z_]+)\(", src))
+    assert len(calls) >= 50, "the call scan found too little - the clients were renamed"
+    allowed = [a for s in _load("dev", "harness")["Statement"] if s["Effect"] == "Allow" for a in _list(s["Action"])]
+    missing = []
+    for client, method in sorted(calls):
+        action = f"{_HARNESS_CLIENTS[client]}:" + "".join(w.capitalize() for w in method.split("_"))
+        action = {"lambda:Invoke": "lambda:InvokeFunction"}.get(action, action)
+        if not any(fnmatch.fnmatchcase(action.lower(), p.lower()) for p in allowed):
+            missing.append(action)
+    assert not missing, missing
+
+
 def test_the_harness_reads_the_stack_file_and_never_the_terraform_state():
     """The infra deploy publishes stack.json (non-sensitive outputs only) beside the state; the harness reads that one
     object (2026-10-15) - never terraform.tfstate, which holds every sensitive value in plaintext."""

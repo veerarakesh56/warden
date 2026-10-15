@@ -131,6 +131,14 @@ jobs:
           if [ "$STACK" = fullstack ]; then
             python terraform/fullstack/aurora_express.py create --stack "$RUNNER_TEMP/stack.json"
           fi
+          # The apps deploy's own key - ecs_baseline_task_definition, the revision the harness reverts to - is kept: an
+          # infra apply never changes the service's task definition (ecs.tf ignores it), and a re-apply dropped the
+          # key, leaving the harness unable to start (2026-10-15).
+          if aws s3 cp "s3://$BUCKET/$STACK/stack.json" "$RUNNER_TEMP/previous.json" --only-show-errors 2>/dev/null; then
+            jq -s '(.[0] | with_entries(select(.key == "ecs_baseline_task_definition"))) + .[1]' \
+              "$RUNNER_TEMP/previous.json" "$RUNNER_TEMP/stack.json" > "$RUNNER_TEMP/merged.json"
+            mv "$RUNNER_TEMP/merged.json" "$RUNNER_TEMP/stack.json"
+          fi
           aws s3 cp "$RUNNER_TEMP/stack.json" "s3://$BUCKET/$STACK/stack.json" --only-show-errors
       - name: Helios on the applied state (R56)
         if: env.ACTION == 'apply'

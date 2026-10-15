@@ -764,6 +764,9 @@ def test_the_infra_pipeline_creates_aurora_after_apply_and_destroys_it_first():
     # One workflow, two stacks (2026-10-11): Aurora is the full stack's only, and the undo lab never reaches it.
     assert text.index('"terraform/$STACK" apply') < text.index("aurora_express.py create") < text.index("aws s3 cp")
     assert text.index("aurora_express.py destroy") < text.index('"terraform/$STACK" destroy')
+    # A re-apply keeps the apps deploy's baseline revision (lost once, 2026-10-15), merged in before the upload.
+    keep = text.index('select(.key == "ecs_baseline_task_definition")')
+    assert text.index("aurora_express.py create") < keep < text.index('aws s3 cp "$RUNNER_TEMP/stack.json"')
     for step in ("aurora_express.py create", "aurora_express.py destroy"):
         assert 'if [ "$STACK" = fullstack ]; then' in text[text.index(step) - 90:text.index(step)], step
     assert 'case "$STACK" in fullstack|undo-lab) ;;' in text and "terraform/fullstack apply" not in text
