@@ -1205,7 +1205,8 @@ class StackBackend:
         text and no wait-event names reach the evidence. Free within PI's 7-day window and 1M API calls a month."""
         started = AwsBackend._started_at(alert)
         queries = [{"Metric": "db.load.avg"},
-                   {"Metric": "db.load.avg", "GroupBy": {"Group": "db.wait_event_type", "Limit": 6}}]
+                   {"Metric": "db.load.avg", "GroupBy": {"Group": "db.wait_event_type", "Limit": 6}},
+                   {"Metric": "db.load.avg", "GroupBy": {"Group": "db.sql_tokenized", "Limit": TOP_SQL}}]
         for inst in instances:
             name = inst.get("DBInstanceIdentifier", "?")
             if not inst.get("PerformanceInsightsEnabled") or not inst.get("DbiResourceId"):
@@ -1218,14 +1219,24 @@ class StackBackend:
             except Exception as exc:  # noqa: BLE001 - one member unread is data, the others still read
                 out.lines.append(_partial("aurora metrics", exc))
                 continue
+            top: list[tuple[float, str]] = []
             for m in got.get("MetricList") or []:
                 values = [p["Value"] for p in m.get("DataPoints") or []
                           if isinstance(p.get("Value"), int | float) and not isinstance(p.get("Value"), bool)]
                 if not values:
                     continue
-                kind = ((m.get("Key") or {}).get("Dimensions") or {}).get("db.wait_event_type.name")
+                dims = (m.get("Key") or {}).get("Dimensions") or {}
+                if "db.sql_tokenized.statement" in dims:
+                    top.append((float(max(values)), str(dims.get("db.sql_tokenized.statement") or "")))
+                    continue
+                kind = dims.get("db.wait_event_type.name")
                 key = "aurora_db_load" + (f"_{re.sub(r'[^a-z0-9]', '', str(kind).lower())[:20]}" if kind else "")
                 out.metrics[key] = max(out.metrics.get(key, 0.0), float(max(values)))
+            total = out.metrics.get("aurora_db_load", 0.0)
+            for rank, (load, sql) in enumerate(sorted(top, key=lambda t: -t[0])[:TOP_SQL], start=1):
+                share = f" ({load / total:.0%} of the load)" if total else ""
+                out.lines.append(f"STATE aurora {_one_line(name)} top-sql #{rank} load={load:.2f}{share} "
+                                 f"{sql_shape(sql)}")
 
     def _insights(self, out: _Out, alert: Alert, group: str, tag: str, sfx: str) -> None:
         """CloudWatch Logs Insights (requirement R22): error lines per minute over the WHOLE alert window, counted by
@@ -1659,6 +1670,24 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
     if any(st.get("Effect") == "Deny" and matches(st, unknown=True) for st in statements):
         return False
     return any(st.get("Effect") == "Allow" and matches(st, unknown=False) for st in statements)
+
+
+# Performance Insights' heaviest statements, as numbers and names only (2026-10-15: "do you see the queries").
+TOP_SQL = 5
+_SQL_VERB = re.compile(r"^\s*(?:/\*.*?\*/\s*)*([A-Za-z]+)", re.S)
+_SQL_TABLE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+((?:[A-Za-z_][A-Za-z0-9_$]{0,62}\.)?[A-Za-z_][A-Za-z0-9_$]{0,62})",
+                        re.I)
+_SQL_VERBS = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "COPY", "VACUUM", "ANALYZE", "CREATE", "ALTER",
+                        "DROP", "LOCK", "BEGIN", "COMMIT", "CALL", "MERGE", "SET", "SHOW", "TRUNCATE", "REFRESH"})
+
+
+def sql_shape(sql: str) -> str:
+    """`kind=<verb> tables=<a,b>`: a statement as its kind and the tables it names - never its text, which a client
+    writes and may carry words aimed at WARDEN (the reason this reader read no SQL before)."""
+    verb = (m.group(1).upper() if (m := _SQL_VERB.match(sql)) else "")
+    tables = sorted({t.lower() for t in _SQL_TABLE.findall(sql)})[:4]
+    return (f"kind={verb if verb in _SQL_VERBS else 'other'}"
+            + (f" tables={','.join(tables)}" if tables else ""))
 
 
 def iam_dsn(rds: Any, dsn: str) -> str:
