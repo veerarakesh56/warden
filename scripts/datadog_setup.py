@@ -144,6 +144,9 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
     p.add_argument("--env", required=True, help="the runtime's environment (its secrets and settings)")
     p.add_argument("--stack", required=True, help="the watched environment the monitors are for")
     p.add_argument("--domain", default="", help="the approval domain, where the setting is not in Parameter Store")
+    p.add_argument("--monitors-only", action="store_true",
+                   help="update the monitors alone: the webhook and its token are left as they are (a new token would "
+                        "be refused by a warm webhook Lambda until it restarts)")
     args = p.parse_args(argv)
     if aws is None:
         import boto3
@@ -152,10 +155,12 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
     sm, ssm = aws("secretsmanager"), aws("ssm")
     env = args.env
     site = ssm.get_parameter(Name=f"/warden/{env}/env/WARDEN_DATADOG_SITE")["Parameter"]["Value"].strip()
-    domain = args.domain.strip() or ssm.get_parameter(
-        Name=f"/warden/{env}/env/WARDEN_APPROVAL_RP_ID")["Parameter"]["Value"].strip()
-    if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", domain):
-        raise SystemExit(f"{domain!r} is not a domain name")
+    domain = ""
+    if not args.monitors_only:
+        domain = args.domain.strip() or ssm.get_parameter(
+            Name=f"/warden/{env}/env/WARDEN_APPROVAL_RP_ID")["Parameter"]["Value"].strip()
+        if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", domain):
+            raise SystemExit(f"{domain!r} is not a domain name")
     # The API key from the same local folder as the setup key: the operator may store secrets, never read them back.
     api_key = pathlib.Path(os.environ.get("WARDEN_DATADOG_API_KEY_FILE")
                            or pathlib.Path.home() / ".warden" / "datadog-api-key.txt").read_text(encoding="utf-8-sig").strip()
@@ -163,6 +168,10 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
                             or pathlib.Path.home() / ".warden" / "datadog-setup-key.txt")
     app_key = key_file.read_text(encoding="utf-8").strip()
     dd = Datadog(site, api_key, app_key, call)
+    if args.monitors_only:
+        for line in ensure_monitors(dd, args.stack):
+            print(f"monitor {line}")
+        return 0
     token = secrets.token_urlsafe(32)
     # The token is stored before the webhook carries it: a webhook that sends a token WARDEN does not hold is refused.
     sm.put_secret_value(SecretId=f"warden/{env}/datadog-webhook-token", SecretString=token)

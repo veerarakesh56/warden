@@ -202,3 +202,19 @@ def test_setup_makes_the_webhook_monitors_and_dashboard_once_and_never_prints_th
     assert again != token and json.loads(dd.webhook["custom_headers"]) == {"Authorization": f"Bearer {again}"}
     with pytest.raises(SystemExit):
         mod.Datadog("evil.example", "k", "a")
+
+
+def test_monitors_only_updates_the_monitors_and_leaves_the_webhook_and_its_token(tmp_path, monkeypatch):
+    """2026-10-15: a full run rotates the webhook token, which a warm webhook Lambda refuses until it restarts; the
+    monitors' new grouping (kube_cluster_name, kube_namespace) needs no new token."""
+    mod = _setup()
+    for name, value in (("WARDEN_DATADOG_SETUP_KEY_FILE", "dd-app-" + "s" * 10), ("WARDEN_DATADOG_API_KEY_FILE",
+                                                                               "dd-api-" + "k" * 10)):
+        f = tmp_path / name
+        f.write_text(value, encoding="utf-8")
+        monkeypatch.setenv(name, str(f))
+    aws, dd = Aws(), DD()
+    assert mod.main(["--env", "ops", "--stack", "dev", "--monitors-only"], aws=aws, call=dd) == 0
+    assert aws.stored == {} and dd.webhook is None and not dd.boards
+    assert len(dd.monitors) == 4
+    assert all("kube_cluster_name" in m["query"] for m in dd.monitors.values() if m["type"] == "query alert")
