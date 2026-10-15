@@ -95,6 +95,24 @@ def test_writes_that_happened_are_changes_by_principal_kind_never_the_session_na
     assert asked == {"warden-dev-jobs"}
 
 
+def test_no_write_on_a_fresh_alert_is_not_yet_no_change(monkeypatch):
+    """CloudTrail lists a write about 5 minutes after it (research 2026-10-15): read at the alert's +2 min, "CHANGE none"
+    ruled out the change made just before the alarm. Until the alert is CLOUDTRAIL_DELIVERY old it says so."""
+    from datetime import UTC, datetime, timedelta
+
+    from warden import aws_stack
+
+    fresh = datetime.now(UTC) - timedelta(minutes=2)
+    b, _, _ = _backend(_alarm(), [])
+    alert = _alert().model_copy(update={"started_at": fresh.isoformat()})
+    lines = b._read_all(alert).lines
+    assert not any(ln.startswith("CHANGE none on") for ln in lines)
+    [said] = [ln for ln in lines if ln.startswith("CHANGE none delivered yet on warden-dev-jobs")]
+    assert "is 2 min old" in said
+    monkeypatch.setattr(aws_stack, "CLOUDTRAIL_DELIVERY", timedelta(minutes=1))
+    assert any(ln.startswith("CHANGE none on warden-dev-jobs") for ln in b._read_all(alert).lines)
+
+
 def test_a_complete_read_with_no_write_says_so_and_a_failed_one_says_it_failed():
     b, _, _ = _backend(_alarm(), [_event("GetQueueAttributes", read_only="true")])
     assert "CHANGE none on warden-dev-jobs in the 6 h before the alert" in b._read_all(_alert()).lines

@@ -249,6 +249,10 @@ CHANGE_NAMES = 3
 CHANGE_MAX = 20
 _READ_VERBS = ("Describe", "Get", "List", "Lookup", "BatchGet", "Head", "Search", "Scan", "Query")
 CHANGE_PAGES = 5
+# CloudTrail lists a management event about 5 minutes after the call, with no guarantee (AWS CloudTrail FAQ, research
+# 2026-10-15). Until the alert is this old, "no write" only means none was delivered yet - the change just before an
+# alarm, the likeliest cause, may not be listed.
+CLOUDTRAIL_DELIVERY = timedelta(minutes=int(os.environ.get("WARDEN_CLOUDTRAIL_DELIVERY_MIN", "8")))
 # Writes CloudTrail files WITHOUT the resource's name, so a lookup by resource name never finds them (live,
 # 2026-10-12: a schedule switched off nine minutes before its alarm was read as "CHANGE none", and the report ruled a
 # change out). For a resource of these kinds the reader also looks the writes up by event name and keeps the ones
@@ -867,6 +871,10 @@ class StackBackend:
             elif truncated or len(writes) > CHANGE_MAX:
                 out.lines.append(_partial("changes", f"[output truncated on LookupEvents] more writes to {_safe(n)} "
                                                      "than were read"))
+            elif not writes and datetime.now(UTC) - started < CLOUDTRAIL_DELIVERY:
+                age = max(0, int((datetime.now(UTC) - started).total_seconds() // 60))
+                out.lines.append(f"CHANGE none delivered yet on {_safe(n)}: the alert is {age} min old and CloudTrail "
+                                 "lists a write about 5 minutes after it, so a write just before the alert may be missing")
             elif not writes:
                 out.lines.append(f"CHANGE none on {_safe(n)} in the {int(RECENT_DEPLOY_WINDOW.total_seconds() // 3600)} h "
                                  "before the alert")
