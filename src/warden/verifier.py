@@ -303,6 +303,17 @@ def _deploy_changed_access(context) -> bool:
     return any(w in changed for w in ("taskRoleArn", "executionRoleArn", ".secrets:"))
 
 
+# Research 2026-10-15, item 11: a measured fact the diagnosis cannot argue with. The IAM policy simulator's own answer
+# (aws_stack._simulate_denials, a trusted STATE line): the role's OWN policies deny the call the workload makes.
+_ROLE_DENIES = re.compile(r"^STATE iam simulate role=(\S+) action=(\S+) resource=\S+ decision=(implicitDeny|explicitDeny) ")
+# Actions that run the same workload under the same role again: none changes what the role may do. A rollback or a
+# revert may (an earlier task definition or function version, a changed role), and holding still harms nothing.
+_RERUNS_THE_DENIED_CALL = frozenset({
+    ActionKind.restart_pods, ActionKind.scale_up, ActionKind.scale_down, ActionKind.failover_replica,
+    ActionKind.clear_cache, ActionKind.terminate_connections, ActionKind.raise_limit, ActionKind.shift_traffic,
+    ActionKind.redrive_messages, ActionKind.resume_flow})
+
+
 def _contradiction(proposal, context) -> str | None:
     """Why the proposed action cannot fix what the evidence shows - or None.
 
@@ -310,6 +321,12 @@ def _contradiction(proposal, context) -> str | None:
     where the action demonstrably leaves the evidenced cause in place, or harms what is working.
     """
     a, m = proposal.action, context.metrics
+    if a in _RERUNS_THE_DENIED_CALL:
+        denied = next((d for d in map(_ROLE_DENIES.match, context.logs) if d), None)
+        if denied:
+            return (f"{a.value} runs the workload again under the same role, and the IAM policy simulator says the "
+                    f"role's own policies deny {denied.group(2)} ({denied.group(3)} for {denied.group(1)}): the "
+                    "same call is denied again. The role's permissions are what a person must change.")
     # scale_up on OOM is NOT always wrong: when memory grows with load, more replicas mean less load,
     # and less memory, per replica (the bundled inc-002 is that case). It is wrong when no replica is
     # failing (none ready, or every pod crash-looping / backing off - see _every_pod_failing) - then
