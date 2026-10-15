@@ -1810,17 +1810,34 @@ DB_LOG_LINES, DB_LOG_KEEP = 400, 30
 _DB_LOG_ERROR = re.compile(r"\b(?:ERROR|FATAL|PANIC):")
 # Performance Insights' heaviest statements, as numbers and names only (2026-10-15: "do you see the queries").
 TOP_SQL = 5
-_SQL_VERB = re.compile(r"^\s*(?:/\*.*?\*/\s*)*([A-Za-z]+)", re.DOTALL)
+_SQL_WORD = re.compile(r"[A-Za-z]+")
 _SQL_TABLE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+((?:[A-Za-z_][A-Za-z0-9_$]{0,62}\.)?[A-Za-z_][A-Za-z0-9_$]{0,62})",
                         re.IGNORECASE)
 _SQL_VERBS = frozenset({"SELECT", "INSERT", "UPDATE", "DELETE", "WITH", "COPY", "VACUUM", "ANALYZE", "CREATE", "ALTER",
                         "DROP", "LOCK", "BEGIN", "COMMIT", "CALL", "MERGE", "SET", "SHOW", "TRUNCATE", "REFRESH"})
 
 
+def _sql_verb(sql: str) -> str:
+    """The statement's first word after any leading `/* */` comments, in one linear pass. CodeQL py/redos (alert 21,
+    2026-10-15): the regex this replaces backtracked exponentially on a `/*` followed by many `*//*` - and the text is
+    whatever a database client sent, so any client could stall WARDEN's reader."""
+    i, n = 0, len(sql)
+    while True:
+        while i < n and sql[i].isspace():
+            i += 1
+        if not sql.startswith("/*", i):
+            m = _SQL_WORD.match(sql, i)
+            return m.group(0) if m else ""
+        end = sql.find("*/", i + 2)
+        if end < 0:
+            return ""  # a comment that never closes holds no statement
+        i = end + 2
+
+
 def sql_shape(sql: str) -> str:
     """`kind=<verb> tables=<a,b>`: a statement as its kind and the tables it names - never its text, which a client
     writes and may carry words aimed at WARDEN (the reason this reader read no SQL before)."""
-    verb = (m.group(1).upper() if (m := _SQL_VERB.match(sql)) else "")
+    verb = _sql_verb(sql).upper()
     tables = sorted({t.lower() for t in _SQL_TABLE.findall(sql)})[:4]
     return (f"kind={verb if verb in _SQL_VERBS else 'other'}"
             + (f" tables={','.join(tables)}" if tables else ""))
