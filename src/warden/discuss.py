@@ -178,7 +178,9 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
     socket = SocketModeClient(app_token=os.environ["WARDEN_SLACK_APP_TOKEN"].strip(),
                               web_client=AsyncWebClient(token=os.environ["WARDEN_SLACK_BOT_TOKEN"].strip()))
 
-    async def heard(sock: Any, req: Any) -> None:
+    # Not named `heard`: that name is this module's own description of an event, which the line below logs - shadowed,
+    # every event logged a coroutine that was never run (2026-10-15).
+    async def on_request(sock: Any, req: Any) -> None:
         await sock.send_socket_mode_response(SocketModeResponse(envelope_id=req.envelope_id))
         if req.type != "events_api":
             log.info("discuss: heard a %s request - ignored", req.type)
@@ -199,6 +201,6 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
         except Exception as exc:  # noqa: BLE001 - the answer still comes; only the "looking into it" did not
             log.warning("discuss: could not say it heard %s (%s)", turn.ts, type(exc).__name__)
 
-    socket.socket_mode_request_listeners.append(heard)
+    socket.socket_mode_request_listeners.append(on_request)
     await socket.connect()
     await asyncio.Event().wait()

@@ -122,6 +122,15 @@ def _safe_error(exc: BaseException) -> str:
         return "(error text withheld)"
 
 
+def gated(text: str, limit: int = 8000) -> str:
+    """`text` as the log gate lets it out (GatedFormatter): redacted as written, normalised, redacted again, bounded -
+    for a line written with print(), where no handler is (the Lambdas' own lines, inventory review 2026-10-15)."""
+    try:
+        return _redact_then_cut(normalise(redact(text).text), limit)
+    except Exception:  # noqa: BLE001 - a redaction failure must not print the raw text instead
+        return "(log text withheld)"
+
+
 class GatedFormatter(logging.Formatter):
     """A log record as the outbound gate would let it out: no control character, redacted, bounded.
     The worker's libraries log exception text and tracebacks - temporalio logs every failed activity

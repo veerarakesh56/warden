@@ -366,7 +366,9 @@ def _approvers_changed(detail: dict[str, Any]) -> dict[str, Any]:
     boto3.client("cloudwatch", region_name=region()).put_metric_data(
         Namespace=f"WARDEN/{os.environ.get('WARDEN_ENV', '')}",
         MetricData=[{"MetricName": APPROVERS_METRIC, "Value": 1, "Unit": "Count"}])
-    print(json.dumps({"approver_list_changed": body}, default=str))
+    from .observability import gated
+
+    print(gated(json.dumps({"approver_list_changed": body}, default=str)))
     return {"approver_list_changed": True, "refused": bool(body["refused"])}
 
 
@@ -407,7 +409,9 @@ def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     boto3.client("cloudwatch", region_name=region()).put_metric_data(
         Namespace=f"WARDEN/{os.environ.get('WARDEN_ENV', '')}",
         MetricData=[{"MetricName": UNAPPROVED_METRIC, "Value": 1, "Unit": "Count"}])
-    print(json.dumps({"unapproved_actor_use": body}, default=str))
+    from .observability import gated
+
+    print(gated(json.dumps({"unapproved_actor_use": body}, default=str)))
     return {"approved": False, "problems": problems}
 
 
