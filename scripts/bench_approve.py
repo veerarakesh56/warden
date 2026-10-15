@@ -4,6 +4,7 @@ incident's waiting plan and approving it through the approval page's signed path
     python scripts/bench_approve.py --new-key --environment <env>  # once: makes the key, prints the approver entry
     python scripts/bench_approve.py --incident <id>                # shows the plan this approver may approve
     python scripts/bench_approve.py --incident <id> --approve      # signs and sends the approval
+    python scripts/bench_approve.py --record <id|latest>           # reads a record (dev only, read only)
 
 The key lives at WARDEN_BENCH_KEY (default ~/.warden-bench/bench-approver.pem), never in the repository. The approval
 domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) unless --domain names it. Every approval it sends is
@@ -64,14 +65,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--incident", default="")
     ap.add_argument("--approve", action="store_true")
     ap.add_argument("--domain", default="")
+    ap.add_argument("--record", default="", help="read an incident's record, or `latest` for the newest ones")
     args = ap.parse_args(argv)
     if args.new_key:
         if not args.environment:
             ap.error("--new-key needs --environment")
         print(new_key(args.environment))
         return 0
-    if not args.incident:
-        ap.error("--incident is needed")
+    if not (args.incident or args.record):
+        ap.error("--incident or --record is needed")
     from cryptography.hazmat.primitives import serialization
 
     key = serialization.load_pem_private_key(_key_path().read_bytes(), password=None)
@@ -86,6 +88,13 @@ def main(argv: list[str] | None = None) -> int:
     from warden import approvals
 
     issued = datetime.now(UTC).isoformat()
+    if args.record:
+        wanted = "" if args.record == "latest" else args.record
+        status, got = _post(domain, "record", {
+            "approver": NAME, "incident": wanted, "issued_at": issued,
+            "signature": key.sign(approvals.record_request(NAME, wanted, issued)).hex()})
+        print(json.dumps(got, indent=2) if status == 200 else f"no record ({status}): {got.get('error', '')}")
+        return 0 if status == 200 else 1
     status, plan = _post(domain, "plan", {"approver": NAME, "incident": args.incident, "issued_at": issued,
                                           "signature": key.sign(approvals.plan_request(NAME, args.incident, issued)).hex()})
     if status != 200:

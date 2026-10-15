@@ -246,6 +246,12 @@ class ApproverPolicy(BaseModel):
         return key if isinstance(key, Ed25519PublicKey) else None
 
 
+def record_request(approver: str, incident: str, issued_at: str) -> bytes:
+    """What a limited approver signs to read an incident's record, or with no incident the latest ones
+    (approval_page._signed_record) - read only."""
+    return f"warden-record-request\n{approver}\n{incident}\n{issued_at}".encode()
+
+
 def plan_request(approver: str, incident: str, issued_at: str) -> bytes:
     """What a limited approver signs to be shown an incident's waiting plan (approval_page._signed_plan)."""
     return f"warden-plan-request\n{approver}\n{incident}\n{issued_at}".encode()

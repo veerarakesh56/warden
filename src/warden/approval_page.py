@@ -270,8 +270,10 @@ class ApprovalPage:
         """`/a/signed/plan` and `/a/signed/approve`: an approver limited to some environments (the bench approver,
         owner 2026-10-15) asks for an incident's waiting plan with a signed request, then sends a signed approval of
         it. Every check of approvals.check runs here and again in the workflow; an approver with no environment list
-        - a person - never uses this path."""
-        if self.signed is None or self.log is None or step not in ("plan", "approve"):
+        - a person - never uses this path. `/a/signed/record`: that approver reads the record of an incident in its
+        environments, read only (owner, 2026-10-15: access to WARDEN's incidents and records, for dev)."""
+        if (self.log is None or step not in ("plan", "approve", "record")
+                or (step != "record" and self.signed is None)):
             return _json(404, {"error": "not found"})
         try:
             data = json.loads(body) if body else {}
@@ -282,6 +284,8 @@ class ApprovalPage:
             return _json(403, {"error": "not an approver this path is for"})
         if step == "plan":
             return self._signed_plan(str(data["approver"]), data)
+        if step == "record":
+            return self._signed_record(str(data["approver"]), data)
         try:
             approval = approvals.SignedApproval.model_validate(data)
         except Exception:  # noqa: BLE001 - a malformed approval is refused whole
@@ -298,18 +302,56 @@ class ApprovalPage:
         self.signed(plan.workflow_id, approval)
         return _json(202, {"sent": plan.workflow_id})
 
-    def _signed_plan(self, name: str, data: dict) -> Response:
-        """The incident's waiting plan, to the limited approver who signed `plan-request|approver|incident|time` in
-        the last five minutes - only a plan in an environment and a tier it may approve."""
-        incident, issued = str(data.get("incident", "")), str(data.get("issued_at", ""))
+    def _signature_refused(self, name: str, data: dict, message: bytes) -> Response | None:
+        """None when `name` signed `message` in the last five minutes; else the refusal, the same for every cause."""
         try:
-            at = datetime.fromisoformat(issued)
-            key = self.policy.key_of(name)
-            key.verify(bytes.fromhex(str(data.get("signature", ""))), approvals.plan_request(name, incident, issued))
+            at = datetime.fromisoformat(str(data.get("issued_at", "")))
+            self.policy.key_of(name).verify(bytes.fromhex(str(data.get("signature", ""))), message)
         except Exception:  # noqa: BLE001 - an unparsable time, an unknown key or a bad signature: refused the same
             return _json(403, {"error": "the request is not signed by that approver"})
         if abs(self.clock() - at) > timedelta(minutes=5):
             return _json(403, {"error": "the request is too old"})
+        return None
+
+    def _signed_record(self, name: str, data: dict) -> Response:
+        """An incident's record - or, with no incident, the latest RECORD_LIST of them - to the limited approver who
+        signed `record-request|approver|incident|time` in the last five minutes: only incidents in an environment it
+        may approve in. Read only; the same rows the records page shows a signed-in reader."""
+        from . import records
+
+        incident = str(data.get("incident", ""))
+        refused = self._signature_refused(name, data, approvals.record_request(name, incident,
+                                                                              str(data.get("issued_at", ""))))
+        if refused:
+            return refused
+        allowed = set(self.policy.approvers[name].environments)
+        if not incident:
+            listed = []
+            for i in records.incident_ids(self.log)[:RECORD_SCAN]:
+                r = records.record(self.log, i, self.policy, light=True)
+                if r is not None and r.environment in allowed:
+                    listed.append({"id": r.id, "first": r.first.isoformat(), "environment": r.environment,
+                                   "service": r.service, "alarm": r.alarm, "status": r.status, "verdict": r.verdict})
+                if len(listed) >= RECORD_LIST:
+                    break
+            return _json(200, {"incidents": listed})
+        r = records.record(self.log, incident, self.policy)
+        if r is None or r.environment not in allowed:
+            return _json(404, {"error": "no record this approver may read"})
+        return _json(200, json.loads(json.dumps({
+            "id": r.id, "first": r.first, "last": r.last, "alarm": r.alarm, "environment": r.environment,
+            "service": r.service, "severity": r.severity, "status": r.status, "hypothesis": r.hypothesis,
+            "confidence": r.confidence, "action": r.action, "target": r.target, "verdict": r.verdict,
+            "policies": r.policies, "plan": r.plan, "no_plan": r.no_plan, "decisions": r.decisions, "also": r.also,
+            "report": r.report}, default=str)))
+
+    def _signed_plan(self, name: str, data: dict) -> Response:
+        """The incident's waiting plan, to the limited approver who signed `plan-request|approver|incident|time` in
+        the last five minutes - only a plan in an environment and a tier it may approve."""
+        incident, issued = str(data.get("incident", "")), str(data.get("issued_at", ""))
+        refused = self._signature_refused(name, data, approvals.plan_request(name, incident, issued))
+        if refused:
+            return refused
         rows = self.log.entries(incident, kinds=("remediation.plan",))
         wid = str((rows[-1]["body"] if rows else {}).get("workflow_id", ""))
         plan = self.plan_of(wid) if wid else None
@@ -731,6 +773,9 @@ def _headers(nonce: str, content_type: str) -> dict[str, str]:
 
 
 _COOKIE = "warden_s"  # holds the link while the browser is at Slack: this site's only, ten minutes, /s alone
+# A limited approver's signed read (/a/signed/record): the latest this many incidents in its environments, found among
+# the newest RECORD_SCAN on the record.
+RECORD_LIST, RECORD_SCAN = 20, 200
 _WHO = "warden_who"  # the member Slack named in this browser, sealed (slack_login.remember): no script can read it
 # An incident id's shape (chatops: the "Full record" link's): all that travels through Slack's sign-in, and back.
 _INCIDENT_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
