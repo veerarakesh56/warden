@@ -1543,7 +1543,7 @@ class StackBackend:
                 out.lines.append(f"EVENT states {_safe(machine)} failure: {str(d['cause'])[:300]}")
 
     def _read_k8s(self, out: _Out, alert: Alert, ns: str, dep: str, sfx: str) -> None:
-        cluster = alert.labels.get("eks_cluster", "")
+        cluster = alert.labels.get("eks_cluster", "") or eks_cluster_of(alert.environment)
         if cluster and self._k8s_factory is _default_k8s and "eks" in self._clients and "sts" in self._clients:
             # The cluster the alert names, in this backend's own role (the incident's reader role in the cloud).
             from .k8s_backend import eks_backend
@@ -1656,6 +1656,16 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
     if any(st.get("Effect") == "Deny" and matches(st, unknown=True) for st in statements):
         return False
     return any(st.get("Effect") == "Allow" and matches(st, unknown=False) for st in statements)
+
+
+def eks_cluster_of(environment: str) -> str:
+    """The environment's EKS cluster from WARDEN_EKS_CLUSTERS (`env=cluster[,env=cluster]`), or "". Configuration, so
+    no cluster is named in code; a name that is not a plain identifier is ignored."""
+    for pair in os.environ.get("WARDEN_EKS_CLUSTERS", "").split(","):
+        env, _, cluster = pair.strip().partition("=")
+        if env == environment and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", cluster):
+            return cluster
+    return ""
 
 
 def _default_k8s():

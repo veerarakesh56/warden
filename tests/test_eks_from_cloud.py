@@ -47,6 +47,14 @@ def test_the_backend_talks_to_the_clusters_own_endpoint_and_verifies_its_ca():
     assert cfg.api_key["authorization"].startswith("Bearer k8s-aws-v1.")
 
 
+def test_an_alert_that_names_no_cluster_is_read_in_its_environments(monkeypatch):
+    monkeypatch.setenv("WARDEN_EKS_CLUSTERS", "staging=warden-staging-eks, dev=warden-dev-eks,qa=bad;name")
+    assert aws_stack.eks_cluster_of("dev") == "warden-dev-eks"
+    assert aws_stack.eks_cluster_of("qa") == "" and aws_stack.eks_cluster_of("prod") == ""
+    monkeypatch.delenv("WARDEN_EKS_CLUSTERS")
+    assert aws_stack.eks_cluster_of("dev") == ""
+
+
 def test_the_stack_reader_uses_it_only_when_the_alert_names_a_cluster(monkeypatch):
     made = []
 
