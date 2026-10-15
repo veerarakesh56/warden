@@ -133,7 +133,10 @@ def configured() -> bool:
 
 # Said in the thread the moment a mention is heard, before anything is read (owner, 2026-10-14: "I don't even know
 # if it has checked it or not"). A fixed text: nothing a person wrote is in it.
-HEARD = "Looking into it - WARDEN answers in this thread."
+# Said at once, so nobody is left wondering whether WARDEN heard (owner, 2026-10-15: "at least a message in the thread
+# saying this is what I am looking at, will update ... in a professional way").
+HEARD = ("On it. WARDEN is reading this incident's record and its evidence. Its record - this incident and any like it "
+         "before - comes first, within seconds; the full answer from the evidence follows. WARDEN answers in this thread.")
 
 
 def heard(event: dict[str, Any], channel: str) -> str:

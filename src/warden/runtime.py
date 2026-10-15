@@ -228,7 +228,7 @@ def _activities(log: audit.AuditLog, policy: approvals.ApproverPolicy, platform:
     return [inc.after_hold, inc.prepare, inc.reread, inc.investigate, inc.plan_fix, inc.diagnose, inc.verify, inc.second_opinion, inc.notify, inc.no_plan,
             rem.resolve_plan, rem.gate, rem.announce, rem.check_approval, rem.check_passkey, rem.precheck, rem.apply,
             rem.check_success, rem.record_result, rem.rollback, rem.finish, rem.summary_owed,
-            talk.discuss_thread, talk.discuss_evidence, talk.discuss_answer, talk.discuss_reply, talk.discuss_replan]
+            talk.discuss_thread, talk.discuss_facts, talk.discuss_evidence, talk.discuss_answer, talk.discuss_reply, talk.discuss_replan]
 
 
 def worker(client: Client, *, log: audit.AuditLog, policy: approvals.ApproverPolicy, platform: Any = None,

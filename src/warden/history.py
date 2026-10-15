@@ -110,6 +110,99 @@ def again(rows: list[dict[str, Any]]) -> str:
             "fix is related is for the diagnosis and a person to judge.")
 
 
+# Similar incidents (owner, 2026-10-15): "compare using previous similar or common issues - what was done then, how
+# was the result, did it fail or succeed, later double-checked, is it stable, and what should we do now - with
+# timestamps and record links ... and troubleshooting if anything is suspicious and repetitive". From WARDEN's own
+# signed record only: the incidents, their fix plans and how each run ended - never a past diagnosis's prose.
+SIMILAR_SCAN, SIMILAR_MOST, PATTERN_WINDOW = 300, 5, timedelta(days=7)
+
+
+def similar(log: Any, incident: str, *, now: datetime | None = None, link: Any = None) -> dict[str, Any]:
+    """The incidents like `incident` in LOOKBACK - the same alarm, or the same service, in the same environment -
+    newest first, each with what was done and how it ended, whether it stayed stable (no like incident after it), and
+    the pattern they make. `link(incident)` gives a record's address, when there is one."""
+    from . import records
+
+    now = now or datetime.now(UTC)
+    here = records.record(log, incident, light=True)
+    if here is None:
+        return {"current": None, "rows": [], "pattern": []}
+    fixes = {}
+    for p in plans(log, now=now):  # newest first: each incident's latest plan
+        fixes.setdefault(p["incident"], p)
+    alike = []
+    for other in records.incident_ids(log)[:SIMILAR_SCAN]:
+        if other == incident:
+            continue
+        r = records.record(log, other, light=True)
+        if r is None or r.environment != here.environment or now - r.first > LOOKBACK:
+            continue
+        why = [w for w, same in (("same alarm", bool(here.alarm) and r.alarm == here.alarm),
+                                 ("same service", bool(here.service) and r.service == here.service)) if same]
+        if why:
+            alike.append((r, why))
+    alike.sort(key=lambda x: x[0].first, reverse=True)
+    rows = []
+    for r, why in alike:
+        fix = fixes.get(r.id)
+        after = [o for o, _ in alike if o.first > r.first] + ([here] if here.first > r.first else [])
+        nxt = min(after, key=lambda o: o.first) if after else None
+        rows.append({"incident": r.id, "at": r.first, "why": why, "status": r.status, "verdict": r.verdict,
+                     "action": r.action, "target": r.target, "fix": fix,
+                     "stable": nxt is None, "next": nxt.id if nxt else "", "next_at": nxt.first if nxt else None,
+                     "link": link(r.id) if link else ""})
+    return {"current": here, "rows": rows, "pattern": _pattern(here, rows, now)}
+
+
+def _pattern(here: Any, rows: list[dict[str, Any]], now: datetime) -> list[str]:
+    """What repeats: the same alarm or service again and again, the same action proposed each time, a fix that did not
+    hold. Counts, from the record - a person judges what they mean."""
+    out = []
+    week = [r for r in rows if now - r["at"] <= PATTERN_WINDOW]
+    if len(week) >= 2:
+        out.append(f"{len(week) + 1} incidents like this one in the last 7 days (this one included): it keeps "
+                   "coming back - look for the cause, not only the symptom")
+    actions = [r["action"] for r in rows if r["action"]]
+    if here.action and actions.count(here.action) >= 2:
+        out.append(f"`{here.action}` was proposed {actions.count(here.action)} times before for incidents like this")
+    held = [r for r in rows if r["fix"] and r["fix"]["status"] == "recovered" and not r["stable"]]
+    if held:
+        out.append(f"{len(held)} earlier fix(es) worked and then an incident like this came back: the fix treated "
+                   "the symptom")
+    bad = [r for r in rows if r["fix"] and r["fix"]["status"] in WENT_BADLY]
+    if bad:
+        out.append(f"{len(bad)} earlier fix(es) of incidents like this did not work, or failed again")
+    return out
+
+
+def similar_text(found: dict[str, Any], *, title: str = "Seen before - WARDEN's own record") -> str:
+    """The facts as Slack text: this incident at a glance, the similar ones with their record links, the pattern."""
+    here, rows = found.get("current"), found.get("rows") or []
+    if here is None:
+        return ""
+    lines = [f"*WARDEN's record of `{here.id}`*: alarm `{here.alarm or '-'}`, opened "
+             f"{both_times(here.first, seconds=False)} · {here.status}"
+             + (f" · proposed `{here.action}` on `{here.target}`" if here.action else "")
+             + (f" · gate: {here.verdict}" if here.verdict else "")]
+    if not rows:
+        lines.append(f"*{title}*: nothing like it in the last {LOOKBACK.days} days.")
+    else:
+        lines.append(f"*{title}*: {len(rows)} like it in the last {LOOKBACK.days} days.")
+        for r in rows[:SIMILAR_MOST]:
+            fix = r["fix"]
+            done = (f"`{fix['entry']}` on `{fix['target']}` {ENDED.get(fix['status'], fix['status'])}"
+                    + (f" · approved by {', '.join(f'@@{a}@@' for a in fix['approvers'])}" if fix["approvers"] else "")
+                    if fix else (f"proposed `{r['action']}`, {r['status'].lower()}" if r["action"] else r["status"]))
+            stable = ("no incident like it since" if r["stable"]
+                      else f"came back {both_times(r['next_at'], seconds=False)} (`{r['next']}`)")
+            ref = f"<{r['link']}|{r['incident']}>" if r["link"] else f"`{r['incident']}`"
+            lines.append(f"- {both_times(r['at'], seconds=False)} · {ref} · {' and '.join(r['why'])} · {done} · "
+                         f"{stable}")
+    for p in found.get("pattern") or []:
+        lines.append(f"*Pattern:* {p}.")
+    return "\n".join(lines)
+
+
 def section(rows: list[dict[str, Any]]) -> str:
     """The report's section: WARDEN's record of this resource, as facts."""
     if not rows:

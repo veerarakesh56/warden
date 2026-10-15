@@ -1392,7 +1392,26 @@ class DiscussActivities:
                                                             if k in ("hypothesis", "action", "target", "confidence",
                                                                      "status", "policies"))
                 for e in self.audit.entries(incident, kinds=("incident.diagnose", "incident.verify"))]
-        return {"evidence": prompt, "diagnosis": "\n".join(said)[-3000:]}
+        # And what WARDEN's record says of the incidents like it (history.similar): the model compares with them and
+        # says what to do now - facts, never a past diagnosis's prose.
+        from . import history
+
+        try:
+            seen = history.similar_text(history.similar(self.audit, incident))
+        except Exception:  # noqa: BLE001 - the answer goes ahead on this incident's own record
+            seen = ""
+        return {"evidence": prompt, "diagnosis": ("\n".join(said)[-3000:] + ("\n\n" + seen[:3000] if seen else ""))}
+
+    @activity.defn
+    def discuss_facts(self, incident: str) -> str:
+        """WARDEN's record of the incident and of the incidents like it - what was done, how it ended, whether it held,
+        the pattern - posted in the thread at once, before the model's answer (owner, 2026-10-15: "the responses from
+        WARDEN in discussions should be immediate ... within 1 or 2 seconds"). No model: facts from the signed record."""
+        from . import history
+
+        rp = os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()
+        return history.similar_text(history.similar(self.audit, incident,
+                                                    link=(lambda i: f"https://{rp}/r/{i}") if rp else None))
 
     @activity.defn
     def discuss_answer(self, turn: Any, thread: Any, evidence: dict[str, str], fresh: bool) -> str:

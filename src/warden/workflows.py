@@ -395,6 +395,16 @@ class DiscussWorkflow:
                     "question, and WARDEN answers here.")
         elif thread.over:
             text = LIMIT
+        if thread.incident and not thread.over and workflow.patched("discuss-facts"):
+            # The record's facts first, at once - the incident and the ones like it - then the model's answer.
+            with contextlib.suppress(ActivityError):
+                facts = await workflow.execute_activity_method(
+                    acts.discuss_facts, **_zoned(acts.discuss_facts), args=[thread.incident], **QUICK)
+                if facts:
+                    await workflow.execute_activity_method(acts.discuss_reply, **_zoned(acts.discuss_reply),
+                                                           args=[turn, facts, thread.incident], **NOTIFY)
+        if not thread.incident or thread.over:
+            pass
         elif NEW_PLAN.search(turn.text) and workflow.patched("g10-discuss-replan"):
             text = NOT_READ
             with contextlib.suppress(ActivityError):
