@@ -211,6 +211,10 @@ def _clients(**over):
             describe_db_clusters={"DBClusters": [{"Status": "available", "DBClusterMembers": [
                 {"DBInstanceIdentifier": f"{P}aurora-1", "IsClusterWriter": True},
                 {"DBInstanceIdentifier": f"{P}aurora-2", "IsClusterWriter": False}]}]},
+            describe_db_log_files={"DescribeDBLogFiles": [{"LogFileName": "error/postgresql.log", "LastWritten": 1}]},
+            download_db_log_file_portion={"LogFileData": "2026-10-15 05:29:01 UTC::@:[1]:LOG: checkpoint\n"
+                                                         "2026-10-15 05:29:02 UTC:10.0.0.9(5):warden_dev_app@shop:[7]:FATAL:  password "
+                                                         "authentication failed for user \"warden_dev_app\"\n"},
             describe_db_instances={"DBInstances": [
                 {"DBInstanceIdentifier": f"{P}aurora-1", "DBInstanceStatus": "available",
                  "PerformanceInsightsEnabled": True, "DbiResourceId": "db-WRITER"},
@@ -647,6 +651,8 @@ _NOT_CLIENTS = {"_aws", "_bound"}  # the reused AwsBackend (its calls are collec
 _ACTION_OVERRIDES = {
     ("_rds", "describe_db_clusters"): "rds:DescribeDBClusters",
     ("_rds", "describe_db_instances"): "rds:DescribeDBInstances",
+    ("_rds", "describe_db_log_files"): "rds:DescribeDBLogFiles",
+    ("_rds", "download_db_log_file_portion"): "rds:DownloadDBLogFilePortion",
 }
 
 
@@ -724,7 +730,7 @@ def test_every_granted_action_is_a_read():
     for action in _granted() - NOT_A_CALL:
         verb = action.split(":", 1)[1]
         # StartQuery / StopQuery run and cancel a Logs Insights query: IAM's own access level for both is Read.
-        assert (action in ("apigateway:GET", "logs:StartQuery", "logs:StopQuery")
+        assert (action in ("apigateway:GET", "logs:StartQuery", "logs:StopQuery", "rds:DownloadDBLogFilePortion")
                 or verb.startswith(("Describe", "Get", "List", "Filter", "Lookup"))), action
     for forbidden in ("secretsmanager:GetSecretValue", "s3:GetObject", "ssm:GetParameter"):
         assert not any(a.startswith(forbidden) for a in _granted()), forbidden
@@ -861,7 +867,7 @@ _ARN_FORMATS = {
     "dynamodb": ["table/{TableName}"], "ecs": ["service/{ClusterName}/{ServiceName}"],
     "elasticache": ["replicationgroup:{ReplicationGroupId}"], "eks": ["cluster/{ClusterName}"],
     "events": ["rule/{RuleName}", "rule/{EventBusName}/{RuleName}"], "lambda": ["function:{FunctionName}"],
-    "logs": ["log-group:{LogGroupName}"], "rds": ["cluster:{DbClusterInstanceName}"],
+    "logs": ["log-group:{LogGroupName}"], "rds": ["cluster:{DbClusterInstanceName}", "db:{DbInstanceName}"],
     "secretsmanager": ["secret:{SecretId}"], "sns": ["{TopicName}"], "sqs": ["{QueueName}"],
 }
 
@@ -873,9 +879,10 @@ def test_every_reader_arn_has_the_shape_aws_gives_its_resource():
     text = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     own = re.search(r'sid\s*=\s*"ReadOwnStack"(.*?)\n  \}', text, re.DOTALL).group(1)
     arns = re.findall(r'"arn:aws:([a-z0-9-]+):\$\{local\.reader_arn\}:([^"]+)"', own)
-    assert len(arns) == 13, arns  # + the stack's alarms (G9-A2a)
-    # Each service once (two log groups), so a grant moved to another service's prefix is caught.
-    assert sorted(s for s, _ in arns) == sorted([*_ARN_FORMATS, "logs"]), arns
+    assert len(arns) == 14, arns  # + the stack's alarms (G9-A2a), + its database instances' error logs (2026-10-15)
+    # Each service once (two log groups, a cluster and its instances), so a grant moved to another service's prefix is
+    # caught.
+    assert sorted(s for s, _ in arns) == sorted([*_ARN_FORMATS, "logs", "rds"]), arns
     for service, resource in arns:
         # A name the grant covers, `/` included (an ECS service's ARN holds its cluster); it must fit the format, the
         # format's own text exact and any name in its {slots}.

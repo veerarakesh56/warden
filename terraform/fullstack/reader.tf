@@ -55,6 +55,8 @@ data "aws_iam_policy_document" "fs_reader" {
       "logs:FilterLogEvents",
       "logs:StartQuery",
       "rds:DescribeDBClusters",
+      "rds:DescribeDBLogFiles",
+      "rds:DownloadDBLogFilePortion",
       "secretsmanager:DescribeSecret",
       "sns:ListSubscriptionsByTopic",
       "sqs:GetQueueAttributes",
@@ -71,6 +73,8 @@ data "aws_iam_policy_document" "fs_reader" {
       "arn:aws:logs:${local.reader_arn}:log-group:/aws/lambda/${local.name}-*",
       "arn:aws:logs:${local.reader_arn}:log-group:/ecs/${local.name}-*",
       "arn:aws:rds:${local.reader_arn}:cluster:${local.name}-*",
+      # The database instances' own error logs (aws_stack._db_log, 2026-10-15).
+      "arn:aws:rds:${local.reader_arn}:db:${local.name}-*",
       "arn:aws:secretsmanager:${local.reader_arn}:secret:${local.name}-*",
       "arn:aws:sns:${local.reader_arn}:${local.name}-*",
       "arn:aws:sqs:${local.reader_arn}:${local.name}-*",

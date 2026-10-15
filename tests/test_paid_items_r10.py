@@ -33,6 +33,8 @@ FREE = {
     ("_lambda", "list_event_source_mappings"), ("_lambda", "list_versions_by_function"),
     ("_logs", "filter_log_events"), ("_logs", "get_query_results"), ("_logs", "stop_query"),
     ("_rds", "describe_db_clusters"), ("_rds", "describe_db_instances"), ("_rds", "describe_events"),
+    # The database's error log (2026-10-15): RDS charges nothing for listing or downloading log files.
+    ("_rds", "describe_db_log_files"), ("_rds", "download_db_log_file_portion"),
     ("_sts", "get_caller_identity"),
     ("_ct", "lookup_events"),  # CloudTrail event history: free (read 2026-10-10)
     ("_ecs", "list_tasks"), ("_ecs", "describe_tasks"),  # ECS control plane: not billed (G10-C1)

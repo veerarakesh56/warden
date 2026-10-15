@@ -129,7 +129,8 @@ _TAG = re.compile(r"\[(" + "|".join(re.escape(o) for o in OUTCOMES) + r")(?: on 
 # became a KeyError (independent review 2026-09-28).
 READ_OPERATIONS = frozenset({
     "FilterLogEvents", "GetMetricData", "DescribeServices", "DescribeTaskDefinition", "DescribeCluster",
-    "DescribeDBClusters", "DescribeDBInstances", "DescribeCacheClusters", "DescribeReplicationGroups",
+    "DescribeDBClusters", "DescribeDBInstances", "DescribeDBLogFiles", "DownloadDBLogFilePortion",
+    "DescribeCacheClusters", "DescribeReplicationGroups",
     "DescribeEvents", "DescribeRule", "DescribeSecret", "DescribeSecurityGroups", "DescribeTable",
     "DescribeTargetGroups", "DescribeTargetHealth", "GetAlias", "GetApis", "GetFunction",
     "GetFunctionConcurrency", "GetFunctionConfiguration", "GetQueueAttributes", "GetQueueUrl",

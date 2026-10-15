@@ -37,6 +37,9 @@
         "memorydb:DescribeClusters",
         "rds:DescribeDBClusters",
         "rds:DescribeDBInstances",
+        "rds:DescribeDBLogFiles",
+        "rds:DownloadDBLogFilePortion",
+        "rds-db:connect",
         "redshift:DescribeClusters",
         "s3:GetBucketVersioning",
         "scheduler:GetScheduleGroup",
@@ -70,6 +73,7 @@
         "arn:aws:memorydb:${region}:*:cluster/warden-${env}-*",
         "arn:aws:rds:${region}:*:cluster:warden-${env}-*",
         "arn:aws:rds:${region}:*:db:warden-${env}-*",
+        "arn:aws:rds-db:${region}:*:dbuser:*/warden_${env_sql}_ro",
         "arn:aws:redshift:${region}:*:cluster:warden-${env}-*",
         "arn:aws:s3:::warden-${env}-*",
         "arn:aws:scheduler:${region}:*:schedule-group/warden-${env}-*",
@@ -198,12 +202,6 @@
       "Effect": "Allow",
       "Action": "apigateway:GET",
       "Resource": "arn:aws:apigateway:${region}::/account"
-    },
-    {
-      "Sid": "TheDatabaseAsItsReadOnlyUserOnly",
-      "Effect": "Allow",
-      "Action": "rds-db:connect",
-      "Resource": "arn:aws:rds-db:${region}:*:dbuser:*/warden_${env_sql}_ro"
     },
     {
       "Sid": "NeverApiKeys",

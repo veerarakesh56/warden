@@ -1176,6 +1176,8 @@ class StackBackend:
         out.metrics["aurora_members_available"] = float(
             sum(1 for i in instances if i.get("DBInstanceStatus") == "available"))
         self._db_load(out, alert, instances)
+        for name in writer[:1]:
+            self._db_log(out, alert, name)
         started = AwsBackend._started_at(alert)
         sources = [(cluster, "db-cluster"), *((i, "db-instance") for i in [*writer, *readers])]
         events = [e for sid, kind in sources for e in _pages(
@@ -1198,6 +1200,28 @@ class StackBackend:
         out.metrics.update({k: v for k, v in got.items() if not k.startswith("lag#")})
         if lags:
             out.metrics["aurora_replica_lag_ms"] = max(lags)
+
+    def _db_log(self, out: _Out, alert: Alert, instance: str) -> None:
+        """The database's own error log (2026-10-15): the newest file written in the alert window, its last lines, and
+        of those only the ERROR, FATAL and PANIC ones - "password authentication failed for user ...", "database ...
+        does not exist" name causes the applications' own logs only echo. Untrusted text, as any log line: redacted,
+        quarantined, scanned."""
+        started = AwsBackend._started_at(alert)
+        try:
+            files = self._rds.describe_db_log_files(
+                DBInstanceIdentifier=instance, FileLastWritten=int((started - LOG_LOOKBACK).timestamp() * 1000)
+            ).get("DescribeDBLogFiles") or []
+            if not files:
+                return
+            newest = max(files, key=lambda f: f.get("LastWritten") or 0)
+            data = self._rds.download_db_log_file_portion(
+                DBInstanceIdentifier=instance, LogFileName=newest["LogFileName"], NumberOfLines=DB_LOG_LINES
+            ).get("LogFileData") or ""
+        except Exception as exc:  # noqa: BLE001 - the other reads go on
+            out.lines.append(_partial("aurora logs", exc))
+            return
+        hits = [ln for ln in data.splitlines() if _DB_LOG_ERROR.search(ln)][-DB_LOG_KEEP:]
+        out.lines += [f"LOG rds/{_one_line(instance)} {ln[:400]}" for ln in hits]
 
     def _db_load(self, out: _Out, alert: Alert, instances: list[dict]) -> None:
         """Performance Insights (requirement R22): each member's database load over the alert window, and that load
@@ -1672,6 +1696,9 @@ def _policy_allows_topic(policy: str | None, topic_arn: str) -> bool:
     return any(st.get("Effect") == "Allow" and matches(st, unknown=False) for st in statements)
 
 
+# The database's own error log: how many of its last lines are read, and how many error lines are kept.
+DB_LOG_LINES, DB_LOG_KEEP = 400, 30
+_DB_LOG_ERROR = re.compile(r"\b(?:ERROR|FATAL|PANIC):")
 # Performance Insights' heaviest statements, as numbers and names only (2026-10-15: "do you see the queries").
 TOP_SQL = 5
 _SQL_VERB = re.compile(r"^\s*(?:/\*.*?\*/\s*)*([A-Za-z]+)", re.DOTALL)
