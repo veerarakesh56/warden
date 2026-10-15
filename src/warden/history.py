@@ -28,6 +28,16 @@ ENDED = {"recovered": "worked", "relapsed": "worked, then failed again", "rolled
 WENT_BADLY = frozenset({"relapsed", "rolled_back", "not_recovered", "rollback_failed", "apply_failed", "side_effects"})
 
 
+def _shown(plan: dict[str, Any]) -> str:
+    """A plan row's target as a person reads it (catalog.shown_target), or the key itself when it cannot be."""
+    from . import catalog
+
+    entry, params = str(plan.get("entry", "")), plan.get("params")
+    if entry in catalog.CATALOG and isinstance(params, dict):
+        return catalog.shown_target(str(plan.get("environment", "")), entry, params)
+    return str(plan.get("target", ""))
+
+
 def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
     """Every fix plan on the record in LOOKBACK, with how its run ended (`open` while it runs), newest first."""
     since = (now or datetime.now(UTC)) - LOOKBACK
@@ -39,6 +49,9 @@ def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
         end = ends.get((b.get("workflow_id"), b.get("run_id")))
         rows.append({"seqs": [e["seq"], *([end["seq"]] if end else [])],
                      "at": (end or e)["at"], "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
+                     # As a person reads it, for every message: a mapping's UUID is masked as a key's shape, and the
+                     # outbound gate withheld the whole facts card that named one (live, 2026-10-15).
+                     "shown": _shown(b),
                      "environment": b.get("environment"), "service": b.get("service"),
                      "plan_hash": b.get("plan_hash"), "incident": e["correlation_id"],
                      "status": str(end["body"].get("status")) if end else "open",
@@ -92,7 +105,7 @@ def _line(row: dict[str, Any]) -> str:
         from .reporting import untrusted_inline
 
         who += f" · why: {untrusted_inline(_iso_said(why), limit=160)}"
-    return f"{both_times(row['at'], seconds=False)} · `{row['entry']}` on `{row['target']}` · {how}{who}"
+    return f"{both_times(row['at'], seconds=False)} · `{row['entry']}` on `{row.get('shown') or row['target']}` · {how}{who}"
 
 
 # The earlier fixes that make this incident a failure AGAIN: one that worked (or worked and failed again) on this
@@ -191,7 +204,7 @@ def similar_text(found: dict[str, Any], *, title: str = "Seen before - WARDEN's 
         lines.append(f"*{title}*: {len(rows)} like it in the last {LOOKBACK.days} days.")
         for r in rows[:SIMILAR_MOST]:
             fix = r["fix"]
-            done = (f"`{fix['entry']}` on `{fix['target']}` {ENDED.get(fix['status'], fix['status'])}"
+            done = (f"`{fix['entry']}` on `{fix.get('shown') or fix['target']}` {ENDED.get(fix['status'], fix['status'])}"
                     + (f" · approved by {', '.join(f'@@{a}@@' for a in fix['approvers'])}" if fix["approvers"] else "")
                     if fix else (f"proposed `{r['action']}`, {r['status'].lower()}" if r["action"] else r["status"]))
             stable = ("no incident like it since" if r["stable"]
@@ -257,7 +270,7 @@ def prompt_facts(rows: list[dict[str, Any]]) -> str:
     (registers N9, G10-48), so nothing a person or a model wrote reaches a later diagnosis."""
     if not rows:
         return ""
-    lines = [f"- {r['at'].astimezone(UTC).isoformat(timespec='minutes')} `{r['entry']}` on `{r['target']}`: "
+    lines = [f"- {r['at'].astimezone(UTC).isoformat(timespec='minutes')} `{r['entry']}` on `{r.get('shown') or r['target']}`: "
              f"{ENDED.get(r['status'], 'still open' if r['status'] == 'open' else 'ended')}" for r in rows]
     return ("PAST FIX PLANS ON THIS RESOURCE (WARDEN's signed record of earlier incidents - not evidence of this one;"
             " cite only this incident's evidence ids, and judge this incident on its own evidence):\n" + "\n".join(lines))
