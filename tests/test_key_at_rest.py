@@ -16,7 +16,9 @@ import pytest
 from warden import audit, cli
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-ENCRYPTED = b"-----BEGIN ENCRYPTED PRIVATE KEY-----"
+# PEM headers built from parts, so a secret scanner does not take this file for a leaked key (the repo's rule).
+ENCRYPTED = b"-----BEGIN " + b"ENCRYPTED PRIVATE KEY-----"
+CLEAR = b"-----BEGIN " + b"PRIVATE KEY-----"
 
 
 def _keygen(folder, *extra):
@@ -59,7 +61,7 @@ def test_keygen_encrypts_with_the_environments_or_a_typed_passphrase(tmp_path, m
 def test_keygen_writes_a_clear_key_only_when_told_and_says_why_loudly(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("WARDEN_AUDIT_KEY_PASSPHRASE", "ignored when told --unencrypted")
     code, priv, _ = _keygen(tmp_path, "--unencrypted")
-    assert code == 0 and priv.read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
+    assert code == 0 and priv.read_bytes().startswith(CLEAR)
     audit.load_private_key(priv)
     assert "--unencrypted: the private key is written IN THE CLEAR" in capsys.readouterr().err
 
@@ -112,5 +114,5 @@ def test_the_bench_key_is_encrypted_unless_told_and_an_old_clear_one_still_loads
     mod = _bench(monkeypatch, tmp_path / "b" / "bench.pem")
     monkeypatch.delenv(mod.PASSPHRASE_ENV)
     mod.new_key("dev", unencrypted=True)
-    assert (tmp_path / "b" / "bench.pem").read_bytes().startswith(b"-----BEGIN PRIVATE KEY-----")
+    assert (tmp_path / "b" / "bench.pem").read_bytes().startswith(CLEAR)
     assert "IN THE CLEAR" in capsys.readouterr().err
