@@ -243,7 +243,15 @@ def facts(text: str) -> tuple[str, ...]:
         if _plain(v, 64) and _key_ok(k) and k.lower() not in _LEVEL_KEYS:
             found.add(f"{k}={v}")
     found |= {f"level={v.upper()}" for v in _JSON_LEVEL.findall(text) if v.upper() in LEVELS}
+    found |= {f"missing_key={m}" for m in _KEY_ERROR.findall(text) if _plain(m, 64)}
     return tuple(sorted(found))
+
+
+# Live, 2026-10-16 (fs-01, twice): WARDEN read `KeyError` and never which key - the quarantine hid the message, so the
+# model wrote "the missing key itself is not visible". Python's own `KeyError: 'name'` gives one identifier; it is kept
+# only where the function's deployed source - WARDEN's own read of the package, SOURCE lines no log can forge - uses
+# that very key in quotes (reduce). A log writer can name a key; it cannot put it in the code.
+_KEY_ERROR = re.compile(r"\bKeyError: '([A-Za-z_][A-Za-z0-9_]{0,63})'")
 
 
 # `0/2 nodes are available`, `63/79 in use`: up to two words between the counts and the closed word. Not inside a date.
@@ -297,10 +305,18 @@ def reduce(items: dict[str, Item]) -> dict[str, Item]:
     (a numeric one as its value or its range), how many lines had them, and up to five of their ids."""
     groups: dict[tuple[str, ...], list[tuple[str, list[str]]]] = {}
     seen: dict[tuple[str, ...], list[str]] = {}
+    source = "\n".join(i.text for i in items.values() if i.text.startswith("SOURCE "))
+
+    def sourced(fact: str) -> bool:
+        if not fact.startswith("missing_key="):
+            return True
+        key = re.escape(fact.split("=", 1)[1])
+        return re.search(rf"(['\"]){key}\1", source) is not None
+
     for item in items.values():
         if item.trusted:
             continue
-        found = [f for f in facts(item.text) if not _VOLATILE.match(f)]
+        found = [f for f in facts(item.text) if not _VOLATILE.match(f) and sourced(f)]
         shape = tuple(sorted({_NUM.sub("#", f) for f in found}))
         groups.setdefault(shape, []).append((item.id, found))
         if stamp := _STAMP.match(item.text):
