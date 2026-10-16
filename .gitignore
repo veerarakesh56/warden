@@ -1,53 +1,79 @@
+# Python, caches and build output
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
 dist/
 build/
 *.egg-info/
-.env
-*.log
+htmlcov/
 .coverage
+.coverage.*
 coverage.xml
-.review/
+mutants/
+.mutmut-cache
+.mutation-restore.json
+*.log
 
-# Terraform. ⛔ tfstate carries the RDS master password in PLAINTEXT — Terraform stores every
-# `sensitive` value unencrypted in state, and marking it sensitive only hides it from the CLI
-# output. tfvars carries a home IP address and an email. Neither belongs in a public repo.
+# Local-only working material: per-machine notes, reports and assistant settings. Never published;
+# tests/test_local_only_paths.py fails if any of these is ever tracked.
+/research_notes/
+/reports/
+/.claude/
+/.review/
+/notes/
+/scratch/
+NEXT-SESSION-PROMPT.txt
+*HANDOFF*.md
+*FIXLIST*
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets and per-machine configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+**/*.local.json
+**/*.local.yaml
+
+# Terraform. State holds every `sensitive` value (the database password included) in plain text, and
+# tfvars hold local values. A saved plan is a binary holding every resource attribute and the account
+# id, so it is never committed either.
 **/.terraform/
 *.tfstate
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
-# ⛔ A SAVED PLAN IS NOT A SUMMARY. `terraform plan -out=FILE` writes a binary containing every
-# resource attribute and the resolved account id, and `terraform show FILE` prints the lot. It was
-# not ignored here until a real plan was run and the account id turned up in it.
 tfplan*
 *.tfplan*
 plan.out
 crash.log
 crash.*.log
-
-# The published evidence bundles. `*.log` above would otherwise silently drop the run transcript
-# from a bundle that was copied in, and a reader would be looking at reports with no record of how
-# they were produced. This is safe by construction, not by trust: scripts/aws_proof.sh writes every
-# run OUTSIDE the repo, redacts it, and copies it in ONLY after scripts/check_publishable.py passes
-# on the redacted directory. A bundle that failed that scan never reaches this path.
-!docs/aws-proof-*/run.log
-
-# Local working notes that mention the job hunt and the public post. Useful on this machine,
-# out of place in a public repository. The engineering handoff that IS publishable lives at
-# docs/SESSION-HANDOFF-*.md and is committed.
-NEXT-SESSION-PROMPT.txt
-
-# Claude Code per-user settings (local permissions) - never committed.
-.claude/settings.local.json
-
-# Rendered per-environment trust policies WITH the real account id (render_env_iam.py --account),
-# for pasting into the console. Never committed: the committed trust.json carries <ACCOUNT_ID>.
-iam/*/*.local.json
-terraform/proving-ground/*.local.json
-.mutation-restore.json
+.terraform.lock.hcl.bak
 # The undo lab's function archives, built at plan time.
 terraform/undo-lab/.build/
+
+# Benchmark run output. Only the held-out sets (docs/bench/heldout-*) and the recorded runs the tests
+# replay (tests/fixtures/bench) are published; raw runs stay outside the repository.
+docs/bench/**/runner*.log
+docs/bench/**/runs/
+
+# A published AWS proof bundle keeps its transcript. scripts/aws_proof.sh writes every run outside the
+# repository, redacts it, and copies it in only after scripts/check_publishable.py passes on it.
+!docs/aws-proof-*/run.log
