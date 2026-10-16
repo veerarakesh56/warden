@@ -876,7 +876,10 @@ class RemediationActivities:
             # A change WARDEN made may still be in place: no further fix runs until a person resets the switch.
             bounds.trip(self.audit, plan.incident_id, reason, workflow_id=plan.workflow_id, run_id=_run_id())
             raise ApplicationError(reason, type=ROLLBACK_FAILED, non_retryable=True) from None
-        self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail})
+        # Whether the target was really changed back: WARDEN's own undo is a change beside a later alarm's evidence, as
+        # its fix is (live, 2026-10-16: the undo broke checkout again, and the next diagnosis never saw it).
+        undone = not str(detail).startswith(("nothing to roll back", "not rolled back"))
+        self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail, "undone": undone})
         return detail
 
     @activity.defn
@@ -1033,7 +1036,9 @@ class IncidentActivities:
             # fix's own trusted (C) item only: an application's log line that copies the words is not WARDEN's (review L2).
             items = [i for i in evidence.index(state["context"]).values() if i.id.startswith("C") and _OWN_FIX in i.text]
             for fix in own_step["fixes"]:
-                fix["item"] = next((i.id for i in items if f"{_OWN_FIX}{fix['workflow_id']} " in i.text), "")
+                # A fix and its undo share the workflow id: each is matched to its own line.
+                fix["item"] = next((i.id for i in items if f"{_OWN_FIX}{fix['workflow_id']} " in i.text
+                                    and (" warden undo of " in i.text) == bool(fix.get("undo"))), "")
             own_step["items"] = [f["item"] for f in own_step["fixes"] if f["item"]]
         if os.environ.get("WARDEN_HISTORY_IN_PROMPT", "").strip() == "1":
             # Past fix plans on the alert's resources, as fixed-vocabulary facts from the signed record (history.
@@ -1081,8 +1086,18 @@ class IncidentActivities:
         out = []
         try:
             applied = self.audit.entries(kinds=(bounds.APPLIED,), since=started - OWN_FIX_WINDOW)
-            for e in applied:
-                b, at = e["body"], e["at"]
+            # WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo.
+            undos = []
+            for r in self.audit.entries(kinds=("remediation.rollback",), since=started - OWN_FIX_WINDOW):
+                if r["body"].get("undone") is not True:
+                    continue
+                fix = next((e for e in self.audit.entries(r["correlation_id"], kinds=(bounds.APPLIED,))
+                            if e["body"].get("workflow_id") == r["body"].get("workflow_id")
+                            and e["body"].get("run_id", "") == r["body"].get("run_id", "")), None)
+                if fix is not None:
+                    undos.append({**fix, "at": r["at"], "undo": True})
+            for e in [*applied, *undos]:
+                b, at, undo = e["body"], e["at"], bool(e.get("undo"))
                 if str(b.get("service", "")).partition("/")[0] != alert.environment or at > started:
                     continue
                 if e["correlation_id"] == alert.alert_id:
@@ -1094,11 +1109,13 @@ class IncidentActivities:
                 minutes = int((started - at).total_seconds() // 60)
                 where = ("the same resource as this alarm" if on in named_resources(alert)
                          else "a different resource from this alarm's")
-                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {_safe(b.get('action_class'))} on {on} "
-                        f"{_OWN_FIX}{wid} for incident {inc}, "
-                        f"applied {minutes} min before this alarm started, on {where})")
+                did = "undo of " if undo else ""
+                line = (f"CHANGE {at.astimezone(UTC):%Y-%m-%dT%H:%M:%S}Z warden {did}{_safe(b.get('action_class'))} on "
+                        f"{on} {_OWN_FIX}{wid} for incident {inc}, "
+                        f"{'undone' if undo else 'applied'} {minutes} min before this alarm started, on {where})")
                 link = {"incident": str(e["correlation_id"]), "workflow_id": str(b.get("workflow_id") or ""),
-                        "entry": str(b.get("action_class") or ""), "on": on, "minutes_before": str(minutes)}
+                        "entry": str(b.get("action_class") or ""), "on": on, "minutes_before": str(minutes),
+                        **({"undo": "1"} if undo else {})}
                 out.append((line, link))
                 # The earlier fix's own record says a later alarm was looked at beside it, and which - once.
                 if not any(r["body"].get("incident") == alert.alert_id and r["body"].get("workflow_id") == link["workflow_id"]
@@ -1438,8 +1455,8 @@ class IncidentActivities:
             return
         cited = {c.id for c in diagnosed.root_cause.citations}
         for fix in (steps[-1].get("fixes") or []) if steps else []:
-            if not fix.get("item") or fix["item"] not in cited:
-                continue
+            if not fix.get("item") or fix["item"] not in cited or fix.get("undo"):
+                continue  # an undo cited as the cause is not its fix failing: the fix had held until it was undone
             plan = next((p["body"] for p in self.audit.entries(fix["incident"], kinds=("remediation.plan",))
                          if p["body"].get("workflow_id") == fix["workflow_id"]), None)
             if plan is None or any(r["body"].get("connected_by") == alert_id
