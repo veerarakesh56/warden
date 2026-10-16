@@ -107,7 +107,8 @@ zone roles.
 
 ### 3d. Optional: the operator and the fault-injection harness
 
-- `iam/operator/` is a read-only operator role for a person's workstation (it may assume only the read-only
+- `iam/operator/` is a read-only operator role for a person's workstation (it sees the runtime's secret names,
+  never their values, and may assume only the read-only
   sweep role `warden-ops-sweep`, whose policy is `iam/operator/sweep-policy.json`, and the harness role). `scripts/roles_anywhere_cert.py` issues a certificate for IAM Roles
   Anywhere, so the workstation needs no access key.
 - `iam/<env>/harness.json` and `harness-trust.json` exist only for the environments in `fault_environments`. The

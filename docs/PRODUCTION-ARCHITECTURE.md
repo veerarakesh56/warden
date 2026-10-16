@@ -30,7 +30,7 @@ gates: published adaptive attacks beat every detector, so the architecture carri
       +--> core worker    the workflows, verify, the gate, the signed audit
       +--> read worker    that environment's reader role, per incident (SourceIdentity = inc-<id>)
       +--> llm worker     the model API key only; redacted, typed facts in; 6 calls and US$0.25 per incident
-      +--> notify worker  Slack (one message per incident), PagerDuty Events v2, webhooks, change records
+      +--> notify worker  Slack (one message per incident), change records; PagerDuty, Teams, webhooks if set
       +--> act worker     no standing role; a per-plan actor session of at most 900 s
       ^
  Slack button --> approval page (API Gateway + Lambda on <your-domain>)
@@ -52,7 +52,7 @@ gates: published adaptive attacks beat every detector, so the architecture carri
 |---|---|
 | Network | a VPC over two availability zones: private subnets for the workers, the Lambdas and the audit database; one NAT gateway by default (`nat_gateways = 2` for production); a free S3 gateway endpoint |
 | Workers | ECS on Fargate, one service per trust zone, in the private subnets |
-| Front door | Lambdas behind EventBridge (alarms, service events, actor-role use) and an API Gateway HTTP API (Alertmanager, the approval page), all from the one runtime image |
+| Front door | Lambdas behind EventBridge (alarms, service events, actor-role use) and an API Gateway HTTP API (Alertmanager, the approval page), all from the one runtime image. Each Lambda has its own role, `warden-<env>-<name>-lambda`, reading exactly the secrets its handler reads (`settings.LAMBDA_SECRETS`): the internet-facing approval page cannot read the webhook's Datadog keys, and actor-use reads none |
 | WARDEN's record | Aurora PostgreSQL Serverless v2 (scales to zero and pauses after an hour idle); the schema and an append-only writer login are created by a migrate Lambda after each apply |
 | Audit signing | an AWS KMS Ed25519 key that only the signer may use; each checkpoint is also written to an S3 bucket under Object Lock (COMPLIANCE mode) |
 | Witness | a CloudTrail trail of management events into its own Object Lock bucket: the record WARDEN does not write |
@@ -95,8 +95,9 @@ The llm worker calls **Claude Sonnet 5.5 (`claude-sonnet-5-5`) through the Anthr
 read from Secrets Manager (`warden/<env>/anthropic-api-key`). That is the code's default
 (`src/warden/data/providers.yaml`: provider `anthropic`, default model `claude-sonnet-5-5`); an install can
 choose another provider and model with `/warden/<env>/tf/model_provider` and `/warden/<env>/tf/model`.
-Amazon Bedrock, Gemini and OpenAI-compatible endpoints are supported as well; Bedrock needs
-`bedrock_model_arns`, which grants `bedrock:InvokeModel` on those models only.
+The code also supports Amazon Bedrock, Gemini and OpenAI-compatible endpoints, but the runtime module
+grants no Bedrock access and creates no slot for another provider's key (owner, 2026-10-09: the Anthropic API
+only); a slot comes back only with a zone that reads it.
 
 A model is used only after it passes WARDEN's replay qualification on recorded incidents, never because of
 a public leaderboard; the deploy refuses a model that is not on the qualified list. The results are in

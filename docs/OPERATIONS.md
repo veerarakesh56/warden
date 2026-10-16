@@ -44,10 +44,12 @@ Keys that are not environment secrets:
 ## WARDEN's records (registers G10-46, G10-47)
 
 Every incident WARDEN has handled is at `https://<the approval domain>/r` - no time limit (the record is
-append-only), newest first, under its day, 50 a page: its summary and status in the list, its details unfolding
+append-only), newest first, under its day, 50 a page by default (10, 25, 50 or 100; newest, newer, older and oldest
+links; filters for environment, status, service, a day range and title text): its summary and status in the list, its details unfolding
 beneath it, and a page of its own (the message's "Full record" button) with who approved or denied it and their note,
 anything that tried to steer WARDEN, the complete findings section by section, the evidence the model was shown and
 every step, in UTC and local time.
+A reader whose approver entries are all limited to some environments sees only those environments' incidents.
 Sign in with Slack; it opens for the approvers and for the Slack members in the plain setting
 `/warden/<env>/env/WARDEN_RECORD_VIEWERS` (comma-separated member ids). Slack gets one message per incident; approved,
 denied and fixed are on the record, not posted.
