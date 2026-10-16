@@ -148,6 +148,8 @@ jobs:
           printf '{"commit":"%s","sha256":"%s","stack":"%s","environment":"%s"}\n' "$GITHUB_SHA" "$sum" "$STACK" "$WARDEN_ENV" \
             > "$RUNNER_TEMP/plan-meta.json"
           aws s3 cp "$RUNNER_TEMP/plan-meta.json" "s3://$BUCKET/$STACK/plans/$RUN.json" --only-show-errors
+          # In the log as well (2026-10-16): a job summary is not readable through the API, and a reviewer reads the log.
+          echo "plan kept for review: run $RUN, commit $GITHUB_SHA, plan sha256 $sum"
           { echo "### Plan kept for review"; echo "run \`$RUN\` · commit \`$GITHUB_SHA\` · plan sha256 \`$sum\`";
             echo "Apply exactly this plan: Deploy · <env> → infra_action apply-plan, with this run id and sha256."; } \
             >> "$GITHUB_STEP_SUMMARY"
