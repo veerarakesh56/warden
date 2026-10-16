@@ -188,7 +188,12 @@ resource "aws_iam_role" "fs_reader" {
 }
 
 resource "aws_iam_role_policy" "fs_reader" {
-  name   = "warden-readonly"
+  name   = "${local.name}-readonly"
   role   = aws_iam_role.fs_reader.id
   policy = data.aws_iam_policy_document.fs_reader.json
+  # A new name replaces the policy: the new one is put before the old one goes, so WARDEN's reads never
+  # lose their grant mid-apply (renamed 2026-10-16 so the name carries its environment).
+  lifecycle {
+    create_before_destroy = true
+  }
 }

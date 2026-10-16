@@ -1,6 +1,6 @@
 """List everything that can cost money in the account, in EVERY region, without trusting tags.
 
-    python scripts/account_sweep.py                # assume warden-pg-sweep (read-only), sweep
+    python scripts/account_sweep.py                # assume warden-<runtime>-sweep (read-only), sweep
     python scripts/account_sweep.py --no-assume    # sweep with the current credentials
     python scripts/account_sweep.py --write-trust  # write the sweep role's trust policy (local)
 
@@ -20,9 +20,9 @@ Kinesis, Redshift and EMR) cannot hold anything; it is listed once as NOT ENABLE
 1 something found or a tag problem, 2 blind somewhere (the answer is incomplete, so it is not
 "clean").
 
-The role `warden-pg-sweep` may make exactly the listing calls below and read tags
-(terraform/proving-ground/sweep-role-policy.json - no secret values, no object contents), and it
-trusts only the operator role warden-ops-operator (iam/operator/, since W0-now). Billing -> Bills stays the ground truth for
+The role `warden-<runtime>-sweep` (environments.yaml `runtime`) may make exactly the listing calls below and read
+tags (iam/operator/sweep-policy.json - no secret values, no object contents), and it trusts only the operator role
+warden-<runtime>-operator (iam/operator/, since W0-now). Billing -> Bills stays the ground truth for
 charges; this is the resource-level view.
 """
 
@@ -46,9 +46,10 @@ from warden.environments import EnvironmentPolicies
 AWS_GLOBAL_REGION = EnvironmentPolicies.load().aws_global_region
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-ROLE = "warden-pg-sweep"
-TRUST_FILE = ROOT / "terraform" / "proving-ground" / "sweep-role-trust.local.json"
 _POLICIES = EnvironmentPolicies.load()
+# The operator's helper, so it is named in WARDEN's own environment, like the operator (renamed 2026-10-16).
+ROLE = f"{environments.names(_POLICIES.runtime_environment).prefix}-sweep"
+TRUST_FILE = ROOT / "iam" / "operator" / "sweep-trust.local.json"
 ENVIRONMENTS = set(_POLICIES.known_environments) | ({_POLICIES.runtime_environment} - {None})
 NOT_ENABLED = {"SubscriptionRequiredException", "OptInRequired"}
 LIVE = ("pending", "available", "running", "stopping", "stopped", "creating", "modifying")

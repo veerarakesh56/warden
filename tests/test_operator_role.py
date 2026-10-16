@@ -47,7 +47,7 @@ def test_every_allowed_action_only_reads_except_assuming_the_sweep_role():
             name = action.split(":")[1]
             assert "*" not in action, action
             if action in CHAIN:  # the read-only sweep role, and the dev harness role (R18: its own identity)
-                assert _list(st["Resource"]) in (["arn:aws:iam::*:role/warden-pg-sweep"],
+                assert _list(st["Resource"]) in (["arn:aws:iam::*:role/warden-ops-sweep"],
                                                  ["arn:aws:iam::*:role/warden-dev-harness"]), st["Sid"]
                 assert st.get("Condition") == {"StringEquals": {"aws:ResourceAccount": "${aws:PrincipalAccount}"}}
             else:
@@ -55,10 +55,18 @@ def test_every_allowed_action_only_reads_except_assuming_the_sweep_role():
 
 
 def test_the_sweep_role_is_assumed_only_in_the_callers_own_account():
-    """Fourth review (2026-09-30, D #4): `arn:aws:iam::*:role/warden-pg-sweep` let the operator assume a
-    role of that name in ANY account. The account is the caller's own, with no account number in the repo."""
+    """Fourth review (2026-09-30, D #4): `arn:aws:iam::*:role/<sweep>` let the operator assume a role of that
+    name in ANY account. The account is the caller's own, with no account number in the repo. And the role the
+    policy lets it assume is the one the sweep script assumes: the runtime environment's (renamed 2026-10-16)."""
     sweep = next(st for st in _allow_statements() if st["Sid"] == "SweepEveryRegionReadOnly")
     assert sweep.get("Condition") == {"StringEquals": {"aws:ResourceAccount": "${aws:PrincipalAccount}"}}
+    spec = importlib.util.spec_from_file_location("account_sweep", ROOT / "scripts" / "account_sweep.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    from warden.environments import EnvironmentPolicies, names
+
+    assert mod.ROLE == f"{names(EnvironmentPolicies.load().runtime_environment).prefix}-sweep"
+    assert _list(sweep["Resource"]) == [f"arn:aws:iam::*:role/{mod.ROLE}"]
 
 def test_chaining_into_the_sweep_role_keeps_the_source_identity():
     """A Roles Anywhere session always has a source identity (the certificate CN). IAM: when a role

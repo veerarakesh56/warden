@@ -6,7 +6,7 @@ An ECS Fargate task definition, its roles, an egress-only security group and a l
 module "warden" {
   source = "github.com/veerarakesh56/warden//terraform"
 
-  image                = "<acct>.dkr.ecr.ap-south-1.amazonaws.com/warden:<version>"
+  image                = "<acct>.dkr.ecr.<region>.amazonaws.com/warden:<version>"
   cluster_arn          = aws_ecs_cluster.platform.arn
   vpc_id               = module.vpc.vpc_id
   subnet_ids           = module.vpc.private_subnets
