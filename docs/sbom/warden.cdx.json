@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
-  "serialNumber": "urn:uuid:ff35cb96-49ef-5399-8c8a-3106c7b5692d",
+  "serialNumber": "urn:uuid:92a5f73d-d405-576d-b621-0e1f030c374d",
   "version": 1,
   "metadata": {
     "component": {
@@ -157,27 +157,27 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/boto3@1.43.106",
+      "bom-ref": "pkg:pypi/boto3@1.43.109",
       "name": "boto3",
-      "version": "1.43.106",
-      "purl": "pkg:pypi/boto3@1.43.106",
+      "version": "1.43.109",
+      "purl": "pkg:pypi/boto3@1.43.109",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "c11ad4c429a983493ba10014c7af9831a455c2c0eea91c1cefff74530e480277"
+          "content": "c829bc3352e1e3922d8fe1db10b697182ac411b64ce5fc3acb0a06a29837417e"
         }
       ]
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/botocore@1.43.106",
+      "bom-ref": "pkg:pypi/botocore@1.43.109",
       "name": "botocore",
-      "version": "1.43.106",
-      "purl": "pkg:pypi/botocore@1.43.106",
+      "version": "1.43.109",
+      "purl": "pkg:pypi/botocore@1.43.109",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "006870b3b4e40547232ad12c3bb4faec91bbbe0659aafaa3b7fa48a112c4ee97"
+          "content": "46b15bea4d942aaea6d7ab7c4b8a3a7290305064a3b41a6cb271cde9da3ba371"
         }
       ]
     },
@@ -560,14 +560,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/huggingface-hub@1.33.0",
+      "bom-ref": "pkg:pypi/huggingface-hub@2.1.1",
       "name": "huggingface-hub",
-      "version": "1.33.0",
-      "purl": "pkg:pypi/huggingface-hub@1.33.0",
+      "version": "2.1.1",
+      "purl": "pkg:pypi/huggingface-hub@2.1.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "367be21a201db9523eddf8aeac7048f2602c1b308691c97640d5e72ed188007e"
+          "content": "c56285bb7047ff1fe510f23be0705934fb3fd43afda75543341e6574a7e79630"
         }
       ]
     },
@@ -859,14 +859,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/openai@3.22.1",
+      "bom-ref": "pkg:pypi/openai@3.26.1",
       "name": "openai",
-      "version": "3.22.1",
-      "purl": "pkg:pypi/openai@3.22.1",
+      "version": "3.26.1",
+      "purl": "pkg:pypi/openai@3.26.1",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "2575f961e4c1df8761f8eeb4d78e967de3f9b9f91b22f7120d60e393e970094d"
+          "content": "4b64060155596aece83aa81d270f326ee081b83da70a0d4b50091a0c60e9151c"
         }
       ]
     },
@@ -1699,14 +1699,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/ruff@0.16.9",
+      "bom-ref": "pkg:pypi/ruff@0.16.10",
       "name": "ruff",
-      "version": "0.16.9",
-      "purl": "pkg:pypi/ruff@0.16.9",
+      "version": "0.16.10",
+      "purl": "pkg:pypi/ruff@0.16.10",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "12b625c6cfba78d285d9f48eda5f053374f1e53cb10ef17342a383750db99161"
+          "content": "eff4728c4eaae93f0955cd264d24b2ab348e74bf59986ccf282ba6dc16b3b017"
         }
       ]
     },
@@ -1920,14 +1920,14 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/tokenizers@0.23.2",
+      "bom-ref": "pkg:pypi/tokenizers@0.23.3",
       "name": "tokenizers",
-      "version": "0.23.2",
-      "purl": "pkg:pypi/tokenizers@0.23.2",
+      "version": "0.23.3",
+      "purl": "pkg:pypi/tokenizers@0.23.3",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac"
+          "content": "cded33237c77caeef62944d32aa9a7ef42bdce2b3497e18d137e072a8c4be438"
         }
       ]
     },
