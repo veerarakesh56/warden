@@ -10,13 +10,16 @@ script but one (a quiet refresh of the list) and no style or image from anywhere
 
 from __future__ import annotations
 
+import dataclasses
 import html
 import re
+import urllib.parse
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-PER_PAGE = 50  # incidents on one page of the list; every incident stays on the record, without a time limit
+PER_PAGE = 50  # incidents on one page of the list by default; every incident stays on the record, without a time limit
+SIZES = (10, 25, 50, 100)  # the page sizes a reader may choose (owner, 2026-10-16)
 REFRESH_S = 60
 
 # A fix run's end, in words, and how it reads at a glance: the kind is said in words too, never by colour alone.
@@ -64,6 +67,10 @@ TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Deni
 # A verdict and a plan's state in words, where the step table would show the machine's.
 PLAIN = {"approved_for_human": "passed its checks - waits for a person", "escalated": "sent to a person",
          "rejected": "refused", "ran": "ran", "off": "off"}
+# Every status a record can say (record(), below), in the order the list's filter offers them.
+STATUSES = tuple(dict.fromkeys(("In progress", "Diagnosed", "No fix plan", "Waiting for approval",
+                                "Approved - being applied", "Cleared while expected down",
+                                *(label for label, _ in ENDED.values()), "Failed", "Cancelled")))
 _QUIET = {"incident.llm_spend", "incident.llm_reserve", "approval.challenge", "approval.challenge_taken",
           "approval.link", "approval.link_used", "chatops.thread", "discuss.reply"}
 
@@ -234,11 +241,118 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
     return r
 
 
+# ------------------------------------------------------------------ the list's paging and filters (owner, 2026-10-16)
+# A query string is the reader's own text: each field is read strictly, and anything unknown, repeated or malformed
+# refuses the whole query rather than being guessed at. A page past the end is the last page; a page size not offered
+# is the default one.
+
+_KEYS = ("page", "size", "env", "status", "service", "from", "to", "q")
+_ENV = re.compile(r"[a-z][a-z0-9-]{0,30}")  # environments.py's own shape for a name
+_SERVICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,63}")
+_DAY = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_PAGE_NO = re.compile(r"[1-9][0-9]{0,6}")
+TEXT_MAX = 100
+
+
+@dataclass(frozen=True)
+class Query:
+    """One reading of the list: which page, how many a page, and the filters - all of them must hold."""
+
+    page: int = 1
+    size: int = PER_PAGE
+    env: str = ""
+    status: str = ""
+    service: str = ""
+    since: date | None = None  # `from`, the display zone's day, inclusive
+    until: date | None = None  # `to`, inclusive
+    text: str = ""  # `q`: in the incident's title or id, any case
+
+    @property
+    def filtered(self) -> bool:
+        return bool(self.env or self.status or self.service or self.since or self.until or self.text)
+
+    def admits(self, r: Record) -> bool:
+        from .environments import display_zone
+
+        day = r.first.astimezone(display_zone()).date()
+        return ((not self.env or r.environment.lower() == self.env)
+                and (not self.status or r.status == self.status)
+                and (not self.service or r.service.lower() == self.service.lower())
+                and (self.since is None or day >= self.since) and (self.until is None or day <= self.until)
+                and (not self.text or self.text.lower() in f"{r.alarm or r.id} {r.id}".lower()))
+
+    def href(self, page: int = 1, incident: str = "") -> str:
+        """This reading's own address - the list at `page`, or an incident's page within the same filters."""
+        pairs = [("page", str(page))] if page > 1 and not incident else []
+        pairs += [("size", str(self.size))] if self.size != PER_PAGE else []
+        pairs += [(k, v) for k, v in (("env", self.env), ("status", self.status), ("service", self.service),
+                                       ("from", self.since.isoformat() if self.since else ""),
+                                       ("to", self.until.isoformat() if self.until else ""), ("q", self.text)) if v]
+        path = f"/r/{incident}" if incident else "/r"
+        return path + ("?" + urllib.parse.urlencode(pairs) if pairs else "")
+
+
+def parse_query(query: str) -> Query | None:
+    """The reader's query string as a Query; None when any part of it is not one the list reads."""
+    try:
+        pairs = urllib.parse.parse_qsl(query or "", keep_blank_values=True, strict_parsing=bool(query),
+                                       max_num_fields=len(_KEYS))
+    except ValueError:
+        return None
+    got = dict(pairs)
+    if len(got) != len(pairs) or set(got) - set(_KEYS):
+        return None
+    page = got.get("page") or "1"
+    env, status, service = got.get("env", ""), got.get("status", ""), got.get("service", "")
+    text = " ".join(got.get("q", "").split())
+    if (not _PAGE_NO.fullmatch(page) or (env and not _ENV.fullmatch(env)) or (status and status not in STATUSES)
+            or (service and not _SERVICE.fullmatch(service)) or len(text) > TEXT_MAX or not text.isprintable()):
+        return None
+    days = []
+    for key in ("from", "to"):
+        raw = got.get(key, "")
+        try:
+            days.append(date.fromisoformat(raw) if raw and _DAY.fullmatch(raw) else None)
+        except ValueError:
+            return None
+        if raw and days[-1] is None:
+            return None
+    since, until = days
+    if since and until and since > until:
+        return None
+    size = int(got["size"]) if got.get("size") in {str(s) for s in SIZES} else PER_PAGE
+    return Query(page=int(page), size=size, env=env, status=status, service=service, since=since, until=until,
+                 text=text)
+
+
+def matching(log: Any, asked: Query, allowed: set[str] | None, policy: Any = None
+             ) -> tuple[list[str], dict[str, Record], int]:
+    """The incidents this reading lists, newest first; the records read on the way; and how many the reader may read
+    at all. `allowed`: the environments the reader may read (None: every one).
+    ponytail: with a filter or a limited reader, reads every incident's rows (light); an index on the audit's
+    environment and status when there are thousands."""
+    ids = incident_ids(log)
+    if allowed is None and not asked.filtered:
+        return ids, {}, len(ids)
+    out, loaded, seen = [], {}, 0
+    for i in ids:
+        r = record(log, i, policy, light=True)
+        if r is None or (allowed is not None and r.environment not in allowed):
+            continue
+        seen += 1
+        if asked.admits(r):
+            out.append(i)
+            loaded[i] = r
+    return out, loaded, seen
+
+
 # ------------------------------------------------------------------ pages
 
 
 def _e(value: Any) -> str:
-    return html.escape(str(value), quote=True)
+    # Braces too: a page's placeholders ({{NONCE}}, {{SCRIPT}}) are filled after its content is in, and a record's
+    # text must never be one of them.
+    return html.escape(str(value), quote=True).replace("{", "&#123;").replace("}", "&#125;")
 
 
 def _when(t: datetime | None) -> str:
@@ -296,11 +410,69 @@ def _day(t: datetime) -> str:
     return t.astimezone(display_zone()).strftime("%A %d %B %Y")
 
 
-def list_page(records: list[Record], *, page: int = 1, pages: int = 1, total: int | None = None) -> str:
+def _filters(asked: Query, envs: tuple[str, ...]) -> str:
+    """The list's filters: a plain GET form, so it works with no script at all; every field labelled."""
+    def options(values: Any, chosen: str) -> str:
+        return '<option value="">Any</option>' + "".join(
+            f'<option value="{_e(v)}"{" selected" if v == chosen else ""}>{_e(v)}</option>' for v in values)
+
+    def field(key: str, label: str, control: str, wide: bool = False) -> str:
+        return (f'<p class="field{" wide" if wide else ""}"><label for="f-{key}">{label}</label>'
+                + control.replace("ID", f'id="f-{key}" name="{key}"', 1) + "</p>")
+
+    def day(d: date | None) -> str:
+        return d.isoformat() if d else ""
+
+    envs = tuple(dict.fromkeys((*envs, *((asked.env,) if asked.env else ()))))
+    keep = f'<input type="hidden" name="size" value="{asked.size}">' if asked.size != PER_PAGE else ""
+    fields = [
+        field("q", "Title or id contains", f'<input ID type="search" maxlength="{TEXT_MAX}" autocomplete="off" '
+                                           f'value="{_e(asked.text)}">', wide=True),
+        field("env", "Environment", f"<select ID>{options(envs, asked.env)}</select>"),
+        field("status", "Status", f"<select ID>{options(STATUSES, asked.status)}</select>"),
+        field("service", "Service", f'<input ID maxlength="64" autocomplete="off" spellcheck="false" '
+                                    f'value="{_e(asked.service)}">'),
+        field("from", "From day", f'<input ID type="date" value="{_e(day(asked.since))}">'),
+        field("to", "To day", f'<input ID type="date" value="{_e(day(asked.until))}">'),
+    ]
+    return (f'<details class="filters"{" open" if asked.filtered else ""}><summary>Filter'
+            f'{" - on" if asked.filtered else ""}</summary>'
+            '<form method="get" action="/r" role="search" aria-label="Filter the incidents">' + "".join(fields)
+            + f'{keep}<p class="go"><button class="primary" type="submit">Show</button>'
+            f'<a class="button plain" href="{_e(Query(size=asked.size).href())}">Clear</a></p></form></details>')
+
+
+def _pager(asked: Query, page: int, pages: int) -> str:
+    """Newest, newer, where, older, oldest - each a plain link; the ends of the list say so instead."""
+    def go(label: str, to: int, rel: str) -> str:
+        if to < 1 or to > pages or to == page:
+            return f'<span class="step {rel} off" aria-disabled="true">{label}</span>'
+        rel_attr = f' rel="{rel}"' if rel in ("prev", "next") else ""
+        return f'<a class="step {rel}" href="{_e(asked.href(to))}"{rel_attr}>{label}</a>'
+
+    newest, oldest = '<span class="t">Newest</span>', '<span class="t">Oldest</span>'
+    return (f'<nav class="pager" aria-label="Pages">{go(newest, 1, "first")}{go("Newer", page - 1, "prev")}'
+            f'<span class="quiet at">Page {page} of {pages}</span>{go("Older", page + 1, "next")}'
+            f'{go(oldest, pages, "last")}</nav>')
+
+
+def _sizes(asked: Query) -> str:
+    links = "".join(f'<span class="chip" aria-current="true">{s}</span>' if s == asked.size else
+                    f'<a class="chip" href="{_e(dataclasses.replace(asked, size=s).href())}">{s}</a>'
+                    for s in SIZES)
+    return f'<p class="sizes"><span class="quiet">Per page</span>{links}</p>'
+
+
+def list_page(records: list[Record], *, page: int = 1, pages: int = 1, total: int | None = None,
+              matched: int | None = None, asked: Query | None = None, envs: tuple[str, ...] = ()) -> str:
     """One page of the list: one row per incident under its day, newest first, its summary in view and its details
-    folded beneath it - and the way to the newer and older pages."""
+    folded beneath it - the filters, how many match, the page size, and the way to the newer and older pages.
+    `total`: the incidents the reader may read; `matched`: how many of them the filters keep."""
+    asked = asked or Query(page=page)
+    matched = (total if total is not None else len(records)) if matched is None else matched
     if not records:
-        body = '<p class="quiet pad">No incident on the record yet.</p>'
+        body = ('<p class="quiet pad empty">No incident matches these filters.</p>' if asked.filtered
+                else '<p class="quiet pad empty">No incident on the record yet.</p>')
     else:
         items, day = [], ""
         for r in records:
@@ -311,23 +483,31 @@ def list_page(records: list[Record], *, page: int = 1, pages: int = 1, total: in
             items.append(
                 f'<details class="row"><summary><span class="when"><time>{_e(_when(r.first))}</time></span>'
                 f'<span class="what"><strong>{_e(title)}</strong><span class="sub">{_e(r.environment)}'
-                f'{" / " + _e(r.service) if r.service else ""}</span></span>{_badge(r)}'
-                f'{"<span class=" + chr(34) + "badge bad" + chr(34) + ">Flagged</span>" if r.flags else ""}</summary>'
+                f'{" / " + _e(r.service) if r.service else ""}</span></span><span class="tags">{_badge(r)}'
+                f'{"<span class=" + chr(34) + "badge bad" + chr(34) + ">Flagged</span>" if r.flags else ""}</span>'
+                f'</summary>'
                 f'<div class="more">{_facts(_summary_facts(r))}'
                 f'<h3>Decisions</h3>{_decisions(r)}<h3>Anything that tried to steer WARDEN</h3>{_flags(r)}'
-                f'<p><a class="open" href="/r/{_e(r.id)}">Open the full record</a></p></div></details>')
+                f'<p><a class="open" href="{_e(asked.href(incident=r.id))}">Open the full record</a></p>'
+                f'</div></details>')
         body = '<div class="rows">' + "".join(items) + "</div>"
     count = f"{total} incident{'s' if total != 1 else ''} on the record" if total is not None else ""
-    nav = ""
-    if pages > 1:
-        newer = f'<a href="/r?page={page - 1}" rel="prev">Newer</a>' if page > 1 else "<span>Newer</span>"
-        older = f'<a href="/r?page={page + 1}" rel="next">Older</a>' if page < pages else "<span>Older</span>"
-        nav = (f'<nav class="pager" aria-label="Pages">{newer}<span class="quiet">Page {page} of {pages}</span>'
-               f"{older}</nav>")
+    first = (page - 1) * asked.size + 1 if matched else 0
+    last = min(page * asked.size, matched)
+    showing = (f'<p class="showing">Showing <strong>{first}–{last}</strong> of '
+               f'<strong>{matched}</strong>{" matching the filters" if asked.filtered else ""}</p>')
+    bar = f'<div class="toolbar">{showing}{_sizes(asked)}</div>'
+    nav = _pager(asked, page, pages) if pages > 1 else ""
     return _shell("WARDEN records", "Records", "<h1>Incidents</h1><p class=\"lede\">Every incident WARDEN has "
                   "handled, newest first" + (f" - {_e(count)}" if count else "") + ". Open a row for its details, or "
-                  "its full record for everything WARDEN found, read and did.</p>" + nav + body + nav,
-                  refresh=page == 1)
+                  "its full record for everything WARDEN found, read and did.</p>" + _filters(asked, envs) + bar
+                  + nav + body + nav, refresh=page == 1)
+
+
+def bad_query_page() -> str:
+    return _shell("WARDEN records", "Records", '<h1>That list cannot be shown</h1><p class="lede">The address asks '
+                  "for a page or a filter the list does not read: a page is a whole number from 1, a day is written "
+                  'YYYY-MM-DD, and the first day comes before the last. <a href="/r">See every incident</a>.</p>')
 
 
 def integrity(r: Record) -> str:
@@ -346,10 +526,28 @@ def integrity(r: Record) -> str:
     return f"Signed record: audit head {short(r.head)} - {len(r.rows)} row(s), {state}. Checked when this page opened."
 
 
-def incident_page(r: Record, *, approve: str = "") -> str:
+def neighbours(ids: list[str], incident: str, asked: Query | None = None) -> str:
+    """The way back to the list - to the page this incident is on - and to the newer and older incident, within the
+    same filters (owner, 2026-10-16: "same arrows on a record page")."""
+    asked = asked or Query()
+    if incident not in ids:
+        return f'<nav class="recnav" aria-label="Incidents"><a class="step back" href="{_e(asked.href())}">All incidents</a></nav>'
+    at = ids.index(incident)
+
+    def go(label: str, to: int, rel: str) -> str:
+        if not 0 <= to < len(ids):
+            return f'<span class="step {rel} off" aria-disabled="true">{label}</span>'
+        return f'<a class="step {rel}" href="{_e(asked.href(incident=ids[to]))}" rel="{rel}">{label}</a>'
+
+    return (f'<nav class="recnav" aria-label="Incidents"><a class="step back" href="{_e(asked.href(at // asked.size + 1))}">'
+            f'All incidents</a><span class="quiet at">{at + 1} of {len(ids)}</span>'
+            f'{go("Newer", at - 1, "prev")}{go("Older", at + 1, "next")}</nav>')
+
+
+def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
     """One incident: its summary, decisions and flags, the report as WARDEN wrote it, and every step on the record.
     `approve`: this site's own address that opens the plan for the reader, when they may approve it now (owner,
-    2026-10-15: "the approve button i dont see here")."""
+    2026-10-15: "the approve button i dont see here"). `near`: neighbours(), the way to the list and the next ones."""
     steps = []
     for e in r.rows:
         if e["kind"] in _QUIET:
@@ -383,7 +581,7 @@ def incident_page(r: Record, *, approve: str = "") -> str:
     act = (f'<p class="pad act"><a class="primary button" href="{_e(approve)}">{_e(APPROVE_LABEL)}</a>'
            '<span class="hint">Your passkey decides; this only opens the plan.</span></p>') if approve else ""
     checked = f'<p class="small mono">{_e(integrity(r))}</p>' if integrity(r) else ""
-    main = (f'<p class="back"><a href="/r">All incidents</a></p><h1>{_e(r.alarm or r.id)}</h1>'
+    main = (f'{near or neighbours([], r.id)}<h1>{_e(r.alarm or r.id)}</h1>'
             f'<p class="lede">{_badge(r)} Incident <span class="mono">{_e(r.id)}</span></p>{checked}{act}'
             '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
             'Open all sections</button></p>'
@@ -526,26 +724,32 @@ def refused_page() -> str:
 
 
 _RECORDS_STYLE = """
-.page.wide{max-width:64rem}
+.page.wide{max-width:66rem}
 .sheet h1{margin-top:1.375rem}
 h2{font-size:1.0625rem;margin:1.75rem 1.25rem .5rem}
 h3{font-size:.9375rem;margin:1.25rem 0 .5rem}
 .quiet{color:var(--muted)}
 .pad{padding:0 1.25rem 1.25rem}
 .small{font-size:.8125rem}
-.badge{display:inline-block;font-size:.75rem;font-weight:600;padding:.1875rem .5rem;border-radius:999px;
-border:1px solid currentColor;white-space:nowrap;margin-left:.375rem}
-.badge.ok{color:var(--ok)}.badge.warn{color:var(--warn)}.badge.bad{color:var(--bad)}.badge.info{color:var(--muted)}
+.empty{padding-top:1.25rem}
+.badge{display:inline-flex;align-items:center;gap:.3125rem;font-size:.75rem;font-weight:650;padding:.1875rem .5625rem;
+border-radius:999px;border:1px solid currentColor;white-space:nowrap;margin-left:.375rem;background:var(--sheet)}
+.badge::before{font-size:.6875rem;line-height:1}
+.badge.ok{color:var(--ok)}.badge.ok::before{content:"✓";content:"✓"/""}
+.badge.warn{color:var(--warn)}.badge.warn::before{content:"!";content:"!"/""}
+.badge.bad{color:var(--bad)}.badge.bad::before{content:"✕";content:"✕"/""}
+.badge.info{color:var(--muted)}.badge.info::before{content:"•";content:"•"/""}
 .rows{border-top:1px solid var(--line)}
 .row{border-bottom:1px solid var(--line)}
 .row>summary{display:grid;grid-template-columns:minmax(9rem,13rem) 1fr auto;gap:.5rem 1rem;align-items:center;
-padding:.875rem 1.25rem;cursor:pointer;list-style:none}
+min-height:3.5rem;padding:.875rem 1.25rem;cursor:pointer;list-style:none;transition:background-color .16s,box-shadow .16s}
 .row>summary::-webkit-details-marker{display:none}
-.row>summary:hover{background:var(--well)}
-.row[open]>summary{background:var(--well)}
+.row>summary:hover,.row[open]>summary{background:var(--well);box-shadow:inset 3px 0 0 var(--accent)}
 .when{color:var(--muted);font-size:.8125rem}
 .what{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
 .sub{color:var(--muted);font-size:.8125rem}
+.tags{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.375rem}
+.tags .badge{margin-left:0}
 .more{padding:.25rem 1.25rem 1.25rem;background:var(--well);box-shadow:var(--in)}
 .more .facts{margin:0}
 .decisions,.flags{margin:0;padding-left:1.125rem}
@@ -553,25 +757,63 @@ padding:.875rem 1.25rem;cursor:pointer;list-style:none}
 .sheet>.decisions,.sheet>.flags,.sheet>.quiet{margin:0 1.25rem}
 .note{margin:.375rem 0 .75rem;padding:.625rem .875rem;border-radius:.625rem;background:var(--sheet);
 border:1px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
-a{color:var(--accent)}
+a{color:var(--accent);text-underline-offset:.18em}
+a:hover{text-decoration-thickness:2px}
 a.open{font-weight:600}
-.back{margin:1rem 1.25rem 0;font-size:.875rem}
-.top .nav{margin-left:auto;font-weight:600;font-size:.875rem}
+.top .nav{margin-left:auto;font-weight:600;font-size:.875rem;display:inline-flex;align-items:center;min-height:2.25rem;
+padding:0 .25rem}
+.top .nav~.theme{margin-left:0}
 .act{display:grid;gap:.375rem;max-width:26rem}
 a.button{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:.75rem;padding:.75rem 1rem}
+a.plain{color:var(--ink);background:var(--sheet);border:1px solid var(--line)}
+a.plain:hover{border-color:var(--muted)}
 .tools{padding-bottom:0}
 .block{margin:1.5rem 1.25rem 0;border:1px solid var(--line);border-radius:.75rem;overflow:hidden}
 .block>summary{padding:.75rem 1rem;font-weight:600;cursor:pointer;background:var(--well)}
 .block:last-child{margin-bottom:1.25rem}
-.report{margin:0;padding:1rem;white-space:pre-wrap;overflow-wrap:anywhere;font:.8125rem/1.5 ui-monospace,SFMono-Regular,
-Menlo,Consolas,monospace}
+.report{margin:0;padding:1rem;white-space:pre-wrap;overflow-wrap:anywhere;font:.8125rem/1.5 MONO}
 .scroll{overflow-x:auto}
-h2.day{margin:0;padding:1rem 1.25rem .375rem;font-size:.8125rem;font-weight:600;letter-spacing:.06em;
+h2.day{margin:0;padding:1rem 1.25rem .375rem;font-size:.75rem;font-weight:650;letter-spacing:.1em;
 text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
-.pager{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.75rem 1.25rem;
-border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:.875rem}
-.pager a{font-weight:600}
-.pager span:not(.quiet){color:var(--muted)}
+.filters{margin:0 1.25rem 1rem;border:1px solid var(--line);border-radius:.875rem;background:var(--well)}
+.filters>summary{display:flex;align-items:center;gap:.5rem;min-height:2.75rem;padding:.5rem 1rem;font-weight:600;
+cursor:pointer;border-radius:.875rem}
+.filters>summary::after{content:"";margin-left:auto;width:.5rem;height:.5rem;border:solid currentColor;
+border-width:0 2px 2px 0;transform:rotate(45deg) translateY(-2px);transition:transform .16s}
+.filters[open]>summary::after{transform:rotate(225deg) translateY(-2px)}
+.filters form{display:grid;grid-template-columns:repeat(auto-fill,minmax(11rem,1fr));gap:.75rem 1rem;
+padding:.25rem 1rem 1rem}
+.field{margin:0}
+.field.wide,.go{grid-column:1/-1}
+.go{display:flex;flex-wrap:wrap;gap:.625rem;margin:0}
+.go button,.go a.button{width:auto;min-width:7.5rem;padding:.625rem 1.25rem}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem 1rem;
+padding:.5rem 1.25rem .75rem}
+.showing{margin:0;font-size:.875rem;color:var(--muted)}
+.showing strong{color:var(--ink)}
+.sizes{display:flex;align-items:center;gap:.25rem;margin:0;font-size:.8125rem}
+.sizes .quiet{margin-right:.375rem}
+.chip{display:inline-grid;place-items:center;min-width:2.25rem;min-height:2rem;padding:0 .5rem;border-radius:999px;
+font-weight:600;text-decoration:none;border:1px solid transparent}
+a.chip:hover{border-color:var(--line);background:var(--well)}
+span.chip{color:var(--accent-ink);background:var(--accent)}
+.pager,.recnav{display:flex;flex-wrap:wrap;align-items:center;gap:.375rem .5rem;padding:.625rem 1.25rem;
+font-size:.875rem}
+.pager{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--well)}
+.pager .at{flex:1;text-align:center;min-width:6rem}
+.recnav{padding-top:1rem}
+.recnav .back{margin-right:auto}
+.recnav .at{padding:0 .25rem}
+.sheet>p.small{margin:0 1.25rem 1rem}
+.lede .badge{margin:0 .375rem 0 0}
+.step{display:inline-flex;align-items:center;gap:.375rem;min-height:2.5rem;padding:0 .75rem;border-radius:.625rem;
+font-weight:600;text-decoration:none;border:1px solid var(--line);background:var(--sheet)}
+a.step:hover{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+.step.off{color:var(--muted);background:none;border-style:dashed;opacity:.85}
+.step.first::before{content:"«";content:"«"/""}.step.prev::before{content:"‹";content:"‹"/""}
+.step.next::after{content:"›";content:"›"/""}.step.last::after{content:"»";content:"»"/""}
+.step.back::before{content:"←";content:"←"/""}
+.step::before,.step::after{font-size:1.125rem;line-height:1}
 .intro{margin:0 1.25rem}
 .finding .body{padding:.25rem 1rem 1rem}
 .finding .body p{margin:.5rem 0}
@@ -579,25 +821,29 @@ border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:.
 .finding .body li{margin:.25rem 0}
 .finding .body li.sub{margin-left:1.25rem;list-style:circle}
 .finding .body li.more-line{list-style:none;color:var(--muted)}
-.finding code,.intro code{font:.8125rem ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:.0625rem .3125rem;
+.finding code,.intro code{font:.8125rem MONO;padding:.0625rem .3125rem;
 border-radius:.3125rem;background:var(--well);overflow-wrap:anywhere}
 pre.code{margin:.5rem 0;padding:.75rem .875rem;border-radius:.625rem;background:var(--well);box-shadow:var(--in);
-overflow-x:auto;font:.8125rem/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-button.link{width:auto;display:inline;padding:0;border:0;background:none;color:var(--accent);font-weight:600;
-text-decoration:underline;cursor:pointer}
+overflow-x:auto;font:.8125rem/1.5 MONO}
+button.link{width:auto;display:inline;padding:.25rem 0;border:0;background:none;color:var(--accent);font-weight:600;
+text-decoration:underline;cursor:pointer;min-height:1.5rem}
 table{width:100%;border-collapse:collapse;font-size:.875rem}
 th,td{text-align:left;vertical-align:top;padding:.5rem .75rem;border-top:1px solid var(--line)}
 th{font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-top:0}
 td:first-child{white-space:nowrap;color:var(--muted)}
-@media (max-width:40rem){.row>summary{grid-template-columns:1fr auto}.when{grid-column:1/-1}
-td:first-child{white-space:normal}}
-"""
+@media (max-width:40rem){.row>summary{grid-template-columns:1fr;gap:.375rem}.tags{justify-content:flex-start}
+td:first-child{white-space:normal}.pager .first,.pager .last{padding:0 .625rem}
+.pager .first .t,.pager .last .t{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.pager .at{order:-1;flex-basis:100%}.pager .next{margin-left:auto}
+.recnav .prev,.recnav .next{flex:1 1 40%;justify-content:center}}
+""".replace("MONO", "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace")
 
 # A quiet refresh of the list (owner: "should be updated every time"), never while a row is open or the reader is
 # reading below the top - so nothing jumps under them.
 _REFRESH_JS = """
 setTimeout(function again() {
-  if (document.querySelector("details[open]") || window.scrollY > 40 || document.hidden) {
+  if (document.querySelector("details.row[open]") || window.scrollY > 40 || document.hidden ||
+      (document.activeElement && document.activeElement.closest("form"))) {
     setTimeout(again, 15000); return; }
   location.reload();
 }, REFRESH_MS);
@@ -612,7 +858,8 @@ def _shell(title: str, where: str, main: str, *, refresh: bool = False, script: 
     return (_SHELL.replace('<div class="page">', '<div class="page wide">').replace("{{TITLE}}", _e(title))
             .replace('<span class="where">{{WHERE}}</span>',
                      '<span class="where">{{WHERE}}</span><a class="nav" href="/r">All incidents</a>')
-            .replace("{{WHERE}}", _e(where)).replace("{{MAIN}}", main)
+            .replace("{{WHERE}}", _e(where))
             .replace("{{FOOT}}", "Read from WARDEN's signed record. Times in UTC, local time in brackets.")
             .replace("{{STYLE}}", _STYLE + _RECORDS_STYLE).replace("{{JS}}", "")
-            .replace("{{SCRIPT}}", (_REFRESH_JS if refresh else "") + script).replace("{{SLACK}}", "0"))
+            .replace("{{SCRIPT}}", (_REFRESH_JS if refresh else "") + script).replace("{{SLACK}}", "0")
+            .replace("{{MAIN}}", main))  # the content last: no placeholder is looked for inside it
