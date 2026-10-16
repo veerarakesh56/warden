@@ -1,7 +1,7 @@
 # Why the model never decides
 
 The whole of WARDEN is one argument: **a stochastic component may propose, but it must not be the
-thing that decides.** Everything else — the graph, the schemas, the policies — is machinery for
+thing that decides.** Everything else — the workflow steps, the schemas, the policies — is machinery for
 holding that line.
 
 ## The problem with "the agent fixed it"
@@ -40,7 +40,7 @@ and supported by evidence?"* — and only the second question is safety-critical
 ⛔ **"Reversible" is answered by WARDEN, not asked of the model** — and it was not always so. Until
 2026-09-12 `P2` read a `reversible` boolean the *model* wrote, so a proposal could widen its own
 permissions by claiming its action could be undone, and two live models gave the identical operation
-opposite verdicts (`live-model-run-2026-09-06.md` §3). Reversibility is now a property of the
+opposite verdicts (a recorded run on 2026-09-06). Reversibility is now a property of the
 operation, fixed in `models.py::ACTION_FACTS`, which the model cannot write and an operator cannot
 configure. The same field arriving from an MCP client — an untrusted caller — buys nothing either.
 
@@ -81,8 +81,7 @@ today's gate (`scripts/replay_gate.py`) changes three verdicts - exactly the thr
 ⭐⭐ **`P9` is the one that came from evidence rather than reasoning.** Against a live model, all four
 bundled incidents came back at **confidence 0.85** — including the one whose entire evidence is two
 vague log lines. `P4` escalates below 0.55, so with that model it would never fire. (That was an earlier run
-over the then-four bundled incidents, not recorded as an artefact; the recorded run,
-`docs/live-model-run-2026-09-06.md`, covers five and shows the same 0.85 on all.)
+over the then-four bundled incidents; a recorded run on 2026-09-06 over five showed the same 0.85 on all.)
 
 **A model's self-reported confidence is not a measurement.** It is a token sequence that looks like
 one. `P9` counts what was actually gathered — log lines, distinct metrics, deploys — because a
@@ -136,7 +135,7 @@ knows (`P14`). `evidence.py`, `grounding.py` and `quarantine.py` are determinist
 checks the model's output against exactly what the model was shown.
 
 **Measured, not assumed** (2026-09-27, `scripts/replay_diagnose.py`). The recorded evidence of the
-three published waves was re-diagnosed on Claude Max, one run per scenario (30 incidents), back to
+three published waves was re-diagnosed with Claude (through the `claude` CLI), one run per scenario (30 incidents), back to
 back. Both arms were today's pipeline: one call, grounding. The only difference was raw lines vs
 typed facts. Scoring used each wave's frozen rubric:
 
@@ -164,7 +163,7 @@ Honest limits:
 ## What the evals prove, and what they do not
 
 The eval suite runs in mock mode, so it tests **routing, policy and redaction** — the deterministic
-parts that must never drift. It fails the build if a change makes the graph behave differently.
+parts that must never drift. It fails the build if a change makes the pipeline behave differently.
 
 ⛔ **It is not a measure of live model quality.** That needs a scored eval against the real model on
 a larger corpus, and it belongs in a nightly job, not a pre-merge gate — different instrument,
@@ -173,13 +172,10 @@ this document exists to warn about.
 
 ## The honest limits
 
-- The tools read live systems - CloudWatch and ECS, Kubernetes (measured on managed EKS), and
-  databases (PostgreSQL measured on RDS) - or recorded fixtures for the demo. They do NOT read
-  CloudWatch for EKS or RDS, Performance Insights, or any CPU/memory/IOPS figure for those; every
-  report says what was and was not read.
-- `await_approval` is a terminal node of the diagnosis graph. Execution exists separately - live
-  remediation behind the four-way gate, dry-run by default - but approving it from Slack does not,
-  and would need its own security review.
+- The tools read only what their backend reads (listed in [`ARCHITECTURE.md`](ARCHITECTURE.md)), or
+  recorded fixtures for the demo. Every report says what was and was not read.
+- A fix is applied only by the remediation workflow, after a signed approval of its exact plan; an
+  approval with one approver lets one person decide a change alone.
 - Redaction is regex-based. It catches the identifier classes it knows about. It is a strong control
   against accidental leakage, not a guarantee against a determined adversary.
 - The mock reasoner is a stand-in with hand-written branches. It exists so the routing can be tested

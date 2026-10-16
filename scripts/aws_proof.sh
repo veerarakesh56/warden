@@ -14,7 +14,7 @@
 #   A  ECS, healthy            real task counts and real CloudWatch utilisation, not fixtures
 #   B  ECS, force-new-deploy   ⭐ WARDEN reports NO DEPLOY. A restart is not a deploy, so policy P5
 #                              is not handed evidence for a rollback that could not possibly help.
-#                              This is the one an interviewer should push on: it is the difference
+#                              This is the case to scrutinise most: it is the difference
 #                              between reading a timestamp and reading the task definition.
 #   C  ECS, real bad deploy    a genuine image change plus genuine OOM kills produced by Fargate -
 #                              the rollback is both proposed and permitted

@@ -288,7 +288,7 @@ def test_the_aws_platform_marks_its_own_refusal_of_an_undo_and_not_awss():
 
 
 def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(world, owner, sink, monkeypatch):  # noqa: F811
-    """Owner, 2026-10-12: "it should say @Rakesh, so people can see in Slack itself who that person is"."""
+    """2026-10-12: a message names the approver with an @-mention, so people can see in Slack who that person is."""
     from warden import chatops
 
     member = "U" + "0" * 3 + "ABCDEFG"  # a placeholder id, built from parts
@@ -355,8 +355,8 @@ def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_e
 
 @pytest.mark.parametrize("typed", ["not now", ""])
 def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, typed):  # noqa: F811
-    """Owner, 2026-10-14: "that denied thing also should show how denied and all ... earlier that denied didn't show
-    that Rakesh denied it". The message read "was denied: nothing was changed. Why: denied by owner"."""
+    """2026-10-14: a denial must say who denied, how and when, as an approval does. The message read
+    "was denied: nothing was changed. Why: denied by owner"."""
     import re
 
     from test_remediation_workflow import RemediationWorkflow, _until_awaiting_approval

@@ -1,5 +1,5 @@
-"""Requirement R30: the README's whole-system diagram is drawn from the code. Every module, file and activity it
-names exists; every activity both workflows run is on it; the sections it does not redraw say they predate v2."""
+"""The README's whole-system diagram is drawn from the code. Every module, file and activity it names exists, and
+every activity both workflows run is on it."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ README = ROOT / "README.md"
 
 def _section() -> str:
     text = README.read_text(encoding="utf-8")
-    return text[text.index("### 0. The whole system on one page"):text.index("### 1. One incident, end to end")]
+    start = text.index("### The whole system on one page")
+    return text[start:text.index("\n#", start + 1)]
 
 
 def test_every_module_the_diagram_names_exists():
@@ -40,9 +41,3 @@ def test_every_activity_is_on_the_diagram_and_every_command_on_it_is_real():
         assert re.search(rf"\b{name}\b", section), name
     for cmd in re.findall(r"warden ([a-z]+)", section):
         assert f'add_parser("{cmd}"' in (ROOT / "src" / "warden" / "cli.py").read_text(encoding="utf-8"), cmd
-
-
-def test_the_older_sections_say_they_predate_v2():
-    text = README.read_text(encoding="utf-8")
-    banner = text[text.index("## Architecture"):text.index("### 0. The whole system on one page")]
-    assert "Section 0 is drawn from the v2 code" in banner and "Sections 1-10 predate v2" in banner

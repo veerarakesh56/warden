@@ -1,4 +1,4 @@
-"""Fault injection for the FULL STACK proving ground - Wave 4 (docs/WAVE4-FULLSTACK.md).
+"""Fault injection for the FULL STACK proving ground - Wave 4 (docs/FULLSTACK-LAB.md).
 
 The same four rules as `ops.py`, `ops_k8s.py` and `ops_db.py`:
 
@@ -20,9 +20,8 @@ carries `application_name = warden-bench-hold-<fault>`, so the revert can always
 `pg_terminate_backend` even if the holder is gone - under a statement_timeout, so it cannot hang
 (the Wave 3 lesson in ops_db.py: a revert that waits on a lock forever hangs the whole wave).
 
-The second half of this file is the FIX ALLOW-LIST (docs/WAVE4-FULLSTACK.md section 6) and the
-executor that runs an allowed fix verbatim. The allow-list is a pure function so it can be tested
-against every injection shape without AWS.
+The end of this file records a fix outcome from the gate's verdict alone (`decide_fix`): the harness runs no
+fix command (docs/FULLSTACK-LAB.md section 6).
 """
 
 from __future__ import annotations
@@ -64,7 +63,7 @@ FLAGS: dict[str, tuple[str, str, str]] = {
 
 @dataclass
 class Target:
-    """The stack's names. Defaults are docs/WAVE4-FULLSTACK.md section 2; endpoints and ids come
+    """The stack's names. Defaults are docs/FULLSTACK-LAB.md section 1; endpoints and ids come
     from the stack description file (fullstack_cli.load_stack)."""
 
     region: str = REGION

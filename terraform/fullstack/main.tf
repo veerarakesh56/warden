@@ -1,4 +1,4 @@
-# Wave 4 - the full stack (docs/WAVE4-FULLSTACK.md section 2). Infrastructure ONLY.
+# The full-stack lab (docs/FULLSTACK-LAB.md section 1). Infrastructure ONLY.
 #
 # ⛔ Terraform here never builds or deploys application code. Lambdas are created with a
 # placeholder zip and ECS with a placeholder container; `scripts/deploy_fullstack_apps.py` (the
@@ -79,7 +79,7 @@ data "aws_ssm_parameter" "budget_email" {
 # Public subnets hold ONLY the NAT gateway (2026-09-27 network review). Everything else - ECS tasks,
 # EKS nodes, the internal ALB, ElastiCache and the in-VPC Lambdas - is in private subnets and
 # reaches the internet through ONE NAT gateway in public[0]: Aurora in express configuration is outside the VPC, reachable only through
-# its internet access gateway (changed 2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints").
+# its internet access gateway (changed 2026-09-26, docs/FULLSTACK-LAB.md section 1).
 # ⚠ One NAT is a single-AZ dependency: if that AZ fails, the in-VPC Lambdas lose the database.
 # Accepted for a benchmark stack; a production stack runs one NAT per AZ.
 

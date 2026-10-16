@@ -1,4 +1,4 @@
-# Wave 4 - the full stack (docs/WAVE4-FULLSTACK.md, section 7). 28 faults, one run each.
+# Wave 4 - the full stack (docs/FULLSTACK-LAB.md, section 5). 28 faults, one run each.
 #
 # Operator-driven, not a loop: `python -m scenarios.fullstack_cli inject|diagnose|fix|verify|revert
 # fs-NN`, one step at a time (see that module). Every fault's inject/revert/verifier is in

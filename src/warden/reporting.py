@@ -323,7 +323,7 @@ def _reveal(obj, reveal: dict[str, str]):
 # --------------------------------------------------------------------------- evidence sources
 
 
-# What each stack reader reads (docs/WAVE4-FULLSTACK.md section 5), keyed by the alert label that names it.
+# What each stack reader reads (docs/FULLSTACK-LAB.md section 4), keyed by the alert label that names it.
 _STACK_READERS = (
     ("lambda", ("lambda",), ("configuration, concurrency, aliases and versions, event source mappings, CloudWatch "
                            "Errors/Throttles/Invocations/Duration, /aws/lambda logs, and the deployed source of a "

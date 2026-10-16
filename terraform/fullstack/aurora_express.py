@@ -8,7 +8,7 @@ The environment is WARDEN_ENV, and nothing else: with none set the script refuse
 another environment is refused (audit A-I-23: it acted on dev unless told otherwise). The region is
 AWS_REGION (or stack.json's `region`).
 
-⛔ WHY THIS IS NOT TERRAFORM (2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints"). The
+⛔ WHY THIS IS NOT TERRAFORM (2026-09-26, docs/FULLSTACK-LAB.md section 1). The
 account is on the AWS Free plan, which creates an Aurora cluster only "WithExpressConfiguration",
 and the AWS provider (6.66.0, and main) cannot set it. Express configuration means:
   - the cluster and ONE Aurora Serverless writer instance, named by AWS - this script records the name;

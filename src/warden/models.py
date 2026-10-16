@@ -292,7 +292,7 @@ BLAST_RADIUS_ORDER: tuple[str, ...] = get_args(BlastRadius)
 # Reversibility is a property of the OPERATION, not an opinion about an incident — and until
 # 2026-09-12 the verifier read it from a field the MODEL wrote. Two live models then reported
 # opposite values for the identical operation, so the same action was rejected by P2 in one run and
-# merely escalated in another (docs/live-model-run-2026-09-06.md §3). Worse, `mcp_server.py` builds
+# merely escalated in another (the live-model run of 2026-09-06). Worse, `mcp_server.py` builds
 # a proposal from untrusted caller arguments, so any client could skip P2 by claiming
 # `reversible: true`. P2 now reads this table and nothing else.
 #

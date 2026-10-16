@@ -1,6 +1,6 @@
 # The data layer: ElastiCache Redis, DynamoDB, and the application's connection metadata.
 #
-# ⛔ AURORA IS NOT HERE (changed 2026-09-26, docs/WAVE4-FULLSTACK.md "Free-plan constraints"). The
+# ⛔ AURORA IS NOT HERE (changed 2026-09-26, docs/FULLSTACK-LAB.md section 1). The
 # account is on the AWS Free plan, which only creates Aurora clusters in EXPRESS configuration, and
 # the AWS provider cannot create one. `aurora_express.py create` (this directory, the INFRA
 # pipeline) creates cluster warden-dev-aurora after `terraform apply`; `destroy` removes it

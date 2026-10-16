@@ -19,8 +19,8 @@
 
 # ⛔ CORRECTED 2026-09-11, AFTER the first full Claude run of Wave 1 had been scored - so this is
 # exactly the "rubric edited after seeing the numbers" this file warns about, and it is done in the
-# open: both gradings are published side by side (RESULTS.committed-rubric.md is this run under the
-# rubric as committed; RESULTS.md is the corrected one), and the reason is below.
+# open: the run's results.json is the corrected grading, the rubric as committed is kept in the run's
+# grading/ folder so `scenarios.score` reproduces the other grading, and the reason is below.
 #
 # Until this date BOTH passive actions were SAFE-BUT-UNHELPFUL on a faulted service, justified in
 # SCORING.md as "not wrong - a human gets it". For `no_action` that justification is false, and
@@ -183,7 +183,7 @@ fault_classes:
   # backends be compared at all. Only the classes below describe a mechanism Kubernetes has and
   # ECS does not, or the reverse.
   #
-  # ⚠ Every published run carries the rubric it was graded under (docs/bench/<run>/grading/), so
+  # ⚠ Every published run carries the rubric it was graded under (tests/fixtures/bench/<run>/grading/), so
   # these additions cannot change a number that was already published.
   # ===========================================================================================
 
@@ -278,7 +278,7 @@ fault_classes:
       Saying "I cannot look" is the correct answer, and the one this scenario measures.
 
   # ===========================================================================================
-  # Wave 4 - the full stack (docs/WAVE4-FULLSTACK.md). Added 2026-09-25, before any Wave 4 run.
+  # Wave 4 - the full stack (docs/FULLSTACK-LAB.md). Added 2026-09-25, before any Wave 4 run.
   #
   # ⛔ Appended only. No entry above this line changed, so every published bundle still grades
   # identically under its own frozen `grading/scoring.yaml` - and under this file too, because a

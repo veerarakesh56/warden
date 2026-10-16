@@ -1,165 +1,248 @@
 # Architecture
 
-## Why a state graph and not a loop
+WARDEN diagnoses a production incident and proposes at most one fix. A model writes the diagnosis; plain
+code decides what may happen next; a person approves any change; and WARDEN itself applies, checks and,
+when needed, undoes it. This page describes how the code does that. Every module named here is in
+`src/warden/`; if this page and the code disagree, the code is right and this page is a bug.
 
-A `while` loop with an LLM in it is easy to write and impossible to audit. The graph gives three
-things a loop does not:
+Related reading: [`ai-boundary.md`](ai-boundary.md) (why the model never decides),
+[`PRODUCTION-ARCHITECTURE.md`](PRODUCTION-ARCHITECTURE.md) (how it runs in AWS),
+[`SYSTEM-COMPONENTS.md`](SYSTEM-COMPONENTS.md) (every outside component and its cost),
+[`FAILURE-MODES.md`](FAILURE-MODES.md) (what can go wrong, and what holds it).
 
-1. **Named transitions.** "Why did it do that?" is answered by a list of nodes and the state at each
-   one, not by scrolling a prompt log.
-2. **Typed state at every boundary.** Each node returns a partial state update that is merged, so no
-   node can quietly mutate something it does not own.
-3. **A place to put the gate.** `verify` is a node with one inbound edge and four outbound ones.
-   There is exactly one path from "the model said something" to "something happens", and it goes
-   through code that has no model in it.
+## The whole system on one page
 
-## The graph
+```mermaid
+flowchart TB
+    subgraph IN[Ways in]
+        ALARM[CloudWatch alarm event<br/><i>lambdas.py, intake.py</i>]
+        AM[Alertmanager webhook<br/><i>webhooks.py</i>: bearer secret,<br/>size caps, still-firing check]
+        MCP[MCP tools<br/><i>mcp_server.py</i>]
+        CLI[warden CLI<br/><i>cli.py</i>, in one process]
+    end
+    AM --> ALARM
+    ALARM -->|"group repeats, flapping,<br/>open-incident cap, expected-down holds"| IW
+
+    subgraph TEMPORAL[Temporal - every payload encrypted by <i>codec.py</i>]
+        IW[IncidentWorkflow<br/><i>workflows.py</i>]
+        RW[RemediationWorkflow<br/><i>workflows.py</i>, one open plan per resource]
+    end
+    MCP --> IW & RW
+
+    subgraph INC[Incident activities - <i>activities.py</i>]
+        PREP[prepare: read evidence, redact,<br/>tripwire, quarantine to typed facts<br/><i>tools, redaction, tripwire, quarantine, evidence</i>]
+        DIAG[diagnose: the model call<br/><i>llm.py, providers.py</i>]
+        VER[verify: deterministic policies<br/><i>verifier, grounding, numbers, decide</i>]
+        NOTE[notify: one report per incident,<br/>through the outbound gate<br/><i>reporting, gate, chatops</i>]
+        PREP --> DIAG --> VER --> NOTE
+    end
+    IW --> PREP
+    CLI --> PREP
+
+    subgraph REM[Remediation activities - <i>activities.py</i>]
+        PLAN[resolve_plan: catalogue entry to an<br/>exact plan from live state, plan hash<br/><i>catalog, resolver, environments</i>]
+        GATE[gate: kill switch, rate bounds,<br/>change freeze<br/><i>bounds, freeze</i>]
+        APPR[signed approval of the exact plan hash<br/><i>approvals, passkeys</i>]
+        APPLY[precheck, apply once, own success check,<br/>roll back if not recovered]
+        FIN[finish: signed end row, change record<br/><i>audit, changes</i>]
+        PLAN --> GATE --> APPR --> APPLY --> FIN
+    end
+    VER -->|"a fix a person may approve"| RW
+    RW --> PLAN
+
+    subgraph PEOPLE[People]
+        PAGE[approval page<br/><i>approval_page.py</i>:<br/>Sign in with Slack, passkey]
+        KEY[warden approve<br/>Ed25519 break-glass key]
+        SLACK([Slack: one message per incident,<br/>a discussion channel])
+    end
+    PAGE -->|signal| RW
+    KEY -->|signal| RW
+    NOTE --> SLACK
+
+    subgraph WRITE[Writes - only after a signed approval]
+        AW[AWS: per-plan actor session<br/><i>platforms/aws.py, identity.py</i>]
+        KW[Kubernetes: restart, bounded scale<br/><i>platforms/k8s.py</i>]
+        DW[databases: close idle-in-transaction sessions<br/><i>platforms/db.py</i>]
+    end
+    APPLY --> AW & KW & DW
+
+    AUD[(audit: hash chain, signed checkpoints<br/><i>audit.py</i>)]
+    INC & REM -->|every step| AUD
+```
+
+Four rules carry the design:
+
+- **Evidence first, and only typed facts reach the model.** Evidence is read and redacted before the model
+  is involved, so the model cannot choose what is looked at. Untrusted text (log lines, events, SQL) reaches
+  it only as facts of fixed shapes.
+- **The model proposes; rules decide.** The verifier is plain Python over typed data. It never treats the
+  model's confidence as a reason to act, only as a reason to stop.
+- **Nothing changes without a person.** A fix runs in its own workflow and applies only a plan whose exact
+  hash a person signed.
+- **Everything is on the record.** Every step writes a row to a hash-chained, signed audit log.
+
+## One incident, end to end
+
+`IncidentWorkflow` (in `workflows.py`) runs one alert. Its workflow id is `inc-<alert id>`, so the same
+alert twice is one incident; a repeat while it is open is counted, not started again.
+
+1. **Wait for the logs.** A durable timer waits until the alert's last minutes have reached the log store.
+2. **prepare.** Reads the evidence (logs, metrics, deploys, configuration and state reads), redacts it,
+   runs the optional injection tripwire, numbers every item with an evidence id, and reduces untrusted
+   text to typed facts (`quarantine.py`). The redaction map stays inside this step and never leaves it.
+3. **reread** (at most once). If a source answered with nothing right after the alert, it is read again
+   when the alert is old enough for that source.
+4. **diagnose.** The model call: a hypothesis with a confidence, citations that quote evidence ids, the
+   causes it ruled out, and one action from a closed set (`models.ActionKind`). One attempt per call;
+   the client enforces a per-incident budget of calls and US dollars (`llm.py`).
+5. **investigate** (optional, at most two rounds). The model may ask to read up to three related
+   resources. A request is read only if the name is one WARDEN already holds from trusted evidence and
+   belongs to the incident's environment (`investigation.py`).
+6. **verify.** The deterministic policies (below). One repair round may ask the model again with the
+   checks' own words, but only for checks a better answer can pass; safety policies are never fed back.
+7. **second opinion.** Before any fix reaches a person, the model is asked once more on the same evidence.
+   If the two answers name a different action or target, the fix is escalated. This can only take an
+   approval away.
+8. **notify and plan.** One message per incident. If the verifier passed a fix for a person, `plan_fix`
+   opens a `RemediationWorkflow` for it, and the message carries the request for approval.
+
+With no model, a broken provider or a spent budget, WARDEN still reports: it escalates on the rules alone
+and says why.
+
+## From approval to a change
+
+`RemediationWorkflow` carries one catalogue entry from plan to verified result:
 
 ```
-START → ingest → gather → redact → diagnose → verify ─┬→ halt           → END
-                                                               ├→ escalate       → END
-                                                               ├→ await_approval → END
-                                                               └→ record_safe    → END
+resolve_plan (live read, catalogue check) -> gate (kill switch, bounds, freeze)
+  -> signed approvals until the plan expires -> re-check live state (changed = plan again)
+  -> apply ONCE -> its own success check on a timer -> roll back if it did not recover
+  -> a signed end row in the audit
 ```
 
-| Node | Model involved? | Responsibility |
+- **The catalogue is the only set of writes** (`catalog.py`). An entry either restores a known-good state
+  WARDEN itself observed (a previous version, task definition or rollout) or makes a small numeric change
+  clamped against live values. A parameter must be a value WARDEN read from live state or a bounded number,
+  so a target taken from a log line is refused.
+- **Tiers.** T1: one small, reversible change to one resource. T2: service-level, reversible. T3:
+  irreversible, IAM, network or Terraform; it also needs a cooling-off time and a device-bound passkey.
+- **Approvals bind to the plan hash.** The approver signs the workflow id, the plan hash, the tier, a
+  single-use nonce and an expiry. A signature for one plan cannot approve another. The approver list
+  (`approvals.py`) says who may approve which tiers in which environments, and how many different
+  approvers each tier needs.
+- **Drift means a new plan.** If the target or WARDEN's own code changed after the plan was made, the plan
+  is made again from what WARDEN reads now and put to the approvers again, at most twice.
+- **Success is never an input.** The workflow's own check decides recovery: three healthy readings in a
+  row, then re-checks 15 and 60 minutes later. Nothing outside the workflow can mark a fix successful.
+- **Other alarms after the fix** end the run as "side effects", not as "fixed".
+
+## Trust zones
+
+Each activity runs on the task queue of the zone that holds its credentials (`workflows.ZONES`):
+
+| Zone | Activities | Holds |
 |---|---|---|
-| `ingest` | no | Record the alert, open the audit trail |
-| `gather` | no | Run every context tool; record failures rather than swallowing them |
-| `redact` | no | Mask identifiers, **then prove none survived** |
-| `diagnose` | **yes, one call** | Hypothesis + confidence + citations to evidence ids (`RootCause`), and one action from a closed enum (`RemediationProposal`). Until 2026-09-27 these were two calls (`analyse`, `propose`) that each re-sent the whole evidence |
-| `verify` | no | The binding decision (`Verdict`) |
-| `halt` / `escalate` / `await_approval` / `record_safe` | no | Terminal outcomes (`record_safe` records an `AUTO_SAFE` verdict - `no_action` or `escalate_to_human`, the only inert actions - with no approval required) |
+| core (`warden` queue) | the workflows, the audit's own steps, verify, the gate | the audit, the approver list; no cloud credential for the watched systems |
+| read (`warden-read`) | prepare, reread, investigate, plan and precheck, success checks | the watched environments' reader roles |
+| llm (`warden-llm`) | diagnose, discussion answers | the model API key; sees only redacted, typed facts |
+| notify (`warden-notify`) | notify, announce, finish | Slack, paging and change-record secrets |
+| act (`warden-act`) | apply, rollback | no standing role: a per-plan actor session only |
 
-Ordering is deliberate: **`gather` precedes `redact` precedes `diagnose`.** Evidence is collected
-before the model exists in the process at all, so the model cannot influence what evidence is
-collected — and nothing unredacted is ever in scope when it is called.
+In the cloud each zone is its own service with its own task role and its own Temporal API key
+(`terraform/modules/warden-runtime`). The AWS actor session (`identity.py`) lasts at most 900 seconds,
+carries the incident as its SourceIdentity and the approvers and plan as session tags, and has a session
+policy that allows only the plan's actions on the plan's exact resources. A separate check
+(`actor_use.py`) reads CloudTrail for every use of an actor role and pages a person if the audit shows no
+approval for it.
 
-## State
+## The safety layers
 
-`WardenState` is a `TypedDict`. Every field is optional so partial updates merge cleanly. `audit`
-uses an `Annotated[..., _append]` reducer so each node appends rather than overwrites — losing the
-trail to a careless return would defeat the purpose of having one.
+| Layer | Module | What it does |
+|---|---|---|
+| Redaction | `redaction.py` | Masks credentials, personal data and identifiers before anything reaches a model. Regex based: strong against accidental leaks, not a guarantee against a determined adversary. |
+| Quarantine | `quarantine.py`, `evidence.py` | Untrusted text becomes typed facts (a level, an error code, a status, a closed-vocabulary phrase, `key=value`, sizes and durations). None can carry a sentence. |
+| Injection tripwire | `tripwire.py` | Optional. Meta's Llama Prompt Guard 2 scores untrusted lines locally; a flagged line sends the incident to a person (policy P16). It is a tripwire, never a gate that clears text. |
+| Policies | `verifier.py`, `grounding.py`, `activities.py`, `catalog.py` | Numbered policies P0 to P33, all plain code. Most run when the diagnosis is verified; a few run when a plan is made (P18 the target's environment matches the incident's, P19 a change freeze, P21 a rollout already under way). P25-P28 run in observe mode: recorded and shown, never obeyed, until measured. |
+| Outbound gate | `gate.py` | The last check on every way out (chat, terminal, MCP, webhooks). G2 marks claims WARDEN cannot verify; G3 removes links, images and markup an attacker could plant; G4 withholds write commands from model text; G5 blocks a message that still holds a secret. |
+| Bounds and kill switch | `bounds.py` | Per-service and per-action-class rate limits; a breaker that trips the kill switch after repeated failed success checks. The switch is reset only by a signed approval of that trip. |
+| Change freeze | `freeze.py` | No fix is applied inside a declared freeze window; a window that cannot be read refuses the change. |
+| Audit | `audit.py` | A hash chain with signed checkpoints. In the cloud the signer is an AWS KMS Ed25519 key and checkpoints are anchored in S3 Object Lock. `warden audit verify` checks it offline. |
+| Payload encryption | `codec.py` | AES-256-GCM over every Temporal payload, bound to its namespace and workflow, so the Temporal server holds only ciphertext. |
+
+The verifier's verdicts, by precedence: `rejected` (nothing runs) > `escalated` (a person decides) >
+`auto_safe` (only `no_action` or `escalate_to_human`, which change nothing) > `approved_for_human` (a fix a
+person may approve). Every policy that applies is recorded, not just the first. The main policies and the
+failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
+
+## People and records
+
+- **The approval page** (`approval_page.py`, served by a Lambda behind API Gateway). A Slack button opens a
+  link that is valid for 15 minutes, for one approver and one workflow, and used once. The person signs in
+  with Slack (`slack_login.py`), which says which member they are, then proves it with their passkey;
+  only then is the plan shown. For T2 and T3 they type the target, and the passkey signs a challenge that
+  is the plan (`passkeys.py`). The workflow re-verifies the assertion itself.
+- **Break-glass.** `warden approve` signs the plan hash with an Ed25519 key held by the approver.
+- **Records pages** (`records.py`): every incident, its plan, who approved or denied it and why, and how it
+  ended, read from the signed audit. Nothing on them is written back.
+- **Discussion** (`discuss.py`): anyone in a second Slack channel can ask WARDEN about an incident; WARDEN
+  answers from the incident's own evidence. Only an enrolled approver may ask for a new plan, and that plan
+  still needs a passkey approval.
 
 ## Evidence backends
 
-The contract is three methods — `logs`, `metrics`, `deploys` — and `gather()` is the only thing
-that calls them. **Nothing above that boundary knows or cares which backend is in use.** That is the
-whole reason the boundary exists, and v0.5.0 cashed it in:
+`tools.resolve_backend` picks the evidence source from `WARDEN_BACKEND`. Every backend is read-only by
+construction, and its identity is scoped to reads.
 
-| Backend | `WARDEN_BACKEND` | Reads | Proven by |
-|---|---|---|---|
-| `FixtureBackend` | `fixture` (default) | recorded incidents shipped as package data | the eval gate, every push |
-| `KubernetesBackend` | `k8s` | a live cluster — pod status, events, log tails, the previous (crashed) container's last lines, the Deployment's replicas, ReplicaSet images and rollout history, and the HorizontalPodAutoscaler's min/max/current/desired replicas (since 2026-09-25) | **measured on managed EKS** (Wave 2, 30 runs, read-only ServiceAccount); and on every push, the CI `k8s` job: a real k3d cluster, a pod that really OOM-kills, RBAC checked both ways, run from outside *and* inside the cluster |
-| `AwsBackend` | `aws` | **CloudWatch Logs** (alert time ± 15 min), CloudWatch metrics (± 10 min), ECS service state, deployments and failed tasks, task-definition changes | **measured on a real AWS account** (Wave 1, ECS/Fargate) |
-| `DatabaseBackend` | `postgres` · `mysql` · `redis` · `mongo` · `mssql` | the engine's own session views: connections, idle-in-transaction, long queries, lock waits, replica lag; for PostgreSQL also the sessions behind the counts | **PostgreSQL measured on Amazon RDS** (Wave 3, 18 runs); all five engines against real servers in the CI `db` job |
+| Backend | `WARDEN_BACKEND` | Reads |
+|---|---|---|
+| Fixtures | `fixture` (default) | recorded incidents shipped as package data, for the demo and CI |
+| AWS | `aws` | CloudWatch Logs and metrics, ECS service state and deploys (`aws_backend.py`); for a full stack, the alarm's own resource across many AWS services, its configuration and recent CloudTrail changes (`aws_stack.py`, `aws_describe.py`, `resources.py`) |
+| Kubernetes | `k8s` | pod status, events, recent log lines and the previous crashed run's last lines, Deployments, ReplicaSets, rollout history and the HorizontalPodAutoscaler (`k8s_backend.py`) |
+| Databases | `postgres`, `mysql`, `redis`, `mongo`, `mssql` | each engine's own session views: connections, idle-in-transaction sessions, long queries, lock waits, replica lag (`database.py`) |
 
-Adding Loki or Datadog - or CloudWatch for EKS and RDS, which is not read today - is the same
-shape: one class, three methods, passed to `run(alert, backend=...)`.
+Datadog (`datadog.py`), Grafana Loki, Tempo and Prometheus (`grafana.py`) and AWS X-Ray (`xray.py`) are
+read beside the main backend when their read keys are set.
 
-### `KubernetesBackend` — what it is honest about
+Every read runs under a deadline (`WARDEN_TOOL_TIMEOUT`). A failed or timed-out read becomes an entry in
+`context.tool_errors`, which policy P8 reads, so a partial picture is visible to the verifier instead of
+looking complete. A timed-out thread is abandoned, not killed; Python cannot stop one.
 
-- **Metrics are pod-status counts, not utilisation.** `restart_count`, `oom_killed_containers`,
-  `crashloop_containers`, `pods_ready`, `pods_total`, `memory_limit_mib`, and - where an HPA
-  targets the Deployment - `hpa_min_replicas`, `hpa_max_replicas`, `hpa_current_replicas`,
-  `hpa_desired_replicas`. A metrics server would add
-  CPU/memory %, and clusters do not ship one by default - EKS included. The counts are also what an
-  on-call engineer reads first. `replicas_desired` sits next to them, and a Deployment that exists with
-  zero pods is reported as evidence (`pods_total = 0`), not as a failed read.
-- **Read-only by construction.** Only `list_*`, `read_*`, `read_namespaced_pod_log`. A test walks
-  the module's AST for any write-shaped call (`create_`/`patch_`/`delete_`/`replace_`/`connect_post_`...),
-  escape hatch (`call_api`, `getattr` on the client) or `subprocess` import - structural, not the
-  text grep it replaced. The mutation check adds a `delete_namespaced_pod` call and asserts
-  the suite goes red.
-- **Logs are read raw.** `_preload_content=False`, then `_log_text()` decodes. The client's default
-  path returned the repr of bytes as a str against a real k3s cluster — one line, literal `\n`.
-- **A missing Deployment is `[]`, not an error.** Bare pods and StatefulSets have none; policy P5
-  then refuses any rollback, which is the correct outcome. A 403, by contrast, propagates — it means
-  the RBAC is wrong, and hiding it would make a broken deployment look healthy.
+**Kubernetes access** is a ClusterRole holding six reads (list pods, get pod logs, list events, get
+deployments, list replicasets, list horizontalpodautoscalers), granted by a RoleBinding in each namespace
+WARDEN may diagnose, never a ClusterRoleBinding (`k8s/rbac.yaml`). CI asks a real API server both ways:
+those reads must be allowed, and writes, unbound namespaces, cluster-scoped reads and secrets must be denied.
 
-### The alert → workload mapping
+## Model access
 
-```
-namespace  = alert.labels["namespace"]  or $WARDEN_K8S_NAMESPACE  or "default"
-selector   = alert.labels["selector"]   or f"app={alert.service}"
-deployment = alert.labels["deployment"] or alert.service
-```
+`llm.LLMClient` is the only path to a model. It returns a validated Pydantic object or fails; there is no
+path that accepts unvalidated model text. It counts every call against a per-incident ceiling of calls and
+US dollars and stops when either is reached; a daily cap across incidents is read from the audit.
 
-### RBAC is the boundary
-
-`k8s/rbac.yaml`: a **ClusterRole** holding the read-only verb set, granted by a **namespaced
-RoleBinding** in each namespace WARDEN may diagnose. Never a ClusterRoleBinding. The first draft used
-a plain Role in the `warden` namespace — which cannot see pods in `default`, where workloads live.
-A Role only reaches its own namespace; caught before apply.
-
-CI asks the API server directly, both ways: the **exact six** reads the code makes must be `yes`
-(list pods, get pods/log, list events, get deployments, list replicasets, list
-horizontalpodautoscalers); writes, unbound
-namespaces and cluster-scoped reads must each be `no`. Including `get pods` (only `list` is granted)
-and `get secrets` → `no`.
-
-Every tool call is individually caught **and runs under a wall-clock deadline**
-(`WARDEN_TOOL_TIMEOUT`, default 5s). A failure or timeout becomes an entry in `context.tool_errors`,
-which policy `P8` reads — so a partial picture is *visible to the verifier* rather than looking like
-a complete one. This is the difference between degrading and lying.
-
-⛔ **The timeout is implemented with a thread pool shut down using `wait=False`, and that detail is
-load-bearing.** Using `ThreadPoolExecutor` as a context manager calls `shutdown(wait=True)` on exit,
-which blocks until the hung worker finishes — the deadline fires, then the caller waits the full
-duration anyway. It looked implemented and did nothing.
-⚠ A timed-out thread is **abandoned, not killed**; Python cannot force-stop one. The caller stops
-waiting, which is the point of a deadline. A production backend client should also set its own
-socket timeout so the thread actually ends.
+`providers.py` holds the providers: `anthropic` (the default), `bedrock`, `gemini`, OpenAI-compatible
+endpoints, and the local `claude` CLI. The default model per provider and the list of qualified models are
+data in `src/warden/data/providers.yaml`. A model must pass WARDEN's replay qualification before it may
+diagnose; an unqualified model is refused, and every incident is then escalated on the rules alone.
 
 ## Tracing
 
-`observability.py` wires OpenTelemetry. Spans for the run, each tool call and the three decision nodes —
-`warden.run → tool.* → diagnose → verify` — with attributes for confidence, action, blast
-radius, verdict, policies fired, and **token/USD cost per step**.
+`observability.py` wires OpenTelemetry: a span for the run, each read, the model call and the verdict,
+with confidence, action, verdict, policies and token cost as attributes. No exporter by default;
+`OTEL_EXPORTER_OTLP_ENDPOINT` sends spans to a collector, `WARDEN_TRACE_CONSOLE=1` prints them, and
+`WARDEN_TRACE=0` turns tracing off. Telemetry never takes the system down: a missing exporter falls back
+to the console.
 
-Defaults to no exporter; `WARDEN_TRACE_CONSOLE=1` prints spans, `OTEL_EXPORTER_OTLP_ENDPOINT` ships
-them to a collector, `WARDEN_TRACE=0` disables tracing entirely for quiet test runs. If the OTLP
-exporter package is absent it falls back to console rather than raising — **telemetry must never take
-the system down.**
+## Running without Temporal or a model
 
-## Deployment
+`graph.py::run()` runs the same incident steps (`ingest -> gather -> redact -> diagnose -> verify`) in one
+process, for the CLI, the benchmark harness and the tests. `WARDEN_MOCK=1` replaces the model with
+deterministic answers built from typed state, so the demo and CI need no key and no network.
 
-`terraform/` defines an ECS Fargate task. Two choices are deliberate: the **task role is read-only**
-(WARDEN inspects infrastructure, it does not change it — IAM is the boundary, not the verifier), and
-the API key is passed as a **Secrets Manager ARN** so it never enters Terraform state.
-⚠ Validated in CI, never applied against a live account.
+## Testing
 
-## Cost and budget
-
-`LLMClient` charges every call against a running `CostRecord` and raises `BudgetExceeded` past the
-ceiling. The ceiling is enforced in the call path, not reported afterwards — a budget that cannot
-stop anything is a number on a dashboard.
-
-⚠ The per-token prices are **configuration, not fact** (`WARDEN_PRICE_IN` / `WARDEN_PRICE_OUT`).
-Verify them against current vendor pricing before quoting any figure.
-
-## Structured output
-
-`LLMClient.structured()` returns a validated pydantic object or raises `ModelRefused` after retries.
-There is no code path that accepts unvalidated model text. Free text cannot be verified, and
-anything that cannot be verified cannot be gated.
-
-## Mock mode
-
-`WARDEN_MOCK=1` replaces both model calls with deterministic factories that read **typed state**.
-This is what CI and the eval suite use, so the demo runs with no key and no network.
-
-⛔ The mocks take **no arguments** on purpose. An earlier version passed the rendered prompt and
-branched on substrings of it — matching field labels rather than values, so every incident produced
-the same hypothesis while appearing to work. Reading typed state through a closure removes the
-possibility, and `test_hypotheses_are_not_all_the_same` guards it.
-
-## Testing strategy
-
-- `tests/` — unit. Every policy has a test that proves it can **fire**. A gate nobody has watched
-  reject something is not a gate.
-- `evals/` — behavioural. Routing per incident, the "nothing is auto-executed" invariant across all
-  incidents, redaction effectiveness, cost recording, budget enforcement, audit completeness.
-
-Both run in CI on every push, plus a container build that runs the demo end to end — because a green
-local run is not evidence that a stranger can clone it and have it work.
+- `tests/`: unit and property tests. Every policy has a test that proves it can fire, and the tests that
+  guard a safety rule are checked by breaking the rule and watching the test fail.
+- `evals/`: behavioural checks in mock mode: routing per incident, that nothing is applied without
+  approval, redaction, cost recording and budget enforcement. They catch drift in the deterministic parts;
+  they do not measure live model quality.
+- CI also runs a real k3d cluster with a pod that really runs out of memory, and the five database engines
+  as service containers.

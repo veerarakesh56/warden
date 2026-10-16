@@ -39,7 +39,7 @@ Keys that are not environment secrets:
 | An approver's Ed25519 break-glass key | `warden audit keygen` a new pair, replace the public key in the approvers file through a reviewed change, destroy the old private key. |
 | An approver's passkey | `warden enrol --approver <name> --key <their Ed25519 key>` opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`runtime.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
-| The laptop's IAM Roles Anywhere certificate | issue a new certificate from the local CA before the old one expires (docs/OWNER-CONSOLE-STEPS.md). |
+| The operator's IAM Roles Anywhere certificate (if you use one) | before it expires, run `python scripts/roles_anywhere_cert.py issue` and at once replace the trust anchor's certificate bundle with the new CA (sign-ins fail between the two steps); see [SETUP.md](SETUP.md), section 3d. |
 
 ## WARDEN's records (registers G10-46, G10-47)
 
@@ -97,12 +97,12 @@ An alarm on something switched off on purpose is not an incident. Say what is ex
 on its next start, no deploy):
 
 ```yaml
-- name: staging nights
-  environments: [staging, qa-staging]
+- name: dev nights
+  environments: [dev]
   zone: Asia/Kolkata
   hours: "20:00-08:00"
-- name: staging weekends
-  environments: [staging, qa-staging]
+- name: dev weekends
+  environments: [dev]
   zone: Asia/Kolkata
   days: [sat, sun]
 - name: reports service parked
