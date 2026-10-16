@@ -483,9 +483,15 @@ def _inside(path: pathlib.Path, base: pathlib.Path | None) -> pathlib.Path:
 
 
 def _create(real: pathlib.Path, data: bytes, mode: int) -> None:
+    """Create `real` holding `data`, never over an existing file. A file this call created and could not fill is
+    removed again: no half-written key is left to block a retry (CodeRabbit, PR 35)."""
     fd = os.open(real, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), mode)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+    except BaseException:
+        real.unlink(missing_ok=True)
+        raise
 
 
 def write_private_key(path: pathlib.Path, pem: bytes, base: pathlib.Path | None = None) -> None:

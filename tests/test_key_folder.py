@@ -71,6 +71,32 @@ def test_a_failed_public_write_leaves_no_private_key(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_a_write_that_fails_after_the_file_was_created_leaves_nothing(tmp_path, monkeypatch):
+    real_fdopen = os.fdopen
+
+    class Full:
+        def __init__(self, fd, mode):
+            self.f = real_fdopen(fd, mode)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.f.close()
+
+        def write(self, data):
+            raise OSError("disk full")
+
+    def failing_on_the_public_key(fd, mode="r", *args, **kwargs):
+        opened = [p for p in tmp_path.iterdir()]
+        return Full(fd, mode) if any(p.suffix == ".pub" for p in opened) else real_fdopen(fd, mode, *args, **kwargs)
+
+    monkeypatch.setattr(audit.os, "fdopen", failing_on_the_public_key)
+    with pytest.raises(OSError, match="disk full"):
+        audit.generate_key(tmp_path / "k.pem", tmp_path / "k.pub", b"pass", base=tmp_path)
+    assert list(tmp_path.iterdir()) == []  # neither the half-written public key nor the private key is left
+
+
 def test_a_dangling_symlink_for_the_public_key_is_refused_before_anything_is_written(tmp_path):
     link = tmp_path / "k.pub"
     try:
