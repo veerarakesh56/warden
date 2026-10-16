@@ -502,15 +502,22 @@ def generate_key(private_path: pathlib.Path, public_path: pathlib.Path, passphra
     """A new Ed25519 pair, both files inside `base` (default: the key folder), neither written over an existing file
     (the public key used to be: a path naming any file would have replaced it)."""
     public_real = _inside(public_path, base)
+    private_real = _inside(private_path, base)
+    if public_real == private_real:
+        raise ValueError(f"{private_path} and {public_path} are the same file: the pair needs two")
     if public_real.exists():
         raise FileExistsError(f"{public_path} exists; refusing to overwrite it")
     key = Ed25519PrivateKey.generate()
     encryption = (serialization.BestAvailableEncryption(passphrase) if passphrase
                   else serialization.NoEncryption())
-    write_private_key(private_path, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                                      encryption), base)
-    _create(public_real, key.public_key().public_bytes(serialization.Encoding.PEM,
-                                                       serialization.PublicFormat.SubjectPublicKeyInfo), 0o644)
+    _create(private_real, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, encryption),
+            0o600)
+    try:
+        _create(public_real, key.public_key().public_bytes(serialization.Encoding.PEM,
+                                                           serialization.PublicFormat.SubjectPublicKeyInfo), 0o644)
+    except BaseException:
+        private_real.unlink()  # no half pair: "no key was written" must stay true (CodeRabbit, PR 35)
+        raise
 
 
 def load_private_key(path: pathlib.Path, passphrase: bytes | None = None) -> Ed25519PrivateKey:

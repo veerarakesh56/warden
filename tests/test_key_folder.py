@@ -51,6 +51,37 @@ def test_neither_key_file_is_ever_replaced(tmp_path):
     assert not (tmp_path / "new.pem").exists()  # refused before the private key was made
 
 
+def test_one_path_for_both_files_is_refused_and_nothing_is_left(tmp_path):
+    with pytest.raises(ValueError, match="same file"):
+        audit.generate_key(tmp_path / "k.pem", tmp_path / "k.pem", b"pass", base=tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_failed_public_write_leaves_no_private_key(tmp_path, monkeypatch):
+    real_create = audit._create
+
+    def fail_on_public(real, data, mode):
+        if real.suffix == ".pub":
+            raise OSError("disk full")
+        real_create(real, data, mode)
+
+    monkeypatch.setattr(audit, "_create", fail_on_public)
+    with pytest.raises(OSError, match="disk full"):
+        audit.generate_key(tmp_path / "k.pem", tmp_path / "k.pub", b"pass", base=tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_dangling_symlink_for_the_public_key_is_refused_before_anything_is_written(tmp_path):
+    link = tmp_path / "k.pub"
+    try:
+        os.symlink(tmp_path / "nowhere", link)
+    except (OSError, NotImplementedError):
+        pytest.skip("this account cannot create symlinks")
+    with pytest.raises(ValueError, match="symlink"):
+        audit.generate_key(tmp_path / "k.pem", link, b"pass", base=tmp_path)
+    assert not (tmp_path / "k.pem").exists()
+
+
 def test_the_default_folder_is_warden_key_dir(tmp_path, monkeypatch):
     monkeypatch.setenv(audit.KEY_DIR_ENV, str(tmp_path / "mine"))
     audit.write_private_key(tmp_path / "mine" / "k.pem", b"x")
