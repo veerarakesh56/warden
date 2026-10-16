@@ -24,7 +24,6 @@ K8S = ROOT / "manifests" / "shop" / "base"
 K8S_PIPELINE = ROOT / "k8s" / "shop-pipeline"
 APPS = ROOT / "scenarios" / "fullstack"
 BOUNDARY = ROOT / "terraform" / "proving-ground" / "operator-policy-boundary.json"
-OPERATOR_FS = TF / "operator-policy-fullstack.json"   # the operator's current policy (still attached; to be replaced in W0-now)
 # What the stack runs under since Phase 1.5: the dev environment's rendered deploy policy and boundary.
 ENV_DEPLOY = ROOT / "iam" / "dev" / "deploy.json"
 ENV_BOUNDARY = ROOT / "iam" / "dev" / "boundary.json"
@@ -209,7 +208,7 @@ def test_alarm_descriptions_name_the_symptom_never_the_cause(name, desc):
 
 
 def test_no_account_id_or_email_in_any_file():
-    files = TF_FILES + [OPERATOR_FS, BOUNDARY, TF / "README.md", TF / "terraform.tfvars.example"]
+    files = TF_FILES + [BOUNDARY, TF / "README.md", TF / "terraform.tfvars.example"]
     files += [p for p in list(K8S.rglob("*")) + list(APPS.rglob("*")) if p.is_file() and "__pycache__" not in p.parts]
     for f in files:
         # A package hash is not an account id: a run of 12 digits inside one matched (2026-10-01).
@@ -231,7 +230,7 @@ def _list(v):
 OPERATOR = ROOT / "terraform" / "proving-ground" / "operator-policy.json"
 
 
-@pytest.mark.parametrize("path", [BOUNDARY, OPERATOR_FS, OPERATOR], ids=lambda p: p.name)
+@pytest.mark.parametrize("path", [BOUNDARY, OPERATOR], ids=lambda p: p.name)
 def test_policy_is_valid_and_under_the_managed_policy_limit(path):
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert doc["Version"] == "2012-10-17"
@@ -313,21 +312,6 @@ def test_only_the_operator_may_log_in_as_postgres_and_the_ceiling_allows_it():
     assert len(json.dumps(json.loads(OPERATOR.read_text(encoding="utf-8")), separators=(",", ":"))) <= POLICY_LIMIT
     assert any("rds-db:connect" in _list(s["Action"]) for s in _stmts(BOUNDARY) if s["Effect"] == "Allow")
     assert "dbuser:*/postgres" not in _tf_text()
-
-
-def test_the_fullstack_operator_policy_can_build_the_nat_and_pass_the_pod_role():
-    actions = {a for s in _stmts(OPERATOR_FS) if s["Effect"] == "Allow" for a in _list(s["Action"])}
-    assert {"ec2:AllocateAddress", "ec2:CreateNatGateway", "ec2:DeleteNatGateway", "ec2:ReleaseAddress"} <= actions
-    passed = next(s for s in _stmts(OPERATOR_FS) if s["Sid"] == "PassWardenPgFsRolesOnlyToTheseServices")
-    assert "pods.eks.amazonaws.com" in passed["Condition"]["StringEquals"]["iam:PassedToService"]
-
-
-def test_the_fullstack_operator_policy_fits_inside_the_boundary():
-    ceiling = [a for s in _stmts(BOUNDARY) if s["Effect"] == "Allow" for a in _list(s["Action"])]
-    outside = [a for s in _stmts(OPERATOR_FS) if s["Effect"] == "Allow" for a in _list(s["Action"])
-               if not any(fnmatch.fnmatchcase(a.lower(), c.lower()) or a.lower() == c.lower() for c in ceiling)
-               and not any(fnmatch.fnmatchcase(c.lower(), a.lower()) for c in ceiling)]
-    assert not outside, f"granted but outside the ceiling: {outside}"
 
 
 def test_the_fullstack_operator_policy_never_widens_iam():

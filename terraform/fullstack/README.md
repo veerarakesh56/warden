@@ -62,46 +62,20 @@ USD 50 is about four days of this stack left running. Destroy it when a run ends
 
 ## Before the first apply (owner, admin credentials)
 
-> ⚠ **Stale (audit 2026-09-28, A-I-18).** Steps 1–3 below predate the per-environment rename to
-> `warden-<env>-*`. They grant `warden-pg-*` / `warden-dev-*` names and **cannot build the current
-> stack**. The current owner steps for bringing up an environment are in
-> [`docs/OWNER-CONSOLE-STEPS.md`](../../docs/OWNER-CONSOLE-STEPS.md). The operator identity is being
-> redesigned (no long-lived key); this section will be replaced when that lands. The historical
-> text is kept below only as a record.
+The identities that build this stack are the environment's rendered IAM (`iam/<env>/`, from
+`iam/templates/` by `scripts/render_env_iam.py`) and the operator role (`iam/operator/`); the owner
+steps for bringing up an environment are in
+[`docs/OWNER-CONSOLE-STEPS.md`](../../docs/OWNER-CONSOLE-STEPS.md). The operator policies this
+section used to describe (the user-era `WardenFullstackOperator` and the proving ground's) are gone
+from the account; their text is in git history (audit 2026-10-16).
 
-1. **Raise the ceiling.** Push the updated boundary (the operator cannot, by design):
-
-       python scripts/apply_operator_policy.py \
-           terraform/proving-ground/operator-policy-boundary.json WardenProvingGroundBoundary
-
-   It adds scoped allows for DynamoDB, SNS, Secrets Manager, ElastiCache and API Gateway on
-   `warden-dev-*`, KMS only through Secrets Manager and RDS, the ElastiCache service-linked role,
-   `rds-db:connect` (2026-09-26: without it in the ceiling no IAM database login works, because
-   every `warden-dev-*` role carries this boundary), and narrows the
-   DeleteSecret/PutSecretValue/DeleteTable/DeleteDBCluster deny so it excludes `warden-dev-*`
-   (and still denies everything else).
-2. **Grant the operator.** Create (or, after a change, add a version of) the managed policy
-   `WardenFullstackOperator` from `operator-policy-fullstack.json` (6,026 of the 6,144-char limit;
-   2026-09-27 added `ec2:DeleteNetworkInterface`, region-locked, for the detached ENIs Lambda leaves)
-   and attach it to the operator user (and to the CI role, below). The operator cannot do this
-   itself: the boundary denies `iam:CreatePolicy` and `iam:AttachUserPolicy`, and allows it to edit
-   only its own `WardenProvingGroundOperator`. 2026-09-26 added the NAT gateway and Elastic IP
-   actions and passing roles to `pods.eks.amazonaws.com` (EKS Pod Identity).
-3. **The operator's own policy** (the operator applies it itself):
-
-       python scripts/apply_operator_policy.py \
-           terraform/proving-ground/operator-policy.json WardenProvingGroundOperator
-
-   2026-09-26 added `PgLogin` (`rds-db:connect` on `dbuser:*/postgres`): the
-   master-user login `bootstrap-db` and the harness's admin connection sign with the operator's own
-   credentials. 6,136 of 6,144 characters.
-4. **Service-linked roles** on a fresh account (the Wave 2 lesson: the calls that need them check
+1. **Service-linked roles** on a fresh account (the Wave 2 lesson: the calls that need them check
    a path-less ARN the boundary does not match):
 
        aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
        aws iam create-service-linked-role --aws-service-name elasticache.amazonaws.com
 
-5. **CI only:** the per-environment OIDC role `warden-<env>-deploy`, the state bucket
+2. **CI only:** the per-environment OIDC role `warden-<env>-deploy`, the state bucket
    `warden-<env>-tfstate-*` and the GitHub Environment variables - the list is at the top of
    `.github/workflows/deploy-<env>.yml`. No AWS keys are
    stored anywhere.

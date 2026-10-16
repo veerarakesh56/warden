@@ -6,6 +6,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
+import subprocess
 
 import pytest
 
@@ -192,3 +193,76 @@ def test_no_code_names_a_model_and_every_default_is_configuration():
     source = (ROOT / "src" / "warden" / "providers.py").read_text(encoding="utf-8")
     assert source.count('os.environ.get("WARDEN_MODEL") or default_model(self.name)') == 4
     assert 'os.environ.get("WARDEN_MODEL", ' not in source
+
+
+# ---------------------------------------------------------------- audit 2026-10-16: legacy names and region literals in
+# any tracked file. `warden-pg` is the Wave 1-3 proving ground's prefix (and `warden-pg-fs` the retired user-era operator
+# policy's): a name with no environment in it. Every other name is built from environments.yaml, and a region is
+# configuration (R17). The tests above hold Python, Terraform and the IAM templates; this holds everything else that is
+# tracked - JSON policies, k8s and workflow YAML, shell, example files. History (docs/, *.md) and test data are out of
+# scope. Each exception is named, file by file, with why; a stale one fails too, so retiring the proving ground
+# (owner decision pending; it is kept for Wave 1-3 re-runs, R52/R53, 2026-10-02) shrinks this list to nothing.
+LEGACY_NAME = re.compile(r"\bwarden-pg\b")
+PROVING_GROUND = "the Wave 1-3 proving ground and what drives it, kept for re-runs (R52/R53, owner 2026-10-02)"
+LEGACY_OR_REGION_ALLOWED = {
+    "src/warden/data/environments.yaml": ({"region"}, "the one place the region is configured"),
+    "iam/operator/policy.json": ({"region"}, "the operator's own policy, pasted by the owner, not rendered"),
+    "iam/operator/trust.json": ({"region"}, "the operator's Roles Anywhere trust, pasted by the owner, not rendered"),
+    "k8s/proving-ground/namespace.yaml": ({"legacy"}, PROVING_GROUND),
+    "k8s/proving-ground/rbac.yaml": ({"legacy"}, PROVING_GROUND),
+    "scenarios/runner.py": ({"legacy"}, PROVING_GROUND),
+    "scripts/aws_proof_bundle.py": ({"legacy"}, PROVING_GROUND),
+    "scripts/prove_boundary.py": ({"legacy"}, PROVING_GROUND),
+    "scripts/teardown_sweep.py": ({"legacy"}, PROVING_GROUND),
+    "terraform/proving-ground/operator-policy-boundary.json": ({"legacy", "region"}, PROVING_GROUND),
+    "terraform/proving-ground/operator-policy-rds-eks.json": ({"region"}, PROVING_GROUND),
+    "terraform/proving-ground/operator-policy.json": ({"legacy", "region"}, PROVING_GROUND),
+    "terraform/proving-ground/terraform.tfvars.example": ({"region"}, PROVING_GROUND),
+    "terraform/proving-ground/variables.tf": ({"legacy"}, PROVING_GROUND),
+}
+
+
+def _legacy_and_region(path: pathlib.Path) -> set[str]:
+    """{"legacy", "region"} as far as the file names them: Python's string constants (not docstrings), a JSON
+    document whole, any other file's lines without their `#` comments."""
+    chunks = (_literals(path) if path.suffix == ".py" else [path.read_text(encoding="utf-8")]
+              if path.suffix == ".json" else _code_lines(path))
+    return ({"legacy"} if any(LEGACY_NAME.search(c) for c in chunks) else set()) | (
+        {"region"} if any(REGION.search(c) for c in chunks) else set())
+
+
+def _scanned_files() -> list[str]:
+    listed = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    rendered = tuple(f"iam/{env}/" for env in ENV_NAMES)  # scripts/render_env_iam.py writes the region into these
+    return [f for f in listed.splitlines() if not f.startswith(("docs/", "tests/", *rendered))
+            and not f.endswith(".md") and (ROOT / f).is_file()]
+
+
+def test_no_tracked_file_names_a_legacy_resource_or_a_region_outside_the_named_exceptions():
+    found = {}
+    for rel in _scanned_files():
+        try:
+            kinds = _legacy_and_region(ROOT / rel)
+        except UnicodeDecodeError:
+            continue  # a binary file (an image): nothing to read
+        if kinds:
+            found[rel] = kinds
+    allowed = {path: kinds for path, (kinds, _why) in LEGACY_OR_REGION_ALLOWED.items()}
+    assert found == allowed, {path: sorted(found.get(path, set()) ^ allowed.get(path, set()))
+                              for path in set(found) | set(allowed) if found.get(path) != allowed.get(path)}
+
+
+@pytest.mark.parametrize(("name", "plant", "kind"), [
+    ("p.json", '{"Resource": "arn:aws:iam::*:role/warden-pg-sweep"}', "legacy"),
+    ("p.json", '{"Resource": "arn:aws:ecs:eu-west-1:*:cluster/x"}', "region"),
+    ("p.yaml", "roleArn: arn:aws:iam::*:role/warden-pg-fs-reader", "legacy"),
+    ("p.sh", "aws ecs list-clusters --region eu-west-1", "region"),
+    ("p.py", 'ROLE = "warden-pg-sweep"', "legacy"),
+])
+def test_the_legacy_and_region_scan_catches_a_plant_and_passes_a_comment(tmp_path, name, plant, kind):
+    planted = tmp_path / name
+    planted.write_text(plant + "\n", encoding="utf-8")
+    assert _legacy_and_region(planted) == {kind}, plant
+    commented = tmp_path / "c.yaml"
+    commented.write_text("# warden-pg-sweep in eu-west-1, a comment\nkey: value\n", encoding="utf-8")
+    assert not _legacy_and_region(commented)

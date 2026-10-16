@@ -9,11 +9,14 @@
 #    lands in state. State files get committed, copied and shared far more often than anyone plans.
 
 locals {
+  environment = coalesce(var.environment, yamldecode(file("${path.module}/../src/warden/data/environments.yaml")).runtime)
+  # Every name carries its environment, as every other stack's does (warden-<env>-...; audit 2026-10-16).
+  name = "${var.name}-${local.environment}"
   # Project and Environment on everything: the all-region sweep reports anything without them
   # (owner rule R53, independent review 2026-09-28).
   tags = merge(var.tags, {
     Project     = "warden"
-    Environment = coalesce(var.environment, yamldecode(file("${path.module}/../src/warden/data/environments.yaml")).runtime)
+    Environment = local.environment
     Application = var.name
     ManagedBy   = "terraform"
   })
@@ -24,7 +27,7 @@ data "aws_region" "current" {}
 # --------------------------------------------------------------------------- logs
 
 resource "aws_cloudwatch_log_group" "warden" {
-  name              = "/ecs/${var.name}"
+  name              = "/ecs/${local.name}"
   retention_in_days = var.log_retention_days
   tags              = local.tags
 }
@@ -45,7 +48,7 @@ data "aws_iam_policy_document" "assume_role" {
 
 # Execution role: what ECS itself needs to start the container (pull image, write logs, read secret).
 resource "aws_iam_role" "execution" {
-  name               = "${var.name}-execution"
+  name               = "${local.name}-execution"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
   tags               = local.tags
 }
@@ -64,14 +67,14 @@ data "aws_iam_policy_document" "read_secret" {
 }
 
 resource "aws_iam_role_policy" "execution_secret" {
-  name   = "${var.name}-read-secret"
+  name   = "${local.name}-read-secret"
   role   = aws_iam_role.execution.id
   policy = data.aws_iam_policy_document.read_secret.json
 }
 
 # Task role: what the RUNNING application may do. Read-only, on purpose.
 resource "aws_iam_role" "task" {
-  name               = "${var.name}-task"
+  name               = "${local.name}-task"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
   tags               = local.tags
 }
@@ -103,7 +106,7 @@ data "aws_iam_policy_document" "task_readonly" {
 }
 
 resource "aws_iam_role_policy" "task_readonly" {
-  name   = "${var.name}-readonly"
+  name   = "${local.name}-readonly"
   role   = aws_iam_role.task.id
   policy = data.aws_iam_policy_document.task_readonly.json
 }
@@ -111,7 +114,7 @@ resource "aws_iam_role_policy" "task_readonly" {
 # --------------------------------------------------------------------------- networking
 
 resource "aws_security_group" "warden" {
-  name        = "${var.name}-task"
+  name        = "${local.name}-task"
   description = "WARDEN task. Egress only - nothing connects to it."
   vpc_id      = var.vpc_id
   tags        = local.tags
@@ -128,7 +131,7 @@ resource "aws_security_group" "warden" {
 # --------------------------------------------------------------------------- task
 
 resource "aws_ecs_task_definition" "warden" {
-  family                   = var.name
+  family                   = local.name
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = var.task_cpu
@@ -139,7 +142,7 @@ resource "aws_ecs_task_definition" "warden" {
 
   container_definitions = jsonencode([
     {
-      name      = var.name
+      name      = local.name
       image     = var.image
       essential = true
 

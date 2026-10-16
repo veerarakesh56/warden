@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Name prefix for every resource this module creates."
+  description = "Name prefix: every resource is named <name>-<environment>-..., the environment being var.environment."
   type        = string
   default     = "warden"
 }

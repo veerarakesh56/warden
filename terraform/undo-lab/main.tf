@@ -221,7 +221,7 @@ data "aws_iam_policy_document" "producer" {
 }
 
 resource "aws_iam_role_policy" "producer" {
-  name   = "work"
+  name   = "${local.name}-producer"
   role   = aws_iam_role.producer.id
   policy = data.aws_iam_policy_document.producer.json
 }
@@ -272,7 +272,7 @@ data "aws_iam_policy_document" "consumer" {
 }
 
 resource "aws_iam_role_policy" "consumer" {
-  name   = "work"
+  name   = "${local.name}-consumer"
   role   = aws_iam_role.consumer.id
   policy = data.aws_iam_policy_document.consumer.json
 }
