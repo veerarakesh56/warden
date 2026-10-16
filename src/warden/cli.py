@@ -503,6 +503,31 @@ def _label_command(args: argparse.Namespace) -> int:
 def _killswitch_command(args: argparse.Namespace) -> int:
     from . import approvals, bounds, runtime
 
+    # Live, 2026-10-16: with the cloud runtime's approval page configured and no audit DSN, `on` wrote this machine's
+    # own audit file and printed ON while the cloud kept applying. The cloud's switch is reached only on the page.
+    cloud = bool(os.environ.get("WARDEN_APPROVAL_RP_ID", "").strip()) and not os.environ.get("WARDEN_AUDIT_DSN", "").strip()
+    if cloud and args.kill_cmd in ("status", "reset"):
+        _out("error: this machine does not reach the cloud runtime's audit. `warden killswitch link` shows why the "
+             "switch is on and resets it on the approval page.", err=True)
+        return 1
+    if args.kill_cmd == "on" and cloud:
+        import webbrowser
+
+        from .approval_page import STOP_INVITE, invite
+
+        if not args.approver or not args.key:
+            _out("error: --approver and --key are needed: the stop is signed on the approval page", err=True)
+            return 1
+        token = invite(_approver_key(args.key), args.approver, now=datetime.now(UTC), purpose=STOP_INVITE)
+        domain = os.environ["WARDEN_APPROVAL_RP_ID"].strip()
+        if not webbrowser.open(f"https://{domain}/x/{token}"):
+            _out("error: no browser could be opened on this machine", err=True)
+            return 1
+        _out(f"Opened https://{domain} in your browser: say why, then stop WARDEN there with your passkey.")
+        return 0
+    if args.kill_cmd == "on" and not args.reason:
+        _out("error: --reason is needed", err=True)
+        return 1
     if args.kill_cmd == "link":
         # The cloud runtime's switch: its audit is reached by the approval page, not by this machine. A link signed
         # here with the approver's own key, opened in the browser and never printed (as `warden enrol`).
@@ -685,8 +710,10 @@ def _main(argv: list[str] | None = None) -> int:
     p_kill = sub.add_parser("killswitch", help="stop every remediation, or reset the stop with a signed approval")
     kill_sub = p_kill.add_subparsers(dest="kill_cmd", required=True)
     kill_sub.add_parser("status")
-    p_on = kill_sub.add_parser("on")
-    p_on.add_argument("--reason", required=True)
+    p_on = kill_sub.add_parser("on", help="stop every automatic fix (in the cloud runtime: on the approval page)")
+    p_on.add_argument("--reason", help="why (this machine's own audit; on the approval page you type it there)")
+    p_on.add_argument("--approver", help="you, for the cloud runtime's stop link")
+    p_on.add_argument("--key", type=pathlib.Path, help="your Ed25519 private key (PEM), for the stop link")
     p_link = kill_sub.add_parser("link", help="open the approval page's reset of the cloud runtime's kill switch")
     p_link.add_argument("--approver", required=True)
     p_link.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")

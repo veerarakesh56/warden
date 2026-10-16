@@ -411,8 +411,9 @@ class RemediationActivities:
         if did and what in OUTCOME:
             said += f" Approved by {' and '.join(did)}."
         if what in PERSON_TAKES_OVER:
+            # The command in full (2026-10-16 audit: without --approver and --key it failed as written).
             said += (" Every automatic fix is stopped until an approver resets the kill switch: `warden killswitch "
-                     "link` opens the page that shows why it is on and resets it.")
+                     "link --approver YOU --key YOUR.pem` opens the page that shows why it is on and resets it.")
         # The person's own words go only where the gate lets the whole message go: should it hold them back, the
         # decision is still said - who, how, when - and only their words are not (live, 2026-10-14: a whole denial
         # message was withheld for the note in it).

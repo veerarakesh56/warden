@@ -23,6 +23,7 @@ The page cannot write that list: the passkey approves nothing until a person sav
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -49,6 +50,9 @@ ENROL = "enrol"  # likewise for an enrolment's challenge
 INVITE = b"warden-enrol:v1:"
 RESET_INVITE = b"warden-killswitch:v1:"  # a link signed for one purpose opens nothing of the other
 KILLSWITCH = "killswitch"  # the workflow id a reset is an approval of (bounds.reset)
+STOP_INVITE = b"warden-killswitch-on:v1:"  # a link to turn the switch ON
+KILLSWITCH_ON = "killswitch-on"  # the workflow id a passkey's "stop" is signed for
+STOP_REASON_MAX = 300
 
 
 def invite(key: Any, approver: str, *, now: datetime, purpose: bytes = INVITE) -> str:
@@ -242,6 +246,8 @@ class ApprovalPage:
             return self._enrol(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
         if len(parts) >= 2 and parts[0] == "k":
             return self._reset(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
+        if len(parts) >= 2 and parts[0] == "x":
+            return self._stop(method.upper(), parts[1], parts[2] if len(parts) > 2 else "", body)
         if len(parts) < 2 or parts[0] != "a":
             return _json(404, {"error": "not found"})
         if parts[1] == "signed" and len(parts) == 3 and method.upper() == "POST":
@@ -400,11 +406,11 @@ class ApprovalPage:
 
     def _approver_of(self, kind: str, token: str) -> str | None:
         """The approver a link of this kind was made for - an approval's (a), an enrolment's (e), a kill switch
-        reset's (k) - or None: not a link, not valid now, or no such kind."""
+        reset's (k), a kill switch stop's (x) - or None: not a link, not valid now, or no such kind."""
         if kind == "a":
             link = self.store.link(token)
             return link.approver if link is not None and self.clock() < link.expires_at else None
-        purpose = {"e": INVITE, "k": RESET_INVITE}.get(kind)
+        purpose = {"e": INVITE, "k": RESET_INVITE, "x": STOP_INVITE}.get(kind)
         return self._invited(token, purpose) if purpose else None
 
     def _recognise(self, kind: str, token: str, cookies: Any) -> None:
@@ -446,7 +452,7 @@ class ApprovalPage:
             return Response(302, {"Location": self.slack.authorize_url(redirect_uri=redirect, state=state, nonce=nonce),
                                   "Set-Cookie": f"{_COOKIE}={value}; Max-Age=600; Path=/s; Secure; HttpOnly; SameSite=Lax",
                                   "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}, "")
-        if len(parts) == 2 and parts[0] in ("a", "e", "k"):
+        if len(parts) == 2 and parts[0] in ("a", "e", "k", "x"):
             kind, token = parts
             if self._approver_of(kind, token) is None:
                 return _notice(404, "This link is not valid.")
@@ -673,6 +679,56 @@ class ApprovalPage:
         self.store.use_link(token)  # used once
         self.log.checkpoint()  # the reset signed the record; the link's last row is signed too
         return _json(200, {"reset": True})
+
+    # ------------------------------------------------------------------ the kill switch's stop
+
+    def _stop(self, method: str, token: str, step: str, body: str) -> Response:
+        """Turning the kill switch ON where the audit is (live, 2026-10-16: `warden killswitch on` on a laptop wrote a
+        local file and printed ON while the cloud runtime kept applying - no person could stop it). Stopping is the
+        safe direction, so any approver may, with any of their passkeys; the passkey signs the reason they typed, and
+        the trip names them. Resetting stays the riskiest tier's decision (`_reset`)."""
+        from . import bounds
+
+        approver = self._invited(token, STOP_INVITE) if self.log is not None else None
+        if approver is None:
+            return _json(404, {"error": "this stop link is not valid"})
+        key, now = f"{token}:stop", self.clock()
+        if (method, step) == ("GET", ""):
+            return self._served(_STOP, not self._signed_in(token, approver))
+        if not self._signed_in(token, approver):
+            return _json(403, {"error": "sign in with Slack first"})
+        try:
+            reason = " ".join(str(json.loads(body or "{}").get("reason", "")).split())
+        except Exception:  # noqa: BLE001 - a request that cannot be read stops nothing
+            reason = ""
+        if not reason or len(reason) > STOP_REASON_MAX:
+            return _json(400, {"error": f"say why you are stopping WARDEN, in 1 to {STOP_REASON_MAX} characters"})
+        signed_for = hashlib.sha256(reason.encode()).hexdigest()
+        if (method, step) == ("POST", "options"):
+            options, pending = passkeys.approval_options(
+                rp_id=self.rp_id, credentials=self._credentials(approver), workflow_id=KILLSWITCH_ON,
+                plan_hash=signed_for, tier="T1", now=now)
+            self.store.put_challenge(key, pending)
+            return _json(200, {"options": json.loads(options), "already": bounds.killswitch(self.log) is not None})
+        if (method, step) != ("POST", "on"):
+            return _json(404, {"error": "not found"})
+        pending = self.store.take_challenge(key)
+        try:
+            response = json.loads(body)["response"]
+        except Exception:  # noqa: BLE001 - an answer that cannot be read stops nothing
+            response = None
+        credential = next((c for c in self._credentials(approver)
+                           if isinstance(response, dict) and c.credential_id == response.get("id")), None)
+        if pending is None or credential is None or pending.plan_hash != signed_for:
+            # The reason recorded is the one the passkey signed, never one sent after it.
+            return _json(403, {"error": "the passkey was not accepted"})
+        verified, problems = passkeys.verify_approval(response, pending=pending, credential=credential,
+                                                      rp_id=self.rp_id, origin=self.origin, now=now, used_nonces=set())
+        if verified is None:
+            return _json(403, {"error": "the kill switch was not turned on", "problems": problems})
+        bounds.trip(self.log, "operator", f"turned on by {approver} with their passkey: {reason}")
+        self.store.use_link(token)  # used once
+        return _json(200, {"on": True})
 
     # ------------------------------------------------------------------ steps
 
@@ -1192,6 +1248,41 @@ $("ok").addEventListener("click", async () => {
     $("ok").hidden = true; $("title").textContent = "The kill switch is off"; step(3);
     say("Reset. Automatic fixes run again. You can close this page.", "ok");
   } catch (e) { say("Not reset: " + e.message, "bad"); } finally { busy(false); }
+});
+""")
+
+# The kill switch's stop: why, then one passkey ceremony over exactly that reason.
+_STOP = _page("WARDEN kill switch", "Kill switch", """
+<ol class="steps" aria-label="Steps"><li class="done">Open your link</li><li aria-current="step">Say why</li>
+<li>Stop WARDEN</li></ol>
+<h1 id="title">Stop every automatic fix</h1>
+<p id="only" class="lede">Turning the kill switch on stops WARDEN from applying any fix, approved or not, until an
+approver resets it. Diagnoses and reports go on. Say why: your reason is signed with your passkey and kept on the
+record.</p>
+<label for="why">Why you are stopping WARDEN</label>
+<textarea id="why" rows="3" maxlength="300" required aria-describedby="why-h"></textarea>
+<p id="why-h" class="hint">1 to 300 characters. Name what you saw.</p>
+<div class="bar"><p id="status" role="status" aria-live="polite" data-kind="info">Write your reason, then stop.</p>
+<button id="ok" class="primary" type="button">Stop WARDEN with my passkey</button></div>
+""", "Stopping is the safe direction: any approver may, with any of their passkeys.", """
+$("ok").addEventListener("click", async () => {
+  const reason = $("why").value.trim();
+  if (!reason) { say("Write why you are stopping WARDEN first.", "bad"); $("why").focus(); return; }
+  busy(true);
+  try {
+    const [ok1, d1] = await post("options", {reason}); if (!ok1) { say(d1.error, "bad"); return; }
+    say("Confirm with your passkey.", "work");
+    const o = JSON.parse(JSON.stringify(d1.options)); o.challenge = a2b(o.challenge);
+    o.allowCredentials = (o.allowCredentials || []).map(c => ({...c, id: a2b(c.id)}));
+    const c = await navigator.credentials.get({publicKey: o});
+    say("Turning the kill switch on.", "work");
+    const [ok, d] = await post("on", {reason, response: {id: c.id, rawId: b2a(c.rawId), type: c.type, response: {
+      clientDataJSON: b2a(c.response.clientDataJSON), authenticatorData: b2a(c.response.authenticatorData),
+      signature: b2a(c.response.signature), userHandle: c.response.userHandle ? b2a(c.response.userHandle) : null}}});
+    if (!ok) { say(d.error + (d.problems ? ": " + d.problems.join("; ") : ""), "bad"); return; }
+    $("ok").hidden = true; $("why").disabled = true; $("title").textContent = "The kill switch is on"; step(3);
+    say("Stopped. WARDEN applies nothing until an approver resets it. You can close this page.", "ok");
+  } catch (e) { say("Not stopped: " + e.message, "bad"); } finally { busy(false); }
 });
 """)
 

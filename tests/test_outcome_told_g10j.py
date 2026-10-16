@@ -79,7 +79,7 @@ def test_an_end_that_leaves_the_target_unknown_says_every_fix_is_stopped(world, 
     world["platform"].rollback_error = "422 the count moved"
     out = _run(world, _approve_with(owner))
     assert out.status == "rollback_failed" and bounds.killswitch(world["log"]) is not None
-    assert "undoing it FAILED" in sink.texts[-1] and "`warden killswitch link` opens the page" in sink.texts[-1]
+    assert "undoing it FAILED" in sink.texts[-1] and "`warden killswitch link --approver YOU --key YOUR.pem` opens the page" in sink.texts[-1]
 
 
 def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink):  # noqa: F811

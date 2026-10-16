@@ -137,6 +137,6 @@ def test_the_api_routes_the_reset_and_the_message_names_the_way_to_it():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /k/{token}", "POST /k/{token}/{step}"' in tf
     acts = (ROOT / "src" / "warden" / "activities.py").read_text(encoding="utf-8")
-    assert "`warden killswitch " in acts and "link` opens the page" in acts
+    assert "`warden killswitch " in acts and "link --approver YOU --key YOUR.pem` opens the page" in acts
     lambdas = (ROOT / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8")
     assert "store=AuditLinkStore(log), log=log" in lambdas  # the Lambda's page is given the audit

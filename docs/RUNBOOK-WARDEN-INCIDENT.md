@@ -10,6 +10,15 @@ Times: give every time in UTC and in the install's display zone (IST here), as W
 
 ## 0. First minute, whatever happened: stop all changes
 
+In the cloud runtime (the switch lives in its audit, which no laptop reaches):
+
+```
+warden killswitch on --approver <you> --key <your.pem>
+```
+
+It opens the approval page in your browser: write why, and your passkey turns the switch on (any of your passkeys -
+stopping is the safe direction). On a machine running its own audit (local or tests):
+
 ```
 warden killswitch on --reason "WARDEN incident: <one line>"
 warden killswitch status
@@ -17,7 +26,12 @@ warden killswitch status
 
 The kill switch is checked inside every apply, right before the change; with it on, nothing WARDEN plans is applied,
 and only a signed approval resets it. Diagnosis keeps running and keeps reporting: a person decides with it, not
-WARDEN. (The cloud deployment adds an AWS deny policy as a second switch that does not depend on WARDEN; G6.)
+WARDEN. With the cloud runtime's page set (`WARDEN_APPROVAL_RP_ID`) and no audit DSN, `status` and `reset` refuse
+rather than read this machine's own file (2026-10-16: `on` used to print ON here while the cloud kept applying).
+
+If the approval page cannot be reached, stop the worker that applies changes, which does not depend on WARDEN: AWS
+console → ECS → cluster `warden-ops` → service `warden-ops-act` → Update service → Desired tasks `0`. Approved plans
+wait; nothing is applied until it is set back to `1`. (An AWS deny policy as a second switch is not built yet.)
 
 ## 1. Preparation (before any incident)
 
@@ -75,7 +89,14 @@ matched to the record or exposed as forged.
 
 ## 4. After the incident
 
-- Reset the kill switch only with a signed approval, after reading every trip it lists:
+- Reset the kill switch only with a signed approval, after reading every trip it lists. In the cloud runtime the
+  approval page lists them and your device-bound passkey resets it:
+
+```
+warden killswitch link --approver <you> --key <your.pem>
+```
+
+  On a machine running its own audit:
 
 ```
 warden killswitch reset --approver <you> --key <your.pem> --trips <n>

@@ -245,11 +245,12 @@ resource "aws_apigatewayv2_route" "datadog" {
 }
 
 resource "aws_apigatewayv2_route" "approval" {
-  # /a/: approving a plan. /e/: enrolling a passkey, /k/: resetting the kill switch - each on a link the approver's
+  # /a/: approving a plan. /e/: enrolling a passkey, /k/: resetting the kill switch, /x/: turning it on - each on a link the approver's
   # own key signed. /s/interact: Slack's note of a button click, answered by the function below. /r: WARDEN's records
   # (records.py), for a reader Slack names who is on the approver or viewer list; /s/r starts that sign-in.
   for_each = toset(["GET /a/{token}", "POST /a/{token}/{step}", "GET /e/{token}", "POST /e/{token}/{step}",
-    "GET /k/{token}", "POST /k/{token}/{step}", "GET /s/callback", "GET /s/{kind}/{token}", "POST /s/interact",
+    "GET /k/{token}", "POST /k/{token}/{step}", "GET /x/{token}", "POST /x/{token}/{step}",
+    "GET /s/callback", "GET /s/{kind}/{token}", "POST /s/interact",
   "GET /r", "GET /r/{incident}", "GET /s/r"])
   api_id    = aws_apigatewayv2_api.front.id
   route_key = each.key
