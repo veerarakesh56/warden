@@ -1,0 +1,165 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit for this repository (advisory only; owner, 2026-10-15/16).
+# Goal: CodeRabbit is ADVISORY ONLY - it comments; it never approves, never commits or pushes,
+# never merges, never edits labels/reviewers, and keeps no learned memory about the repo.
+# Checked against the live schema.v2.json on 2026-10-16 (see notes.md).
+language: en-GB
+tone_instructions: "Plain British English, short sentences, no emojis, no praise. Lead with the risk and the exact line."
+early_access: false
+
+reviews:
+  profile: assertive
+  # --- never approve -------------------------------------------------------------------------
+  request_changes_workflow: false  # CodeRabbit never submits APPROVE (or REQUEST_CHANGES)
+  allow_author_approval: false     # `@coderabbitai approve/resolve` blocked for the PR author
+  # --- status: visible but never a gate -----------------------------------------------------
+  review_progress: true            # the "CodeRabbit" check run; keep it NOT required in rulesets
+  commit_status: false             # no legacy commit status as well
+  fail_commit_status: false        # a CodeRabbit outage never shows as a failure
+  # --- walkthrough noise ----------------------------------------------------------------------
+  collapse_walkthrough: true
+  poem: false
+  in_progress_fortune: false
+  suggested_labels: false
+  auto_apply_labels: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+  disable_cache: true              # no cached repo/dependency copy (OSS caches are not encrypted)
+  # --- when it reviews ------------------------------------------------------------------------
+  # Under 10 stars a public repo is reviewed only on demand: comment `@coderabbitai review`
+  # (or `@coderabbitai full review`), or tick "Trigger review" in its status comment.
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+  path_filters:
+    - "!build/**"
+    - "!**/__pycache__/**"
+  # --- never write code -----------------------------------------------------------------------
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:                       # "Fix comments" (renamed 2026-10-14)
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+    custom: []
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+  # --- what to look for -----------------------------------------------------------------------
+  path_instructions:
+    - path: "src/warden/{gate,approvals,approval_page,passkeys,bounds,catalog,verifier,redaction,activities,workflows}.py"
+      instructions: |
+        SECURITY-CRITICAL. This file decides or gates a live change to someone's cloud account.
+        Flag, with the exact line:
+        - fail-open: any path where an error, timeout, missing field, None, empty list or unknown
+          value lets an action through instead of refusing it; broad `except` that continues.
+        - weakening of a check: a removed or loosened comparison, a new bypass flag, a default that
+          allows, an allow-list turned into a deny-list, a bound or limit raised.
+        - approval integrity: the signed plan must be exactly the plan applied (no field added,
+          dropped or re-ordered after signing); replay, expiry and one-time use must still hold;
+          passkey/WebAuthn origin, challenge and counter checks must not be skipped.
+        - secrets or identifiers in logs, errors, Slack text or records: tokens, keys, passwords,
+          12-digit AWS account ids, ARNs with account ids, emails. Redaction must run before output.
+        - injection: model or alert text reaching a shell, SQL, a template, a URL, an AWS/K8s call
+          argument or a log line without validation.
+        - Temporal determinism in workflows.py: no I/O, clock, random or env reads in workflow code.
+        Do not suggest style changes here; only correctness and security.
+    - path: "iam/**"
+      instructions: |
+        SECURITY-CRITICAL IAM. Flag any widening: new Action, wildcard (`*`) in Action or Resource,
+        NotAction/NotResource, removed Condition, new principal, cross-account trust, missing
+        aws:SourceAccount/ExternalId, iam:PassRole without a resource limit. Flag hard-coded
+        account ids, regions or environment names.
+    - path: "terraform/**"
+      instructions: |
+        SECURITY-CRITICAL infrastructure. Flag IAM widening, public exposure (0.0.0.0/0, public
+        buckets, public endpoints), encryption or logging turned off, deletion protection removed,
+        secrets in variables/outputs/state, hard-coded account ids, regions or environment names,
+        unpinned providers or modules.
+    - path: ".github/workflows/**"
+      instructions: |
+        SECURITY-CRITICAL CI. Every third-party action pinned by full commit SHA. `permissions:`
+        least privilege per job. No `pull_request_target` or `workflow_run` that checks out or runs
+        PR code. No `${{ github.event.* }}` or other untrusted input inside `run:` (use env). No
+        secrets on fork PRs. No OIDC role assumption without environment protection. Flag any
+        widening of `id-token: write` or `contents: write`.
+  tools:
+    ruff:
+      enabled: false               # CI runs ruff (owner, 2026-10-15: no doubled findings)
+    zizmor:
+      enabled: false               # CI's workflow scan runs zizmor at a locked version
+    actionlint:
+      enabled: true
+    gitleaks:
+      enabled: true                # runs Betterleaks
+    trufflehog:
+      enabled: true
+    opengrep:
+      enabled: true
+    semgrep:
+      enabled: true                # no-op unless a semgrep.yml exists
+    checkov:
+      enabled: true
+    tflint:
+      enabled: true
+    trivy:
+      enabled: true
+    osvScanner:
+      enabled: true
+    shellcheck:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+    languagetool:
+      enabled: false               # prose nitpicks, not useful here
+
+chat:
+  auto_reply: false                # replies only when someone writes @coderabbitai
+  art: false
+  integrations:
+    jira:
+      usage: disabled
+    linear:
+      usage: disabled
+
+knowledge_base:
+  opt_out: true                    # no learnings / issue / PR memory; deletes any already stored
+  web_search:
+    enabled: false                 # no untrusted web pages pulled into the review
+  code_guidelines:
+    enabled: false                 # path_instructions above carry the rules
+  learnings:
+    scope: local
+  issues:
+    scope: local
+  pull_requests:
+    scope: local
+  jira:
+    usage: disabled
+  linear:
+    usage: disabled
+  mcp:
+    usage: disabled
+  automatic_linking_mode: disabled
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
+  labeling:
+    auto_apply_labels: false
