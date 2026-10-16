@@ -64,7 +64,7 @@ def test_the_member_is_whoever_slack_says_and_every_other_answer_is_refused():
     assert login.member("the-code", redirect_uri="https://x.test/s/callback", nonce="n") == {
         "user": MEMBER, "team": TEAM}
     (url, form), = slack.asked
-    assert url == slack_login.TOKEN and form["code"] == "the-code" and form["client_id"] == CLIENT
+    assert url == slack_login.TOKEN_ENDPOINT and form["code"] == "the-code" and form["client_id"] == CLIENT
     assert form["redirect_uri"] == "https://x.test/s/callback" and form["grant_type"] == "authorization_code"
     for wrong, needle in (({"iss": "https://evil.test"}, "not issued by Slack"), ({"aud": "another-app"}, "not issued"),
                           ({"exp": 1}, "expired"), ({slack_login.USER_CLAIM: "", "sub": ""}, "named no member")):
@@ -85,7 +85,7 @@ def test_the_member_is_whoever_slack_says_and_every_other_answer_is_refused():
 def test_the_authorize_address_is_slacks_with_state_and_nonce_and_the_feature_is_off_without_both_settings(monkeypatch):
     url = urllib.parse.urlparse(_login().authorize_url(redirect_uri="https://x.test/s/callback", state="st", nonce="no"))
     asked = urllib.parse.parse_qs(url.query)
-    assert f"{url.scheme}://{url.netloc}{url.path}" == slack_login.AUTHORIZE
+    assert f"{url.scheme}://{url.netloc}{url.path}" == slack_login.AUTHORIZE_ENDPOINT
     assert asked == {"response_type": ["code"], "scope": ["openid profile"], "client_id": [CLIENT], "state": ["st"],
                      "nonce": ["no"], "redirect_uri": ["https://x.test/s/callback"]}
     for name in ("WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET"):
@@ -110,7 +110,7 @@ def _with_slack(page, member=MEMBER, **claims):
 def _sign_in(page, slack, kind, token):
     """Follow the two redirects a browser would: to Slack, and back with its code."""
     out = page.handle("GET", f"/s/{kind}/{token}")
-    assert out.status == 302 and out.headers["Location"].startswith(slack_login.AUTHORIZE), out.body
+    assert out.status == 302 and out.headers["Location"].startswith(slack_login.AUTHORIZE_ENDPOINT), out.body
     cookie = out.headers["Set-Cookie"].split(";")[0]
     asked = urllib.parse.parse_qs(urllib.parse.urlparse(out.headers["Location"]).query)
     assert token not in out.headers["Location"]  # the link never goes to Slack

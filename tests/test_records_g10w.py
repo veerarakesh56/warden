@@ -133,7 +133,7 @@ def test_the_records_sign_in_goes_through_slack_and_remembers_only_who_may_read(
 
     def sign_in(page, slack, path="/s/r"):
         out = page.handle("GET", path)
-        assert out.status == 302 and out.headers["Location"].startswith(slack_login.AUTHORIZE)
+        assert out.status == 302 and out.headers["Location"].startswith(slack_login.AUTHORIZE_ENDPOINT)
         cookie = out.headers["Set-Cookie"].split(";")[0]
         asked = urllib.parse.parse_qs(urllib.parse.urlparse(out.headers["Location"]).query)
         assert asked["state"] == [hashlib.sha256(cookie.split("=", 1)[1].encode()).hexdigest()]

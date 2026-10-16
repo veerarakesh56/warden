@@ -31,8 +31,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-AUTHORIZE = "https://slack.com/openid/connect/authorize"
-TOKEN = "https://slack.com/api/openid.connect.token"
+AUTHORIZE_ENDPOINT = "https://slack.com/openid/connect/authorize"
+TOKEN_ENDPOINT = "https://slack.com/api/openid.connect.token"
 ISSUER = "https://slack.com"
 USER_CLAIM = "https://slack.com/user_id"
 TEAM_CLAIM = "https://slack.com/team_id"
@@ -63,14 +63,14 @@ class SlackLogin:
     clock: Callable[[], float] = time.time
 
     def authorize_url(self, *, redirect_uri: str, state: str, nonce: str) -> str:
-        return AUTHORIZE + "?" + urllib.parse.urlencode({
+        return AUTHORIZE_ENDPOINT + "?" + urllib.parse.urlencode({
             "response_type": "code", "scope": "openid profile", "client_id": self.client_id, "state": state,
             "nonce": nonce, "redirect_uri": redirect_uri})
 
     def member(self, code: str, *, redirect_uri: str, nonce: str) -> dict[str, str]:
         """The Slack member this sign-in is: {"user", "team"} - or SlackLoginError, whatever was wrong with it."""
         try:
-            answer = self.post(TOKEN, {"client_id": self.client_id, "client_secret": self.client_secret, "code": code,
+            answer = self.post(TOKEN_ENDPOINT, {"client_id": self.client_id, "client_secret": self.client_secret, "code": code,
                                        "redirect_uri": redirect_uri, "grant_type": "authorization_code"})
         except Exception as exc:  # noqa: BLE001 - Slack unreachable is a sign-in that did not happen
             raise SlackLoginError(f"Slack could not be reached ({type(exc).__name__})") from None
