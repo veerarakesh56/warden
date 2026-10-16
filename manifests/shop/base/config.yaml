@@ -14,7 +14,7 @@ data:
   CART_WORKER_INTERVAL_S: "5"
 ---
 # OpenTelemetry for the shop's pods (the image has it off): traces, metrics and logs to the collector in the
-# observability namespace, which sends the same data to X-Ray, Grafana and Datadog (owner, 2026-10-14: "use all 3").
+# observability namespace, which sends the same data to X-Ray and Datadog (owner, 2026-10-16: Datadog only).
 apiVersion: v1
 kind: ConfigMap
 metadata:
