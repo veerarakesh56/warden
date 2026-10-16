@@ -139,11 +139,13 @@ SECRETS = frozenset({
 _EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
-    # GitHub: the deploys and commits behind an incident (timeline.py), and the dependency watch.
     "read": _EVERY_ZONE | {"WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
-                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_GITHUB_TOKEN"},
+                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"},
     "llm": _EVERY_ZONE | {"ANTHROPIC_API_KEY"},
-    "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_WEBHOOK"},
+    # GitHub: the change-record issue `finish` writes (changes.py) and the deploys `notify` reads into the report
+    # (timeline.recent) - both notify-zone activities (workflows.ZONES).
+    "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_WEBHOOK",
+                             "WARDEN_GITHUB_TOKEN"},
     "act": _EVERY_ZONE,
 }
 # The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;

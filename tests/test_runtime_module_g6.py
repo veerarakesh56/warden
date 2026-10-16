@@ -279,8 +279,59 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
     for policy in ("zone", "front_door"):  # each name exactly, not a prefix of another
         block = _block(iam, "aws_iam_role_policy", policy)
         assert '"${local.secret_arn}/${s}-??????"' in block and "secret_arn}/${s}*" not in block, policy
-    # The dependency watch and the deploys behind an incident read GitHub: the read zone alone.
-    assert {z for z, names in settings.ZONE_SECRETS.items() if "WARDEN_GITHUB_TOKEN" in names} == {"read"}
+
+
+# Each zone secret, the module that reads it, and the zones whose code reads it - the map each zone's task role is held
+# to (secrets audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is
+# added here by name, with its reader and zones.
+_EVERY = {"core", "read", "llm", "notify", "act"}
+ZONE_READS = {
+    "WARDEN_TEMPORAL_KEY": ("codec.py", _EVERY),
+    "WARDEN_TEMPORAL_API_KEY": ("runtime_base.py", _EVERY),
+    "WARDEN_STACK_DB_PRIMARY_RO_DSN": ("aws_stack.py", {"read"}),
+    "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
+    "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
+    "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
+    "ANTHROPIC_API_KEY": ("providers.py", {"llm"}),
+    "WARDEN_SLACK_BOT_TOKEN": ("chatops.py", {"notify"}),
+    "WARDEN_SLACK_APP_TOKEN": ("discuss.py", {"notify"}),
+    "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
+    "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
+}
+
+
+def test_each_zone_reads_exactly_the_secrets_its_code_reads():
+    from warden import settings
+
+    src = ROOT / "src" / "warden"
+    held = {n: {z for z, names in settings.ZONE_SECRETS.items() if n in names}
+            for n in set().union(*settings.ZONE_SECRETS.values())}
+    assert set(held) == set(ZONE_READS), "a zone secret with no reader named here, or a reader with no grant"
+    for name, (module, zones) in ZONE_READS.items():
+        assert held[name] == zones, name
+        assert name in (src / module).read_text(encoding="utf-8"), (name, module)
+    iam = _zones((MODULE / "iam.tf").read_text(encoding="utf-8"))
+    for zone, v in iam.items():
+        assert {_slug(n, zone) for n, (_, zones) in ZONE_READS.items() if zone in zones} == (
+            {"temporal-key", f"temporal-api-key-{zone}"} | set(v["secrets"])), zone
+
+
+def test_the_github_token_is_the_notify_zones_whose_activities_read_it():
+    """Its two readers, traced to the activities that run them: RemediationActivities.finish opens the change-record
+    issue (changes.GitHubIssues, built by runtime._activities from WARDEN_GITHUB_TOKEN) and IncidentActivities.notify
+    reads the deploys for the report (timeline.recent). Both run on the notify zone's queue."""
+    import inspect
+
+    from warden import activities, changes, runtime, settings, timeline, workflows
+
+    assert "self.changes.open(" in inspect.getsource(activities.RemediationActivities.finish)
+    assert "changes=from_environment()" in inspect.getsource(runtime._activities)
+    assert '"WARDEN_GITHUB_TOKEN"' in inspect.getsource(changes.from_environment)
+    assert "timeline.recent(" in inspect.getsource(activities.IncidentActivities.notify)
+    assert '"WARDEN_GITHUB_TOKEN"' in inspect.getsource(timeline.recent)
+    readers = {"finish", "notify"}
+    assert {z for z, names in workflows.ZONES.items() if readers & set(names)} == {"notify"}
+    assert {z for z, names in settings.ZONE_SECRETS.items() if "WARDEN_GITHUB_TOKEN" in names} == {"notify"}
 
 
 
