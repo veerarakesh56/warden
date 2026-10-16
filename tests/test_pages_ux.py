@@ -111,6 +111,10 @@ def test_filters_combine_and_every_link_keeps_them(site):
     for control in re.findall(r'<(?:input|select) id="([a-z-]+)"', out.body):  # every filter labelled
         assert f'<label for="{control}">' in out.body, control
     assert len(re.findall(r'<(?:input|select) id=', out.body)) == 6
+    from warden.environments import default_environment_policies
+
+    offered = re.findall(r'<option value="([^"]*)"', out.body.split('id="f-env"')[1].split("</select>")[0])
+    assert offered == ["", *default_environment_policies().known_environments]  # environments.yaml's own
     assert 'value="ID"' in _get(site, query="q=ID").body  # the text, not the field's own name
     svc = _get(site, query="service=B&from=2026-10-15&to=2026-10-15")
     days = set(re.findall(r'<h2 class="day">([^<]+)</h2>', svc.body))  # the display zone's day, as the list says it
