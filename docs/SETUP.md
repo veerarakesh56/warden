@@ -152,7 +152,7 @@ runtime:
 
 | Environment | Secrets | Variables | Protection |
 |---|---|---|---|
-| each application environment (`dev`, `prod`, ...) | `AWS_ROLE_ARN` (the `warden-<env>-deploy` role); optional `EKS_ADMIN_ROLE_ARNS` (roles given EKS admin access, comma-separated) | `AWS_REGION`, `TF_STATE_BUCKET`; optional `EKS_PUBLIC_CIDRS` (who may reach the EKS API during a deploy) | required reviewers for any environment people depend on |
+| each application environment (`dev`, `prod`, ...) | `AWS_ROLE_ARN` (the `warden-<env>-deploy` role); optional `EKS_ADMIN_ROLE_ARNS` (roles given EKS admin access, comma-separated) | `AWS_REGION`, `TF_STATE_BUCKET`; optional `EKS_PUBLIC_CIDRS` (who may reach the EKS API during a deploy) | `prod`: a required reviewer, so a person approves every prod deploy |
 | `ops` (the runtime) | `AWS_ROLE_ARN` (`warden-ops-deploy`), `RUNTIME_ECR_REPOSITORY` (the image repository URI), `HF_TOKEN` (a Hugging Face read token for the gated Prompt Guard 2 weights the image bakes in) | `AWS_REGION`, `TF_STATE_BUCKET` | a required reviewer: the runtime spends model credit and runs paid infrastructure |
 
 Role ARNs and the repository URI are secrets, not variables, because they contain the account id and GitHub
@@ -161,10 +161,24 @@ prints variables unmasked in a public repository's logs.
 <!-- branch-model -->
 ### 4b. Which branch deploys what
 
-Today every deploy workflow runs from `main` only, by hand (`deploy-<env>.yml`, one per environment in
-`environments.yaml`) or on a push to `main` for dev (`on-merge-dev.yml`: apps deploy; infra only plans). The
-reusable deploy workflows refuse any other ref, and the trust policies accept only `refs/heads/main`. Set each
-environment's **Deployment branches** to the single branch `main`.
+An environment deploys only from the branch of its own name, and `main` deploys nothing.
+
+| Branch | What a push to it does |
+|---|---|
+| `main` | CI only: tests, lint and scans. No workflow that can reach AWS runs on a push to `main` or on a pull request. |
+| `dev` | Deploys the `dev` environment (`on-merge-dev.yml`). `dev` is `main` fast-forwarded: `git push origin <main-sha>:dev`. |
+| `prod` | Deploys the `prod` environment (`on-merge-prod.yml`); every job waits for the `prod` environment's required reviewer, so a person approves it. `prod` is `dev` merged by pull request with "Create a merge commit". |
+
+A deploy can also be run by hand from the same branch (`deploy-<env>.yml`). Before any job holds a credential, it
+checks that the commit was promoted: it is on the upstream branch (`main` for dev, `dev` for prod), or it is a merge
+of it that changes nothing. A commit pushed straight onto `dev` or `prod` is refused, and the push that creates a
+branch deploys nothing. The deploy roles' trust policies (`iam/<env>/trust.json`) accept only `refs/heads/<env>`.
+
+The runtime pipeline (`runtime.yml`, GitHub environment `ops`) runs from the branch `environments.yaml` names in
+`github.runtime_branch`: `dev`, until prod exists.
+
+Set each GitHub environment's **Deployment branches** to the single branch of its own name (`dev` for dev, `prod`
+for prod, the runtime branch for `ops`), and give `prod` and `ops` a required reviewer.
 
 An infra change is never applied on a push. A push plans and keeps the saved plan and its SHA-256 in the state
 bucket; the apply is a manual `deploy-<env>.yml` run with `infra_action=apply-plan`, that run id and that hash, at
@@ -174,6 +188,8 @@ the same commit.
 ### 4c. Repository settings worth turning on
 
 - A ruleset on the default branch that blocks deletion and force pushes.
+- Rulesets on `dev` and `prod` that block deletion and force pushes and require the `zizmor` status check;
+  on `prod`, also require a pull request and allow merge commits only.
 - **Require actions to be pinned to a full-length commit SHA** (every workflow here is pinned, and
   `tests/test_ci_lanes.py` checks it).
 - Dependabot alerts and security updates, and CodeQL default setup. All free on a public repository.

@@ -21,11 +21,12 @@ application code:
 |---|---|---|---|
 | infra | this directory | `terraform apply` locally, or `.github/workflows/deploy-<env>.yml` (by hand, from the branch `<env>`; part: infra), or a plan on a push to the branch `<env>` (`on-merge-<env>.yml`) | - |
 | apps | Lambdas, container image, the shop (`manifests/shop`, synced by Argo CD; `k8s/shop-pipeline`) | `scripts/deploy_fullstack_apps.py`, or `.github/workflows/deploy-<env>.yml` (by hand, from the branch `<env>`; part: apps), or a push to the branch `<env>` (`on-merge-<env>.yml`) | `stack.json` |
-
-Branches (owner, 2026-10-16): an environment deploys only from the branch of its own name, and `main` deploys nothing.
-`dev` is `main` fast-forwarded; `prod` is `dev` merged by pull request. A commit that did not come that way is refused
-before the job holds a credential.
 | WARDEN CI | the tool | `.github/workflows/ci-tool.yml` | - |
+
+Branches (owner, 2026-10-16): an environment deploys only from the branch of its own name, and `main` deploys
+nothing (CI only). The `dev` branch deploys dev; it is `main` fast-forwarded. The `prod` branch deploys prod, every
+job behind a person's approval; it is `dev` merged by pull request. A commit that did not come that way is refused
+before the job holds a credential.
 
 Lambdas are created from a placeholder zip, ECS from a placeholder container that answers 200 on
 every path; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
