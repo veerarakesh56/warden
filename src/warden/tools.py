@@ -194,6 +194,22 @@ def evidence_tools(base: Any) -> list[Any]:
         repo = (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
                 or str(default_environment_policies().github.get("repository", "")))
         readers.append(CommitReader(base, repo=repo, token=os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip()))
+    if os.environ.get("WARDEN_FINDINGS", "").strip() == "1":
+        # Code review's findings on the deploy's pull request (findings.py), read in the read zone like the commits.
+        from .environments import default_environment_policies
+        from .findings import MAX_PER_PR, MAX_PRS, FindingsReader
+
+        def number(name: str, default: int) -> int:
+            raw = os.environ.get(name, "").strip()
+            return int(raw) if raw.isdigit() else default
+
+        repo = (os.environ.get("WARDEN_CHANGE_REPO", "").strip()
+                or str(default_environment_policies().github.get("repository", "")))
+        readers.append(FindingsReader(
+            base, repo=repo, token=os.environ.get("WARDEN_GITHUB_READ_TOKEN", "").strip(),
+            sonar_project=os.environ.get("WARDEN_SONAR_PROJECT", "").strip(),
+            sonar_token=os.environ.get("WARDEN_SONAR_TOKEN", "").strip(),
+            max_prs=number("WARDEN_FINDINGS_MAX_PRS", MAX_PRS), max_per_pr=number("WARDEN_FINDINGS_MAX_PER_PR", MAX_PER_PR)))
     if grafana.configured():
         readers.append(grafana.GrafanaReader())
     if datadog.configured():
