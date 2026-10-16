@@ -108,7 +108,7 @@ zone roles.
 ### 3d. Optional: the operator and the fault-injection harness
 
 - `iam/operator/` is a read-only operator role for a person's workstation (it may assume only the read-only
-  sweep role and the harness role). `scripts/roles_anywhere_cert.py` issues a certificate for IAM Roles
+  sweep role `warden-ops-sweep`, whose policy is `iam/operator/sweep-policy.json`, and the harness role). `scripts/roles_anywhere_cert.py` issues a certificate for IAM Roles
   Anywhere, so the workstation needs no access key.
 - `iam/<env>/harness.json` and `harness-trust.json` exist only for the environments in `fault_environments`. The
   harness role breaks and restores only that environment's resources; render it with
@@ -261,10 +261,11 @@ channel. Create one Slack app (api.slack.com/apps):
 | or, instead of the webhook, the bot token and channel id | secret `warden/ops/slack-bot-token`; plain value `/warden/ops/env/WARDEN_SLACK_CHANNEL` |
 | Sign in with Slack on the approval page and the records page: the app's client id and client secret | plain value `/warden/ops/env/WARDEN_SLACK_CLIENT_ID`; secret `warden/ops/slack-client-secret` |
 | the discussion channel (Socket Mode): an app-level token with `connections:write`, bot scopes `app_mentions:read`, `chat:write`, `channels:history` (and `groups:history` for a private channel), the `app_mention` event | secret `warden/ops/slack-app-token`; plain value `/warden/ops/env/WARDEN_DISCUSS_CHANNEL` |
+| each environment's own channels, so one environment's incidents never reach another's channel (with the bot token; recommended once there is more than one environment) | plain values `/warden/ops/env/WARDEN_SLACK_CHANNELS` (alerts) and `/warden/ops/env/WARDEN_DISCUSS_CHANNELS` (discussion), each `env=channel-id[,env=channel-id]`; with them the webhook is not used for Slack, and an environment the map does not name gets no Slack message |
 | who besides the approvers may read the records page | plain value `/warden/ops/env/WARDEN_RECORD_VIEWERS` (Slack member ids, comma-separated) |
 
 Socket Mode means WARDEN connects out to Slack, so Slack needs no public address of yours and no signing secret.
-[OPERATIONS.md](OPERATIONS.md) has the discussion-channel steps in detail.
+[OPERATIONS.md](OPERATIONS.md) has the discussion-channel steps and the per-environment channel maps in detail.
 
 ## 8. The model
 
