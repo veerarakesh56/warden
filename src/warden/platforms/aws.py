@@ -54,6 +54,16 @@ from ..aws_stack import SERVED_LOOKBACK
 
 ENV_TAG = os.environ.get("WARDEN_AWS_ENV_TAG", "Environment")
 HEALTH_WINDOW = timedelta(minutes=5)
+# Live, 2026-10-16: a metric health check summed the last HEALTH_WINDOW - which held the errors from before the fix, so
+# a working fix (fs-01: the alias back on the good version, both alarms OK) could never pass inside its own five-minute
+# verify window, and WARDEN undid it. A fix is judged only on what came after it: from SETTLE past the change (requests
+# in flight on the old version end), at the next whole minute, so no minute that began before the fix is counted.
+SETTLE = timedelta(seconds=30)
+# ...and a fix judged that way is given time for it: the first clean whole minute, CloudWatch's publishing lag and the
+# consecutive checks the verify loop needs (workflows.CONSECUTIVE_HEALTHY).
+METRIC_SETTLE_MINUTES = 8
+METRIC_JUDGED = frozenset({"lambda_move_alias", "lambda_set_reserved_concurrency", "dynamodb_raise_capacity",
+                           "apigw_raise_stage_throttle"})
 # Register C8: a revision WARDEN restores must have been healthy this long when it last served - known-good, not
 # merely older. A version that served for a minute before being replaced is no fallback.
 KNOWN_GOOD = timedelta(minutes=30)
@@ -106,6 +116,11 @@ def never_revert() -> frozenset[str]:
     """Role and user names whose changes WARDEN never reverts - a security team's, a break-glass identity's. The owner
     names them (WARDEN_NEVER_REVERT_PRINCIPALS, comma-separated); a revoked rule may be the incident response."""
     return frozenset(n.strip() for n in os.environ.get("WARDEN_NEVER_REVERT_PRINCIPALS", "").split(",") if n.strip())
+
+
+def _applied_at(params: dict[str, Any]) -> datetime | None:
+    """When this run applied the fix, as check_success hands it (catalog.APPLIED_AT); None when not handed."""
+    return _when(params.get(catalog.APPLIED_AT))
 
 
 def _get(d: dict[str, Any], name: str) -> Any:
@@ -526,6 +541,8 @@ class AwsPlatform:
                 minutes = None
             if minutes is not None:
                 out["recover_minutes"] = minutes + -(-slow // 60)
+        if out and entry in METRIC_JUDGED:
+            out["recover_minutes"] = max(out.get("recover_minutes", 0), METRIC_SETTLE_MINUTES)
         return out
 
     def changes(self, since: datetime, until: datetime, environment: str) -> list[dict[str, Any]]:
@@ -833,12 +850,23 @@ class AwsPlatform:
         """Traffic served without errors or throttles in the last five minutes: at least one invocation (a request
         floor - a dead function serves nothing and errs nothing), no error, no throttle."""
         sums = self._metric_sums("AWS/Lambda", [{"Name": "FunctionName", "Value": fn}],
-                                 ("Invocations", "Errors", "Throttles"))
+                                 ("Invocations", "Errors", "Throttles"), since=_applied_at(params))
         return sums is not None and sums["Invocations"] >= 1 and sums["Errors"] == 0 and sums["Throttles"] == 0
 
-    def _metric_sums(self, namespace: str, dims: list[dict[str, str]], metrics: tuple[str, ...]) -> dict | None:
+    def _metric_sums(self, namespace: str, dims: list[dict[str, str]], metrics: tuple[str, ...],
+                     since: datetime | None = None) -> dict | None:
+        """Sums over the last HEALTH_WINDOW - and, for a fix, only from the first whole minute after it settled: None
+        (unknown, never healthy) until such a minute has ended."""
         end = self._now()
-        resp = self._read("cloudwatch").get_metric_data(StartTime=end - HEALTH_WINDOW, EndTime=end, MetricDataQueries=[
+        start = end - HEALTH_WINDOW
+        if since is not None:
+            first = since + SETTLE
+            if first.second or first.microsecond:
+                first = first.replace(second=0, microsecond=0) + timedelta(minutes=1)
+            start = max(start, first)
+            if start + timedelta(minutes=1) > end:
+                return None
+        resp = self._read("cloudwatch").get_metric_data(StartTime=start, EndTime=end, MetricDataQueries=[
             {"Id": f"m{i}", "ReturnData": True, "MetricStat": {"Metric": {"Namespace": namespace, "MetricName": m,
                                                                           "Dimensions": dims},
                                                                "Period": 60, "Stat": "Sum"}}
@@ -1061,7 +1089,7 @@ class AwsPlatform:
     def _table_healthy(self, name: str, params: dict[str, Any]) -> bool:
         t = self._read("dynamodb").describe_table(TableName=name)["Table"]
         sums = self._metric_sums("AWS/DynamoDB", [{"Name": "TableName", "Value": name}],
-                                 ("ConsumedWriteCapacityUnits", "WriteThrottleEvents"))
+                                 ("ConsumedWriteCapacityUnits", "WriteThrottleEvents"), since=_applied_at(params))
         return t.get("TableStatus") == "ACTIVE" and sums is not None and sums["ConsumedWriteCapacityUnits"] > 0 \
             and sums["WriteThrottleEvents"] == 0
 
@@ -1377,7 +1405,8 @@ class AwsPlatform:
         """The throttle WARDEN set holds and the stage serves requests - a positive signal."""
         now = self._live_stage(params).get("state") or {}
         sums = self._metric_sums("AWS/ApiGateway", [{"Name": "ApiName", "Value": api},
-                                                    {"Name": "Stage", "Value": params.get("stage", "")}], ("Count",))
+                                                    {"Name": "Stage", "Value": params.get("stage", "")}], ("Count",),
+                                 since=_applied_at(params))
         return now.get("rate_limit") == params.get("rate_limit") and sums is not None and sums["Count"] > 0
 
     # ------------------------------------------------------------------ arc: shift traffic away from a zone (G9-D)

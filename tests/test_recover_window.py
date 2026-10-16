@@ -45,7 +45,10 @@ def test_the_live_read_gives_the_time_its_alarm_can_take_to_clear(alarm, minutes
 def test_only_a_read_that_names_an_alarm_is_timed_by_one_and_a_failed_timing_voids_nothing():
     f = Timed(Period=300, EvaluationPeriods=3)
     live = _p(f).live("lambda_set_reserved_concurrency", {"function": FN})
-    assert live["function"] == {FN} and "recover_minutes" not in live
+    # No alarm names it - but a fix judged by metrics is given the time that takes (live, 2026-10-16).
+    from warden.platforms.aws import METRIC_SETTLE_MINUTES
+
+    assert live["function"] == {FN} and live["recover_minutes"] == METRIC_SETTLE_MINUTES
     assert "recover_minutes" not in _p(f).live("ecs_restore_desired", {"cluster": "c1", "service": "x"})  # nothing read
     p = _p(f)
     p._alarm_clear_minutes = lambda alarm: 1 / 0

@@ -428,6 +428,10 @@ _UNTIL_SCALED = ("until_scaled", ("an autoscaler or infrastructure as code may o
                                   "one does, change it there."))
 _TEMPORARY = ("temporary", "it holds the harm, not the cause: the cause still needs its own fix.")
 _ONE_OFF = ("one_off", "a one-off action that nothing changes back; the cause still needs its own fix.")
+# The time a fix was applied in this run, handed by check_success to the platform's health check in a copy of the
+# plan's parameters (never planned, never hashed): a fix is judged on what came after it (live, 2026-10-16).
+APPLIED_AT = "_applied_at"
+
 LASTS: dict[str, tuple[str, str]] = {
     "lambda_move_alias": _UNTIL_DEPLOY, "lambda_restore_config": _UNTIL_DEPLOY,
     "lambda_set_reserved_concurrency": _UNTIL_APPLY, "lambda_enable_esm": _RESTORES, "lambda_disable_esm": _TEMPORARY,

@@ -785,8 +785,14 @@ class RemediationActivities:
         # Asked of the platform that made the change, when it can route by entry: a database of the same name
         # must not judge a Deployment (sixth review).
         routed = getattr(self.platform, "healthy_for", None)
+        # When this run applied the fix: a health check judges what came after it (live, 2026-10-16).
+        run = _run_id()
+        applied = [e["at"] for e in self.audit.entries(plan.incident_id, kinds=(bounds.APPLIED,))
+                   if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("run_id", "") == run
+                   and e["body"].get("plan_hash") == plan.plan_hash]
+        params = {**plan.params, **({catalog.APPLIED_AT: applied[-1].isoformat()} if applied else {})}
         if routed and "params" in inspect.signature(routed).parameters:
-            healthy = bool(routed(plan.entry, service, params=plan.params, **_env(routed, plan.environment)))
+            healthy = bool(routed(plan.entry, service, params=params, **_env(routed, plan.environment)))
         else:
             healthy = bool(routed(plan.entry, service) if routed else self.platform.healthy(service))
         # Success is the symptom gone, not only the change landed (research 2026-10-15, item 12): the CloudWatch
