@@ -1,7 +1,7 @@
 """Per-environment policy: which environment may do what, who may approve it, and whether WARDEN may
 resolve an incident automatically or must hand it to a human.
 
-This is the configurable core of the staging -> prod safety gradient. `data/environments.yaml` ships
+This is the configurable core of the dev -> prod safety gradient. `data/environments.yaml` ships
 a sane default; an operator overrides it with `$WARDEN_ENV_POLICY_PATH` or a path argument. Everything
 is validated at load (unknown action names raise), and an environment absent from the config resolves
 to the `default` policy, which is the most restrictive one possible — the system FAILS CLOSED on an
@@ -9,8 +9,9 @@ unrecognised environment rather than inheriting broad permissions.
 
 Two consumers:
   - the verifier reads `permits(action)` for policy P1 (is this action admissible in this env at all);
-  - the remediation executor reads `auto_remediate`, `require_human_approval` and `authorizes(principal)`
-    to decide whether a given principal may actually APPLY an approved fix here, now.
+  - the in-process remediation gate (remediation.decide_remediation) reads `auto_remediate` and
+    `authorizes(principal)` to decide whether a given principal may actually APPLY an approved fix here, now.
+`require_human_approval` is only shown in the promotion report (reporting.py; read 2026-10-16).
 """
 
 from __future__ import annotations
@@ -177,6 +178,12 @@ class EnvironmentPolicies:
         if github and not all(rx.fullmatch(github.get(k, "")) for k, rx in _GITHUB.items()):
             raise EnvironmentPolicyError("`github` needs `repository` (owner/name) and `subject` "
                                          "(owner@owner-id/name@repository-id)")
+        # The runtime pipeline runs from an application environment's own branch (owner, 2026-10-16): the branch the
+        # runtime's deploy role trusts, rendered into iam/<runtime>/trust.json.
+        branch = github.get("runtime_branch")
+        if github and not (isinstance(branch, str) and branch in envs):
+            raise EnvironmentPolicyError("`github.runtime_branch` must name an application environment, whose branch "
+                                         "the runtime pipeline runs from")
         return cls(default, envs, runtime, region, zone, global_region, tuple(faults), github)
 
     @staticmethod

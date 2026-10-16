@@ -682,7 +682,7 @@ def _main(argv: list[str] | None = None) -> int:
                        help="approve applying exactly the proposal with this digest (a run without "
                             "--approve prints it); approves nothing else")
     p_run.add_argument("--emit-chatops", action="store_true", help="send the report to configured Slack/Teams/webhook sinks")
-    p_run.add_argument("--environment", default=None, help="override the incident's environment (e.g. staging) to see the per-env gate")
+    p_run.add_argument("--environment", default=None, help="override the incident's environment (e.g. prod) to see the per-env gate")
     # Overrides that let a BUNDLED incident shape be pointed at a REAL system. Without them the
     # demo alerts cannot be used outside the fixtures: their `started_at` is a fixed date in the
     # past, so a backend that reads a window around it (AWS) reads an EMPTY window and reports

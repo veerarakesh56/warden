@@ -40,10 +40,11 @@ HARNESS_ENVS = EnvironmentPolicies.load().fault_environments
 
 def _install() -> dict[str, str]:
     """What every template may name beside its own environment: WARDEN's runtime environment (whose zone roles the
-    reader and actor trust) and this repository as GitHub's OIDC token names it - all from environments.yaml."""
+    reader and actor trust), this repository as GitHub's OIDC token names it, and the branch the runtime pipeline runs
+    from (2026-10-16; an application environment's trust names its own branch, `${env}`) - all from environments.yaml."""
     cfg = EnvironmentPolicies.load()
     return {"runtime": cfg.runtime_environment or "", "github_repository": cfg.github.get("repository", ""),
-            "github_subject": cfg.github.get("subject", "")}
+            "github_subject": cfg.github.get("subject", ""), "runtime_branch": cfg.github.get("runtime_branch", "")}
 
 
 def render(env: str, account: str = "<ACCOUNT_ID>", cluster: str = "<CLUSTER_RESOURCE_ID>") -> dict[str, str]:
@@ -91,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         import boto3
 
         account = boto3.client("sts").get_caller_identity()["Account"]
+    # Every file is written with LF, as the repository stores it (.gitattributes, 2026-10-16): on Windows a render
+    # wrote CRLF, and every rendered file showed as changed.
     for env in environments():
         d = ROOT / "iam" / env
         d.mkdir(parents=True, exist_ok=True)

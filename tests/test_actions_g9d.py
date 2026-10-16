@@ -42,9 +42,12 @@ def test_what_cannot_be_undone_is_not_called_reversible_and_a_zonal_shift_is_nev
 
 
 def test_the_new_classes_are_allowed_wherever_a_person_approves():
+    """In prod every one (P2 then keeps the two irreversible ones a person's). Dev is not of the prod tier, so P2 does
+    not reach it, and it denies those two itself (owner, 2026-10-16: dev is run as production)."""
     policies = default_environment_policies()
-    for name in ("staging", "qa-staging", "pre-prod", "qa-prod", "prod"):
-        assert all(policies.for_env(name).permits(a) for a in NEW), name
+    assert all(policies.for_env("prod").permits(a) for a in NEW)
+    dev = policies.for_env("dev")
+    assert {a for a in NEW if dev.permits(a)} == {a for a in NEW if ACTION_FACTS[a][0]}
     assert not any(policies.for_env("unknown-env").permits(a) for a in NEW)
 
 

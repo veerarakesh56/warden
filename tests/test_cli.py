@@ -111,7 +111,7 @@ def _digest_from(out: str) -> str:
     return re.search(r"--approve ([0-9a-f]{12})", out).group(1)
 
 
-def test_run_in_staging_with_approval_dry_runs(capsys):
+def test_run_in_staging_with_approval_dry_runs(capsys, staging_policy):  # staging: test-only (tests/conftest.py)
     """Two steps: a run shows the proposal and its digest; a person approves THAT digest."""
     base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
     assert main(base) == 0
@@ -123,7 +123,7 @@ def test_run_in_staging_with_approval_dry_runs(capsys):
     assert "would scale_up" in out
 
 
-def test_an_approval_of_another_proposal_approves_nothing(capsys):
+def test_an_approval_of_another_proposal_approves_nothing(capsys, staging_policy):
     base = ["run", "--incident", "inc-002", "--environment", "staging", "--principal", "role:oncall"]
     assert main([*base, "--approve", "0123456789ab"]) == 0
     out = capsys.readouterr().out
@@ -140,7 +140,7 @@ def test_run_in_prod_never_auto_remediates(capsys):
     assert "not_auto_remediable" in out
 
 
-def test_run_with_unauthorized_principal_is_reported(capsys):
+def test_run_with_unauthorized_principal_is_reported(capsys, staging_policy):
     assert main([
         "run", "--incident", "inc-002", "--environment", "staging",
         "--principal", "role:intern", "--approve", "0123456789ab",
@@ -281,7 +281,7 @@ def test_a_bad_argument_is_printed_through_the_gate(capsys):
         assert "error:" in err or "withheld by the outbound gate" in err, err  # a line holding a key is withheld
 
 
-def test_the_cli_never_applies_even_with_the_retired_live_switch_set(monkeypatch, capsys):
+def test_the_cli_never_applies_even_with_the_retired_live_switch_set(monkeypatch, capsys, staging_policy):
     """Audit A-B-H2, decision D16: the in-process live path (WARDEN_REMEDIATION=live, remediation_k8s.py,
     database_remediation.py) is gone. Set the old switch: an approved CLI run still only says what it would do, and
     the modules that acted are absent - the one write path is the RemediationWorkflow."""

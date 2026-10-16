@@ -6,6 +6,8 @@ import json
 import pathlib
 import sys
 
+import pytest
+
 from warden import evidence
 from warden.models import (
     ActionKind,
@@ -18,6 +20,10 @@ from warden.models import (
     VerdictStatus,
 )
 from warden.verifier import verify
+
+# The alerts are in `staging`: a test-only nonprod environment that allows these actions (tests/conftest.py; the
+# shipped policy has dev and prod only since 2026-10-16).
+pytestmark = pytest.mark.usefixtures("staging_policy")
 
 CTX = ContextBundle(
     logs=["checkout ERROR 500 upstream timeout", "EVENT Pod/checkout-1: BackOff restarting",

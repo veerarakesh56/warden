@@ -3,7 +3,7 @@
 # window's IANA `zone`, so a window crossing a daylight-saving change still means what was written.
 #
 #   - name: festive-release-freeze
-#     environments: [prod, qa-prod]
+#     environments: [prod]
 #     zone: Asia/Kolkata
 #     start: "2026-11-07T00:00"
 #     end: "2026-11-09T23:59"

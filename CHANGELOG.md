@@ -7,6 +7,26 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
+### Changed (branches and environments, owner 2026-10-16)
+- **Two environments, each deployed only from the branch of its own name.** **Breaking:** `staging`, `qa-staging`,
+  `pre-prod` and `qa-prod` are gone from `environments.yaml`, the deploy workflows and `iam/`; an alert naming one
+  now gets the restrictive default. `main` deploys nothing: no workflow that can reach AWS runs on a push to it or
+  on a pull request. `dev` is `main` fast-forwarded and deploys on a push to it (`on-merge-dev.yml`); `prod` is
+  `dev` merged by pull request (`on-merge-prod.yml`, every job behind prod's reviewer). The runtime pipeline
+  (`runtime.yml`, environment `ops`) runs from `environments.yaml` `github.runtime_branch`: `dev`, until prod
+  exists. The push that creates a branch deploys nothing.
+- **A deploy checks that its commit was promoted**, before it holds a credential: the commit is on the upstream
+  branch (`main` for dev, `dev` for prod), or it is a merge commit of it that changes nothing. A commit pushed
+  straight onto `dev` or `prod` is refused. The runtime's image job checks the same.
+- **The deploy roles trust their own branch.** `iam/<env>/trust.json` requires `ref` and `job_workflow_ref` on
+  `refs/heads/<env>`, and `iam/ops/trust.json` on the runtime branch; the runtime image is signed and verified as
+  `runtime.yml@refs/heads/dev`. The new trust policies must be pasted into AWS before the next deploy.
+- **dev is run as production** (owner rule; audit finding). Its lists are explicit: the reversible action classes a
+  catalogue entry carries out and prod allows, the four irreversible classes denied, prod's principals, and no
+  auto-remediation. Before, dev allowed every action to any principal with no person in the loop.
+- CI runs on pushes to `main` and on pull requests into `main`; the workflow scan still runs on every pull request.
+- `scripts/render_env_iam.py` writes LF on Windows too.
+
 ### Changed (G2, workflow correctness - started 2026-10-02)
 - **A remediation is bound to its resource and its environment** (registers S6, C3, O5; audit A-B-M4).
   **Breaking:** `request_remediation` now requires `environment`.

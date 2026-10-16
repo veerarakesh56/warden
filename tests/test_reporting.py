@@ -46,19 +46,15 @@ def test_report_masks_identifiers_everywhere_it_renders_them():
 
 
 def test_promotion_lists_higher_environments_that_permit_the_action():
-    rep = build_report(_alert(environment="staging"), proposal=_prop(ActionKind.scale_up))
-    envs = {t.environment for t in rep.promotion}
-    # scale_up is allowed in pre-prod, qa-prod and prod -> all are promotion targets from staging.
-    assert {"pre-prod", "qa-prod", "prod"} <= envs
-    # same-tier and lower environments are not promotion targets
-    assert "staging" not in envs and "qa-staging" not in envs and "dev" not in envs
+    rep = build_report(_alert(environment="dev"), proposal=_prop(ActionKind.scale_up))
+    # scale_up is allowed in prod -> the promotion target from dev; dev itself (the same tier) is not one.
+    assert [t.environment for t in rep.promotion] == ["prod"]
 
 
 def test_promotion_excludes_environments_that_deny_the_action():
-    # failover_replica is denied in pre-prod/qa-prod but allowed in prod.
-    rep = build_report(_alert(environment="staging"), proposal=_prop(ActionKind.failover_replica))
-    envs = {t.environment for t in rep.promotion}
-    assert "pre-prod" not in envs and "qa-prod" not in envs
+    # scale_down is denied in prod.
+    rep = build_report(_alert(environment="dev"), proposal=_prop(ActionKind.scale_down))
+    assert rep.promotion == ()
 
 
 def test_prod_has_no_promotion_targets():

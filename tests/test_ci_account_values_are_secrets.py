@@ -31,8 +31,9 @@ def test_every_caller_passes_them_and_the_deploys_require_the_role():
     """The secret is an empty string in a reusable workflow unless its caller passes it - with no error (GitHub docs,
     read 2026-10-16; the first dev plan after the switch could not assume the role)."""
     text = {p.name: p.read_text(encoding="utf-8") for p in WORKFLOWS.glob("*.yml")}
-    callers = [n for n in text if n.startswith("deploy-")] + ["on-merge-dev.yml"]
-    assert len(callers) == 7
+    # deploy-<env>.yml and on-merge-<env>.yml for dev and prod (2026-10-16: the four other environments went).
+    callers = [n for n in text if n.startswith(("deploy-", "on-merge-"))]
+    assert len(callers) == 4
     for name in callers:
         for called in ("_infra-deploy.yml", "_apps-deploy.yml"):
             after = text[name].split(f"uses: $/.github/workflows/{called}", 1)[1]

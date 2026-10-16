@@ -111,8 +111,8 @@ NOT_AN_ENVIRONMENT = {
     "src/warden/mcp_server.py": ({"prod"}, "a sample alert in a tool's description"),
     "src/warden/verifier.py": ({"prod", "ops"}, "the prod TIER (P2), and a vocabulary of plain words"),
     "src/warden/reporting.py": ({"prod"}, "the tier ranks"),
-    "src/warden/grounding.py": ({"prod", "staging", "dev"}, "a vocabulary of scope words"),
-    "src/warden/redaction.py": ({"prod", "staging", "dev"}, "a vocabulary of common words never swept as secrets"),
+    "src/warden/grounding.py": ({"prod", "dev"}, "a vocabulary of scope words"),
+    "src/warden/redaction.py": ({"prod", "dev"}, "a vocabulary of common words never swept as secrets"),
     "scripts/probe_cluster.py": ({"prod"}, "a manual probe's sample alert"),
     "scenarios/runner.py": ({"prod"}, "the dry runs' sample alerts"),
     "scenarios/fullstack_cli.py": ({"prod"}, "the dry run's sample alert"),
@@ -153,6 +153,20 @@ def test_the_repository_is_named_in_the_configuration_and_nowhere_in_code(tmp_pa
         assert repo not in p.read_text(encoding="utf-8") and subject not in p.read_text(encoding="utf-8"), p.name
     trust = (ROOT / "iam" / "templates" / "trust.json").read_text(encoding="utf-8")
     assert "repo:${github_subject}:environment:${env}" in trust and "${github_repository}/.github/workflows/" in trust
+    # Owner, 2026-10-16: each environment deploys from the branch of its own name, the runtime from
+    # `github.runtime_branch` - no template names a branch of its own.
+    assert trust.count("refs/heads/${env}") == 3
+    runtime_trust = (ROOT / "iam" / "templates" / "runtime-trust.json").read_text(encoding="utf-8")
+    assert runtime_trust.count("refs/heads/${runtime_branch}") == 2
+    literal = [p.name for p in (ROOT / "iam" / "templates").glob("*.json")
+               if re.search(r"refs/heads/(?!\$\{(?:env|runtime_branch)\})", p.read_text(encoding="utf-8"))]
+    assert not literal, literal
+    yaml_text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")
+    for bad in ("  runtime_branch: main", "  runtime_branch: [dev]", "  runtime_branch: nowhere"):
+        doc = tmp_path / "branch.yaml"
+        doc.write_text(re.sub(r"(?m)^  runtime_branch: .*$", bad, yaml_text), encoding="utf-8")
+        with pytest.raises(environments.EnvironmentPolicyError, match="runtime_branch"):
+            environments.EnvironmentPolicies.load(doc)
     rendered = (ROOT / "iam" / CFG.fault_environments[0] / "trust.json").read_text(encoding="utf-8")
     assert f"repo:{subject}:environment:" in rendered and f"{repo}/.github/workflows/" in rendered
     text = (ROOT / "src" / "warden" / "data" / "environments.yaml").read_text(encoding="utf-8")

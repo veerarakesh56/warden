@@ -1,8 +1,9 @@
 name: "Deploy · dev"
 
-# The dev environment, by hand, from main only. infra: plan, apply or destroy the full stack.
-# apps: deploy the code that runs on it. The steps are shared (_infra-*.yml, _apps-*.yml); this file only
-# names the environment - tests/test_ci_lanes.py keeps the deploy files identical apart from that name.
+# The dev environment, by hand, from the branch dev only (Use workflow from: dev; owner, 2026-10-16). infra: plan,
+# apply or destroy the full stack. apps: deploy the code that runs on it. The steps are shared (_infra-*.yml,
+# _apps-*.yml); this file only names the environment and the branch it is promoted from (`upstream`) -
+# tests/test_ci_lanes.py keeps the deploy files identical apart from those two names.
 on:
   workflow_dispatch:
     inputs:
@@ -56,6 +57,7 @@ jobs:
       EKS_ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
     with:
       environment: dev
+      upstream: main
       action: ${{ inputs.infra_action }}
       stack: ${{ inputs.infra_stack }}
       plan_run_id: ${{ inputs.plan_run_id }}
@@ -75,6 +77,7 @@ jobs:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     with:
       environment: dev
+      upstream: main
       target: ${{ inputs.apps_target }}
     permissions:
       contents: read

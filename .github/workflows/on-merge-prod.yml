@@ -1,0 +1,117 @@
+name: "Deploy · prod · on merge"
+
+# Owner, 2026-10-16: an environment deploys only from the branch of its own name, and main deploys nothing. A commit
+# promoted onto the branch prod (from its upstream branch, `upstream` below) reaches the environment prod with no hand
+# on a button; every job then waits for the environment's required reviewers, where it has any.
+# - The push that CREATES the branch deploys nothing: there is no earlier commit of it to compare with.
+# - Apps deploy on a push that changes them: only the Lambdas when only scenarios/fullstack/lambdas changed; otherwise
+#   everything (one image serves ECS and Kubernetes, and the ECS deploy is what pushes it - a k8s-only change would
+#   otherwise name an image tag that does not exist).
+# - Infra never applies on a push: it PLANS (Helios-checked) and keeps the plan in the private state bucket. Its apply
+#   is a second, reviewed step - Deploy · prod, infra_action apply-plan, with the plan's run id and sha256 - which
+#   applies exactly that plan, at that commit, or nothing. A push that changes infra defers its apps deploy until then.
+# - Nothing is skipped quietly: a stack that is not up fails the deploy, as it would in production.
+# One such file per environment (on-merge-<env>.yml), identical apart from the environment's name and its upstream
+# branch's (tests/test_ci_lanes.py). Same queue as Deploy · prod.
+on:
+  push:
+    branches: [prod]
+    paths:
+      - "scenarios/fullstack/app/**"
+      - "scenarios/fullstack/lambdas/**"
+      - "k8s/**"
+      - "manifests/**"
+      - "helm/**"
+      - "terraform/fullstack/**"
+      # The deploy's own tools install from the lock: a lock change runs this, and deploys nothing unless code changed.
+      - "uv.lock"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      infra: ${{ steps.what.outputs.infra }}
+      target: ${{ steps.what.outputs.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: what
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          created=0
+          if [[ "$BEFORE" =~ ^0{40}$ ]]; then
+            files=""; created=1  # the branch was created by this push (2026-10-16): nothing is deployed
+          elif [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            files=$(git ls-files)  # no base to compare with: everything counts as changed
+          else
+            files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          fi
+          infra=0; apps=0; others=0
+          while IFS= read -r f; do
+            case "$f" in
+              *.md) ;;  # documentation changes nothing deployed (2026-10-16: a README held back a deploy)
+              terraform/fullstack/*) infra=1 ;;
+              scenarios/fullstack/lambdas/*) apps=1 ;;
+              scenarios/fullstack/app/*|k8s/*|manifests/*|helm/*) apps=1; others=1 ;;
+            esac
+          done <<< "$files"
+          target=""
+          if [ "$apps" = 1 ]; then target=$([ "$others" = 1 ] && echo all || echo lambdas); fi
+          echo "infra=$infra" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          {
+            echo "### What this merge deploys to prod"
+            if [ "$created" = 1 ]; then echo "- nothing: this push created the branch prod"; fi
+            echo "- infra: $([ "$infra" = 1 ] && echo 'changed - planned only; its apply is a reviewed step' || echo unchanged)"
+            echo "- apps: ${target:-unchanged}$([ "$infra" = 1 ] && [ -n "$target" ] && echo ' - deferred until the infra plan is applied')"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  infra-validate:
+    needs: changes
+    if: needs.changes.outputs.infra == '1'
+    uses: $/.github/workflows/_infra-validate.yml
+  infra-plan:
+    needs: [changes, infra-validate]
+    if: needs.changes.outputs.infra == '1'
+    uses: $/.github/workflows/_infra-deploy.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      EKS_ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
+    with:
+      environment: prod
+      upstream: dev
+      action: plan
+      stack: fullstack
+    permissions:
+      contents: read
+      id-token: write
+
+  apps-check:
+    needs: changes
+    if: needs.changes.outputs.infra == '0' && needs.changes.outputs.target != ''
+    uses: $/.github/workflows/_apps-check.yml
+  apps:
+    needs: [changes, apps-check]
+    if: needs.changes.outputs.infra == '0' && needs.changes.outputs.target != ''
+    uses: $/.github/workflows/_apps-deploy.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+    with:
+      environment: prod
+      upstream: dev
+      target: ${{ needs.changes.outputs.target }}
+    permissions:
+      contents: read
+      id-token: write

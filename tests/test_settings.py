@@ -60,10 +60,10 @@ def _clean_env(monkeypatch):
 
 
 def test_every_name_derives_from_the_environment():
-    n = names("qa-staging")
+    n = names("prod")
     assert (n.prefix, n.ssm, n.role, n.boundary) == (
-        "warden-qa-staging", "/warden/qa-staging/", "warden-qa-staging-deploy", "WardenEnvBoundary-qa-staging")
-    assert n.tags == {"Project": "warden", "Environment": "qa-staging"}
+        "warden-prod", "/warden/prod/", "warden-prod-deploy", "WardenEnvBoundary-prod")
+    assert n.tags == {"Project": "warden", "Environment": "prod"}
 
 
 def test_an_unknown_environment_raises_rather_than_becoming_an_aws_name():
@@ -75,20 +75,20 @@ def test_loads_only_allowlisted_names_of_this_environment():
     import os
 
     fake = _FakeSSM({
-        "/warden/staging/env/WARDEN_MODEL": "claude-sonnet-5",
-        "/warden/staging/env/WARDEN_AWS_CLUSTER": "c1",
-        "/warden/staging/env/WARDEN_REMEDIATION": "live",       # arming: never from a store
-        "/warden/staging/env/WARDEN_CHATOPS_LIVE": "1",
-        "/warden/staging/env/WARDEN_BASE_URL": "https://evil.example",
-        "/warden/staging/env/AWS_PROFILE": "admin",
+        "/warden/dev/env/WARDEN_MODEL": "claude-sonnet-5",
+        "/warden/dev/env/WARDEN_AWS_CLUSTER": "c1",
+        "/warden/dev/env/WARDEN_REMEDIATION": "live",       # arming: never from a store
+        "/warden/dev/env/WARDEN_CHATOPS_LIVE": "1",
+        "/warden/dev/env/WARDEN_BASE_URL": "https://evil.example",
+        "/warden/dev/env/AWS_PROFILE": "admin",
         "/warden/prod/env/WARDEN_MODEL": "other",
     })
-    secrets = _FakeSecrets({"warden/staging/slack-webhook": "https://hooks.example/one",
+    secrets = _FakeSecrets({"warden/dev/slack-webhook": "https://hooks.example/one",
                             "warden/prod/slack-webhook": "https://hooks.example/prod"})
-    assert load("staging", ssm=fake, secrets=secrets) == ["WARDEN_AWS_CLUSTER", "WARDEN_MODEL", "WARDEN_SLACK_WEBHOOK"]
-    assert fake.paths == ["/warden/staging/env/"]
+    assert load("dev", ssm=fake, secrets=secrets) == ["WARDEN_AWS_CLUSTER", "WARDEN_MODEL", "WARDEN_SLACK_WEBHOOK"]
+    assert fake.paths == ["/warden/dev/env/"]
     assert os.environ["WARDEN_SLACK_WEBHOOK"] == "https://hooks.example/one"
-    assert all(a.startswith("warden/staging/") for a in secrets.asked)
+    assert all(a.startswith("warden/dev/") for a in secrets.asked)
     for never in ("WARDEN_REMEDIATION", "WARDEN_CHATOPS_LIVE", "WARDEN_BASE_URL", "AWS_PROFILE"):
         assert never not in os.environ
 
@@ -148,13 +148,20 @@ def test_the_cli_loads_the_environment_before_running(monkeypatch, capsys):
     assert "loaded WARDEN_MODEL (SSM, Secrets Manager)" in capsys.readouterr().err
 
 
-def test_any_environments_prefix_is_stripped_longest_first():
+def test_any_environments_prefix_is_stripped_longest_first(tmp_path, monkeypatch):
+    from warden import environments
     from warden.environments import strip_prefix
 
     assert strip_prefix("warden-dev-checkout") == "checkout"
-    assert strip_prefix("warden-qa-staging-order-processor") == "order-processor"
     assert strip_prefix("warden-prod-orders") == "orders"
     assert strip_prefix("some-other-fn") == "some-other-fn"
+    # Two names where one starts the other (the shipped dev and prod do not, since 2026-10-16): the longer wins.
+    doc = tmp_path / "environments.yaml"
+    doc.write_text("environments:\n  qa: {}\n  qa-staging: {}\n", encoding="utf-8")
+    monkeypatch.setattr(environments, "_DEFAULT", environments.EnvironmentPolicies.load(doc))
+    assert strip_prefix("warden-qa-staging-order-processor") == "order-processor"
+    assert strip_prefix("warden-qa-order-processor") == "order-processor"
+    assert environments.env_of_name("warden-qa-staging-x") == "qa-staging"
 
 
 def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):

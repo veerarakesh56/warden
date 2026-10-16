@@ -151,7 +151,7 @@ class Alert(BaseModel):
     service: str = Field(pattern=NAME_PATTERN)
     # A free string, resolved against the per-environment policy (environments.py). Not a fixed
     # Literal because the set of environments is a deployment concern an operator configures
-    # (staging, qa-staging, pre-prod, qa-prod, prod, ...). An environment the policy doesn't know
+    # (dev and prod, 2026-10-16). An environment the policy doesn't know
     # resolves to the restrictive default and fails closed, so widening this cannot loosen safety.
     # ⛔ Audit A-C-13: the environment went into the prompt and every report unchecked. It is a
     # name like any other resource name, so it is held to the same pattern.

@@ -37,7 +37,9 @@ on:
       - "iam/**"
       - "scripts/render_env_iam.py"
       - "src/warden/data/environments.yaml"
+  # Pull requests into main only (2026-10-16): dev and prod receive commits main has already checked.
   pull_request:
+    branches: [main]
     paths:
       - "terraform/fullstack/**"
       - "terraform/undo-lab/**"

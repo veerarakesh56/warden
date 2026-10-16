@@ -1,7 +1,9 @@
 """Register S9 (supply chain) and G6: WARDEN's own runtime pipeline, .github/workflows/runtime.yml. The image is built
 before the job holds a credential, pushed by the commit's SHA, signed by digest with cosign (keyless, this workflow's
-own identity) and given build provenance; the deploy verifies both - signed by this workflow on main - before it
-plans, and applies only the plan it made, with that digest. terraform/runtime takes every per-install value from SSM."""
+own identity) and given build provenance; the deploy verifies both - signed by this workflow on the runtime branch -
+before it plans, and applies only the plan it made, with that digest. terraform/runtime takes every per-install value
+from SSM. The pipeline runs from environments.yaml `github.runtime_branch` only (owner, 2026-10-16: dev, until prod
+exists), at a commit promoted onto it from its upstream branch."""
 
 from __future__ import annotations
 
@@ -15,10 +17,45 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 FLOW = (ROOT / ".github" / "workflows" / "runtime.yml").read_text(encoding="utf-8")
 IMAGE_JOB = FLOW[FLOW.index("\n  image:"):FLOW.index("\n  deploy:")]
 DEPLOY_JOB = FLOW[FLOW.index("\n  deploy:"):FLOW.index("\n  restart:")]
+GUARD = "Runtime deploys run from the runtime branch only"
+
+
+def _runtime_branch() -> str:
+    from warden.environments import EnvironmentPolicies
+
+    return EnvironmentPolicies.load().github["runtime_branch"]
+
+
+def test_the_runtime_runs_only_from_its_branch_at_a_promoted_commit_and_signs_as_it():
+    """Owner, 2026-10-16: main deploys nothing; the runtime runs from environments.yaml `github.runtime_branch` (dev,
+    until prod exists). Every job refuses any other ref first; the image job checks that the commit was promoted onto
+    the branch, as the deploys do, before it holds the Hugging Face token or an AWS credential; and the signing
+    identity both jobs check is this workflow on that branch."""
+    import yaml
+
+    branch = _runtime_branch()
+    doc = yaml.safe_load(FLOW)
+    for job_id, job in doc["jobs"].items():
+        first = job["steps"][0]
+        assert first["name"] == GUARD and first["if"] == f"github.ref != 'refs/heads/{branch}'", job_id
+        assert "exit 1" in first["run"], job_id
+    signer = f"${{{{ github.server_url }}}}/${{{{ github.repository }}}}/.github/workflows/runtime.yml@refs/heads/{branch}"
+    signers = [s["env"]["SIGNER"] for s in doc["jobs"]["image"]["steps"] if "SIGNER" in s.get("env", {})]
+    assert signers == [signer] and doc["jobs"]["deploy"]["env"]["SIGNER"] == signer
+    assert FLOW.count("runtime.yml@refs/heads/") == 2
+    steps = doc["jobs"]["image"]["steps"]
+    at = {s.get("name") or s.get("uses", "").split("@")[0]: i for i, s in enumerate(steps)}
+    check = at["The commit was promoted from its upstream branch"]
+    assert steps[at["actions/checkout"]]["with"]["fetch-depth"] == 0
+    assert at["actions/checkout"] < check < at["Build the runtime image"] < at["aws-actions/configure-aws-credentials"]
+    assert all(i > check for i, s in enumerate(steps) if "secrets." in str(s.get("with", "")) + str(s.get("env", "")))
+    # Its upstream is the one the runtime branch's own deploys are promoted from.
+    deploy = yaml.safe_load((ROOT / ".github" / "workflows" / f"deploy-{branch}.yml").read_text(encoding="utf-8"))
+    assert steps[check]["env"]["UPSTREAM"] == deploy["jobs"]["infra"]["with"]["upstream"]
 
 
 def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
-    assert IMAGE_JOB.index("Runtime deploys run from main only") < IMAGE_JOB.index("configure-aws-credentials")
+    assert IMAGE_JOB.index(GUARD) < IMAGE_JOB.index("configure-aws-credentials")
     assert IMAGE_JOB.index("docker build") < IMAGE_JOB.index("configure-aws-credentials")
     assert "-f Dockerfile.runtime" in IMAGE_JOB and 'docker push "$REPOSITORY:$GITHUB_SHA"' in IMAGE_JOB
     assert 'echo "image=$REPOSITORY@$digest"' in IMAGE_JOB  # everything after works on the digest, never a tag
@@ -53,7 +90,7 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     assert verify < DEPLOY_JOB.index("terraform -chdir=terraform/runtime init") < DEPLOY_JOB.index("plan -input=false")
     assert '--certificate-identity "$SIGNER"' in DEPLOY_JOB
     assert "--certificate-oidc-issuer https://token.actions.githubusercontent.com" in DEPLOY_JOB
-    assert "/.github/workflows/runtime.yml@refs/heads/main" in DEPLOY_JOB  # this workflow, on main
+    assert f"/.github/workflows/runtime.yml@refs/heads/{_runtime_branch()}" in DEPLOY_JOB  # this workflow, its branch
     assert 'gh attestation verify "oci://$IMAGE" --repo "$REPO"' in DEPLOY_JOB
     assert '-var "runtime_image=$IMAGE"' in DEPLOY_JOB and 'apply -input=false -no-color "$RUNNER_TEMP/tfplan"' in DEPLOY_JOB
     assert "-auto-approve" not in DEPLOY_JOB
@@ -62,7 +99,7 @@ def test_nothing_is_deployed_that_this_workflow_did_not_sign_and_attest():
     assert '!= "None" ]; then' in DEPLOY_JOB
     # Paused there is no way out of the VPC: the migrate step is skipped, and only then (2026-10-10).
     assert '--name "/warden/$RUNTIME_ENV/tf/paused"' in DEPLOY_JOB and DEPLOY_JOB.index("tf/paused") < DEPLOY_JOB.index("jq -r .migrate_function")
-    assert DEPLOY_JOB.index("Runtime deploys run from main only") < DEPLOY_JOB.index("configure-aws-credentials")
+    assert DEPLOY_JOB.index(GUARD) < DEPLOY_JOB.index("configure-aws-credentials")
 
 
 def test_the_pipeline_is_by_hand_into_ops_only():
@@ -79,7 +116,7 @@ def test_restart_redeploys_the_zone_services_without_an_image_or_a_plan():
     assert "if: inputs.action != 'restart'" in IMAGE_JOB
     assert "if: inputs.action != 'image' && inputs.action != 'restart'" in DEPLOY_JOB
     assert "--force-new-deployment" in restart and "aws ecs wait services-stable" in restart
-    assert restart.index("Runtime deploys run from main only") < restart.index("configure-aws-credentials")
+    assert restart.index(GUARD) < restart.index("configure-aws-credentials")
     assert "terraform" not in restart and "docker" not in restart
 
 

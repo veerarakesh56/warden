@@ -3,7 +3,11 @@ name: "CI · tool"
 # WARDEN itself: lint, tests, evals, the container, a real k3d cluster, real databases. No credentials.
 # The pipelines, one job each:
 #   CI · tool (this)   CI · infra (ci-infra.yml)   CI · apps (ci-apps.yml)   Scan · workflows
-#   Deploy · <env> (deploy-<env>.yml, by hand, one file per environment; shared steps in _*.yml)
+#   Deploy · <env> (deploy-<env>.yml by hand, on-merge-<env>.yml on a push to the branch <env>; one file each per
+#   environment; shared steps in _*.yml)
+# Branches (owner, 2026-10-16): CI runs on main and on pull requests into main. dev and prod receive only commits main
+# has already checked (a fast-forward, or a merge of dev that changes nothing), so a pull request into prod does not
+# run this suite again.
 on:
   push:
     branches: [main]
@@ -18,12 +22,14 @@ on:
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/ci-apps.yml"
       - ".github/workflows/deploy-*.yml"
+      - ".github/workflows/on-merge-*.yml"
       - ".github/workflows/_*.yml"
       - ".github/workflows/scan-workflows.yml"
   # Weekly, so pip-audit sees a newly published vulnerability in a dependency nothing changed.
   schedule:
     - cron: "17 3 * * 1"
   pull_request:
+    branches: [main]
     paths-ignore:
       - "terraform/fullstack/**"
       - "scenarios/fullstack/**"
@@ -35,6 +41,7 @@ on:
       - ".github/workflows/ci-infra.yml"
       - ".github/workflows/ci-apps.yml"
       - ".github/workflows/deploy-*.yml"
+      - ".github/workflows/on-merge-*.yml"
       - ".github/workflows/_*.yml"
       - ".github/workflows/scan-workflows.yml"
 

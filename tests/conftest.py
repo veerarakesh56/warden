@@ -31,6 +31,40 @@ def _root_logger_restored():
     root.setLevel(level)
 
 
+# A nonprod environment where WARDEN's in-process gate (remediation.decide_remediation) may carry out an approved fix
+# for a named principal - the shipped `staging` until 2026-10-16, when the owner kept only dev and prod, neither of
+# which auto-remediates. The gate's whole path (authorised, approved, a dry run) can only be shown in such an
+# environment, so the tests that show it make one for themselves: test-only, never shipped.
+_STAGING = {
+    "tier": "nonprod", "auto_remediate": True, "require_human_approval": False,
+    "allow_actions": ["restart_pods", "scale_up", "scale_down", "rollback_deploy", "clear_cache",
+                      "terminate_connections", "revert_config", "pause_flow", "resume_flow", "shift_traffic",
+                      "redrive_messages", "cancel_query", "raise_limit", "freeze_changes", "revert_change"],
+    "deny_actions": ["failover_replica"],
+    "authorized_principals": ["svc:warden-staging", "role:oncall", "role:platform", "role:qa"],
+    "credentials_ref": "warden-staging-deploy", "tripwire": "on",
+}
+
+
+@pytest.fixture
+def staging_policy(monkeypatch, tmp_path):
+    """The shipped policy with `staging` (above) beside dev and prod, as every caller of
+    environments.default_environment_policies() sees it for the test."""
+    from importlib import resources
+
+    import yaml
+
+    from warden import environments
+
+    doc = yaml.safe_load((resources.files("warden") / "data" / "environments.yaml").read_text(encoding="utf-8"))
+    doc["environments"] = {**doc["environments"], "staging": _STAGING}
+    path = tmp_path / "environments-with-staging.yaml"
+    path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    policies = environments.EnvironmentPolicies.load(path)
+    monkeypatch.setattr(environments, "_DEFAULT", policies)
+    return policies
+
+
 
 _DATA_KEY = pytest.StashKey[dict]()
 

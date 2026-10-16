@@ -54,7 +54,7 @@ def _allows(doc):
 def test_every_environment_has_its_files_and_nothing_else_exists():
     dirs = {p.name for p in (ROOT / "iam").iterdir() if p.is_dir()} - {"templates", "operator"}
     assert dirs == {*ENVS, RUNTIME}
-    assert len(ENVS) == 6
+    assert len(ENVS) == 2  # dev and prod (owner, 2026-10-16: staging, qa-staging, pre-prod and qa-prod went)
 
 
 @pytest.mark.parametrize("env", ENVS)
@@ -268,14 +268,17 @@ def test_the_deploy_role_can_do_what_the_first_real_deploy_needed(env):
 
 
 @pytest.mark.parametrize("env", ENVS)
+# The name predates the branch model (2026-10-16): docs/AUDIT-2026-09-28.md row A-I-10 cites the test by it, so the
+# two are renamed together (research_notes "Branch and pipeline model", doc-changes.md).
 def test_only_main_and_the_two_deploy_workflows_may_assume(env):
     """Audit A-I-10: any workflow run in the repository's `<env>` environment - from any branch - could assume the
-    deploy role. The trust now also requires `ref` = main and a `job_workflow_ref` of one of the two reusable
-    deploy workflows on main (IAM condition keys for GitHub's tokens, read 2026-10-01)."""
+    deploy role. The trust now also requires `ref` = the branch of the environment's own name (owner, 2026-10-16:
+    main deploys nothing) and a `job_workflow_ref` of one of the two reusable deploy workflows on that branch (IAM
+    condition keys for GitHub's tokens, read 2026-10-01)."""
     cond = _load(env, "trust")["Statement"][0]["Condition"]
-    assert cond["StringEquals"]["token.actions.githubusercontent.com:ref"] == "refs/heads/main"
+    assert cond["StringEquals"]["token.actions.githubusercontent.com:ref"] == f"refs/heads/{env}"
     refs = cond["StringEquals"]["token.actions.githubusercontent.com:job_workflow_ref"]
-    assert all(r.endswith("@refs/heads/main") for r in refs), refs
+    assert all(r.endswith(f"@refs/heads/{env}") for r in refs), refs
     assert sorted(r.split("@")[0].rsplit("/", 1)[-1] for r in refs) == ["_apps-deploy.yml", "_infra-deploy.yml"]
 
 
@@ -527,7 +530,7 @@ def test_only_the_operator_role_of_this_account_may_assume_the_harness_role():
     [st] = trust["Statement"]
     assert st["Effect"] == "Allow" and st["Principal"] == {"AWS": "arn:aws:iam::<ACCOUNT_ID>:role/warden-ops-operator"}
     assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
-    assert not (ROOT / "iam" / "staging" / "harness-trust.json").exists()
+    assert [e for e in ENVS if (ROOT / "iam" / e / "harness-trust.json").exists()] == list(r.HARNESS_ENVS)
 
 
 def test_an_apis_access_logs_go_only_to_its_own_environments_group():

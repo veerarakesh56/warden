@@ -7,16 +7,16 @@ needed, and maybe even complete or temporary not using those environments or AWS
 A declaration says WHAT (environments, services, resources - every one given must match the alarm) and WHEN (every
 one given must hold; none given means always):
 
-    - name: staging nights
-      environments: [staging, qa-staging]
+    - name: dev nights
+      environments: [dev]
       zone: Asia/Kolkata
       hours: "20:00-08:00"          # wall-clock, may cross midnight
-    - name: staging weekends
-      environments: [staging, qa-staging]
+    - name: dev weekends
+      environments: [dev]
       zone: Asia/Kolkata
       days: [sat, sun]
     - name: Diwali
-      environments: [staging]
+      environments: [dev]
       zone: Asia/Kolkata
       dates: ["2026-11-08", "2026-11-09"]
     - name: reports service parked

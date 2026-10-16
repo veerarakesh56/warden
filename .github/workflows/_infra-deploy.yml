@@ -3,12 +3,13 @@ name: "_ infra · deploy"
 # plan | apply | destroy ONE stack in ONE environment, through GitHub OIDC: the full stack (terraform/fullstack), or
 # the undo lab (terraform/undo-lab - a table, a queue, two functions and a schedule; it refuses any environment but
 # the one its fault-injection role exists in). Called only by
-# Deploy · <env>. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
+# Deploy · <env> and Deploy · <env> · on merge. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
 # (docs/OWNER-CONSOLE-STEPS.md): the role warden-<env>-deploy (its trust accepts only this repository's
-# GitHub Environment of the same name), the SSM parameters /warden/<env>/tf/*, a state bucket, and a
-# GitHub Environment <env> with the secret AWS_ROLE_ARN (it holds the account id: a variable is printed unmasked
-# in a step's inputs, 2026-10-16), the variables AWS_REGION and TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS,
-# EKS_ADMIN_ROLE_ARNS) and required reviewers for pre-prod, qa-prod and prod.
+# GitHub Environment of the same name, on the branch of the same name), the SSM parameters /warden/<env>/tf/*, a state
+# bucket, and a GitHub Environment <env> (deployment branch: <env> only) with the secret AWS_ROLE_ARN (it holds the
+# account id: a variable is printed unmasked in a step's inputs, 2026-10-16), the variables AWS_REGION and
+# TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS, EKS_ADMIN_ROLE_ARNS) and, for prod, the owner as required reviewer.
+# Branches (owner, 2026-10-16): main deploys nothing; dev is main fast-forwarded; prod is dev merged by pull request.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
 on:
@@ -22,6 +23,10 @@ on:
         required: false
     inputs:
       environment:
+        type: string
+        required: true
+      # The branch this environment's commits are promoted from: main for dev, dev for prod (2026-10-16).
+      upstream:
         type: string
         required: true
       action:
@@ -59,10 +64,12 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       TF_IN_AUTOMATION: "1"
     steps:
-      - name: Deploys run from main only
-        if: github.ref != 'refs/heads/main'
+      # Owner, 2026-10-16: an environment deploys only from the branch of the same name, so main deploys nothing. The
+      # GitHub Environment's deployment-branch rule and the role's trust (`ref`, iam/templates/trust.json) say the same.
+      - name: Deploys run from their environment's own branch
+        if: github.ref != format('refs/heads/{0}', inputs.environment)
         run: |
-          echo "::error::deploys run from main only (audit A-I-10)"
+          echo "::error::$WARDEN_ENV deploys from the branch $WARDEN_ENV only, not $GITHUB_REF (audit A-I-10)"
           exit 1
       - name: A known action
         run: |
@@ -74,6 +81,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # every branch: the promotion check reads the upstream one
+      # Owner, 2026-10-16: nothing deploys unless it came through the promotion path, checked before the job holds any
+      # credential. The commit is on the upstream branch already (main fast-forwarded onto dev), or it is a merge
+      # commit whose second parent is on it and whose files are exactly that parent's (the dev -> prod pull request).
+      # A commit pushed straight onto dev or prod, reviewed on no upstream branch, stops here.
+      - name: The commit was promoted from its upstream branch
+        env:
+          UPSTREAM: ${{ inputs.upstream }}
+        run: |
+          git check-ref-format --branch "$UPSTREAM" > /dev/null && [ "$UPSTREAM" != "$WARDEN_ENV" ] \
+            || { echo "::error::upstream must name another branch, not '$UPSTREAM'"; exit 1; }
+          up="refs/remotes/origin/$UPSTREAM"
+          git rev-parse -q --verify "$up^{commit}" > /dev/null || { echo "::error::no branch $UPSTREAM to promote from"; exit 1; }
+          if git merge-base --is-ancestor HEAD "$up"; then
+            echo "$GITHUB_SHA is on $UPSTREAM"
+          elif git rev-parse -q --verify 'HEAD^2' > /dev/null && git merge-base --is-ancestor 'HEAD^2' "$up" \
+              && git diff --quiet 'HEAD^2' HEAD; then
+            echo "$GITHUB_SHA merges $(git rev-parse 'HEAD^2') from $UPSTREAM and changes nothing else"
+          else
+            echo "::error::$GITHUB_SHA did not come from $UPSTREAM: nothing is deployed"
+            exit 1
+          fi
       # uv, pinned and checksum-verified, installs only what uv.lock lists - every version and hash
       # (audit A-I-9: unpinned pip installs ran while jobs held cloud credentials) - and before
       # the job holds any.

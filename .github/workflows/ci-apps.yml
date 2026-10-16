@@ -24,7 +24,9 @@ on:
       - "tests/test_k8s_tokens.py"
       - "tests/test_redis_tls_r8.py"
       - "tests/test_api_auth_ai13.py"
+  # Pull requests into main only (2026-10-16): dev and prod receive commits main has already checked.
   pull_request:
+    branches: [main]
     paths:
       - "scenarios/fullstack/**"
       - "manifests/**"

@@ -30,6 +30,9 @@ from warden.models import Alert, Severity
 from warden.workflows import ZONES, IncidentWorkflow
 
 IST = timedelta(hours=5, minutes=30)
+# `staging` and `qa-staging` stand for nonprod environments beside dev: test-only since 2026-10-16, when the shipped
+# policy kept dev and prod (tests/conftest.py; an unknown `qa-staging` is the restrictive default, never nonprod).
+pytestmark = pytest.mark.usefixtures("staging_policy")
 DECLARED = """
 - name: staging nights
   environments: [staging, qa-staging]
@@ -318,10 +321,10 @@ def test_an_incident_from_a_held_alarm_says_so_under_its_title(tmp_path, monkeyp
 
 def test_a_production_environment_is_never_declared_down_forever():
     """Owner, 2026-10-14 (the proposed guard): with no hours, days, dates or end, a declaration may name only nonprod
-    environments - one naming prod, pre-prod or an unknown environment covers nothing and is said in the log."""
+    environments - one naming prod or an unknown environment covers nothing and is said in the log."""
     forever = expected.declarations
     assert [d["name"] for d in forever("- {name: idle, environments: [dev, staging]}")] == ["idle"]
-    for env in ("prod", "pre-prod", "qa-prod", "made-up"):
+    for env in ("prod", "pre-prod", "qa-prod", "made-up"):  # pre-prod and qa-prod: unknown since 2026-10-16
         assert forever(f"- {{name: off, environments: [dev, {env}]}}") == [], env
     bounded = ('- {name: nights, environments: [prod], hours: "22:00-06:00"}\n'
                '- {name: weekend, environments: [prod], days: [sat]}\n'

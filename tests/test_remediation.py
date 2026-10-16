@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from warden.models import (
     ActionKind,
     Alert,
@@ -17,6 +19,9 @@ from warden.remediation import (
     decide_remediation,
     proposal_digest,
 )
+
+# `staging`: a test-only nonprod environment that auto-remediates (tests/conftest.py): no shipped one does (2026-10-16).
+pytestmark = pytest.mark.usefixtures("staging_policy")
 
 
 def _alert(environment="staging"):

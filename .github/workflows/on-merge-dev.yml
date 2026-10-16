@@ -1,6 +1,9 @@
 name: "Deploy · dev · on merge"
 
-# Owner, 2026-10-16: dev is run as production, and a change merged to main reaches it with no hand on a button.
+# Owner, 2026-10-16: an environment deploys only from the branch of its own name, and main deploys nothing. A commit
+# promoted onto the branch dev (from its upstream branch, `upstream` below) reaches the environment dev with no hand
+# on a button; every job then waits for the environment's required reviewers, where it has any.
+# - The push that CREATES the branch deploys nothing: there is no earlier commit of it to compare with.
 # - Apps deploy on a push that changes them: only the Lambdas when only scenarios/fullstack/lambdas changed; otherwise
 #   everything (one image serves ECS and Kubernetes, and the ECS deploy is what pushes it - a k8s-only change would
 #   otherwise name an image tag that does not exist).
@@ -8,10 +11,11 @@ name: "Deploy · dev · on merge"
 #   is a second, reviewed step - Deploy · dev, infra_action apply-plan, with the plan's run id and sha256 - which
 #   applies exactly that plan, at that commit, or nothing. A push that changes infra defers its apps deploy until then.
 # - Nothing is skipped quietly: a stack that is not up fails the deploy, as it would in production.
-# Dev only: tests/test_ci_lanes.py allows no other environment a push trigger. Same queue as Deploy · dev.
+# One such file per environment (on-merge-<env>.yml), identical apart from the environment's name and its upstream
+# branch's (tests/test_ci_lanes.py). Same queue as Deploy · dev.
 on:
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - "scenarios/fullstack/app/**"
       - "scenarios/fullstack/lambdas/**"
@@ -46,7 +50,10 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          if [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ ]] || [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+          created=0
+          if [[ "$BEFORE" =~ ^0{40}$ ]]; then
+            files=""; created=1  # the branch was created by this push (2026-10-16): nothing is deployed
+          elif [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             files=$(git ls-files)  # no base to compare with: everything counts as changed
           else
             files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
@@ -66,6 +73,7 @@ jobs:
           echo "target=$target" >> "$GITHUB_OUTPUT"
           {
             echo "### What this merge deploys to dev"
+            if [ "$created" = 1 ]; then echo "- nothing: this push created the branch dev"; fi
             echo "- infra: $([ "$infra" = 1 ] && echo 'changed - planned only; its apply is a reviewed step' || echo unchanged)"
             echo "- apps: ${target:-unchanged}$([ "$infra" = 1 ] && [ -n "$target" ] && echo ' - deferred until the infra plan is applied')"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -83,6 +91,7 @@ jobs:
       EKS_ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
     with:
       environment: dev
+      upstream: main
       action: plan
       stack: fullstack
     permissions:
@@ -101,6 +110,7 @@ jobs:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     with:
       environment: dev
+      upstream: main
       target: ${{ needs.changes.outputs.target }}
     permissions:
       contents: read

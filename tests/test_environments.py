@@ -13,20 +13,54 @@ from warden.models import ActionKind
 
 # ------------------------------------------------------------------ the shipped policy
 
-def test_bundled_policy_has_the_five_tier_gradient():
+def test_bundled_policy_is_dev_then_prod():
+    """Owner, 2026-10-16: two environments, in promotion order (main -> dev -> prod; tests/test_ci_lanes.py reads the
+    order from here)."""
     pol = default_environment_policies()
-    known = set(pol.known_environments)
-    assert {"staging", "qa-staging", "pre-prod", "qa-prod", "prod"} <= known
+    assert pol.known_environments == ("dev", "prod")
+    assert [pol.for_env(e).tier for e in pol.known_environments] == ["nonprod", "prod"]
 
 
-def test_low_environments_auto_remediate_and_high_ones_do_not():
+def test_no_shipped_environment_auto_remediates_or_skips_a_person():
+    """Owner rule "dev is prod" (2026-10-16; audit: dev auto-remediated anything for anyone)."""
     pol = default_environment_policies()
-    assert pol.for_env("staging").auto_remediate is True
-    assert pol.for_env("qa-staging").auto_remediate is True
-    # Everything at or above pre-prod must NOT auto-remediate.
-    assert pol.for_env("pre-prod").auto_remediate is False
-    assert pol.for_env("qa-prod").auto_remediate is False
-    assert pol.for_env("prod").auto_remediate is False
+    for env in pol.known_environments:
+        assert pol.for_env(env).auto_remediate is False, env
+        assert pol.for_env(env).require_human_approval is True, env
+
+
+def test_no_shipped_environment_uses_a_wildcard():
+    import re
+    from importlib import resources
+
+    text = (resources.files("warden") / "data" / "environments.yaml").read_text(encoding="utf-8")
+    code = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+    assert not re.search(r"""["']\*["']""", code)
+    pol = default_environment_policies()
+    for env in pol.known_environments:
+        p = pol.for_env(env)
+        assert "*" not in p.authorized_principals, env
+        assert not all(p.permits(a) for a in ActionKind), env
+
+
+def test_devs_actions_are_exactly_the_reversible_catalogued_ones_prod_allows():
+    """Dev is run as production, but its tier is nonprod (faults are injected there), so P2 - nothing irreversible in
+    the prod tier - does not reach it: its own lists keep every irreversible class out. Its allow-list is derived, not
+    chosen: a class a catalogue entry carries out (anything else is advice and escalates), that prod allows, and that
+    WARDEN's table classes reversible."""
+    from warden.catalog import FOR_ACTION
+    from warden.models import ACTION_FACTS
+
+    pol = default_environment_policies()
+    dev, prod = pol.for_env("dev"), pol.for_env("prod")
+    always = {ActionKind.no_action, ActionKind.escalate_to_human}
+    irreversible = {a for a, (reversible, _radius) in ACTION_FACTS.items() if not reversible}
+    expected = {a for a in FOR_ACTION if prod.permits(a) and a not in irreversible}
+    assert {a for a in ActionKind if dev.permits(a)} - always == expected
+    assert dev.deny_actions == irreversible  # named outright: no later allow-list edit lets one in
+    assert irreversible == {ActionKind.scale_down, ActionKind.failover_replica, ActionKind.redrive_messages,
+                            ActionKind.cancel_query}
+    assert dev.authorized_principals == prod.authorized_principals
 
 
 def test_prod_never_auto_remediates_and_denies_scale_down():
@@ -65,17 +99,19 @@ def test_none_environment_also_fails_closed():
 # ------------------------------------------------------------------ authorization
 
 def test_authorizes_only_listed_principals():
-    staging = default_environment_policies().for_env("staging")
-    assert staging.authorizes("role:oncall") is True
-    assert staging.authorizes("role:intern") is False
-    assert staging.authorizes(None) is False
-    assert staging.authorizes("") is False
+    for env in default_environment_policies().known_environments:
+        p = default_environment_policies().for_env(env)
+        assert p.authorizes("role:oncall") is True, env
+        assert p.authorizes("role:intern") is False, env
+        assert p.authorizes("anybody-at-all") is False, env
+        assert p.authorizes(None) is False, env
+        assert p.authorizes("") is False, env
 
 
-def test_wildcard_principal_allows_anyone_in_dev_only():
-    pol = default_environment_policies()
-    assert pol.for_env("dev").authorizes("anybody-at-all") is True
-    assert pol.for_env("prod").authorizes("anybody-at-all") is False
+def test_a_wildcard_principal_allows_anyone():
+    p = _policy({"authorized_principals": ["*"]}).for_env("e")
+    assert p.authorizes("anybody-at-all") is True
+    assert p.authorizes(None) is False
 
 
 # ------------------------------------------------------------------ loud validation
@@ -120,7 +156,7 @@ def test_empty_policy_defines_no_environments_raises(tmp_path):
 def test_credentials_ref_is_a_pointer_per_environment_and_none_when_unknown():
     pol = default_environment_policies()
     assert pol.for_env("prod").credentials_ref == "warden-prod-deploy"
-    assert pol.for_env("staging").credentials_ref == "warden-staging-deploy"
+    assert pol.for_env("dev").credentials_ref == "warden-dev-deploy"
     # An unrecognised environment inherits the default's (null) reference — no account leaks in.
     assert pol.for_env("totally-made-up").credentials_ref is None
 

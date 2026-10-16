@@ -63,7 +63,7 @@ _DATA_ACTIONS = {ActionKind.clear_cache, ActionKind.terminate_connections, Actio
 EVIDENCE_EXEMPT_ACTIONS = {ActionKind.escalate_to_human}
 
 # The per-environment allow-list is no longer hardcoded here — it lives in environments.yaml so an
-# operator can add an environment (qa-staging, pre-prod, qa-prod, ...) or tighten an allowlist without
+# operator can add an environment (dev and prod are shipped, 2026-10-16) or tighten an allowlist without
 # editing this gate. P1 consults it below. An unknown environment resolves to the restrictive default
 # and fails closed.
 

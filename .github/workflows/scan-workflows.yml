@@ -35,7 +35,7 @@ jobs:
         run: uv sync --locked --extra dev --group scan
       - name: zizmor over every workflow
         run: zizmor --offline .github/workflows
-      # The workflows' own structure (one deploy per environment, main only, no region, SHA pins,
+      # The workflows' own structure (one deploy per environment, each from its own branch only, no region, SHA pins,
       # every integration file run): a change to a deploy or shared workflow triggers only this scan.
       - name: Workflow structure tests
         run: |

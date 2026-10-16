@@ -41,16 +41,22 @@ def test_the_committed_files_are_exactly_the_render():
         assert committed == text, f"iam/{RUNTIME}/{kind}.json drifted: run scripts/render_env_iam.py"
 
 
-def test_only_the_runtime_pipeline_on_main_may_assume_the_deploy_role():
+def test_only_the_runtime_pipeline_on_its_branch_may_assume_the_deploy_role():
+    """Owner, 2026-10-16: the runtime pipeline runs from environments.yaml `github.runtime_branch` (dev until prod
+    exists), never from main."""
+    from warden.environments import EnvironmentPolicies
+
+    branch = EnvironmentPolicies.load().github["runtime_branch"]
+    assert branch != "main"
     (st,) = _load("trust")["Statement"]
     assert st["Action"] == "sts:AssumeRoleWithWebIdentity"
     assert st["Principal"]["Federated"].endswith(":oidc-provider/token.actions.githubusercontent.com")
     assert st["Condition"] == {"StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
         "token.actions.githubusercontent.com:sub": f"repo:veerarakesh56@171412850/warden@1341685493:environment:{RUNTIME}",
-        "token.actions.githubusercontent.com:ref": "refs/heads/main",
+        "token.actions.githubusercontent.com:ref": f"refs/heads/{branch}",
         "token.actions.githubusercontent.com:job_workflow_ref":
-            "veerarakesh56/warden/.github/workflows/runtime.yml@refs/heads/main"}}
+            f"veerarakesh56/warden/.github/workflows/runtime.yml@refs/heads/{branch}"}}
 
 
 def test_every_action_the_runtimes_own_roles_hold_fits_the_boundary():

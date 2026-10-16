@@ -265,10 +265,14 @@ def test_the_table_covers_every_action_kind():
 
 
 def test_p6_uses_the_table_floor_when_the_model_understates_the_radius():
-    """A failover claimed as single_pod is still multi_service. Run in `dev` so the tier is not
-    prod and P2 does not mask what P6 is doing."""
-    v = verify(_alert(environment="dev"), _ctx(), _rc(),
-               _prop(action=ActionKind.failover_replica, blast_radius="single_pod"))
+    """A failover claimed as single_pod is still multi_service. Run in a nonprod environment that allows it, so neither
+    P2 nor P1 masks what P6 is doing (no shipped one does since 2026-10-16: dev denies every irreversible class)."""
+    from warden.environments import EnvironmentPolicies
+
+    sandbox = EnvironmentPolicies(EnvironmentPolicies._parse("default", {}), {
+        "sandbox": EnvironmentPolicies._parse("sandbox", {"tier": "nonprod", "allow_actions": ["*"]})})
+    v = verify(_alert(environment="sandbox"), _ctx(), _rc(),
+               _prop(action=ActionKind.failover_replica, blast_radius="single_pod"), policies_config=sandbox)
     assert v.status is VerdictStatus.escalated
     assert "P6-BLAST-RADIUS" in v.policy_ids
 

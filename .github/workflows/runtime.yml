@@ -1,7 +1,9 @@
 name: "Runtime · ops"
 
 # WARDEN's own runtime (G6): the tool's pipeline, apart from the infra and apps pipelines (owner requirement R13).
-# By hand, from main only, into the GitHub Environment `ops` (required reviewer; its secrets AWS_ROLE_ARN - the role
+# By hand, from the branch dev only - environments.yaml `github.runtime_branch` (owner, 2026-10-16: main deploys
+# nothing; the runtime runs code that has reached dev, until prod exists) - into the GitHub Environment `ops`
+# (deployment branch: dev only; required reviewer; its secrets AWS_ROLE_ARN - the role
 # warden-ops-deploy - and RUNTIME_ECR_REPOSITORY - the image repository, immutable tags - and its variables AWS_REGION
 # and TF_STATE_BUCKET: docs/OWNER-CONSOLE-STEPS.md). Both hold the account id, so both are secrets: GitHub prints a
 # variable unmasked in a step's inputs before any masking runs, in a public repository's logs (2026-10-16).
@@ -50,10 +52,10 @@ jobs:
       REPOSITORY: ${{ secrets.RUNTIME_ECR_REPOSITORY }}
       AWS_REGION: ${{ vars.AWS_REGION }}
     steps:
-      - name: Runtime deploys run from main only
-        if: github.ref != 'refs/heads/main'
+      - name: Runtime deploys run from the runtime branch only
+        if: github.ref != 'refs/heads/dev'
         run: |
-          echo "::error::the runtime is built and deployed from main only"
+          echo "::error::the runtime is built and deployed from the branch dev only, not $GITHUB_REF"
           exit 1
       - name: The environment names its repository and region
         run: |
@@ -62,6 +64,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # every branch: the promotion check reads the upstream one
+      # As in the deploys (_infra-deploy.yml, 2026-10-16): only a commit promoted onto dev from main is built, before
+      # the job holds the Hugging Face token or any AWS credential. The plan and apply job builds on this one.
+      - name: The commit was promoted from its upstream branch
+        env:
+          UPSTREAM: main  # what Deploy · dev passes as `upstream` (tests/test_runtime_pipeline_s9.py holds the two equal)
+        run: |
+          up="refs/remotes/origin/$UPSTREAM"
+          git rev-parse -q --verify "$up^{commit}" > /dev/null || { echo "::error::no branch $UPSTREAM to promote from"; exit 1; }
+          if git merge-base --is-ancestor HEAD "$up"; then
+            echo "$GITHUB_SHA is on $UPSTREAM"
+          elif git rev-parse -q --verify 'HEAD^2' > /dev/null && git merge-base --is-ancestor 'HEAD^2' "$up" \
+              && git diff --quiet 'HEAD^2' HEAD; then
+            echo "$GITHUB_SHA merges $(git rev-parse 'HEAD^2') from $UPSTREAM and changes nothing else"
+          else
+            echo "::error::$GITHUB_SHA did not come from $UPSTREAM: nothing is built or deployed"
+            exit 1
+          fi
       # Built before the job holds any credential: nothing the build runs can reach AWS. The Hugging Face token (the
       # ops environment's secret HF_TOKEN: the owner's read token for the gated Prompt Guard 2) is a BuildKit secret,
       # mounted for the one step that fetches the tripwire's weights and kept in no layer (register R47).
@@ -105,7 +125,8 @@ jobs:
         if: steps.push.outputs.existing == 'true'
         env:
           IMAGE: ${{ steps.push.outputs.image }}
-          SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/main
+          # The runtime branch's identity (2026-10-16): an image signed on main before the move is signed again here.
+          SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/dev
           GH_TOKEN: ${{ github.token }}
         # A run that pushed and then died before signing (2026-10-12: the signing tool's download answered 504) left
         # its commit undeployable: the tag is immutable, and every later run skipped the signing of an image it found.
@@ -141,15 +162,15 @@ jobs:
       IMAGE: ${{ secrets.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}
       BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_REGION: ${{ vars.AWS_REGION }}
-      # The identity that signed it: this workflow, on main, in this repository - nothing else is deployed.
-      SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/main
+      # The identity that signed it: this workflow, on the runtime branch, in this repository - nothing else is deployed.
+      SIGNER: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/runtime.yml@refs/heads/dev
       REPO: ${{ github.repository }}
       TF_IN_AUTOMATION: "1"
     steps:
-      - name: Runtime deploys run from main only
-        if: github.ref != 'refs/heads/main'
+      - name: Runtime deploys run from the runtime branch only
+        if: github.ref != 'refs/heads/dev'
         run: |
-          echo "::error::the runtime is built and deployed from main only"
+          echo "::error::the runtime is built and deployed from the branch dev only, not $GITHUB_REF"
           exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -276,10 +297,10 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Runtime deploys run from main only
-        if: github.ref != 'refs/heads/main'
+      - name: Runtime deploys run from the runtime branch only
+        if: github.ref != 'refs/heads/dev'
         run: |
-          echo "::error::the runtime is built and deployed from main only"
+          echo "::error::the runtime is built and deployed from the branch dev only, not $GITHUB_REF"
           exit 1
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:

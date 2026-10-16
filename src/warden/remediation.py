@@ -14,9 +14,10 @@ the exact plan, a fresh precheck, apply once, its own success check, rollback - 
 platforms in `warden.platforms` (`warden worker --platform`). The in-process live backends that used to
 sit behind `WARDEN_REMEDIATION=live` were removed (audit A-B-H1..H3).
 
-The environment gradient (from environments.yaml) does the heavy lifting:
-  - dev / staging / qa-staging : auto_remediate = true  -> with an authorised approval, WARDEN applies.
-  - pre-prod / qa-prod / prod / unknown : auto_remediate = false -> WARDEN never applies; a human does.
+The environment's `auto_remediate` (from environments.yaml) decides the last step:
+  - true  -> with an authorised approval, WARDEN applies (through the backend: the CLI's is a dry run).
+  - false -> WARDEN never applies; a human does. Every shipped environment - dev and prod - and an unknown one
+    (owner, 2026-10-16: dev is run as production).
 """
 
 from __future__ import annotations
@@ -168,8 +169,8 @@ def decide_remediation(
             f"principal '{who}' is not authorised to remediate in {alert.environment}",
         )
 
-    # 4. This environment must be one WARDEN may auto-apply in at all. pre-prod/qa-prod/prod/unknown
-    #    are not — the fix is left to a person there (the report prints no command to replay, 2026-10-16).
+    # 4. This environment must be one WARDEN may auto-apply in at all. No shipped one is (dev and prod, 2026-10-16),
+    #    nor an unknown one — the fix is left to a person there (the report prints no command to replay, 2026-10-16).
     if not env.auto_remediate:
         return result(
             RemediationOutcome.not_auto_remediable,

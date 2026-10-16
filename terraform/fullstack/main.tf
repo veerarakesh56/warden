@@ -87,7 +87,7 @@ resource "aws_vpc" "this" {
   lifecycle {
     precondition {
       condition     = contains(local.environments, local.env)
-      error_message = "Select a workspace named after an environment in src/warden/data/environments.yaml (dev, staging, ...), not \"default\" or a typo."
+      error_message = "Select a workspace named after an environment in src/warden/data/environments.yaml (dev or prod), not \"default\" or a typo."
     }
     precondition {
       condition     = local.my_ip_cidr != "0.0.0.0/0" && can(cidrhost(local.my_ip_cidr, 0))

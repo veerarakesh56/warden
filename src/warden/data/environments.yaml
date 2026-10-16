@@ -5,18 +5,22 @@
 # fix to a human. This is DATA an operator edits — adding an environment, an
 # allowlist entry or an authorised principal needs no code change.
 #
-# The safety model, low tier -> high tier:
-#   - staging / qa-staging : WARDEN MAY auto-apply an allowlisted action, then emit
-#                            a promotion report so a human can replay the same fix
-#                            in the higher environments.
-#   - pre-prod / qa-prod   : WARDEN proposes; a human applies. No auto-remediation.
-#   - prod                 : never auto. Narrowest allowlist. Authorised responders only.
+# The environments (owner, 2026-10-16): dev and prod, each deployed only from the branch of its own name; main deploys
+# nothing. They are listed in promotion order - main is promoted to dev, dev to prod (tests/test_ci_lanes.py holds each
+# deploy workflow's `upstream` to this order).
+#   - dev  : run as production (owner rule "dev is prod"), and the one environment faults are injected into
+#            (fault_environments) - which is why its tier is nonprod. Its lists are explicit, never "*" (below).
+#   - prod : never auto. Authorised responders only.
 #
-# ⚠ HONEST STATUS (audit 2026-09-28): `auto_remediate` and `require_human_approval` are NOT
-# honoured by the Temporal RemediationWorkflow - EVERY fix there needs a signed approval of the
-# exact plan, in every environment, until Phase 3 shadow evidence (policy P17) enables a tier.
-# They are read only by the older in-process CLI path, which is being removed (audit A-B-H2).
-# `require_human_approval` is not read anywhere today.
+# What the code enforces with each key (read 2026-10-16):
+#   - allow_actions / deny_actions: the verifier's policy P1 (verifier.py), on every path, and again
+#     remediation.decide_remediation.
+#   - authorized_principals and auto_remediate: only remediation.decide_remediation - the in-process CLI path
+#     (`warden run --principal`), whose backend is a dry run that changes nothing (audit A-B-H1..H3). The one path
+#     that changes anything, the Temporal RemediationWorkflow, reads neither: EVERY fix there needs a signed approval
+#     of the exact plan, in every environment, until Phase 3 shadow evidence (policy P17) enables a tier (audit
+#     2026-09-28).
+#   - require_human_approval: shown in the promotion report (reporting.py); nothing decides on it.
 #
 # An environment NOT listed here falls to `default`, which is deliberately the most
 # restrictive: it can only do nothing or escalate, is never auto-remediable, and has
@@ -28,11 +32,11 @@
 # allow_actions / deny_actions values MUST be members of ActionKind (validated at
 # load). `deny_actions` wins over `allow_actions`. no_action and escalate_to_human
 # are ALWAYS permitted (the system must always be able to do nothing / hand off),
-# so they need not be listed. "*" in allow_actions means "every ActionKind".
+# so they need not be listed. "*" in allow_actions means "every ActionKind" (no shipped environment uses it).
 #
 # authorized_principals are opaque identity strings your caller supplies, by
-# convention "<kind>:<name>" — e.g. role:oncall, svc:warden-staging, user:rakesh.
-# "*" means any principal (use only for a throwaway sandbox).
+# convention "<kind>:<name>" — e.g. role:oncall, svc:warden-dev, user:rakesh.
+# "*" means any principal (no shipped environment uses it).
 #
 # credentials_ref is a POINTER to the IAM role that acts in this environment
 # (warden-<env>-deploy, environments.names()). It is NEVER a secret; WARDEN never
@@ -70,9 +74,13 @@ fault_environments: [dev]
 
 # This repository, as GitHub's OIDC token names it - what the deploy roles' trust policies accept: its name, and the
 # immutable subject GitHub issues for it (owner@owner-id/repository@repository-id).
+# runtime_branch (owner, 2026-10-16): the branch the runtime pipeline (runtime.yml, environment `ops`) runs from - an
+# application environment's own branch, so the runtime runs code that has reached that environment: dev until prod
+# exists. iam/ops/trust.json and runtime.yml's guards and signing identity name it (tests hold them equal).
 github:
   repository: veerarakesh56/warden
   subject: veerarakesh56@171412850/warden@1341685493
+  runtime_branch: dev
 
 default:
   tier: unknown
@@ -89,69 +97,27 @@ environments:
 # `tripwire: off | on | required` (default off) sets the injection detector per environment; the stricter of it and
 # WARDEN_TRIPWIRE applies. The runtime image carries Prompt Guard 2 (the pinned weights, checked at build:
 # scripts/bake_tripwire.py; register R47, 2026-10-14), so every environment scans (`on`): a flagged text escalates.
-# `required` also escalates an incident the detector could not scan; pre-prod, qa-prod and prod take it once the MCP
+# `required` also escalates an incident the detector could not scan; prod takes it once the MCP
 # check and the replay tools run the scan instead of reusing a recorded result (they escalate everything until then).
 
   dev:
-    tier: nonprod
-    auto_remediate: true
-    require_human_approval: false
-    # Every action kind is admissible here, but not unattended: each fix still waits for a signed approval of its exact
-    # plan by an approver on the list - in dev that includes the labelled bench approver, for T1/T2 (owner, 2026-10-15)
-    # - because auto_remediate is not honoured by the RemediationWorkflow (the header). Not a sandbox: dev is treated
-    # as production (owner, 2026-10-16); this comment said "anything, no human in the loop" until then.
-    allow_actions: ["*"]
-    deny_actions: []
-    authorized_principals: ["*"]
-    credentials_ref: warden-dev-deploy
-    tripwire: "on"
-
-  staging:
-    tier: nonprod
-    auto_remediate: true
-    require_human_approval: false
-    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections,
-                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes,
-                    revert_change]
-    deny_actions: [failover_replica]     # a DB failover is a human call even in staging
-    authorized_principals: [svc:warden-staging, role:oncall, role:platform, role:qa]
-    credentials_ref: warden-staging-deploy
-    tripwire: "on"
-
-  qa-staging:
-    tier: nonprod
-    auto_remediate: true
-    require_human_approval: false
-    allow_actions: [restart_pods, scale_up, scale_down, rollback_deploy, clear_cache, terminate_connections,
-                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes,
-                    revert_change]
-    deny_actions: [failover_replica]
-    authorized_principals: [svc:warden-qa, role:qa, role:oncall, role:platform]
-    credentials_ref: warden-qa-staging-deploy
-    tripwire: "on"
-
-  pre-prod:
-    tier: preprod
-    auto_remediate: false        # WARDEN proposes; a human applies
-    require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections,
-                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes,
-                    revert_change]
-    deny_actions: [scale_down, clear_cache, failover_replica]
-    authorized_principals: [role:oncall, role:platform, role:release]
-    credentials_ref: warden-pre-prod-deploy
-    tripwire: "on"
-
-  qa-prod:
-    tier: preprod
+    tier: nonprod                # faults are injected here, and fault_environments refuses the prod tier
+    # Owner rule "dev is prod" (2026-10-16; audit finding: dev allowed every action, to anyone, with no person in the
+    # loop). The CLI path never applies here (auto_remediate), and its principal check accepts prod's responders only.
+    # A live fix, as in every environment, waits for a signed approval of its exact plan by an approver on the list -
+    # in dev that includes the labelled bench approver, for T1/T2 (owner, 2026-10-15).
     auto_remediate: false
     require_human_approval: true
-    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections,
-                    revert_config, pause_flow, resume_flow, shift_traffic, redrive_messages, cancel_query, raise_limit, freeze_changes,
-                    revert_change]
-    deny_actions: [scale_down, clear_cache, failover_replica]
-    authorized_principals: [role:oncall, role:platform, role:qa-lead]
-    credentials_ref: warden-qa-prod-deploy
+    # Exactly the action classes that a catalogue entry carries out (catalog.FOR_ACTION), that prod allows, and that
+    # WARDEN's own table classes reversible (models.ACTION_FACTS) - tests/test_environments.py derives the list from
+    # those three and holds it equal. P2 keeps irreversible actions out of the prod tier only, so dev names the four
+    # irreversible classes in deny_actions itself: no later edit of allow_actions can let one in. clear_cache is
+    # reversible and prod allows it, but no catalogue entry carries it out (advice only). No dev-only class exists.
+    allow_actions: [restart_pods, scale_up, rollback_deploy, terminate_connections, revert_config, pause_flow,
+                    resume_flow, shift_traffic, raise_limit, freeze_changes, revert_change]
+    deny_actions: [scale_down, failover_replica, redrive_messages, cancel_query]
+    authorized_principals: [role:oncall, role:sre-lead, role:incident-commander]   # prod's
+    credentials_ref: warden-dev-deploy
     tripwire: "on"
 
   prod:
