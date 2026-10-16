@@ -13,7 +13,10 @@ import pytest
 from warden import environments
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-REGION = re.compile(r"\b[a-z]{2}-(?:north|south|east|west|central|northeast|southeast|northwest|southwest)-\d\b")
+# Every AWS partition's regions: commercial (eu-west-1), China (cn-north-1), GovCloud (us-gov-west-1), the ISO
+# partitions (us-iso-east-1, us-isob-east-1) and the European Sovereign Cloud (eusc-de-east-1) (CodeRabbit, PR 37).
+REGION = re.compile(r"\b(?:[a-z]{2}|eusc-[a-z]{2})(?:-gov|-iso[a-z]?)?-"
+                    r"(?:north|south|east|west|central|northeast|southeast|northwest|southwest)-\d\b")
 # AWS serves its global services (IAM, CloudFront, region discovery) from us-east-1: AWS's fixed choice, named once as
 # scripts/account_sweep.py AWS_GLOBAL_REGION - never where WARDEN or an application runs.
 AWS_GLOBAL = "us-east-1"
@@ -258,6 +261,10 @@ def test_no_tracked_file_names_a_legacy_resource_or_a_region_outside_the_named_e
     ("p.yaml", "roleArn: arn:aws:iam::*:role/warden-pg-fs-reader", "legacy"),
     ("p.sh", "aws ecs list-clusters --region eu-west-1", "region"),
     ("p.py", 'ROLE = "warden-pg-sweep"', "legacy"),
+    ("p.json", '{"Resource": "arn:aws-us-gov:ecs:us-gov-west-1:*:cluster/x"}', "region"),
+    ("p.sh", "aws ecs list-clusters --region us-iso-east-1", "region"),
+    ("p.yaml", "region: eusc-de-east-1", "region"),
+    ("p.yaml", "region: cn-north-1", "region"),
 ])
 def test_the_legacy_and_region_scan_catches_a_plant_and_passes_a_comment(tmp_path, name, plant, kind):
     planted = tmp_path / name
