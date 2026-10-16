@@ -6,6 +6,11 @@ name: "_ apps · deploy"
 # in as the master user with an IAM token signed by the OPERATOR's own identity, a grant this role lacks.
 on:
   workflow_call:
+    # Passed by name by every caller: an environment secret a caller does not pass is an empty string here,
+    # with no error (GitHub docs, 2026-10-16) - the role it names must never be silently empty.
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
     inputs:
       environment:
         type: string

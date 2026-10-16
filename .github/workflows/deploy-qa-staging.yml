@@ -51,6 +51,9 @@ jobs:
     if: inputs.part == 'infra'
     needs: infra-validate
     uses: $/.github/workflows/_infra-deploy.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      EKS_ADMINS: ${{ secrets.EKS_ADMINS }}
     with:
       environment: qa-staging
       action: ${{ inputs.infra_action }}
@@ -68,6 +71,8 @@ jobs:
     if: inputs.part == 'apps'
     needs: apps-check
     uses: $/.github/workflows/_apps-deploy.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     with:
       environment: qa-staging
       target: ${{ inputs.apps_target }}

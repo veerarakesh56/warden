@@ -78,6 +78,9 @@ jobs:
     needs: [changes, infra-validate]
     if: needs.changes.outputs.infra == '1'
     uses: $/.github/workflows/_infra-deploy.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      EKS_ADMINS: ${{ secrets.EKS_ADMINS }}
     with:
       environment: dev
       action: plan
@@ -94,6 +97,8 @@ jobs:
     needs: [changes, apps-check]
     if: needs.changes.outputs.infra == '0' && needs.changes.outputs.target != ''
     uses: $/.github/workflows/_apps-deploy.yml
+    secrets:
+      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
     with:
       environment: dev
       target: ${{ needs.changes.outputs.target }}

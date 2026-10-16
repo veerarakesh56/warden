@@ -25,3 +25,17 @@ def test_the_deploys_read_them_as_secrets():
     assert "role-to-assume: ${{ secrets.AWS_ROLE_ARN }}" in text["_apps-deploy.yml"]
     assert text["runtime.yml"].count("role-to-assume: ${{ secrets.AWS_ROLE_ARN }}") == 3
     assert "REPOSITORY: ${{ secrets.RUNTIME_ECR_REPOSITORY }}" in text["runtime.yml"]
+
+
+def test_every_caller_passes_them_and_the_deploys_require_the_role():
+    """The secret is an empty string in a reusable workflow unless its caller passes it - with no error (GitHub docs,
+    read 2026-10-16; the first dev plan after the switch could not assume the role)."""
+    text = {p.name: p.read_text(encoding="utf-8") for p in WORKFLOWS.glob("*.yml")}
+    callers = [n for n in text if n.startswith("deploy-")] + ["on-merge-dev.yml"]
+    assert len(callers) == 7
+    for name in callers:
+        for called in ("_infra-deploy.yml", "_apps-deploy.yml"):
+            after = text[name].split(f"uses: $/.github/workflows/{called}", 1)[1]
+            assert after.lstrip().startswith("secrets:\n      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}"), (name, called)
+    for called in ("_infra-deploy.yml", "_apps-deploy.yml"):
+        assert "    secrets:\n      AWS_ROLE_ARN:\n        required: true\n" in text[called], called

@@ -13,6 +13,13 @@ name: "_ infra · deploy"
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
 on:
   workflow_call:
+    # Passed by name by every caller: an environment secret a caller does not pass is an empty string here,
+    # with no error (GitHub docs, 2026-10-16) - the role it names must never be silently empty.
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+      EKS_ADMINS:
+        required: false
     inputs:
       environment:
         type: string
