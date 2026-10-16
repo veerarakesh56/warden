@@ -380,6 +380,23 @@ def assembled_kinds(original: str, sent: str) -> list[str]:
     return sorted(kinds - _SHOWABLE)
 
 
+def where_withheld(text: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Where a text G5 holds back carries what it found: each line's number, the section it is under and the kinds -
+    never the value (2026-10-16: reports were withheld with nothing on the record to say where or why, so the cause
+    could only be guessed). A heading that itself carries a kind is not named."""
+    out, heading = [], ""
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.startswith("#"):
+            title = " ".join(line.lstrip("#").split())[:80]
+            heading = "(a heading that is itself withheld)" if leaked_kinds(title) else title
+        kinds = sorted(set(leaked_kinds(line)) | set(assembled_kinds(line, sanitise_text(line))))
+        if kinds:
+            out.append({"line": n, "section": heading, "kinds": kinds})
+            if len(out) >= limit:
+                break
+    return out
+
+
 def enforce(text: str, *, alert_id: str = "", before_redaction: str | None = None,
             data_before_redaction: Any = None) -> GateResult:
     """The gate over one outgoing text. `before_redaction`, when the caller re-redacts on the way

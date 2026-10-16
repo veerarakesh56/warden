@@ -482,7 +482,16 @@ def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None)
     gate = enforce(safe_text, alert_id=str((report.data.get("alert") or {}).get("id", "")),  # the report keys it "id" (A-C-24)
                    before_redaction=report.markdown, data_before_redaction=report.data)
     if gate.verdict == "BLOCK":
+        import logging
+
+        from .gate import where_withheld
+
         safe_data = {"withheld": True, "gate": gate.verdict, "reasons": gate.reasons}
+        # Where and what kind, never the value: a withheld message is diagnosable from the log (2026-10-16).
+        logging.getLogger("warden.incident").warning(
+            "a message about %s was withheld by the outbound gate (%s) - at %s",
+            str((report.data.get("alert") or {}).get("id", ""))[:80], "; ".join(gate.reasons),
+            where_withheld(report.markdown) or "no single line (a value spans lines)")
     else:
         safe_data = {**sanitise_data(safe_data), "gate": gate.verdict, "gate_reasons": gate.reasons}
     links = approval_links(report.actions)

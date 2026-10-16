@@ -1380,8 +1380,17 @@ class IncidentActivities:
             from .gate import enforce
 
             kept = enforce(markdown, alert_id=alert_id)
+            withheld = []
+            if kept.verdict == "BLOCK":
+                from .gate import where_withheld
+
+                # Where and what kind, never the value: a withheld report is diagnosable from its own record.
+                withheld = where_withheld(markdown)
+                _note(f"{alert_id}: the report was withheld by the outbound gate ({'; '.join(kept.reasons)}) - at "
+                      f"{withheld or 'no single line (a value spans lines)'}")
             self.audit.append(alert_id, "incident.report", {"run_id": _run_id(), "markdown": (
-                kept.text if kept.verdict != "BLOCK" else "The report was held back by the outbound gate.")[:60000]})
+                kept.text if kept.verdict != "BLOCK" else "The report was held back by the outbound gate.")[:60000],
+                **({"withheld": withheld, "gate_reasons": kept.reasons} if kept.verdict == "BLOCK" else {})})
             if mode == "plan":
                 return []
             rows = [e["body"] for e in self.audit.entries(alert_id, kinds=("incident.plan_fix",))
