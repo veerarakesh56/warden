@@ -456,13 +456,23 @@ def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey,
 # --------------------------------------------------------------------------- keys
 
 
+def write_private_key(path: pathlib.Path, pem: bytes) -> None:
+    """Create `path` holding `pem`: never over an existing file, and never readable by others for an instant
+    (2026-10-16: write_bytes then chmod left a window, and replaced a key a racing writer had just made). On POSIX the
+    file is created mode 0600. Windows ignores the mode (beyond the read-only flag); what keeps other accounts out is the
+    folder's ACL - under the user's profile (%USERPROFILE%) only that user, SYSTEM and Administrators can read - and,
+    for a key encrypted with a passphrase, the passphrase."""
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0), 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(pem)
+
+
 def generate_key(private_path: pathlib.Path, public_path: pathlib.Path, passphrase: bytes | None = None) -> None:
     key = Ed25519PrivateKey.generate()
     encryption = (serialization.BestAvailableEncryption(passphrase) if passphrase
                   else serialization.NoEncryption())
-    private_path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                               encryption))
-    private_path.chmod(0o600)
+    write_private_key(private_path, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                      encryption))
     public_path.write_bytes(key.public_key().public_bytes(serialization.Encoding.PEM,
                                                           serialization.PublicFormat.SubjectPublicKeyInfo))
 

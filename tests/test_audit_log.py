@@ -135,7 +135,7 @@ def test_the_cli_creates_a_key_refuses_to_overwrite_it_and_verifies(tmp_path, ca
 
     monkeypatch.delenv("WARDEN_AUDIT_KEY_PASSPHRASE", raising=False)
     priv, pub = tmp_path / "k.pem", tmp_path / "k.pub"
-    assert cli.main(["audit", "keygen", "--private", str(priv), "--public", str(pub)]) == 0
+    assert cli.main(["audit", "keygen", "--private", str(priv), "--public", str(pub), "--unencrypted"]) == 0
     assert cli.main(["audit", "keygen", "--private", str(priv), "--public", str(pub)]) == 1
     path = _log(tmp_path, audit.load_private_key(priv))
     assert cli.main(["audit", "verify", "--db", str(path), "--public-key", str(pub)]) == 0

@@ -248,6 +248,20 @@ def _load_environment(command: str, zone: str | None = None) -> None:
         _out(f"[config] {os.environ.get('WARDEN_ENV')}: loaded {', '.join(loaded)} (SSM, Secrets Manager)", err=True)
 
 
+def _typed_passphrase() -> bytes:
+    """A new key's passphrase typed twice at a terminal, never echoed; b"" when there is no terminal or the two
+    differ."""
+    if not sys.stdin.isatty():
+        return b""
+    import getpass
+
+    first = getpass.getpass("passphrase for the new private key: ")
+    if first != getpass.getpass("the same passphrase again: "):
+        _out("error: the two passphrases differ", err=True)
+        return b""
+    return first.encode()
+
+
 def _audit_command(args: argparse.Namespace) -> int:
     from . import audit
 
@@ -255,8 +269,22 @@ def _audit_command(args: argparse.Namespace) -> int:
         if args.private.exists():
             _out(f"{args.private} exists; refusing to overwrite a signing key")
             return 1
-        # The passphrase comes from the environment (SSM in the cloud), never from the command line.
-        passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or None
+        # Encrypted unless asked otherwise (naming audit item 4, 2026-10-16: with no passphrase set, keygen wrote the
+        # key in the clear and only said so, while approvals.py promised an encrypted one - and a signature is only
+        # as strong as the key file at rest). The passphrase comes from the environment (Secrets Manager in the
+        # cloud) or is typed at a prompt, never from the command line (shell history).
+        if args.unencrypted:
+            passphrase = None
+            _out("WARNING: --unencrypted: the private key is written IN THE CLEAR. Anyone who can read "
+                 f"{args.private} - a backup, a synced folder, another account with access - can sign as its owner. "
+                 "Use it only for a throwaway key; an approver's key must be encrypted.", err=True)
+        else:
+            passphrase = os.environ.get("WARDEN_AUDIT_KEY_PASSPHRASE", "").encode() or _typed_passphrase()
+            if not passphrase:
+                _out("error: no passphrase, so no key was written: type one at the prompt (a terminal), or set "
+                     "WARDEN_AUDIT_KEY_PASSPHRASE without echoing it; --unencrypted writes the key in the clear",
+                     err=True)
+                return 1
         audit.generate_key(args.private, args.public, passphrase)
         _out(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
               f"public key {args.public}")
@@ -669,9 +697,11 @@ def _main(argv: list[str] | None = None) -> int:
 
     p_audit = sub.add_parser("audit", help="the tamper-evident audit log: create a signing key, verify a log")
     audit_sub = p_audit.add_subparsers(dest="audit_cmd", required=True)
-    p_keygen = audit_sub.add_parser("keygen", help="create an Ed25519 signing key pair")
+    p_keygen = audit_sub.add_parser("keygen", help="create an Ed25519 signing key pair (the private key encrypted)")
     p_keygen.add_argument("--private", required=True, type=pathlib.Path)
     p_keygen.add_argument("--public", required=True, type=pathlib.Path)
+    p_keygen.add_argument("--unencrypted", action="store_true",
+                          help="write the private key in the clear (refused otherwise without a passphrase)")
     p_show = audit_sub.add_parser("show", help="one incident's rows and their hashes, after verifying the chain")
     p_show.add_argument("incident")
     p_show.add_argument("--db", type=pathlib.Path, help="a SQLite audit file (or set WARDEN_AUDIT_DSN)")

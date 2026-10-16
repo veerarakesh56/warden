@@ -10,7 +10,10 @@ until <expires_at>". The workflow accepts it only if every check in `check()` pa
 - for T3 (irreversible, IAM, network, Terraform), the plan has existed for the cooling-off time before
   it was approved, so a rushed "yes" at 3 am cannot follow a plan made seconds earlier.
 
-The private key stays with the approver (passphrase-encrypted, `warden audit keygen` makes one).
+The private key stays with the approver. `warden audit keygen` makes one encrypted with a passphrase, and writes
+it in the clear only when told `--unencrypted` (2026-10-16; before, an unset passphrase silently meant a clear
+key, and a key made elsewhere may still be one). `warden approve`, `enrol`, `label` and `killswitch` read the
+passphrase from WARDEN_APPROVER_KEY_PASSPHRASE.
 The MCP server and the model never hold one, so neither can approve anything.
 
 ⛔ Honest limit: with a single approver who also runs the agent's machine, the signature proves

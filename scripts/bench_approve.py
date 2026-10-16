@@ -8,8 +8,16 @@ incident's waiting plan and approving it through the approval page's signed path
     python scripts/bench_approve.py --incident <id> --deny "<why>"  # denies the waiting plan, with the reason
 
 The key lives at WARDEN_BENCH_KEY (default ~/.warden-bench/bench-approver.pem), never in the repository. The approval
-domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) unless --domain names it. Every approval it sends is
-on the record as `bench`, the name the approver list shows as "bench approver (Claude), test".
+domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) unless --domain names it. Every
+approval it sends is on the record as `bench`, the name the approver list shows as "bench approver (Claude), test".
+
+The key at rest (2026-10-16, naming audit item 4: it was always written in the clear, with default permissions). A new
+key is encrypted with WARDEN_BENCH_KEY_PASSPHRASE, and written in the clear only with --unencrypted. It is created
+once, never over another file, mode 0600 on POSIX. Windows ignores the mode: what keeps other accounts out there is the
+profile folder's ACL (only the user, SYSTEM and Administrators) - and the passphrase. A key made before then is still
+read, with a warning. Windows DPAPI was weighed and not used: it ties the key to one Windows login, which a run on
+another machine cannot use, and any process of that same user decrypts it anyway - the reach a passphrase in that
+user's environment has too.
 """
 
 from __future__ import annotations
@@ -23,30 +31,59 @@ import urllib.request
 from datetime import UTC, datetime
 
 NAME = "bench"
+PASSPHRASE_ENV = "WARDEN_BENCH_KEY_PASSPHRASE"
 
 
 def _key_path() -> pathlib.Path:
     return pathlib.Path(os.environ.get("WARDEN_BENCH_KEY") or pathlib.Path.home() / ".warden-bench" / "bench-approver.pem")
 
 
-def new_key(environment: str) -> str:
+def new_key(environment: str, *, unencrypted: bool = False) -> str:
     """Make the key (refuses to overwrite one) and return the approver list's entry for it: `environment` only."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+    from warden import audit
+
     path = _key_path()
     if path.exists():
         raise SystemExit(f"{path} exists: one bench key; delete it first to make another")
-    path.parent.mkdir(parents=True, exist_ok=True)
+    passphrase = os.environ.get(PASSPHRASE_ENV, "").encode()
+    if not passphrase and not unencrypted:
+        raise SystemExit(f"no key was written: set {PASSPHRASE_ENV} (the key is encrypted with it), or pass "
+                         "--unencrypted to write it in the clear")
+    if not passphrase:
+        print(f"WARNING: --unencrypted: {path} is written IN THE CLEAR; anyone who can read it can approve as the "
+              "bench approver", file=sys.stderr)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     key = Ed25519PrivateKey.generate()
-    path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                       serialization.NoEncryption()))
+    encryption = serialization.BestAvailableEncryption(passphrase) if passphrase else serialization.NoEncryption()
+    audit.write_private_key(path, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                    encryption))
     pem = key.public_key().public_bytes(serialization.Encoding.PEM,
                                         serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     import yaml
 
     return yaml.safe_dump({NAME: {"name": "bench approver (Claude), test", "tiers": ["T1", "T2"],
                                   "environments": [environment], "public_key": pem}}, sort_keys=False)
+
+
+def load_key():
+    """The bench key: decrypted with PASSPHRASE_ENV, or - a key made before 2026-10-16 - read in the clear, with a
+    warning."""
+    from cryptography.hazmat.primitives import serialization
+
+    path = _key_path()
+    pem = path.read_bytes()
+    if b"-----BEGIN ENCRYPTED PRIVATE KEY-----" not in pem:
+        print(f"WARNING: {path} is not encrypted: anyone who can read it can approve as the bench approver. Make an "
+              f"encrypted one: set {PASSPHRASE_ENV}, delete the file, run --new-key and replace the approver entry",
+              file=sys.stderr)
+        return serialization.load_pem_private_key(pem, password=None)
+    passphrase = os.environ.get(PASSPHRASE_ENV, "").encode()
+    if not passphrase:
+        raise SystemExit(f"{path} is encrypted: set {PASSPHRASE_ENV}")
+    return serialization.load_pem_private_key(pem, password=passphrase)
 
 
 def _post(domain: str, step: str, body: dict) -> tuple[int, dict]:
@@ -63,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--new-key", action="store_true")
     ap.add_argument("--environment", default="", help="with --new-key: the one environment the bench may approve in")
+    ap.add_argument("--unencrypted", action="store_true",
+                    help=f"with --new-key: write the key in the clear (refused otherwise without {PASSPHRASE_ENV})")
     ap.add_argument("--incident", default="")
     ap.add_argument("--approve", action="store_true")
     ap.add_argument("--deny", default=None, help="deny the waiting plan, with this reason")
@@ -72,13 +111,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.new_key:
         if not args.environment:
             ap.error("--new-key needs --environment")
-        print(new_key(args.environment))
+        print(new_key(args.environment, unencrypted=args.unencrypted))
         return 0
     if not (args.incident or args.record):
         ap.error("--incident or --record is needed")
-    from cryptography.hazmat.primitives import serialization
-
-    key = serialization.load_pem_private_key(_key_path().read_bytes(), password=None)
+    key = load_key()
     domain = args.domain
     if not domain:
         import boto3
