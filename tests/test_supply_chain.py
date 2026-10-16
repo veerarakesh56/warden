@@ -161,6 +161,17 @@ def test_the_image_build_gets_every_licence_file_the_package_names():
     assert set(names) <= allowed, (names, allowed)
 
 
+def test_every_download_refuses_anything_but_https():
+    """Sonar githubactions:S6506 (2026-10-16): a redirect could take curl to plain http; the checksum after it would
+    catch a changed file, but the download itself is held to https and TLS 1.2+ as well."""
+    files = [*sorted((ROOT / ".github/workflows").glob("*.yml")), *sorted(ROOT.glob("Dockerfile*"))]
+    calls = [(f.name, ln.strip()) for f in files for ln in f.read_text(encoding="utf-8").splitlines()
+             if re.search(r"(^|[\s;|&(])curl\s", ln) and not ln.strip().startswith("#")]
+    assert calls, "no curl call found: the pattern no longer matches the workflows"
+    bad = [c for c in calls if "--proto '=https'" not in c[1] or "--tlsv1.2" not in c[1]]
+    assert not bad, bad
+
+
 def _requirement(req: str) -> tuple[str, tuple[str, ...], str]:
     m = re.fullmatch(r"\s*([A-Za-z0-9_.-]+)(?:\[([^\]]+)\])?\s*(.*?)\s*", req)
     name = re.sub(r"[-_.]+", "-", m.group(1)).lower()

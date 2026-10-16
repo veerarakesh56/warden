@@ -227,7 +227,7 @@ jobs:
           K3D_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
         run: |
           set -euo pipefail
-          curl -fsSLo k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          curl --proto '=https' --tlsv1.2 -fsSLo k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
           echo "${K3D_SHA256}  k3d" | sha256sum -c -
           sudo install -m 0755 k3d /usr/local/bin/k3d
           k3d version
