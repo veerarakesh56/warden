@@ -222,6 +222,14 @@ Every read runs under a deadline (`WARDEN_TOOL_TIMEOUT`). A failed or timed-out 
 `context.tool_errors`, which policy P8 reads, so a partial picture is visible to the verifier instead of
 looking complete. A timed-out thread is abandoned, not killed; Python cannot stop one.
 
+Beside the backend, `tools.evidence_tools` adds readers that are switched on (X-Ray, Grafana, Datadog, the deploy's
+commits, and code review's findings on the deploy's pull request - `findings.py`, register G10-59). The findings are
+text a pull request's author or a bot wrote, so they enter as typed `FINDING` lines only (evidence kind R): the model is
+shown them between data markers and may cite them, grounding never lets one support an action on its own, and a
+finding whose text reads as an instruction is held back and counted.
+
+### `KubernetesBackend` — what it is honest about
+
 **Kubernetes access** is a ClusterRole holding six reads (list pods, get pod logs, list events, get
 deployments, list replicasets, list horizontalpodautoscalers), granted by a RoleBinding in each namespace
 WARDEN may diagnose, never a ClusterRoleBinding (`k8s/rbac.yaml`). CI asks a real API server both ways:
