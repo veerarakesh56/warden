@@ -63,7 +63,8 @@ def test_keygen_writes_a_clear_key_only_when_told_and_says_why_loudly(tmp_path, 
     code, priv, _ = _keygen(tmp_path, "--unencrypted")
     assert code == 0 and priv.read_bytes().startswith(CLEAR)
     audit.load_private_key(priv)
-    assert "--unencrypted: the private key is written IN THE CLEAR" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "WARNING: --unencrypted: the private key is written IN THE CLEAR" in err and "can sign as its owner" in err
 
 
 def test_a_private_key_is_created_exclusively_and_owner_only(tmp_path):
