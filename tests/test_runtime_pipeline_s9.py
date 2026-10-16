@@ -25,7 +25,7 @@ def test_the_image_is_built_before_any_credential_and_pushed_by_the_commit():
     # Only the digest crosses jobs: an output holding the repository's address (the masked account id) is dropped by
     # GitHub, and the deploy job verified an empty image (2026-10-09).
     assert "digest: ${{ steps.push.outputs.digest }}" in IMAGE_JOB and "needs.image.outputs.image" not in FLOW
-    assert "IMAGE: ${{ vars.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}" in DEPLOY_JOB
+    assert "IMAGE: ${{ secrets.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}" in DEPLOY_JOB
     # Tags are immutable: a commit already pushed keeps its image and signature, and is neither re-signed nor re-attested
     # here (2026-10-09: the apply after a plan of the same commit failed on the push). The deploy verifies it regardless.
     assert '--image-ids imageTag="$GITHUB_SHA"' in IMAGE_JOB and 'echo "existing=true"' in IMAGE_JOB

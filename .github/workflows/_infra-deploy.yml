@@ -6,8 +6,9 @@ name: "_ infra · deploy"
 # Deploy · <env>. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
 # (docs/OWNER-CONSOLE-STEPS.md): the role warden-<env>-deploy (its trust accepts only this repository's
 # GitHub Environment of the same name), the SSM parameters /warden/<env>/tf/*, a state bucket, and a
-# GitHub Environment <env> with the variables AWS_ROLE_ARN, AWS_REGION and TF_STATE_BUCKET (optional
-# EKS_PUBLIC_CIDRS, EKS_ADMINS) and required reviewers for pre-prod, qa-prod and prod.
+# GitHub Environment <env> with the secret AWS_ROLE_ARN (it holds the account id: a variable is printed unmasked
+# in a step's inputs, 2026-10-16), the variables AWS_REGION and TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS,
+# EKS_ADMINS) and required reviewers for pre-prod, qa-prod and prod.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
 on:
@@ -94,7 +95,7 @@ jobs:
           echo "HELIOS_BIN=$RUNNER_TEMP/helios/target/release/helios" >> "$GITHUB_ENV"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: gha-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
           mask-aws-account-id: true
@@ -105,7 +106,7 @@ jobs:
       - name: optional variables
         env:
           CIDRS: ${{ vars.EKS_PUBLIC_CIDRS }}
-          ADMINS: ${{ vars.EKS_ADMINS }}
+          ADMINS: ${{ secrets.EKS_ADMINS }}
         run: |
           if [ -n "$CIDRS" ]; then echo "TF_VAR_eks_public_access_cidrs=$CIDRS" >> "$GITHUB_ENV"; fi
           if [ -n "$ADMINS" ]; then echo "TF_VAR_eks_admin_principal_arns=$ADMINS" >> "$GITHUB_ENV"; fi

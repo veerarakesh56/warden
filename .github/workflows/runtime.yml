@@ -1,9 +1,10 @@
 name: "Runtime · ops"
 
 # WARDEN's own runtime (G6): the tool's pipeline, apart from the infra and apps pipelines (owner requirement R13).
-# By hand, from main only, into the GitHub Environment `ops` (required reviewer; its variables AWS_ROLE_ARN - the
-# role warden-ops-deploy - AWS_REGION, TF_STATE_BUCKET and RUNTIME_ECR_REPOSITORY - the image repository, immutable
-# tags - which the owner creates once: docs/OWNER-CONSOLE-STEPS.md).
+# By hand, from main only, into the GitHub Environment `ops` (required reviewer; its secrets AWS_ROLE_ARN - the role
+# warden-ops-deploy - and RUNTIME_ECR_REPOSITORY - the image repository, immutable tags - and its variables AWS_REGION
+# and TF_STATE_BUCKET: docs/OWNER-CONSOLE-STEPS.md). Both hold the account id, so both are secrets: GitHub prints a
+# variable unmasked in a step's inputs before any masking runs, in a public repository's logs (2026-10-16).
 #   image: build Dockerfile.runtime BEFORE the job holds credentials, push it by the commit's SHA, sign its digest
 #          with cosign (keyless: this workflow's own GitHub identity) and attest how it was built (register S9).
 #   plan / apply: verify that signature and attestation, then plan or apply terraform/runtime with that digest -
@@ -46,7 +47,7 @@ jobs:
       # holding a masked value - the deploy job rebuilt nothing from an empty image (2026-10-09).
       digest: ${{ steps.push.outputs.digest }}
     env:
-      REPOSITORY: ${{ vars.RUNTIME_ECR_REPOSITORY }}
+      REPOSITORY: ${{ secrets.RUNTIME_ECR_REPOSITORY }}
       AWS_REGION: ${{ vars.AWS_REGION }}
     steps:
       - name: Runtime deploys run from main only
@@ -75,7 +76,7 @@ jobs:
             "import pathlib; assert any(pathlib.Path('/opt/hf').rglob('model.safetensors')), 'no tripwire weights'"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: gha-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
           mask-aws-account-id: true
@@ -122,7 +123,7 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         if: steps.push.outputs.existing != 'true' || steps.check.outputs.signed != 'true'
         with:
-          subject-name: ${{ vars.RUNTIME_ECR_REPOSITORY }}
+          subject-name: ${{ secrets.RUNTIME_ECR_REPOSITORY }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
 
@@ -137,7 +138,7 @@ jobs:
       id-token: write
     env:
       ACTION: ${{ inputs.action }}
-      IMAGE: ${{ vars.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}
+      IMAGE: ${{ secrets.RUNTIME_ECR_REPOSITORY }}@${{ needs.image.outputs.digest }}
       BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       # The identity that signed it: this workflow, on main, in this repository - nothing else is deployed.
@@ -155,7 +156,7 @@ jobs:
           persist-credentials: false
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: gha-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
           role-duration-seconds: 7200  # the role allows 2 h: creating the audit database takes most of one
@@ -282,7 +283,7 @@ jobs:
           exit 1
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: gha-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
           mask-aws-account-id: true

@@ -323,8 +323,8 @@ For each of `dev`, `staging`, `qa-staging`, `pre-prod`, `qa-prod`, `prod` (the n
    ticked no deploy you start could ever be approved. **Allow administrators to bypass configured
    protection rules** stays on (the default): you are the only administrator, and the approval is a
    record of your decision, not a second person's check.
-5. Add no variables now. `AWS_ROLE_ARN`, `AWS_REGION` and `TF_STATE_BUCKET` are added per environment in
-   its first cloud window.
+5. Add no variables now. The secret `AWS_ROLE_ARN` and the variables `AWS_REGION` and `TF_STATE_BUCKET` are
+   added per environment in its first cloud window.
 
 **G2. A ruleset for `main` - never deleted, never rewritten.** Without it `main` can be force-pushed
 (rewriting the history the audit points at) or deleted.
@@ -476,8 +476,9 @@ itself). **Store**. ⚠ Paid: $0.40 per secret per month, plus $0.05 per 10,000 
 - **Create bucket**. Copy its name for step 6.
 
 **6. GitHub.** In the repository → **Settings** → **Environments** → open `dev` (created in G1).
+- Under **Environment secrets**, add `AWS_ROLE_ARN` = the ARN from step 3 (a secret, not a variable: it holds the
+  account id, and GitHub prints a variable unmasked in a public repository's logs).
 - Under **Environment variables**, add:
-  - `AWS_ROLE_ARN` = the ARN from step 3
   - `AWS_REGION` = `ap-south-2` (the region the stack lives in; the deploy workflows read it from here)
   - `TF_STATE_BUCKET` = the bucket name from step 5
 - For `pre-prod`, `qa-prod` and `prod` only:
@@ -606,8 +607,8 @@ what stays (about 27 secret slots at $0.40, one KMS key at $1). The model, Claud
    2026-10-09.)
 6. **GitHub.** Repository → **Settings** → **Environments** → **New environment** `ops`:
    - **Required reviewers**: yourself. **Deployment branches**: **Selected branches**, rule `main`.
-   - **Environment variables**: `AWS_ROLE_ARN` (step 2), `AWS_REGION` = `ap-south-2`, `TF_STATE_BUCKET` (step 3),
-     `RUNTIME_ECR_REPOSITORY` (the URI from step 4).
+   - **Environment secrets**: `AWS_ROLE_ARN` (step 2) and `RUNTIME_ECR_REPOSITORY` (the URI from step 4) - both hold
+     the account id. **Environment variables**: `AWS_REGION` = `ap-south-2`, `TF_STATE_BUCKET` (step 3).
 7. **Tell Claude "ops is ready".** Claude runs **Runtime · ops** with `image`, then `plan`, and shows you the plan
    before anything is applied.
 8. **After the first apply: the secret values.** Terraform made the slots; the values are yours, set in the console,
