@@ -112,7 +112,7 @@ def test_both_settings_are_plain_and_loadable():
         assert name in settings.LOADABLE - settings.SECRETS and name not in settings.RESTRICTED
 
 
-def test_a_thread_is_continued_and_updated_only_in_the_channel_it_is_in(slack, tmp_path):
+def test_a_thread_is_continued_and_updated_only_in_the_channel_it_is_in(slack, tmp_path, monkeypatch):
     threads = AuditThreads(audit.AuditLog(tmp_path / "a.db"))
     assert chatops.SlackBotSink(TOKEN, DEV, live=True, threads=threads).send("first", {"alert": {"id": "inc-7"}}).delivered
     assert threads.get("inc-7") == {"ts": "1700000000.000001", "channel": DEV}
@@ -125,11 +125,24 @@ def test_a_thread_is_continued_and_updated_only_in_the_channel_it_is_in(slack, t
     chatops.SlackBotSink(TOKEN, PROD, live=True, threads=threads).send("moved", {"alert": {"id": "inc-7"}})
     assert all(m == "chat.postMessage" and p["channel"] == PROD and p.get("thread_ts") != root for m, p in slack)
     assert threads.get("inc-7")["channel"] == PROD
-    # A row from before the channel was kept: its ts, in the one channel there was.
+    # A row from before the channel was kept: its ts, in the one WARDEN_SLACK_CHANNEL there was - continued only there.
+    monkeypatch.setenv("WARDEN_SLACK_CHANNEL", DEV)
     old = {"inc-1": {"ts": "1.000001"}}
     slack.clear()
     chatops.SlackBotSink(TOKEN, DEV, live=True, threads=old).send("x", {"alert": {"id": "inc-1"}})
     assert slack[0] == ("chat.update", {"channel": DEV, "ts": "1.000001", "text": "WARDEN · inc-1 · x"})
+    # The old single channel is not this one, or is not known any more: a new thread, the old ts is never used here
+    # (CodeRabbit, PR 36: chat.update and replies with another channel's ts fail).
+    for single in (PROD, None):
+        if single:
+            monkeypatch.setenv("WARDEN_SLACK_CHANNEL", single)
+        else:
+            monkeypatch.delenv("WARDEN_SLACK_CHANNEL", raising=False)
+        old = {"inc-2": {"ts": "2.000002"}}
+        slack.clear()
+        chatops.SlackBotSink(TOKEN, DEV, live=True, threads=old).send("y", {"alert": {"id": "inc-2"}})
+        assert slack and all(m == "chat.postMessage" and p.get("thread_ts") != "2.000002" for m, p in slack), single
+        assert old["inc-2"]["channel"] == DEV and old["inc-2"]["ts"] != "2.000002", old
 
 
 def test_without_the_map_slack_is_as_before(slack, monkeypatch):
