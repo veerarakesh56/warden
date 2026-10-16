@@ -16,7 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import replay_gate as rg  # after the sys.path line above
 
-REPORTS = ROOT / "docs" / "bench" / "wave1-2026-09-11T155744Z" / "reports"
+REPORTS = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z" / "reports"
 
 pytestmark = pytest.mark.skipif(
     not REPORTS.exists(), reason="the published benchmark run is not in this checkout"

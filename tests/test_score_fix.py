@@ -17,7 +17,7 @@ import yaml
 from scenarios import score
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BUNDLES = sorted(p for p in (ROOT / "docs" / "bench").glob("wave*") if (p / "manifest.json").exists())
+BUNDLES = sorted(p for p in (ROOT / "tests" / "fixtures" / "bench").glob("wave*") if (p / "manifest.json").exists())
 
 
 # --------------------------------------------------------------------------- log_contains
@@ -108,7 +108,7 @@ def test_a_published_wave_scores_exactly_as_before(bundle, tmp_path):
     assert "## 8. Fix" not in score.render_markdown(scored, summary)
 
     # The published results.json of the first Wave 1 run is its CORRECTED grading (it is published
-    # under both rubrics, see docs/bench/README.md), so the diagnoses are compared under today's
+    # under both rubrics, see scenarios/SCORING.md), so the diagnoses are compared under today's
     # rubric - which test_the_wave_4_rubric_only_appended shows grades every old class unchanged.
     today = score.score_run_dir(run)
     published = json.loads((bundle / "results.json").read_text(encoding="utf-8"))

@@ -204,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
                 return inner()
         quota = {"stop_after": 3} if a.resume else None
         for name in RUNS:
-            replay(ROOT / "docs" / "bench" / name, out / name, per_scenario=1, only=None, resume=a.resume, quota=quota,
+            replay(ROOT / "tests" / "fixtures" / "bench" / name, out / name, per_scenario=1, only=None, resume=a.resume, quota=quota,
                    **({"llm_factory": factory} if factory else {}))
         result = {"provider": probe.provider_name, "model": probe.model, "version": probe.provider_version,
                   "measured": dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%MZ"), "prompt": prompt_fingerprint()}

@@ -2,7 +2,7 @@
 
     python scripts/train_decider.py            # writes src/warden/data/decider.json
 
-Data: every gradable run in docs/bench (the published bundles, so anyone can re-train and get the same file).
+Data: every gradable run in tests/fixtures/bench (the published bundles, so anyone can re-train and get the same file).
 Label: the rubric's grade of the action against the INJECTED fault - CORRECT or not - an independent ground truth
 (register E2); WARDEN's own verdicts are features, never labels. Model: logistic regression with an L2 penalty,
 fitted by plain gradient descent (deterministic, no dependency). Evaluation: every fault class is held out in turn
@@ -116,7 +116,7 @@ def held_out(data: list[tuple[list[float], int, str]]) -> tuple[list[float], lis
 def render(bundles: list[pathlib.Path] | None = None) -> dict:
     from warden.decide import FEATURES
 
-    bundles = bundles or sorted(p for p in (ROOT / "docs" / "bench").glob("wave*") if (p / "manifest.json").exists())
+    bundles = bundles or sorted(p for p in (ROOT / "tests" / "fixtures" / "bench").glob("wave*") if (p / "manifest.json").exists())
     data = examples(bundles)
     ys = [y for _, y, _ in data]
     ps, hys, conf = held_out(data)

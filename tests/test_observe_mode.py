@@ -42,7 +42,7 @@ def test_a_replay_score_counts_where_it_would_have_fired_by_diagnosis(tmp_path):
     import pathlib
     import shutil
 
-    src = max(p for p in (pathlib.Path(score.__file__).parents[1] / "docs" / "bench").glob("wave*")
+    src = max(p for p in (pathlib.Path(score.__file__).parents[1] / "tests" / "fixtures" / "bench").glob("wave*")
               if (p / "manifest.json").exists())
     bundle = pathlib.Path(shutil.copytree(src, tmp_path / src.name))
     first = min((bundle / "reports").glob("*.json"))

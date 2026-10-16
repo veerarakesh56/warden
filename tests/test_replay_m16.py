@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import replay_diagnose as rd  # after the sys.path line above
 
-RUN = ROOT / "docs" / "bench" / "wave1-2026-09-11T155744Z"
+RUN = ROOT / "tests" / "fixtures" / "bench" / "wave1-2026-09-11T155744Z"
 
 
 def test_the_tripwire_runs_in_a_replay_as_in_production(tmp_path):

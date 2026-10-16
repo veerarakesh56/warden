@@ -39,7 +39,7 @@ def test_on_the_published_runs_it_fires_on_none():
     from warden.models import ContextBundle, RemediationProposal
 
     fired = 0
-    for b in sorted(pathlib.Path(__file__).resolve().parents[1].joinpath("docs", "bench").glob("wave*")):
+    for b in sorted(pathlib.Path(__file__).resolve().parents[1].joinpath("tests", "fixtures", "bench").glob("wave*")):
         for row in score_run_dir(b, rubric_path=b / "grading" / "scoring.yaml")["rows"]:
             f = b / "reports" / f"{row['scenario_id']}.{row['index']}.json"
             d = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
