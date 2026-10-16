@@ -1,15 +1,16 @@
 # Who may approve what (approvals.py). Copy to a private path and point WARDEN_APPROVERS at it.
-# Create your key pair once:  warden audit keygen --private ~/.warden/owner.pem --public ~/.warden/owner.pub
-# (set WARDEN_AUDIT_KEY_PASSPHRASE first so the private key is encrypted), then paste the PUBLIC key
-# below. The private key never goes into this file, the repository, or the worker.
+# Create your key pair once, outside any repository; keygen asks for a passphrase and encrypts the private key with it:
+#   warden audit keygen --private ~/.warden/alice.pem --public ~/.warden/alice.pub
+# then paste the PUBLIC key below. The private key never goes into this file, the repository, or the worker.
+# `alice` is an example id: use your own short name. The id grants nothing by itself; `tiers` does.
 approvers:
-  owner:
-    name: Your Name   # shown on the approval page and in the messages that say who approved
-    team: Platform    # optional, shown beside the name
-    slack: ""         # optional: your Slack member id (U...), so those messages mention you
+  alice:
+    name: Alice Example   # shown on the approval page and in the messages that say who approved
+    team: Platform        # optional, shown beside the name
+    slack: ""             # optional: your Slack member id (U...), so those messages mention you
     tiers: [T1, T2, T3]
     public_key: |
-      <paste the contents of owner.pub here>
+      <paste the contents of ~/.warden/alice.pub here>
 # Approvals needed per tier from DIFFERENT approvers (a team would set T3: 2).
 required: {T1: 1, T2: 1, T3: 1}
 # A T3 plan (and a kill-switch reset) can only be approved this long after it was made.

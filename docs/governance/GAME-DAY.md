@@ -26,7 +26,7 @@ warden killswitch status
 5. Reset the switch with a signed approval:
 
 ```
-warden killswitch reset --approver <you> --key <your.pem> --trips <n>
+warden killswitch reset --approver <your-id> --key ~/.warden/<your-id>.pem --trips <n>
 ```
 
 ## What counts

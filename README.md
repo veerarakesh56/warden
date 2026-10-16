@@ -404,7 +404,7 @@ kubectl apply -f k8s/remediation-rbac.yaml        # the separate write-RBAC, onc
 WARDEN_K8S_NAMESPACE=default warden worker --platform k8s   # another namespace: edit the RoleBinding's first
 # a remediation is requested (MCP tool `request_remediation`), the workflow plans it from live state:
 warden status rem-...                             # the plan and its hash
-warden approve rem-... --plan-hash <hash> --approver owner --key owner.pem
+warden approve rem-... --plan-hash <hash> --approver <your-id> --key ~/.warden/<your-id>.pem
 #   -> applied once, then its own health check: recovered, or rolled back
 ```
 

@@ -13,7 +13,7 @@ Times: give every time in UTC and in the install's display zone (IST here), as W
 In the cloud runtime (the switch lives in its audit, which no laptop reaches):
 
 ```
-warden killswitch on --approver <you> --key <your.pem>
+warden killswitch on --approver <your-id> --key ~/.warden/<your-id>.pem
 ```
 
 It opens the approval page in your browser: write why, and your passkey turns the switch on (any of your passkeys -
@@ -93,13 +93,13 @@ matched to the record or exposed as forged.
   approval page lists them and your device-bound passkey resets it:
 
 ```
-warden killswitch link --approver <you> --key <your.pem>
+warden killswitch link --approver <your-id> --key ~/.warden/<your-id>.pem
 ```
 
   On a machine running its own audit:
 
 ```
-warden killswitch reset --approver <you> --key <your.pem> --trips <n>
+warden killswitch reset --approver <your-id> --key ~/.warden/<your-id>.pem --trips <n>
 ```
 
 - Write down what happened, with times in UTC and the display zone, and the audit hashes that prove it.
