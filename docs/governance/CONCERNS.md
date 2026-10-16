@@ -1,4 +1,4 @@
-# Raising a concern about WARDEN (audit CW4)
+# Raising a concern about WARDEN (register CW4)
 
 Anyone - an on-call engineer, a user of a service WARDEN watches, a reviewer - can raise a concern about how WARDEN
 behaves: a wrong diagnosis, a fix that should not have been proposed, a report that overstated something, a privacy
@@ -11,7 +11,7 @@ worry.
   matches it). Do not paste secrets or personal data.
 - **A security problem:** follow `SECURITY.md` - never a public issue.
 - **About a specific approval:** an approver can also record a signed verdict on the diagnosis and the action,
-  which calibration reads (`warden label`, audit A-P-2).
+  which calibration reads (`warden label`).
 
 ## What happens
 

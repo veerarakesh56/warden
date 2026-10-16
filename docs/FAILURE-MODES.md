@@ -6,14 +6,15 @@ This register was built from:
   - published postmortems of automation gone wrong: Knight Capital, Google Diskerase,
     Cloudflare Nov 2025, the Azure Front Door outage of Oct 2025, AWS Oct 2025, and the Anthropic
     Sept 2025 postmortem;
-- live research dated 2026-09-28 (`docs/research/2026-09-28/`), covering:
+- live research dated 2026-09-28, covering:
   - OWASP Agentic Top 10 2026 and LLM Top 10 2026;
   - the MITRE ATLAS agent techniques and MAST;
   - published agent incidents;
   - a systematic map from each failure mode to the tools that address it.
 
 **How to read a row.** Every row carries:
-- a **Group**: the work group in [`ROADMAP.md`](ROADMAP.md) that closes it;
+- a **Group**: the stage of work that closes it, G0 to G8 in order (W0-now is an early live window
+  between G0 and G1);
 - a **Status**: `OPEN`, `DONE-local`, `DONE-live` or `DEFERRED`;
 - **Evidence**: for a done row, the test (`file::function`) or the live window that proves it.
 
@@ -43,9 +44,10 @@ S2 had been closed. The corrected statuses are below.
 | B14 | CI actions are pinned to full commit SHAs, never tags | G0 | DONE-local | tests/test_ci_lanes.py::test_every_action_is_pinned_to_a_full_commit_sha |
 
 **Known weaknesses of these controls.** The 2026-09-28 audit found gaps in several of them (the
-quarantine, the gate's coverage, the tripwire) and some vacuous tests. These are listed in
-[`AUDIT-2026-09-28.md`](AUDIT-2026-09-28.md) and fixed in G1. A control above is only as strong as
-its audit rows.
+quarantine, the gate's coverage, the tripwire) and some vacuous tests. Those were fixed in G1; what
+the audit left open or deferred is listed under
+[Carried from the 2026-09-28 audit](#carried-from-the-2026-09-28-audit). A control above is only as
+strong as those rows allow.
 
 ## Gaps: critical
 
@@ -194,6 +196,45 @@ evidence or the fix it had, found by that work.
 | G10-57 | **The report did not say how the cause was narrowed down** (owner's report bar, 2026-10-12) | Each other cause the model rules out comes with why and its citations, checked like the hypothesis's; the report's "How WARDEN narrowed it down" lists fixed checks, what was ruled out (unchecked reasons shown as unchecked) and what is left; qualified 2026-10-14: 22/30, 0 wrong-and-allowed | G7 | DONE-local | tests/test_narrowing_g10ac.py::test_the_report_lays_out_what_was_found_ruled_out_and_left |
 | G10-58 | **The test stack could not be built: its EKS nodes were refused** (live apply, 2026-10-14) | An EKS node group with a launch template needs its caller to hold ec2:RunInstances and ec2:CreateTags (AWS's EKS guide); every environment's boundary denied ec2:Run* and the deploy policy granted neither. Now the deploy policy may launch only from a launch template in its region and tag while launching; the boundary denies any instance without IMDSv2 and still denies scheduled, spot and fleet launches; it fits IAM's 6,144 characters by rewrites of the same meaning and by dropping its GetCallerIdentity statement (that call needs no permission) | G7 | DONE-local | tests/test_env_iam.py::test_no_task_runs_outside_a_service_and_nothing_shares_logs_buses_or_functions |
 
+## Carried from the 2026-09-28 audit
+
+The project's internal audit of 2026-09-28 is no longer published. Every row it left open or deferred, and the
+five gaps the compliance crosswalk found, are kept here so the register still shows them.
+
+### Open
+
+| ID | Finding | Group | Status | Evidence |
+|---|---|---|---|---|
+| A-I-16 | The EKS cluster-admin endpoint is open to 0.0.0.0/0 while the EKS_PUBLIC_CIDRS variable is set (corrected 2026-10-16: this row said "during applies"; once applied, the endpoint stays open until an apply without the variable - dev since 2026-10-14). | G6 | OPEN | regrouped to G6 (owner, 2026-10-02): the endpoint opens only when the EKS_PUBLIC_CIDRS variable is set for GitHub-hosted runners, and stays open until an apply without it; the fix is an in-VPC deploy path, built and proven with the G6 runtime; being closed |
+| A-I-25 | The lab has encryption, TLS and logging gaps. | G6 | OPEN | regrouped to G6 (owner, 2026-10-02): the lab stack's gaps are deferred with it (R52/R53); the fullstack stack's remaining gap, Redis TLS, is R8-O2 in G6. progress 2026-10-04: Redis TLS in transit is built (tests/test_redis_tls_r8.py); the lab stack's gaps stay with R52/R53 |
+| R7-O3 | LOW, open: the admission policy bounds each request, not a series (a few patches step a count down to one); RBAC applies even where the policy cannot (clusters before 1.30); its enforcement on EKS is unconfirmed. | G6 | OPEN | progress 2026-10-04: the series is bounded now - a step up records the count it replaced in the Deployment's warden.io/scaled-from annotation, and the policy lets a step down go only back to that count, clearing it, so no series of patches takes a Deployment below where WARDEN found it (tests/test_platform_k8s.py::test_an_admission_policy_narrows_what_the_remediator_may_patch, tests/test_platform_k8s.py::test_rollback_returns_the_scale_to_the_planned_snapshot_and_a_restart_needs_none; on the real API server in CI's k3d job, tests/integration/test_live_remediation.py::test_no_series_of_patches_takes_the_count_below_where_warden_found_it). Left: enforcement on EKS, confirmed in a live window |
+| R8-O2 | LOW, open: an ECS service may be given another environment's subnets (no IAM key ties a subnet to an environment); prod's Redis has no AUTH or TLS - the defence in depth. The boundary pins no account (an S3 ARN carries none). | G6 | OPEN | progress 2026-10-04: the proving ground's Redis now takes TLS in transit, and every benchmark client connects with it (tests/test_redis_tls_r8.py, plant-checked); proven at the next proving-ground window. Left: Redis AUTH, and a subnet no IAM key ties to an environment |
+| R8-O3 | LOW, open: `metadata.managedFields` is not held by the admission policy (R8-B1). | G6 | OPEN | |
+| R9-O2 | LOW, open: an EventBridge target in another account and a queue or topic policy set through `Set*Attributes` are not denied (no room for a conditional statement; the stack's own queue policy uses the call); `cloudwatch:PutMetricData` into another environment's namespace. | G6 | OPEN | |
+| Q2 | MED, found while closing R39 (2026-10-03): a confident `no_action` over a failure that shows only as a rate - error_rate 0.31, which signature APP-5XX-001 recognises - goes out `auto_safe`. P12 counts broken states, never rates, by design, and a signature match cannot stand in: signatures also fire on the alert's name (every healthy control in tests/test_verifier.py matches DEPLOY-BAD-001). The fix needs rate thresholds measured, not guessed: calibration's work. In every replayed run such a no_action already reached a person by other policies. | G7 | OPEN | progress 2026-10-03: the candidate rule runs in observe mode (A-P-8) as P25-NO-ACTION-OVER-ERROR-RATE - a no_action with an error-rate metric at or above 5% is recorded on every verdict, report and replay score, and decides nothing. Measured the same day on every stored qualification answer: the recorded stacks report error counts, not rates, so P25 fires on none of the 63 recorded no_action answers - this set cannot measure it; shadow and live data (G7) will |
+
+### Deferred, with the reason
+
+| ID | Finding | Group | Status | Evidence |
+|---|---|---|---|---|
+| A-C-4 | The TENANT redaction sweep replaces 3-character substrings, corrupting "500" status codes and SQL. | G1 | DEFERRED | owner-agreed 2026-10-02: what remains is R4-B-N4, deferred. History: second independent review 2026-09-30: PARTIAL - redaction depended on line order (a secret found in a later line stayed in clear in earlier ones, the summary and tool errors) and plain words captured after a credential key were swept everywhere ('invalidating' -> '<SECRET_1>ating'); fixed in e35d8a0 (tests/test_redaction_review2.py::test_a_secret_found_in_a_later_line_is_masked_in_earlier_ones, ::test_a_plain_word_captured_as_a_value_does_not_rewrite_other_lines; 0 of 337 recorded contexts changed); third independent review 2026-09-30: PARTIAL - a log writer can choose a value that the literal sweep then masks in every line, hiding the words the diagnosis needs, and redact_many took 68 s on 300 lines; fixed 2026-09-30 (932d515): a secret value that is a plain word or an assignment is masked where it was found and not swept from other lines (known limit: such a password repeated elsewhere without its key stays visible, stated in the README); redact_many skips the sweep while finding, tests a substring before any regex and caches compiles - 300 lines 122 s -> 0.45 s, 2,000 lines 13.6 s, identical output (tests/test_redaction_review2.py::test_a_log_writer_cannot_erase_evidence_words_through_the_secret_sweep - deleted in 8658ecb with the exemption it tested, see R4-B-N1/B-N4 - tests/test_redaction_review2.py::test_a_credential_is_still_masked_in_every_line, ::test_redacting_many_lines_stays_fast, ::test_new_values_in_different_prompt_parts_get_different_placeholders, ::test_a_resource_label_is_not_masked_as_a_secret_in_the_prompt; replay: 0 of 337 contexts changed; plant checks caught); fourth independent review (2026-09-30): PARTIAL - the 932d515 sweep exemption left real secret copies in clear (B-N1), fixed in 8658ecb; log writers can still erase digit-bearing evidence (B-N4, open) |
+| A-C-10 | Quarantine code facts have no length cap and no filter. The key deny-list is exact-match. | G1 | DEFERRED | owner-agreed 2026-10-02: other look-alike spellings (`8` for `c`) still pass the word filter; facts are typed and a person approves every change. History: fixed in d2259af (tests/test_quarantine.py::test_code_facts_are_capped_and_filtered, ::test_only_measurement_keys_become_facts; 0 of 2,667 recorded facts dropped; word filter instead of a key allowlist, see DESIGN-DECISIONS §16); third independent review 2026-09-30: PARTIAL - look-alike letters (Cyrillic, fullwidth) and digit spellings pass the word filter, and the facts-block markers can still be rewritten (the pinned test passes by accident); fixed 2026-09-30 (932d515): keys and values must be ASCII, and the word checks also read a digit-folded copy; the prompt's evidence is redacted item by item and rendered afterwards, so WARDEN's facts-block markers are never rewritten (tests/test_quarantine.py::test_look_alike_letters_and_digits_spell_no_fact, tests/test_redaction_review2.py::test_label_values_cannot_rewrite_wardens_own_prompt_markers - it passed by accident on the alert header before; 0 of 8,485 recorded facts dropped; plant checks caught); fourth independent review (2026-09-30): PARTIAL - `ro11back`, `roIIback`, `ro\|\|back`, `rolback`, `revert` and `rootcause=` reached the facts (B-N7), fixed in 528af2f (tests/test_quarantine_redaction_review4.py::test_steering_spellings_never_become_facts); other leetspeak (`8` for `c`) still passes |
+| R4-B-N4 | MED: a log writer can still erase digit-bearing evidence, WARDEN's own deploy items included, by planting a value the redaction then masks everywhere. | G1 | DEFERRED | owner-agreed 2026-10-02: a log writer can plant a value the redaction then masks everywhere; protecting WARDEN's own lines broke the privacy guarantee, and it escalates rather than leave a secret in clear. History: not fixed: protecting WARDEN's own lines from the sweep broke the privacy guarantee (a user id found in logs stayed in clear in a config line) and was reverted; a design is pending |
+| R7-D6 | MED: ways out of the account under the boundary - a role trusting another account (no IAM condition key covers a trust document), resource policies on functions, queues, topics, tables, an event bus, the image registry. | G1 | DEFERRED | owner-agreed 2026-10-02: a role's trust in another account cannot be bounded in one account without AWS Organizations; IAM Access Analyzer detects it. History: detected by the owner's IAM Access Analyzer (external access, since 2026-09-27): role trusts, Lambda, SQS, SNS, ECR repositories, DynamoDB; the two it does not analyze are denied in the boundary - `events:PutPermission`, the ECR registry's policy and replication (3823629; tests/test_env_iam.py::test_no_role_shares_an_event_bus_or_the_image_registry_outside); the trust itself cannot be prevented in one account without Organizations |
+| R7-O2 | LOW, open by design: P14's command and scope-spelling lists, P15's transition, headroom, negation and unit words, the replica-lag names and the hex-credential key names are open-ended - each review finds more; the tripwire's unit tests use a spy, not the model. | G4 | DEFERRED | owner-agreed 2026-10-03: deferred. These lists - P14's command and scope spellings, P15's transition, headroom, negation and unit words, the replica-lag names and the hex-credential key names - are a second layer and can never be complete: what keeps an unlisted spelling harmless is structural (a closed action enum and catalogue, typed facts instead of raw text, and a signed approval of the exact plan). Words are added when a replay or a review shows one missing; the tripwire's real-model behaviour is measured on the recorded sets (A-C-11), and calibration (G7) measures the misses |
+| R8-B1 | MED-LOW: the admission policy does not hold `metadata.managedFields` - a patch of it alone could hand a field to a server-side-apply manager. | G1 | DEFERRED | owner-agreed 2026-10-02: managedFields cannot be held by comparison - the API server rewrites it when a field changes owner. History: not fixable by comparison (the API server rewrites it when a field changes owner); stated in README and the manifest (163556c); see R8-O3 |
+| R9-E3 | MED-LOW: the guard's own callbacks could be replayed by a wrapper. | G1 | DEFERRED | owner-agreed 2026-10-02: the register guard runs in the tests' own process; code that rewrites its state can still defeat it. History: (9544e50; tests/test_register_guard.py::test_the_guards_callbacks_replayed_by_a_wrapper_are_no_evidence); the guard runs in the tests' own process - code rewriting its state can still defeat it |
+
+### Found by the compliance crosswalk (2026-10-03)
+
+| ID | Finding | Group | Status | Evidence |
+|---|---|---|---|---|
+| CW1 | Found by the compliance crosswalk (2026-10-03): no written AI policy and no accountability structure (NIST GOVERN 1-2, ISO/IEC 42001 A.2-A.3). | G8 | DONE-local | docs/governance/AI-POLICY.md states purpose and scope, six principles, prohibited uses, change control and a dated review table, with accountability in docs/governance/RACI.md (tests/test_governance.py::test_every_governance_document_says_what_its_row_requires, tests/test_governance.py::test_every_register_row_cited_exists); plant-checked 2026-10-03 |
+| CW2 | Found by the compliance crosswalk (2026-10-03): no assessment of WARDEN's impacts on people and organisations (NIST MAP 5, ISO/IEC 42001 A.5, EU AI Act Art. 9). | G8 | DONE-local | docs/governance/IMPACT-ASSESSMENT.md names who WARDEN affects, its benefits, eight harms with likelihood, severity, what holds each and what is left, and its regulatory position (tests/test_governance.py::test_every_governance_document_says_what_its_row_requires, tests/test_governance.py::test_every_register_row_cited_exists); plant-checked 2026-10-03 |
+| CW3 | Found by the compliance crosswalk (2026-10-03): environmental impact is not measured; cost is capped (M18), energy is not (NIST AI 600-1). | G8 | DONE-local | WARDEN measures its own model use per day from the audit - incidents, calls, tokens and USD (warden usage) - and docs/governance/ENVIRONMENT.md records how the account's emissions are read monthly from AWS's Customer Carbon Footprint Tool (all three scopes since October 2025), since energy per token is published by none of the providers (tests/test_usage_cw3.py::test_model_use_is_summed_per_day_and_counts_incidents_once, tests/test_usage_cw3.py::test_the_command_prints_it, tests/test_governance.py::test_every_governance_document_says_what_its_row_requires); plant-checked 2026-10-03 |
+| CW4 | Found by the compliance crosswalk (2026-10-03): no channel for people to raise concerns about WARDEN (NIST GOVERN 5, ISO/IEC 42001 A.3). | G8 | DONE-local | docs/governance/CONCERNS.md: anyone can raise a concern as an issue labelled warden-concern (with the incident id or audit hash, never secrets), security problems go through SECURITY.md's private channel, approvers can also record signed labels, and every concern is answered within five working days (tests/test_governance.py::test_every_governance_document_says_what_its_row_requires); plant-checked 2026-10-03 |
+| CW5 | Found by the compliance crosswalk (2026-10-03): no technical documentation in the EU AI Act's Annex IV form and no instructions for use (Art. 11, 13). | G8 | DONE-local | docs/governance/TECHNICAL-DOCUMENTATION.md indexes the documentation in the order of the EU AI Act's Annex IV and gives the instructions for use - intended and excluded purposes, measured accuracy, human oversight, inputs, operation and logs (tests/test_governance.py::test_every_governance_document_says_what_its_row_requires, tests/test_governance.py::test_every_register_row_cited_exists); plant-checked 2026-10-03 |
+
 ## Not applicable to WARDEN, and why
 
 - **Multi-agent failures** (MAST FM-2: inter-agent misalignment, conversation reset, withholding):
@@ -206,12 +247,12 @@ evidence or the fix it had, found by that work.
 - **Code execution by the model:** the model never runs code or commands. Actions come from a closed
   catalogue executed by typed platforms.
 
-## Research coverage (requirement R45)
+## Research coverage
 
-Every failure class in `docs/research/2026-09-28/failure-mode-solution-map.md` (OWASP Agentic Top 10 2026, OWASP LLM
-Top 10, MITRE ATLAS, published incidents and 2025-2026 research), and the register rows that cover it. A class is
-covered when it has a row - DONE with its evidence, or OPEN with its group - or is not applicable for a stated
-reason. `tests/test_research_coverage_r45.py` holds this list to that file and to the rows above.
+Every failure class in the 2026-09-28 failure-mode research (OWASP Agentic Top 10 2026, OWASP LLM Top 10, MITRE
+ATLAS, published incidents and 2025-2026 research), and the register rows that cover it. A class is covered when it
+has a row - DONE with its evidence, or OPEN with its group - or is not applicable for a stated reason.
+`tests/test_research_coverage_r45.py` holds every line to the rows above.
 
 - **1. Goal hijack / prompt injection**: B4, M10, M11, N3
 - **2. Tool misuse / excessive agency**: B10, B13, C10, C4, N7

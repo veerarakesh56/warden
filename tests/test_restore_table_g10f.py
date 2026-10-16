@@ -162,7 +162,7 @@ def test_every_config_type_a_restore_reads_is_in_the_owners_recorder_step():
     root = pathlib.Path(__file__).resolve().parents[1]
     read = set(re.findall(r'"(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)"',
                           (root / "src/warden/platforms/aws.py").read_text(encoding="utf-8")))
-    step = (root / "docs/OWNER-CONSOLE-STEPS.md").read_text(encoding="utf-8")
+    step = (root / "docs/SETUP.md").read_text(encoding="utf-8")
     assert "AWS::DynamoDB::Table" in read and len(read) >= 8
     assert sorted(t for t in read if f"`{t}`" not in step) == []
 

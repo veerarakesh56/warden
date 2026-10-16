@@ -19,6 +19,6 @@ R = responsible (does it), A = accountable (answers for it; exactly one per acti
 | Read concerns raised about WARDEN | A | - | I | R | - |
 | Review this RACI, the AI policy and the impact assessment | A | C | C | R | - |
 
-In the lab one person holds every human role. That is stated, not hidden: one key or one hasty approval decides a
-change alone (R50). A team splits the roles; the code already counts approvals from different approvers where the
-tier requires it.
+In the reference install one person holds every human role. That is stated, not hidden: one key or one hasty
+approval decides a change alone. A team splits the roles; the code already counts approvals from different approvers
+where the tier requires it.

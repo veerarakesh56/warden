@@ -1,4 +1,4 @@
-"""Registers H4, H5 and audit rows CW1-CW5: the governance documents exist, say what their rows require, cite only
+"""Register rows H4, H5 and CW1-CW5: the governance documents exist, say what their rows require, cite only
 register rows that exist, name only `warden` commands the command line accepts, and give every RACI activity exactly
 one accountable role."""
 
@@ -48,7 +48,7 @@ def test_every_raci_activity_has_exactly_one_accountable_role():
 
 
 def test_every_register_row_cited_exists():
-    ids = {i for f in ("FAILURE-MODES.md", "AUDIT-2026-09-28.md", "REQUIREMENTS-TRACE.md")
+    ids = {i for f in ("FAILURE-MODES.md",)
            for i in ROW.findall((ROOT / "docs" / f).read_text(encoding="utf-8"))}
     for name in REQUIRED:
         cited = set(re.findall(r"(?<![\w-])(R\d+-O\d+|A-P-\d+|CW\d+|[BCEHMNOQRS]\d{1,2}b?)\b", _text(name)))

@@ -1,7 +1,7 @@
 """Is AWS Config recording what WARDEN's undo reads? (owner, 2026-10-15: "make them perfect").
 
 revert_change sets a value back to what AWS Config recorded just before the change (platforms/aws.py). The recorder is
-made once per account and Region by the owner (docs/OWNER-CONSOLE-STEPS.md, "AWS Config"), not by a stack that is
+made once per account and Region by an administrator (docs/SETUP.md, "AWS Config"), not by a stack that is
 destroyed after a test. This read-only check compares it with the code:
 
     AWS_PROFILE=warden python scripts/check_live_config.py
@@ -26,8 +26,8 @@ def needed_types() -> set[str]:
 
 
 def documented_types() -> set[str]:
-    """The types the owner's console steps tell the owner to record."""
-    text = (ROOT / "docs" / "OWNER-CONSOLE-STEPS.md").read_text(encoding="utf-8")
+    """The types the setup guide says to record."""
+    text = (ROOT / "docs" / "SETUP.md").read_text(encoding="utf-8")
     section = text.split("### AWS Config, so WARDEN can undo a recorded change", 1)[1].split("\n## ", 1)[0]
     return set(re.findall(r"`(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+)`", section))
 
