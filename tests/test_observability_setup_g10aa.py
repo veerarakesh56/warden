@@ -187,3 +187,39 @@ def test_refuses_a_site_that_is_not_datadogs_and_an_org_without_one_stack(tmp_pa
     with pytest.raises(SystemExit):
         mod.main(args, aws=aws, dd_call=DD(), grafana_call=Grafana(stacks=(STACK, {**STACK, "id": 9})), now=WHEN)
     assert aws.secrets["warden/ops/grafana-read-token"] == ""  # nothing of Grafana's stored
+
+
+def test_the_setup_keys_are_asked_for_not_read_from_disk_and_an_old_key_file_warns(tmp_path, monkeypatch, capsys):
+    """Naming audit item 24 (2026-10-16): the admin keys were plaintext files in ~/.warden, which outlived the
+    "revoke after" step whenever it was forgotten. Without --keys-dir nothing is read from disk: each key is typed at
+    a prompt that does not echo it, or piped one per line on stdin; a named folder of the old files still reads, with
+    a warning."""
+    import io
+    import sys
+
+    mod = _setup()
+    monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path / "home")  # a stray ~/.warden must not be read
+    piped = io.StringIO(f"{API_KEY}\n{ADMIN_APP}\n{ADMIN_GRAFANA}\n")
+    monkeypatch.setattr(sys, "stdin", piped)
+    aws, dd, gf = Aws(), DD(), Grafana()
+    assert mod.main(["--env", "ops", "--stack", "dev", "--site", SITE], aws=aws, dd_call=dd, grafana_call=gf,
+                    now=WHEN) == 0
+    assert aws.secrets["warden/ops/datadog-api-key"] == API_KEY and "WARNING" not in capsys.readouterr().err
+
+    class _Tty(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr(sys, "stdin", _Tty())
+    typed = iter([API_KEY, ADMIN_APP, ADMIN_GRAFANA])
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": next(typed))
+    assert mod.main(["--env", "ops", "--stack", "dev", "--site", SITE], aws=Aws(), dd_call=DD(), grafana_call=Grafana(),
+                    now=WHEN) == 0
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": "  ")
+    with pytest.raises(SystemExit, match="the Datadog API key was not given"):
+        mod.main(["--env", "ops", "--stack", "dev", "--site", SITE], aws=Aws(), dd_call=DD(), grafana_call=Grafana())
+
+    assert mod.main(_keys(tmp_path), aws=Aws(), dd_call=DD(), grafana_call=Grafana(), now=WHEN) == 0
+    err = capsys.readouterr().err
+    assert "is read from the plaintext file" in err and "grafana-admin-token.txt" in err
+    assert ADMIN_APP not in err and ADMIN_GRAFANA not in err

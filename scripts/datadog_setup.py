@@ -11,9 +11,11 @@ In one run, and again idempotently - every object is found by its name and updat
   notifying `@webhook-warden`;
 - a dashboard of the same signals.
 
-Keys: from local files - the setup application key (WARDEN_DATADOG_SETUP_KEY_FILE, default
-~/.warden/datadog-setup-key.txt; revoke it after) and the API key (WARDEN_DATADOG_API_KEY_FILE, default
-~/.warden/datadog-api-key.txt). The site and the approval domain from the
+Keys: asked for, never read from a file by default - the API key, then an application key that may write the webhook
+integration, monitors and dashboards (used only here: revoke it after). Each is typed at a prompt that does not echo
+it, or given one per line on stdin (piped from a secret manager). WARDEN_DATADOG_API_KEY_FILE and
+WARDEN_DATADOG_SETUP_KEY_FILE still name plaintext files for one release, read with a warning (2026-10-16: the
+defaults ~/.warden/datadog-*.txt were plaintext admin keys on disk). The site and the approval domain come from the
 environment's plain settings. Nothing secret is printed.
 """
 
@@ -40,6 +42,28 @@ from warden.webhooks import DATADOG_PAYLOAD
 WEBHOOK = "warden"
 TAG = "managed-by:warden"
 APPS = ("catalog-api", "cart-worker")
+
+
+def credential(label: str, file: str | os.PathLike[str] | None = None) -> str:
+    """One credential a setup script needs: typed at a prompt that does not echo it, or one line on stdin when stdin
+    is not a terminal (piped from a secret manager). A file is read only when one is named, with a warning (naming
+    audit item 24, 2026-10-16: an admin token saved in ~/.warden/*.txt outlived the "revoke after" step whenever that
+    step was forgotten)."""
+    if file:
+        path = pathlib.Path(file)
+        print(f"WARNING: {label} is read from the plaintext file {path}; delete the file once the key is revoked, and "
+              "next time paste the key at the prompt instead (a file is read only until the next release)",
+              file=sys.stderr)
+        value = path.read_text(encoding="utf-8-sig").strip()
+    elif sys.stdin.isatty():
+        import getpass
+
+        value = getpass.getpass(f"{label} (not shown as you type): ").strip()
+    else:
+        value = sys.stdin.readline().strip()
+    if not value:
+        raise SystemExit(f"{label} was not given: nothing was changed")
+    return value
 
 
 def monitors(stack: str) -> list[dict[str, Any]]:
@@ -161,12 +185,10 @@ def main(argv: list[str] | None = None, *, aws: Any = None, call: Any = None) ->
             Name=f"/warden/{env}/env/WARDEN_APPROVAL_RP_ID")["Parameter"]["Value"].strip()
         if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", domain):
             raise SystemExit(f"{domain!r} is not a domain name")
-    # The API key from the same local folder as the setup key: the operator may store secrets, never read them back.
-    api_key = pathlib.Path(os.environ.get("WARDEN_DATADOG_API_KEY_FILE")
-                           or pathlib.Path.home() / ".warden" / "datadog-api-key.txt").read_text(encoding="utf-8-sig").strip()
-    key_file = pathlib.Path(os.environ.get("WARDEN_DATADOG_SETUP_KEY_FILE")
-                            or pathlib.Path.home() / ".warden" / "datadog-setup-key.txt")
-    app_key = key_file.read_text(encoding="utf-8").strip()
+    # Both keys from the person running this: the operator may store secrets, never read them back.
+    api_key = credential("the Datadog API key", os.environ.get("WARDEN_DATADOG_API_KEY_FILE"))
+    app_key = credential("the Datadog application key that may write the webhook, monitors and dashboards",
+                         os.environ.get("WARDEN_DATADOG_SETUP_KEY_FILE"))
     dd = Datadog(site, api_key, app_key, call)
     if args.monitors_only:
         for line in ensure_monitors(dd, args.stack):

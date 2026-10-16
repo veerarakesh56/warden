@@ -3,10 +3,14 @@ setting in AWS.
 
     python scripts/observability_setup.py --env ops --stack dev --site ap1.datadoghq.com
 
-Reads three local files the owner saved (~/.warden, or --keys-dir): datadog-api-key.txt (the API key),
-datadog-app-key.txt (an unrestricted application key, used only here) and grafana-admin-token.txt (a Grafana Cloud
-access-policy token on the org with accesspolicies:read/write/delete and stacks:read). Then, every step safe to run
-again - each object found by its name, a new key replacing the old, never a second one beside it:
+Asks for three keys, in this order, each typed at a prompt that does not echo it or given one per line on stdin
+(piped from a secret manager): the Datadog API key; a Datadog application key that may manage application keys
+(`user_app_keys`; used only here); and a Grafana Cloud access-policy token on the org with
+accesspolicies:read/write/delete and stacks:read (used only here). Nothing is read from disk by default (naming audit
+item 24, 2026-10-16: these used to be plaintext files in ~/.warden, which outlived "revoke after" whenever that was
+forgotten); --keys-dir still names a folder of the old files - datadog-api-key.txt, datadog-app-key.txt and
+grafana-admin-token.txt - for one release, read with a warning. Then, every step safe to run again - each object
+found by its name, a new key replacing the old, never a second one beside it:
 
 - Datadog: a new application key `warden-read` with read scopes only (SCOPES), stored, then the older ones of that
   name deleted (a key's value is shown only when it is made, so it is replaced, not reused). The API key and the
@@ -17,7 +21,7 @@ again - each object found by its name, a new key replacing the old, never a seco
   runtime; `<stack id>:<write token>` and the OTLP address for the test stack's collector.
 - X-Ray and the deploy commits as evidence (WARDEN_XRAY=1, WARDEN_COMMITS=1).
 
-Prints names and what happened to them, never a key or token. Revoke the admin keys after.
+Prints names and what happened to them, never a key or token. Revoke the two setup credentials after.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 
-from datadog_setup import Datadog
+from datadog_setup import Datadog, credential
 
 NAME = "warden-read"
 # Datadog's API, read 2026-10-14: POST /api/v2/current_user/application_keys with
@@ -181,13 +185,6 @@ def grafana_urls(g: Grafana, stack: dict) -> dict[str, str]:
             "otlp": otlp if otlp.endswith("/otlp") else otlp + "/otlp"}
 
 
-def _read(path: pathlib.Path) -> str:
-    value = path.read_text(encoding="utf-8-sig").strip()
-    if not value:
-        raise SystemExit(f"{path} is empty")
-    return value
-
-
 def main(argv: list[str] | None = None, *, aws: Any = None, dd_call: Any = None, grafana_call: Any = None,
          now: datetime | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -195,11 +192,20 @@ def main(argv: list[str] | None = None, *, aws: Any = None, dd_call: Any = None,
     p.add_argument("--stack", required=True, help="the watched test environment (its persistent secrets)")
     p.add_argument("--site", required=True, help="the Datadog site, e.g. the one in the account's address")
     p.add_argument("--region", help="the AWS region (default: the profile's)")
-    p.add_argument("--keys-dir", default=str(pathlib.Path.home() / ".warden"), help="where the admin key files are")
+    p.add_argument("--keys-dir", default=None,
+                   help="deprecated: a folder of the plaintext key files used before 2026-10-16, read with a warning; "
+                        "without it each key is asked for")
     args = p.parse_args(argv)
-    keys = pathlib.Path(args.keys_dir)
-    dd = Datadog(args.site, _read(keys / "datadog-api-key.txt"), _read(keys / "datadog-app-key.txt"), dd_call)
-    g = Grafana(_read(keys / "grafana-admin-token.txt"), grafana_call)
+    keys = pathlib.Path(args.keys_dir) if args.keys_dir else None
+
+    def key(label: str, name: str) -> str:
+        return credential(label, keys / f"{name}.txt" if keys else None)
+
+    dd = Datadog(args.site, key("the Datadog API key", "datadog-api-key"),
+                 key("the Datadog application key that may manage application keys (user_app_keys)", "datadog-app-key"),
+                 dd_call)
+    g = Grafana(key("the Grafana Cloud access-policy token (accesspolicies:read/write/delete, stacks:read)",
+                    "grafana-admin-token"), grafana_call)
     if aws is None:
         import boto3
 
@@ -238,7 +244,8 @@ def main(argv: list[str] | None = None, *, aws: Any = None, dd_call: Any = None,
 
     for line in store.done:
         print(line)
-    print("Restart the runtime (runtime.yml restart) so the workers read the new values; then revoke the admin keys.")
+    print("Restart the runtime (runtime.yml restart) so the workers read the new values; then revoke the Datadog "
+          "application key and the Grafana access-policy token given above.")
     return 0
 
 
