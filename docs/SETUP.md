@@ -208,7 +208,7 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
    (`terraform/modules/warden-runtime/secrets.tf` lists them). Set the values in the console, never in a file or a
    chat, then run **Runtime · ops** with `restart`. Each trust zone's role reads only its own secrets.
 6. Approvers: create each approver's Ed25519 key pair with `warden audit keygen --private <file> --public <file>`
-   (keep the private key outside the repository), then `warden enrol --approver <name> --key <private key file>`
+   (it asks for a passphrase and encrypts the private key with it; keep the key outside the repository), then `warden enrol --approver <name> --key <private key file>`
    opens a 15-minute link where the approver creates a passkey. Save the approver list the page shows as the
    Parameter Store value `/warden/ops/approvers` and restart the workers. [OPERATIONS.md](OPERATIONS.md) covers
    rotating keys and passkeys.
