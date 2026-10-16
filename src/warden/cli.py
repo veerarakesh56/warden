@@ -285,7 +285,11 @@ def _audit_command(args: argparse.Namespace) -> int:
                      "WARDEN_AUDIT_KEY_PASSPHRASE without echoing it; --unencrypted writes the key in the clear",
                      err=True)
                 return 1
-        audit.generate_key(args.private, args.public, passphrase)
+        try:
+            audit.generate_key(args.private, args.public, passphrase)
+        except (ValueError, FileExistsError, FileNotFoundError) as e:
+            _out(f"error: {e}; no key was written", err=True)
+            return 1
         _out(f"private key {args.private} ({'encrypted' if passphrase else 'NOT encrypted'}), "
               f"public key {args.public}")
         return 0
@@ -697,7 +701,8 @@ def _main(argv: list[str] | None = None) -> int:
 
     p_audit = sub.add_parser("audit", help="the tamper-evident audit log: create a signing key, verify a log")
     audit_sub = p_audit.add_subparsers(dest="audit_cmd", required=True)
-    p_keygen = audit_sub.add_parser("keygen", help="create an Ed25519 signing key pair (the private key encrypted)")
+    p_keygen = audit_sub.add_parser("keygen", help="create an Ed25519 signing key pair (the private key encrypted), inside WARDEN_KEY_DIR "
+                                                      "(default ~/.warden) only")
     p_keygen.add_argument("--private", required=True, type=pathlib.Path)
     p_keygen.add_argument("--public", required=True, type=pathlib.Path)
     p_keygen.add_argument("--unencrypted", action="store_true",
