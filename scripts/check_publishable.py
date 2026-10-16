@@ -35,10 +35,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Values that LOOK like findings and are not. Every entry needs a reason, because an allowlist is
 # how a real leak eventually gets waved through.
 ALLOWED = {
-    # AWS's own documented example credentials, used in tests/test_redaction.py to prove the
-    # redactor catches the shape. Published by AWS in their public documentation.
-    "AKIAIOSFODNN7EXAMPLE",
-    "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    # AWS's own documented example credentials, published in AWS's public documentation: a page or a
+    # report quoting them is not a leak. Built from parts (2026-10-16, like every fixture in
+    # tests/fakes.py), so this file does not hold the literal a scanner would flag.
+    "AKIA" + "IOSFODNN7EXAMPLE",
+    "wJalr" + "XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     # Reserved documentation account ids (RFC-style placeholders used throughout AWS docs).
     "111122223333",
     "123456789012",
@@ -56,35 +57,12 @@ ALLOWED = {
     "<ACCOUNT>",
 }
 
-# Files whose PURPOSE is to contain secret-shaped text. Allowlisted by path, each with a reason,
-# and the reasons are printed on every run.
-#
-# ⛔ This is the dangerous part of the file. A path allowlist is how a real secret eventually gets
-# waved through, so it is deliberately tiny, it is never widened to a directory, and every entry
-# below was verified by opening the file rather than by trusting the filename.
-ALLOWED_PATHS: dict[str, str] = {
-    ".github/workflows/ci-tool.yml":
-        "service-container DSNs bound to 127.0.0.1 inside an ephemeral runner that is destroyed "
-        "with the job. `sa:Warden!Passw0rd1` is MSSQL's complexity requirement, not a secret.",
-    "src/warden/redaction.py":
-        "the redaction module documenting the credential shapes it masks.",
-    "tests/test_redaction.py":
-        "fixtures that MUST look like real credentials - a redactor tested against text that does "
-        "not resemble a secret proves nothing.",
-    "tests/integration/test_live_database.py":
-        "a docstring listing localhost dev DSNs for the optional live-database run.",
-    "tests/test_reporting_evidence.py":
-        "fabricated secrets (a key-shaped string, a password, an account id) that the report tests "
-        "assert are NEVER revealed, even with identifiers switched on. Same reason as "
-        "test_redaction.py: a secret that does not look like one would make the assertion vacuous.",
-    "tests/test_runner_db.py":
-        "a fabricated DSN password that three assertions are ABOUT: that it never reaches the "
-        "manifest, never reaches an argv, and is masked by redact(). A fixture without a password "
-        "would make all three vacuous. Same reason as test_redaction.py.",
-    "tests/test_aws_proof_bundle.py":
-        "a fabricated DSN password used to prove the evidence bundle masks one. Same reason as "
-        "test_redaction.py: the fixture has to look real or the assertion is vacuous.",
-}
+# ⛔ No file is exempt (2026-10-16, naming audit item 5). Seven files used to be skipped whole -
+# the redaction tests, three other tests, the redaction module and the CI workflow - because their
+# fixtures "had to look real", so a real secret pasted into any of them would have been published
+# unscanned. The fixtures still look real at run time: tests/fakes.py builds each one from parts,
+# and the CI service-container passwords are derived per run. A path exemption must not come back;
+# tests/test_check_publishable.py fails if one does.
 
 # Files whose mere presence in git is a failure, whatever they contain.
 FORBIDDEN_NAMES = re.compile(
@@ -208,10 +186,8 @@ def _is_text(path: pathlib.Path) -> bool:
     return b"\0" not in chunk
 
 
-def scan(paths: list[pathlib.Path], *, root: pathlib.Path,
-         skipped: list[str] | None = None) -> list[str]:
+def scan(paths: list[pathlib.Path], *, root: pathlib.Path) -> list[str]:
     findings: list[str] = []
-    skipped = [] if skipped is None else skipped
 
     for path in paths:
         try:
@@ -221,13 +197,6 @@ def scan(paths: list[pathlib.Path], *, root: pathlib.Path,
 
         if FORBIDDEN_NAMES.search(rel) and not ALLOWED_NAMES.search(rel):
             findings.append(f"{rel}: this file must never be tracked by git")
-            continue
-
-        # ⛔ Note the ORDER: the forbidden-name check runs FIRST and is not allowlistable. A path
-        # allowlist may excuse secret-SHAPED text inside a file that is meant to contain it; it may
-        # never excuse a .env or a .tfstate being tracked at all.
-        if rel in ALLOWED_PATHS:
-            skipped.append(rel)
             continue
 
         if not path.exists():
@@ -286,15 +255,8 @@ def main() -> int:
         paths = _tracked_files(args.staged)
         what = "files staged for commit" if args.staged else "files tracked by git"
 
-    skipped: list[str] = []
-    findings = scan(paths, root=root, skipped=skipped)
+    findings = scan(paths, root=root)
     print(f"checked {len(paths)} {what}")
-
-    if skipped:
-        print(f"\n{len(skipped)} file(s) allowlisted - these are NOT scanned, and why:")
-        for rel in sorted(skipped):
-            print(f"  {rel}\n      {ALLOWED_PATHS[rel]}")
-        print()
 
     if not findings:
         print("clean - nothing that must not be published was found")

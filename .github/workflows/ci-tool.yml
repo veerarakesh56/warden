@@ -481,12 +481,21 @@ jobs:
   db:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The databases' password, made per run (2026-10-16, naming audit item 17). A fixed one in this file
+    # read as a real credential to every secret scanner and reader. It is not a secret: run_id is public,
+    # and the containers live only on this runner VM, which is destroyed with the job. It is just never the
+    # same twice, and no fixed credential exists anywhere. Upper- and lower-case letters, digits and well
+    # over eight characters meet SQL Server's sa password policy; with no URL-special character it goes
+    # into a DSN unencoded. The health checks read it from each container's own environment
+    # ($MYSQL_ROOT_PASSWORD, $MSSQL_SA_PASSWORD), because a service's `options` cannot read the env context.
+    env:
+      DB_TEST_PASSWORD: Run${{ github.run_id }}x${{ github.run_attempt }}
     services:
       postgres:
         image: ghcr.io/veerarakesh56/warden-mirror/postgres:16@sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54
         env:
           POSTGRES_USER: warden
-          POSTGRES_PASSWORD: warden
+          POSTGRES_PASSWORD: ${{ env.DB_TEST_PASSWORD }}
           POSTGRES_DB: warden
         ports: ["5432:5432"]
         options: >-
@@ -495,11 +504,11 @@ jobs:
       mysql:
         image: ghcr.io/veerarakesh56/warden-mirror/mysql:8@sha256:6ea90827b1100f8f2ae306a539f86d2c264a26ed435a2a9f75551dd5c3aeb242
         env:
-          MYSQL_ROOT_PASSWORD: warden
+          MYSQL_ROOT_PASSWORD: ${{ env.DB_TEST_PASSWORD }}
           MYSQL_DATABASE: warden
         ports: ["3306:3306"]
         options: >-
-          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pwarden" --health-interval 5s
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD" --health-interval 5s
           --health-timeout 5s --health-retries 30
       redis:
         image: ghcr.io/veerarakesh56/warden-mirror/redis:7@sha256:c6eabf748fc7a61dbb5a705c78bcf3d6377b1127a97d0ce965c11c44ba46896f
@@ -517,14 +526,14 @@ jobs:
         image: mcr.microsoft.com/mssql/server:2022-latest@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
         env:
           ACCEPT_EULA: "Y"
-          MSSQL_SA_PASSWORD: "Warden!Passw0rd1"
+          MSSQL_SA_PASSWORD: ${{ env.DB_TEST_PASSWORD }}
           MSSQL_PID: Developer
         ports: ["1433:1433"]
         # SQL Server takes ~30s to come up: the health check runs sqlcmd from /opt/mssql-tools18 with a
         # 30s start period and 30 retries, and the tests themselves FAIL (never skip) if it is not
         # answering by then.
         options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Warden!Passw0rd1' -C -Q 'SELECT 1' || exit 1"
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $MSSQL_SA_PASSWORD -C -Q 'SELECT 1' || exit 1"
           --health-interval 10s --health-timeout 5s --health-retries 30 --health-start-period 30s
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -551,11 +560,11 @@ jobs:
       - name: Integration tests against REAL databases - and they must have RUN, not skipped
         env:
           WARDEN_DB_INTEGRATION: "1"
-          WARDEN_TEST_PG_DSN: postgresql://warden:warden@127.0.0.1:5432/warden
-          WARDEN_TEST_MYSQL_DSN: mysql://root:warden@127.0.0.1:3306/warden
+          WARDEN_TEST_PG_DSN: postgresql://warden:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:5432/warden
+          WARDEN_TEST_MYSQL_DSN: mysql://root:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:3306/warden
           WARDEN_TEST_REDIS_DSN: redis://127.0.0.1:6379/0
           WARDEN_TEST_MONGO_DSN: mongodb://127.0.0.1:27017/warden
-          WARDEN_TEST_MSSQL_DSN: mssql://sa:Warden!Passw0rd1@127.0.0.1:1433/master
+          WARDEN_TEST_MSSQL_DSN: mssql://sa:${{ env.DB_TEST_PASSWORD }}@127.0.0.1:1433/master
           WARDEN_TRACE: "0"
         run: |
           set -o pipefail

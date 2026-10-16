@@ -8,6 +8,7 @@ other module was tested through its API while the actual entry point was not exe
 import json
 from datetime import UTC, datetime
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden.cli import DEMO_ALERTS, main
 
 
@@ -253,7 +254,7 @@ def test_json_artefact_is_refused_when_the_pipeline_missed_a_secret(monkeypatch,
     from warden import cli
 
     real_run = cli.run
-    key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+    key = AWS_ACCESS_KEY_ID
 
     def missed(*a, **kw):
         report = real_run(*a, **kw)
@@ -272,7 +273,7 @@ def test_a_bad_argument_is_printed_through_the_gate(capsys):
     can rewrite the operator's terminal, and a key typed on the command line."""
     from warden import cli
 
-    key = "AKIA" + "IOSFODNN7EXAMPLE"
+    key = AWS_ACCESS_KEY_ID
     for argv in (["demo", f"x{chr(27)}[2Jkey={key}"], ["run", "--max-usd", key], ["nosuchcommand", key]):
         assert cli.main(argv) == 2
         err = capsys.readouterr().err

@@ -19,7 +19,9 @@ from scenarios import fullstack_cli as cli
 from scenarios import ops_fullstack as fs
 from scenarios import runner, score
 
-OPERATOR_KEY = "AKIAOPERATORKEYDONOTUSE"
+from fakes import OPERATOR_ACCESS_KEY_ID
+
+OPERATOR_KEY = OPERATOR_ACCESS_KEY_ID
 
 
 class Clock:

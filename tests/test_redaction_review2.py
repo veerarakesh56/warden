@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import HUNTER2
 from warden import graph, mcp_server, tools
 from warden.models import Alert, ContextBundle, Severity
 from warden.redaction import redact
@@ -98,7 +99,7 @@ def test_a_secret_found_in_a_later_line_is_masked_in_earlier_ones():
 
 
 def test_label_values_are_redacted_with_their_key_but_resource_names_are_kept():
-    pw = "Hunter2" + "Hunter2"
+    pw = HUNTER2.capitalize() * 2
     state = _redacted(_alert(labels={"tenant_id": "acme-prod-7", "customer_id": "cust-88121", "password": pw,
                                      "secret": "warden-dev-db-app", "lambda": "warden-dev-checkout"}),
                       ["SECRET warden-dev-db-app changed at 2026-09-25T05:00:00Z"])

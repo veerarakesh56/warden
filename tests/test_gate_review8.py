@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden import gate
 
-KEY = "AKIA" + "IOSFODNN7EXAMPLE"
+KEY = AWS_ACCESS_KEY_ID
 MARKS = [0x00AD, 0x200B, 0x034F, 0xFE0F, 0x180B, 0xE0100, 0x2060, 0x200E, 0x0007, 0x202E, 0x2066]
 
 
@@ -49,7 +50,7 @@ def test_the_stub_never_shows_a_withheld_value(alert_id, data):
 
 
 ESC = chr(27)
-TOKENS = {"aws": "AKIA" + "IOSFODNN7EXAMPLE", "npm": "npm_" + "abcdefghijklmnopqrstuvwxyz0123456789",
+TOKENS = {"aws": AWS_ACCESS_KEY_ID, "npm": "npm_" + "abcdefghijklmnopqrstuvwxyz0123456789",
           "anthropic": "sk-ant-" + "api03-" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0"}
 
 

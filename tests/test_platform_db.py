@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import HUNTER2
 from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401 - fixtures
 from warden.platforms import RoutedPlatform
 from warden.platforms.db import DatabasePlatform, DatabasePlatformError
@@ -287,7 +288,7 @@ def test_its_own_login_in_another_letter_case_is_refused_too(engine, named):
     ("postgres", "postgresql:///orders", {"PGHOST": "db.prod"}, "PGHOST=db.prod"),
     ("mysql", "mysql://u:{pw}@/orders", {}, "localhost:3306 (TCP)"),
     ("mysql", "mysql://u:{pw}@db-staging/orders?host=db-prod", {}, "db-staging"),
-    ("postgres", "password=S3cr.host=hunter2 dbname=orders", {}, "the local socket"),
+    ("postgres", "password=S3cr.host=" + HUNTER2 + " dbname=orders", {}, "the local socket"),
     ("postgres", "password='x port=6543' host=db.prod dbname=orders", {}, "host=db.prod"),
     # Ninth review: urlsplit ends the authority at `?` or `#` - the user and the password's start were the "server".
     ("postgres", "postgresql://orders_app:{pw}" + "?x@db.prod:5432/orders", {}, "db.prod:5432"),
@@ -315,7 +316,7 @@ def test_the_plan_names_the_server_the_driver_really_reaches(monkeypatch, engine
     pw = "s3cr3t" + "-pw"
     p = DatabasePlatform(dsn=dsn.format(pw=pw), engine=engine, conn=_Conn(), app_users=APP)
     state = p.live("db_terminate_idle_in_tx", PARAMS)["state"]
-    assert state["server"] == where and pw not in str(state) and "hunter2" not in str(state), state["server"]
+    assert state["server"] == where and pw not in str(state) and HUNTER2 not in str(state), state["server"]
     assert "orders_app" not in state["server"], state["server"]
 
 

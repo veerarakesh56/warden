@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import HUNTER2
 from warden.chatops import (
     ConsoleSink,
     GenericWebhookSink,
@@ -141,7 +142,7 @@ def _evidence_report(show: bool):
     ctx = ContextBundle(logs=[
         ("2026-08-26T04:10:20Z payments ERROR could not acquire connection tenant_id=initech-4 "
         "user=priya.nair@corp.io host=10.0.7.22"),
-        "2026-08-26T04:10:21Z payments WARN retry with password=hunter2-Sup3r-s3cret",
+        "2026-08-26T04:10:21Z payments WARN retry with password=" + HUNTER2 + "-Sup3r-s3cret",
     ])
     _, mapping = redact_many(ctx.logs)
     alert = Alert(alert_id="inc-005", name="DBConnectionsStuck", severity=Severity.high,
@@ -180,7 +181,7 @@ def test_with_identifiers_off_slack_gets_none_of_them():
 def test_a_secret_never_reaches_slack_whatever_the_setting(show):
     cap = _SlackCapture()
     notify(_evidence_report(show=show), sinks=[cap])
-    assert "hunter2-Sup3r-s3cret" not in cap.text and "hunter2-Sup3r-s3cret" not in str(cap.data)
+    assert HUNTER2 + "-Sup3r-s3cret" not in cap.text and HUNTER2 + "-Sup3r-s3cret" not in str(cap.data)
 
 
 def test_slack_gets_mrkdwn_not_github_markdown():

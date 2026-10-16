@@ -21,7 +21,9 @@ import pytest
 from scenarios import runner
 from scenarios.ops import Clients, OpError, Target
 
-OPERATOR_KEY = "AKIAOPERATORKEYDONOTUSE"
+from fakes import OPERATOR_ACCESS_KEY_ID
+
+OPERATOR_KEY = OPERATOR_ACCESS_KEY_ID
 READER_ARN = "arn:aws:sts::111122223333:assumed-role/warden-pg-reader/warden-benchmark"
 
 

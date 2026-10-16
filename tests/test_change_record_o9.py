@@ -7,6 +7,7 @@ import io
 import json
 import re
 
+from fakes import AWS_ACCESS_KEY_ID
 from test_remediation_workflow import _approve_with, _no_approval, _run, owner, world  # noqa: F401
 from warden import changes
 
@@ -71,7 +72,7 @@ def test_the_issue_goes_to_the_one_repository_with_the_token_and_through_the_gat
     assert req.full_url == "https://api.github.com/repos/o/r/issues" and req.get_method() == "POST"
     assert req.get_header("Authorization") == f"Bearer {token}"
     assert json.loads(req.data)["labels"] == ["warden-change"] and token not in req.data.decode()
-    leak = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+    leak = AWS_ACCESS_KEY_ID
     url, detail = changes.GitHubIssues("o/r", token).open("WARDEN change", f"key {leak}")
     assert len(sent) == 1 and url is None and detail.startswith("withheld")
 

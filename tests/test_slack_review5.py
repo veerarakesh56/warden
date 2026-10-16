@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden import chatops, gate
 from warden.redaction import redact
 
-SECRET = "AKIA" + "IOSFODNN7EXAMPLE"
+SECRET = AWS_ACCESS_KEY_ID
 
 
 # Markers long enough that a check of the line's first 12 characters misses the fence (seventh review: it passed

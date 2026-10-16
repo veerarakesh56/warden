@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden import chatops, mcp_server
 from warden.observability import GatedFormatter
 
@@ -61,7 +62,7 @@ def _run_main(monkeypatch, capsys, exc):
 
 def test_the_mcp_server_prints_one_gated_line_on_an_error(monkeypatch, capsys):
     """A startup error printed its raw traceback; stdout is the protocol and the text can hold a key."""
-    secret = "AKIA" + "IOSFODNN7EXAMPLE"
+    secret = AWS_ACCESS_KEY_ID
     code, out = _run_main(monkeypatch, capsys, RuntimeError(f"boom key={secret}\nTraceback forged"))
     assert code == 1 and out.out == ""
     assert "error: RuntimeError: boom" in out.err and secret not in out.err and "Traceback (most" not in out.err

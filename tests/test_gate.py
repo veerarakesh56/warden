@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import AWS_ACCESS_KEY_ID
 from test_chatops import _CaptureSink
 from warden import chatops
 from warden.gate import enforce, for_terminal, hedge, leaked_kinds, outbound_data, sanitise_text
@@ -87,7 +88,7 @@ def test_slack_is_told_not_to_unfurl(monkeypatch):
 
 
 def test_a_secret_still_in_the_outgoing_text_blocks_the_message():
-    leaky = "Report\nkey AKIAIOSFODNN7EXAMPLE in the config"
+    leaky = "Report\nkey " + AWS_ACCESS_KEY_ID + " in the config"
     assert leaked_kinds(leaky)
     g = enforce(leaky, alert_id="inc-7")
     assert g.verdict == "BLOCK" and "AKIA" not in g.text and "withheld" in g.text and "inc-7" in g.text
@@ -107,7 +108,7 @@ def test_a_secret_the_pipeline_missed_blocks_the_message(where):
     that - so G5 could never fire, and its test reached BLOCK only by monkeypatching the gate. Now a
     report that still holds a secret (an upstream miss) is withheld, text and data both."""
     good = _report("h")
-    key = "AKIAIOSFODNN7EXAMPLE"
+    key = AWS_ACCESS_KEY_ID
     bad = Report(markdown=good.markdown + (f"\nkey {key}" if where == "markdown" else ""),
                  data={**good.data, **({"note": f"key {key}"} if where == "data" else {})},
                  promotion=good.promotion)
@@ -177,7 +178,7 @@ def test_real_code_blocks_stay_verbatim():
 
 
 def test_the_terminal_gets_no_secret_and_no_escape_sequence():
-    assert "AKIA" not in for_terminal("key AKIAIOSFODNN7EXAMPLE")
+    assert "AKIA" not in for_terminal("key " + AWS_ACCESS_KEY_ID)
     shown = for_terminal("a\x1b]8;;https://evil.example\x07click\x1b]8;;\x07b")
     assert "\x1b" not in shown and "\x07" not in shown and shown.startswith("a") and shown.endswith("b")
 
@@ -186,5 +187,5 @@ def test_structured_data_is_gated_per_value_without_json_false_positives():
     verdict, clean = outbound_data({"credentials_ref": "warden-prod-deploy", "h": "![x](https://evil.example/c)"})
     assert verdict == "REWRITE" and clean["credentials_ref"] == "warden-prod-deploy"
     assert "evil.example" not in clean["h"]
-    verdict, clean = outbound_data({"note": ["key AKIAIOSFODNN7EXAMPLE"]})
+    verdict, clean = outbound_data({"note": ["key " + AWS_ACCESS_KEY_ID]})
     assert verdict == "BLOCK" and "AKIA" not in str(clean)

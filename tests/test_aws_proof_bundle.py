@@ -17,6 +17,8 @@ import sys
 
 import pytest
 
+from fakes import HUNTER2, dsn
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "aws_proof_bundle.py"
 ACCOUNT = "111122223333"
@@ -99,11 +101,11 @@ def test_any_twelve_digit_number_is_redacted_not_just_the_known_account(bundle):
 
 def test_a_password_in_a_dsn_is_masked(bundle):
     leaked = _report()
-    leaked["context"]["logs"] = ["connected to postgresql://warden:hunter2SUPERSECRET@db.host:5432/warden"]
+    leaked["context"]["logs"] = ["connected to " + dsn("postgresql", "warden", HUNTER2 + "SUPERSECRET", "db.host:5432/warden")]
     bundle.write("E-rds", leaked)
     bundle.render()
     text = (bundle.reports / "E-rds.json").read_text(encoding="utf-8")
-    assert "hunter2SUPERSECRET" not in text
+    assert HUNTER2 + "SUPERSECRET" not in text
     assert "warden:********@" in text
 
 

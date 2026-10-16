@@ -751,7 +751,10 @@ class _RichEcs(FakeEcs):
         return {"taskDefinition": self._defs[kwargs["taskDefinition"]]}
 
 
-def _td(command, pool="10", password="old-secret-value"):
+_OLD_SECRET, _NEW_SECRET = "old-secret-value", "new-secret-value"
+
+
+def _td(command, pool="10", password=_OLD_SECRET):
     return {"memory": "512", "containerDefinitions": [{
         "name": "app", "image": "repo/checkout:v2", "command": command,
         "environment": [{"name": "DB_POOL", "value": pool}, {"name": "DB_PASSWORD", "value": password}]}]}
@@ -760,7 +763,7 @@ def _td(command, pool="10", password="old-secret-value"):
 def test_a_configuration_only_revision_is_a_deploy_naming_what_changed_never_its_values():
     """G9-E (audit E3): the same image, another command - the OOM a command change caused (ecs-10). P5 refused the
     right rollback because only an image change counted as a deploy."""
-    ecs = _RichEcs({"checkout:7": _td(["run", "--big"], pool="50", password="new-secret-value"),
+    ecs = _RichEcs({"checkout:7": _td(["run", "--big"], pool="50", password=_NEW_SECRET),
                     "checkout:6": _td(["run"])})
     [d] = _backend(ecs=ecs).deploys(_alert())
     assert d["kind"] == "config" and d["changed"] == "app.command,app.environment:DB_PASSWORD,app.environment:DB_POOL"

@@ -391,6 +391,22 @@ def test_one_collector_sends_the_same_data_to_xray_grafana_and_datadog_before_th
     assert "OTEL_SDK_DISABLED=true" in (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
 
 
+def test_the_collector_sends_in_plaintext_only_to_the_agent_on_its_own_node():
+    """Naming audit item 19 (2026-10-16): `tls: insecure` is right only for the node-local hop to the Datadog agent's
+    OTLP receiver. HOST_IP must be the pod's own node, and every other exporter keeps TLS."""
+    import yaml
+
+    full = tool.otel_config("ap-south-2", grafana_url="https://otlp.example.test/otlp", datadog=True)
+    plain = {name: e for name, e in full["exporters"].items() if e.get("tls", {}).get("insecure")}
+    assert plain == {"otlp/datadog": {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}}
+    assert full["exporters"]["otlphttp/grafana"]["endpoint"].startswith("https://")
+    run = Runner()
+    tool.deploy_otel(STACK, "k", aws_factory({}), True, run)
+    dep = next(d for d in yaml.safe_load_all(run.inputs[0]) if d["kind"] == "Deployment")
+    [env] = [e for e in dep["spec"]["template"]["spec"]["containers"][0]["env"] if e["name"] == "HOST_IP"]
+    assert env["valueFrom"] == {"fieldRef": {"fieldPath": "status.hostIP"}}
+
+
 @pytest.fixture(autouse=True)
 def _no_chart_download(monkeypatch):
     """No test downloads a chart: the package is a stand-in whose sha256 is the pinned one for that test."""

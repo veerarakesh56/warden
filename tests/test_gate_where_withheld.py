@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import logging
 
+from fakes import AWS_ACCESS_KEY_ID
 from test_chatops import _CaptureSink
 from warden import chatops
 from warden.gate import where_withheld
 from warden.reporting import Report
 
-KEY = "AKIA" + "IOSFODNN7" + "EXAMPLE"  # built from parts: no token literal
+KEY = AWS_ACCESS_KEY_ID
 
 
 def test_where_names_the_line_the_section_and_the_kind_never_the_value():

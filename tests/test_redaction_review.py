@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from fakes import HUNTER2
 from warden.graph import node_redact
 from warden.models import Alert, ContextBundle
 from warden.redaction import redact
@@ -44,8 +45,8 @@ def test_a_found_value_reaches_a_trusted_config_item_masked():
 
 
 @pytest.mark.parametrize("text, secret", [
-    ('run --password "hunter2 x" now', "hunter2 x"),
-    ("run --password 'hunter2'", "hunter2"),
+    ('run --password "' + HUNTER2 + ' x" now', HUNTER2 + " x"),
+    ("run --password '" + HUNTER2 + "'", HUNTER2),
     ('argv ["--password","pw4411"]', "pw4411"),
     ("redis-cli -h db -a Redis5ecret ping", "Redis5ecret"),
     ("curl -u admin:Curl5ecret https://x", "Curl5ecret"),

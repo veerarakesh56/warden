@@ -46,7 +46,7 @@ _WHERE = ("host", "hostaddr", "port", "service")
 
 def _conninfo(dsn: str) -> dict[str, str]:
     """libpq's key=value DSN, read pair by pair as libpq does - quoted values with \\ escapes, whitespace between
-    pairs - so a value is never searched for keys: `password=S3cr.host=hunter2` holds no host (eighth review)."""
+    pairs - so a value is never searched for keys: `password=S3cr.host=evil` holds no host (eighth review)."""
     out: dict[str, str] = {}
     i, n = 0, len(dsn)
     while i < n:

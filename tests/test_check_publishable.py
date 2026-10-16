@@ -17,6 +17,8 @@ import sys
 
 import pytest
 
+from fakes import AWS_ACCESS_KEY_ID
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_publishable.py"
 
@@ -107,19 +109,24 @@ def test_the_tfvars_example_is_the_one_permitted_exception(tmp_path):
     assert code == 0, out
 
 
-def test_an_allowlisted_path_cannot_excuse_a_forbidden_FILE(tmp_path):
-    """The ordering guard. A path allowlist may excuse secret-shaped TEXT inside a file meant to
-    contain it; it must never excuse a .env being tracked at all. If this ever inverts, the
-    allowlist becomes a way to smuggle a credentials file into the repo."""
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location("cp", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    for allowed in module.ALLOWED_PATHS:
-        assert not module.FORBIDDEN_NAMES.search(allowed), (
-            f"{allowed} is both allowlisted and forbidden - the ordering must be checked by hand"
-        )
+def test_no_path_is_exempt_from_the_scan(tmp_path):
+    """Naming audit item 5 (2026-10-16): seven files - the redaction tests and three other tests,
+    the redaction module, the CI workflow - were skipped whole, so a real secret pasted into one of
+    them would have been published. Every path git tracks now gets a planted key, and the scan must
+    refuse each one. A path exemption, for a file or a directory, fails this."""
+    tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,
+                             check=True).stdout.splitlines()
+    assert "src/warden/redaction.py" in tracked and "tests/test_redaction.py" in tracked
+    key = _synth("AKIA", "Q3RZ7XKM", "2PLW5NBT")
+    for rel in tracked:
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(f"leaked {key}\n", encoding="utf-8")
+    result = subprocess.run([sys.executable, str(SCRIPT), "--dir", str(tmp_path)],
+                            capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    refused = {line.strip().split(":", 1)[0] for line in result.stdout.splitlines()
+               if "an AWS access key id" in line or "must never be tracked" in line}
+    assert not set(tracked) - refused, sorted(set(tracked) - refused)[:20]
 
 
 # --------------------------------------------------------------------------- must ACCEPT
@@ -133,7 +140,7 @@ def test_an_allowlisted_path_cannot_excuse_a_forbidden_FILE(tmp_path):
         "resources = [\"*\"]\n",
         "postgresql://warden:<REDACTED>@db:5432/warden\n",
         "arn:aws:ecs:ap-south-1:<ACCOUNT>:cluster/prod\n",         # already redacted
-        "AKIAIOSFODNN7EXAMPLE\n",                                  # AWS's documented example
+        AWS_ACCESS_KEY_ID + "\n",                                  # AWS's documented example
         "password = var.db_password\n",                            # a reference, not a value
         "postgresql://user:${DB_PASSWORD}@host:5432/db\n",         # interpolated
         "set the value to your-password-here\n",
@@ -153,16 +160,6 @@ def test_a_binary_file_does_not_crash_it(tmp_path):
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_it_reports_what_it_allowlisted_rather_than_skipping_quietly(tmp_path):
-    """A silent allowlist is how a real leak gets waved through. Every run prints what it skipped
-    and why, so the list is argued with rather than forgotten."""
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT)], cwd=ROOT, capture_output=True, text=True, check=False,
-    )
-    assert "allowlisted" in result.stdout
-    assert "redaction module documenting" in result.stdout
 
 
 def test_the_repository_as_it_stands_is_publishable():

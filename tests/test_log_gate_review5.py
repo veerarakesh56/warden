@@ -11,10 +11,11 @@ import sys
 
 import pytest
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden import cli
 from warden.observability import GatedFormatter
 
-SECRET = "AKIA" + "IOSFODNN7EXAMPLE"
+SECRET = AWS_ACCESS_KEY_ID
 SRC = str(pathlib.Path(__file__).resolve().parents[1] / "src")
 
 

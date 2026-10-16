@@ -7,6 +7,7 @@ import hashlib
 
 import pytest
 
+from fakes import HUNTER2
 from warden import quarantine
 from warden.redaction import redact
 
@@ -104,7 +105,7 @@ def _jwt() -> str:
 
 @pytest.mark.parametrize("line, secret", [
     ("Cookie: device={uuid}; sid={hex}", "{hex}"),
-    ("Cookie: a={jwt}; remember=hunter2x99", "hunter2x99"),
+    ("Cookie: a={jwt}; remember=" + HUNTER2 + "x99", HUNTER2 + "x99"),
     ("Set-Cookie: id={jwt}; token=Zq8wPx2mLk; Path=/", "Zq8wPx2mLk"),
 ])
 def test_a_masked_cookie_does_not_leave_the_cookies_after_it_in_clear(line, secret):
@@ -119,13 +120,13 @@ def test_a_masked_cookie_does_not_leave_the_cookies_after_it_in_clear(line, secr
     assert result.restore(result.text) == original, (result.text, result.mapping)
 
 
-@pytest.mark.parametrize("line", ['password="hunter2 {jwt}"', '--password "x {jwt}"', '{{"auth": "ab12cd34 {jwt}"}}'])
+@pytest.mark.parametrize("line", ['password="' + HUNTER2 + ' {jwt}"', '--password "x {jwt}"', '{{"auth": "ab12cd34 {jwt}"}}'])
 def test_a_quoted_secret_holding_a_token_restores_in_one_step(line):
     """Seventh review: a quoted value wrapping a placeholder kept it inside the stored value, so restore() left
     `<JWT_1>` in the operator's report. The stored value is the restored text."""
     original = line.format(jwt=_jwt())
     result = redact(original)
-    assert _jwt() not in result.text and "hunter2" not in result.text.replace("<", " ")
+    assert _jwt() not in result.text and HUNTER2 not in result.text.replace("<", " ")
     assert not any("<" in v for v in result.mapping.values()), result.mapping
     assert result.restore(result.text) == original, (result.text, result.mapping)
 

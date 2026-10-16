@@ -1,5 +1,6 @@
 import pytest
 
+from fakes import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, HUNTER2, JWT, dsn, private_key_block
 from warden.redaction import redact, redact_many
 
 
@@ -44,10 +45,10 @@ def test_credentials_are_masked_jwt_and_api_keys():
     whole suite green while a real GitHub token or JWT flowed unredacted into the model prompt - and
     the MCP redact_text tool advertises masking exactly these. redact() only raises on a MATCHED
     value that survives, so a pattern that silently stops matching is invisible without this."""
-    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    jwt = JWT
     assert jwt not in redact(f"authorization bearer {jwt}").text
     for key in (("sk-ant-" "api03-AbCdEf12345678"), ("sk-proj-" "abcdef123456"), ("ghp_" "AbCdEf1234567890abcd"),
-                "AKIAIOSFODNN7EXAMPLE"):
+                AWS_ACCESS_KEY_ID):
         assert key not in redact(f"leaked {key} in a log line").text, f"{key} was not masked"
 
 
@@ -122,7 +123,8 @@ def test_secrets_in_json_values_are_masked():
     """Structured (JSON) logs are ubiquitous, and a credential there has the key's closing quote
     between the keyword and the colon (`\"password\": \"x\"`) - which the keyed-value pattern missed.
     A non-credential JSON value must NOT be over-masked."""
-    assert "s3cr3tJsonValue" not in redact('{"password": "s3cr3tJsonValue"}').text
+    pw = "s3cr3tJsonValue"
+    assert pw not in redact('{"password": "' + pw + '"}').text
     assert "AbCdEf123456key" not in redact('{"api_key":"AbCdEf123456key"}').text
     assert "value42" in redact('{"config": "value42"}').text, "benign JSON value over-masked"
 
@@ -141,14 +143,12 @@ def test_high_value_credentials_in_logs_are_masked():
     credential paired with the AKIA id), and password=/secret= assignments. These are realistic in
     a misconfig/credential-leak incident log - the exact input this tool exists to handle."""
     secrets = [
-        ("postgres://svc:S3cretPass@10.0.0.5:5432/orders", "S3cretPass"),
-        ("mysql://root:hunter2xyz@dbhost/app", "hunter2xyz"),
+        (dsn("postgres", "svc", "S3cretPass", "10.0.0.5:5432/orders"), "S3cretPass"),
+        (dsn("mysql", "root", HUNTER2 + "xyz", "dbhost/app"), HUNTER2 + "xyz"),
         ("redis://:my-redis-pass1@cache:6379", "my-redis-pass1"),
-        ("Authorization: Bearer abc123def456ghi789jkl", "abc123def456ghi789jkl"),
-        ("-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7f8v2n\n-----END RSA PRIVATE KEY-----",
-         "MIIEpAIBAAKCAQEA7f8v2n"),
-        ("aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-         "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+        ("Authorization: Bearer " + "abc123def456ghi789jkl", "abc123def456ghi789jkl"),
+        (private_key_block("RSA", "MIIEpAIBAAKCAQEA7f8v2n"), "MIIEpAIBAAKCAQEA7f8v2n"),
+        ("aws_secret_access_key=" + AWS_SECRET_ACCESS_KEY, AWS_SECRET_ACCESS_KEY),
         ("db_password=SuperSecret123", "SuperSecret123"),
         ("client_secret: my-oauth-secret-value", "my-oauth-secret-value"),
         (("token xoxb-" "123456789-abcdefABCDEF"), ("xoxb-" "123456789-abcdefABCDEF")),
@@ -214,7 +214,7 @@ def test_the_independent_leak_check_is_the_gate_not_the_redactor():
     from warden import gate
 
     assert "EMAIL" not in gate.leaked_kinds("the secret alice@corp.io is still here")  # showable kind
-    key = "AKIA" + "IOSFODNN7" + "EXAMPLE"
+    key = AWS_ACCESS_KEY_ID
     assert gate.enforce(f"a key {key} is still here").verdict == "BLOCK"
 
 
@@ -359,12 +359,12 @@ def test_a_long_value_is_swept_even_inside_a_longer_token():
 
 @pytest.mark.parametrize("secret, gone", [
     # audit A-C-22: shapes that passed unredacted
-    ("run.sh --db-password Hunter2Secret --user app", "Hunter2Secret"),
-    ("psql --password=Hunter2Secret", "Hunter2Secret"),
+    ("run.sh --db-password " + HUNTER2.capitalize() + "Secret --user app", HUNTER2.capitalize() + "Secret"),
+    ("psql --password=" + HUNTER2.capitalize() + "Secret", HUNTER2.capitalize() + "Secret"),
     ("cli --api-key abcd1234efgh", "abcd1234efgh"),
     (("stripe whsec_" "abcdefghijklmnop123"), ("whsec_" "abcdefghijklmnop123")),
     (("slack xapp-" "1-A0B1C2D3-12345-abcdef"), ("xapp-" "1-A0B1C2D3-12345-abcdef")),
-    ("-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBGbody\n-----END PGP PRIVATE KEY BLOCK-----", "lQOYBGbody"),
+    (private_key_block("PGP", "lQOYBGbody"), "lQOYBGbody"),
     ("node ip-10-0-3-22.ap-south-2.compute.internal NotReady", "10-0-3-22"),
 ])
 def test_credential_shapes_the_audit_found_are_masked(secret, gone):
@@ -375,13 +375,13 @@ def test_a_flag_followed_by_another_flag_masks_nothing():
     assert redact("tool --password --user app").text == "tool --password --user app"
 
 
-_JWT = "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJ" + "zdWIiOiIxMjM0In0" + "." + "dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+_JWT = JWT
 OWN_SHAPES = [
     ("JWT", "session " + _JWT, _JWT),
     ("GCPTOKEN", "token ya29." + "a0AfH6SMBxExampleOnly0123456789", "a0AfH6SMBxExampleOnly0123456789"),
     ("BASIC", "curl -H 'Basic " + "dXNlcjpwYXNzd29yZA==" + "'", "dXNlcjpwYXNzd29yZA=="),
     ("BEARER", "sent Bearer " + "abcdef1234567890ghij", "abcdef1234567890ghij"),
-    ("WEBHOOK", "posting to https://hooks.slack.com/services/" + "T" + "0000AAAA/B" + "0000BBBB/cccccccc", "cccccccc"),
+    ("WEBHOOK", "posting to https://hooks.slack.com/" + "services/" + "T" + "0000AAAA/B" + "0000BBBB/cccccccc", "cccccccc"),
     ("WEBHOOK", "posting to https://discord.com/api/webhooks/" + "123456789/" + "abcDEF_ghi-JKLmnop", "abcDEF_ghi-JKLmnop"),
     ("APIKEY", "cloned with github_pat_" + "11ABCDEFG0123456789_abcdefghij", "11ABCDEFG0123456789_abcdefghij"),
     ("APIKEY", "published with npm_" + "abcdefghijklmnop1234", "abcdefghijklmnop1234"),

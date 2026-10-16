@@ -5,8 +5,8 @@ you named is unreachable.
 
 Each engine is configured by its own DSN variable, and an engine with no DSN set is simply not part of
 this run:
-    WARDEN_TEST_PG_DSN     postgresql://warden:warden@localhost:55432/warden
-    WARDEN_TEST_MYSQL_DSN  mysql://root:warden@localhost:53306/warden
+    WARDEN_TEST_PG_DSN     postgresql://warden:<password>@localhost:55432/warden
+    WARDEN_TEST_MYSQL_DSN  mysql://root:<password>@localhost:53306/warden
     WARDEN_TEST_REDIS_DSN  redis://localhost:56379/0
     WARDEN_TEST_MONGO_DSN  mongodb://localhost:57017/warden
     WARDEN_TEST_MSSQL_DSN  mssql://sa:<password>@localhost:11433/master

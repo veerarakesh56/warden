@@ -6,9 +6,10 @@ import hashlib
 
 import pytest
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden import gate
 
-KEY = "AKIA" + "IOSFODNN7EXAMPLE"
+KEY = AWS_ACCESS_KEY_ID
 PW = "Tr0ub4dor" + "-x9q"
 
 

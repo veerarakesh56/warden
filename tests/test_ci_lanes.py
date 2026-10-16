@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 
 CI = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci-tool.yml"
 INTEGRATION = pathlib.Path(__file__).resolve().parent / "integration"
@@ -223,3 +224,45 @@ def test_only_dev_deploys_on_merge_and_infra_only_plans_there():
         assert job["with"]["environment"] == "dev"
         if job["uses"].endswith("/_infra-deploy.yml"):
             assert job["with"]["action"] == "plan"  # never apply or destroy on a push
+
+
+def test_the_database_services_have_no_fixed_password():
+    """Naming audit item 17 (2026-10-16): the db job's PostgreSQL, MySQL and SQL Server passwords were fixed strings in
+    this file, and a fixed complex-looking one reads as a real credential. One value is made per run; the services, their
+    health checks and the DSNs the tests read all use it, and it meets SQL Server's sa password policy."""
+    import yaml
+
+    job = yaml.safe_load(CI.read_text(encoding="utf-8"))["jobs"]["db"]
+    made = job["env"]["DB_TEST_PASSWORD"]
+    assert "${{ github.run_id }}" in made and "${{ github.run_attempt }}" in made, made
+    sample = made.replace("${{ github.run_id }}", "18512345678").replace("${{ github.run_attempt }}", "1")
+    assert re.fullmatch(r"[A-Za-z0-9]{8,}", sample), sample  # nothing a DSN would need encoded
+    assert all(re.search(cls, sample) for cls in ("[A-Z]", "[a-z]", "[0-9]")), sample  # three of SQL Server's four sets
+    services = job["services"]
+    for name, key in (("postgres", "POSTGRES_PASSWORD"), ("mysql", "MYSQL_ROOT_PASSWORD"), ("mssql", "MSSQL_SA_PASSWORD")):
+        assert services[name]["env"][key] == "${{ env.DB_TEST_PASSWORD }}", (name, services[name]["env"][key])
+    assert "-p$MYSQL_ROOT_PASSWORD" in services["mysql"]["options"]
+    assert "-P $MSSQL_SA_PASSWORD" in services["mssql"]["options"]
+    [step] = [s for s in job["steps"] if "WARDEN_TEST_PG_DSN" in s.get("env", {})]
+    for var in ("WARDEN_TEST_PG_DSN", "WARDEN_TEST_MYSQL_DSN", "WARDEN_TEST_MSSQL_DSN"):
+        assert ":${{ env.DB_TEST_PASSWORD }}@" in step["env"][var], (var, step["env"][var])
+
+
+def test_the_privileged_pod_stays_a_negative_test_and_every_linter_skip_says_why():
+    """Naming audit item 18 (2026-10-16): every IaC linter flags k8s/test/privileged-must-fail.yaml, which is its purpose.
+    Its skips say why, they are on that one object only, and the pod is still what Pod Security must refuse."""
+    import yaml
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    pod = yaml.safe_load((root / "k8s" / "test" / "privileged-must-fail.yaml").read_text(encoding="utf-8"))
+    context = pod["spec"]["containers"][0]["securityContext"]
+    assert context["privileged"] is True and context["runAsUser"] == 0
+    notes = pod["metadata"]["annotations"]
+    checkov = [v for k, v in notes.items() if re.fullmatch(r"checkov\.io/skip\d+", k)]
+    linter = [v for k, v in notes.items() if k.startswith("ignore-check.kube-linter.io/")]
+    assert checkov and linter and len(checkov) + len(linter) == len(notes), notes
+    assert all(re.fullmatch(r"CKV2?_K8S_\d+=negative test - .+", v) for v in checkov), checkov
+    assert all(v.startswith("negative test - ") for v in linter), linter
+    skipping = subprocess.run(["git", "grep", "-l", "-e", "checkov.io/skip", "-e", "ignore-check.kube-linter.io", "--",
+                               "*.yaml", "*.yml"], cwd=root, capture_output=True, text=True, check=False).stdout.split()
+    assert skipping == ["k8s/test/privileged-must-fail.yaml"], skipping

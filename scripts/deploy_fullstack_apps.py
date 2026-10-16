@@ -402,8 +402,12 @@ def otel_config(region: str, *, grafana_url: str = "", datadog: bool = False) ->
         metrics.append("otlphttp/grafana")
         logs.append("otlphttp/grafana")
     if datadog:
-        # Plaintext on purpose (naming audit item 19, 2026-10-16): HOST_IP is this pod's own node (status.hostIP), so
-        # the hop to the Datadog agent's OTLP receiver never leaves the node; the agent sends on to Datadog over TLS.
+        # Plaintext gRPC on purpose (2026-10-16, naming audit item 19): HOST_IP is the collector pod's own node,
+        # and 4317 there is the Datadog agent's OTLP receiver on its hostPort, so the hop never leaves the node.
+        # The agent has no TLS listener to offer: chart 3.250.3 exposes only `enabled`, `endpoint` and
+        # `useHostPort` for that receiver (its values.yaml, read 2026-10-16). TLS on it would mean configuring the
+        # agent's embedded OTLP receiver directly and issuing it a certificate the collector trusts. The agent
+        # sends on to Datadog over TLS itself.
         exporters["otlp/datadog"] = {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}
         traces.append("otlp/datadog")
         metrics.append("otlp/datadog")

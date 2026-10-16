@@ -23,9 +23,9 @@ from typing import Any
 # string) and the broader pattern then fails to match.
 #
 # ⛔ Every pattern with a capturing group masks group(1) — the SENSITIVE part only — keeping the
-# surrounding structure (`password=<SECRET_1>`, `postgres://user:<URLCRED_1>@host`) so the model can
+# surrounding structure (`password=<SECRET_1>`, `postgres://user:<URLCRED_N>@host`) so the model can
 # still reason about the shape. A value that is nothing but placeholders (`api_key=<APIKEY_1>`) is masked
-# already and left alone; one that holds a placeholder AND more (`password=<UUID_1>.hunter2x`) is masked whole and
+# already and left alone; one that holds a placeholder AND more (`password=<UUID_1>.more`) is masked whole and
 # stored restored, so restore() gives it back in one step. Value classes used to stop at `<` instead, and left
 # whatever followed a placeholder in clear (eighth review, 2026-10-01).
 # A credential command-line flag: any name with `--`; with a single `-` only password/passwd, since
@@ -73,7 +73,7 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         r"|[a-z0-9.\-]+\.webhook\.office\.com/webhookb2/[A-Za-z0-9@/\-]+"
         r")"
     )),
-    # Credentials embedded in a URL / connection string: scheme://user:PASSWORD@host. Masks the
+    # Credentials embedded in a URL / connection string: scheme://user:<PASSWORD>@host. Masks the
     # password (group 1). A literal `@` inside a password is only partially covered (rare — real
     # passwords are URL-encoded), and the SECRET pattern below is the backstop for `password=` forms.
     # The password runs to the LAST "@" before the host: `admin:p@ss@db` used to mask only "p" and

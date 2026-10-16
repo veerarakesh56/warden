@@ -75,11 +75,15 @@ def load_key():
 
     path = _key_path()
     pem = path.read_bytes()
-    if b"-----BEGIN ENCRYPTED PRIVATE KEY-----" not in pem:
+    try:
+        clear = serialization.load_pem_private_key(pem, password=None)
+    except TypeError:  # cryptography's answer for an encrypted key read without its passphrase
+        clear = None
+    if clear is not None:
         print(f"WARNING: {path} is not encrypted: anyone who can read it can approve as the bench approver. Make an "
               f"encrypted one: set {PASSPHRASE_ENV}, delete the file, run --new-key and replace the approver entry",
               file=sys.stderr)
-        return serialization.load_pem_private_key(pem, password=None)
+        return clear
     passphrase = os.environ.get(PASSPHRASE_ENV, "").encode()
     if not passphrase:
         raise SystemExit(f"{path} is encrypted: set {PASSPHRASE_ENV}")

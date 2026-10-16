@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from fakes import HUNTER2, dsn
 from warden import aws_backend, aws_stack
 from warden.aws_stack import StackBackend, parse_tracebacks, source_excerpt
 from warden.models import Alert, Severity
@@ -89,12 +90,15 @@ def _events(group_messages: dict[str, list[tuple[str, str]]]):
         stop_query=lambda queryId: {"success": True})
 
 
+_SECRET_VALUE = "super-secret-value"
+
+
 def _lambda(**over):
     methods = {
         "get_alias": {"FunctionVersion": "7"},
         "get_function_configuration": {"Timeout": 1, "MemorySize": 256, "Environment": {
             "Variables": {"TABLE_NAME": "warden-dev-carts", "REDIS_HOST": "cache.internal",
-                          "DB_PASSWORD": "super-secret-value", "API_TOKEN": "tok-123"}}},
+                          "DB_PASSWORD": _SECRET_VALUE, "API_TOKEN": "tok-123"}}},
         "get_function_concurrency": {"ReservedConcurrentExecutions": 0},
         "list_versions_by_function": {"Versions": [
             {"Version": "$LATEST"},
@@ -352,7 +356,7 @@ def test_every_reader_emits_the_contract_lines(dsns):
     assert not any("not ours" in x for x in lines)
     # Environment variable NAMES only - a value would be a secret in the evidence.
     # Secret-looking NAMES are shown without their value, so no fix can ever write a value back blind.
-    assert not any("super-secret-value" in x or "tok-123" in x for x in lines)
+    assert not any(_SECRET_VALUE in x or "tok-123" in x for x in lines)
 
 
 def test_metrics_use_the_contract_names(dsns):
@@ -940,8 +944,8 @@ def test_lambda_versions_past_the_cap_are_not_taken_for_the_newest(monkeypatch):
 
 @pytest.mark.parametrize("name, value, shown", [
     ("TABLE_NAME", "warden-dev-carts", True), ("REDIS_HOST", "cache.internal", True), ("AWS_REGION", "x-1", True),
-    ("DATABASE_URL", "postgres://app:" + "hun" + "ter2" + "@db.internal/orders", False), ("CONN", "app:hunter2", False),
-    ("PWD", "hunter2", False), ("UPSTREAM", "hunter2", False), ("DB_HOST", "app@db.internal", False),
+    ("DATABASE_URL", dsn("postgres", "app", HUNTER2, "db.internal/orders"), False), ("CONN", "app:" + HUNTER2, False),
+    ("PWD", HUNTER2, False), ("UPSTREAM", HUNTER2, False), ("DB_HOST", "app@db.internal", False),
     ("API_TOKEN_NAME", "x", False), ("SERVICE", "orders", True), ("DB_USER", "orders_app", True),
 ])
 def test_an_environment_value_is_shown_only_under_a_configuration_name(name, value, shown):

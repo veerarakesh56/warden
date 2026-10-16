@@ -23,10 +23,11 @@ from scenarios.runner import (
     quiet_seconds_for,
 )
 
+from fakes import HUNTER2, dsn
 from warden.redaction import redact
 
-PASSWORD = "hunter2-not-a-real-password"
-DSN = f"postgresql://warden:{PASSWORD}@db.internal:5432/warden"
+PASSWORD = HUNTER2 + "-not-a-real-password"
+DSN = dsn("postgresql", "warden", PASSWORD, "db.internal:5432/warden")
 
 
 def _target() -> ops_db.Target:

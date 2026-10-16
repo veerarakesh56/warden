@@ -13,6 +13,7 @@ import json
 
 import pytest
 
+from fakes import HUNTER2
 from warden.models import (
     ActionKind,
     Alert,
@@ -31,7 +32,7 @@ TENANT = "initech-4"
 EMAIL = "priya.nair@corp.io"
 HOST = "10.0.7.22"
 SECRETS = {
-    "password": "hunter2-Sup3r-s3cret",
+    "password": HUNTER2 + "-Sup3r-s3cret",
     "apikey": "sk-ant-" "api03-AAAAAAAAAAAAAAAAAAAA",
     "account": "123456789012",
     "uuid": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
@@ -192,7 +193,7 @@ def test_bare_placeholders_the_model_wrote_are_revealed_but_never_secrets():
     to see identifiers got placeholders anyway."""
     from warden.reporting import reveal_identifiers
 
-    mapping = {"<EMAIL_1>": "a@corp.io", "<EMAIL_12>": "l@corp.io", "<SECRET_1>": "hunter2"}
+    mapping = {"<EMAIL_1>": "a@corp.io", "<EMAIL_12>": "l@corp.io", "<SECRET_1>": HUNTER2}
     text = "users EMAIL_1, EMAIL_12 and <EMAIL_1>; creds SECRET_1 / <SECRET_1>"
     out = reveal_identifiers(text, mapping)
     assert out == "users a@corp.io, l@corp.io and a@corp.io; creds SECRET_1 / <SECRET_1>"

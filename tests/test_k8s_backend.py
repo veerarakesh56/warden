@@ -18,6 +18,7 @@ from types import SimpleNamespace as NS
 import pytest
 import yaml
 
+from fakes import HUNTER2
 from warden import evidence, k8s_backend
 from warden.k8s_backend import KubernetesBackend, _to_mib
 from warden.models import (
@@ -339,8 +340,9 @@ def test_a_template_change_with_no_image_change_is_a_deploy():
     limits = lambda mib: NS(limits={"memory": f"{mib}Mi"})
     [d] = _two({"resources": limits(256)}, {"resources": limits(48)})
     assert d["changed"] == "resources" and d["image"] == d["previous_image"] and d["revision"] == "2"
-    [d] = _two({"env": [NS(name="DB_PASSWORD", value="old-secret")]}, {"env": [NS(name="DB_PASSWORD", value="hunter2")]})
-    assert d["changed"] == "env" and "hunter2" not in str(d) and "DB_PASSWORD" not in str(d)
+    before, after = "old-secret", HUNTER2
+    [d] = _two({"env": [NS(name="DB_PASSWORD", value=before)]}, {"env": [NS(name="DB_PASSWORD", value=after)]})
+    assert d["changed"] == "env" and HUNTER2 not in str(d) and "DB_PASSWORD" not in str(d)
     [d] = _two({"image": "a:1", "command": ["run"]}, {"image": "a:2", "command": ["run", "--fast"]})
     assert d["changed"] == "image,command"
     [d] = _two({}, {"readiness_probe": NS(http_get=NS(path="/ready"))})

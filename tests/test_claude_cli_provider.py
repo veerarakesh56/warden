@@ -17,6 +17,7 @@ import subprocess
 
 import pytest
 
+from fakes import ANTHROPIC_KEY_PREFIX
 from warden.providers import ClaudeCliProvider, ProviderError
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -311,7 +312,7 @@ def test_no_credential_in_the_parent_environment_reaches_the_model_process(provi
     denylist let AWS keys, database DSNs and a kubeconfig into `claude -p` (found 2026-09-27)."""
     planted = {"AWS_ACCESS_KEY_ID": "ASIAPLANTED", "AWS_SECRET_ACCESS_KEY": "s3cr3t", "AWS_SESSION_TOKEN": "tok",
                "WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro:pw@h/db", "KUBECONFIG": "/tmp/kc",
-               "ANTHROPIC_API_KEY": "sk-ant-planted", "WARDEN_SLACK_WEBHOOK": "https://hooks.example/x",
+               "ANTHROPIC_API_KEY": ANTHROPIC_KEY_PREFIX + "planted", "WARDEN_SLACK_WEBHOOK": "https://hooks.example/x",
                "SOME_FUTURE_SECRET": "x"}
     for k, v in planted.items():
         monkeypatch.setenv(k, v)
