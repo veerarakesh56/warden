@@ -42,10 +42,11 @@
     {
       "Sid": "NeverWriteTheOwnersDatadogKey",
       "Effect": "Deny",
-      "Action": [
-        "secretsmanager:PutSecretValue",
-        "secretsmanager:UpdateSecret",
-        "secretsmanager:DeleteSecret"
+      "NotAction": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:ListSecretVersionIds",
+        "secretsmanager:GetResourcePolicy"
       ],
       "Resource": "arn:aws:secretsmanager:*:*:secret:warden-dev-datadog-api-key*"
     }
