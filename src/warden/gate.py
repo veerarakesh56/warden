@@ -352,7 +352,10 @@ def hedge(text: str) -> str:
 # withheld 8 of those and no command; so each shape here needs what makes it runnable - the program in lower case,
 # an aws verb-noun operation, a kubectl object, a terraform or helm flag or line end, an SQL object and clause in
 # capitals ("update its set of rules" is English), a call's parenthesis.
-_FLAGS = r"(?:--?[\w-]+(?:[= ][^\s-]\S*)?\s+)*"
+# Linear on any input (review, 2026-10-16: `--?[\w-]+` read "--a" two ways, and 24 flags took 19 s - model text is
+# attacker-shaped, so that was a way to stall the worker). One reading per flag - after its dashes a letter or digit -
+# inside an atomic group, which is never re-entered.
+_FLAGS = r"(?>(?:-{1,2}[A-Za-z0-9][\w-]*(?:[= ][^\s-]\S*)?\s+)*)"
 _K8S_OBJECT = (r"(?:deploy|deployment|deployments|ns|namespace|namespaces|po|pod|pods|svc|service|services|cm|configmap|"
                r"secret|secrets|sts|statefulset|ds|daemonset|rs|replicaset|job|cronjob|hpa|ing|ingress|node|nodes|pvc|"
                r"crd|all|-f|--filename)\b")

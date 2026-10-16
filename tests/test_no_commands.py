@@ -238,3 +238,19 @@ def test_a_discussion_answer_can_carry_no_code_block_or_command():
     assert said.count(gate.WITHHELD) == 3 and "Then check." in said and said.splitlines()[0] == "Run this:"
     sent = gate.enforce(said)
     assert sent.verdict == "PASS" and "```" not in sent.text
+
+
+def test_g4_reads_hostile_text_in_linear_time():
+    """Review, 2026-10-16: the first G4 read `--a` two ways, and 24 flags after `aws` took 19 s - model text is
+    attacker-shaped, so that stalled the worker. Every shape is read once: the longest answer an Answer allows, built
+    to make a backtracking pattern explode, takes well under a second."""
+    import time
+
+    from warden.gate import withhold_commands
+
+    hostile = ["aws " + "--a-b " * 600 + "!", "aws " + "--a=b " * 600 + "!", "kubectl " + "-a " * 1000 + "!",
+               "aws " + "--x-" * 900 + " x !", "aws " + "-a b " * 700, "rm -" + "r" * 3400, "curl " + "a " * 1700]
+    started = time.perf_counter()
+    for text in hostile:
+        withhold_commands(text[:3500])
+    assert time.perf_counter() - started < 1.0

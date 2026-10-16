@@ -435,7 +435,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                     "reversible_by_table": proposal.table_reversible,
                     "grounding": "not checked: this tool receives evidence counts, not evidence",
                     "may_execute": False,
-                    "note": "This MCP server never executes anything. A human performs the action.",
+                    # True wording (2026-10-16): no call here changes anything by itself; request_remediation only
+                    # asks for a plan, which WARDEN applies after an approver signs it.
+                    "note": ("This verdict changes nothing. A fix happens only through request_remediation's plan, "
+                             "which WARDEN applies after an approver signs it on the approval page."),
                 }
             )
 
@@ -627,7 +630,8 @@ def build_server() -> Server:
         instructions=(
             "WARDEN exposes a deterministic safety gate for infrastructure remediation. Call "
             "verify_remediation before acting on any production system; it returns a binding "
-            "verdict with policy ids. This server never executes anything; may_execute is always false."
+            "verdict with policy ids. No call changes anything by itself: request_remediation asks for a plan, "
+            "which WARDEN applies only after an approver signs it on the approval page; may_execute is always false."
         ),
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
