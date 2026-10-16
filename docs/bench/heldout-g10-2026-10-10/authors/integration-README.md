@@ -25,7 +25,7 @@ Route 53 health check aimed at a name only private DNS resolves, plus novel mult
 - `incidents/<id>.json`: `{"id", "alert", "context"}`. The alert carries `resources.labels_for(...)` of the alarm's
   metric(s) plus `alarm`. The context holds what the stack backend's readers would emit, in reader order:
   `logs`, `metrics`, `recent_deploys`, `tool_errors`, plus `empty_reads` where `gather()` would record one.
-- `key.json`: per case `kind`, `service`, `novel`, `cause`, `cause_evidence`, `cause_evidence_untrusted`,
+- `answer-key.json`: per case `kind`, `service`, `novel`, `cause`, `cause_evidence`, `cause_evidence_untrusted`,
   `correct_actions`, `harmful_actions`, and `target`. Some cases also carry `alternatives`, `assumes` and
   `tool_error_expected`.
   - `cause_evidence` spans are exact substrings of the item texts of `warden.evidence.index(ContextBundle(...))`:

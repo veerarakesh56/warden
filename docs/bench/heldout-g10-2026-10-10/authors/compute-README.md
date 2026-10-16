@@ -12,7 +12,7 @@ Scaling groups, and AWS App Runner.
 | Path | What it is |
 |---|---|
 | `incidents/<id>.json` | 45 cases. Each one is `{id, alert, context}`. `context` is `{logs, metrics, recent_deploys, tool_errors}` exactly as WARDEN's stack backend would gather it. |
-| `key.json` | The answer key, one entry per case: `kind`, `service`, `novel`, `cause`, `cause_evidence`, `correct_actions`, `harmful_actions` and `target`. |
+| `answer-key.json` | The answer key, one entry per case: `kind`, `service`, `novel`, `cause`, `cause_evidence`, `correct_actions`, `harmful_actions` and `target`. |
 | `generator/lib.py` | Builders that emit each reader's lines, in reader order. |
 | `generator/cases_*.py` | The cases, one file per service family. |
 | `generator/gen.py` | Writes the incidents and the key. Its output is deterministic. |

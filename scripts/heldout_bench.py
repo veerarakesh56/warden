@@ -4,7 +4,7 @@
         --out ~/warden-bench-runs/heldout/g9-sonnet-5
 
 A held-out set is written by someone who has not seen WARDEN's signatures, policies, prompt or rubrics: its cases
-(`incidents/*.json`, each an alert and the evidence WARDEN's readers would have read) and its key (`key.json`, kept
+(`incidents/*.json`, each an alert and the evidence WARDEN's readers would have read) and its key (`answer-key.json`, kept
 apart). Each case goes through today's redact -> tripwire -> diagnose -> verify, exactly as a replay does
 (replay_diagnose.rediagnose), and is scored on four things the key decides, never on the hypothesis's prose:
 - action: the proposal's ActionKind is in the key's correct actions (CORRECT), its harmful ones (HARMFUL), a passive
@@ -149,6 +149,18 @@ def always_escalate(keys: dict[str, dict]) -> dict[str, int]:
             "fixed": 0}
 
 
+def answer_key(cases: pathlib.Path) -> dict:
+    """The set's answer key. Named `key.json` until 2026-10-16, the usual name of a GCP service-account key, so
+    scanners and readers took it for a leaked credential (naming audit item 8); a copy outside the repository
+    still named so is read, with a warning, for one release."""
+    path = cases / "answer-key.json"
+    if not path.exists() and (cases / "key.json").exists():
+        path = cases / "key.json"
+        print(f"warning: {path} is the old name; rename it answer-key.json (key.json stops being read in the next "
+              "release)", file=sys.stderr)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--cases", required=True, type=pathlib.Path)
@@ -161,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="fetch AWS's documentation on the evidence's error codes first, as the read zone does (G10-C6)")
     args = p.parse_args(argv)
     sys.path.insert(0, str(ROOT / "scripts"))
-    key = json.loads((args.cases / "key.json").read_text(encoding="utf-8"))
+    key = answer_key(args.cases)
     reports = args.out / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     if not args.score_only and not args.reverify:

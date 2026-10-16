@@ -6,7 +6,7 @@
 ## Contents
 
 - `incidents/g10-data-NN.json` holds 41 cases as `{id, alert, context}`. Each is what WARDEN's stack backend would gather for one CloudWatch alarm.
-- `key.json` holds the answer key per id: `kind`, `service`, `novel`, `cause`, `cause_evidence`, `correct_actions`, `harmful_actions` and `target`.
+- `answer-key.json` holds the answer key per id: `kind`, `service`, `novel`, `cause`, `cause_evidence`, `correct_actions`, `harmful_actions` and `target`.
 - `generator/gen.py` builds both from the case definitions.
 - `generator/validate.py` checks every case against WARDEN's own models and exits 1 on any problem.
 

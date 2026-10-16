@@ -8,7 +8,7 @@ WARDEN diagnoses and fixes platform/security/configuration incidents it was neve
 - `incidents/plat-NN.json` - 44 cases: `{"id", "alert", "context"}`. `alert` is what the alarm hands WARDEN;
   `context` is what the stack backend (`WARDEN_BACKEND=stack`) would have gathered for it (`logs`, `metrics`,
   `recent_deploys`, `tool_errors`).
-- `key.json` - per id: `slug`, `kind` (fault | multi_fault | no_fault | incomplete), `family`, `service`, `novel`,
+- `answer-key.json` - per id: `slug`, `kind` (fault | multi_fault | no_fault | incomplete), `family`, `service`, `novel`,
   `cause`, `cause_evidence` (exact substrings of the item texts WARDEN shows), `best_action`, `correct_actions`,
   `harmful_actions`, `target`.
   WARDEN must never see this file.

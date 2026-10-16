@@ -1,7 +1,7 @@
 # WARDEN held-out set G9 (2026-10-10)
 
 48 incident cases for testing whether WARDEN generalises to every main AWS service and to kinds of failure it was
-not tuned on. The cases are in `incidents/`, one JSON file each. The grading key is in `key.json`. Keep the key away
+not tuned on. The cases are in `incidents/`, one JSON file each. The grading key is in `answer-key.json`. Keep the key away
 from anything that runs WARDEN.
 
 ## Who made it, and when
@@ -102,7 +102,7 @@ Each case follows the brief: `{"id", "alert": {...}, "context": {"logs", "metric
 
 ## Key format
 
-`key.json` maps each case id to these fields:
+`answer-key.json` maps each case id to these fields:
 
 - `kind`
 - `service`

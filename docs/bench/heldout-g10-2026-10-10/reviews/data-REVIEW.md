@@ -1,7 +1,7 @@
 # G10 DATA held-out set: independent review
 
 **Reviewer:** an independent reviewer agent (Claude Opus 5.5), 2026-10-10.
-**Scope:** all 41 cases (`incidents/*.json`), `key.json` and `README.md`, read line by line. No file was changed except this one, and no AWS calls were made.
+**Scope:** all 41 cases (`incidents/*.json`), `answer-key.json` and `README.md`, read line by line. No file was changed except this one, and no AWS calls were made.
 **WARDEN files read:** `aws_stack.py`, `aws_describe.py`, `resources.py`, `aws_backend.py`, `database.py`, `tools.py`, `evidence.py`, `quarantine.py` and `models.py`. The generator scripts were not opened.
 
 **Counts:** 1 HIGH, 10 MED, 20 LOW.

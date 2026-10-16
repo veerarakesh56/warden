@@ -2,7 +2,7 @@
 
 48 incident cases written by an **independent author** (a separate agent) who was barred from WARDEN's signatures,
 policies, prompt, rubrics, fixtures, tests and earlier runs, and allowed to read only the evidence readers, to copy
-their line formats (rules in [README.md](README.md)). The grading key ([key.json](key.json)) was written with the cases
+their line formats (rules in [README.md](README.md)). The grading key ([answer-key.json](answer-key.json)) was written with the cases
 and is kept apart from them. WARDEN never saw either before this run.
 
 - Model: Claude Sonnet 5 on the Claude API (anthropic 1.11.0), prompt 992fb387..., the code of main at d01407c.

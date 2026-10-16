@@ -2,7 +2,7 @@
 
 172 incident cases across every main AWS service, written to test whether WARDEN finds and fixes incidents it was
 never tuned on. The cases are in `incidents/`, one JSON file each (`{id, alert, context}`: the alert, and the evidence
-WARDEN's stack readers would have read). The grading key is in `key.json`. Keep the key away from anything that runs
+WARDEN's stack readers would have read). The grading key is in `answer-key.json`. Keep the key away from anything that runs
 WARDEN.
 
 | Group | Cases | Services |
@@ -38,7 +38,7 @@ Kinds: 99 single faults, 23 with two faults, 25 healthy controls and 25 with inc
   `*-inc-*` incomplete evidence, `*-multi-*` two faults, and many named the cause). They are now `g10-001` to `g10-172`,
   shuffled with seed 20261010; the slug stays in the key only. No case id appears inside any case's evidence.
 - **Uniform severity.** Every alert is `high`: the authors had set `low` on healthy controls only.
-- **The key** (`key.json`, per id): `kind`, `group`, `slug`, `service`, `novel`, `cause`, `cause_evidence`,
+- **The key** (`answer-key.json`, per id): `kind`, `group`, `slug`, `service`, `novel`, `cause`, `cause_evidence`,
   `correct_actions`, `harmful_actions`, `target`. Some groups add `best_action`, `family`, `alternatives`,
   `cause_change`/`decoy_change` and `assumes` (an assumption about AWS a live window should re-check).
 

@@ -95,3 +95,16 @@ def test_a_reverified_report_carries_todays_verdict_and_an_unanswered_one_is_lef
               "verdict": {"status": "approved_for_human", "policy_ids": []}}
     again = hb.reverified(report)["verdict"]
     assert again["status"] == "rejected" and "P3-NO-EVIDENCE" in again["policy_ids"]
+
+
+def test_the_answer_key_is_named_as_one_and_an_old_copy_still_reads_with_a_warning(tmp_path, capsys):
+    """Naming audit item 8 (2026-10-16): `key.json` is the usual name of a GCP service-account key, so the committed
+    sets name theirs answer-key.json; a set outside the repository still named key.json reads, and says so."""
+    for name in ("heldout-g9-2026-10-10", "heldout-g10-2026-10-10"):
+        cases = ROOT / "docs" / "bench" / name
+        assert not (cases / "key.json").exists() and hb.answer_key(cases), name
+    (tmp_path / "key.json").write_text('{"a": {"kind": "fault"}}', encoding="utf-8")
+    assert hb.answer_key(tmp_path) == {"a": {"kind": "fault"}}
+    assert "rename it answer-key.json" in capsys.readouterr().err
+    (tmp_path / "answer-key.json").write_text('{"b": {}}', encoding="utf-8")
+    assert hb.answer_key(tmp_path) == {"b": {}} and capsys.readouterr().err == ""
