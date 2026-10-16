@@ -159,7 +159,7 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 |---|---|---|
 | Public subnets | the NAT gateway (its Elastic IP) only; `map_public_ip_on_launch = false` | nothing inbound |
 | Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**), interface endpoints | inside the VPC only; the ALB only from the Lambda security group |
-| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled, **but no authentication and no access logs** (audit A-I-13, being fixed); EKS API: `/warden/<env>/tf/my_ip_cidr`, IAM auth — **except that the apps pipeline needs `0.0.0.0/0` for GitHub-hosted runners during a deploy** (audit A-I-16, being fixed) |
+| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway (audit A-I-13, corrected 2026-10-16: this cell still said "no authentication and no access logs"): throttled; POST /checkout needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state); GET /health is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries — **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set, which dev has been since 2026-10-14, not only during a deploy** (audit A-I-16, being closed) |
 | Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
 
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT.
