@@ -5,7 +5,7 @@ description = "AI incident-response orchestrator: the model proposes, a determin
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Veera Rakesh Kethari" }]
 # Core deps carry NO vendor SDK. Which model answers is a deployment decision, so the provider
 # packages are extras - install only the one you use. providers.py imports them lazily inside each

@@ -27,12 +27,12 @@ TEMPLATES = ROOT / "iam" / "templates"
 # The deploy role's permissions are two managed policies: one is near IAM's 6,144-character limit. The actor and
 # platform-reader roles are WARDEN's own per-environment identities for its AWS platform (G6, audit A-P-5): the
 # runtime worker assumes the reader to read, and the actor - for one approved plan - to write.
-KINDS = ("boundary", "deploy", "deploy-ec2", "trust", "actor", "actor-trust", "platform-reader", "platform-diagnose",
+KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust", "actor", "actor-trust", "platform-reader", "platform-diagnose",
          "platform-reader-trust")
 TRUSTS = ("trust", "actor-trust", "platform-reader-trust")
 # WARDEN's own runtime environment (`runtime:` in environments.yaml) gets no application IAM: its deploy role - the one
 # runtime.yml assumes - and the boundary on every role terraform/runtime makes come from the runtime-* templates (G6).
-RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "trust")
+RUNTIME_KINDS = ("boundary", "deploy", "deploy-ec2", "deploy-guard", "trust")
 # The benchmark harness and the undo lab run only where environments.yaml `fault_environments` says, as the operator
 # on the laptop (owner, 2026-10-02; audit A-I-18) - the list is configuration, never named here.
 HARNESS_ENVS = EnvironmentPolicies.load().fault_environments
@@ -95,24 +95,24 @@ def main(argv: list[str] | None = None) -> int:
         d = ROOT / "iam" / env
         d.mkdir(parents=True, exist_ok=True)
         for kind, text in render(env).items():
-            (d / f"{kind}.json").write_text(text, encoding="utf-8")
+            (d / f"{kind}.json").write_text(text, encoding="utf-8", newline="\n")
         if account:
             for kind in TRUSTS:
-                (d / f"{kind}.local.json").write_text(render(env, account)[kind], encoding="utf-8")
+                (d / f"{kind}.local.json").write_text(render(env, account)[kind], encoding="utf-8", newline="\n")
             if env in HARNESS_ENVS:
-                (d / "harness-trust.local.json").write_text(render(env, account)["harness-trust"], encoding="utf-8")
+                (d / "harness-trust.local.json").write_text(render(env, account)["harness-trust"], encoding="utf-8", newline="\n")
         if args.cluster_resource_id and env in HARNESS_ENVS:
             if not re.fullmatch(r"cluster-[A-Z0-9]{10,40}", args.cluster_resource_id):
                 p.error("--cluster-resource-id must look like cluster-ABC123... (the cluster's Resource ID)")
             (d / "harness.local.json").write_text(render(env, cluster=args.cluster_resource_id)["harness"],
-                                                  encoding="utf-8")
+                                                  encoding="utf-8", newline="\n")
     runtime = runtime_environment()
     d = ROOT / "iam" / runtime
     d.mkdir(parents=True, exist_ok=True)
     for kind, text in render_runtime(runtime).items():
-        (d / f"{kind}.json").write_text(text, encoding="utf-8")
+        (d / f"{kind}.json").write_text(text, encoding="utf-8", newline="\n")
     if account:
-        (d / "trust.local.json").write_text(render_runtime(runtime, account)["trust"], encoding="utf-8")
+        (d / "trust.local.json").write_text(render_runtime(runtime, account)["trust"], encoding="utf-8", newline="\n")
     print(f"rendered {len(environments())} environments and the runtime ({runtime}) into iam/")
     return 0
 

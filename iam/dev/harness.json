@@ -62,11 +62,6 @@
         "events:DisableRule",
         "events:EnableRule",
         "elasticache:ModifyReplicationGroup",
-        "iam:ListRolePolicies",
-        "iam:GetRolePolicy",
-        "iam:ListRoleTags",
-        "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy",
         "secretsmanager:DescribeSecret"
       ],
       "Resource": [
@@ -78,7 +73,6 @@
         "arn:aws:elasticloadbalancing:ap-south-2:*:targetgroup/warden-dev-*",
         "arn:aws:events:ap-south-2:*:rule/warden-dev-*",
         "arn:aws:elasticache:ap-south-2:*:replicationgroup:warden-dev-*",
-        "arn:aws:iam::*:role/warden-dev-*",
         "arn:aws:secretsmanager:ap-south-2:*:secret:warden-dev-*"
       ]
     },
@@ -154,6 +148,47 @@
         "arn:aws:rds-db:ap-south-2:*:dbuser:<CLUSTER_RESOURCE_ID>/postgres",
         "arn:aws:rds-db:ap-south-2:*:dbuser:<CLUSTER_RESOURCE_ID>/warden_dev_ro"
       ]
+    },
+    {
+      "Sid": "Fs23SigningKeyVersionsNeverTheValue",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecretVersionStage"
+      ],
+      "Resource": "arn:aws:secretsmanager:ap-south-2:*:secret:warden-dev-catalog-signing-key-*"
+    },
+    {
+      "Sid": "ReadTheFaultTargetRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/warden-dev-checkout",
+        "arn:aws:iam::*:role/warden-dev-ecs-exec",
+        "arn:aws:iam::*:role/warden-dev-orders-api-task"
+      ]
+    },
+    {
+      "Sid": "EditTheFaultTargetRolesOnlyWhileBounded",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/warden-dev-checkout",
+        "arn:aws:iam::*:role/warden-dev-ecs-exec",
+        "arn:aws:iam::*:role/warden-dev-orders-api-task"
+      ],
+      "Condition": {
+        "ArnLike": {
+          "iam:PermissionsBoundary": "arn:aws:iam::*:policy/WardenEnvBoundary-dev"
+        }
+      }
     }
   ]
 }

@@ -24,7 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 POLICIES = (("WardenEnvBoundary-{env}", "boundary"), ("WardenEnvDeploy-{env}", "deploy"),
             ("WardenEnvDeployEc2-{env}", "deploy-ec2"), ("WardenPlatformReader-{env}", "platform-reader"),
             ("WardenPlatformDiagnose-{env}", "platform-diagnose"), ("WardenActor-{env}", "actor"),
-            ("WardenHarness-{env}", "harness"))
+            ("WardenHarness-{env}", "harness"), ("WardenDeployGuard-{env}", "deploy-guard"))
 # (live role name, trust file kind).
 TRUSTS = (("warden-{env}-deploy", "trust"), ("warden-{env}-platform-reader", "platform-reader-trust"),
           ("warden-{env}-actor", "actor-trust"), ("warden-{env}-harness", "harness-trust"),
