@@ -183,7 +183,9 @@ failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
   is the plan (`passkeys.py`). The workflow re-verifies the assertion itself.
 - **Break-glass.** `warden approve` signs the plan hash with an Ed25519 key held by the approver.
 - **Records pages** (`records.py`): every incident, its plan, who approved or denied it and why, and how it
-  ended, read from the signed audit. Nothing on them is written back.
+  ended, read from the signed audit. Nothing on them is written back. The list pages (10, 25, 50 or 100 a page)
+  and filters by environment, status, service, days and title text; a reader whose approver entries are limited
+  to some environments sees only those. Every page has a light, dark or system theme and WARDEN's logo.
 - **Discussion** (`discuss.py`): anyone in a second Slack channel can ask WARDEN about an incident; WARDEN
   answers from the incident's own evidence. Only an enrolled approver may ask for a new plan, and that plan
   still needs a passkey approval.
@@ -201,7 +203,8 @@ construction, and its identity is scoped to reads.
 | Databases | `postgres`, `mysql`, `redis`, `mongo`, `mssql` | each engine's own session views: connections, idle-in-transaction sessions, long queries, lock waits, replica lag (`database.py`) |
 
 Datadog (`datadog.py`), Grafana Loki, Tempo and Prometheus (`grafana.py`) and AWS X-Ray (`xray.py`) are
-read beside the main backend when their read keys are set.
+read beside the main backend when their read keys are set. WARDEN's own cloud runtime reads Datadog only;
+Grafana's keys have no slot there and are read only from the process environment, where an adopter sets them.
 
 Every read runs under a deadline (`WARDEN_TOOL_TIMEOUT`). A failed or timed-out read becomes an entry in
 `context.tool_errors`, which policy P8 reads, so a partial picture is visible to the verifier instead of

@@ -65,8 +65,8 @@ configure it) · **OPTIONAL** (an extra you can turn on).
 | CloudTrail event history and a management-event trail | which change came before the alarm; the witness of actor sessions | IN USE | event history free; trail priced below |
 | RDS Performance Insights (API) | database load by wait type | IN USE | priced below |
 | AWS X-Ray | trace summaries for the incident's service | SUPPORTED | priced below |
-| Datadog (Logs, Spans, metrics) | evidence from a company's Datadog | SUPPORTED | your Datadog plan |
-| Grafana Loki, Tempo, Prometheus | evidence from a company's Grafana stack | SUPPORTED | your Grafana plan |
+| Datadog (Logs, Spans, metrics) | evidence from a company's Datadog; the one observability tool WARDEN's own runtime reads (owner: Datadog only) | SUPPORTED | your Datadog plan |
+| Grafana Loki, Tempo, Prometheus | evidence from a company's Grafana stack; not in WARDEN's own runtime (no secret slot), set in the process environment by an adopter | SUPPORTED | your Grafana plan |
 | OpenTelemetry | WARDEN's own traces | IN USE | free |
 
 ## 7. Notifications and records
