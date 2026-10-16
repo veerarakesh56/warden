@@ -162,15 +162,20 @@ class SlackBotSink:
         parts = split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True))
         messages = slack_messages(parts, data)
         status = f"WARDEN · inc-{incident.removeprefix('inc-')} · {parts[0].strip().splitlines()[0][:150]}"
-        root = self.threads.get(incident)
+        # The thread is kept with the channel it is in: one in another channel - the incident's environment was routed
+        # elsewhere before - is never continued or updated from this one. A row from before the channel was kept has
+        # only its ts, and was this channel's.
+        kept = self.threads.get(incident) or {}
+        root = kept.get("ts") if kept.get("channel", self.channel) == self.channel else None
         if root is None:
             answer, detail = self._post(status)
             if answer is None:
                 return Notification(sink=self.name, delivered=False, detail=detail)
             root = answer["ts"]
-            self.threads[incident] = root
+            self.threads[incident] = {"ts": root, "channel": self.channel}
         else:
-            _slack_call("chat.update", {"channel": self.channel, "ts": root, "text": status}, self._token)
+            _slack_call("chat.update", {"channel": kept.get("channel", self.channel), "ts": root, "text": status},
+                        self._token)
         failed = [d for d in (self._post(m["text"], thread_ts=root, **{k: v for k, v in m.items() if k != "text"})[1]
                               for m in messages) if d != "ok"]
         if failed:
@@ -283,20 +288,54 @@ class GenericWebhookSink:
         return _post_json(self._url, data, self.name)
 
 
-def resolve_sinks(threads=None) -> list[ChatOpsSink]:
+WITHHELD = "withheld:"  # how a WithheldSink's detail starts
+
+
+class WithheldSink:
+    """Slack, for an environment WARDEN_SLACK_CHANNELS gives no channel: nothing is sent - never to another
+    environment's channel - and the Notification says why, for the caller's audit row."""
+
+    name, live = "slack-bot", False
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+
+    def send(self, text: str, data: dict) -> Notification:
+        import logging
+
+        logging.getLogger("warden.incident").warning("a message about %s was %s",
+                                                     str((data.get("alert") or {}).get("id", ""))[:80], self.detail)
+        return Notification(sink=self.name, delivered=False, detail=self.detail)
+
+
+def resolve_sinks(threads=None, environment: str | None = None) -> list[ChatOpsSink]:
     """Build the sink list from the environment. Empty of webhooks -> a single ConsoleSink.
 
-    WARDEN_SLACK_BOT_TOKEN with WARDEN_SLACK_CHANNEL (one thread per incident; `threads` remembers them),
-    WARDEN_SLACK_WEBHOOK / WARDEN_TEAMS_WEBHOOK / WARDEN_WEBHOOK_URL configure destinations.
+    WARDEN_SLACK_CHANNELS (`env=channel,...`) with WARDEN_SLACK_BOT_TOKEN: the incident's `environment`'s own channel,
+    one thread per incident (`threads` remembers them), and no Slack webhook - one webhook is one channel for every
+    environment. An environment the map does not name gets no Slack message (WithheldSink). Without the map:
+    WARDEN_SLACK_BOT_TOKEN with WARDEN_SLACK_CHANNEL, and WARDEN_SLACK_WEBHOOK, as before.
+    WARDEN_TEAMS_WEBHOOK / WARDEN_WEBHOOK_URL / PagerDuty are added either way.
     WARDEN_CHATOPS_LIVE=1 arms them; otherwise every sink is dry-run.
     """
+    from .settings import by_environment
+
     live = os.environ.get("WARDEN_CHATOPS_LIVE") == "1"
     sinks: list[ChatOpsSink] = []
     token, channel = os.environ.get("WARDEN_SLACK_BOT_TOKEN"), os.environ.get("WARDEN_SLACK_CHANNEL")
-    if token and channel:
-        sinks.append(SlackBotSink(token, channel, live=live, threads=threads))
-    if url := os.environ.get("WARDEN_SLACK_WEBHOOK"):
-        sinks.append(SlackWebhookSink(url, live=live))
+    if channels := by_environment("WARDEN_SLACK_CHANNELS"):
+        here = channels.get(environment or "")
+        if not here:
+            sinks.append(WithheldSink(f"{WITHHELD} no channel for {environment or 'an incident with no environment'}"))
+        elif not token:
+            sinks.append(WithheldSink(f"{WITHHELD} WARDEN_SLACK_CHANNELS is set but WARDEN_SLACK_BOT_TOKEN is not"))
+        else:
+            sinks.append(SlackBotSink(token, here, live=live, threads=threads))
+    else:
+        if token and channel:
+            sinks.append(SlackBotSink(token, channel, live=live, threads=threads))
+        if url := os.environ.get("WARDEN_SLACK_WEBHOOK"):
+            sinks.append(SlackWebhookSink(url, live=live))
     if url := os.environ.get("WARDEN_TEAMS_WEBHOOK"):
         sinks.append(TeamsWebhookSink(url, live=live))
     if url := os.environ.get("WARDEN_WEBHOOK_URL"):
@@ -463,7 +502,9 @@ def slack_messages(parts: list[str], data: dict) -> list[dict[str, Any]]:
 
 def notify(report: Report, sinks: list[ChatOpsSink] | None = None, threads=None) -> list[Notification]:
     """Deliver `report` to every configured sink, redacting the exact payload one more time first."""
-    sinks = sinks if sinks is not None else resolve_sinks(threads)
+    # The incident's environment picks its Slack channel (WARDEN_SLACK_CHANNELS).
+    sinks = sinks if sinks is not None else resolve_sinks(
+        threads, environment=str((report.data.get("alert") or {}).get("environment") or ""))
     # Both payloads that leave the process are re-redacted here: the text (Slack/Teams display) and
     # the structured JSON (a generic webhook). redact() is idempotent, so re-scrubbing an already
     # clean payload costs nothing and closes any upstream hole before data crosses the boundary.

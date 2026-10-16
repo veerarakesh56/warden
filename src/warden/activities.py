@@ -253,17 +253,38 @@ def _basis_now(plan: Plan) -> dict[str, str]:
 
 class AuditThreads:
     """Which Slack thread each incident has (register H3), kept in the audit so every worker continues the same one:
-    a `chatops.thread` row per incident, the latest wins."""
+    a `chatops.thread` row per incident, the latest wins: {ts, channel} - the channel it is in (chatops.SlackBotSink);
+    a row from before 2026-10-16 has only its ts."""
 
     def __init__(self, audit: AuditLog) -> None:
         self.audit = audit
 
-    def get(self, incident: str, default: str | None = None) -> str | None:
+    def get(self, incident: str, default: dict | None = None) -> dict | None:
         rows = self.audit.entries(incident, kinds=("chatops.thread",))
-        return rows[-1]["body"]["ts"] if rows else default
+        return dict(rows[-1]["body"]) if rows else default
 
-    def __setitem__(self, incident: str, ts: str) -> None:
-        self.audit.append(incident, "chatops.thread", {"ts": ts})
+    def __setitem__(self, incident: str, thread: dict) -> None:
+        self.audit.append(incident, "chatops.thread", {"ts": thread["ts"], "channel": thread["channel"]})
+
+
+def _environment_of(log: AuditLog, incident: str) -> str:
+    """The incident's environment as its record says (records.record: its alarm, else its intake); "" for none."""
+    from . import records
+
+    r = records.record(log, incident, light=True)
+    return r.environment if r else ""
+
+
+def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
+    """chatops.notify, threaded through the audit; a message withheld for want of its environment's Slack channel
+    (WARDEN_SLACK_CHANNELS) is a row of its own, so the record says it was never posted and why."""
+    from . import chatops
+
+    sent = chatops.notify(report, threads=AuditThreads(log))
+    for n in sent:
+        if n.detail.startswith(chatops.WITHHELD):
+            log.append(incident, "chatops.withheld", {"run_id": _run_id(), "sink": n.sink, "detail": n.detail[:200]})
+    return sent
 
 
 class RemediationActivities:
@@ -324,7 +345,6 @@ class RemediationActivities:
         changed, `verified` once the fix passed its checks, or `ended` - how the run ended, read from this run's own
         signed end row, never from the caller. Through the outbound gate, with the incident and its audit head
         (register S17)."""
-        from .chatops import notify as send
         from .reporting import Report
 
         actions = self._approval_links(plan) if what in ("opening", "waiting") else ()
@@ -445,8 +465,8 @@ class RemediationActivities:
             said = slack_summary(str(reports[-1])) + "\n\n**Fix plan:** " + said
         actions = (*actions, *IncidentActivities._record_link(plan.incident_id))
         # Who approved is mentioned where the message says so. A request for an approval names and mentions nobody.
-        message = Report(markdown=said + footer, data={"alert": {"id": plan.incident_id}}, promotion=(),
-                         actions=actions, people=self.policy.people())
+        message = Report(markdown=said + footer, data={"alert": {"id": plan.incident_id, "environment": plan.environment}},
+                         promotion=(), actions=actions, people=self.policy.people())
         if what in RECORDED_ONLY:
             # Approved, denied, fixed: written as ever, through the same gate, and kept for WARDEN's records page -
             # who, how, when and their note - not sent as another message in the channel (owner, 2026-10-14: "i
@@ -461,7 +481,7 @@ class RemediationActivities:
                 if kept.verdict != "BLOCK" else HELD_BACK})
             self.audit.checkpoint()
             return []
-        sent = send(message, threads=AuditThreads(self.audit))
+        sent = _send(self.audit, plan.incident_id, message)
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(plan.incident_id, "remediation.announce", {"workflow_id": plan.workflow_id,
                                                                      "run_id": _run_id(), "what": what,
@@ -549,7 +569,6 @@ class RemediationActivities:
         """The incident's one message, when its fix run ended in a way that tells nobody (failed, cancelled, or before
         a plan was made) and no message has carried its summary yet (independent check, 2026-10-14: the channel was
         left with nothing at all)."""
-        from .chatops import notify as send
         from .reporting import Report
 
         reports = [e["body"].get("markdown", "") for e in self.audit.entries(incident_id, kinds=("incident.report",))]
@@ -562,8 +581,9 @@ class RemediationActivities:
                 f"\n\n---\nWARDEN · incident `{incident_id}` · audit head `{audit.short(head)}` · check it on its "
                 "Full record page, which shows the same head with its signatures checked. Approvals are signed out of "
                 "band, never given in chat.")
-        sent = send(Report(markdown=said, data={"alert": {"id": incident_id}}, promotion=(),
-                           actions=IncidentActivities._record_link(incident_id)), threads=AuditThreads(self.audit))
+        sent = _send(self.audit, incident_id, Report(
+            markdown=said, data={"alert": {"id": incident_id, "environment": _environment_of(self.audit, incident_id)}},
+            promotion=(), actions=IncidentActivities._record_link(incident_id)))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(incident_id, "remediation.announce", {"run_id": _run_id(), "what": status, "head": head,
                                                                 "delivered": delivered, "summary": True})
@@ -1233,7 +1253,6 @@ class IncidentActivities:
         """Tell a person that the fix their report holds for approval has no plan to approve, and why (owner's live
         run, 2026-10-12: the report said "held for approval", the plan was never opened, and nothing said so). `why`:
         the workflow's own reason; else this run's plan_fix row gives it. Nothing to say when a plan was opened."""
-        from .chatops import notify as send
         from .reporting import Report
 
         if not why:
@@ -1249,8 +1268,9 @@ class IncidentActivities:
                 f"\n\n---\nWARDEN · incident `{alert_id}` · audit head `{audit.short(head)}` · check it on its "
                 "Full record page, which shows the same head with its signatures checked. Approvals are signed out of "
                 "band, never given in chat.")
-        sent = send(Report(markdown=said, data={"alert": {"id": alert_id}}, promotion=(),
-                           actions=self._record_link(alert_id)), threads=AuditThreads(self.audit))
+        sent = _send(self.audit, alert_id, Report(
+            markdown=said, data={"alert": {"id": alert_id, "environment": _environment_of(self.audit, alert_id)}},
+            promotion=(), actions=self._record_link(alert_id)))
         delivered = [n.sink for n in sent if n.delivered]
         self.audit.append(alert_id, "incident.no_plan", {"run_id": _run_id(), "why": why[:300], "head": head,
                                                          "delivered": delivered})
@@ -1350,7 +1370,6 @@ class IncidentActivities:
         no plan was opened and the record's link. "" (a run begun before): the whole report, as before."""
         import dataclasses
 
-        from .chatops import notify as send
         from .reporting import build_report
 
         alert_id = pack.alert.alert_id
@@ -1432,7 +1451,7 @@ class IncidentActivities:
                     "here", "no fix plan could be opened (why below): decide what to do; WARDEN runs nothing here")
             markdown = slack_summary(markdown) + no + footer
             report = dataclasses.replace(report, actions=self._record_link(alert_id))
-        sent = send(dataclasses.replace(report, markdown=markdown, people=people), threads=AuditThreads(self.audit))
+        sent = _send(self.audit, alert_id, dataclasses.replace(report, markdown=markdown, people=people))
         self.audit.append(alert_id, "incident.notify", {"run_id": _run_id(), "head": head,
                                                         "sinks": [n.sink for n in sent],
                                                         "delivered": [n.sink for n in sent if n.delivered],
@@ -1556,9 +1575,16 @@ class DiscussActivities:
         lines = [f"{who(m)}: {' '.join(str(m.get('text', '')).split())[:800]}" for m in kept]
         incident = incident_in(turn.text, *(str(m.get("text", "")) for m in kept))
         key = f"discuss-{incident or 'unknown'}"
+        # An environment's channel discusses only its own incidents (WARDEN_DISCUSS_CHANNELS): another's, or one with no
+        # environment on the record, is refused here, before anything of it is read - every later step reads only
+        # the incident this returns.
+        elsewhere = bool(incident and turn.environment and _environment_of(self.audit, incident) != turn.environment)
         self.audit.append(key, "discuss.turn", {
             "run_id": _run_id(), "channel": turn.channel, "thread_ts": turn.thread_ts, "ts": turn.ts,
-            "user": turn.user, "incident": incident, "chars": len(turn.text)})
+            "user": turn.user, "incident": incident, "chars": len(turn.text), "environment": turn.environment,
+            "refused": "another environment's incident" if elsewhere else ""})
+        if elsewhere:
+            return Thread(incident="", elsewhere=True)
         turns = len(self.audit.entries(key, kinds=("discuss.turn",), since=datetime.now(UTC) - timedelta(hours=24)))
         approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
         return Thread(incident=incident, lines=lines, over=bool(incident) and turns > DAILY_CALLS, approver=approver)

@@ -14,13 +14,15 @@ Nothing typed here can make WARDEN act. The thread is untrusted text: the model 
 instructions; the model has no tool and changes nothing; what it answers leaves through the outbound gate like every
 message; its calls are capped per incident per day. The listener is a Slack Socket Mode connection held by the
 notify zone's worker, so WARDEN needs no new public address; it reads only messages that mention it and the threads
-they are in, in the one channel it was given (WARDEN_DISCUSS_CHANNEL).
+they are in, in the channels it was given: each environment's own (WARDEN_DISCUSS_CHANNELS, `env=channel,...`), where
+only that environment's incidents are discussed - else the one WARDEN_DISCUSS_CHANNEL, for every environment.
 """
 
 from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from typing import Annotated, Any
 
 from pydantic import AfterValidator, BaseModel, Field
@@ -45,6 +47,7 @@ class Turn(BaseModel):
     ts: str = Field(pattern=r"^[0-9]{6,12}[.][0-9]{1,8}$")
     user: str = Field(pattern=r"^[UW][A-Z0-9]{6,14}$")
     text: str = Field(max_length=MAX_TURN_CHARS)
+    environment: str = Field(default="", max_length=64)  # the channel's (channels()); "" - one channel for every one
 
 
 class Thread(BaseModel):
@@ -52,6 +55,7 @@ class Thread(BaseModel):
     lines: list[str] = Field(default_factory=list)  # "<who>: <text>", oldest first, bounded
     over: bool = False  # past today's limit for this incident's discussion: nothing more is read or asked
     approver: bool = False  # the person who mentioned WARDEN is an enrolled approver (their Slack id, the list's)
+    elsewhere: bool = False  # the incident is not this channel's environment's: nothing of it is read here
 
 
 # Step two (owner, 2026-10-14): an enrolled approver asks for a new plan with these words. WARDEN then diagnoses the
@@ -68,6 +72,9 @@ REPLAN_SOON = "WARDEN made a new plan for `{incident}` less than an hour ago; as
 
 LIMIT = ("This incident's discussion has reached today's limit of WARDEN's answers; ask again tomorrow, or read the "
          "incident's report in the alerts channel.")
+# Whether the incident exists in another environment is not said: that would itself be the other environment's record.
+ELSEWHERE = ("WARDEN has no {environment} incident by that id. Each environment's incidents are discussed only in that "
+             "environment's own discussion channel.")
 NO_ANSWER = "WARDEN could not get an answer from its model just now; ask again in a few minutes."
 NOT_READ = "WARDEN could not read this incident's evidence just now; ask again in a few minutes."
 # WARDEN keeps an incident's alarm for its discussion from the day the channel began (incident.alert, 2026-10-14):
@@ -137,9 +144,21 @@ def said(answer: Answer, *, approver: bool, fresh: bool) -> str:
     return text
 
 
+def channels() -> dict[str, str]:
+    """Each discussion channel and the environment it is for: WARDEN_DISCUSS_CHANNELS (`env=channel[,env=channel]`,
+    settings.by_environment - a malformed one raises, and the worker refuses to start), else the one
+    WARDEN_DISCUSS_CHANNEL for every environment (""), else none."""
+    from .settings import by_environment
+
+    if by_env := by_environment("WARDEN_DISCUSS_CHANNELS"):
+        return {channel: env for env, channel in by_env.items()}
+    one = os.environ.get("WARDEN_DISCUSS_CHANNEL", "").strip()
+    return {one: ""} if one else {}
+
+
 def configured() -> bool:
-    return all(os.environ.get(n, "").strip() for n in ("WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_BOT_TOKEN",
-                                                       "WARDEN_DISCUSS_CHANNEL"))
+    return all(os.environ.get(n, "").strip() for n in ("WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_BOT_TOKEN")) and bool(
+        channels())
 
 
 # Said in the thread the moment a mention is heard, before anything is read (owner, 2026-10-14: "I don't even know
@@ -150,23 +169,26 @@ HEARD = ("On it. WARDEN is reading this incident's record and its evidence. Its 
          "before - comes first, within seconds; the full answer from the evidence follows. WARDEN answers in this thread.")
 
 
-def heard(event: dict[str, Any], channel: str) -> str:
+def heard(event: dict[str, Any], ours: Mapping[str, str]) -> str:
     """One log line for an event Slack delivered: what it was and what WARDEN did with it - never its text."""
     kind = str(event.get("type") or "?")
-    where = "its channel" if event.get("channel") == channel else "another channel"
-    turn = turn_of(event, channel)
+    where = "its channel" if event.get("channel") in ours else "another channel"
+    turn = turn_of(event, ours)
     return f"discuss: heard {kind} in {where} - " + (f"answering {turn.ts}" if turn else "ignored")
 
 
-def turn_of(event: dict[str, Any], channel: str) -> Turn | None:
-    """A mention of WARDEN in the discussion channel as a Turn; None for anything else (another channel, a bot, an
-    edit, a message that does not mention it)."""
-    if (event.get("type") != "app_mention" or event.get("channel") != channel or event.get("bot_id")
+def turn_of(event: dict[str, Any], ours: Mapping[str, str]) -> Turn | None:
+    """A mention of WARDEN in a discussion channel (channels(): channel -> its environment) as a Turn that carries
+    the channel's environment; None for anything else (another channel, a bot, an edit, a message that does not
+    mention it)."""
+    channel = event.get("channel")
+    if (event.get("type") != "app_mention" or channel not in ours or event.get("bot_id")
             or event.get("subtype")):
         return None
     try:
         return Turn(channel=channel, ts=str(event.get("ts")), thread_ts=str(event.get("thread_ts") or event.get("ts")),
-                    user=str(event.get("user")), text=str(event.get("text") or "")[:MAX_TURN_CHARS])
+                    user=str(event.get("user")), text=str(event.get("text") or "")[:MAX_TURN_CHARS],
+                    environment=ours[channel])
     except ValueError:
         return None
 
@@ -188,7 +210,7 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
 
     from .workflows import DiscussWorkflow
 
-    channel = os.environ["WARDEN_DISCUSS_CHANNEL"].strip()
+    ours = channels()  # channel -> its environment
     socket = SocketModeClient(app_token=os.environ["WARDEN_SLACK_APP_TOKEN"].strip(),
                               web_client=AsyncWebClient(token=os.environ["WARDEN_SLACK_BOT_TOKEN"].strip()))
 
@@ -200,8 +222,8 @@ async def listen(client: Any, *, task_queue: str) -> None:  # pragma: no cover -
             log.info("discuss: heard a %s request - ignored", req.type)
             return
         event = (req.payload or {}).get("event") or {}
-        log.info(heard(event, channel))
-        turn = turn_of(event, channel)
+        log.info(heard(event, ours))
+        turn = turn_of(event, ours)
         if turn is None:
             return
         try:

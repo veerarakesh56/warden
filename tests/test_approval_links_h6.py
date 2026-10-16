@@ -146,7 +146,7 @@ def test_the_wait_opens_with_the_links_and_without_a_domain_says_nothing_new(rp,
     from test_remediation_workflow import world as world_fixture
 
     sent = []
-    monkeypatch.setattr(chatops, "resolve_sinks", lambda threads=None: [_Sink()])
+    monkeypatch.setattr(chatops, "resolve_sinks", lambda *_a, **_k: [_Sink()])
     real_notify = chatops.notify
     monkeypatch.setattr(chatops, "notify", lambda report, sinks=None, threads=None: sent.append(report) or real_notify(
         report, sinks, threads))

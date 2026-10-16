@@ -19,7 +19,7 @@ import yaml
 from pydantic import ValidationError
 
 from . import gate
-from .chatops import notify, resolve_sinks
+from .chatops import notify
 from .graph import run
 from .knowledge import default_knowledge_base
 from .llm import LLMClient
@@ -159,7 +159,7 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
 
     if emit_chatops:
         _out("\nChatOps delivery:")
-        for note in notify(built, resolve_sinks()):
+        for note in notify(built):  # its own environment's channel (WARDEN_SLACK_CHANNELS)
             state = "sent" if note.delivered else "not sent"
             _out(f"  - {note.sink}: {state} ({note.detail})")
 
@@ -398,9 +398,18 @@ def _platform(choice: str):
 
 
 async def _workflow_command(args: argparse.Namespace) -> int:
-    from . import runtime
+    from . import discuss, runtime
     from .workflows import IncidentWorkflow
 
+    if args.cmd == "worker":
+        from .settings import by_environment
+
+        try:  # each environment's own channels: a malformed map refuses to start, never routes a guess
+            by_environment("WARDEN_SLACK_CHANNELS")
+            discuss.channels()
+        except ValueError as exc:
+            _out(f"error: {exc}", err=True)
+            return 1
     client = await runtime.connect()
     if args.cmd == "worker":
         _install_log_gate()
@@ -414,8 +423,6 @@ async def _workflow_command(args: argparse.Namespace) -> int:
                 shadow = runtime.cloudwatch_publisher(runtime.SYNTHETIC_METRIC) if args.zone == "llm" else None
                 if shadow is not None:  # register C13: the daily shadow incident runs where the model is
                     await runtime.synthetic_loop(shadow, log=lambda line: _out(line, err=True))
-                from . import discuss
-
                 if args.zone == "notify" and discuss.configured():  # the discussion channel's listener (discuss.py)
                     _out("listening in the discussion channel", err=True)
                     try:

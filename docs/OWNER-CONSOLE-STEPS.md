@@ -464,7 +464,9 @@ twice.
 **4b. The environment's secret** (decision D5: secrets live in Secrets Manager, never in Parameter Store; WARDEN
 does not read a secret from SSM). Secrets Manager → **Store a new secret** → **Other type of secret** →
 **Plaintext**, the Slack webhook URL as the whole value. Encryption key `aws/secretsmanager`. Name
-`warden/dev/slack-webhook`. Tags `Project` = `warden`, `Environment` = `dev`. No rotation (a webhook cannot rotate
+`warden/ops/slack-webhook` - WARDEN's runtime (`ops`) reads it, never an application environment's name. Tags
+`Project` = `warden`, `Environment` = `ops`. With per-environment channels (`WARDEN_SLACK_CHANNELS`, OPERATIONS.md)
+the webhook is not used for Slack at all. No rotation (a webhook cannot rotate
 itself). **Store**. ⚠ Paid: $0.40 per secret per month, plus $0.05 per 10,000 reads.
 
 **5. The state bucket.** S3 → **Create bucket**:

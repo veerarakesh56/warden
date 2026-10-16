@@ -65,10 +65,24 @@ Setup, once, in the Slack app WARDEN signs people in with (api.slack.com/apps):
    channel also `groups:history`. Nothing else is needed.
 4. **Event Subscriptions**: on; the bot event `app_mention` only - WARDEN reads a thread when it is mentioned in it,
    so it needs no other channel message pushed to it. Save, then reinstall the app and copy its Bot User OAuth Token.
-5. In the channel: `/invite @<the app's name>`; copy the channel's ID (its name, then About).
-6. Store the app-level token in the secret `warden/<env>/slack-app-token` and the bot token in
-   `warden/<env>/slack-bot-token`; put the channel ID in the plain setting `/warden/<env>/env/WARDEN_DISCUSS_CHANNEL`.
-   Restart the notify workers. Do not set `WARDEN_SLACK_CHANNEL`: that moves the alerts from the webhook to the bot.
+5. In every channel WARDEN uses - each environment's alerts channel and its discussion channel:
+   `/invite @<the app's name>`; copy the channel's ID (its name, then About).
+6. Store the app-level token in the secret `warden/<runtime>/slack-app-token` and the bot token in
+   `warden/<runtime>/slack-bot-token` (`<runtime>` is WARDEN's own environment, `ops`).
+7. Put each environment's channels in two plain settings, `env=channel-id` pairs separated by commas:
+   `/warden/<runtime>/env/WARDEN_SLACK_CHANNELS` (alerts, e.g. `dev=C...,prod=C...`) and
+   `/warden/<runtime>/env/WARDEN_DISCUSS_CHANNELS` (discussion). Restart the notify workers.
+
+Each environment's incidents go only to its own channels (owner, 2026-10-16). With `WARDEN_SLACK_CHANNELS` set, the
+alerts go through the bot to the incident's environment's channel, and the Slack webhook is not used; an environment
+the map does not name gets no Slack message at all - never another environment's channel - and its record has a
+`chatops.withheld` row saying so. PagerDuty, Teams and the generic webhook are not routed by it. A discussion channel
+answers only about its own environment's incidents, and the incidents "like this one" it shows are that environment's
+only. A map that names an environment not in environments.yaml, gives a channel id of the wrong shape, names an
+environment twice or gives two environments one channel stops the worker at start with the reason.
+
+Without the maps, as before: the webhook (`warden/<runtime>/slack-webhook`) for the alerts, or the bot in the one
+`WARDEN_SLACK_CHANNEL` when that is set, and the one discussion channel `WARDEN_DISCUSS_CHANNEL` for every environment.
 
 The notify worker holds the connection; if it cannot connect it says so in its log and goes on sending alerts.
 
