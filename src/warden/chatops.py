@@ -164,9 +164,11 @@ class SlackBotSink:
         status = f"WARDEN · inc-{incident.removeprefix('inc-')} · {parts[0].strip().splitlines()[0][:150]}"
         # The thread is kept with the channel it is in: one in another channel - the incident's environment was routed
         # elsewhere before - is never continued or updated from this one. A row from before the channel was kept has
-        # only its ts, and was this channel's.
+        # only its ts: it was posted in the one WARDEN_SLACK_CHANNEL of that time, so it is continued only when that is
+        # this channel; with that setting gone, the old channel is unknown and a new thread starts (CodeRabbit, PR 36).
         kept = self.threads.get(incident) or {}
-        root = kept.get("ts") if kept.get("channel", self.channel) == self.channel else None
+        old = os.environ.get("WARDEN_SLACK_CHANNEL", "").strip() or None
+        root = kept.get("ts") if kept.get("channel", old) == self.channel else None
         if root is None:
             answer, detail = self._post(status)
             if answer is None:
