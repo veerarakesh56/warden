@@ -78,6 +78,29 @@ It goes back to L2 only when a person turns it back on, signed and recorded:
 
 Prod has nothing to re-enable: it is never autonomous.
 
+## Code review's findings as incident evidence (register G10-59)
+
+When an incident follows a deploy, WARDEN can read what code review flagged on that deploy's pull request and use it
+as evidence: "unresolved finding in the deployed change: SonarCloud python:S6466 at src/orders.py:212". A finding is a
+lead for the developers, never proof: WARDEN's gate never lets one justify a fix on its own. It reads, in the read
+zone, with GET requests only: the deployed commit's pull requests (`/repos/{repo}/commits/{sha}/pulls`), CodeRabbit's
+review comments and reviews on each, GitHub code scanning's alerts on the pull request's merge ref, and SonarCloud's
+issues for the pull request (`sonarcloud.io/api/issues/search?componentKeys=<project>&pullRequest=<n>`). Nothing is
+read for an incident with no deploy in its window, and a failed read is shown as not read, never as no findings. No
+finding's text reaches the model, the report or Slack: only typed fields.
+
+| Setting | What it does |
+|---|---|
+| `WARDEN_FINDINGS` | `1` turns the read on (plain value) |
+| `WARDEN_CHANGE_REPO` | the repository, `owner/name` (otherwise environments.yaml's `github.repository`) |
+| `WARDEN_SONAR_PROJECT` | the SonarCloud project key; unset, SonarCloud is not read (plain value) |
+| `WARDEN_FINDINGS_MAX_PRS`, `WARDEN_FINDINGS_MAX_PER_PR` | at most this many pull requests (2) and findings a pull request (20) |
+| `WARDEN_GITHUB_READ_TOKEN` | optional for a public repository's pull requests and comments; needed for code scanning. A fine-grained token on that one repository, read-only: **Pull requests: Read**, **Code scanning alerts: Read**, and **Contents: Read** for the deploy's commits (`WARDEN_COMMITS`, the same token), plus Metadata: Read, which GitHub adds; with an expiry |
+| `WARDEN_SONAR_TOKEN` | only for a private SonarCloud project: a token of a user who can browse it |
+
+Neither token has a Secrets Manager slot yet (terraform/modules/warden-runtime would need one, granted to the read zone
+alone): today each is set in the read worker's own environment, or left unset for a public repository and project.
+
 ## WARDEN's records (registers G10-46, G10-47)
 
 Every incident WARDEN has handled is at `https://<the approval domain>/r` - no time limit (the record is
