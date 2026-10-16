@@ -115,5 +115,11 @@ resource "aws_dynamodb_table" "carts" {
     type = "S"
   }
 
+  # Dev is run as production (owner, 2026-10-16): the table can be restored to any second of the last 35 days. Cents
+  # a month at this size. Deletion protection stays off so the stack can still be destroyed on purpose.
+  point_in_time_recovery {
+    enabled = true
+  }
+
   deletion_protection_enabled = false
 }
