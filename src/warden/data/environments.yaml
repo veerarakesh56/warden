@@ -96,7 +96,11 @@ environments:
     tier: nonprod
     auto_remediate: true
     require_human_approval: false
-    allow_actions: ["*"]         # a sandbox: anything, no human in the loop
+    # Every action kind is admissible here, but not unattended: each fix still waits for a signed approval of its exact
+    # plan by an approver on the list - in dev that includes the labelled bench approver, for T1/T2 (owner, 2026-10-15)
+    # - because auto_remediate is not honoured by the RemediationWorkflow (the header). Not a sandbox: dev is treated
+    # as production (owner, 2026-10-16); this comment said "anything, no human in the loop" until then.
+    allow_actions: ["*"]
     deny_actions: []
     authorized_principals: ["*"]
     credentials_ref: warden-dev-deploy

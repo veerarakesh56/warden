@@ -402,6 +402,8 @@ def otel_config(region: str, *, grafana_url: str = "", datadog: bool = False) ->
         metrics.append("otlphttp/grafana")
         logs.append("otlphttp/grafana")
     if datadog:
+        # Plaintext on purpose (naming audit item 19, 2026-10-16): HOST_IP is this pod's own node (status.hostIP), so
+        # the hop to the Datadog agent's OTLP receiver never leaves the node; the agent sends on to Datadog over TLS.
         exporters["otlp/datadog"] = {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}
         traces.append("otlp/datadog")
         metrics.append("otlp/datadog")
