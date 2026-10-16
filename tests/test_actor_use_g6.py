@@ -122,10 +122,10 @@ def test_the_lambda_lets_an_approved_session_pass_and_pages_when_it_cannot_check
     assert lambdas.actor_use({"detail": _detail(error="AccessDenied")})["ignored"] and len(cloudwatch) == 1
 
 
-def test_the_lambda_loads_only_the_audit_it_reads():
-    names = settings.loadable_for("lambda-actor-use")
-    assert "WARDEN_AUDIT_DSN" in names
-    assert not names & {"WARDEN_TEMPORAL_API_KEY", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_PAGERDUTY_ROUTING_KEY"}
+def test_the_lambda_loads_no_secret_at_all():
+    """It reads the audit, whose address the module sets in its environment (frontdoor.tf), and KMS signs: no secret
+    to read, so its role may read none (secrets audit, 2026-10-16)."""
+    assert settings.loadable_for("lambda-actor-use") & settings.SECRETS == frozenset()
 
 
 def test_the_rule_the_trail_and_the_page_are_wired():

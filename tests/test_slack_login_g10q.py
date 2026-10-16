@@ -185,7 +185,8 @@ def test_an_enrolment_links_the_member_slack_named_and_never_another_than_the_li
 
 
 def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_the_two_steps():
-    assert "WARDEN_SLACK_CLIENT_SECRET" in settings.SECRETS & settings.LAMBDA_SECRETS
+    assert "WARDEN_SLACK_CLIENT_SECRET" in settings.SECRETS
+    assert {n for n, names in settings.LAMBDA_SECRETS.items() if "WARDEN_SLACK_CLIENT_SECRET" in names} == {"approval"}
     assert settings.RESTRICTED["WARDEN_SLACK_CLIENT_SECRET"] == frozenset({"lambda-approval"})
     assert "WARDEN_SLACK_CLIENT_ID" not in settings.SECRETS  # an id, not a secret: plain configuration
     for zone in settings.ZONE_SECRETS:
@@ -193,7 +194,8 @@ def test_the_runtime_gives_the_secret_to_the_approval_lambda_alone_and_routes_th
     assert "WARDEN_SLACK_CLIENT_SECRET" not in settings.loadable_for("lambda-alarm")
     assert settings.secret_id("ops", "WARDEN_SLACK_CLIENT_SECRET") == "warden/ops/slack-client-secret"
     iam = (ROOT / "terraform" / "modules" / "warden-runtime" / "iam.tf").read_text(encoding="utf-8")
-    assert '"slack-client-secret"' in iam[iam.index("  lambda_secrets = ["):]
+    approval = next(line for line in iam.splitlines() if line.strip().startswith("approval "))
+    assert '"slack-client-secret"' in approval and iam.count('"slack-client-secret"') == 1
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     assert '"GET /s/callback", "GET /s/{kind}/{token}"' in tf
     lambdas = (ROOT / "src" / "warden" / "lambdas.py").read_text(encoding="utf-8")

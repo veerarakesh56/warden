@@ -6,6 +6,11 @@ Every secret WARDEN loads is a Secrets Manager secret named `warden/<environment
 read when a process starts: after a rotation, restart the workers (or let the deployment roll them) and the new value
 is in use. `tests/test_operations_rotation.py` fails if a secret WARDEN can load has no row here.
 
+WARDEN's own cloud runtime has a slot only for the secrets one of its zones or Lambdas reads (settings.ZONE_SECRETS and
+LAMBDA_SECRETS, terraform/modules/warden-runtime/secrets.tf; secrets audit, 2026-10-16). A rotation's `_PREVIOUS`
+secret, the Alertmanager webhook's token, PagerDuty, Teams, another model's key and the terminate role's DSN have none
+there: before using one, add it to the zone or Lambda that reads it, to secrets.tf and to iam.tf, and apply.
+
 | Secret or key | What it unlocks | How to rotate | Overlap |
 |---|---|---|---|
 | `WARDEN_TEMPORAL_KEY` | decrypts every Temporal payload (codec.py) | create 32 random bytes; set it as the new `WARDEN_TEMPORAL_KEY` and move the old one into `WARDEN_TEMPORAL_KEY_PREVIOUS`; restart workers and clients | old key stays in `WARDEN_TEMPORAL_KEY_PREVIOUS` until no running workflow was started before the rotation (at most the approval TTL plus the verify window, about 7 hours); then remove it |
@@ -19,7 +24,6 @@ is in use. `tests/test_operations_rotation.py` fails if a secret WARDEN can load
 | `WARDEN_AUDIT_KEY_PASSPHRASE` | the local audit signing key's encryption | re-encrypt the key file under a new passphrase, store the new passphrase | none needed: the key itself does not change |
 | `WARDEN_SLACK_BOT_TOKEN` | posting into the incident channel | regenerate the bot token in the Slack app's settings, store it, restart | the old token stops at once: rotate in a quiet hour |
 | `WARDEN_DATADOG_API_KEY`, `WARDEN_DATADOG_APP_KEY` | reading logs, spans and metrics from Datadog (datadog.py; the read zone's alone; the application key scoped to `logs_read_data`, `logs_read_index_data`, `apm_read`, `timeseries_query`, `events_read`, `monitors_read`) | run `scripts/observability_setup.py` again: it makes a new scoped key, stores it and deletes the older one; then restart the read workers (runtime.yml restart) | the old key stops when it is deleted: rotate between incidents |
-| `WARDEN_GRAFANA_READ_TOKEN` | reading logs, traces and metrics from Grafana Cloud (grafana.py; the read zone's alone; scopes `metrics:read`, `logs:read`, `traces:read`) | run `scripts/observability_setup.py` again: it makes a new token on the read policy, stores it, and deletes the old one | both work until the old one is deleted |
 | `WARDEN_DATADOG_WEBHOOK_TOKEN` | Datadog monitors' webhook into WARDEN (`POST /datadog`; the webhook Lambda's alone) | run `scripts/datadog_setup.py` again: it makes a new token, stores it and puts it in the webhook's header in one step | none: rotate between alerts |
 | `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |

@@ -97,32 +97,9 @@
       "Resource": "*"
     },
     {
-      "Sid": "BedrockAvailabilityAndQuotasNoInvoke",
+      "Sid": "SeeTheOpsSecretsNeverTheirValues",
       "Effect": "Allow",
-      "Action": [
-        "bedrock:ListFoundationModels",
-        "bedrock:GetFoundationModel",
-        "bedrock:GetFoundationModelAvailability",
-        "bedrock:GetUseCaseForModelAccess",
-        "bedrock:ListInferenceProfiles",
-        "bedrock:GetInferenceProfile",
-        "servicequotas:ListServiceQuotas",
-        "servicequotas:GetServiceQuota"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "aws:RequestedRegion": "ap-south-2"
-        }
-      }
-    },
-    {
-      "Sid": "ReadTheOpsSecretsOnly",
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:DescribeSecret"
-      ],
+      "Action": "secretsmanager:DescribeSecret",
       "Resource": "arn:aws:secretsmanager:ap-south-2:*:secret:warden/ops/*"
     }
   ]

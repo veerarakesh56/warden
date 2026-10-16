@@ -74,7 +74,6 @@ module "runtime" {
   watched_environments     = lookup(local.csv, "watched_environments", [])
   approval_domain          = lookup(local.tf, "approval_domain", "")
   approval_certificate_arn = lookup(local.tf, "approval_certificate_arn", "")
-  bedrock_model_arns       = lookup(local.csv, "bedrock_model_arns", [])
   audit_db_instances       = tonumber(lookup(local.tf, "audit_db_instances", "2"))
   worker_instances         = tonumber(lookup(local.tf, "worker_instances", "2"))
   watched_db_egress        = lookup(local.tf, "watched_db_egress", "false") == "true"

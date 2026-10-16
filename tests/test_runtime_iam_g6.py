@@ -68,7 +68,8 @@ def test_every_action_the_runtimes_own_roles_hold_fits_the_boundary():
             and st.get("Resource") == "*" for a in _list(st["Action"])]
     iam_tf = "\n".join((MODULE / f).read_text(encoding="utf-8") for f in ("iam.tf", "migrate.tf"))
     actions = {a for block in re.findall(r"Action\s*=\s*\[([^\]]*)\]", iam_tf) for a in re.findall(r'"([^"]+)"', block)}
-    assert {"secretsmanager:GetSecretValue", "kms:Sign", "sts:AssumeRole", "bedrock:InvokeModel", "rds-db:connect"} <= actions
+    assert {"secretsmanager:GetSecretValue", "kms:Sign", "sts:AssumeRole", "rds-db:connect"} <= actions
+    assert not [a for a in actions if a.startswith("bedrock:")] and "bedrock:" not in json.dumps(boundary)  # no Bedrock
     assert [a for a in sorted(actions) if not _matches(a, ceiling)] == []
     assert [a for a in sorted(actions) if _matches(a, flat)] == []
 

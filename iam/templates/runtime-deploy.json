@@ -244,7 +244,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "OwnParametersAndTheEcsImage",
+      "Sid": "OwnParameters",
       "Effect": "Allow",
       "Action": [
         "ssm:GetParameter",
@@ -253,8 +253,7 @@
       ],
       "Resource": [
         "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf",
-        "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf/*",
-        "arn:aws:ssm:${region}::parameter/aws/service/ecs/*"
+        "arn:aws:ssm:${region}:*:parameter/warden/${env}/tf/*"
       ]
     },
     {

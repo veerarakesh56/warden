@@ -3,17 +3,18 @@
 # iam/templates/platform-reader-trust.json and actor-trust.json trust. No zone holds a standing write to any watched
 # resource: the read and notify zones may assume a watched environment's platform reader, and only the act zone - for
 # one approved plan - its actor (src/warden/identity.py), each naming the incident and, for the actor, the approvers.
-# Only the llm zone may call the model. Each zone reads only its own secrets (settings.ZONE_SECRETS). The Lambdas'
-# role is narrower still: no AWS role to assume, no model.
+# No zone calls a model through AWS (no Bedrock: owner, 2026-10-09). Each zone reads only its own secrets
+# (settings.ZONE_SECRETS). Each Lambda has a role of its own, narrower still: no AWS role to assume, and only the
+# secrets and settings its own handler reads (settings.LAMBDA_SECRETS).
 data "aws_region" "current" {}
 
 locals {
   account    = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.region
   secret_arn = "arn:aws:secretsmanager:${local.region}:${local.account}:secret:warden/${var.environment}"
-  # What every runtime identity reads and writes of its own: its settings, who may approve, its metrics, the audit key
-  # and the anchors. Its secrets are per identity, below.
-  own = [
+  # What every runtime identity reads and writes of its own: its settings, the audit, its key and the anchors. Who may
+  # approve and its metrics are each zone's, and of the Lambdas only the one that uses them. Secrets are per identity.
+  audit_and_settings = [
     {
       Sid    = "ItsOwnSettings"
       Effect = "Allow"
@@ -21,19 +22,6 @@ locals {
       # The path the code reads (settings.load_from_ssm: /warden/<env>/env/) and what is under it, nothing wider.
       Resource = ["arn:aws:ssm:${local.region}:${local.account}:parameter/warden/${var.environment}/env",
       "arn:aws:ssm:${local.region}:${local.account}:parameter/warden/${var.environment}/env/*"]
-    },
-    {
-      Sid      = "WhoMayApprove"
-      Effect   = "Allow"
-      Action   = ["ssm:GetParameter"]
-      Resource = "arn:aws:ssm:${local.region}:${local.account}:parameter/warden/${var.environment}/approvers"
-    },
-    {
-      Sid       = "ItsOwnMetrics"
-      Effect    = "Allow"
-      Action    = ["cloudwatch:PutMetricData"]
-      Resource  = "*"
-      Condition = { StringEquals = { "cloudwatch:namespace" = "WARDEN/${var.environment}" } }
     },
     {
       Sid      = "SignAuditCheckpoints"
@@ -55,20 +43,40 @@ locals {
       Resource = "${aws_s3_bucket.anchors.arn}/anchors/*"
     },
   ]
+  who_may_approve = {
+    Sid      = "WhoMayApprove"
+    Effect   = "Allow"
+    Action   = ["ssm:GetParameter"]
+    Resource = "arn:aws:ssm:${local.region}:${local.account}:parameter/warden/${var.environment}/approvers"
+  }
+  its_own_metrics = {
+    Sid       = "ItsOwnMetrics"
+    Effect    = "Allow"
+    Action    = ["cloudwatch:PutMetricData"]
+    Resource  = "*"
+    Condition = { StringEquals = { "cloudwatch:namespace" = "WARDEN/${var.environment}" } }
+  }
+  own = concat(local.audit_and_settings, [local.who_may_approve, local.its_own_metrics])
   # Register S15, as settings.ZONE_SECRETS and settings.secret_id name them (tests/test_runtime_module_g6.py holds the
   # two together): every zone's own, and each zone's. Each zone also reads its own Temporal key, temporal-api-key-<zone>.
-  every_zone_secrets = ["temporal-key", "temporal-key-previous", "audit-dsn", "audit-key-passphrase"]
+  every_zone_secrets = ["temporal-key"]
   zones = {
-    core   = { secrets = [], assumes = [], model = false }
-    read   = { secrets = ["db-dsn", "stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "grafana-read-token"], assumes = ["platform-reader"], model = false }
-    llm    = { secrets = ["gemini-api-key", "google-api-key", "openai-api-key", "anthropic-api-key"], assumes = [], model = true }
-    notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "teams-webhook", "webhook-url", "pagerduty-routing-key", "github-token"], assumes = ["platform-reader"], model = false }
+    core   = { secrets = [], assumes = [] }
+    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "github-token"], assumes = ["platform-reader"] }
+    llm    = { secrets = ["anthropic-api-key"], assumes = [] }
+    notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook"], assumes = ["platform-reader"] }
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts.
-    act = { secrets = ["db-admin-dsn"], assumes = ["platform-reader", "actor"], model = false }
+    act = { secrets = [], assumes = ["platform-reader", "actor"] }
   }
-  # The Lambdas: the codec, their Temporal key, the audit, the Alertmanager webhook's secrets (settings.RESTRICTED).
-  lambda_secrets = ["temporal-key", "temporal-key-previous", "temporal-api-key", "audit-dsn", "alertmanager-token",
-  "alertmanager-token-previous", "slack-client-secret", "datadog-webhook-token", "datadog-api-key", "datadog-app-key"]
+  # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
+  # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use
+  # counts a metric - and reads no secret: the audit's address is its environment's (frontdoor.tf), and KMS signs.
+  front_door_access = {
+    alarm        = { secrets = ["temporal-key", "temporal-api-key"], approvers = false, metrics = false }
+    alertmanager = { secrets = ["temporal-key", "temporal-api-key", "datadog-webhook-token", "datadog-api-key", "datadog-app-key"], approvers = false, metrics = false }
+    approval     = { secrets = ["temporal-key", "temporal-api-key", "slack-client-secret"], approvers = true, metrics = false }
+    actor-use    = { secrets = [], approvers = false, metrics = true }
+  }
 }
 
 data "aws_iam_policy_document" "ecs_tasks_trust" {
@@ -115,12 +123,7 @@ resource "aws_iam_role_policy" "zone" {
         Effect   = "Allow"
         Action   = ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
         Resource = flatten([for e in var.watched_environments : [for r in each.value.assumes : "arn:aws:iam::${local.account}:role/warden-${e}-${r}"]])
-        }], each.value.model && length(var.bedrock_model_arns) > 0 ? [{
-        Sid      = "TheQualifiedModelOnly"
-        Effect   = "Allow"
-        Action   = ["bedrock:InvokeModel"]
-        Resource = var.bedrock_model_arns
-    }] : [])
+    }])
   })
 }
 
@@ -139,27 +142,35 @@ data "aws_iam_policy_document" "lambda_trust" {
   }
 }
 
-resource "aws_iam_role" "lambda" {
-  name                 = "warden-${var.environment}-front-door"
+# One role per Lambda (secrets audit, 2026-10-16): the internet-facing approval page held the webhook's Datadog keys and
+# bearer secrets because all four shared one role. No moved block: every name changes, so each is a new role either
+# way, and Terraform deletes the old one only after the functions have moved to theirs.
+resource "aws_iam_role" "front_door" {
+  for_each             = local.front_door_access
+  name                 = "warden-${var.environment}-${each.key}-lambda"
   permissions_boundary = var.permissions_boundary_arn
-  description          = "WARDEN ${var.environment}: the intake, webhook and approval-page Lambdas - no AWS role to assume, no model"
+  description          = "WARDEN ${var.environment}: the ${each.key} Lambda - no AWS role to assume, no model, its own secrets only"
   assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
   tags                 = { Project = "warden", Environment = var.environment }
 }
 
-resource "aws_iam_role_policy" "lambda" {
-  name = "warden-${var.environment}-front-door"
-  role = aws_iam_role.lambda.id
-  policy = jsonencode({ Version = "2012-10-17", Statement = concat(local.own, [{
-    Sid      = "ItsOwnSecrets"
-    Effect   = "Allow"
-    Action   = ["secretsmanager:GetSecretValue"]
-    Resource = [for s in local.lambda_secrets : "${local.secret_arn}/${s}-??????"]
+resource "aws_iam_role_policy" "front_door" {
+  for_each = local.front_door_access
+  name     = "warden-${var.environment}-${each.key}-lambda"
+  role     = aws_iam_role.front_door[each.key].id
+  policy = jsonencode({ Version = "2012-10-17", Statement = concat(local.audit_and_settings,
+    each.value.approvers ? [local.who_may_approve] : [], each.value.metrics ? [local.its_own_metrics] : [],
+    length(each.value.secrets) == 0 ? [] : [{
+      Sid      = "ItsOwnSecrets"
+      Effect   = "Allow"
+      Action   = ["secretsmanager:GetSecretValue"]
+      Resource = [for s in each.value.secrets : "${local.secret_arn}/${s}-??????"]
   }]) })
 }
 
 # In the VPC (the audit database), and their own logs: AWS's managed policy for exactly that.
-resource "aws_iam_role_policy_attachment" "lambda_vpc" {
-  role       = aws_iam_role.lambda.name
+resource "aws_iam_role_policy_attachment" "front_door_vpc" {
+  for_each   = local.front_door_access
+  role       = aws_iam_role.front_door[each.key].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }

@@ -64,10 +64,8 @@ LOADABLE = frozenset({
     "WARDEN_SLACK_CHANNELS", "WARDEN_DISCUSS_CHANNELS",
     # Datadog (datadog.py): its site is plain; the API key and the scoped, read-only application key are secrets.
     "WARDEN_DATADOG_SITE", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
-    # Grafana Cloud, or a company's own Loki, Tempo and Prometheus (grafana.py): addresses and user ids are plain
-    # settings; the read-only token is a secret. X-Ray (xray.py) and which tools a run reads: plain.
-    "WARDEN_GRAFANA_LOGS_URL", "WARDEN_GRAFANA_LOGS_USER", "WARDEN_GRAFANA_TRACES_URL", "WARDEN_GRAFANA_TRACES_USER",
-    "WARDEN_GRAFANA_METRICS_URL", "WARDEN_GRAFANA_METRICS_USER", "WARDEN_GRAFANA_READ_TOKEN",
+    # X-Ray (xray.py) and which tools a run reads: plain. Grafana's reader (grafana.py) is not loaded from the store:
+    # WARDEN's own runtime reads Datadog only (owner, 2026-10-16); an adopter sets WARDEN_GRAFANA_* in the process.
     "WARDEN_XRAY", "WARDEN_EVIDENCE_TOOLS", "WARDEN_COMMITS", "WARDEN_HISTORY_IN_PROMPT",
     # Whose changes WARDEN never proposes to undo - a security team, a break-glass identity (platforms/aws.py): plain,
     # comma-separated. Not loadable before 2026-10-14, so the cloud runtime could never be told (gap audit).
@@ -112,12 +110,11 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_SLACK_APP_TOKEN": frozenset({"worker"}),
     # Who besides the approvers may read WARDEN's records (records.py): only the page that shows them reads it.
     "WARDEN_RECORD_VIEWERS": frozenset({"lambda-approval"}),
-    # Datadog's keys: the read zone's worker alone reads evidence.
-    # The read zone reads evidence with them; the webhook's Lambda asks whether a monitor is alerting.
+    # Datadog's read keys: the read zone's worker reads evidence with them, and the webhook's Lambda asks with them
+    # whether a monitor is alerting (webhooks.datadog_alerting). The test stack's agent sends with a key of its own.
     "WARDEN_DATADOG_API_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_APP_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_WEBHOOK_TOKEN": frozenset({"lambda-alertmanager"}),
-    "WARDEN_GRAFANA_READ_TOKEN": frozenset({"worker"}),
 }
 
 
@@ -129,30 +126,37 @@ SECRETS = frozenset({
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
     "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_SLACK_APP_TOKEN",
-    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_GRAFANA_READ_TOKEN",
+    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
 })
 
 
-# Register S15: what each trust zone's worker reads - and so the only secrets its task role may read. Every zone holds
-# the payload codec keys (both, for a rotation), its own Temporal service account's key, the audit and its key's
-# passphrase (a local signer; the cloud signs with KMS).
-_EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
-                         "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE"})
+# Register S15: what each trust zone's worker reads in WARDEN's own cloud runtime - and so the only secrets its task
+# role may read, and the only slots terraform/modules/warden-runtime makes (secrets.tf, iam.tf). Every zone holds the
+# payload codec key and its own Temporal service account's key. The audit's address is the module's own setting
+# (WARDEN_AUDIT_DSN, compute.tf) and the cloud signs with KMS, so neither is a secret there. A secret the code can load
+# but no zone uses (another model's key, Teams, PagerDuty, a rotation's previous key) has no slot until it is used:
+# add it here and to secrets.tf and iam.tf together (secrets audit, 2026-10-16: 14 slots never set or read).
+_EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
-    "read": _EVERY_ZONE | {"WARDEN_DB_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
-                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_GRAFANA_READ_TOKEN"},
-    "llm": _EVERY_ZONE | {"GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"},
-    "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK",
-                             "WARDEN_WEBHOOK_URL", "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_GITHUB_TOKEN"},
-    "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
+    # GitHub: the deploys and commits behind an incident (timeline.py), and the dependency watch.
+    "read": _EVERY_ZONE | {"WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
+                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_GITHUB_TOKEN"},
+    "llm": _EVERY_ZONE | {"ANTHROPIC_API_KEY"},
+    "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_WEBHOOK"},
+    "act": _EVERY_ZONE,
 }
-# The runtime's Lambdas (lambdas.py): the codec, their Temporal key, the audit and the Alertmanager webhook's secrets -
-# what their role may read (terraform/modules/warden-runtime/iam.tf); RESTRICTED narrows it per Lambda.
-LAMBDA_SECRETS = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
-                            "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
-                            "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY",
-                            "WARDEN_DATADOG_APP_KEY"})
+# The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;
+# tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches
+# Temporal (runtime.connect: the codec key and its API key); the webhook Lambda checks Datadog's bearer secret and asks
+# Datadog whether the monitor is alerting; the approval page signs in with Slack. actor-use reads the audit only.
+LAMBDA_SECRETS: dict[str, frozenset[str]] = {
+    "alarm": frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"}),
+    "alertmanager": frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
+                               "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"}),
+    "approval": frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_SLACK_CLIENT_SECRET"}),
+    "actor-use": frozenset(),
+}
 # One per zone: each zone's own Temporal Cloud service account, so Temporal's audit log names the zone that called.
 PER_ZONE = frozenset({"WARDEN_TEMPORAL_API_KEY"})
 
@@ -248,7 +252,7 @@ def loadable_for(command: str, zone: str | None = None) -> frozenset[str]:
     zone's worker, less every secret another zone holds (S15)."""
     allowed = frozenset(n for n in LOADABLE if command in RESTRICTED.get(n, (command,)))
     if command.startswith("lambda-"):
-        allowed -= SECRETS - LAMBDA_SECRETS
+        allowed -= SECRETS - LAMBDA_SECRETS.get(command.removeprefix("lambda-"), frozenset())
     return allowed - (SECRETS - ZONE_SECRETS[zone]) if zone in ZONE_SECRETS else allowed
 
 

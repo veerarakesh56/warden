@@ -44,8 +44,7 @@
         "arn:aws:s3:::warden-${env}-*",
         "arn:aws:s3:::warden-${env}-*/*",
         "arn:aws:secretsmanager:${region}:*:secret:warden/${env}/*",
-        "arn:aws:ssm:${region}:*:parameter/warden/${env}/*",
-        "arn:aws:ssm:${region}::parameter/aws/service/ecs/*"
+        "arn:aws:ssm:${region}:*:parameter/warden/${env}/*"
       ]
     },
     {
@@ -104,16 +103,6 @@
       "Resource": [
         "arn:aws:iam::*:role/warden-*-platform-reader",
         "arn:aws:iam::*:role/warden-*-actor"
-      ]
-    },
-    {
-      "Sid": "CeilingModel",
-      "Effect": "Allow",
-      "Action": "bedrock:InvokeModel",
-      "Resource": [
-        "arn:aws:bedrock:*::foundation-model/*",
-        "arn:aws:bedrock:*:*:inference-profile/*",
-        "arn:aws:bedrock:*:*:application-inference-profile/*"
       ]
     },
     {
