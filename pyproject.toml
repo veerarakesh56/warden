@@ -42,13 +42,13 @@ mcp = ["mcp>=2.0"]                      # expose the policy gate to any MCP clie
 # 2026-09-03, rather than the newest (two weeks old when this was written).
 slack = ["slack-sdk>=3.44.1,<3.45", "websockets>=16", "aiohttp>=3.9"]  # aiohttp: Slack's async web client
 k8s = ["kubernetes>=30"]                # read a live cluster: WARDEN_BACKEND=k8s
-aws = ["boto3>=1.43.109"]               # read a live AWS account (CloudWatch + ECS): WARDEN_BACKEND=aws
+aws = ["boto3>=1.43.110"]               # read a live AWS account (CloudWatch + ECS): WARDEN_BACKEND=aws
 approval = ["webauthn>=3.0.1"]          # passkey approvals over the exact plan (decision D14; BSD-3-Clause,
                                         # duo-labs/py_webauthn, read 2026-10-03)
 # The cloud runtime's image (G6): the worker and the Lambdas from one image - AWS's Lambda runtime interface client
 # (Apache-2.0, aws/aws-lambda-python-runtime-interface-client, 4.1.0 read 2026-10-04), AWS, the PostgreSQL audit and
 # passkey approvals.
-runtime = ["awslambdaric>=4.1", "boto3>=1.43.109", "psycopg[binary]>=3.3.6", "webauthn>=3.0.1"]
+runtime = ["awslambdaric>=4.1", "boto3>=1.43.110", "psycopg[binary]>=3.3.6", "webauthn>=3.0.1"]
 # Database backends (read health + terminate stuck connections): WARDEN_BACKEND=postgres|mysql|redis|mongo|mssql
 postgres = ["psycopg[binary]>=3.3.6"]
 mysql = ["pymysql>=1.1"]
@@ -70,10 +70,10 @@ guard = ["transformers>=4.50", "torch>=2.4", "huggingface_hub>=2.1.1"]
 scan = ["pip-audit==2.10.1", "bandit==1.9.4", "zizmor==1.30.1"]
 # pip too: scripts/deploy_fullstack_apps.py builds the Lambda zips with `pip install --platform`, and a uv
 # environment has none (CI · apps failed on 83f65e6 without it).
-apps-check = ["ruff>=0.16.10", "pytest>=8.0", "pyyaml>=6.0", "psycopg[binary]>=3.3.6", "redis>=5.0", "boto3>=1.43.109",
+apps-check = ["ruff>=0.16.10", "pytest>=8.0", "pyyaml>=6.0", "psycopg[binary]>=3.3.6", "redis>=5.0", "boto3>=1.43.110",
               "packaging>=24", "pip>=24"]
-apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.3.6", "boto3>=1.43.109", "packaging>=24", "pip>=24"]
-infra-deploy = ["boto3>=1.43.109"]   # terraform/fullstack/aurora_express.py: stdlib + boto3 only
+apps-deploy = ["pyyaml>=6.0", "psycopg[binary]>=3.3.6", "boto3>=1.43.110", "packaging>=24", "pip>=24"]
+infra-deploy = ["boto3>=1.43.110"]   # terraform/fullstack/aurora_express.py: stdlib + boto3 only
 
 [tool.uv.build-backend]
 # uv_build packs everything under src/warden; a local .env or log file must never ship (fifth review E,
