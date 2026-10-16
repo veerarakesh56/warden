@@ -54,6 +54,7 @@ jobs:
           infra=0; apps=0; others=0
           while IFS= read -r f; do
             case "$f" in
+              *.md) ;;  # documentation changes nothing deployed (2026-10-16: a README held back a deploy)
               terraform/fullstack/*) infra=1 ;;
               scenarios/fullstack/lambdas/*) apps=1 ;;
               scenarios/fullstack/app/*|k8s/*|manifests/*|helm/*) apps=1; others=1 ;;
