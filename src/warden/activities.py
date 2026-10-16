@@ -63,8 +63,10 @@ OUTCOME = {
                         "unknown."),
     "refused_at_apply": "WARDEN did not apply the approved plan `{entry}` on `{target}`: nothing was changed.",
     "apply_failed": "Applying `{entry}` on `{target}` failed part-way: the target's state is unknown.",
-    "drifted": ("`{target}` changed after the plan `{entry}` was made, so WARDEN did not apply it: nothing was "
-                "changed."),
+    # Live, 2026-10-16: a plan voided by a WARDEN deploy was said as "`target` changed" - the target had not. What
+    # changed is said by the reason that follows ("Why: ..."), never assumed here.
+    "drifted": ("Something the plan `{entry}` on `{target}` was made against changed before it could be applied (the "
+                "reason is below), so WARDEN did not apply it: nothing was changed."),
     "denied": "The plan `{entry}` on `{target}` was denied: nothing was changed.",
     "refused": "WARDEN could not make the plan `{entry}` on `{target}`: nothing was changed.",
     "blocked": "WARDEN's own limits stopped the plan `{entry}` on `{target}`: nothing was changed.",

@@ -24,7 +24,7 @@ ENDED = {
     "verified": ("Fixed", "ok"), "recovered": ("Fixed and held", "ok"), "relapsed": ("Fixed, then failed again", "bad"),
     "rolled_back": ("Did not work - undone", "bad"), "not_recovered": ("Did not work", "bad"),
     "rollback_failed": ("Undo failed - state unknown", "bad"), "refused_at_apply": ("Not applied", "warn"),
-    "apply_failed": ("Apply failed - state unknown", "bad"), "drifted": ("Target changed - not applied", "warn"),
+    "apply_failed": ("Apply failed - state unknown", "bad"), "drifted": ("Changed since planned - not applied", "warn"),
     "denied": ("Denied", "warn"), "expired": ("Expired - nothing changed", "warn"),
     "cancelled_after_apply": ("Stopped after applying", "bad"), "failed_after_apply": ("Failed after applying", "bad"),
     "side_effects": ("Worked, but other alarms started after it", "bad"),
@@ -57,7 +57,7 @@ STEP = {
 # What each message about a fix plan was, by its `what` (activities.announce).
 TOLD = {"waiting": "Asked for approval", "approved": "Approved", "denied": "Denied", "expired": "Expired",
         "verified": "Fixed - its health checks passed", "recovered": "Fixed and held", "relapsed": "Failed again",
-        "rolled_back": "Did not work - undone", "not_recovered": "Did not work", "drifted": "Target changed",
+        "rolled_back": "Did not work - undone", "not_recovered": "Did not work", "drifted": "Changed since planned",
         "refused_at_apply": "Not applied", "rollback_failed": "Undo failed", "apply_failed": "Apply failed",
         "refused": "Refused before asking", "blocked": "Blocked before asking",
         "side_effects": "Worked, but other alarms started after it"}
