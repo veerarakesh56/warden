@@ -259,7 +259,7 @@ def test_a_plans_request_is_the_incidents_one_message_with_its_summary_and_recor
 
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
     sent = []
-    monkeypatch.setattr(chatops, "resolve_sinks", lambda threads=None: [_Sink()])
+    monkeypatch.setattr(chatops, "resolve_sinks", lambda *_a, **_k: [_Sink()])
     real = chatops.notify
     monkeypatch.setattr(chatops, "notify", lambda report, sinks=None, threads=None: sent.append(report) or real(
         report, sinks, threads))
@@ -370,7 +370,7 @@ def test_an_incident_whose_fix_run_ends_before_any_message_still_gets_its_one_me
 
     monkeypatch.delenv("WARDEN_APPROVAL_RP_ID", raising=False)
     sink = _Sink()
-    monkeypatch.setattr(chatops, "resolve_sinks", lambda threads=None: [sink])
+    monkeypatch.setattr(chatops, "resolve_sinks", lambda *_a, **_k: [sink])
     log = _log(tmp_path)
     report = "# WARDEN incident report - tick (dev)\n\n## Summary\n- the summary\n\n## What WARDEN read\n- the rest"
     log.append(INC, "incident.report", {"markdown": report})

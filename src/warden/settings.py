@@ -27,9 +27,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
-from .environments import names
+from .environments import default_environment_policies, names
 
 # Renamed 2026-10-16 so each name says the one grant it carries (naming audit items 6-7): the "admin" DSN was always
 # the least-privilege terminate role's (pg_signal_backend, platforms/db.py), and the Aurora "writer"/"reader" DSNs are
@@ -58,6 +59,9 @@ LOADABLE = frozenset({
     "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS", "WARDEN_ALERTMANAGER_URL", "WARDEN_APPROVAL_RP_ID",
     "WARDEN_SLACK_CLIENT_ID", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_EXPECTED_DOWN",
     "WARDEN_SLACK_APP_TOKEN", "WARDEN_DISCUSS_CHANNEL", "WARDEN_RECORD_VIEWERS",
+    # Each environment's own alerts and discussion channels, `env=channel[,env=channel]` (by_environment): a dev
+    # incident is told only in dev's, a prod one only in prod's (owner, 2026-10-16).
+    "WARDEN_SLACK_CHANNELS", "WARDEN_DISCUSS_CHANNELS",
     # Datadog (datadog.py): its site is plain; the API key and the scoped, read-only application key are secrets.
     "WARDEN_DATADOG_SITE", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
     # Grafana Cloud, or a company's own Loki, Tempo and Prometheus (grafana.py): addresses and user ids are plain
@@ -210,6 +214,29 @@ def getenv(name: str) -> str:
             old, name)
         value = os.environ[old]
     return value
+
+
+# A Slack channel's id (a public channel C..., a private one G...), as discuss.Turn holds it.
+SLACK_CHANNEL = r"[CG][A-Z0-9]{6,20}"
+
+
+def by_environment(name: str, shape: str = SLACK_CHANNEL) -> dict[str, str]:
+    """The setting `name` as {environment: value}, from `env=value[,env=value]`; {} when it is not set. Strict, as it
+    routes one environment's incidents: each environment an application one of environments.yaml, named once, each
+    value of `shape` and no value shared by two environments. Anything else raises ValueError, so a worker given a
+    bad map refuses to start and never sends to a guess."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return {}
+    known = default_environment_policies().known_environments
+    out: dict[str, str] = {}
+    for pair in raw.split(","):
+        env, sep, value = (part.strip() for part in pair.partition("="))
+        if not sep or env not in known or env in out or not re.fullmatch(shape, value) or value in out.values():
+            raise ValueError(f"{name}: {pair.strip()!r} is not one `environment=id` pair for a distinct id, each "
+                             f"environment once, from {', '.join(known)}")
+        out[env] = value
+    return out
 
 
 def _code(exc: Exception) -> str:

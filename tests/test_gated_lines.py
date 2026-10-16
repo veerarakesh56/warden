@@ -33,4 +33,4 @@ def test_no_function_inside_listen_shadows_one_of_the_module():
     listen = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "listen")
     inner = {n.name for n in ast.walk(listen) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))} - {"listen"}
     assert inner and not inner & module, inner & module
-    assert discuss.heard({"type": "app_mention", "channel": "C1"}, "C1").startswith("discuss: heard app_mention")
+    assert discuss.heard({"type": "app_mention", "channel": "C1"}, {"C1": ""}).startswith("discuss: heard app_mention")

@@ -48,7 +48,8 @@ def test_an_incident_is_one_thread_whose_first_line_is_updated_in_place(slack, t
     root = slack.calls[0][1]
     assert slack.calls[0][0] == "chat.postMessage" and "thread_ts" not in root
     assert root["text"].startswith("WARDEN · inc-7 · ") and root["unfurl_links"] is False
-    ts = threads.get("inc-7")
+    ts = threads.get("inc-7")["ts"]
+    assert threads.get("inc-7")["channel"] == "C123"  # kept with the channel it is in
     assert slack.calls[1][0] == "chat.postMessage" and slack.calls[1][1]["thread_ts"] == ts
 
     # A later message, from another worker: same thread, the first line updated, no new top-level message.

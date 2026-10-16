@@ -7,6 +7,14 @@ bump may carry a breaking change.
 
 ## [Unreleased] - becomes 0.10.1 (G1, security-critical fixes)
 
+### Added (Slack per environment, owner 2026-10-16)
+- **Each environment's incidents go only to its own Slack channels.** New plain settings `WARDEN_SLACK_CHANNELS`
+  and `WARDEN_DISCUSS_CHANNELS`, `env=channel-id[,env=channel-id]`. With the first, alerts go through the bot to the
+  incident's environment's channel and the Slack webhook is not used; an environment the map does not name gets no
+  Slack message (a `chatops.withheld` row says so), never another environment's channel. A discussion channel answers
+  only about its own environment's incidents. A malformed map stops the worker at start. Without the maps nothing
+  changes. A Slack thread is now kept with its channel (`chatops.thread` rows hold `{ts, channel}`).
+
 ### Changed (branches and environments, owner 2026-10-16)
 - **Two environments, each deployed only from the branch of its own name.** **Breaking:** `staging`, `qa-staging`,
   `pre-prod` and `qa-prod` are gone from `environments.yaml`, the deploy workflows and `iam/`; an alert naming one

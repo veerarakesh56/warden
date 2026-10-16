@@ -42,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .catalog import MITIGATES
     from .discuss import (
+        ELSEWHERE,
         LIMIT,
         NEW_PLAN,
         NO_ANSWER,
@@ -445,7 +446,9 @@ class DiscussWorkflow:
         turn = Turn.model_validate(turn)
         thread = Thread.model_validate(await workflow.execute_activity_method(
             acts.discuss_thread, **_zoned(acts.discuss_thread), args=[turn], **NOTIFY))
-        if not thread.incident:
+        if thread.elsewhere:  # another environment's incident: refused before anything of it was read
+            text = ELSEWHERE.format(environment=turn.environment)
+        elif not thread.incident:
             text = ("Which incident? Mention its id - the one in the footer of any of its messages - with your "
                     "question, and WARDEN answers here.")
         elif thread.over:

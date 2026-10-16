@@ -43,18 +43,18 @@ def _event(text, **over):
 
 
 def test_only_a_person_mentioning_warden_in_its_channel_is_heard():
-    turn = discuss.turn_of(_event(f"<@UWARDEN> why did {ID} fire?"), CHANNEL)
+    turn = discuss.turn_of(_event(f"<@UWARDEN> why did {ID} fire?"), {CHANNEL: ""})
     assert turn.thread_ts == turn.ts == "1760000000.000100" and turn.user == PERSON
-    assert discuss.turn_of(_event("x", thread_ts="1760000000.000001"), CHANNEL).thread_ts == "1760000000.000001"
+    assert discuss.turn_of(_event("x", thread_ts="1760000000.000001"), {CHANNEL: ""}).thread_ts == "1760000000.000001"
     for other in (_event("x", channel="C" + "0" * 3 + "OTHER11"), _event("x", bot_id="B1"), _event("x", subtype="message_changed"),
                   _event("x", type="message"), _event("x", user="not a user"), _event("x", ts="now")):
-        assert discuss.turn_of(other, CHANNEL) is None
+        assert discuss.turn_of(other, {CHANNEL: ""}) is None
     assert discuss.incident_in("look at inc-" + ID + " please") == ID and discuss.incident_in("none here") == ""
     assert discuss.incident_in("", "first message: " + ID) == ID  # the thread's first message names it
     # Every event is logged as what it was and what WARDEN did - never its words.
-    line = discuss.heard(_event(f"<@UWARDEN> secret words {ID}"), CHANNEL)
+    line = discuss.heard(_event(f"<@UWARDEN> secret words {ID}"), {CHANNEL: ""})
     assert line == "discuss: heard app_mention in its channel - answering 1760000000.000100" and "secret" not in line
-    assert discuss.heard(_event("x", channel="C" + "0" * 3 + "OTHER11"), CHANNEL).endswith("in another channel - ignored")
+    assert discuss.heard(_event("x", channel="C" + "0" * 3 + "OTHER11"), {CHANNEL: ""}).endswith("in another channel - ignored")
     assert "{" not in discuss.HEARD and "WARDEN answers in this thread" in discuss.HEARD
 
 
