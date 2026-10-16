@@ -19,7 +19,7 @@ COPY src ./src
 # The container is a DEPLOYMENT artifact, so it carries the cluster client. The pip package stays
 # vendor-free (the k8s client is an optional extra); the image is what runs as the in-cluster Job
 # and must be able to read the cluster it is deployed into.
-# The anthropic SDK too, so `WARDEN_MOCK=0 ANTHROPIC_API_KEY=... docker compose up` (docker-compose.yml)
+# The anthropic SDK too, so the live-model `docker compose up` (the key in a gitignored .env; docker-compose.yml)
 # works as documented - it failed on a missing import until 2026-09-25.
 # Only what uv.lock lists, every hash verified (audit A-I-9), compiled to bytecode (the container runs with a
 # read-only root filesystem, so nothing could compile later). The package is installed into /opt/warden.

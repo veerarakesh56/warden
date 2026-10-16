@@ -3,8 +3,12 @@
 # Runs in mock mode by default, so it needs no API key and no network. That is deliberate - a
 # demo that only works with the author's credentials is a demo nobody can reproduce.
 #
-# To run against the live model instead:
-#   WARDEN_MOCK=0 ANTHROPIC_API_KEY=sk-... docker compose up
+# To run against the live model instead, put the key in a `.env` file beside this one (gitignored, and kept out of
+# the image's build context by .dockerignore), which `docker compose` reads by itself:
+#   WARDEN_MOCK=0
+#   ANTHROPIC_API_KEY=<your-key>
+# or export it from a secret manager first, e.g. `export ANTHROPIC_API_KEY="$(<read it from your secret manager>)"`,
+# then `docker compose up`. Never type the key on the command line: it stays in the shell's history (2026-10-16).
 
 services:
   warden:

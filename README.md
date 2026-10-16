@@ -168,17 +168,20 @@ start-up, and an alias that moves to new models (`sonnet`, `*-latest`) is refuse
 The examples below need their model qualified first.
 
 ```bash
+# Each key is read from the environment. Export it from a secret manager first - never type it on the command line,
+# where it stays in the shell's history: export GEMINI_API_KEY="$(<read it from your secret manager>)"
+
 # Google AI Studio - genuine free tier, no card
 pip install -e ".[gemini]"
-WARDEN_MOCK=0 WARDEN_PROVIDER=gemini GEMINI_API_KEY=... warden run --incident inc-001
+WARDEN_MOCK=0 WARDEN_PROVIDER=gemini warden run --incident inc-001       # GEMINI_API_KEY exported
 
 # Fully local, no key, nothing leaves the machine
 pip install -e ".[openai]"
 WARDEN_MOCK=0 WARDEN_PROVIDER=ollama WARDEN_MODEL=llama3.1 warden run --incident inc-001
 
 # Anthropic, Groq or OpenRouter
-WARDEN_MOCK=0 WARDEN_PROVIDER=anthropic ANTHROPIC_API_KEY=... warden run --incident inc-001
-WARDEN_MOCK=0 WARDEN_PROVIDER=groq GROQ_API_KEY=... warden run
+WARDEN_MOCK=0 WARDEN_PROVIDER=anthropic warden run --incident inc-001    # ANTHROPIC_API_KEY exported
+WARDEN_MOCK=0 WARDEN_PROVIDER=groq warden run                            # GROQ_API_KEY exported
 ```
 
 | `WARDEN_PROVIDER` | Key | Notes |
