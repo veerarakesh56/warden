@@ -69,9 +69,14 @@ lab and is a deliberate example of a single point of failure; a production stack
 
 | Pipeline | Owns | Runs |
 |---|---|---|
-| infra (`ci-infra.yml`; deploys through `deploy-<env>.yml`) | `terraform/fullstack/` | validates on a change; plans on a push; applies only a saved, reviewed plan |
-| apps (`ci-apps.yml`, `scripts/deploy_fullstack_apps.py`) | the Lambdas, the container image, the shop's Kubernetes objects, the database bootstrap SQL | tests and builds on a change; deploys dev from `on-merge-dev.yml` |
+| infra (`ci-infra.yml`; deploys through `deploy-<env>.yml`) | `terraform/fullstack/` | validates on a change; plans on a push to the environment's own branch; applies only a saved, reviewed plan |
+| apps (`ci-apps.yml`, `scripts/deploy_fullstack_apps.py`) | the Lambdas, the container image, the shop's Kubernetes objects, the database bootstrap SQL | tests and builds on a change; deploys on a push to the environment's own branch (`on-merge-<env>.yml`), or by hand from that branch (`deploy-<env>.yml`) |
 | tool (`ci-tool.yml`) | WARDEN itself | on any other change |
+
+An environment deploys only from the branch of its own name, and `main` deploys nothing: `main` runs CI only. The
+`dev` branch deploys dev; it is `main` fast-forwarded. The `prod` branch deploys prod, with a person's approval; it
+is `dev` merged by pull request. A commit that did not come that way is refused before the job holds a credential
+([SETUP.md section 4b](SETUP.md#4b-which-branch-deploys-what)).
 
 Terraform never deploys application code: it creates the functions and the ECS service from placeholders and
 ignores later code changes, so a re-apply never rolls the apps back. The apps pipeline and the harness read
