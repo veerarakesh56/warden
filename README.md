@@ -4,16 +4,127 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> An AI incident-response orchestrator. **The model proposes. A deterministic verifier decides. A change is applied
-> only by a workflow that a person approved, with a signature over the exact plan.**
+WARDEN is an AI on-call engineer for AWS. When an alarm fires, it gathers the evidence, finds the likely cause, writes
+a short report in Slack and proposes a fix. Nothing changes until a person approves that exact fix with a passkey;
+then WARDEN applies it, checks that it worked and undoes it if it did not, and every step is recorded.
 
-**What this is, and is not.** WARDEN is an engineering project that builds a governed AI incident-response system end
-to end and measures it honestly. Its ideas are not new: evidence first, a deterministic gate, human approval and
-least privilege are the direction of the field (AWS DevOps Agent, HolmesGPT, Meta's DrP and incident.io's AI SRE work
+## How it works
+
+1. **An alarm fires.** A CloudWatch alarm (or a Kubernetes alert) reaches WARDEN, and WARDEN opens an incident.
+2. **It collects the facts first.** It reads the logs, metrics, recent deploys and recent changes, with read-only
+   access, before the AI sees anything. Passwords, keys and personal details are blanked out.
+3. **The AI names a likely cause and one fix.** The fix must come from a short, fixed list (restart, scale up, roll
+   back a deploy, close stuck database sessions and a few more), and each claim must point at the evidence.
+4. **Ordinary code checks the answer.** Fixed rules, not the AI, decide whether the fix may be offered, is too risky,
+   or should go to a person with no fix at all.
+5. **It reports in Slack:** what broke, the likely cause, the proposed fix and who should act.
+6. **A person approves the exact fix,** with a passkey on WARDEN's approval page (or a signing key on the
+   command line). If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
+7. **It applies the fix once, checks that the service recovered, and undoes the fix if it did not.**
+
+## What keeps it safe
+
+- **Nothing is applied without approval.** The AI only suggests. A change runs only after a person approves that
+  exact fix; WARDEN never applies one on its own.
+- **A kill switch.** `warden killswitch on` stops every fix at once. Turning it off again needs a signed approval.
+- **Reading and writing are kept apart.** The parts that gather evidence can only read. Writing uses a separate
+  identity with tight limits: on AWS, a short-lived session for one approved fix; on Kubernetes, a deployment can be
+  scaled up by at most two replicas.
+- **Text from the systems it reads is treated as data, never as orders.** A log line or an alert can hide
+  instructions planted by an attacker. WARDEN turns such text into numbered facts that the AI can quote but cannot
+  take orders from; the code calls this *quarantine*. An optional local detector flags text that looks like an attack.
+- **Secrets are masked** before any text leaves WARDEN, and checked again on the way out.
+- **Every step is recorded** in a tamper-evident audit log. In the cloud runtime the log is signed with a key held by
+  AWS KMS and anchored in write-once S3 storage.
+- **Spending limits.** The AI's cost has a ceiling per incident and per day.
+
+## What it is not, and its limits
+
+**What this is, and is not.** WARDEN is an engineering project that builds an AI incident responder with a person in
+control, end to end, and measures it honestly. Its ideas are not new: evidence first, fixed rules, human approval and
+least privilege are where the field is going (AWS DevOps Agent, HolmesGPT, Meta's DrP and incident.io's AI SRE work
 the same way). It is not offered as a product to adopt as-is. Read [the benchmarks](docs/BENCHMARKS.md) and
 [the failure-mode register](docs/FAILURE-MODES.md) before trusting any part of it.
 
-## Why
+- **No published run has applied a fix on a live AWS account.** WARDEN has read a real AWS account, and its fixes
+  are tested in CI against a real Kubernetes cluster (k3d) and real database servers.
+- **It can be wrong.** The AI does not always give the same answer to the same evidence, and a confident,
+  well-supported wrong answer can still reach the approver. That is why a person approves every fix.
+- **It fixes only what is on its list.** Anything else, including database failover, schema changes and anything
+  that deletes, is handed to a person.
+- **It sees only what its access allows,** and masking works from known patterns: a secret in a format no pattern
+  knows is not caught.
+- **One approver.** This deployment has one approver. The code supports requiring two.
+- **The measurements are limited:** synthetic held-out incidents, single runs, and live reads from September 2026
+  under an older version. Details are in [Status and limits](#status-and-limits).
+
+## Quick start
+
+No cloud account and no API key: mock mode runs the whole pipeline deterministically on five recorded incidents.
+
+```bash
+docker compose up                 # mock mode by default
+```
+
+or
+
+```bash
+pip install -e ".[dev]"
+WARDEN_MOCK=1 warden demo --verbose
+WARDEN_MOCK=1 warden run --incident inc-004 --report      # one incident, with its redacted report
+```
+
+| Incident | Evidence | Proposal | Verdict |
+|---|---|---|---|
+| `inc-001` | 5xx spike after a deploy | `rollback_deploy` | approved for a person |
+| `inc-002` | OOM kills, no deploy | `scale_up` | approved for a person |
+| `inc-003` | replica lag | `failover_replica` | **rejected**: failover is irreversible and multi-service in prod |
+| `inc-004` | two vague log lines | `escalate_to_human` | auto-safe: it declines to invent a fix |
+| `inc-005` | pool full of idle-in-transaction sessions | `terminate_connections` | approved for a person |
+
+`warden run` changes nothing: a live change goes only through the `RemediationWorkflow`.
+
+### Run the workflows locally
+
+With the [Temporal CLI](https://docs.temporal.io/cli) installed:
+
+```bash
+temporal server start-dev                                          # a local Temporal server
+export WARDEN_TEMPORAL_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
+WARDEN_MOCK=1 warden worker &                                      # --platform none: every live change is refused
+WARDEN_MOCK=1 warden incident --incident inc-002                   # diagnose as a workflow
+```
+
+To let a worker change something, connect a platform (`warden worker --platform k8s|db|aws|all`) and approve a plan
+with `warden status <workflow-id>` and `warden approve <workflow-id> --plan-hash <hash> --approver <id> --key <pem>`.
+
+### Deploy it
+
+[docs/SETUP.md](docs/SETUP.md) walks through the AWS roles, the GitHub environments, secrets and variables, Temporal
+Cloud and Slack. The runtime is a Terraform module, [`terraform/modules/warden-runtime`](terraform/modules/warden-runtime);
+day-two operations (key rotation, the kill switch) are in [docs/OPERATIONS.md](docs/OPERATIONS.md), and what to do
+when WARDEN itself misbehaves is in [docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md).
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflows, trust zones, the approval page, the gate and quarantine |
+| [ai-boundary.md](docs/ai-boundary.md) | Why the model never decides, and the policy table |
+| [SETUP.md](docs/SETUP.md) | Setting WARDEN up in your own AWS and GitHub accounts |
+| [AWS-SETUP.md](docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
+| [PRODUCTION-ARCHITECTURE.md](docs/PRODUCTION-ARCHITECTURE.md), [SYSTEM-COMPONENTS.md](docs/SYSTEM-COMPONENTS.md) | The cloud runtime, its components and their cost |
+| [OPERATIONS.md](docs/OPERATIONS.md), [RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md) | Running it, and what to do when WARDEN itself is the incident |
+| [BENCHMARKS.md](docs/BENCHMARKS.md), [scenarios/SCORING.md](scenarios/SCORING.md) | Every measured result, and how it is graded |
+| [FULLSTACK-LAB.md](docs/FULLSTACK-LAB.md) | The full-stack test environment and its injected faults |
+| [FAILURE-MODES.md](docs/FAILURE-MODES.md) | What can go wrong with an automated WARDEN, and what holds each |
+| [DESIGN-DECISIONS.md](docs/DESIGN-DECISIONS.md), [ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Why each choice was made; defects found while building it |
+| [COMPLIANCE-CROSSWALK.md](docs/COMPLIANCE-CROSSWALK.md), [governance/](docs/governance/) | NIST AI RMF, ISO/IEC 42001, OWASP and EU AI Act mapping; policy documents |
+| [ROADMAP.md](docs/ROADMAP.md), [CHANGELOG.md](CHANGELOG.md) | What is next, and what changed |
+
+## How it is built
+
+### Why
 
 Ask a language model to fix an incident and it will always produce something. Given thin evidence it does not say
 "I don't know"; it produces a confident, plausible action. In a chat assistant that is a bug. In an operations tool it
@@ -23,7 +134,7 @@ An agent that can act on production needs what operations software has always ne
 audit trail, a cost ceiling and a person in the loop. WARDEN is an attempt to build those around one model call and
 to measure where they hold and where they do not.
 
-## How it works
+### The pipeline
 
 ```
 alert -> gather evidence -> redact -> quarantine -> diagnose (one model call) -> verify -> escalate | plan a fix
@@ -153,52 +264,13 @@ Environments are data: [`src/warden/data/environments.yaml`](src/warden/data/env
 environment's allowed actions and principals. An environment it does not list falls to a default that can only
 escalate.
 
-## Quick start
+| Environment | Fixes it may offer | Fixes it never offers |
+|---|---|---|
+| `dev` (run as production) | the reversible ones prod allows: restart, scale up, roll back a deploy, close idle sessions, revert a config or change, pause or resume a flow, shift traffic, raise a limit, freeze changes | scale down, failover, redrive messages, cancel a query (the irreversible ones) |
+| `prod` | the same, plus failover, clear a cache, redrive messages, cancel a query (rule P2 then refuses the irreversible ones) | scale down |
+| any other name | none: it can only escalate to a person | everything (**fails closed**) |
 
-No cloud account and no API key: mock mode runs the whole pipeline deterministically on five recorded incidents.
-
-```bash
-docker compose up                 # mock mode by default
-```
-
-or
-
-```bash
-pip install -e ".[dev]"
-WARDEN_MOCK=1 warden demo --verbose
-WARDEN_MOCK=1 warden run --incident inc-004 --report      # one incident, with its redacted report
-```
-
-| Incident | Evidence | Proposal | Verdict |
-|---|---|---|---|
-| `inc-001` | 5xx spike after a deploy | `rollback_deploy` | approved for a person |
-| `inc-002` | OOM kills, no deploy | `scale_up` | approved for a person |
-| `inc-003` | replica lag | `failover_replica` | **rejected**: failover is irreversible and multi-service in prod |
-| `inc-004` | two vague log lines | `escalate_to_human` | auto-safe: it declines to invent a fix |
-| `inc-005` | pool full of idle-in-transaction sessions | `terminate_connections` | approved for a person |
-
-`warden run` changes nothing: a live change goes only through the `RemediationWorkflow`.
-
-### Run the workflows locally
-
-With the [Temporal CLI](https://docs.temporal.io/cli) installed:
-
-```bash
-temporal server start-dev                                          # a local Temporal server
-export WARDEN_TEMPORAL_KEY=$(python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())")
-WARDEN_MOCK=1 warden worker &                                      # --platform none: every live change is refused
-WARDEN_MOCK=1 warden incident --incident inc-002                   # diagnose as a workflow
-```
-
-To let a worker change something, connect a platform (`warden worker --platform k8s|db|aws|all`) and approve a plan
-with `warden status <workflow-id>` and `warden approve <workflow-id> --plan-hash <hash> --approver <id> --key <pem>`.
-
-### Deploy it
-
-[docs/SETUP.md](docs/SETUP.md) walks through the AWS roles, the GitHub environments, secrets and variables, Temporal
-Cloud and Slack. The runtime is a Terraform module, [`terraform/modules/warden-runtime`](terraform/modules/warden-runtime);
-day-two operations (key rotation, the kill switch) are in [docs/OPERATIONS.md](docs/OPERATIONS.md), and what to do
-when WARDEN itself misbehaves is in [docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md).
+No shipped environment remediates automatically: in both, every fix waits for a person's approval.
 
 ## Configuration
 
@@ -299,23 +371,6 @@ WARDEN_DB_INTEGRATION=1 WARDEN_TEST_PG_DSN=postgresql://... pytest tests/integra
 
 CI asserts the demo's actual verdicts, not just its exit code, and an integration step fails if anything in it skips.
 `scripts/mutation_check.py` breaks the safety code on purpose and requires the suite to notice.
-
-## Documentation
-
-| Document | What it covers |
-|---|---|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflows, trust zones, the approval page, the gate and quarantine |
-| [ai-boundary.md](docs/ai-boundary.md) | Why the model never decides, and the policy table |
-| [SETUP.md](docs/SETUP.md) | Setting WARDEN up in your own AWS and GitHub accounts |
-| [AWS-SETUP.md](docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
-| [PRODUCTION-ARCHITECTURE.md](docs/PRODUCTION-ARCHITECTURE.md), [SYSTEM-COMPONENTS.md](docs/SYSTEM-COMPONENTS.md) | The cloud runtime, its components and their cost |
-| [OPERATIONS.md](docs/OPERATIONS.md), [RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBOOK-WARDEN-INCIDENT.md) | Running it, and what to do when WARDEN itself is the incident |
-| [BENCHMARKS.md](docs/BENCHMARKS.md), [scenarios/SCORING.md](scenarios/SCORING.md) | Every measured result, and how it is graded |
-| [FULLSTACK-LAB.md](docs/FULLSTACK-LAB.md) | The full-stack test environment and its injected faults |
-| [FAILURE-MODES.md](docs/FAILURE-MODES.md) | What can go wrong with an automated WARDEN, and what holds each |
-| [DESIGN-DECISIONS.md](docs/DESIGN-DECISIONS.md), [ENGINEERING-NOTES.md](docs/ENGINEERING-NOTES.md) | Why each choice was made; defects found while building it |
-| [COMPLIANCE-CROSSWALK.md](docs/COMPLIANCE-CROSSWALK.md), [governance/](docs/governance/) | NIST AI RMF, ISO/IEC 42001, OWASP and EU AI Act mapping; policy documents |
-| [ROADMAP.md](docs/ROADMAP.md), [CHANGELOG.md](CHANGELOG.md) | What is next, and what changed |
 
 ## Related
 

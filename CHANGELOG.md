@@ -48,6 +48,9 @@ bump may carry a breaking change.
   `docs/bench/`. The recorded Wave 1-3 runs the tests replay moved to `tests/fixtures/bench/`; their raw extras
   (per-run RESULTS pages, the held-out sets' run outputs, author and review notes) are no longer published.
 - `.gitignore` covers every local-only path, and `tests/test_local_only_paths.py` fails if one is ever tracked.
+- The README opens with what WARDEN does in plain words, how it works in seven steps, what keeps it safe and
+  what it is not; the setup guide and the lab documents describe the branch model (`main` runs CI only, `dev`
+  deploys dev, `prod` deploys prod with a person's approval).
 
 ### Changed (G2, workflow correctness - started 2026-10-02)
 - **A remediation is bound to its resource and its environment** (registers S6, C3, O5; audit A-B-M4).
