@@ -38,6 +38,16 @@
           "iam:PermissionsBoundary": "arn:aws:iam::*:policy/WardenEnvBoundary-dev"
         }
       }
+    },
+    {
+      "Sid": "NeverWriteTheOwnersDatadogKey",
+      "Effect": "Deny",
+      "Action": [
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:DeleteSecret"
+      ],
+      "Resource": "arn:aws:secretsmanager:*:*:secret:warden-dev-datadog-api-key*"
     }
   ]
 }

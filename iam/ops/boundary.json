@@ -44,8 +44,7 @@
         "arn:aws:s3:::warden-ops-*",
         "arn:aws:s3:::warden-ops-*/*",
         "arn:aws:secretsmanager:ap-south-2:*:secret:warden/ops/*",
-        "arn:aws:ssm:ap-south-2:*:parameter/warden/ops/*",
-        "arn:aws:ssm:ap-south-2::parameter/aws/service/ecs/*"
+        "arn:aws:ssm:ap-south-2:*:parameter/warden/ops/*"
       ]
     },
     {
@@ -104,16 +103,6 @@
       "Resource": [
         "arn:aws:iam::*:role/warden-*-platform-reader",
         "arn:aws:iam::*:role/warden-*-actor"
-      ]
-    },
-    {
-      "Sid": "CeilingModel",
-      "Effect": "Allow",
-      "Action": "bedrock:InvokeModel",
-      "Resource": [
-        "arn:aws:bedrock:*::foundation-model/*",
-        "arn:aws:bedrock:*:*:inference-profile/*",
-        "arn:aws:bedrock:*:*:application-inference-profile/*"
       ]
     },
     {

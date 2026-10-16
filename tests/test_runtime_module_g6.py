@@ -49,17 +49,28 @@ def _module_text() -> str:
     return "\n".join(p.read_text(encoding="utf-8") for p in sorted(MODULE.glob("*.tf")))
 
 
-def test_every_secret_the_code_loads_has_a_slot_and_no_slot_is_unused():
-    """Decision D5: the slots are exactly settings.SECRETS, named as settings.secret_id names them."""
+def _slug(name: str, zone: str | None = None) -> str:
+    from warden import settings
+
+    return settings.secret_id("dev", name, zone).removeprefix("warden/dev/")
+
+
+def test_every_secret_the_runtime_reads_has_a_slot_and_no_slot_is_unused():
+    """Decision D5: the slots are exactly the secrets a zone or a Lambda of the runtime reads, named as
+    settings.secret_id names them - each a secret the code loads. Secrets audit, 2026-10-16: 14 slots nobody read or
+    set (a rotation's previous keys, other models' keys, Teams, PagerDuty, the audit's DSN and passphrase) went."""
     from warden import settings
 
     text = (MODULE / "secrets.tf").read_text(encoding="utf-8")
     block = text[text.index("toset(["):text.index("])", text.index("toset(["))]
     slots = set(re.findall(r'"([a-z0-9-]+)"', block))
-    wanted = {settings.secret_id("dev", n).removeprefix("warden/dev/") for n in settings.SECRETS}
-    wanted |= {settings.secret_id("dev", n, z).removeprefix("warden/dev/") for n in settings.PER_ZONE
-               for z in settings.ZONE_SECRETS}  # register S15: each zone's own Temporal key
-    assert slots == wanted
+    read = {(n, z) for z, names in settings.ZONE_SECRETS.items() for n in names}
+    read |= {(n, None) for names in settings.LAMBDA_SECRETS.values() for n in names}
+    assert {n for n, _ in read} <= settings.SECRETS
+    assert slots == {_slug(n, z) for n, z in read}
+    for gone in ("grafana-read-token", "audit-dsn", "audit-key-passphrase", "temporal-key-previous", "db-dsn",
+                 "alertmanager-token", "pagerduty-routing-key", "gemini-api-key", "openai-api-key", "teams-webhook"):
+        assert gone not in slots, gone
     assert 'name                    = "warden/${var.environment}/${each.key}"' in text
     assert "secret_string" not in _module_text()  # no secret value in Terraform, so none in its state
 
@@ -117,19 +128,32 @@ def test_a_secret_the_owner_made_by_hand_is_adopted_not_created_again():
 
 
 def _zones(iam: str) -> dict[str, dict]:
-    """iam.tf's `zones` local: per zone, its secrets, the watched roles it assumes and whether it calls the model."""
+    """iam.tf's `zones` local: per zone, its secrets and the watched roles it assumes."""
     block = iam[iam.index("  zones = {"):iam.index("\n  }\n", iam.index("  zones = {"))]
     out = {}
     for zone, body in re.findall(r"^\s+(\w+)\s+= \{(.*)\}$", block, re.MULTILINE):
         lists = dict(re.findall(r"(\w+) = \[([^\]]*)\]", body))
-        out[zone] = {k: re.findall(r'"([a-z0-9-]+)"', v) for k, v in lists.items()} | {"model": "model = true" in body}
+        out[zone] = {k: re.findall(r'"([a-z0-9-]+)"', v) for k, v in lists.items()}
+    return out
+
+
+def _front_door_access(iam: str) -> dict[str, dict]:
+    """iam.tf's `front_door_access` local: per Lambda, its secrets and whether it reads the approvers or puts metrics."""
+    start = iam.index("  front_door_access = {")
+    block = iam[start:iam.index("\n  }\n", start)]
+    out = {}
+    for name, body in re.findall(r"^\s+([\w-]+)\s+= \{(.*)\}$", block, re.MULTILINE):
+        secrets = re.search(r"secrets = \[([^\]]*)\]", body).group(1)
+        out[name] = {"secrets": set(re.findall(r'"([a-z0-9-]+)"', secrets)),
+                     "approvers": "approvers = true" in body, "metrics": "metrics = true" in body}
     return out
 
 
 def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     """A-P-5 / S15: a task role per zone, `warden-<env>-<zone>` - for the ops runtime the exact principals the templates
     trust. Only the act zone may assume an actor; the read and notify zones (and act, which re-reads before it writes)
-    a reader; only llm may call the model. No zone holds a write to any watched resource itself."""
+    a reader. No zone calls a model through AWS (no Bedrock, owner 2026-10-09: the llm zone reaches its provider's
+    API with its key). No zone holds a write to any watched resource itself."""
     import json
 
     from warden import workflows
@@ -139,7 +163,6 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     assert set(zones) == {"core", *workflows.ZONES}
     assert {z for z, v in zones.items() if "actor" in v["assumes"]} == {"act"}
     assert {z for z, v in zones.items() if "platform-reader" in v["assumes"]} == {"read", "notify", "act"}
-    assert {z for z, v in zones.items() if v["model"]} == {"llm"}
     role = _block(iam, "aws_iam_role", "zone")
     assert "for_each             = local.zones" in role and 'name                 = "warden-${var.environment}-${each.key}"' in role
     reader = json.loads((ROOT / "iam" / "templates" / "platform-reader-trust.json").read_text(encoding="utf-8"))
@@ -149,21 +172,97 @@ def test_each_zone_is_a_principal_of_its_own_and_only_the_act_zone_may_act():
     assert {st["Principal"]["AWS"] for st in actor["Statement"]} == {"arn:aws:iam::${account}:role/warden-${runtime}-act"}
     actions = set(re.findall(r'"([a-z0-9-]+:[A-Za-z*]+)"', iam))
     assert not {a for a in actions if a.split(":")[0] in ("lambda", "ecs", "dynamodb", "events", "rds", "elasticache")}
-    assert 'role/warden-${e}-${r}' in iam and "each.value.model && length(var.bedrock_model_arns) > 0" in iam
+    assert 'role/warden-${e}-${r}' in iam
+    # No Bedrock: no grant, variable or root input names it, and the runtime's boundary has no ceiling for it.
+    module = _module_text().replace('variable "model_provider"', "")
+    assert "bedrock:" not in module and "bedrock_model_arns" not in module
+    assert "bedrock" not in (ROOT / "terraform" / "runtime" / "main.tf").read_text(encoding="utf-8").lower()
+    assert "bedrock" not in (ROOT / "iam" / "templates" / "runtime-boundary.json").read_text(encoding="utf-8")
 
 
-def test_the_lambdas_assume_nothing_call_no_model_and_read_only_their_secrets():
+# What each front door's handler reads from Secrets Manager, and the module that reads it - the map each Lambda's role
+# is held to (secrets audit, 2026-10-16: all four shared one role, so the internet-facing approval page could read the
+# webhook's Datadog keys). The audit's DSN is the Lambda's own environment (frontdoor.tf) and KMS signs: no secret.
+READS = {
+    "alarm": {"WARDEN_TEMPORAL_KEY": "codec.py", "WARDEN_TEMPORAL_API_KEY": "runtime_base.py"},
+    "alertmanager": {"WARDEN_TEMPORAL_KEY": "codec.py", "WARDEN_TEMPORAL_API_KEY": "runtime_base.py",
+                     "WARDEN_DATADOG_WEBHOOK_TOKEN": "lambdas.py", "WARDEN_DATADOG_API_KEY": "lambdas.py",
+                     "WARDEN_DATADOG_APP_KEY": "lambdas.py"},
+    "approval": {"WARDEN_TEMPORAL_KEY": "codec.py", "WARDEN_TEMPORAL_API_KEY": "runtime_base.py",
+                 "WARDEN_SLACK_CLIENT_SECRET": "slack_login.py"},
+    "actor-use": {},
+}
+
+
+def test_each_lambda_has_its_own_role_that_reads_only_what_its_handler_reads():
     from warden import settings
 
     iam = (MODULE / "iam.tf").read_text(encoding="utf-8")
-    policy = _block(iam, "aws_iam_role_policy", "lambda")
-    assert "concat(local.own," in policy and "local.lambda_secrets" in policy
-    own = iam[iam.index("  own = ["):iam.index("  every_zone_secrets")]
-    assert "sts:" not in own and "bedrock:" not in own and "secretsmanager:" not in own
-    listed = re.findall(r'"([a-z0-9-]+)"', iam[iam.index("  lambda_secrets = ["):iam.index("]", iam.index("  lambda_secrets = ["))])
-    used = {n for c in ("lambda-alarm", "lambda-alertmanager", "lambda-approval", "lambda-actor-use")
-            for n in settings.loadable_for(c) & settings.SECRETS}
-    assert set(listed) == {settings.secret_id("dev", n).removeprefix("warden/dev/") for n in used}
+    access = _front_door_access(iam)
+    doors = re.findall(r"^    ([\w-]+)\s+= \{ handler = ", _frontdoor(), re.MULTILINE)
+    assert set(access) == set(doors) == set(READS) == set(settings.LAMBDA_SECRETS)
+    src = ROOT / "src" / "warden"
+    for name, reads in READS.items():
+        assert settings.LAMBDA_SECRETS[name] == set(reads), name
+        assert access[name]["secrets"] == {_slug(n) for n in reads}, name
+        for secret, module in reads.items():  # each grant has its reader
+            assert f'"{secret}"' in (src / module).read_text(encoding="utf-8"), (name, secret, module)
+    # Only the approval page asks who may approve; only actor-use counts (UnapprovedActorUse, ApproverListChanged).
+    assert {n for n, a in access.items() if a["approvers"]} == {"approval"}
+    assert {n for n, a in access.items() if a["metrics"]} == {"actor-use"}
+    lambdas = (src / "lambdas.py").read_text(encoding="utf-8")
+    assert lambdas.count("put_metric_data(") == 2 and lambdas.count("approver_policy()") == 1
+    assert "approver_policy()" in lambdas.split("def approval_page")[1].split("\ndef ")[0]
+    role, policy = _block(iam, "aws_iam_role", "front_door"), _block(iam, "aws_iam_role_policy", "front_door")
+    assert "for_each             = local.front_door_access" in role
+    assert 'name                 = "warden-${var.environment}-${each.key}-lambda"' in role
+    assert "concat(local.audit_and_settings," in policy and "local.own" not in policy
+    assert 'resource "aws_iam_role" "lambda"' not in iam and "aws_iam_role.lambda." not in _module_text()
+    assert "role          = aws_iam_role.front_door[each.key].arn" in _frontdoor()
+    shared = iam[iam.index("  audit_and_settings = ["):iam.index("  who_may_approve = {")]
+    assert not re.search(r"sts:|bedrock:|secretsmanager:|cloudwatch:|/approvers", shared)
+
+
+def test_each_lambdas_load_asks_for_exactly_its_roles_secrets(monkeypatch):
+    """Each handler's own load (lambdas._configure), run with the environment the module gives it: the Secrets Manager
+    reads it makes are exactly its role's grant - none refused (a read outside the grant stops the Lambda), none spare."""
+    import os
+
+    import boto3
+
+    from warden import lambdas, settings
+
+    lambda_env = _frontdoor().split("lambda_env = {")[1].split("}")[0]
+    env = re.findall(r"^\s+(WARDEN_[A-Z_]+)\s+= ", lambda_env, re.MULTILINE)
+    assert "WARDEN_AUDIT_DSN" in env  # the audit's address is set, never a secret read
+    access = _front_door_access((MODULE / "iam.tf").read_text(encoding="utf-8"))
+
+    class Ssm:
+        def get_paginator(self, _):
+            return type("P", (), {"paginate": lambda self, **kw: [{"Parameters": []}]})()
+
+    class Secrets:
+        def __init__(self):
+            self.asked = []
+
+        def get_secret_value(self, SecretId):
+            self.asked.append(SecretId)
+            return {"SecretString": "x"}
+
+    monkeypatch.setattr(lambdas, "_CONFIGURED", set())
+    saved = dict(os.environ)
+    try:
+        for name in access:
+            os.environ.clear()
+            os.environ.update({k: v for k, v in saved.items() if k not in settings.LOADABLE | settings.SECRETS})
+            os.environ.update({k: "set-by-the-module" for k in env} | {"WARDEN_ENV": "dev"})
+            sm = Secrets()
+            monkeypatch.setattr(boto3, "client", lambda service, sm=sm, **kw: sm if service == "secretsmanager" else Ssm())
+            lambdas._configure(f"lambda-{name}")
+            assert {s.removeprefix("warden/dev/") for s in sm.asked} == access[name]["secrets"], name
+    finally:  # what the loads set, gone with the test
+        os.environ.clear()
+        os.environ.update(saved)
 
 
 def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
@@ -177,9 +276,11 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
         granted = set(every) | set(v["secrets"]) | {f"temporal-api-key-{zone}"}
         wanted = {settings.secret_id("dev", n, zone).removeprefix("warden/dev/") for n in settings.ZONE_SECRETS[zone]}
         assert granted == wanted, zone
-    for policy in ("zone", "lambda"):  # each name exactly, not a prefix of another
+    for policy in ("zone", "front_door"):  # each name exactly, not a prefix of another
         block = _block(iam, "aws_iam_role_policy", policy)
         assert '"${local.secret_arn}/${s}-??????"' in block and "secret_arn}/${s}*" not in block, policy
+    # The dependency watch and the deploys behind an incident read GitHub: the read zone alone.
+    assert {z for z, names in settings.ZONE_SECRETS.items() if "WARDEN_GITHUB_TOKEN" in names} == {"read"}
 
 
 

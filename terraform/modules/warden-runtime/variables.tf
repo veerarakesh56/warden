@@ -94,12 +94,6 @@ variable "watched_environments" {
   }
 }
 
-variable "bedrock_model_arns" {
-  description = "The Bedrock inference profile and the foundation-model ARNs it routes to (decision D12): the only models the worker may invoke. Empty: no Bedrock."
-  type        = list(string)
-  default     = []
-}
-
 variable "runtime_image" {
   description = "The runtime image (Dockerfile.runtime) by digest: the ECR URI ending @sha256:... that runtime.yml built, signed and attested."
   type        = string

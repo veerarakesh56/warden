@@ -37,7 +37,7 @@ resource "aws_cloudwatch_log_group" "front_door" {
 resource "aws_lambda_function" "front_door" {
   for_each      = local.front_doors
   function_name = "warden-${var.environment}-${each.key}"
-  role          = aws_iam_role.lambda.arn
+  role          = aws_iam_role.front_door[each.key].arn
   package_type  = "Image"
   image_uri     = var.runtime_image
   timeout       = each.value.timeout

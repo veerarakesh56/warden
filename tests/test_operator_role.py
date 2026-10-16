@@ -96,14 +96,19 @@ def test_chaining_into_the_sweep_role_keeps_the_source_identity():
 
 
 @pytest.mark.parametrize("forbidden", ["rds-db:", "iam:Create", "iam:Put", "iam:Attach", "iam:Update",
-                                       "iam:Delete", "iam:Set", "bedrock:Invoke", "secretsmanager:Put",
-                                       "secretsmanager:Create", "kms:"])
+                                       "iam:Delete", "iam:Set", "bedrock:", "servicequotas:", "secretsmanager:Put",
+                                       "secretsmanager:Create", "secretsmanager:GetSecretValue", "kms:"])
 def test_no_database_login_no_iam_change_no_model_call(forbidden):
     actions = [a for st in _allow_statements() for a in _list(st["Action"])]
     assert not [a for a in actions if a.startswith(forbidden)]
 
 
-def test_secrets_are_only_the_ops_ones():
+def test_secrets_are_only_the_ops_ones_and_never_their_values():
+    """Secrets audit, 2026-10-16: the laptop read the value of every warden/ops/* secret, and nothing it runs needs one
+    (the benchmarks read their tools' keys in the cloud runtime). It may see that a secret is there, not what it is.
+    No Bedrock either (owner, 2026-10-09)."""
+    granted = [a for st in _allow_statements() for a in _list(st["Action"]) if a.startswith("secretsmanager:")]
+    assert granted == ["secretsmanager:DescribeSecret"]
     for st in _allow_statements():
         if any(a.startswith("secretsmanager:") for a in _list(st["Action"])):
             assert _list(st["Resource"]) == ["arn:aws:secretsmanager:ap-south-2:*:secret:warden/ops/*"]

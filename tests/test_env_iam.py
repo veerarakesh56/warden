@@ -587,3 +587,26 @@ def test_the_harness_can_carry_the_operators_source_identity_to_the_reader():
     assert sorted(_list(st["Action"])) == ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]
     trust = (ROOT / "terraform" / "fullstack" / "reader.tf").read_text(encoding="utf-8")
     assert 'actions = ["sts:AssumeRole", "sts:SetSourceIdentity", "sts:TagSession"]' in trust
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_the_deploy_role_never_writes_the_owners_datadog_key(env):
+    """Secrets audit, 2026-10-16: the deploy role holds secretsmanager:* on warden-<env>-*, and so could overwrite or
+    delete warden-<env>-datadog-api-key - the agent's key, which the owner's setup script sets. Its guard denies the
+    writes; the deploy still reads the key to install the agent (deploy_fullstack_apps.deploy_datadog)."""
+    deploy = _load(env, "deploy")
+    assert any("secretsmanager:*" in _list(s["Action"]) and f"arn:aws:secretsmanager:*:*:secret:warden-{env}-*"
+               in _list(s["Resource"]) for s in deploy["Statement"] if s["Effect"] == "Allow")
+    st = next(s for s in _load(env, "deploy-guard")["Statement"] if s.get("Sid") == "NeverWriteTheOwnersDatadogKey")
+    assert st["Effect"] == "Deny" and "Condition" not in st
+    assert sorted(_list(st["Action"])) == ["secretsmanager:DeleteSecret", "secretsmanager:PutSecretValue",
+                                           "secretsmanager:UpdateSecret"]
+    assert st["Resource"] == f"arn:aws:secretsmanager:*:*:secret:warden-{env}-datadog-api-key*"
+
+
+def test_the_runtime_deploy_role_has_no_ecs_image_lookup_and_its_boundary_no_model():
+    """The workers run on Fargate (2026-10-14): the ECS-optimised AMI lookup under /aws/service/ecs is gone, and no
+    Bedrock (owner, 2026-10-09) - neither the deploy role nor the ceiling on every runtime role keeps either."""
+    for kind in ("deploy", "boundary"):
+        text = json.dumps(_load(RUNTIME, kind))
+        assert "/aws/service/" not in text and "bedrock" not in text, kind

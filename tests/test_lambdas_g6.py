@@ -99,8 +99,11 @@ def test_each_lambda_loads_only_its_own_settings(monkeypatch):
         lambdas._configure(name)
         lambdas._configure(name)  # once per container
     alarm, webhook, page = loaded
-    assert "WARDEN_ALERTMANAGER_TOKEN" in webhook and "WARDEN_ALERTMANAGER_TOKEN" not in alarm | page
-    assert all({"WARDEN_TEMPORAL_API_KEY", "WARDEN_AUDIT_DSN"} <= s for s in loaded)
+    assert "WARDEN_DATADOG_WEBHOOK_TOKEN" in webhook and "WARDEN_DATADOG_WEBHOOK_TOKEN" not in alarm | page
+    assert "WARDEN_SLACK_CLIENT_SECRET" in page and "WARDEN_SLACK_CLIENT_SECRET" not in alarm | webhook
+    assert all("WARDEN_TEMPORAL_API_KEY" in s for s in loaded)
+    # The audit's address is each Lambda's own environment (frontdoor.tf), never a secret it reads.
+    assert not any("WARDEN_AUDIT_DSN" in s or "WARDEN_AUDIT_KEY_PASSPHRASE" in s for s in loaded)
     assert not any("WARDEN_GITHUB_TOKEN" in s or "WARDEN_DB_TERMINATE_DSN" in s for s in loaded)
 
 

@@ -148,21 +148,22 @@ def test_grafana_sits_beside_aws_and_its_failure_never_takes_aws_down(monkeypatc
     assert not grafana.configured()
 
 
-def test_the_read_keys_are_the_read_zones_alone_and_every_tool_has_its_slot():
-    """Owner, 2026-10-14: "use all 3 of them ... compare" - Grafana's and Datadog's read keys have their slots, the
-    read zone holds them (and the webhook Lambda Datadog's, to confirm a monitor); X-Ray needs no key."""
-    assert "WARDEN_GRAFANA_READ_TOKEN" in settings.SECRETS and settings.RESTRICTED["WARDEN_GRAFANA_READ_TOKEN"] == {"worker"}
+def test_the_read_keys_are_the_read_zones_alone_and_grafana_has_no_slot():
+    """Datadog's read keys have their slots, the read zone holds them (and the webhook Lambda, to confirm a monitor);
+    X-Ray needs no key. Grafana's reader stays for an adopter who sets WARDEN_GRAFANA_* in the process, but WARDEN's own
+    runtime reads Datadog only (owner, 2026-10-16): nothing of Grafana's is loaded from the store or has a slot."""
     for name in ("WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"):
         assert name in settings.SECRETS and settings.RESTRICTED[name] == {"worker", "lambda-alertmanager"}, name
-    for name in ("WARDEN_GRAFANA_READ_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"):
         assert name in settings.loadable_for("worker", "read"), name
         for zone in ("core", "llm", "notify", "act"):
             assert name not in settings.loadable_for("worker", zone), (name, zone)
+        assert {n for n, names in settings.LAMBDA_SECRETS.items() if name in names} == {"alertmanager"}, name
+    assert not [n for n in settings.LOADABLE | settings.SECRETS | set(settings.RESTRICTED) if "GRAFANA" in n]
     tf = ROOT / "terraform" / "modules" / "warden-runtime"
     slots = (tf / "secrets.tf").read_text(encoding="utf-8")
-    assert all(f'"{n}",' in slots for n in ("datadog-api-key", "datadog-app-key", "grafana-read-token"))
-    assert ('"stack-db-reader-dsn", "datadog-api-key", "datadog-app-key", "grafana-read-token"]'
-            in (tf / "iam.tf").read_text(encoding="utf-8"))
+    assert all(f'"{n}",' in slots for n in ("datadog-api-key", "datadog-app-key")) and "grafana" not in slots
+    iam = (tf / "iam.tf").read_text(encoding="utf-8")
+    assert '"stack-db-reader-dsn", "datadog-api-key", "datadog-app-key"' in iam and "grafana" not in iam
 
 
 # ------------------------------------------------------------------ X-Ray (register G10-54)
