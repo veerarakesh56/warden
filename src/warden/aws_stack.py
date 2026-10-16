@@ -1,7 +1,7 @@
-"""The full-stack evidence backend (`WARDEN_BACKEND=stack`) - Wave 4, docs/WAVE4-FULLSTACK.md s5.
+"""The full-stack evidence backend (`WARDEN_BACKEND=stack`) - the full-stack lab, docs/FULLSTACK-LAB.md.
 
 Same three-method contract as every other backend. The alert's labels name the application's
-resources (docs/WAVE4-CONTRACT.md A); one READER per resource reads it, and the metric names and
+resources (docs/FULLSTACK-LAB.md section 4, contract A); one READER per resource reads it, and the metric names and
 line formats it emits are exactly contract B, C and D.
 
 Deliberate:

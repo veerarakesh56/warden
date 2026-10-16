@@ -1,7 +1,8 @@
-# AWS setup — which identity, which permissions
+# AWS setup for the proving ground — which identity, which permissions
 
-Read this before running anything in `terraform/proving-ground/`. It answers one question: **what do
-I create in AWS, and with what permissions?**
+Read this before running anything in `terraform/proving-ground/`, the single-platform stack the recorded
+ECS, EKS and RDS benchmark runs used. It answers one question: **what do I create in AWS, and with what
+permissions?** For WARDEN's runtime and the per-environment roles, see [SETUP.md](SETUP.md).
 
 > **Status (audit 2026-10-16).** The proving ground is not deployed: none of the `warden-pg-*` roles and
 > none of the `WardenProvingGround*` policies below exist in the account. They are what a re-run of Waves
@@ -36,8 +37,8 @@ clicks) and do this work there. Then the blast radius of any mistake — mine, y
 injector's — is an account containing nothing you care about, and the permissions question stops
 being difficult.
 
-In that account, `AdministratorAccess` on a non-root user is a *reasonable* choice, and I would
-rather tell you that than pretend a hand-crafted policy is meaningfully safer in an empty account.
+In that account, `AdministratorAccess` on a non-root user is a *reasonable* choice: a hand-crafted
+policy is not meaningfully safer in an empty account.
 
 ### 2. Acceptable: your existing account, with the scoped policy in this directory
 
@@ -48,9 +49,10 @@ statements over identity and data-store destruction.
 ⚠ **Be honest about what that does and does not buy you.** Most AWS `Create*` calls (`ec2:CreateVpc`,
 `eks:CreateCluster`) do not support resource-level ARNs, so those statements are `"Resource": "*"`
 with a region condition. This identity can still create networking and compute in that region. It
-is meant not to touch your IAM users or access keys. **⚠ Audit 2026-09-28:** this identity's policy
-has a finding that is withheld until its live fix (`docs/AUDIT-2026-09-28.md`, A-I-4), and this
-whole section is being replaced by a key-less operator identity. Do not rely on the claims here.
+is meant not to touch your IAM users or access keys. **⚠ Known gap:** `operator-policy.json` lets
+the operator log in to a proving-ground database as its master user and edit its own policy. Use it only
+in an account that holds nothing else, and prefer the read-only, key-less operator role in `iam/operator/`
+([SETUP.md](SETUP.md), section 3d) for anything that is not building the proving ground.
 
 ### 3. Never: the root user
 
@@ -148,9 +150,6 @@ variable `sensitive` hides it from CLI output, not from state.
 
 ## Guardrails against a hijacked or "cunning" agent (2026-09-27, owner, admin credentials)
 
-**Console, click by click (no CLI): [`OWNER-CONSOLE-STEPS.md`](OWNER-CONSOLE-STEPS.md).** The commands
-below are the same steps for the CLI.
-
 The boundary caps what the operator may do, but inside the cap sit actions a hijacked agent could
 use to open the account up rather than break it. Examples: make a `warden-pg-*` role trust an
 outside account, publish a Lambda URL with no auth, share a snapshot, or stop the audit trail. The
@@ -207,8 +206,8 @@ If an apply fails with `AccessDenied`:
 1. The error names the exact action. **Add that action to the policy.**
 2. ⛔ **Do not fall back to `AdministratorAccess` to make it work**, and if you do as a one-off to
    get unblocked, take it off again afterwards and record which action was missing.
-3. Send me the error and I will correct the policy file — a policy that needed widening is a bug in
-   this document, and it should be fixed here rather than worked around on your machine.
+3. Open an issue with the error: a policy that needed widening is a bug in this repository, and it
+   should be fixed here rather than worked around on your machine.
 
 ## What the reader role can do, for comparison
 

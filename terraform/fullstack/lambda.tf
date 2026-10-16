@@ -319,7 +319,7 @@ resource "aws_apigatewayv2_route" "checkout" {
 }
 
 # Access logs (audit A-I-13). Under /aws/vendedlogs/: the owner creates ONE account-level resource policy that lets
-# CloudWatch Logs' delivery service write to /aws/vendedlogs/warden-* (docs/OWNER-CONSOLE-STEPS.md), so API Gateway
+# CloudWatch Logs' delivery service write to /aws/vendedlogs/warden-* (docs/SETUP.md, 3e), so API Gateway
 # never needs logs:PutResourcePolicy - which the boundary denies, because such a policy can share logs outside.
 resource "aws_cloudwatch_log_group" "api_access" {
   name              = "/aws/vendedlogs/${local.name}-api-access"

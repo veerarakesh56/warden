@@ -1,152 +1,131 @@
-# How WARDEN runs in the real world
+# How WARDEN runs in AWS
 
-In production, WARDEN is not run from anyone's laptop. It is a set of cloud services, each with its
-own machine identity. It starts itself when an alarm fires, and it never holds a person's credentials
-or a long-lived key. It is designed to run every day for years: highly available, upgradable,
-backed up and observable.
+In the cloud, WARDEN is a set of services, each with its own machine identity. It starts when an alarm
+fires, holds no person's credentials and no long-lived access key, and pages a person when it cannot do
+its job. Everything on this page is defined in `terraform/runtime` (the network and the environment's
+settings) and `terraform/modules/warden-runtime` (the services). How the pieces fit inside the code is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md); every outside component and its price is in
+[`SYSTEM-COMPONENTS.md`](SYSTEM-COMPONENTS.md); setting it up is in [`SETUP.md`](SETUP.md).
 
-This document is the **target design**, approved on 2026-09-28. [`ROADMAP.md`](ROADMAP.md) says which
-group builds each part. [`SYSTEM-COMPONENTS.md`](SYSTEM-COMPONENTS.md) lists every component and its
-cost. The honest status of what exists today is at the end.
-
-**Design principle: Meta's "Agents Rule of Two."** An agent should have at most two of three
-properties: it processes untrusted input, it reaches sensitive data, it changes state. WARDEN has
-the first two, and changes state **only through a signed human approval** of an exact plan.
-Detectors are tripwires, never gates. Research shows adaptive attacks beat every detector, so the
-architecture carries the protection.
+**Design principle: Meta's "Agents Rule of Two."** An agent should have at most two of three properties:
+it reads untrusted input, it reaches sensitive data, it changes state. WARDEN has the first two, and
+changes state **only through a signed human approval** of an exact plan. Detectors are tripwires, never
+gates: published adaptive attacks beat every detector, so the architecture carries the protection.
 
 ## The loop
 
 ```
- Monitoring: CloudWatch alarms · Prometheus Alertmanager · PagerDuty / incident webhooks
-      │ state = ALARM only
-      ▼
- EventBridge rule (retry + DLQ) ─► Intake Lambda ──┐    HTTP API (HMAC) ─► the same intake
-                                  intake.accept:    │    dedupe by fingerprint, storms join the open
-                                  incident, flapping escalates, an alarm inside an open verify
-                                  window signals that remediation (no feedback loop), caps
-      ▼
- Temporal Cloud namespace (aws-ap-south-2; HA replica ap-south-1 when enabled)
-      │ API key per trust zone · payloads AES-256-GCM encrypted by WARDEN (codec) · codec server for the UI
-      ├─► read worker    task role → that environment's reader role, 15 min, SourceIdentity=inc-<id>
-      ├─► llm worker     ONE permission: bedrock:InvokeModel on the pinned Sonnet 5 profile;
-      │                  typed, redacted facts only; ≤ 2 calls per incident (counted in the audit)
-      ├─► core worker    grounding, policies P1–P16+, outbound gate, KMS-signed audit
-      ├─► notify worker  Slack bot (thread per incident) · PagerDuty Events v2 · webhooks
-      └─► act worker     never holds a standing role; receives a ≤ 900 s actor session minted by the
-                         approval Lambda, with a session policy naming the exact target ARNs
-      ▲
- Slack "Review" button ─► approval page (bhovix subdomain; passkey / WebAuthn over the plan hash)
-                            └─► Approval Lambda: verifies the passkey, mints the actor session,
-                                 sends a Temporal Update (validated before it enters history)
+ CloudWatch alarms (state ALARM)          Prometheus Alertmanager
+      |                                         |
+ EventBridge rule (retries, then a              API Gateway HTTP API (throttled)
+ dead-letter queue that pages)                  |  bearer secret, size caps, still-firing check
+      |                                         |
+      +--> alarm Lambda --> intake <-- alertmanager Lambda
+                  groups repeats, holds expected-down alarms, sends flapping alarms
+                  and storms to a person, caps open incidents
+      |
+ Temporal Cloud namespace
+      |  one API key per trust zone; every payload AES-256-GCM encrypted by WARDEN (codec.py)
+      |
+      +--> core worker    the workflows, verify, the gate, the signed audit
+      +--> read worker    that environment's reader role, per incident (SourceIdentity = inc-<id>)
+      +--> llm worker     the model API key only; redacted, typed facts in; 6 calls and US$0.25 per incident
+      +--> notify worker  Slack (one message per incident), PagerDuty Events v2, webhooks, change records
+      +--> act worker     no standing role; a per-plan actor session of at most 900 s
+      ^
+ Slack button --> approval page (API Gateway + Lambda on <your-domain>)
+                  Sign in with Slack, then a passkey (WebAuthn) over the exact plan hash
+                  --> a signal to the RemediationWorkflow, which re-verifies it
 ```
 
 ## When it starts
 
-- **Automatically, in production.** A CloudWatch alarm enters ALARM, the EventBridge rule matches,
-  and `intake.accept` starts or joins an incident. Alertmanager and incident-platform webhooks enter
-  the same way through an HMAC-authenticated HTTP API. Nothing polls.
-- **By hand.** An engineer or another agent asks through MCP (`start_incident_diagnosis`) or the CLI,
-  and it goes through the same `intake.accept`. The benchmark harness is triggered by hand with
-  Claude Max, for measurement only.
+- **Automatically.** A CloudWatch alarm of a watched environment enters ALARM; an EventBridge rule hands
+  it to the alarm Lambda, which goes through intake. Alertmanager posts to the HTTP API. A service's own
+  failure events (for example an ECS service's error events or an RDS failover) are read the same way.
+  Nothing polls.
+- **By hand.** An engineer or another agent can start a diagnosis through the MCP tools or the CLI.
 
-## Where it runs
+## What is deployed
 
-| | A company | This lab |
-|---|---|---|
-| Accounts | an "ops" account plus one account per environment (the Terraform module supports multi-account) | **one AWS account, hardened** (owner decision): environments separated by name `warden-<env>-*`, the `Environment` tag, parameter path `/warden/<env>/`, and per-environment boundaries |
-| Orchestration | Temporal Cloud (Business or Enterprise, HA namespace) | Temporal Cloud trial namespace in aws-ap-south-2 (created 2026-09-28) |
-| Workers | ECS on an EC2 capacity provider, private subnets, 2 AZs, one service per trust zone (or EKS via a Helm chart) | the same, deployed **only in test windows until go-live** |
-| WARDEN's own data | Aurora PostgreSQL (writer + reader), S3 blobs, S3 Object Lock anchors | Aurora Serverless v2 with auto-pause (verify live), plus the same S3 |
-| Deploys | GitHub Actions → OIDC → per-environment deploy role; WARDEN itself through its own `runtime.yml` pipeline and `ops` environment | same |
+| Part | Resource |
+|---|---|
+| Network | a VPC over two availability zones: private subnets for the workers, the Lambdas and the audit database; one NAT gateway by default (`nat_gateways = 2` for production); a free S3 gateway endpoint |
+| Workers | ECS on Fargate, one service per trust zone, in the private subnets |
+| Front door | Lambdas behind EventBridge (alarms, service events, actor-role use) and an API Gateway HTTP API (Alertmanager, the approval page), all from the one runtime image |
+| WARDEN's record | Aurora PostgreSQL Serverless v2 (scales to zero and pauses after an hour idle); the schema and an append-only writer login are created by a migrate Lambda after each apply |
+| Audit signing | an AWS KMS Ed25519 key that only the signer may use; each checkpoint is also written to an S3 bucket under Object Lock (COMPLIANCE mode) |
+| Witness | a CloudTrail trail of management events into its own Object Lock bucket: the record WARDEN does not write |
+| Health | a heartbeat alarm that pages when the workers' round trips through Temporal stop, and a daily synthetic incident through the whole diagnosis path that pages when it fails |
+| Pause | `/warden/<env>/tf/paused = true` removes compute, the NAT route and alarm intake between uses; the data stays |
+
+The runtime is one deployment, the `ops` environment, that watches the application environments listed in
+`watched_environments`. It is deployed by its own manual pipeline (`.github/workflows/runtime.yml`).
 
 ## How each part gets access (no keys anywhere)
 
-- **Workers:** each has its own ECS task role, with IMDS blocked from tasks. AWS issues short-lived
-  credentials and rotates them.
-- **Per incident:**
-  - the read worker assumes that environment's **reader role**, with `SourceIdentity=inc-<id>`;
-  - the **actor session** is minted only by the approval Lambda, after the passkey signature is
-    verified, and carries session tags `approver=` and `incident=`;
-  - an EventBridge-on-CloudTrail check pages on any actor-role use that has no matching signed
-    approval.
-- **Secrets:** plain configuration lives in SSM Parameter Store; **every secret lives in Secrets
-  Manager** (owner decision, 2026-09-28), read at run time only by the worker that needs it.
-- **Audit signing:** an AWS KMS Ed25519 key (`ECC_NIST_EDWARDS25519`) that only a dedicated signer
-  role may use. Checkpoints are anchored to S3 Object Lock under another principal, and CloudTrail
-  records every `kms:Sign` as an independent witness.
-- **CI:** no AWS keys. GitHub's OIDC token is exchanged for the environment's deploy role.
-- **People:**
-  - A company signs people in through its own identity provider (IAM Identity Center where it uses
-    AWS Organizations) and approves with passkeys.
-  - This lab cannot use Identity Center, because it would need AWS Organizations and so end the Free
-    plan.
-  - The laptop operator moves to **IAM Roles Anywhere** (a certificate, no password, no stored key).
-    This is being verified before the switch. No console password is used.
-  - Teleport is an optional adapter for companies that already run it.
+- **Workers** each have their own ECS task role. AWS issues short-lived credentials and rotates them.
+- **Per incident**, the read worker assumes that environment's reader role with `SourceIdentity=inc-<id>`.
+- **Per approved plan**, the act worker receives an actor session (`identity.py`): at most 900 seconds,
+  session tags naming the approvers, the incident and the plan, and a session policy that allows only the
+  plan's actions on the plan's exact resources. An EventBridge rule on CloudTrail sends every use of an
+  actor role to the `actor-use` Lambda, which pages if the audit shows no approval for it.
+- **Configuration** lives in SSM Parameter Store under `/warden/<env>/`. **Every secret** lives in Secrets
+  Manager as `warden/<env>/<name>`. Terraform creates the empty slots; a person sets each value, so no
+  secret value is ever in Terraform state. Each worker reads only its own zone's secrets.
+- **The audit database** is reached as `warden_audit_writer`, which may only SELECT and INSERT and signs in
+  with an IAM token, not a password.
+- **CI** has no AWS keys. GitHub's OIDC token is exchanged for a per-environment deploy role
+  (`iam/templates`).
 
 ## Human approval
 
-- **The tiers:**
-  - T1 may be approved from Slack.
-  - T2 and above need the approver's **passkey signature over the exact plan hash**, made on the
-    approval page after typing the target.
-  - T3 (irreversible, IAM, network, Terraform) also needs a cooling-off time and, for infrastructure,
-    a Helios check.
-- **Two-person rule.** Supported in code. The lab has a single approver, and says so.
-- **Break-glass.** The CLI Ed25519 key, used with a short-lived Temporal user API key.
+- **Tiers.** T1: one small, reversible change to one resource. T2: service-level, reversible. T3:
+  irreversible, IAM, network or Terraform.
+- **Every tier needs a signed approval of the exact plan.** On the approval page the person signs in with
+  Slack, proves it with a passkey, and for T2 and T3 types the target before signing. T3 also needs a
+  cooling-off time and a device-bound passkey.
+- **More than one approver.** The approver list can require approvals from different people per tier.
+  With a single approver, one person decides a change alone; the records say so.
+- **Break-glass.** `warden approve` with the approver's Ed25519 key.
 
-## The model in production
+## The model
 
-**Amazon Bedrock, Claude Sonnet 5** (`anthropic.claude-sonnet-5`, owner decision 2026-10-03), pinned
-by id, through the India geo inference profile `in.anthropic.claude-sonnet-5`, so inference stays in
-India (read live 2026-10-03). It was chosen by WARDEN's own replay of 30 recorded incidents, never by
-public leaderboards: it passed the qualification bar at a fifth of Fable 5.1's price, and Opus 5.5 did
-not pass. The input is only redacted, typed facts. A model change needs a new qualification
-(register M20). The cost is about $0.05 per incident, assuming the geo profile is billed +10%; this is
-checked in W-B.
+The llm worker calls **Claude Sonnet 5.5 (`claude-sonnet-5-5`) through the Anthropic API**, with the key
+read from Secrets Manager (`warden/<env>/anthropic-api-key`). That is the code's default
+(`src/warden/data/providers.yaml`: provider `anthropic`, default model `claude-sonnet-5-5`); an install can
+choose another provider and model with `/warden/<env>/tf/model_provider` and `/warden/<env>/tf/model`.
+Amazon Bedrock, Gemini and OpenAI-compatible endpoints are supported as well; Bedrock needs
+`bedrock_model_arns`, which grants `bedrock:InvokeModel` on those models only.
 
-If there is no model, the budget is exceeded, or the provider is down, WARDEN produces a
-**rules-only report and pages a person** instead of guessing.
+A model is used only after it passes WARDEN's replay qualification on recorded incidents, never because of
+a public leaderboard; the deploy refuses a model that is not on the qualified list. The results are in
+[`BENCHMARKS.md`](BENCHMARKS.md). The model sees only redacted, typed facts. Each incident may make at most
+6 model calls and spend at most US$0.25 in the cloud, and a daily cap applies across incidents.
 
-The Claude Max CLI remains the development and benchmark backend.
+If there is no model, the budget is spent, or the provider is down, WARDEN produces a **rules-only report
+and hands the incident to a person** instead of guessing.
 
-## Observability, audit, change timeline
+## Observability and records
 
-- **Tracing.** OpenTelemetry end to end: Temporal's TracingInterceptor plus WARDEN's GenAI-convention
-  spans, through an ADOT collector to CloudWatch / X-Ray. Langfuse is an optional, self-hosted add-on
-  for companies.
-- **One correlation id**, `inc-<id>`, runs through the workflow, the STS session and SourceIdentity,
-  the signed audit, the Slack thread and PagerDuty `dedup_key`.
-- **Change timeline.** GitHub Deployments, SHA stamping on everything deployed, and EventBridge →
-  `/warden/changes`. A change is a *suspect*, never the cause.
-- **WARDEN's own health.** A heartbeat with an external staleness page, a daily synthetic incident,
-  and its own PagerDuty service.
+- **One correlation id**, `inc-<id>`, runs through the workflow, the STS session's SourceIdentity, the
+  signed audit, the Slack message and the PagerDuty `dedup_key`.
+- **Records pages** on the approval page's domain show every incident, its plan, who approved or denied it
+  and how it ended, read from the signed audit.
+- **Change records.** Each applied change can open a GitHub issue (`WARDEN_CHANGE_REPO`).
+- **Tracing.** OpenTelemetry spans for each run; send them to any OTLP collector.
 
 ## Operations
 
-- **Upgrades:** Alembic migrations; Temporal worker versioning with in-flight replay tests.
-- **Backups and restore:** backups plus point-in-time recovery, with a measured restore drill (RTO and
-  RPO published).
-- **Key rotation:** a table per secret.
-- **The codec server** is not built yet. Every payload is bound to its namespace and workflow id
-  (2026-09-30), so the server must receive the workflow id with each payload. Whether the Temporal
-  web UI sends it is to be verified live in G6. If it does not, the UI shows payloads as refused
-  rather than decrypting them unbound.
-- **Data retention:** covered in `DATA-RETENTION.md`.
-- **Threat model:** in `THREAT-MODEL.md`.
+[`OPERATIONS.md`](OPERATIONS.md) covers rotating every secret and key.
+[`RUNBOOK-WARDEN-INCIDENT.md`](RUNBOOK-WARDEN-INCIDENT.md) covers what to do when WARDEN itself is the
+incident.
 
-All of these are written in G6.
+## Limits
 
-## What exists today (2026-10-04)
-
-| Part | Status |
-|---|---|
-| Diagnosis, grounding, quarantine, verifier, outbound gate | built and reviewed; observe-mode policies P25-P28 |
-| Temporal workflows, signed and passkey approvals, deny, tamper-evident audit (SQLite or PostgreSQL), bounds, catalogue, encrypted payloads | built |
-| Per-environment names, IAM templates (deploy, platform reader, actor), Terraform workspaces | built |
-| Temporal Cloud namespace | created (W-T, 2026-09-28) |
-| Intake (alarm and Alertmanager Lambdas), the PostgreSQL audit, KMS signing and S3 anchors, the approval page, the Slack bot thread, PagerDuty (Events API v2), the change timeline, the Bedrock provider, the AWS write platform with per-plan actor sessions, the heartbeat and the daily synthetic incident | built and tested locally; first run in the cloud windows (W1-W2) |
-| The runtime module (`terraform/modules/warden-runtime`): KMS, anchors, secrets, Aurora, identities, Lambdas, HTTP API, EventBridge, ECS on EC2, alarms | built and validated; not yet applied (W1-W2) |
-| Calibration and shadow mode | the decider is built; it does not yet beat the base rate (G7, R44) |
-| Helios gate | built in the infra deploy (R56); first live run in the next infra window |
+- **It has been run in one AWS account.** Environments are separated by name (`warden-<env>-*`), the
+  `Environment` tag, the parameter path and a permissions boundary per environment. Separate accounts per
+  environment are the stronger setup; that has not been tried.
+- **The Temporal codec server is not built.** The Temporal web UI therefore shows payloads as encrypted.
+- **No automatic tier.** Every fix needs a person, in every environment, until measured shadow results earn
+  an automatic tier; none has.

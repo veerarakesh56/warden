@@ -1,5 +1,5 @@
-"""Wave 4: every fault class of docs/WAVE4-FULLSTACK.md section 7 is detected from contract-shaped
-evidence (docs/WAVE4-CONTRACT.md B/C/D), and its advice names what that evidence shows. The advice holds
+"""Wave 4: every fault class of docs/FULLSTACK-LAB.md section 5 is detected from contract-shaped
+evidence (docs/FULLSTACK-LAB.md section 4, B/C/D), and its advice names what that evidence shows. The advice holds
 no command (2026-10-16; tests/test_no_commands.py): it used to carry exact fix commands, checked here
 against a mirror of the harness allow-list.
 

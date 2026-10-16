@@ -1,17 +1,13 @@
-# Wave 4 - the full stack (infrastructure)
+# The full-stack lab (infrastructure)
 
-The AWS side of `docs/WAVE4-FULLSTACK.md` section 2: VPC (+ one NAT gateway), ElastiCache Redis,
+The AWS side of the full-stack lab ([`docs/FULLSTACK-LAB.md`](../../docs/FULLSTACK-LAB.md)): VPC (+ one NAT gateway), ElastiCache Redis,
 DynamoDB, SQS/SNS, six Lambdas, API Gateway, ALB + ECS Fargate, EKS, Secrets Manager, EventBridge
 and the CloudWatch alarms that are the alert source - and, through `aurora_express.py` in this
 directory, Aurora PostgreSQL Serverless v2. Everything is named `warden-<env>-*` (the Terraform
 workspace is the environment; `dev` in the examples) and tagged `Project=warden` +
 `Environment=<env>`.
 
-> ⚠ **Audit 2026-09-28.** The per-environment IAM this stack deploys under has isolation gaps that
-> are being fixed before the next apply (`docs/AUDIT-2026-09-28.md`, A-I-1..A-I-26). Do not apply
-> this stack until release 0.10.1.
-
-⛔ **The account is on the AWS Free plan (2026-09-26, docs/WAVE4-FULLSTACK.md section 9).** It
+⛔ **Built for an account on the AWS Free plan (docs/FULLSTACK-LAB.md section 1).** That plan
 creates Aurora only in EXPRESS configuration, which the Terraform provider cannot do, so
 `aurora_express.py create` makes the cluster after `terraform apply` and `aurora_express.py destroy`
 removes it before `terraform destroy`. Express configuration has no VPC (the Aurora internet access
@@ -60,29 +56,22 @@ slightly), no free tier, idle load from the traffic Lambda. The budget alarm is 
 forecast 60%/90% and actual 50%/100%. The proving ground's budget was destroyed with it.
 USD 50 is about four days of this stack left running. Destroy it when a run ends.
 
-## Before the first apply (owner, admin credentials)
+## Before the first apply
 
-The identities that build this stack are the environment's rendered IAM (`iam/<env>/`, from
-`iam/templates/` by `scripts/render_env_iam.py`) and the operator role (`iam/operator/`); the owner
-steps for bringing up an environment are in
-[`docs/OWNER-CONSOLE-STEPS.md`](../../docs/OWNER-CONSOLE-STEPS.md). The operator policies this
-section used to describe (the user-era `WardenFullstackOperator` and the proving ground's) are gone
-from the account; their text is in git history (audit 2026-10-16).
+The identities that build this stack are the environment's rendered IAM (`iam/<env>/`, from `iam/templates/` by
+`scripts/render_env_iam.py`) and the operator role (`iam/operator/`). Create the environment's deploy role,
+permissions boundary, state bucket, Parameter Store values and GitHub environment as
+[`docs/SETUP.md`](../../docs/SETUP.md) section 3 describes. On a fresh account, also create two service-linked
+roles once (the calls that need them check a path-less ARN the boundary does not match):
 
-1. **Service-linked roles** on a fresh account (the Wave 2 lesson: the calls that need them check
-   a path-less ARN the boundary does not match):
+    aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
+    aws iam create-service-linked-role --aws-service-name elasticache.amazonaws.com
 
-       aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
-       aws iam create-service-linked-role --aws-service-name elasticache.amazonaws.com
-
-2. **CI only:** the per-environment OIDC role `warden-<env>-deploy`, the state bucket
-   `warden-<env>-tfstate-*` and the GitHub Environment variables - the list is at the top of
-   `.github/workflows/deploy-<env>.yml`. No AWS keys are
-   stored anywhere.
+No AWS keys are stored anywhere: CI reaches AWS through the OIDC role `warden-<env>-deploy`.
 
 ## Apply (the environment's deploy role)
 
-Since v2 Phase 1.5 the stack belongs to an **environment** (dev or prod - the keys of
+The stack belongs to an **environment** (dev or prod - the keys of
 `src/warden/data/environments.yaml`), and the environment is the **Terraform workspace**. Names are
 `warden-<env>-*`, every resource is tagged `Project=warden` + `Environment=<env>`, and every role
 carries `WardenEnvBoundary-<env>` (`iam/<env>/boundary.json`). The two per-environment values are
@@ -137,12 +126,12 @@ while Lambda releases the in-VPC functions' network interfaces; that is AWS, not
 |---|---|---|
 | Public subnets | the NAT gateway (its Elastic IP) only; `map_public_ip_on_launch = false` | nothing inbound |
 | Private subnets | ECS tasks (no public IP), EKS nodes and control-plane interfaces, in-VPC Lambdas, Redis, the ALB (**internal**), interface endpoints | inside the VPC only; the ALB only from the Lambda security group |
-| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway (audit A-I-13, corrected 2026-10-16: this cell still said "no authentication and no access logs"): throttled; POST /checkout needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state); GET /health is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries — **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set, which dev has been since 2026-10-14, not only during a deploy** (audit A-I-16, being closed) |
+| AWS-managed, public by design | API Gateway (the shop's public API), the EKS API endpoint | API Gateway: throttled; `POST /checkout` needs a bearer token, which the checkout Lambda checks in constant time against a Secrets Manager secret written write-only (in no plan or state, `api_auth.tf`); `GET /health` is open and touches nothing; JSON access logs go to `/aws/vendedlogs/warden-<env>-api-access`. EKS API: `/warden/<env>/tf/my_ip_cidr` by default, IAM auth through access entries - **but open to `0.0.0.0/0` while the `EKS_PUBLIC_CIDRS` variable is set on the GitHub environment (`eks_public_access_cidrs`), and it stays open until an apply without it**. The fix, an in-VPC deploy path, is an open row in `docs/FAILURE-MODES.md` (A-I-16) |
 | Outside the VPC | Aurora in express configuration (the Free plan's only form) | IAM database authentication only, no password exists |
 
 No security group accepts `0.0.0.0/0` (a test enforces it). Egress leaves through the one NAT.
 There are no ECR interface endpoints, and the placeholder image comes from `public.ecr.aws`, so image
-pulls go through the NAT as well; only S3 has a (free) gateway endpoint. A production app with a domain would put a **public** ALB in
+pulls go through the NAT as well; only S3 and DynamoDB have (free) gateway endpoints. A production app with a domain would put a **public** ALB in
 front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so its ALB is internal.
 
 ## Things that are deliberate

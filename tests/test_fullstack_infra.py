@@ -173,7 +173,7 @@ def test_security_group_descriptions_are_ones_ec2_accepts():
     assert not bad, bad
 
 
-# Words that would name a fault's CAUSE (docs/WAVE4-FULLSTACK.md section 7). The symptom may be
+# Words that would name a fault's CAUSE (docs/FULLSTACK-LAB.md section 5). The symptom may be
 # named ("5xx", "memory usage", "not ready"); the cause may not.
 CAUSE_WORDS = ["reserved concurrency", "concurrency", "keyerror", "health path", "healthz", "timeout",
                "timed out", "iam", "permission", "accessdenied", "access denied", "poison", "disabled",
@@ -978,7 +978,7 @@ def test_aurora_names_the_app_user_terraform_does(tmp_path, monkeypatch):
 
 def test_the_public_api_writes_access_logs_to_a_vended_log_group():
     """Audit A-I-13: the public HTTP API had no access logs. The group is under /aws/vendedlogs/, which the owner's
-    one account-level delivery policy covers (docs/OWNER-CONSOLE-STEPS.md), so nothing writes a resource policy."""
+    one account-level delivery policy covers (docs/SETUP.md, 3e), so nothing writes a resource policy."""
     text = (pathlib.Path(__file__).resolve().parents[1] / "terraform" / "fullstack" / "lambda.tf").read_text(encoding="utf-8")
     assert 'name              = "/aws/vendedlogs/${local.name}-api-access"' in text
     stage = text[text.index('resource "aws_apigatewayv2_stage" "default"'):]

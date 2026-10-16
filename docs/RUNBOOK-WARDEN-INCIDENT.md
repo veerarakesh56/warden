@@ -38,7 +38,7 @@ wait; nothing is applied until it is set back to `1`. (An AWS deny policy as a s
 
 - The approver keys and passkeys are enrolled, and the break-glass Ed25519 key is passphrase-encrypted.
 - The audit's public key is kept apart from the worker, and the S3 anchor bucket (register S12) is configured.
-- This runbook and `docs/OWNER-CONSOLE-STEPS.md` are where the on-call engineer can open them without WARDEN.
+- This runbook and `docs/SETUP.md` are where the on-call engineer can open them without WARDEN.
 - What to keep for an investigation: the audit database, the Temporal workflow histories (encrypted; the codec key
   is in Secrets Manager), and the model's recorded prompts and answers (by hash in `llm.call` rows).
 

@@ -406,7 +406,7 @@ class AwsBackend:
         #
         # `failedTasks` rides in the SAME DescribeServices response this method already reads, so
         # there is no extra API call and no extra IAM action. It is the number an operator reads off
-        # the console first. See docs/bench/wave1-2026-09-11T155744Z.
+        # the console first. See tests/fixtures/bench/wave1-2026-09-11T155744Z.
         out["deployment_failed_tasks"] = float(
             sum(int(d.get("failedTasks") or 0) for d in deployments)
         )

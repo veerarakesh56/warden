@@ -35,6 +35,20 @@ bump may carry a breaking change.
 - CI runs on pushes to `main` and on pull requests into `main`; the workflow scan still runs on every pull request.
 - `scripts/render_env_iam.py` writes LF on Windows too.
 
+### Documentation (2026-10-16, preparing the repository for open source)
+- The documentation is rewritten to what the code does today: the README, the architecture (Temporal workflows,
+  trust zones, the approval page, the gate, quarantine), the production architecture, the system components, the
+  roadmap and the full-stack lab (`docs/FULLSTACK-LAB.md`, formerly `WAVE4-FULLSTACK.md`). A new `docs/SETUP.md`
+  explains how to set WARDEN up in your own AWS account and GitHub repository.
+- Internal working documents are no longer published: the session handoffs, the dated research notes, the Wave 4
+  contract, the 2026-09-28 audit, the requirements trace, the owner's console steps and the 2026-09-06 live-run
+  record. The audit's open and deferred rows and the compliance crosswalk's gaps (CW1-CW5) moved into
+  `docs/FAILURE-MODES.md`, which is now the one register `tests/test_register.py` holds to its evidence.
+- Benchmarks: one results summary, `docs/BENCHMARKS.md`. The held-out sets keep their incidents and answer keys in
+  `docs/bench/`. The recorded Wave 1-3 runs the tests replay moved to `tests/fixtures/bench/`; their raw extras
+  (per-run RESULTS pages, the held-out sets' run outputs, author and review notes) are no longer published.
+- `.gitignore` covers every local-only path, and `tests/test_local_only_paths.py` fails if one is ever tracked.
+
 ### Changed (G2, workflow correctness - started 2026-10-02)
 - **A remediation is bound to its resource and its environment** (registers S6, C3, O5; audit A-B-M4).
   **Breaking:** `request_remediation` now requires `environment`.
@@ -1423,7 +1437,8 @@ The gate stops taking the model's word for anything that could loosen it.
 
 The release where WARDEN was measured against a real AWS account instead of described. The
 benchmark found bugs in the tool, and two in itself, and everything below is published rather than
-summarised: both runs, their rubrics, their hashes and the scorer are in [`docs/bench/`](docs/bench/README.md).
+summarised: both runs, their rubrics, their hashes and the scorer are in the repository (since 2026-10-16 the
+recorded runs live in `tests/fixtures/bench/`, summarised in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md)).
 
 ### The measurement
 

@@ -1,9 +1,9 @@
-"""Wave 4, run by an operator one step at a time (docs/WAVE4-FULLSTACK.md).
+"""Wave 4, run by an operator one step at a time (docs/FULLSTACK-LAB.md).
 
     python -m scenarios.fullstack_cli soak               # wait: every component healthy + 30 min
     python -m scenarios.fullstack_cli inject fs-07       # capture prior state, break it, wait for the alarm
     python -m scenarios.fullstack_cli diagnose fs-07     # run WARDEN as the reader identity, save its report
-    python -m scenarios.fullstack_cli fix fs-07          # apply the report's fix commands via the allow-list
+    python -m scenarios.fullstack_cli fix fs-07          # record the fix outcome from the gate's verdict (nothing runs)
     python -m scenarios.fullstack_cli verify fs-07       # poll the fault's "fixed when" verifier
     python -m scenarios.fullstack_cli revert fs-07       # put the exact prior state back, wait for baseline
     python -m scenarios.fullstack_cli status             # every fault's steps, and the stack's health now

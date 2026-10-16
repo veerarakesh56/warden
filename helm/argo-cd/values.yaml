@@ -5,8 +5,7 @@
 # fix is under two weeks old, so the age rule gives way to the security one: the OLDEST carrying the fix is pinned.
 # v3.5.5 adds only bug fixes in features not used here (config management plugins, the hydrator, the UI).
 # Installed by the apps pipeline (scripts/deploy_fullstack_apps.py deploy_argocd), the way the Datadog agent is. Every
-# key below is read from that chart's own values.yaml, both 10.9.7 and 10.10.5 (research 2026-10-16:
-# C:\work\warden\reports\GitOps and runtime remediation paths.md).
+# key below is read from that chart's own values.yaml, both 10.9.7 and 10.10.5 (checked 2026-10-16).
 #
 # Nobody logs in to it: the Applications are Kubernetes objects the pipeline applies, and WARDEN acts on the workloads
 # through the Kubernetes API with its own restricted service account (k8s/remediation-rbac.yaml) - restarts and the

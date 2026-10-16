@@ -402,8 +402,8 @@ class RemediationActivities:
         if what == "approved" and not did:
             return []  # nothing on the record says who: nothing is claimed
         if what == "denied":
-            # Who said no, how and when - said as an approval is (owner, 2026-10-14: "earlier that denied didn't show
-            # that Rakesh denied it": the message read "was denied ... Why: denied by owner"). A denial reaches the
+            # Who said no, how and when - said as an approval is (2026-10-14: a denial did not show
+            # who denied it; the message read "was denied ... Why: denied by owner"). A denial reaches the
             # workflow only from the approval page, after the approver's passkey over this exact plan
             # (approval_page._deny); who it was is this run's own signed end row.
             who = next((n for n in self.policy.approvers

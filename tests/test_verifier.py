@@ -80,7 +80,7 @@ def test_p2_reads_the_action_table_not_the_models_claim():
     """⛔ The whole point of the table. The proposal claims a database failover is reversible;
     WARDEN classifies a promoted replica as irreversible, and the table decides. Before
     2026-09-12 this claim skipped P2 entirely, which is how two models got opposite verdicts for
-    the identical operation (docs/live-model-run-2026-09-06.md §3)."""
+    the identical operation (the live-model run of 2026-09-06)."""
     v = verify(_alert(), _ctx(), _rc(confidence=0.99),
                _prop(action=ActionKind.failover_replica, reversible=True))
     assert v.status is VerdictStatus.rejected

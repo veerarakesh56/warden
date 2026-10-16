@@ -4,7 +4,7 @@ name: "_ infra · deploy"
 # the undo lab (terraform/undo-lab - a table, a queue, two functions and a schedule; it refuses any environment but
 # the one its fault-injection role exists in). Called only by
 # Deploy · <env> and Deploy · <env> · on merge. NO AWS KEYS ARE STORED ANYWHERE. Per environment the owner creates once
-# (docs/OWNER-CONSOLE-STEPS.md): the role warden-<env>-deploy (its trust accepts only this repository's
+# (docs/SETUP.md): the role warden-<env>-deploy (its trust accepts only this repository's
 # GitHub Environment of the same name, on the branch of the same name), the SSM parameters /warden/<env>/tf/*, a state
 # bucket, and a GitHub Environment <env> (deployment branch: <env> only) with the secret AWS_ROLE_ARN (it holds the
 # account id: a variable is printed unmasked in a step's inputs, 2026-10-16), the variables AWS_REGION and

@@ -57,7 +57,7 @@ _DATA_ACTIONS = {ActionKind.clear_cache, ActionKind.terminate_connections, Actio
 # ⛔ `no_action` was in this set and is not any more. On a real AWS account, 14 of 42 runs answered
 # `no_action` about a service with a live fault and the gate allowed every one - two of them at 0.25
 # confidence while their own `tool_errors` recorded that WARDEN could not read the logs at all
-# (docs/bench/wave1-2026-09-11T155744Z). "Nothing is wrong" is a CLAIM ABOUT THE EVIDENCE, so it
+# (tests/fixtures/bench/wave1-2026-09-11T155744Z). "Nothing is wrong" is a CLAIM ABOUT THE EVIDENCE, so it
 # must clear the same evidence floor as any other claim. A well-evidenced, confident `no_action` is
 # still auto_safe - the tool looked properly and found nothing.
 EVIDENCE_EXEMPT_ACTIONS = {ActionKind.escalate_to_human}
@@ -145,7 +145,7 @@ def symptoms(context) -> list[str]:
         out.append(f"{n} quer{'ies have' if n != 1 else 'y has'} been running over 60s")
     if (replica_lag_s(m) or 0) >= REPLICA_LAG_SYMPTOM_S:
         out.append(f"replica lag is {replica_lag_s(m):.0f}s")
-    # The full stack (docs/WAVE4-CONTRACT.md B): counts of failures and explicit off states, each
+    # The full stack (docs/FULLSTACK-LAB.md section 4 B): counts of failures and explicit off states, each
     # possibly suffixed `__<short>` per resource. Only counts > 0 and states == 0 - no thresholds.
     # Messages waiting and none being received: an explicit state, counted - the queue is not being consumed.
     for key, value in m.items():
@@ -214,7 +214,7 @@ def _deploy_of_target(alert, context, target: str) -> bool:
     deployed (independent review 2026-09-28: `orders (after payments deploy)` and `orders, payments`
     passed on a payments deploy, through the shared word). Model targets come in many shapes -
     `ecs-service/checkout (prod): revert revision 34 ...` - so this matches service NAMES, not
-    positions. A secret rotation is not a deploy (docs/WAVE4-CONTRACT.md D). A deploy with no
+    positions. A secret rotation is not a deploy (docs/FULLSTACK-LAB.md section 4 D). A deploy with no
     `service` comes from a backend scoped to one service, so it is the alert's."""
     named = tokens(target)
     deployed = set()
@@ -673,7 +673,7 @@ def _enforce(
     # ⛔ READS THE TABLE, NOT THE PROPOSAL. `proposal.reversible` is written by the model, and by
     # any caller of the MCP server, so keying a rejection on it let a proposal widen its own
     # permissions: two live models reported opposite values for the identical operation and got
-    # opposite verdicts (docs/live-model-run-2026-09-06.md §3). The claim is not discarded — P10
+    # opposite verdicts (the live-model run of 2026-09-06). The claim is not discarded — P10
     # escalates when it contradicts the table.
     if env.tier == "prod" and not proposal.table_reversible:
         rejected = True
@@ -742,7 +742,7 @@ def _enforce(
     # P9 — evidence measured by US, not confidence reported by the model.
     #
     # Added after running against a live model: it returned confidence 0.85 on ALL the bundled
-    # incidents (four then; five in the recorded run, docs/live-model-run-2026-09-06.md), including
+    # incidents (four then; five in the recorded run of 2026-09-06), including
     # the one whose entire evidence is two vague log lines. A model's
     # self-reported confidence is not calibrated, so P4 alone would essentially never fire — the
     # gate would be relying on a number the model has no incentive or ability to get right.

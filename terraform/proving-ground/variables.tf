@@ -85,7 +85,7 @@ variable "enable_rds" {
 }
 
 variable "db_password" {
-  description = "RDS master password. Set it through TF_VAR_db_password, generated rather than typed (see docs/SESSION-HANDOFF-2026-09-24.md) - never -var, which puts it in shell history. Ignored entirely when enable_rds is false. A throwaway instance reachable only from my_ip_cidr, but it is still a real credential, and it is stored in terraform.tfstate."
+  description = "RDS master password. Set it through TF_VAR_db_password, generated rather than typed - never -var, which puts it in shell history. Ignored entirely when enable_rds is false. A throwaway instance reachable only from my_ip_cidr, but it is still a real credential, and it is stored in terraform.tfstate."
   type        = string
   sensitive   = true
   # Empty default so an ECS-only run (the common case) needs no password at all. The RDS resource

@@ -5,7 +5,7 @@ name: "Runtime · ops"
 # nothing; the runtime runs code that has reached dev, until prod exists) - into the GitHub Environment `ops`
 # (deployment branch: dev only; required reviewer; its secrets AWS_ROLE_ARN - the role
 # warden-ops-deploy - and RUNTIME_ECR_REPOSITORY - the image repository, immutable tags - and its variables AWS_REGION
-# and TF_STATE_BUCKET: docs/OWNER-CONSOLE-STEPS.md). Both hold the account id, so both are secrets: GitHub prints a
+# and TF_STATE_BUCKET: docs/SETUP.md). Both hold the account id, so both are secrets: GitHub prints a
 # variable unmasked in a step's inputs before any masking runs, in a public repository's logs (2026-10-16).
 #   image: build Dockerfile.runtime BEFORE the job holds credentials, push it by the commit's SHA, sign its digest
 #          with cosign (keyless: this workflow's own GitHub identity) and attest how it was built (register S9).

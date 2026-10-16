@@ -192,11 +192,11 @@ jobs:
   #
   # ⚠ WHY k3d AND NOT EKS. This is the per-commit REGRESSION check, not the measurement. The
   # measurement is on managed EKS (EC2 node group, read-only ServiceAccount): Wave 2, 30 runs,
-  # docs/bench/wave2-2026-09-24T115746Z. EKS on every push would cost money and ~25 minutes per
+  # tests/fixtures/bench/wave2-2026-09-24T115746Z. EKS on every push would cost money and ~25 minutes per
   # commit and put AWS credentials in a public repo's CI. k3d is a real API server - RBAC is really
   # enforced, the kubelet really OOM-kills - so what this job proves holds on any conformant cluster.
   k8s:
-    name: k8s-regression (k3d, every push; measured on EKS in docs/bench)
+    name: k8s-regression (k3d, every push; measured on EKS in tests/fixtures/bench)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # k3d's own images by digest, as every other image here (fifth review E): the node image is k3d 5.9.0's

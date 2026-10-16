@@ -1,4 +1,4 @@
-# The alert source. One alarm per signal the faults in docs/WAVE4-FULLSTACK.md section 7 trip.
+# The alert source. One alarm per signal the faults in docs/FULLSTACK-LAB.md section 5 trip.
 #
 # ⛔ Descriptions name the SYMPTOM a user or an on-call engineer would see, never the cause. The
 # alarm text reaches WARDEN verbatim; a description that said what was broken would hand it the
