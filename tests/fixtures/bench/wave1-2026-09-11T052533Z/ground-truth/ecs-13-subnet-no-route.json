@@ -11,7 +11,7 @@
       "op": "route_delete_default",
       "args": {},
       "result": {
-        "deleted_route_via": "igw-09aa1d22ea94f495f"
+        "deleted_route_via": "igw-0123456789abcdef0"
       }
     },
     {
@@ -27,7 +27,7 @@
       "op": "route_restore_default",
       "args": {},
       "result": {
-        "restored_route_via": "igw-09aa1d22ea94f495f"
+        "restored_route_via": "igw-0123456789abcdef0"
       }
     },
     {

@@ -14,7 +14,7 @@ from scenarios import score
 from warden.providers import load_qualified
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BUNDLES = sorted(p for p in (ROOT / "docs" / "bench").glob("wave*") if (p / "manifest.json").exists())
+BUNDLES = sorted(p for p in (ROOT / "tests" / "fixtures" / "bench").glob("wave*") if (p / "manifest.json").exists())
 _spec = importlib.util.spec_from_file_location("qualify_provider", ROOT / "scripts" / "qualify_provider.py")
 qualify = importlib.util.module_from_spec(_spec)
 sys.modules["qualify_provider"] = qualify

@@ -1,6 +1,6 @@
 """Re-diagnose a published run's recorded evidence with today's pipeline, then score it the same way.
 
-    python scripts/replay_diagnose.py --run docs/bench/wave1-2026-09-11T155744Z \\
+    python scripts/replay_diagnose.py --run tests/fixtures/bench/wave1-2026-09-11T155744Z \\
         --out ~/warden-bench-runs/replay/wave1-baseline
     python -m scenarios.score --run ~/warden-bench-runs/replay/wave1-baseline \\
         --rubric ~/warden-bench-runs/replay/wave1-baseline/grading/scoring.yaml
@@ -113,13 +113,13 @@ def replay(src: pathlib.Path, out: pathlib.Path, *, per_scenario: int, only: set
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run", required=True, type=pathlib.Path, help="a published run directory")
-    p.add_argument("--out", required=True, type=pathlib.Path, help="a NEW directory outside docs/bench")
+    p.add_argument("--out", required=True, type=pathlib.Path, help="a NEW directory outside the repository's docs/ and tests/fixtures/")
     p.add_argument("--runs-per-scenario", type=int, default=1)
     p.add_argument("--only", nargs="*", help="scenario ids to replay (default: all)")
     a = p.parse_args(argv)
     out = a.out.expanduser().resolve()
-    if (ROOT / "docs").resolve() in out.parents:
-        print("refusing to write a replay inside docs/: it would sit beside published measurements")
+    if any((ROOT / d).resolve() in out.parents for d in ("docs", "tests/fixtures")):
+        print("refusing to write a replay inside docs/ or tests/fixtures/: it would sit beside published measurements")
         return 2
     replay(a.run, out, per_scenario=a.runs_per_scenario, only=set(a.only) if a.only else None)
     print(f"\nscore: python -m scenarios.score --run {out} --rubric {out / 'grading' / 'scoring.yaml'}")

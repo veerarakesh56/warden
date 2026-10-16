@@ -1,6 +1,6 @@
 """Turn a benchmark run directory into something safe to commit.
 
-    python scripts/publish_bench_run.py --run ~/warden-bench-runs/wave1-... --into docs/bench
+    python scripts/publish_bench_run.py --run ~/warden-bench-runs/wave1-... --into tests/fixtures/bench
 
 A wave writes RAW artefacts outside the repository on purpose: a task-definition ARN contains the
 12-digit account id, and so does every assumed-role ARN. This copies a run in, redacted, and refuses
@@ -95,7 +95,7 @@ def _freeze_grading_inputs(run: pathlib.Path, staging: pathlib.Path, account: st
     warning would be true and useless: the entries those runs were graded by had not changed at all.
     A bundle that carries its own rubric can always be re-scored exactly:
 
-        python -m scenarios.score --run docs/bench/<run> --rubric docs/bench/<run>/grading/scoring.yaml
+        python -m scenarios.score --run tests/fixtures/bench/<run> --rubric tests/fixtures/bench/<run>/grading/scoring.yaml
 
     ⛔ FROM THE COMMIT, NOT THE WORKING TREE. Freezing whatever happens to be on disk at publish
     time would silently ship a rubric the run was never graded under, which is the very substitution
@@ -144,7 +144,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, help="a directory written by scenarios.runner")
-    parser.add_argument("--into", default="docs/bench", help="destination inside the repo")
+    parser.add_argument("--into", default="tests/fixtures/bench", help="destination inside the repo")
     args = parser.parse_args()
 
     sys.stdout.reconfigure(encoding="utf-8")  # a Windows console is cp1252 and cannot print ⛔

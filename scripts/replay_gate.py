@@ -1,6 +1,6 @@
 """Replay published benchmark reports through the CURRENT gate.
 
-    python scripts/replay_gate.py --reports docs/bench/wave1-2026-09-11T155744Z/reports
+    python scripts/replay_gate.py --reports tests/fixtures/bench/wave1-2026-09-11T155744Z/reports
 
 ⛔ THIS IS NOT A MEASUREMENT, AND MUST NEVER BE PRESENTED AS ONE. It re-decides OLD evidence with
 NEW policy. Every alert, context, hypothesis and proposal is read verbatim from artefacts that were

@@ -67,12 +67,12 @@ def test_publishing_without_a_recorded_commit_is_refused(tmp_path):
 
 
 def test_the_published_bundles_can_still_be_rescored_against_their_own_rubric():
-    """The property, asserted against what is actually committed: every bundle in docs/bench has a
+    """The property, asserted against what is actually committed: every bundle in tests/fixtures/bench has a
     frozen rubric whose hash matches its manifest. Without this a reader gets the drift banner and
     numbers they cannot reproduce."""
-    bench = ROOT / "docs" / "bench"
+    bench = ROOT / "tests" / "fixtures" / "bench"
     bundles = [p for p in bench.glob("wave*") if (p / "manifest.json").exists()]
-    assert bundles, "no published bundles found - has docs/bench moved?"
+    assert bundles, "no published bundles found - has tests/fixtures/bench moved?"
     for bundle in bundles:
         manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
         frozen = bundle / "grading" / "scoring.yaml"
