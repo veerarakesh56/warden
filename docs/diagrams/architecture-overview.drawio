@@ -1,0 +1,187 @@
+<mxfile host="drawio" agent="WARDEN docs/diagrams generator" version="31.5.2">
+  <diagram name="Overview" id="architecture-overview-1">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1060" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="logo" value="" style="shape=image;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJXQVJERU4iPgogIDxwYXRoIGQ9Ik0zMiA1OC41IDUuNCAzOS4yIDE1LjUgNy44aDMzbDEwLjEgMzEuNHoiIGZpbGw9IiMxMkM0ODMiLz4KICA8cGF0aCBkPSJNMTUuNSA3LjhoMzNsLTEwIDEzLjhoLTEzeiIgZmlsbD0iIzdERjJDNCIvPgogIDxwYXRoIGQ9Ik00OC41IDcuOGwxMC4xIDMxLjQtMTYuMS01LjMtNC0xMi4zeiIgZmlsbD0iIzNEQjlGNSIvPgogIDxwYXRoIGQ9Ik01OC42IDM5LjIgMzIgNTguNVY0MS41bDEwLjUtNy42eiIgZmlsbD0iIzFBOEZFMyIvPgogIDxwYXRoIGQ9Ik0zMiA1OC41IDUuNCAzOS4ybDE2LjEtNS4zTDMyIDQxLjV6IiBmaWxsPSIjMEE5QTZBIi8+CiAgPHBhdGggZD0iTTUuNCAzOS4yIDE1LjUgNy44bDEwIDEzLjgtNCAxMi4zeiIgZmlsbD0iIzEyQzQ4MyIvPgogIDxwYXRoIGQ9Ik0zMiA0MS41IDIxLjUgMzMuOWw0LTEyLjNoMTNsNCAxMi4zeiIgZmlsbD0iI0U4RkZGNSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzEiIHI9IjQiIGZpbGw9IiNGRjdFNkIiLz4KPC9zdmc+Cg==;imageAspect=1;aspect=fixed;verticalLabelPosition=bottom;html=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="22" width="54" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="&lt;b&gt;WARDEN · how it fits together&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#0B2530;fontSize=24;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="98" y="24" width="1100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="An AI on-call engineer for AWS: it reads an incident, explains it, and changes nothing without a person's passkey." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=13;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="98" y="56" width="1300" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="temporal" value="&lt;b style='font-size:12px'&gt;Temporal Cloud · namespace in aws-ap-south-2&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;durable workflows: incident · fix plan · discussion&lt;br&gt;payloads encrypted by WARDEN before they leave&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F4F6F8;strokeColor=#7B8794;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="540" y="112" width="470" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="aws" value="AWS account · ap-south-2" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#33424F;fontSize=13;rounded=1;arcSize=2;fillColor=none;strokeColor=#7B8794;dashed=1;dashPattern=8 5;strokeWidth=1.5;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontStyle=1;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="222" width="1030" height="650" as="geometry" />
+        </mxCell>
+        <mxCell id="watched" value="Watched environments · dev, prod" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=13;startSize=26;fillColor=#E4E9EE;swimlaneFillColor=#FAFBFC;strokeColor=#E4E9EE;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="56" y="262" width="280" height="584" as="geometry" />
+        </mxCell>
+        <mxCell id="watched-body" value="&lt;span style='font-size:12px'&gt;Each named &lt;b&gt;warden-&amp;lt;env&amp;gt;-*&lt;/b&gt;:&lt;br&gt;&lt;br&gt;EKS · ECS · Lambda&lt;br&gt;RDS / Aurora · DynamoDB&lt;br&gt;SQS · SNS · ElastiCache&lt;br&gt;API Gateway · ALB&lt;br&gt;&lt;br&gt;&lt;b&gt;CloudWatch alarms&lt;/b&gt; and the services' own&lt;br&gt;ECS, RDS and AWS Health events&lt;br&gt;&lt;br&gt;dev's EKS cluster runs the&lt;br&gt;Datadog agent&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="72" y="300" width="252" height="360" as="geometry" />
+        </mxCell>
+        <mxCell id="reader" value="&lt;b style='font-size:12px'&gt;platform-reader role&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;read-only, one session per incident&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#EAF7FE;strokeColor=#3DB9F5;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="72" y="610" width="248" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="actor" value="&lt;b style='font-size:12px'&gt;actor role&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;writes; only for one approved plan, ≤ 15 min&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF0ED;strokeColor=#FF7E6B;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="72" y="700" width="248" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="runtime" value="WARDEN runtime · environment ops" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=13;startSize=26;fillColor=#0B2530;swimlaneFillColor=#FBFDFC;strokeColor=#0B2530;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="370" y="262" width="664" height="584" as="geometry" />
+        </mxCell>
+        <mxCell id="front" value="&lt;b style='font-size:12px'&gt;Front door&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;EventBridge rules · API Gateway on the approval domain&lt;br&gt;Lambdas, each with its own role: alarm · Alertmanager / Datadog webhook · approval page · actor-use&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#B8C4CE;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="396" y="304" width="470" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="workers" value="Workers · ECS Fargate · one service per trust zone" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;startSize=26;fillColor=#DDE3E9;swimlaneFillColor=#FFFFFF;strokeColor=#DDE3E9;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="396" y="420" width="612" height="234" as="geometry" />
+        </mxCell>
+        <mxCell id="z-act" value="&lt;span style='font-size:12px'&gt;applies one approved plan; undoes it if it fails&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF0ED;strokeColor=#FF7E6B;verticalAlign=top;align=center;spacing=6;strokeWidth=2;spacingTop=34;" vertex="1" parent="1">
+          <mxGeometry x="410" y="462" width="109" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="z-act-bar" value="&lt;b style='color:#3D0E06'&gt;act&lt;/b&gt;" style="rounded=1;arcSize=30;html=1;fillColor=#FF7E6B;strokeColor=#FF7E6B;fontFamily=Helvetica;fontSize=13;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="410" y="462" width="109" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="z-read" value="&lt;span style='font-size:12px'&gt;reads evidence, redacts it, quarantines untrusted text&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#EAF7FE;strokeColor=#3DB9F5;verticalAlign=top;align=center;spacing=6;strokeWidth=2;spacingTop=34;" vertex="1" parent="1">
+          <mxGeometry x="529" y="462" width="109" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="z-read-bar" value="&lt;b style='color:#062F45'&gt;read&lt;/b&gt;" style="rounded=1;arcSize=30;html=1;fillColor=#3DB9F5;strokeColor=#3DB9F5;fontFamily=Helvetica;fontSize=13;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="529" y="462" width="109" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="z-core" value="&lt;span style='font-size:12px'&gt;policies, grounding, kill switch, signed audit&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#E6F9F1;strokeColor=#12C483;verticalAlign=top;align=center;spacing=6;strokeWidth=2;spacingTop=34;" vertex="1" parent="1">
+          <mxGeometry x="648" y="462" width="109" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="z-core-bar" value="&lt;b style='color:#FFFFFF'&gt;core&lt;/b&gt;" style="rounded=1;arcSize=30;html=1;fillColor=#12C483;strokeColor=#12C483;fontFamily=Helvetica;fontSize=13;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="648" y="462" width="109" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="z-llm" value="&lt;span style='font-size:12px'&gt;the only zone that calls the model&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#E8F2FC;strokeColor=#1A8FE3;verticalAlign=top;align=center;spacing=6;strokeWidth=2;spacingTop=34;" vertex="1" parent="1">
+          <mxGeometry x="767" y="462" width="109" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="z-llm-bar" value="&lt;b style='color:#FFFFFF'&gt;llm&lt;/b&gt;" style="rounded=1;arcSize=30;html=1;fillColor=#1A8FE3;strokeColor=#1A8FE3;fontFamily=Helvetica;fontSize=13;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="767" y="462" width="109" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="z-notify" value="&lt;span style='font-size:12px'&gt;Slack, through the outbound gate&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#EFFDF7;strokeColor=#7DF2C4;verticalAlign=top;align=center;spacing=6;strokeWidth=2;spacingTop=34;" vertex="1" parent="1">
+          <mxGeometry x="886" y="462" width="109" height="176" as="geometry" />
+        </mxCell>
+        <mxCell id="z-notify-bar" value="&lt;b style='color:#06392A'&gt;notify&lt;/b&gt;" style="rounded=1;arcSize=30;html=1;fillColor=#7DF2C4;strokeColor=#7DF2C4;fontFamily=Helvetica;fontSize=13;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="886" y="462" width="109" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="audit" value="&lt;b style='font-size:12px'&gt;The record&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;audit database (hash chain, append-only)&lt;br&gt;checkpoints signed by a KMS key nobody can export&lt;br&gt;and anchored in S3 Object Lock&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;shape=cylinder3;boundedLbl=1;size=7;fillColor=#FFFFFF;strokeColor=#8A99A6;spacing=4;" vertex="1" parent="1">
+          <mxGeometry x="640" y="700" width="368" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="approver" value="&lt;b style='font-size:12px'&gt;Approver&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;opens the approval page and signs the exact&lt;br&gt;plan with a passkey&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF7F5;strokeColor=#FF7E6B;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="290" width="340" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="slack" value="&lt;b style='font-size:12px'&gt;Slack&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;a channel pair per environment: dev-alerts,&lt;br&gt;dev-discuss, prod-alerts, prod-discuss&lt;br&gt;one message per incident, Review button&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#B8C4CE;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="474" width="340" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="anthropic" value="&lt;b style='font-size:12px'&gt;Anthropic Claude API&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;Claude Sonnet 5.5 · sees only redacted,&lt;br&gt;typed facts&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#B8C4CE;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="650" width="340" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="datadog" value="&lt;b style='font-size:12px'&gt;Datadog&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;the dev cluster's agent sends here;&lt;br&gt;the read zone reads it back&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#B8C4CE;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="56" y="920" width="280" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="awsdocs" value="&lt;b style='font-size:12px'&gt;AWS Knowledge MCP&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;AWS's docs for an error code&lt;br&gt;(the code only, nothing else)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#B8C4CE;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="400" y="920" width="230" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="github" value="&lt;b style='font-size:12px'&gt;GitHub&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;CI on every change; deploys each environment&lt;br&gt;and WARDEN itself through OIDC roles (no keys)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#B8C4CE;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="700" y="920" width="360" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.1216;exitDx=0;exitDy=0;entryX=0;entryY=0.345;entryDx=0;entryDy=0;" edge="1" parent="1" source="watched" target="front">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b1" value="1" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="340" y="302" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.194;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="front" target="temporal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b2" value="2" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="619" y="222" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.889;exitY=0;exitDx=0;exitDy=0;entryX=0.851;entryY=1;entryDx=0;entryDy=0;startArrow=blockThin;startFill=1;" edge="1" parent="1" source="workers" target="temporal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b3" value="3" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="928" y="222" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.3;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-read" target="reader">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="562" y="676" />
+              <mxPoint x="346" y="676" />
+              <mxPoint x="346" y="645" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b4" value="4" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="450" y="664" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.357;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-llm" target="anthropic">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="940" y="680" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b5" value="5" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="1072" y="640" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.352;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-notify" target="slack">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b6" value="6" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="1072" y="500" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e6b" value="Review" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="slack" target="approver">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="passkey signature" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="approver" target="front">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b7" value="7" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="1072" y="300" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#FF7E6B;strokeWidth=2;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0;exitY=0.6;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-act" target="actor">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="568" />
+              <mxPoint x="360" y="735" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="b8" value="8" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#3D0E06;fontSize=12;fillColor=#FF7E6B;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="368" y="560" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.168;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="z-core" target="audit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="b9" value="9" style="ellipse;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=12;fillColor=#0B2530;strokeColor=#FFFFFF;strokeWidth=2;fontStyle=1;spacing=0;aspect=fixed;" vertex="1" parent="1">
+          <mxGeometry x="690" y="664" width="24" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="agent" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="watched" target="datadog">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.917;entryY=0;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="z-read" target="awsdocs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="deploys" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.67;entryY=1;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="github" target="aws">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="leg-t" value="&lt;b&gt;Numbered path&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="790" width="340" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg" value="&lt;span style='font-size:11px;line-height:1.5'&gt;1  an alarm or event reaches the front door&lt;br&gt;2  it starts or joins an incident workflow&lt;br&gt;3  the zones pick up their steps&lt;br&gt;4  read the evidence (read-only role)&lt;br&gt;5  ask the model (redacted facts only)&lt;br&gt;6  report in Slack&lt;br&gt;7  a person approves the exact plan&lt;br&gt;8  apply once, check, undo if it failed&lt;br&gt;9  everything is recorded and signed&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="812" width="340" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="foot" value="&lt;span style='font-size:10px;color:#52606D'&gt;Drawn from origin/main de1cbcd (2026-10-16). Which environments are watched is the SSM setting watched_environments. Detail, with every component's real name: architecture-detailed. Solid arrows: requests and data · dashed: supporting links. Colours mark the five trust zones.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1022" width="1440" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
