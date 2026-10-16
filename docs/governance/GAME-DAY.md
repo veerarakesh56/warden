@@ -5,8 +5,8 @@ engineers handle real faults with WARDEN switched off, then compare with what WA
 
 ## When
 
-The first working Monday of each quarter (January, April, July, October). The first is **2027-01-04**, after the
-first cloud window; every game day is recorded in the table below.
+The first working Monday of each quarter (January, April, July, October). The first is planned for **2027-01-04**;
+every game day is recorded in the table below.
 
 ## How
 

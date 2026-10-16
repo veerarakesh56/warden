@@ -1,4 +1,4 @@
-"""Audit A-P-9: the compliance crosswalk names only register rows that exist, covers each framework part it claims,
+"""The compliance crosswalk names only register rows that exist, covers each framework part it claims,
 and every gap it finds is a register row of its own (CW1-CW5)."""
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ ROW = re.compile(r"^\| ([A-Z][A-Za-z0-9-]*) \|", re.MULTILINE)
 
 
 def _ids() -> set[str]:
-    return {i for f in ("FAILURE-MODES.md", "AUDIT-2026-09-28.md", "REQUIREMENTS-TRACE.md")
+    return {i for f in ("FAILURE-MODES.md",)
             for i in ROW.findall((ROOT / "docs" / f).read_text(encoding="utf-8"))}
 
 

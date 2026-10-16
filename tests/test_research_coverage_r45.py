@@ -1,5 +1,5 @@
-"""Requirement R45: every researched AI failure mode is covered. The research's failure classes are held to the
-register's coverage table: no class missing or renamed, and every row the table names exists in the register."""
+"""Every researched AI failure mode is covered. The failure classes of the 2026-09-28 research map are held to the
+register's coverage list: no class missing or renamed, and every row the list names exists in the register."""
 
 from __future__ import annotations
 
@@ -7,14 +7,17 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-MAP = ROOT / "docs" / "research" / "2026-09-28" / "failure-mode-solution-map.md"
 REGISTER = ROOT / "docs" / "FAILURE-MODES.md"
+# The classes of the research map (2026-09-28), copied here when the research notes stopped being published.
+CLASSES = ("Goal hijack / prompt injection", "Tool misuse / excessive agency", "Identity", "Supply chain",
+           "Code execution / output handling", "Memory poisoning", "Inter-agent communication", "Cascading failures",
+           "Human trust / approval fatigue", "Rogue agents", "Exfiltration and secret leaks", "Hidden context exposure",
+           "Hallucination", "False completion", "Reward hacking", "Sycophancy", "Model drift", "Cost runaway",
+           "Non-determinism", "Calibration", "Over-refusal")
 
 
 def _classes() -> dict[int, str]:
-    text = MAP.read_text(encoding="utf-8")
-    body = text[text.index("## Solutions per failure mode"):text.index("## Top 20")]
-    return {int(n): name.rstrip(":") for n, name in re.findall(r"^(\d+)\. \*\*(.+?)\*\*", body, re.MULTILINE)}
+    return dict(enumerate(CLASSES, start=1))
 
 
 def _coverage() -> dict[int, tuple[str, str]]:

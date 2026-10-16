@@ -6,13 +6,16 @@ feature.
 
 ---
 
-## 1. Why a state graph and not a loop?
+## 1. Why named steps and not a loop?
 
-A `while` loop with a model in it is easy to write and impossible to audit. The graph gives named
-transitions, typed state at every boundary, and — the part that matters — **exactly one path from
-"the model said something" to "something happens"**, and it goes through `verify`, which contains no
-model. When an operator asks "why did it do that?", the answer is a list of nodes and the state at
-each, not a scrollback of prompts.
+A `while` loop with a model in it is easy to write and impossible to audit. Named steps give typed state
+at every boundary and — the part that matters — **exactly one path from "the model said something" to
+"something happens"**, and it goes through `verify`, which contains no model. When an operator asks "why
+did it do that?", the answer is a list of steps and what each one decided, not a scrollback of prompts.
+
+*Updated (Phase 2, 2026-09):* the steps first ran as a LangGraph state graph. LangGraph was removed; the
+same steps now run as Temporal activities (`workflows.py`), which also gives checkpointing and replay.
+`graph.py::run()` keeps the in-process version for the CLI and the tests.
 
 ## 2. Why does redaction run before the model rather than after?
 
@@ -75,9 +78,8 @@ Three, all found by running it, all now regression tests:
 Three findings:
 
 1. **Confidence came back at 0.85 on all four incidents** — including the one whose evidence is two
-   vague log lines. (That was an earlier run over the then-four bundled incidents, not recorded as
-   an artefact; the recorded run, `docs/live-model-run-2026-09-06.md`, covers five and shows the
-   same 0.85 on all.) `P4` escalates below 0.55, so with that model it would never fire. **A model's
+   vague log lines. (That was an earlier run over the then-four bundled incidents; a recorded run on
+   2026-09-06 over five showed the same 0.85 on all.) `P4` escalates below 0.55, so with that model it would never fire. **A model's
    self-reported confidence is a token sequence that looks like a measurement.** That is why `P9`
    exists: it counts gathered evidence, which the model cannot influence by sounding sure.
 2. **The live model picked a different action from the mock** on the replica incident. So the eval
@@ -168,22 +170,26 @@ validated on a clean runner.
 
 ⚠ The commit history carries a `Co-Authored-By: Claude` trailer, consistent with the above.
 
-## 15. What is next
+## 15. What came next (written 2026-09-12; kept as it was decided)
 
-1. ~~Wire a real backend.~~ Done: CloudWatch + ECS, Kubernetes and five database engines, measured
-   on ECS, managed EKS and RDS PostgreSQL (`docs/bench/`). Still open: CloudWatch for EKS and RDS
-   (Container Insights, control-plane logs, RDS log exports, Performance Insights), Loki, Datadog.
-2. **A scored nightly eval** against the live model, separate from the deterministic CI gate.
-3. **Slack approval.** Execution exists (live remediation behind the four-way gate, dry-run by
-   default); approving it from Slack does not, and needs its own security review.
-4. **Narrow the IAM read policy** from `resources = ["*"]` with condition blocks.
-5. **Checkpointing.** Done by Temporal since Phase 2: IncidentWorkflow and RemediationWorkflow are durable, and a worker restart replays the history (LangGraph, which ran the graph before, was removed).
+1. ~~Wire a real backend.~~ Done: CloudWatch and ECS, Kubernetes and five database engines, measured
+   on ECS, managed EKS and RDS PostgreSQL; later many more AWS services, RDS Performance Insights,
+   Datadog, Grafana and X-Ray.
+2. **A scored eval against the live model**, separate from the deterministic CI gate. Done as the replay
+   qualification and the held-out sets ([`BENCHMARKS.md`](BENCHMARKS.md)), run by hand rather than nightly.
+3. ~~Slack approval.~~ Done: a Slack button opens the passkey approval page (section 16).
+4. **Narrow the IAM read policy** with condition blocks. Partly done: the per-environment reader role
+   (`iam/templates/platform-reader.json`) scopes most reads by name or tag; a few reads AWS cannot scope
+   stay account-wide.
+5. ~~Checkpointing.~~ Done by Temporal: IncidentWorkflow and RemediationWorkflow are durable, and a worker
+   restart replays the history.
 
-The full, current plan is [`ROADMAP.md`](ROADMAP.md).
+The current plan is [`ROADMAP.md`](ROADMAP.md).
 
-## 16. Decisions of 2026-09-28 (after the full audit and live research)
+## 16. Decisions of 2026-09-28 and after
 
-Each was researched live on that day (`docs/research/2026-09-28/`) and decided on quality, not cost.
+Each was researched live on the day it was made (the research notes are not published) and decided on
+quality, not cost.
 
 - **Architecture principle: Meta's "Agents Rule of Two."** An agent should have at most two of
   three properties: untrusted input, sensitive data, the ability to change state. WARDEN has the first
@@ -223,13 +229,13 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
 - **Claude Sonnet 5.5, effort high, on the Claude API** (owner, 2026-10-15: only Sonnet 5.5 and Opus 5.5, never
   Sonnet 5 again). Both measured at effort high on today's code. The 30 recorded incidents (the qualification bar):
   Sonnet 5.5 17 correct, none wrong and allowed - qualified; Opus 5.5 15 - below the bar of 17, not qualified. The 172
-  held-out G10 cases, re-scored under today's gate: Sonnet 5.5 160 correct, 6 harmful proposals (every one stopped),
+  held-out cases, re-scored under today's gate: Sonnet 5.5 160 correct, 6 harmful proposals (every one stopped),
   77 right fixes put to a person, 137 right outcomes, $3.15; Opus 5.5 162, 1, 72, 136, $9.00; neither let a harm
   through. Every Sonnet 5 entry was removed from the qualified list, and the defaults are Sonnet 5.5. The cloud's model
-  is SSM /warden/ops/tf/model, which Terraform passes to the llm worker - it still named claude-sonnet-5 (corrected
-  2026-10-15: an earlier note here said the cloud ran the default), so M20 refused it and one incident failed silently;
-  it is now claude-sonnet-5-5, the deploy refuses an unqualified model, and a model that cannot be built is the
-  rules-only diagnosis said plainly.
+  is the SSM parameter `/warden/<env>/tf/model`, which Terraform passes to the llm worker. It still named Sonnet 5 for
+  a time, so the qualification check refused it and one incident failed without saying why. It now names Sonnet 5.5,
+  the deploy refuses an unqualified model, and a model that cannot be built gives the rules-only diagnosis, said
+  plainly.
 - *(Superseded 2026-10-15)* **Claude Sonnet 5 on the Claude API for the cloud window** (owner, 2026-10-09: the owner's API credits; replaces the
   Gemini choice below). Qualified on the API the same day with the SDK the runtime image ships - 20 of 30 correct,
   none wrong and allowed, every incident answered, $0.48; an earlier run on an older SDK scored 18 (both pass;
@@ -238,28 +244,28 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
   on AWS Support. Accepted with its costs stated: Google may use free-tier prompts to improve its products (WARDEN sends
   only redacted prompts - typed facts, never raw logs), and the free quota is small (on 2026-10-03 it answered 4 of 30
   incidents in a day), so the qualification (M20) runs in daily batches (`qualify_provider.py --resume`) and the model
-  diagnoses in the cloud only once it has passed. Bedrock, or Gemini's paid tier, remains the production choice.
-- **Bedrock Claude Sonnet 5 for production** (owner, 2026-10-03), chosen by WARDEN's own replay
+  diagnoses in the cloud only once it has passed.
+- *(Superseded 2026-10-09: the production model is on the Claude API, above. Bedrock stays a supported
+  provider.)* **Bedrock Claude Sonnet 5 for production** (owner, 2026-10-03), chosen by WARDEN's own replay
   results, never by public leaderboards, which flip between systems. On the 30 recorded incidents
   (src/warden/data/providers.yaml): Fable 5.1 and Fable 5 scored 20 correct, Sonnet 5 19, Sonnet 5.5 16,
   Opus 5 15 and Opus 5.5 10, none with a wrong fix let through. Sonnet 5 passed the bar at a fifth of
   Fable 5.1's price. Opus 5.5, the earlier choice, failed it: it escalated 26 of 30 incidents.
 - **Single tenant per company.** No shared namespace, database or bucket across companies.
 - **English-only UI and reports**, UTF-8 safe. Non-English log handling (M23) is recorded as open.
-- **Region:** the runtime and the Temporal namespace both run in ap-south-2. Bedrock uses the
-  India geo profile `in.anthropic.claude-sonnet-5`, so inference stays within India; the global
-  profile `global.anthropic.claude-sonnet-5` is the fallback. Both were listed ACTIVE from ap-south-2
-  on 2026-10-03, read live. Opus 5.5, the earlier choice, had only a global profile (checked
-  2026-09-28). Sonnet 5 retires on Anthropic's platforms no sooner than 2027-06-30; Bedrock sets its
-  own date, so check it in W-B. It is billed through AWS Marketplace.
-- **Laptop access: IAM Roles Anywhere, not an access key.**
+- **Region:** the runtime and the Temporal namespace both run in ap-south-2 (`environments.yaml`).
+  *(Superseded in part 2026-10-09:)* the Bedrock plan was to use the India geo profile
+  `in.anthropic.claude-sonnet-5`, so inference stayed within India. On the Claude API, Anthropic chooses
+  where inference runs; the provider WARDEN used is recorded with every diagnosis (`processed_in` in the
+  audit's provenance).
+- **Operator access: IAM Roles Anywhere, not an access key.**
   - The key is created in the TPM and cannot be exported.
   - The CA is discarded after signing.
   - Roles Anywhere has no additional cost and is available in ap-south-2 (checked 2026-09-28).
   - The operator role only reads (`iam/operator/`).
 - **One AWS account, hardened, for the lab** (owner decision). Separate accounts per environment are
   the production recommendation, and the IaC supports them.
-- **Quarantine keys are filtered word by word, not by an allowlist** (audit A-C-10, 2026-09-30).
+- **Quarantine keys are filtered word by word, not by an allowlist** (2026-09-30).
   The plan said "allowlist". Measured over every recorded run (4,722 distinct untrusted lines), the
   only application keys were the bench apps' own (`cart_id`, `orders`, `rejected` ...). A fixed list
   would fit only the bench, or would drop every real application's keys. Instead:
@@ -272,12 +278,11 @@ Each was researched live on that day (`docs/research/2026-09-28/`) and decided o
   None of the 2,667 recorded value facts was dropped. Honest limit: a compound key with no
   separator (`actionplan`) counts as one word.
 
-## 17. Built or adopted, per component (requirements R9 and R57, 2026-10-03)
+## 17. Built or adopted, per component (2026-10-03, kept current)
 
-The rule (R9): use a ready-made production tool wherever one does the job; build only where none does, and say
-why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md` and
-`docs/research/2026-10-03/aws-mcp-servers.md`. `tests/test_build_or_adopt_r9.py` requires every module in
-`src/warden/` to be named here.
+The rule: use a ready-made production tool wherever one does the job; build only where none does, and say
+why. The options were researched live on 2026-10-03 (the research notes are not published).
+`tests/test_build_or_adopt_r9.py` requires every module in `src/warden/` to be named here.
 
 **Adopted** (WARDEN's code is the wiring around them):
 
@@ -293,17 +298,17 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
   `mcp_server.py`. CommonMark parsing for the outbound gate: `markdown-it-py` - `gate.py`.
 - AWS, Kubernetes and database reads: boto3, the Kubernetes client and the database drivers - `aws_backend.py`,
   `aws_stack.py`, `k8s_backend.py`, `database.py`, `tools.py`. What an alarm watches: CloudWatch's own documented
-  namespaces and dimensions, one table - `resources.py` (G9-A1; checked against AWS's metric pages 2026-10-10). The state of
-  each service's resource: one closed table of read calls and AWS's own structured fields - `aws_describe.py` (G9-A2c). Which more
-  resources an investigation may read: only names WARDEN already holds - `investigation.py` (G9-B). From an approved
-  diagnosis to its fix plan, from labels and live known-good values only - `resolver.py` (G9-D1). The generic fix
-  classes' AWS entries in `platforms/aws.py` (G9-D2b): each a few calls of AWS's own API under the existing
+  namespaces and dimensions, one table - `resources.py` (checked against AWS's metric pages 2026-10-10). The state of
+  each service's resource: one closed table of read calls and AWS's own structured fields - `aws_describe.py`. Which more
+  resources an investigation may read: only names WARDEN already holds - `investigation.py`. From an approved
+  diagnosis to its fix plan, from labels and live known-good values only - `resolver.py`. The generic fix
+  classes' AWS entries in `platforms/aws.py`: each a few calls of AWS's own API under the existing
   live-read, exact-session, rollback and positive-health contract - no remediation framework covers that contract.
 - AWS knowledge for an error code the model may not know: the AWS Knowledge MCP server (AWS's documentation and
   Knowledge Center, free, no sign-in), called with a closed code and a service word only; its answer is reference,
-  never evidence - `aws_docs.py` (G10-C6, owner decision 2026-10-10).
-- The global services' state (G10, 2026-10-10): a CloudFront distribution and a Route 53 health check are read in
-  AWS's global-services Region, where their alarms live (G10-F1). A distribution is granted by its Environment tag. A
+  never evidence - `aws_docs.py` (2026-10-10).
+- The global services' state (2026-10-10): a CloudFront distribution and a Route 53 health check are read in
+  AWS's global-services Region, where their alarms live. A distribution is granted by its Environment tag. A
   health check has an ID for a name and no condition key (AWS service reference, read 2026-10-10), so the reader may
   read any health check's checker status in the account - the one account-wide read, its status only, never its
   configuration. Not read, for the same reason with no narrower status call: FSx file systems (DescribeFileSystems
@@ -383,9 +388,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - The pipeline and its outputs - `graph.py`, `reporting.py`, `playbook.py`, `cli.py`, and the
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 
-**Evidence through the AWS MCP servers or the Agent Toolkit (R57): not adopted.** Each lets a model choose its
+**Evidence through the AWS MCP servers or the Agent Toolkit: not adopted.** Each lets a model choose its
 calls (free-form API calls, Python, SQL or log queries), which WARDEN's design forbids; each returns raw text the
 quarantine would still have to handle; the local awslabs servers are being replaced by the managed AWS MCP Server
 (GA 2026-05-06, no India region), and the SQL servers carry read-only bypass advisories. The one read they would
-add, CloudTrail, is planned as a fixed boto3 `lookup_events` reader with the change timeline (G6). Revisit the
+add, CloudTrail, is a fixed boto3 `lookup_events` reader (`platforms/aws.py`) that feeds the change timeline. Revisit the
 managed server only if it offers fixed, typed operations in an India region.

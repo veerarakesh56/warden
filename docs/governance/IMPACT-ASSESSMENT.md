@@ -1,4 +1,4 @@
-# Impact assessment (audit CW2)
+# Impact assessment (register CW2)
 
 Who WARDEN affects, how it could harm them, how likely and how bad, what holds it, and what is left. Not legal
 advice. Reviewed with the AI policy (`AI-POLICY.md`).
@@ -19,14 +19,14 @@ tamper-evident record of what was proposed, approved and done.
 
 | Harm | Likelihood | Severity | What holds it | Left over |
 |---|---|---|---|---|
-| A wrong fix makes an outage worse | medium | high | signed approval of the exact plan (R50, H6); the gate (P0-P24); bounds and the breaker (B12); rollback and its own success check | a hasty approver (H1 records hasty approvals) |
-| A correct fix is escalated, so the outage lasts longer | high (Sonnet 5 escalates 25 of 30, N6) | medium | escalation is measured against an SLO (N6); calibration is G7's work | escalation stays high until calibration earns a role (R44) |
-| Personal data or secrets leave in a prompt or a message | low | high | redaction before the model, the outbound gate (B6), payload encryption (S2) | patterns are open-ended (R7-O2, deferred) |
+| A wrong fix makes an outage worse | medium | high | signed approval of the exact plan (H6); the gate (P0 to P33); bounds and the breaker (B12); rollback and its own success check | a hasty approver (H1 records hasty approvals) |
+| A correct fix is escalated, so the outage lasts longer | high (the production model, Claude Sonnet 5.5, escalated 24 of 30 in its qualification, N6) | medium | escalation is measured against an SLO (N6) | escalation stays high until calibration earns a role |
+| Personal data or secrets leave in a prompt or a message | low | high | redaction before the model, the outbound gate (B6), payload encryption (S2) | the patterns are open-ended: a secret no pattern matches is not masked |
 | An attacker steers WARDEN through log text | medium | high | quarantine to typed facts (B4), the tripwire (P16), the closed catalogue, approval | adaptive attacks beat detectors; only the architecture holds |
 | Engineers lose the skill to diagnose without WARDEN | medium | medium | the quarterly game day (H4) | - |
-| WARDEN fails during the incident it should help with | low | medium | rules-only mode without a model (M19); the WARDEN-incident runbook (A-P-6) | the heartbeat and staleness page come with the runtime (C13) |
+| WARDEN fails during the incident it should help with | low | medium | rules-only mode without a model (M19); a heartbeat and a daily synthetic incident that page when WARDEN stops (C13); the WARDEN-incident runbook | - |
 | A person trusts a fluent report over the evidence | medium | medium | policies shown before prose (N4); claims of unrun checks marked (N1) | - |
-| Environmental cost of model use | certain | low | one call per incident, measured (`warden usage`, CW3) | emissions are read at account level only |
+| Environmental cost of model use | certain | low | model calls capped per incident and per day, and measured (`warden usage`, CW3) | emissions are read at account level only |
 
 ## Regulatory position
 
