@@ -30,7 +30,8 @@ WARDEN. With the cloud runtime's page set (`WARDEN_APPROVAL_RP_ID`) and no audit
 rather than read this machine's own file (2026-10-16: `on` used to print ON here while the cloud kept applying).
 
 If the approval page cannot be reached, stop the worker that applies changes, which does not depend on WARDEN: AWS
-console → ECS → cluster `warden-ops` → service `warden-ops-act` → Update service → Desired tasks `0`. Approved plans
+console → ECS → cluster `warden-ops-runtime` → service `warden-ops-act` → Update service → Desired tasks `0` (or
+`aws ecs update-service --cluster warden-ops-runtime --service warden-ops-act --desired-count 0`). Approved plans
 wait; nothing is applied until it is set back to `1`. (An AWS deny policy as a second switch is not built yet.)
 
 ## 1. Preparation (before any incident)
