@@ -223,8 +223,11 @@ cosign and attest), `plan`, `apply` (each verifies that signature first) and `re
 5. After the first apply, Terraform has created empty secret slots named `warden/ops/<name>`
    (`terraform/modules/warden-runtime/secrets.tf` lists them). Set the values in the console, never in a file or a
    chat, then run **Runtime · ops** with `restart`. Each trust zone's role reads only its own secrets.
-6. Approvers: create each approver's Ed25519 key pair with `warden audit keygen --private <file> --public <file>`
-   (it asks for a passphrase and encrypts the private key with it; keep the key outside the repository), then `warden enrol --approver <name> --key <private key file>`
+6. Approvers: create each approver's Ed25519 key pair with
+   `warden audit keygen --private ~/.warden/<name>.pem --public ~/.warden/<name>.pub.pem`. It asks for a passphrase
+   and encrypts the private key with it. Both files must be inside the key folder, `WARDEN_KEY_DIR` (default
+   `~/.warden`, created private if missing); a path outside it, through a symlink, or naming a file that exists is
+   refused. Then `warden enrol --approver <name> --key <private key file>`
    opens a 15-minute link where the approver creates a passkey. Save the approver list the page shows as the
    Parameter Store value `/warden/ops/approvers` and restart the workers. [OPERATIONS.md](OPERATIONS.md) covers
    rotating keys and passkeys.

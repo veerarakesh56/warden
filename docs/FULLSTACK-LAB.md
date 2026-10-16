@@ -33,7 +33,7 @@ and every resource is tagged `Project=warden` and `Environment=<env>`. A workspa
 | EKS | one cluster, a managed node group of 2 x m7i-flex.large (one per zone); namespace `shop` with `catalog-api` (2 replicas, HPA 2-4) and `cart-worker` |
 | Aurora PostgreSQL | Serverless v2 in express configuration, 0.5-2 ACU, a writer and a reader; IAM database authentication only, so **no database password exists** |
 | ElastiCache Redis | a primary and one replica, `cache.t4g.micro` |
-| DynamoDB | `carts`, provisioned 5 RCU / 5 WCU with no autoscaling, so a capacity fault stays a capacity fault |
+| DynamoDB | `carts`, provisioned 5 RCU / 5 WCU with no autoscaling, so a capacity fault stays a capacity fault; point-in-time recovery on (any second of the last 35 days can be restored), deletion protection off so the stack can be destroyed on purpose |
 | SQS / SNS | `orders` and `notifications` queues, each with a dead-letter queue; topic `order-events` |
 | Secrets Manager | connection **metadata** for the app's database user (no password), the API token |
 | EventBridge | the reconcile and traffic schedules |
