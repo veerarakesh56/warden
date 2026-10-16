@@ -599,8 +599,11 @@ def test_the_deploy_role_never_writes_the_owners_datadog_key(env):
                in _list(s["Resource"]) for s in deploy["Statement"] if s["Effect"] == "Allow")
     st = next(s for s in _load(env, "deploy-guard")["Statement"] if s.get("Sid") == "NeverWriteTheOwnersDatadogKey")
     assert st["Effect"] == "Deny" and "Condition" not in st
-    assert sorted(_list(st["Action"])) == ["secretsmanager:DeleteSecret", "secretsmanager:PutSecretValue",
-                                           "secretsmanager:UpdateSecret"]
+    # Everything but reading it is denied (CodeRabbit, PR 38: three named writes left RotateSecret, replication,
+    # version stages and PutResourcePolicy - which could grant read to anyone - open).
+    assert "Action" not in st
+    assert sorted(_list(st["NotAction"])) == ["secretsmanager:DescribeSecret", "secretsmanager:GetResourcePolicy",
+                                              "secretsmanager:GetSecretValue", "secretsmanager:ListSecretVersionIds"]
     assert st["Resource"] == f"arn:aws:secretsmanager:*:*:secret:warden-{env}-datadog-api-key*"
 
 
