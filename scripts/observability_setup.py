@@ -1,5 +1,4 @@
-"""Make WARDEN's narrow Datadog and Grafana Cloud credentials from the owner's admin ones, and store every secret and
-setting in AWS.
+"""Make WARDEN's narrow Datadog and Grafana Cloud credentials from broader setup ones; store them all in AWS.
 
     python scripts/observability_setup.py --env ops --stack dev --site ap1.datadoghq.com
 

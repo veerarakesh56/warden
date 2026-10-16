@@ -1,4 +1,4 @@
-"""scripts/observability_setup.py: from the owner's admin keys, WARDEN's narrow Datadog and Grafana
+"""scripts/observability_setup.py: from the owner's broader setup keys, WARDEN's narrow Datadog and Grafana
 credentials made and stored - again and again without a second of anything, and never printed."""
 
 from __future__ import annotations
