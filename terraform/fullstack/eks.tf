@@ -265,7 +265,7 @@ resource "aws_eks_pod_identity_association" "catalog" {
 }
 
 # The OpenTelemetry collector (k8s: the observability namespace, deploy_fullstack_apps.deploy_otel): the apps' traces to
-# X-Ray, and the same data to Grafana and Datadog (owner, 2026-10-14: "use all 3 of them ... compare"). It may send
+# X-Ray, and the same data to Datadog through its agent (owner, 2026-10-16: Datadog only). It may send
 # traces and read sampling rules - nothing else.
 resource "aws_iam_role" "otel_collector" {
   name                 = "${local.name}-otel-collector"

@@ -357,32 +357,24 @@ def test_an_extra_a_requirement_asks_for_is_followed(tmp_path):
     assert tool.missing_dependencies(tmp_path, extras={"boto3": {"crt"}}) == []
 
 
-def test_one_collector_sends_the_same_data_to_xray_grafana_and_datadog_before_the_apps_start(tmp_path):
-    """Owner, 2026-10-14: "use all 3 of them ... and compare" - one OpenTelemetry collector, the same spans to every
-    tool; X-Ray always (by the pod's IAM role), Grafana and Datadog when set up; Grafana's key over stdin only."""
-    import base64
-
+def test_one_collector_sends_the_same_data_to_xray_and_datadog_before_the_apps_start(tmp_path):
+    """One OpenTelemetry collector, the same spans to every tool: X-Ray always (by the pod's IAM role), Datadog when its
+    agent is on the cluster. No Grafana (owner, 2026-10-16: Datadog only), and so no key in the collector at all."""
     import yaml
 
-    full = tool.otel_config("ap-south-2", grafana_url="https://otlp.example.test/otlp", datadog=True)
-    assert full["service"]["pipelines"]["traces"]["exporters"] == ["awsxray", "otlphttp/grafana", "otlp/datadog"]
-    # Logs to both tools alike, with their severity (Datadog would file the apps' stdout lines as info).
-    assert full["service"]["pipelines"]["logs"]["exporters"] == ["otlphttp/grafana", "otlp/datadog"]
+    full = tool.otel_config("ap-south-2", datadog=True)
+    assert full["service"]["pipelines"]["traces"]["exporters"] == ["awsxray", "otlp/datadog"]
+    # Logs to Datadog with their severity (Datadog would file the apps' stdout lines as info).
+    assert full["service"]["pipelines"]["logs"]["exporters"] == ["otlp/datadog"]
     assert full["exporters"]["awsxray"] == {"region": "ap-south-2"}
-    assert full["exporters"]["otlphttp/grafana"]["headers"] == {"Authorization": "Basic ${env:GRAFANA_OTLP_AUTH}"}
     alone = tool.otel_config("ap-south-2")
     assert alone["service"]["pipelines"] == {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"],
                                                         "exporters": ["awsxray"]}}
-    auth = "1825235:" + "glc_" + "t" * 20
-    clients = {"secretsmanager": Fake({"get_secret_value": {"SecretString": auth}}),
-               "ssm": Fake({"get_parameter": {"Parameter": {"Value": "https://otlp.example.test/otlp"}}})}
     run = Runner()
-    config = tool.deploy_otel(STACK, "k", aws_factory(clients), True, run)
-    assert "otlphttp/grafana" in config["exporters"] and "otlp/datadog" in config["exporters"]
-    assert all(auth not in " ".join(c) for c in run.cmds)  # never on argv
+    config = tool.deploy_otel(STACK, "k", True, run)
+    assert set(config["exporters"]) == {"awsxray", "otlp/datadog"}
     docs = list(yaml.safe_load_all(run.inputs[0]))
-    secret = next(d for d in docs if d["kind"] == "Secret")
-    assert base64.b64decode(base64.b64decode(secret["data"]["auth"])).decode() == auth
+    assert not [d for d in docs if d["kind"] == "Secret"] and "grafana" not in run.inputs[0].lower()
     dep = next(d for d in docs if d["kind"] == "Deployment")
     assert dep["spec"]["template"]["spec"]["containers"][0]["image"] == tool.OTEL_IMAGE.replace(":v", ":v")
     assert tool.OTEL_IMAGE.endswith(":v0.50.0")
@@ -396,12 +388,11 @@ def test_the_collector_sends_in_plaintext_only_to_the_agent_on_its_own_node():
     OTLP receiver. HOST_IP must be the pod's own node, and every other exporter keeps TLS."""
     import yaml
 
-    full = tool.otel_config("ap-south-2", grafana_url="https://otlp.example.test/otlp", datadog=True)
+    full = tool.otel_config("ap-south-2", datadog=True)
     plain = {name: e for name, e in full["exporters"].items() if e.get("tls", {}).get("insecure")}
     assert plain == {"otlp/datadog": {"endpoint": "${env:HOST_IP}:4317", "tls": {"insecure": True}}}
-    assert full["exporters"]["otlphttp/grafana"]["endpoint"].startswith("https://")
     run = Runner()
-    tool.deploy_otel(STACK, "k", aws_factory({}), True, run)
+    tool.deploy_otel(STACK, "k", True, run)
     dep = next(d for d in yaml.safe_load_all(run.inputs[0]) if d["kind"] == "Deployment")
     [env] = [e for e in dep["spec"]["template"]["spec"]["containers"][0]["env"] if e["name"] == "HOST_IP"]
     assert env["valueFrom"] == {"fieldRef": {"fieldPath": "status.hostIP"}}

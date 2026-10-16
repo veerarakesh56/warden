@@ -390,17 +390,11 @@ def deploy_datadog(stack: dict, kubeconfig: str, aws, run=run) -> bool:
 OTEL_IMAGE = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
 
 
-def otel_config(region: str, *, grafana_url: str = "", datadog: bool = False) -> dict:
+def otel_config(region: str, *, datadog: bool = False) -> dict:
     """The collector's configuration for the tools that are set up: X-Ray always (traces, by the pod's IAM role),
-    Grafana when its OTLP address and key are given, Datadog when its agent is on the cluster."""
+    Datadog when its agent is on the cluster. No Grafana (owner, 2026-10-16: Datadog only)."""
     exporters: dict = {"awsxray": {"region": region}}
     traces, metrics, logs = ["awsxray"], [], []
-    if grafana_url:
-        exporters["otlphttp/grafana"] = {"endpoint": grafana_url,
-                                         "headers": {"Authorization": "Basic ${env:GRAFANA_OTLP_AUTH}"}}
-        traces.append("otlphttp/grafana")
-        metrics.append("otlphttp/grafana")
-        logs.append("otlphttp/grafana")
     if datadog:
         # Plaintext gRPC on purpose (2026-10-16, naming audit item 19): HOST_IP is the collector pod's own node,
         # and 4317 there is the Datadog agent's OTLP receiver on its hostPort, so the hop never leaves the node.
@@ -424,36 +418,18 @@ def otel_config(region: str, *, grafana_url: str = "", datadog: bool = False) ->
             "exporters": exporters, "service": {"pipelines": pipelines}}
 
 
-def deploy_otel(stack: dict, kubeconfig: str, aws, datadog: bool, run=run) -> dict:
-    """The collector in the observability namespace, before the apps roll out. Grafana's OTLP address and key from
-    the persistent `/warden/<env>/tf/grafana_otlp_url` and `warden-<env>-grafana-otlp-auth` (`<instance id>:<token>`,
-    sent to the cluster over stdin); neither set, Grafana is left out."""
-    import base64
-
+def deploy_otel(stack: dict, kubeconfig: str, datadog: bool, run=run) -> dict:
+    """The collector in the observability namespace, before the apps roll out. It holds no key: X-Ray by the pod's
+    IAM role, Datadog through the agent on its node."""
     import yaml
 
-    env = stack["environment"]
-    grafana_url, auth = "", ""
-    try:
-        grafana_url = aws("ssm").get_parameter(Name=f"/warden/{env}/tf/grafana_otlp_url")["Parameter"]["Value"].strip()
-        auth = aws("secretsmanager").get_secret_value(SecretId=f"warden-{env}-grafana-otlp-auth")["SecretString"].strip()
-    except Exception as exc:  # noqa: BLE001 - no Grafana: the collector sends to the others
-        print(f"Grafana left out of the collector: its address or key is not set ({type(exc).__name__})", flush=True)
-        grafana_url = auth = ""
-    if not grafana_url.startswith("https://") or ":" not in auth:
-        grafana_url = auth = ""
-    config = otel_config(stack["region"], grafana_url=grafana_url, datadog=datadog)
+    config = otel_config(stack["region"], datadog=datadog)
     ns = {"apiVersion": "v1", "kind": "Namespace", "metadata": {"name": "observability"}}
     sa = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "otel-collector", "namespace": "observability"}}
     cm = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": {"name": "otel-collector", "namespace": "observability"},
           "data": {"config.yaml": yaml.safe_dump(config, sort_keys=False)}}
     docs = [ns, sa, cm]
     env_vars = [{"name": "HOST_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.hostIP"}}}]
-    if grafana_url:
-        docs.append({"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-                     "metadata": {"name": "grafana-otlp", "namespace": "observability"},
-                     "data": {"auth": base64.b64encode(base64.b64encode(auth.encode())).decode()}})
-        env_vars.append({"name": "GRAFANA_OTLP_AUTH", "valueFrom": {"secretKeyRef": {"name": "grafana-otlp", "key": "auth"}}})
     labels = {"app": "otel-collector"}
     docs.append({"apiVersion": "apps/v1", "kind": "Deployment",
                  "metadata": {"name": "otel-collector", "namespace": "observability", "labels": labels},
@@ -481,7 +457,7 @@ def deploy_k8s(stack: dict, tag: str, out: pathlib.Path, aws, run=run, revision:
     run(["aws", "eks", "update-kubeconfig", "--name", stack["eks_cluster_name"],
          "--region", stack["region"], "--kubeconfig", kubeconfig])
     datadog = deploy_datadog(stack, kubeconfig, aws, run)
-    deploy_otel(stack, kubeconfig, aws, datadog, run)
+    deploy_otel(stack, kubeconfig, datadog, run)
     deploy_argocd(kubeconfig, out, run=run)
     # What the pipeline owns. catalog-api logs in as user catalog with an IAM token (EKS Pod Identity); the one Secret
     # value is its signing key, generated here and sent over stdin. fs-23 removes it.
