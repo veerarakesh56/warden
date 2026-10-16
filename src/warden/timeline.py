@@ -138,6 +138,25 @@ MAX_COMMITS = 3
 MAX_FILES = 15
 
 
+def deploy_shas(base: Any, alert: Any) -> list[str]:
+    """The commits the deploys near the alarm carry, from the base backend's own deploy read (windowed there): a
+    deploy's sha, or an image's tag - the part after its last ':' - never the image's address. None read: none."""
+    try:
+        deploys = base.deploys(alert)
+    except Exception:  # noqa: BLE001 - no deploys read: no commits to look up, and the AWS read says why
+        deploys = []
+    shas: list[str] = []
+    for d in deploys if isinstance(deploys, list) else []:
+        if not isinstance(d, dict):
+            continue
+        for v in (d.get("sha"), str(d.get("image") or "").rsplit(":", 1)[-1] if ":" in str(d.get("image") or "")
+                  else ""):
+            v = str(v or "").strip().lower()
+            if _SHA.fullmatch(v) and v not in shas:
+                shas.append(v)
+    return shas
+
+
 class CommitReader:
     """The files and message of each commit a deploy near the alarm carries. A public repository needs no token
     (GitHub allows unauthenticated reads); WARDEN_GITHUB_READ_TOKEN, a read-only token, raises the rate limit."""
@@ -158,22 +177,8 @@ class CommitReader:
     def logs(self, alert: Any) -> list[str]:
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}", self.repo or ""):
             return []
-        try:
-            deploys = self.base.deploys(alert)
-        except Exception:  # noqa: BLE001 - no deploys read: no commits to look up, and the AWS read says why
-            deploys = []
-        shas: list[str] = []
-        for d in deploys:
-            if not isinstance(d, dict):
-                continue
-            # The deploy's own commit, or an image's tag - the part after its last ':' - never the image's address.
-            for v in (d.get("sha"), str(d.get("image") or "").rsplit(":", 1)[-1] if ":" in str(d.get("image") or "")
-                      else ""):
-                v = str(v or "").strip().lower()
-                if _SHA.fullmatch(v) and v not in shas:
-                    shas.append(v)
         out: list[str] = []
-        for sha in shas[:MAX_COMMITS]:
+        for sha in deploy_shas(self.base, alert)[:MAX_COMMITS]:
             try:
                 c = self._get(f"/repos/{self.repo}/commits/{sha}")
             except urllib.error.HTTPError as exc:

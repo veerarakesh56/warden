@@ -67,6 +67,10 @@ LOADABLE = frozenset({
     # X-Ray (xray.py) and which tools a run reads: plain. Grafana's reader (grafana.py) is not loaded from the store:
     # WARDEN's own runtime reads Datadog only (owner, 2026-10-16); an adopter sets WARDEN_GRAFANA_* in the process.
     "WARDEN_XRAY", "WARDEN_EVIDENCE_TOOLS", "WARDEN_COMMITS", "WARDEN_HISTORY_IN_PROMPT",
+    # Code review's findings on the deploy's pull request (findings.py): plain values. Its optional tokens
+    # (WARDEN_GITHUB_READ_TOKEN, WARDEN_SONAR_TOKEN) have no Secrets Manager slot yet: set in the read worker's own
+    # environment, or not at all for a public repository and project.
+    "WARDEN_FINDINGS", "WARDEN_SONAR_PROJECT", "WARDEN_FINDINGS_MAX_PRS", "WARDEN_FINDINGS_MAX_PER_PR",
     # Whose changes WARDEN never proposes to undo - a security team, a break-glass identity (platforms/aws.py): plain,
     # comma-separated. Not loadable before 2026-10-14, so the cloud runtime could never be told (gap audit).
     "WARDEN_NEVER_REVERT_PRINCIPALS",
