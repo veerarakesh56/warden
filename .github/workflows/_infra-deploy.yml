@@ -8,7 +8,7 @@ name: "_ infra · deploy"
 # GitHub Environment of the same name), the SSM parameters /warden/<env>/tf/*, a state bucket, and a
 # GitHub Environment <env> with the secret AWS_ROLE_ARN (it holds the account id: a variable is printed unmasked
 # in a step's inputs, 2026-10-16), the variables AWS_REGION and TF_STATE_BUCKET (optional EKS_PUBLIC_CIDRS,
-# EKS_ADMINS) and required reviewers for pre-prod, qa-prod and prod.
+# EKS_ADMIN_ROLE_ARNS) and required reviewers for pre-prod, qa-prod and prod.
 # Aurora is created and destroyed by terraform/fullstack/aurora_express.py, not by terraform (the
 # provider cannot create an express cluster): `create` after apply, `destroy` before destroy.
 on:
@@ -18,7 +18,7 @@ on:
     secrets:
       AWS_ROLE_ARN:
         required: true
-      EKS_ADMINS:
+      EKS_ADMIN_ROLE_ARNS:
         required: false
     inputs:
       environment:
@@ -113,10 +113,12 @@ jobs:
       - name: optional variables
         env:
           CIDRS: ${{ vars.EKS_PUBLIC_CIDRS }}
-          ADMINS: ${{ secrets.EKS_ADMINS }}
+          # The ARNs of the IAM roles given admin access to the cluster - names, not credentials. A secret only
+          # because an ARN holds the account id (2026-10-16).
+          ADMIN_ROLE_ARNS: ${{ secrets.EKS_ADMIN_ROLE_ARNS }}
         run: |
           if [ -n "$CIDRS" ]; then echo "TF_VAR_eks_public_access_cidrs=$CIDRS" >> "$GITHUB_ENV"; fi
-          if [ -n "$ADMINS" ]; then echo "TF_VAR_eks_admin_principal_arns=$ADMINS" >> "$GITHUB_ENV"; fi
+          if [ -n "$ADMIN_ROLE_ARNS" ]; then echo "TF_VAR_eks_admin_principal_arns=$ADMIN_ROLE_ARNS" >> "$GITHUB_ENV"; fi
       - name: init with the S3 backend
         # backend_override.tf exists only on the runner: a local apply keeps local state.
         run: |

@@ -10,7 +10,7 @@ import pathlib
 import re
 
 WORKFLOWS = pathlib.Path(__file__).resolve().parents[1] / ".github" / "workflows"
-HOLD_THE_ACCOUNT = ("AWS_ROLE_ARN", "RUNTIME_ECR_REPOSITORY", "EKS_ADMINS")
+HOLD_THE_ACCOUNT = ("AWS_ROLE_ARN", "RUNTIME_ECR_REPOSITORY", "EKS_ADMIN_ROLE_ARNS")
 
 
 def test_no_workflow_reads_an_account_holding_value_as_a_variable():
