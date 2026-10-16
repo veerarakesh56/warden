@@ -144,17 +144,20 @@ def test_the_image_build_context_is_an_allowlist():
 
 
 def test_the_image_build_gets_every_licence_file_the_package_names():
-    """2026-10-16: NOTICE joined `license-files`, but the Dockerfile copied LICENSE only, so the image build failed
-    ("`project.license-files` glob `NOTICE` did not match any files") - the gate does not build the image."""
+    """2026-10-16: NOTICE joined `license-files`, but both Dockerfiles copied LICENSE only, so both image builds failed
+    ("`project.license-files` glob `NOTICE` did not match any files") - the gate does not build the images."""
     import tomllib
 
     names = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["license-files"]
-    copied = {f for c in re.findall(r"^COPY (?!--from)(.+?) \S+$", (ROOT / "Dockerfile").read_text(encoding="utf-8"),
-                                    re.MULTILINE) for f in c.split()}
+    dockerfiles = sorted(ROOT.glob("Dockerfile*"))
+    assert len(dockerfiles) >= 2, dockerfiles  # the CLI image and the runtime image
     allowed = {ln.strip()[1:] for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
                if ln.strip().startswith("!")}
     assert names and all((ROOT / n).is_file() for n in names), names
-    assert set(names) <= copied, (names, copied)
+    for dockerfile in dockerfiles:
+        copied = {f for c in re.findall(r"^COPY (?!--from)(.+?) \S+$", dockerfile.read_text(encoding="utf-8"),
+                                        re.MULTILINE) for f in c.split()}
+        assert set(names) <= copied, (dockerfile.name, names, copied)
     assert set(names) <= allowed, (names, allowed)
 
 
