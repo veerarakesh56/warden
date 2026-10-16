@@ -5,8 +5,9 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 WARDEN is an AI on-call engineer for AWS. When an alarm fires, it gathers the evidence, finds the likely cause, writes
-a short report in Slack and proposes a fix. Nothing changes until a person approves that exact fix with a passkey;
-then WARDEN applies it, checks that it worked and undoes it if it did not, and every step is recorded.
+a short report in Slack and proposes a fix. Nothing changes until that exact fix is approved, in production always
+by a person; then WARDEN applies it, checks that it worked and undoes it if it did not, and every
+step is recorded.
 
 ## How it works
 
@@ -18,14 +19,15 @@ then WARDEN applies it, checks that it worked and undoes it if it did not, and e
 4. **Ordinary code checks the answer.** Fixed rules, not the AI, decide whether the fix may be offered, is too risky,
    or should go to a person with no fix at all.
 5. **It reports in Slack:** what broke, the likely cause, the proposed fix and who should act.
-6. **A person approves the exact fix,** with a passkey on WARDEN's approval page (or a signing key on the
-   command line). If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
+6. **An approver approves the exact fix,** with a passkey on WARDEN's approval page (or a signing key on the
+   command line). In production that is always a person. If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
 7. **It applies the fix once, checks that the service recovered, and undoes the fix if it did not.**
 
 ## What keeps it safe
 
-- **Nothing is applied without approval.** The AI only suggests. A change runs only after a person approves that
-  exact fix; WARDEN never applies one on its own.
+- **Nothing is applied without approval.** The AI only suggests. A change runs only after an approver on the
+  approver list approves that exact fix; WARDEN never applies one on its own. In production every approver is a
+  person.
 - **A kill switch.** `warden killswitch on` stops every fix at once. Turning it off again needs a signed approval.
 - **Reading and writing are kept apart.** The parts that gather evidence can only read. Writing uses a separate
   identity with tight limits: on AWS, a short-lived session for one approved fix; on Kubernetes, a deployment can be
@@ -49,12 +51,17 @@ the same way). It is not offered as a product to adopt as-is. Read [the benchmar
 - **No published run has applied a fix on a live AWS account.** WARDEN has read a real AWS account, and its fixes
   are tested in CI against a real Kubernetes cluster (k3d) and real database servers.
 - **It can be wrong.** The AI does not always give the same answer to the same evidence, and a confident,
-  well-supported wrong answer can still reach the approver. That is why a person approves every fix.
+  well-supported wrong answer can still reach the approver. That is why every fix waits for an approval.
 - **It fixes only what is on its list.** Anything else, including database failover, schema changes and anything
   that deletes, is handed to a person.
 - **It sees only what its access allows,** and masking works from known patterns: a secret in a format no pattern
   knows is not caught.
-- **One approver.** This deployment has one approver. The code supports requiring two.
+- **One person approves.** This deployment's approver list has one person, whose approval decides alone; the code
+  supports requiring two. `dev`, where the test bench runs, also has a second, labelled approver: a test key that Claude
+  (the AI that helps build WARDEN) holds, `scripts/bench_approve.py`. It may approve only small, reversible fixes,
+  only in `dev` (tiers T1 and T2, set by the owner on 2026-10-15), and every approval it gives is recorded as
+  `bench`. Its entry in the approver list names `dev` alone, and WARDEN refuses an approval from anyone outside
+  the environments their entry names.
 - **The measurements are limited:** synthetic held-out incidents, single runs, and live reads from September 2026
   under an older version. Details are in [Status and limits](#status-and-limits).
 
@@ -152,7 +159,7 @@ alert -> gather evidence -> redact -> quarantine -> diagnose (one model call) ->
    proposal to go to an approver. Each verdict lists every rule that fired. New rules run in observe mode first
    (P25-P28 today): recorded on every verdict, obeyed by none, until they are measured.
 5. **A fix is a plan, not a command.** An allowed proposal opens a plan from a fixed catalogue, made from what WARDEN
-   reads live. A person approves the plan's hash. WARDEN applies it once, checks that the service recovered, and
+   reads live. An approver approves the plan's hash (in production, a person). WARDEN applies it once, checks that the service recovered, and
    rolls back if it did not.
 
 Everything runs as [Temporal](https://temporal.io) workflows: `IncidentWorkflow` for a diagnosis and one
@@ -254,7 +261,7 @@ Each control below is enforced in code and covered by tests; the limits are stat
 | **Closed action list** | The model must return one action from a fixed enum, or the call fails. | The list is coarse; a person still judges the target. |
 | **Deterministic verifier** | Rules over typed data decide the verdict; confidence can stop an action but never start one. | Rules catch what they were written for; a confident, well-evidenced wrong answer can still reach an approver. |
 | **Trust zones** | In the cloud runtime, each zone (core, read, llm, notify, act) is its own Fargate service with its own task role and secrets. The model zone holds the model's key (and, for Bedrock, permission to call the model); it cannot assume the reader or actor roles. | One AWS account per deployment; the zones share it. |
-| **Signed approvals** | A fix applies only with an Ed25519 signature (`warden approve`) or a passkey on the approval page over the exact plan hash. The hash covers the environment, the catalogue, WARDEN's own code and the incident's audit record; if any changes, the plan is made again and put to the approver again. | This deployment has one approver. The code supports a two-person rule (`required: 2`); one approver's key decides alone where it is 1, and every record says so (`single_approver`). |
+| **Signed approvals** | A fix applies only with an Ed25519 signature (`warden approve`) or a passkey on the approval page over the exact plan hash. The hash covers the environment, the catalogue, WARDEN's own code and the incident's audit record; if any changes, the plan is made again and put to the approver again. | This deployment has one person on the approver list. The code supports a two-person rule (`required: 2`); one approver's key decides alone where it is 1, and every record says so (`single_approver`). In `dev` only, the labelled bench approver (`bench`, a test key Claude holds) may also approve T1 and T2 plans; an approver's `environments` list keeps it out of every other environment. |
 | **Bounded writes** | Each platform re-checks its own bounds: Kubernetes restarts or scales up by at most two; databases close only sessions idle in a transaction, for the application's own logins; AWS writes use a short-lived actor session for one plan. | See [Status and limits](#status-and-limits) for what has run where. |
 | **Kill switch and freezes** | `warden killswitch on` stops every remediation; a reset needs a signed approval. Change freezes, cool-downs and an approval-fatigue cap are checked before every apply. | |
 | **Budget** | Per-incident USD and call ceilings (`WARDEN_MAX_USD`, `WARDEN_MAX_CALLS`) and a daily cap (`WARDEN_DAILY_MAX_USD`). With no model, or over the cap, an incident is escalated on the rules alone. | Prices come from `providers.yaml`; a provider that reports no usage is made to over-estimate. |
@@ -270,7 +277,8 @@ escalate.
 | `prod` | the same, plus failover, clear a cache, redrive messages, cancel a query (rule P2 then refuses the irreversible ones) | scale down |
 | any other name | none: it can only escalate to a person | everything (**fails closed**) |
 
-No shipped environment remediates automatically: in both, every fix waits for a person's approval.
+No shipped environment remediates automatically: in both, every fix waits for a signed approval of its exact plan
+(in `dev` that may be the labelled bench approver's, for T1 and T2; in `prod`, always a person's).
 
 ## Configuration
 
