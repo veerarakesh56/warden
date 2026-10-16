@@ -23,7 +23,8 @@ def test_demo_output_carries_the_safety_claim(capsys):
     main(["demo"])
     out = capsys.readouterr().out
     assert "No action was executed" in out
-    assert "a human executes" in out
+    # A13 (2026-10-16): no longer "a human executes" - WARDEN applies approved plans itself.
+    assert "a change runs only as a fix plan an approver approved" in out and "a human executes" not in out
 
 
 def test_demo_produces_the_expected_spread_of_verdicts(capsys):
@@ -99,8 +100,9 @@ def test_run_report_flag_prints_the_report_and_safety_line(capsys):
     assert main(["run", "--incident", "inc-002", "--report"]) == 0
     out = capsys.readouterr().out
     assert "WARDEN incident report" in out
-    assert "Promotion" in out
-    assert "Nothing was executed against production" in out
+    # A10/A13 (2026-10-16): no manual promotion section, and the closing line says how WARDEN changes things.
+    assert "## Promotion" not in out
+    assert "It changes nothing except by applying a catalogue fix plan an approver approved" in out
 
 
 def _digest_from(out: str) -> str:

@@ -46,15 +46,12 @@ def _every_run_dir_is_soaked(tmp_path):
 
 
 def fake_env(events: list, *, alarm_state="ALARM", verdict="approved_for_human",
-             commands=None, verify_ok=True, baseline=None, inject_raises=None,
+             verify_ok=True, baseline=None, inject_raises=None,
              firing_before=False) -> cli.Env:
     """`alarm_state` is what the fault's alarm reads WHILE the fault is injected; before it, every
     alarm is OK unless `firing_before`."""
     env = cli.dry_env()
     clock = Clock()
-    commands = [{"kind": "shell", "source": "runbook", "command":
-                 "aws events enable-rule --name warden-dev-reconcile-5m --region ap-south-2"}] \
-        if commands is None else commands
 
     injected = {"on": firing_before}
 
@@ -88,7 +85,7 @@ def fake_env(events: list, *, alarm_state="ALARM", verdict="approved_for_human",
         return 0, ""
 
     def extract(report, built):
-        data = {"fix_commands": commands}
+        data = {"alert": {"id": "bench"}}  # a built report holds no command (2026-10-16)
         runner._write_json(built, data)
         return data
 
@@ -290,9 +287,6 @@ def test_the_alert_template_names_no_cause():
     ({}, "execution_disabled", False),
     ({"verify_ok": False}, "execution_disabled", False),
     ({"verdict": "rejected"}, "blocked_by_gate", False),
-    ({"commands": []}, "no_fix_printed", False),
-    ({"commands": [{"kind": "shell", "command": "kubectl -n shop delete deploy catalog-api"}]},
-     "fix_not_allowed", False),
     # ⛔ Phase 0: escalated means a person decides - the harness no longer plays that person.
     ({"verdict": "escalated"}, "not_approved", False),
 ])
@@ -302,8 +296,6 @@ def test_fix_outcomes(tmp_path, kw, outcome, ran):
     fix = _record(tmp_path, "fs-27")["runs"][0]["fix"]
     assert fix["outcome"] == outcome
     assert "fix" not in events and ran is False, "the harness runs no fix command"
-    if outcome == "fix_not_allowed":
-        assert fix["rejected"][0]["reason"], "the refused command is visible, not silently skipped"
 
 
 def test_with_no_fix_applied_the_state_is_checked_once_not_waited_on(tmp_path):
@@ -636,19 +628,17 @@ def test_a_mid_run_isolation_change_and_a_hand_repair_are_printed_in_the_results
     assert "rolled catalog-api back by hand" in results
 
 
-def test_the_fix_is_rebuilt_with_the_region_warden_ran_in(tmp_path, monkeypatch):
-    """fs-01: the harness rebuilt WARDEN's fix without AWS_REGION, the commands came out without
-    `--region`, and the allow-list refused WARDEN's fix - a harness artefact charged to WARDEN."""
+def test_the_report_is_rebuilt_with_identifiers_shown(tmp_path, monkeypatch):
     seen = {}
 
     def fake_run(cmd, *, env, **kw):
         seen.update(env)
-        pathlib.Path(cmd[-1]).write_text('{"fix_commands": []}', encoding="utf-8")
+        pathlib.Path(cmd[-1]).write_text('{"alert": {"id": "bench"}}', encoding="utf-8")
         return type("P", (), {"returncode": 0, "stderr": ""})()
 
     monkeypatch.setattr(cli.subprocess, "run", fake_run)
-    cli._subprocess_extract(tmp_path / "r.json", tmp_path / "b.json", "ap-south-2")
-    assert seen["AWS_REGION"] == "ap-south-2"
+    assert cli._subprocess_extract(tmp_path / "r.json", tmp_path / "b.json") == {"alert": {"id": "bench"}}
+    assert seen["WARDEN_REPORT_SHOW_IDENTIFIERS"] == "1"
 
 
 @pytest.mark.parametrize("prefix", ["warden-dev-", "warden-qa-staging-"])

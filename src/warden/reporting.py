@@ -1,15 +1,20 @@
-"""The remediation report — the artifact a human uses to act on an incident and promote the fix.
+"""The incident report — what a person reads to understand an incident and decide on WARDEN's fix plan.
 
-The owner's flow: WARDEN auto-resolves in staging/qa-staging, then produces a report so whoever has
-access to prod can apply the same fix there. This module builds that report from the pieces of one
-run and renders it two ways — Markdown (for a human / ChatOps) and a JSON dict (for machines).
+This module builds that report from the pieces of one run and renders it two ways — Markdown (for a
+human / ChatOps) and a JSON dict (for machines).
 
 What the report must let the reader do WITHOUT opening another tool: see what WARDEN actually read
 (metrics, the log lines that matter, deploys, what it could NOT read), who and what is affected
-(pods, PIDs, hosts, tenants, users), when things happened, and the exact commands to check, fix,
-confirm and undo. A report that carries only the model's conclusion asks the reader to trust it;
-one that carries the evidence lets them check it. (Until 2026-09-24 it carried only the conclusion:
-the model's own cited evidence, the whole evidence bundle and every identifier were dropped.)
+(pods, PIDs, hosts, tenants, users), when things happened, and who should act next. A report that
+carries only the model's conclusion asks the reader to trust it; one that carries the evidence lets
+them check it. (Until 2026-09-24 it carried only the conclusion: the model's own cited evidence, the
+whole evidence bundle and every identifier were dropped.)
+
+⛔ NO COMMANDS (2026-10-16). The report used to print exact aws, kubectl and SQL commands to check,
+fix, confirm and undo - a second, unaudited way to make the change, outside the signed approval, the
+bounds, the kill switch and the audit, and printed even under a rejected verdict. A fix now goes
+only through a catalogue plan and a signed approval, which WARDEN applies itself; the report says
+what to look at and who acts, in words.
 
 Three things this module guarantees:
   1. Everything it emits is REDACTED, with ONE mapping across the whole report so the same tenant
@@ -21,8 +26,7 @@ Three things this module guarantees:
      numbers, UUIDs (which is also the shape of many API keys) and AWS account ids stay masked
      regardless. Off by default: turning a redacting tool into one that posts customer
      identifiers to a third party is a decision for whoever owns that channel.
-  3. The PROMOTION PLAN is derived from the environment policy, not guessed, and the RUNBOOK from a
-     fixed table (runbook.py) - the model never writes a command a human will paste.
+  3. The PROMOTION targets (data only) are derived from the environment policy, not guessed.
 """
 
 from __future__ import annotations
@@ -42,7 +46,6 @@ from .models import ActionKind, Alert, ContextBundle, RemediationProposal, RootC
 from .playbook import detect as detect_patterns
 from .redaction import redact
 from .remediation import RemediationResult
-from .runbook import build_runbook
 from .verifier import symptoms
 
 # Tier ordering for "what is higher than here". Unknown is off the ladder (never a promotion target).
@@ -190,8 +193,7 @@ def _affected(logs: list[str]) -> dict[str, list[tuple[str, int]]]:
         for a, b in _POD.findall(line):
             found.setdefault("pod", Counter())[a or b] += 1
     order = ("pod", "pid", *_AFFECTED_KEYS)
-    # Shown as the top 5 per key, with a count of the rest. The FULL list stays available: the runbook
-    # needs every pid, not the five most mentioned (see build_report).
+    # Shown as the top 5 per key, with a count of the rest; the data keeps the FULL list.
     return {k: found[k].most_common() for k in order if k in found}
 
 
@@ -477,26 +479,6 @@ def _sources(alert: Alert, backend: str | None, ctx: ContextBundle | None = None
     return ["A recorded demo incident (fixture) - not read from a live system."]
 
 
-_SQL = re.compile(r"(?i)^(SELECT|CREATE|ALTER|DO|WITH|SET)\b")
-# A shell variable set by an earlier step (`$NS`, `$PREV`): the command is not aimed on its own.
-_SHELL_VAR = re.compile(r"\$\{?[A-Za-z_]")
-
-
-def _fix_commands(commands: list[str], source: str) -> list[dict]:
-    """Contract E entries. A comment-only line is not a command; one that needs a variable an earlier
-    step sets cannot be run as printed, so it is not emitted (the runbook still shows it in context)."""
-    out = []
-    for cmd in commands:
-        # `$((CUR+1))` is shell arithmetic on a variable, not a lookup: blanking "$(" first let it through.
-        if cmd.lstrip().startswith(("--", "#")) or "$((" in cmd or _SHELL_VAR.search(cmd.replace("$(", "")):
-            continue
-        entry = {"kind": "sql" if _SQL.match(cmd.lstrip()) else "shell", "command": cmd, "source": source}
-        if entry["kind"] == "sql":
-            entry["target"] = "writer"
-        out.append(entry)
-    return out
-
-
 _CODE = re.compile(r"CODE (\S+) (\S+?):(\d+) in (\S+): (.*)")
 
 
@@ -597,7 +579,7 @@ def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
 _NEXT_STEP = {
     "rejected": "Blocked by the gate - nothing will run. A person has to look at this.",
     "escalated": "Escalated - a person decides. Nothing runs until then.",
-    "approved_for_human": "Held for approval - the fix below runs only if a person approves it.",
+    "approved_for_human": "Held for approval - WARDEN applies its fix plan only if an approver approves it.",
     "auto_safe": "No change proposed - recorded, nothing to run.",
 }
 _HANDED_OVER = "Handed to a person - WARDEN proposes no change and could not name a cause. Someone should look."
@@ -607,7 +589,10 @@ _HANDED_OVER = "Handed to a person - WARDEN proposes no change and could not nam
 
 
 # The report's last lines. What is added to a report after it is built goes before them (activities.notify).
-CLOSING = "---\n_WARDEN proposes and gates. Nothing was executed against production by this tool._"
+# A13 (2026-10-16): it said "Nothing was executed against production by this tool" - untrue since WARDEN applies
+# approved plans itself (D16).
+CLOSING = ("---\n_WARDEN proposes and gates. It changes nothing except by applying a catalogue fix plan an approver "
+           "approved._")
 
 
 def build_report(
@@ -664,12 +649,6 @@ def build_report(
         ],
         "patterns": [dataclasses.asdict(p) for p in patterns],
         "code": _code_findings(ctx.logs),
-        # ⛔ Only commands the gate APPROVED (approved_for_human). The one list anything may execute.
-        "fix_commands": [],
-        # The runbook's fix for an ESCALATED verdict: for the person who decides - not approved.
-        "candidate_commands": [],
-        # Deterministic patterns' commands: never checked by the gate against the proposal - advice.
-        "pattern_suggestions": [],
         "root_cause": None,
         "evidence": {
             "metrics": dict(ctx.metrics),
@@ -685,7 +664,6 @@ def build_report(
         "proposal": None,
         "verdict": None,
         "remediation": None,
-        "runbook": None,
         "promotion": [
             {"environment": t.environment, "tier": t.tier,
              "requires_human_approval": t.requires_human_approval,
@@ -723,21 +701,6 @@ def build_report(
             "claim_contradicts_table": proposal.claim_contradicts_table,
             "expected_effect": hedge(proposal.expected_effect),
         }
-        # ⛔ EVERY pid in the evidence, not the five the "Affected" section displays. With twelve
-        # stuck sessions the first version terminated five and left seven holding the pool.
-        pids = [p for p, _ in affected.get("pid", [])]
-        rb = build_runbook(alert, proposal.action, backend=backend, pids=pids, context=ctx)
-        data["runbook"] = dataclasses.asdict(rb)
-        # ⛔ Wave 4 (2026-09-26): commands were listed whatever the gate decided, and the benchmark ran
-        # an ESCALATED fix; on the healthy control a pattern's command broke a healthy service. The
-        # gate's verdict now decides which list a command lands in - and rejected lands in none.
-        status = verdict.status.value if verdict else None
-        if status == "approved_for_human":
-            data["fix_commands"] = _fix_commands(rb.fix, "runbook")
-        elif status == "escalated":
-            data["candidate_commands"] = _fix_commands(rb.fix, "runbook")
-    for pat in patterns:
-        data["pattern_suggestions"] += _fix_commands(pat.fix, f"pattern:{pat.key}")
     if verdict:
         data["verdict"] = {
             "status": verdict.status.value,
@@ -803,7 +766,6 @@ def _render_markdown(d: dict) -> str:
     ev = d["evidence"]
     v = d.get("verdict")
     p = d.get("proposal")
-    rb = d.get("runbook")
     lines: list[str] = []
 
     lines.append(f"# WARDEN incident report - {a['service']} ({a['environment']})")
@@ -961,8 +923,10 @@ def _render_markdown(d: dict) -> str:
                 shown += f" and {len(values) - 5} more"
             lines.append(f"- **{key}**: {shown}")
         if not d.get("identifiers_shown"):
-            lines.append("_Identifiers are masked. Set `WARDEN_REPORT_SHOW_IDENTIFIERS=true` to show "
-                         "tenant ids, emails and IPs in your own channel; secrets stay masked either way._")
+            # A9 (2026-10-16): it told every reader to set the variable, and the cloud runtime ignores it
+            # (activities.notify passes show_identifiers=False).
+            lines.append("_Identifiers are masked; secrets stay masked either way. A local `warden run` can show "
+                         "tenant ids, emails and IPs with `WARDEN_REPORT_SHOW_IDENTIFIERS=true`._")
         lines.append("")
     if ev["key_log_lines"]:
         lines.append(f"## Key log lines  ({len(ev['key_log_lines'])} of {ev['log_lines_read']} read)")
@@ -981,60 +945,16 @@ def _render_markdown(d: dict) -> str:
         )
         lines.append("")
 
-    # ---- risk BEFORE steps, then the runbook
-    if rb and (rb["check"] or rb["fix"] or rb["note"]):
-        contradiction = [r for r, pid in zip(v["reasons"], v["policy_ids"], strict=False)
-                         if pid == "P11-ACTION-CONTRADICTS-EVIDENCE"] if v else []
-        if rb["risk"] or contradiction:
-            lines.append("## ⚠ Before you act")
-            # The gate's own finding first: a runbook for an action the gate says cannot work must
-            # not read as a recommendation. The steps stay - a person may still decide to run them.
-            for reason in contradiction:
-                lines.append(f"- ⛔ **The gate found this action cannot fix what the evidence shows.** {reason} "
-                             "The follow-ups below say what would.")
-            lines.extend(f"- {r}" for r in rb["risk"])
-            if rb["fix"] and v and v["status"] != "auto_safe":
-                lines.append("- The gate did not clear this action on its own: a person decides whether to run the fix.")
-            lines.append("")
-        lines.append(f"## Runbook - {rb['platform']}  ({rb['basis']})")
-        if rb["note"]:
-            lines.append(f"_{rb['note']}_")
-        check_title = ("1. Re-check right before acting - WARDEN ran the diagnostics above at alert time; "
-                       "state may have moved since" if rb.get("checked_by_warden")
-                       else "1. Check - read-only, confirm the diagnosis first")
-        status = v["status"] if v else None
-        for title, key in ((check_title, "check"), ("2. Fix", "fix"),
-                           ("3. Confirm it worked", "confirm"), ("4. If it made things worse", "undo")):
-            if key == "fix" and rb[key] and status not in ("approved_for_human", "escalated"):
-                lines.append(f"**{title}** - no command: the gate did not approve this action "
-                             f"(verdict {_c(status)}).")
-                continue
-            if key == "undo" and rb[key] and status not in ("approved_for_human", "escalated"):
-                continue  # an undo of a fix nobody may run is itself a command nobody should run
-            if key == "fix" and rb[key] and status == "escalated":
-                lines.append(f"**{title}** - NOT APPROVED: the gate escalated. A person decides; the "
-                             "candidate is below.")
-                continue
-            if rb[key]:
-                lines.append(f"**{title}**")
-                _code(lines, rb[key])
-            elif key == "fix" and rb["confirm"]:
-                # Steps stay numbered 1-2-3: a runbook that jumped from 1 to 3 read as a lost page.
-                lines.append(f"**{title}** - no command printed; see the note at the top of this runbook.")
+    # ---- the gate's own finding, before the follow-ups: an action the gate says cannot work must not read as a
+    # recommendation. (The runbook and its risks that stood here printed commands; gone 2026-10-16.)
+    contradiction = [r for r, pid in zip(v["reasons"], v["policy_ids"], strict=False)
+                     if pid == "P11-ACTION-CONTRADICTS-EVIDENCE"] if v and p else []
+    if contradiction:
+        lines.append("## ⚠ Before you act")
+        for reason in contradiction:
+            lines.append(f"- ⛔ **The gate found this action cannot fix what the evidence shows.** {reason} "
+                         "The follow-ups below say what would.")
         lines.append("")
-
-    for key, title in (
-            ("fix_commands", "## Fix - exact commands  (approved by the gate for a person to run; nothing here has been run)"),
-            ("candidate_commands", "## Candidate fix - NOT APPROVED  (the gate escalated: a person decides)"),
-            ("pattern_suggestions", ("## Suggestions from deterministic patterns - NOT checked by the gate  "
-                                     "(verify against live state before anything)"))):
-        if d.get(key):
-            lines.append(title)
-            for i, f in enumerate(d[key], 1):
-                where = f" on the {f['target']}" if f.get("target") else ""
-                lines.append(f"{i}. {_c(f['source'])} - {f['kind']}{where}")
-                _code(lines, [f["command"]])
-            lines.append("")
 
     # ---- follow-ups by team
     teams = (("On-call - now", "oncall"), ("Developers", "developers"),
@@ -1064,19 +984,9 @@ def _render_markdown(d: dict) -> str:
             lines.append(f"- {r['applied_change']}")
         lines.append("")
 
-    # Only a fix is promoted: a hand-off or "nothing to do" has nothing to apply anywhere (the same report listed
-    # three environments in which "a human applies this fix" - there was none).
-    # ...nor an undo or a pause in this one environment (_LOCAL_ONLY): there is nothing of it to replay elsewhere.
-    if p and p.get("action") not in ("escalate_to_human", "no_action", *(a.value for a in _LOCAL_ONLY)):
-        lines.append("## Promotion - apply this fix to the higher environments")
-        if d["promotion"]:
-            for t in d["promotion"]:
-                approval = "human approval required" if t["requires_human_approval"] else "no separate approval"
-                creds = f" - deploy role {_c(t['credentials_ref'])}" if t.get("credentials_ref") else ""
-                lines.append(f"- **{t['environment']}** ({t['tier']}): {t['note']} - {approval}{creds}")
-        else:
-            lines.append("- _No higher environment permits this action; nothing to promote._")
-        lines.append("")
+    # A10 (2026-10-16): a "Promotion - apply this fix to the higher environments" section stood here, pointing a
+    # person at a manual replay with each environment's deploy role. WARDEN watches and fixes only the environments it
+    # is installed in, through approved plans; the targets stay in the data for whoever plans a release.
     lines.append(CLOSING)
     return "\n".join(lines)
 

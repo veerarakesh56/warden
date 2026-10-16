@@ -52,7 +52,7 @@ from typing import Any
 
 import yaml
 
-from scenarios.region import EXAMPLE_ACCOUNT, region
+from scenarios.region import EXAMPLE_ACCOUNT
 
 from . import ops_fullstack as fs
 from .runner import (
@@ -140,7 +140,6 @@ class Env:
     assume_reader: Callable[[], dict[str, str]]       # AWS creds + KUBECONFIG + DSNs + "arn"
     invoke_warden: Callable[[dict, pathlib.Path, pathlib.Path], tuple[int, str]]  # env, alert, report
     extract_fix: Callable[[pathlib.Path, pathlib.Path], dict]                     # report -> built data
-    stack_ids: Callable[[], frozenset[str]]
     faults: dict[str, fs.Fault] = dataclasses.field(default_factory=lambda: dict(fs.FAULTS))
     baseline: Callable[[], list[str]] | None = None   # default: ops_fullstack.check_baseline
     sleep: Callable[[float], None] = time.sleep
@@ -247,18 +246,14 @@ def _subprocess_warden(timeout_s: float) -> Callable[..., tuple[int, str]]:
     return invoke
 
 
-def _subprocess_extract(report: pathlib.Path, built: pathlib.Path, region: str = "") -> dict:
+def _subprocess_extract(report: pathlib.Path, built: pathlib.Path) -> dict:
     """build_report over the saved RunReport, in a SUBPROCESS: this harness never imports warden.
 
-    Identifiers are shown (the fix must name real resources); the run directory is outside the
-    repository and is redacted by the publish step like every other artefact."""
+    Identifiers are shown (the report names real resources); the run directory is outside the
+    repository and is redacted by the publish step like every other artefact. (It once also passed
+    AWS_REGION, for the `--region` of the fix commands the report printed until 2026-10-16.)"""
     env = {k: os.environ[k] for k in SYSTEM_ENV if k in os.environ}
     env["WARDEN_REPORT_SHOW_IDENTIFIERS"] = "1"
-    if region:
-        # ⛔ build_report puts `--region` on every aws command from AWS_REGION, as WARDEN's own run
-        # had it. Without it fs-01's fix came out region-less and the allow-list refused it - a
-        # harness artefact charged to WARDEN (2026-09-26).
-        env["AWS_REGION"] = env["AWS_DEFAULT_REGION"] = region
     proc = subprocess.run([sys.executable, "-c", _EXTRACT, str(report), str(built)], cwd=str(ROOT),
                           env=env, capture_output=True, text=True, timeout=120, check=False)
     if proc.returncode != 0:
@@ -345,18 +340,10 @@ def live_env(run: pathlib.Path, *, warden_timeout: float = 900) -> Env:
             return {"state": "MISSING", "description": ""}
         return {"state": found[0].get("StateValue"), "description": found[0].get("AlarmDescription") or ""}
 
-    def stack_ids() -> frozenset[str]:
-        ids = {target.redis_sg_id}
-        for fn in (target.checkout, target.processor, target.notifier, target.reconciler):
-            ids |= {m["UUID"] for m in c.lam.list_event_source_mappings(FunctionName=fn)
-                    .get("EventSourceMappings") or []}
-        return frozenset(i for i in ids if i)
-
     return Env(
         clients=c, target=target, alarm=alarm, assume_reader=assume,
         invoke_warden=_subprocess_warden(warden_timeout),
-        extract_fix=lambda report, built: _subprocess_extract(report, built, target.region),
-        stack_ids=stack_ids,
+        extract_fix=_subprocess_extract,
     )
 
 
@@ -453,8 +440,7 @@ def dry_env() -> Env:
         return 0, ""
 
     def extract(report, built):
-        data = {"fix_commands": [{"kind": "shell", "source": "runbook", "command":
-                f"aws events enable-rule --name {fs.PREFIX}reconcile-5m --region {region()}"}]}
+        data = {"alert": {"id": _DRY_REPORT["alert"]["alert_id"]}}  # a built report holds no command (2026-10-16)
         _write_json(built, data)
         return data
 
@@ -478,7 +464,7 @@ def dry_env() -> Env:
                                "WARDEN_STACK_DB_READER_DSN": "postgresql://warden_ro@dry.invalid/shop",
                                "arn": f"arn:aws:sts::{EXAMPLE_ACCOUNT}:assumed-role/{fs.PREFIX}reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
-        stack_ids=frozenset, faults={fid: stub for fid in fs.FAULTS}, baseline=list,
+        faults={fid: stub for fid in fs.FAULTS}, baseline=list,
         sleep=sleep, clock=lambda: now[0], dry_run=True,
     )
 
@@ -751,13 +737,13 @@ def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] 
         entry["provider_exhausted"] = True
     if entry["report_written"]:
         built = run / "reports" / f"{sid}.1.built.json"
-        entry["fix_commands"] = len(env.extract_fix(report, built).get("fix_commands") or [])
+        # The built report is kept as the run's artefact. It holds no command to count (2026-10-16).
+        env.extract_fix(report, built)
         entry["built"] = f"reports/{built.name}"
     record["runs"] = [entry]
     record["status"] = "diagnosed"
     _save_record(run, record)
-    env.log(f"{sid}: WARDEN exit {code}, report {'written' if entry['report_written'] else 'MISSING'}, "
-            f"{entry.get('fix_commands', 0)} fix command(s)")
+    env.log(f"{sid}: WARDEN exit {code}, report {'written' if entry['report_written'] else 'MISSING'}")
     return record
 
 
@@ -772,13 +758,12 @@ def step_fix(env: Env, run: pathlib.Path, key: str) -> dict:
     if run0.get("fix"):
         raise StepError(f"{sid}: the fix was already applied ({run0['fix'].get('outcome')})")
     report = json.loads((run / run0["report"]).read_text(encoding="utf-8"))
-    built = json.loads((run / run0["built"]).read_text(encoding="utf-8")) if run0.get("built") else {}
     verdict = (report.get("verdict") or {}).get("status")
-    outcome, commands, rejected = fs.decide_fix(built, verdict, env.stack_ids())
-    # decide_fix never returns a command to run (2026-09-27): the harness executes nothing.
-    assert not commands, "the harness executes no fix command"
-    fix: dict[str, Any] = {"verdict": verdict, "at": _now(), "outcome": outcome, "rejected": rejected}
-    env.log(f"{sid}: {outcome}" + "".join(f"\n   {r['command'][:120]!r}: {r['reason']}" for r in rejected))
+    # The harness executes nothing (2026-09-27), and the report prints no command (2026-10-16): the outcome is the
+    # verdict's.
+    outcome = fs.decide_fix(verdict)
+    fix: dict[str, Any] = {"verdict": verdict, "at": _now(), "outcome": outcome}
+    env.log(f"{sid}: {outcome}")
     run0["fix"] = fix
     record["status"] = "fix_" + fix["outcome"]
     _save_record(run, record)

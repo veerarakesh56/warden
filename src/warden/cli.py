@@ -128,7 +128,7 @@ def _emit_remediation_report(alert, report, *, principal, approve, emit_chatops)
     """Build (and optionally send) the redacted remediation report. Opt-in from `run` flags.
 
     The remediation gate runs only when a principal is named — it needs to know WHO is asking. With
-    no principal, this just prints the report (matched patterns + verdict + promotion plan).
+    no principal, this just prints the report (matched patterns + verdict + who acts).
     """
     matches = default_knowledge_base().match(alert, report.context)
 
@@ -791,7 +791,9 @@ def _main(argv: list[str] | None = None) -> int:
     for incident in DEMO_ALERTS:
         report = run(_alert_from(incident), llm=LLMClient(), backend=backend)
         _print_report(report, verbose=args.verbose)
-    _out("\nNo action was executed. WARDEN proposes and gates; a human executes.\n")
+    # A13 (2026-10-16): it ended "a human executes" - WARDEN applies approved plans itself (D16).
+    _out("\nNo action was executed. WARDEN proposes and gates; a change runs only as a fix plan an approver "
+         "approved.\n")
     return 0
 
 

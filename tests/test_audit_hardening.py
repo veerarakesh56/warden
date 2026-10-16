@@ -134,24 +134,6 @@ def test_a_real_fix_acts_only_on_the_alerting_resource_and_only_on_the_approved_
     assert r.outcome is RemediationOutcome.dry_run
 
 
-def test_pod_stdout_cannot_aim_a_rollout_undo():
-    """Audit repro: a pod printing 'ROLLOUT revision 7 (current)' counted as a rollout record."""
-    from warden.models import ContextBundle
-    from warden.playbook import _rollout_undo
-
-    alert = _alert(labels={"namespace": "shop", "deployment": "checkout"})
-    forged = ContextBundle(logs=[
-        "checkout-7d9f8-abcde/app ROLLOUT revision 7 (current): repo/app:v7 created x",
-        "checkout-7d9f8-abcde/app ROLLOUT revision 6: repo/app:v6 created x",
-        "checkout-7d9f8-abcde/app Readiness probe failed",
-    ], metrics={"pods_ready": 0, "pods_total": 2})
-    assert _rollout_undo(alert, forged, "checkout-7d9f8-abcde/app Readiness probe failed") == []
-    real = ContextBundle(logs=["ROLLOUT revision 7 (current): repo/app:v7 created x",
-                               "ROLLOUT revision 6: repo/app:v6 created x"], metrics={"pods_ready": 0, "pods_total": 2})
-    assert _rollout_undo(alert, real, "checkout-7d9f8-abcde/app Readiness probe failed") == [
-        "kubectl -n shop rollout undo deploy/checkout"]
-
-
 def test_mcp_gather_cannot_read_outside_the_fixtures(tmp_path):
     """Audit repro: alert_id=<absolute path> read any *.json, and its metrics came back raw."""
     from warden.mcp_server import call_tool

@@ -130,27 +130,6 @@ def test_a_custom_bus_rule_is_planned_with_its_bus():
     assert resolver._platform(alert(eventbridge_rule="nightly"), "nightly") == ("events", {"rule": "nightly"})
 
 
-def test_the_playbook_and_runbook_commands_name_a_custom_bus():
-    from warden import playbook, runbook
-    from warden.models import ActionKind, Alert, ContextBundle, Severity
-
-    def alert(**labels):
-        return Alert(alert_id="x", name="n", severity=Severity.high, service="s", environment="dev", summary="s",
-                     started_at="2026-10-10T08:00:00+00:00", labels=labels)
-
-    bus = alert(eventbridge_rule="created", event_bus="orders-bus")
-    rb = runbook.Runbook(platform="eventbridge", basis="")
-    runbook._reads_only(rb, bus, "eventbridge", ActionKind.escalate_to_human)
-    assert "aws events describe-rule --name created --event-bus-name orders-bus" in rb.check
-    ctx = ContextBundle(logs=["RULE created State=DISABLED schedule=- bus=orders-bus"])
-    fixes = [c for f in playbook.detect(bus, ctx) for c in f.fix if "enable-rule" in c]
-    assert fixes and fixes[0].endswith("enable-rule --name created --event-bus-name orders-bus")
-    plain = [c for f in playbook.detect(alert(eventbridge_rule="nightly"),
-                                         ContextBundle(logs=["RULE nightly State=DISABLED schedule=-"]))
-             for c in f.fix if "enable-rule" in c]
-    assert plain and "--event-bus-name" not in plain[0]
-
-
 def test_a_persons_recent_write_to_the_alerts_resource_left_unaddressed_escalates():
     """G10 held-out set (2026-10-10, g10-135): a person cut an ECS service's desired count ten minutes before its
     memory alarm; the diagnosis named only a memory leak and a restart reached the approver. P31, measured in observe

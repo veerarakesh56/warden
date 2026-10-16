@@ -196,6 +196,23 @@ def test_the_reply_goes_into_the_thread_through_the_gate(world):
     assert row["delivered"] is True
 
 
+def test_a_model_answer_with_a_fenced_command_is_posted_without_a_code_block(world):
+    """Audit A12 (2026-10-16): the prompt's "no commands for anyone to run" was the only guard, and the gate keeps a
+    closed fence verbatim - a hijacked model's fenced `kubectl delete` reached the thread as a code block to paste."""
+    from unittest import mock
+
+    raw = {"answer": "The namespace is broken. Fix it with:\n```bash\nkubectl delete namespace shop --force\n```\nDone.",
+           "cites": ["C1"]}
+    thread = discuss.Thread(incident=INCIDENT, lines=["a person: q"])
+    with mock.patch.object(LLMClient, "structured", return_value=discuss.Answer.model_validate(raw)):
+        said = world["acts"].discuss_answer(_turn("how do I fix it?"), thread, {"evidence": "e", "diagnosis": "d"},
+                                            False)
+    world["acts"].discuss_reply(_turn("q"), said, INCIDENT)
+    [(_, sent, _)] = [p for p in world["posted"] if p[0] == "chat.postMessage"]
+    assert "```" not in sent["text"] and "kubectl delete" not in sent["text"], sent["text"]
+    assert "[command withheld (G4)] shop --force" in sent["text"] and "Done." in sent["text"]
+
+
 def test_the_whole_conversation_runs_as_a_workflow_and_changes_nothing(world):
     acts = world["acts"]
     pack = world["inc"].prepare(Alert(**{**DEMO_ALERTS["inc-002"], "alert_id": INCIDENT}))

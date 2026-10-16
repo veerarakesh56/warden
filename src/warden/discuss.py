@@ -21,9 +21,12 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+from .gate import withhold_commands
+from .models import ModelProse, inert
 
 INCIDENT = re.compile(r"(?:inc-)?([0-9a-f]{16}-[0-9]{8}T[0-9]{6}Z)")
 # "Is it still...", "check again", "what about now": read the resource as it is now, not as it was at the alarm.
@@ -74,9 +77,17 @@ NO_RECORD = ("WARDEN has nothing on record to read again for `{incident}`: it ke
              "this one's report in the alerts channel.")
 
 
+def _inert_lines(text: str) -> str:
+    """A model's answer as inert text that keeps its line breaks (audit A12, 2026-10-16): each line as models.inert
+    makes report text - no backtick, so no code fence or code span; no line that starts a block - and G4 over it, so
+    a write command it holds is withheld. The prompt's "no commands for anyone to run" was the only guard, and a
+    fenced `kubectl delete` from a hijacked model reached the thread as a code block."""
+    return "\n".join(withhold_commands(inert(line)) for line in text.splitlines())
+
+
 class Answer(BaseModel):
-    answer: str = Field(max_length=3500)
-    cites: list[str] = Field(default_factory=list, max_length=20)
+    answer: Annotated[str, AfterValidator(_inert_lines)] = Field(max_length=3500)
+    cites: list[ModelProse] = Field(default_factory=list, max_length=20)  # printed too: inert, and G4
     asks_for_change: bool = False
 
 

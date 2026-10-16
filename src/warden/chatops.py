@@ -356,7 +356,7 @@ def split_for_slack(text: str, limit: int = SLACK_PART_CHARS) -> list[str]:
     Slack splits long messages itself (at about 4,000 characters) wherever the limit falls - on a real
     report that was the middle of a code block, so `2. Fix` ended up in one message and its SQL in
     the next. Here the split happens at line boundaries, and a code block that straddles a boundary is
-    closed at the end of one part and reopened at the start of the next, so a command is never cut.
+    closed at the end of one part and reopened at the start of the next, so a code line is never cut.
     """
     if len(text) <= limit:
         return [text]

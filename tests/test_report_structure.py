@@ -66,16 +66,6 @@ def test_no_report_contains_a_placeholder_to_fill_in(action, backend, labels):
     assert not holes, f"{action.value}/{backend}/{labels}: {holes}"
 
 
-def test_the_warning_comes_before_the_command_it_warns_about():
-    """A warning printed after the fix is read after the damage."""
-    md = _report(action=ActionKind.terminate_connections, backend="postgres",
-                 ctx=ContextBundle(logs=["postgres stuck connection: pid=4242 idle in transaction for 400s: SELECT 1"],
-                                   metrics={"idle_in_transaction": 1.0})).markdown
-    assert "## ⚠ Before you act" in md
-    assert md.index("## ⚠ Before you act") < md.index("**2. Fix**")
-    assert "cannot be restored" in md[:md.index("**2. Fix**")]
-
-
 @pytest.mark.parametrize("backend,must,must_not", [
     ("aws", ["CloudWatch Logs `/ecs/checkout`: 2026-09-24 12:16Z (17:46 IST) to 2026-09-24 12:46Z (18:16 IST)"], []),
     ("k8s", ["last 40 log lines per container", "Not read: CloudWatch"], ["CloudWatch Logs `"]),
@@ -117,26 +107,6 @@ def test_follow_ups_reach_every_team_the_pattern_involves():
         assert team in follow, team
 
 
-def test_scale_up_is_computed_from_the_evidence_and_undo_returns_to_it():
-    md = _report(namespace="shop", deployment="checkout").markdown
-    assert "kubectl -n shop scale deploy/checkout --replicas=3   # currently 2" in md
-    assert "kubectl -n shop scale deploy/checkout --replicas=2" in md
-
-
-def test_an_unknown_namespace_is_found_by_a_real_command():
-    md = _report(action=ActionKind.rollback_deploy).markdown
-    assert "NS=$(kubectl get deploy -A --field-selector metadata.name=checkout" in md
-    assert 'kubectl -n "$NS" rollout undo deploy/checkout' in md
-
-
-def test_an_irreversible_action_with_no_target_prints_no_command():
-    """A failover aimed by guesswork is worse than none: WARDEN says it cannot identify the primary."""
-    md = _report(action=ActionKind.failover_replica, backend="postgres",
-                 ctx=ContextBundle(metrics={"replica_lag_seconds": 47.0})).markdown
-    assert "--force-failover" not in md
-    assert "cannot identify the primary" in md
-
-
 @pytest.mark.parametrize("ctx,key", [
     (ContextBundle(logs=["EVENT Failed Pod/x: Error: ImagePullBackOff"]), "image_pull"),
     (ContextBundle(logs=["EVENT Unhealthy Pod/x: Liveness probe failed:"]), "probe"),
@@ -163,7 +133,8 @@ def test_a_healthy_service_detects_no_pattern():
 
 def test_when_the_gate_says_the_action_cannot_work_that_is_the_first_warning():
     """⛔ Reviewing a real EKS report: the gate escalated scale_up on OOM-killed pods (P11), and the
-    runbook below it still read as a recipe for scaling up."""
+    runbook below it still read as a recipe for scaling up. The runbook is gone (2026-10-16); the gate's finding
+    still stands first, before the follow-ups."""
     from warden.verifier import verify
 
     rc = RootCause(hypothesis="OOM at startup", confidence=0.8)
@@ -173,8 +144,9 @@ def test_when_the_gate_says_the_action_cannot_work_that_is_the_first_warning():
     assert "P11-ACTION-CONTRADICTS-EVIDENCE" in v.policy_ids
     md = build_report(_alert(), context=OOM, backend="k8s", root_cause=rc, proposal=prop, verdict=v,
                       show_identifiers=False).markdown
-    before = md[md.index("## ⚠ Before you act"):md.index("## Runbook")]
-    first = before.splitlines()[1]
+    start = md.index("## ⚠ Before you act")
+    assert start < md.index("## Follow-ups by team")
+    first = md[start:].splitlines()[1]
     assert first.startswith("- ⛔ **The gate found this action cannot fix what the evidence shows.**"), first
 
 
@@ -208,23 +180,6 @@ def test_the_checks_warden_ran_are_shown_as_results_not_as_homework():
     assert "ROLLOUT revision" not in key and "STATUS checkout" not in key, "a check result shown twice"
 
 
-def test_when_warden_read_the_cluster_the_runbook_only_rechecks_current_state():
-    md = _report(action=ActionKind.rollback_deploy, ctx=LIVE, backend="k8s",
-                 namespace="shop", deployment="checkout").markdown
-    step1 = md[md.index("**1. Re-check right before acting"):md.index("**2. Fix**")]
-    assert "state may have moved since" in step1
-    assert "get events" not in step1 and "describe pods" not in step1 and "logs deploy/" not in step1
-    assert "rollout history" in step1 and "get pods" in step1
-
-
-def test_a_demo_incident_keeps_the_full_check_list():
-    """Nothing was read live, so nothing was checked: the person still has to look."""
-    md = _report(action=ActionKind.rollback_deploy, ctx=OOM, backend=None, namespace="shop",
-                 deployment="checkout").markdown
-    assert "**1. Check - read-only, confirm the diagnosis first**" in md
-    assert "get events" in md
-
-
 def test_the_risk_text_never_contradicts_the_action_table():
     """The report printed "reversible: True per WARDEN's action table" and "IRREVERSIBLE" in one page."""
     from warden.models import ACTION_FACTS
@@ -243,11 +198,3 @@ def test_error_lines_are_impact_even_when_nothing_is_counted_broken():
     md = _report(action=ActionKind.rollback_deploy, ctx=ctx).markdown
     assert "1 error line(s)" in md
     assert "no failing component" not in md
-
-
-def test_runbook_steps_never_skip_a_number():
-    """A failover with no identifiable primary prints no fix command; the steps still read 1, 2, 3."""
-    md = _report(action=ActionKind.failover_replica, backend="postgres",
-                 ctx=ContextBundle(metrics={"replica_lag_seconds": 47.0})).markdown
-    assert "**3. Confirm it worked**" in md
-    assert "**2. Fix** - no command printed" in md

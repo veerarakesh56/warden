@@ -12,7 +12,7 @@ from warden.models import (
     VerdictStatus,
 )
 from warden.remediation import RemediationOutcome, RemediationResult
-from warden.reporting import build_report
+from warden.reporting import CLOSING, build_report
 
 
 def _alert(environment="staging", summary="OOM"):
@@ -63,8 +63,7 @@ def test_promotion_excludes_environments_that_deny_the_action():
 
 def test_prod_has_no_promotion_targets():
     rep = build_report(_alert(environment="prod"), proposal=_prop(ActionKind.scale_up))
-    assert rep.promotion == ()
-    assert "nothing to promote" in rep.markdown.lower()
+    assert rep.promotion == () and rep.data["promotion"] == []
 
 
 def test_report_carries_the_remediation_outcome():
@@ -79,16 +78,33 @@ def test_report_carries_the_remediation_outcome():
 
 
 def test_report_always_carries_the_safety_line():
+    """A13 (2026-10-16): it said "Nothing was executed against production by this tool" - untrue since WARDEN applies
+    approved plans itself."""
     rep = build_report(_alert(), proposal=_prop())
-    assert "Nothing was executed against production" in rep.markdown
+    assert rep.markdown.endswith(CLOSING)
+    assert "It changes nothing except by applying a catalogue fix plan an approver approved" in rep.markdown
+    assert "Nothing was executed against production" not in rep.markdown
 
 
-def test_promotion_names_the_account_to_use_in_each_target_env():
+def test_the_masked_identifiers_hint_says_it_is_a_local_option():
+    """A9 (2026-10-16): the hint told every reader to set WARDEN_REPORT_SHOW_IDENTIFIERS, which the cloud runtime
+    ignores (activities.notify passes show_identifiers=False)."""
+    from warden.models import ContextBundle
+
+    ctx = ContextBundle(logs=["2026-09-24T12:30:00Z checkout ERROR failed for user=a.person@corp.io"])
+    md = build_report(_alert(), proposal=_prop(), context=ctx, show_identifiers=False).markdown
+    assert "_Identifiers are masked; secrets stay masked either way. A local `warden run` can show" in md
+    assert "in your own channel" not in md
+
+
+def test_promotion_names_the_account_to_use_in_each_target_env_in_the_data_only():
+    """A10 (2026-10-16): the markdown pointed a person at a manual replay with each environment's deploy role; WARDEN
+    watches only where it is installed. The targets stay in the data."""
     rep = build_report(_alert(environment="staging"), proposal=_prop(ActionKind.scale_up))
     # every promotion target carries the credentials pointer for that environment
     for t in rep.data["promotion"]:
         assert t["credentials_ref"], f"{t['environment']} missing credentials_ref"
-    assert "warden-prod-deploy" in rep.markdown
+    assert "warden-prod-deploy" not in rep.markdown and "## Promotion" not in rep.markdown
 
 
 def test_a_hand_off_says_a_person_should_look_and_promotes_nothing():
@@ -106,12 +122,11 @@ def test_a_hand_off_says_a_person_should_look_and_promotes_nothing():
     assert "**Next step: Escalated - a person decides." in held and "Promotion" not in held
 
 
-def test_a_fix_is_still_promoted_and_names_each_environments_deploy_role():
+def test_a_fix_held_for_approval_offers_no_manual_replay():
     fix = build_report(_alert(), proposal=_prop(ActionKind.scale_up),
                        verdict=Verdict(status=VerdictStatus.approved_for_human)).markdown
-    assert "## Promotion - apply this fix to the higher environments" in fix
-    assert "deploy role `warden-prod-deploy`" in fix and " - account " not in fix
-    assert "**Next step: Held for approval" in fix
+    assert "## Promotion" not in fix and "deploy role" not in fix
+    assert "**Next step: Held for approval - WARDEN applies its fix plan only if an approver approves it.**" in fix
 
 
 def test_the_timeline_and_the_key_lines_show_the_change_nearest_the_alert_and_an_undo_is_not_promoted():

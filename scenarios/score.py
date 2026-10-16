@@ -248,7 +248,6 @@ def score_one(run: dict, scenario: dict, run_dir: pathlib.Path, rubric: dict) ->
         if outcome is not None and outcome not in FIX_OUTCOMES:
             raise ScoringError(f"{scenario['id']}: unknown fix outcome {outcome!r}")
         row["fix"] = outcome
-        row["fix_commands"] = len(fix.get("commands") or fix.get("rejected") or [])
         row["alarm_never_fired"] = bool((run.get("alarm") or {}).get("never_fired"))
 
     if run.get("exit_code") != 0 or not run.get("report_written"):
@@ -762,16 +761,16 @@ def render_markdown(scored: dict, summary: dict) -> str:
 def _render_fix(add, rows: list[dict], summary: dict) -> None:
     """Wave 4's Fix score. Never combined with the other three."""
     counts = summary["fix_counts"]
-    add("## 8. Fix - the report's own commands, applied verbatim")
+    add("## 8. Fix - what the gate let through")
     add("")
-    add("The harness played the approving on-call engineer: it ran the fix commands from WARDEN's")
-    add("report exactly as printed, through the allow-list, then polled the fault's pre-registered")
-    add("verifier. `blocked_by_gate`: the verdict was `rejected`, nothing was applied. `not_approved`:")
+    add("The harness once ran the fix commands from WARDEN's report as printed, through an allow-list, then")
+    add("polled the fault's pre-registered verifier. Since 2026-09-27 it executes no fix command (a flag")
+    add("deny-list proved beatable), and since 2026-10-16 the report prints none: a fix is a catalogue plan")
+    add("for an approver. `blocked_by_gate`: the verdict was `rejected`, nothing was applied. `not_approved`:")
     add("the verdict was not `approved_for_human` (e.g. escalated - a person decides), nothing was applied")
-    add("(runs before 2026-09-27 applied escalated fixes). `fix_not_allowed`: a printed command failed the")
-    add("allow-list, nothing was applied. `execution_disabled`: approved and allow-listed, and still not")
-    add("run - since 2026-09-27 the harness executes no fix command (a flag deny-list proved beatable);")
-    add("fixes return in v2 Phase 2 as typed catalogue entries.")
+    add("(runs before 2026-09-27 applied escalated fixes). `execution_disabled`: approved, and not run by")
+    add("the harness. Older runs may show `no_fix_printed` (no command printed) or `fix_not_allowed` (a")
+    add("printed command failed the allow-list).")
     add("")
     add("| Outcome | Runs |")
     add("|---|---|")
@@ -783,12 +782,12 @@ def _render_fix(add, rows: list[dict], summary: dict) -> None:
         add(f"⚠ In {summary['alarm_never_fired']} run(s) the fault's alarm never fired; WARDEN was run "
             "at the alarm timeout anyway.")
         add("")
-    add("| Scenario | Diagnosis | Fix | Commands | Alarm |")
-    add("|---|---|---|---|---|")
+    add("| Scenario | Diagnosis | Fix | Alarm |")
+    add("|---|---|---|---|")
     for row in rows:
         if "fix" in row:
             add(f"| `{row['scenario_id']}` | {row['diagnosis']} | {_fmt(row['fix'])} "
-                f"| {row.get('fix_commands', 0)} | {'never fired' if row.get('alarm_never_fired') else 'fired'} |")
+                f"| {'never fired' if row.get('alarm_never_fired') else 'fired'} |")
     add("")
 
 

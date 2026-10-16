@@ -96,6 +96,11 @@ reported with `kind: "secret"` (not a code deploy - P5 must not treat it as some
 
 ## E. Fix commands in the report (report -> harness)
 
+> **⛔ Withdrawn 2026-10-16.** The report prints no command: `fix_commands`, `candidate_commands`,
+> `pattern_suggestions`, `runbook` and `Pattern.fix` are gone, and so is `runbook.py`. A fix is a
+> catalogue plan for an approver, which WARDEN applies itself. The harness records a fix outcome from
+> the verdict alone (`decide_fix`). The text below is how fs-00..fs-05 ran.
+
 `build_report(...).data["fix_commands"]`: ordered list, each
 `{"kind": "shell" | "sql", "command": <exact text>, "source": "runbook" | "pattern:<key>", "target": "writer" (sql only)}`.
 Runbook fix first (only when an action was proposed and has a fix), then each detected pattern's

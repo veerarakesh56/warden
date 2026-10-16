@@ -984,29 +984,13 @@ def test_an_unknown_command_kind_is_refused():
 # =========================================================================== deciding + running a fix
 
 
-def test_a_rejected_verdict_blocks_the_fix_whatever_it_prints():
-    built = {"fix_commands": [{"kind": S, "command": ALLOWED[0]}]}
-    assert fs.decide_fix(built, "rejected") == ("blocked_by_gate", [], [])
-
-
-@pytest.mark.parametrize("status", ["approved_for_human", "auto_safe", "escalated"])
-def test_no_command_is_no_fix_printed(status):
-    assert fs.decide_fix({"fix_commands": []}, status)[0] == "no_fix_printed"
-    assert fs.decide_fix(None, status)[0] == "no_fix_printed"
-
-
-def test_one_bad_command_means_nothing_runs():
-    built = {"fix_commands": [{"kind": S, "command": ALLOWED[0]},
-                              {"kind": S, "command": "kubectl -n shop delete deploy catalog-api"}]}
-    outcome, run, rejected = fs.decide_fix(built, "approved_for_human")
-    assert outcome == "fix_not_allowed" and run == []
-    assert rejected[0]["command"].startswith("kubectl") and rejected[0]["reason"]
-
-
-def test_an_allowed_approved_fix_is_recorded_never_run():
-    """2026-09-27 audit: the harness runs no fix command at all; `--prof admin` beat the allow-list."""
-    built = {"fix_commands": [{"kind": S, "command": ALLOWED[0]}]}
-    assert fs.decide_fix(built, "approved_for_human") == ("execution_disabled", [], [])
+@pytest.mark.parametrize("verdict,outcome", [
+    ("rejected", "blocked_by_gate"), ("approved_for_human", "execution_disabled"), ("escalated", "not_approved"),
+    ("auto_safe", "not_approved"), (None, "not_approved")])
+def test_the_fix_outcome_is_the_verdicts_and_nothing_runs(verdict, outcome):
+    """2026-09-27 audit: the harness runs no fix command at all; `--prof admin` beat the allow-list. Since
+    2026-10-16 the report prints no command, so there is nothing to count or check either."""
+    assert fs.decide_fix(verdict) == outcome
     assert not hasattr(fs, "execute_fix") and not hasattr(fs, "undo_fix_effects")
 
 

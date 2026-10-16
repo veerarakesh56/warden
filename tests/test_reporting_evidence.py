@@ -1,4 +1,4 @@
-"""The report carries the evidence, the affected identifiers and a runbook - and leaks nothing.
+"""The report carries the evidence and the affected identifiers - and leaks nothing.
 
 ⛔ The leak tests come first because the first version of this feature leaked. It restored the real
 values into the model's text and redacted again; the model had written `tenant_<TENANT_1>`, which
@@ -10,7 +10,6 @@ model's text containing exactly that kind of glued-on placeholder.
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
 
@@ -174,22 +173,12 @@ def test_the_timeline_puts_the_deploy_before_the_first_error():
     assert labels.index(next(w for w in labels if "9f2c1ab" in w)) < labels.index("first error in the evidence")
 
 
-def test_pids_named_in_the_evidence_become_the_exact_fix():
-    """A generic "kill the idle sessions" asks the reader to find them; the PID is in the evidence."""
+def test_pids_named_in_the_evidence_are_listed_as_affected():
+    """The PID is in the evidence, and only from the fixed prefix WARDEN's own database reads write. (The report used
+    to print a terminate statement for it; a fix is now a catalogue plan, 2026-10-16.)"""
     rep = _report(show=False)[0]
     assert rep.data["evidence"]["affected"]["pid"] == [["4242", 1]]
-    # Guarded: terminates the named pid only if it is STILL idle in a transaction when run - a pid
-    # from the evidence may have been reused by a new session since.
-    assert "WHERE pid IN (4242) AND state = 'idle in transaction'" in rep.markdown
-    for planted in ("777", "77,", " 1,", "(1"):
-        assert f"pid IN (4242{planted}" not in rep.markdown
-
-
-def test_a_kubernetes_rollback_names_the_real_namespace_and_deployment():
-    rep = _report(show=False, action=ActionKind.rollback_deploy,
-                  labels={"namespace": "shop", "deployment": "checkout-api"})[0]
-    assert "kubectl -n shop rollout undo deploy/checkout-api" in rep.markdown
-    assert "rollout status deploy/checkout-api" in rep.markdown
+    assert "- **pid**: `4242` (1 line)" in rep.markdown
 
 
 @pytest.mark.parametrize("action", list(ActionKind))
@@ -209,9 +198,10 @@ def test_bare_placeholders_the_model_wrote_are_revealed_but_never_secrets():
     assert out == "users a@corp.io, l@corp.io and a@corp.io; creds SECRET_1 / <SECRET_1>"
 
 
-def test_the_fix_names_every_stuck_pid_not_just_the_five_displayed():
+def test_the_data_keeps_every_stuck_pid_not_just_the_five_displayed():
     """⛔ Found rendering a real Wave 3 report: twelve sessions idle in a transaction, the Affected
-    section shows five, and the runbook took its pids from that - terminating five, leaving seven."""
+    section shows five, and the runbook took its pids from that - terminating five, leaving seven. The
+    runbook is gone (2026-10-16); the data still names every pid, and the display says what it leaves out."""
     pids = [str(3600 + i) for i in range(12)]
     ctx = ContextBundle(logs=[f"postgres stuck connection: pid={p} idle in transaction for 336s: SELECT 1"
                               for p in pids])
@@ -219,11 +209,8 @@ def test_the_fix_names_every_stuck_pid_not_just_the_five_displayed():
                   environment="prod", summary="alert", started_at="2026-09-25T04:47:40Z")
     prop = RemediationProposal(action=ActionKind.terminate_connections, target="warden", reasoning="r",
                                expected_effect="e", blast_radius="single_service", reversible=True)
-    # Approved: a fix command is printed only for an approved verdict (Phase 0, 2026-09-27).
     approved = Verdict(status=VerdictStatus.approved_for_human, reasons=["r"], policy_ids=[])
     rep = build_report(alert, proposal=prop, context=ctx, verdict=approved, show_identifiers=False)
-    fix = next(ln for ln in rep.markdown.splitlines() if "pg_terminate_backend" in ln and "pid IN (" in ln)
-    listed = re.search(r"pid IN \(([^)]*)\)", fix).group(1).split(", ")
-    assert listed == pids, f"the fix must name every stuck pid: {listed}"
-    assert "AND state = 'idle in transaction'" in fix
+    assert sorted(p for p, _ in rep.data["evidence"]["affected"]["pid"]) == pids
     assert "and 7 more" in rep.markdown, "the display should say how many it is not showing"
+    assert "pg_terminate_backend" not in rep.markdown

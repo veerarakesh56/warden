@@ -1,6 +1,7 @@
 """Wave 4: every fault class of docs/WAVE4-FULLSTACK.md section 7 is detected from contract-shaped
-evidence (docs/WAVE4-CONTRACT.md B/C/D), and every fix command it prints is aimed at real names and
-would pass the harness allow-list (section 6, mirrored here by `allowed`).
+evidence (docs/WAVE4-CONTRACT.md B/C/D), and its advice names what that evidence shows. The advice holds
+no command (2026-10-16; tests/test_no_commands.py): it used to carry exact fix commands, checked here
+against a mirror of the harness allow-list.
 
 The contexts below are built from the contract text, not from a live run: the stack backend is built
 separately against the same contract. A healthy stack detects nothing; each fault detects its own
@@ -9,10 +10,7 @@ class and nothing that belongs to another fault.
 
 from __future__ import annotations
 
-import itertools
-import json
 import re
-import shlex
 
 import pytest
 
@@ -107,7 +105,7 @@ PAM_ERR = ('psycopg.OperationalError: connection failed: connection to server at
            'cabc123.ap-south-2.rds.amazonaws.com" (203.0.113.10), port 5432 failed: FATAL:  PAM authentication '
            'failed for user "app"')
 
-# fault id -> (class, context, the pattern key that must fire, a fragment its fix must contain or None)
+# fault id -> (class, context, the pattern key that must fire, a fragment its advice must hold, or None)
 FAULTS = {
     "fs-01": ("lambda_code_regression", ctx(
         [_lam("checkout", "Traceback (most recent call last):"), _lam("checkout", "KeyError: 'sku'"),
@@ -119,23 +117,23 @@ FAULTS = {
         {"lambda_errors__checkout": 40.0, "apigw_5xx": 40.0},
         [{"kind": "lambda", "service": "warden-dev-checkout", "at": "2026-09-26T09:58:00Z", "version": "7",
           "previous": "6"}]),
-        "code_error_after_deploy", "update-alias --function-name warden-dev-checkout --name live --function-version 6"),
+        "code_error_after_deploy", "it served version 6 before"),
     "fs-02": ("lambda_timeout_too_low", ctx(
         [_lam("checkout", "Task timed out after 1.00 seconds"),
          "CONFIG lambda warden-dev-checkout timeout=1s memory=256MB env=[TABLE_NAME,REDIS_HOST] version=6 alias_live=6"],
         {"lambda_timeout_s__checkout": 1.0, "lambda_duration_max_ms__checkout": 1001.0, "lambda_errors__checkout": 30.0}),
-        "fn_timeout", "update-function-configuration --function-name warden-dev-checkout --timeout 3"),
+        "fn_timeout", "3s = 3 x the current timeout"),
     "fs-03": ("lambda_throttled", ctx(
         [], {"lambda_throttles__checkout": 120.0, "lambda_reserved_concurrency__checkout": 0.0,
              "lambda_invocations__checkout": 0.0}),
-        "fn_throttled", "put-function-concurrency --function-name warden-dev-checkout --reserved-concurrent-executions 4"),
+        "fn_throttled", "the demand needs about 4 "),
     "fs-04": ("lambda_bad_env", ctx(
         [_lam("checkout", "botocore.errorfactory.ResourceNotFoundException: An error occurred (ResourceNotFoundException) "
                           "when calling the PutItem operation: Requested resource not found"),
          ("CONFIG lambda warden-dev-checkout timeout=10s memory=256MB "
          "env=[TABLE_NAME=warden-dev-cartz,REDIS_HOST=warden-dev-redis.abc123.cache.amazonaws.com] version=6")],
         {"lambda_errors__checkout": 25.0}),
-        "missing_resource", '"TABLE_NAME":"warden-dev-carts"'),
+        "missing_resource", "TABLE_NAME is `warden-dev-cartz`, the labelled table is `warden-dev-carts`"),
     "fs-05": ("lambda_iam_missing", ctx(
         [_lam("checkout", "botocore.exceptions.ClientError: An error occurred (AccessDeniedException) when calling the "
                           f"PutItem operation: User: arn:aws:sts::{ACCT}:assumed-role/warden-dev-checkout-role/"
@@ -143,25 +141,25 @@ FAULTS = {
                           f"arn:aws:dynamodb:{REGION}:{ACCT}:table/warden-dev-carts because no identity-based "
                           "policy allows the dynamodb:PutItem action")],
         {"lambda_errors__checkout": 25.0}),
-        "access_denied", None),
+        "access_denied", "for role warden-dev-checkout-role"),
     "fs-06": ("sqs_poison_message", ctx(
         ["QUEUE warden-dev-orders visible=0 in_flight=0 dlq=warden-dev-orders-dlq dlq_visible=14 max_receive=3",
          _lam("order-processor", "Traceback (most recent call last):"),
          "CODE warden-dev-order-processor app.py:18 in handler: json.decoder.JSONDecodeError: Expecting value"],
         {"dlq_visible__orders": 14.0, "lambda_errors__order-processor": 42.0}),
-        "dead_letters", None),
+        "dead_letters", "Redriving messages the consumer cannot parse"),
     "fs-07": ("sqs_consumer_disabled", ctx(
         ["ESM warden-dev-order-processor <- warden-dev-orders State=Disabled BatchSize=5 LastProcessingResult=OK"],
         {"lambda_esm_enabled__order-processor": 0.0, "sqs_visible__orders": 120.0}),
-        "consumer_off", "update-event-source-mapping --uuid"),
+        "consumer_off", None),
     "fs-08": ("sns_delivery_blocked", ctx(
         ["POLICY sqs warden-dev-notifications allows_sns_topic=warden-dev-order-events:no"],
         {"sns_notifications_failed": 12.0}),
-        "topic_delivery_refused", "sqs set-queue-attributes --queue-url"),
+        "topic_delivery_refused", "Allow topic warden-dev-order-events in warden-dev-notifications's access policy"),
     "fs-09": ("dynamodb_throttling", ctx(
         ["TABLE warden-dev-carts billing=PROVISIONED rcu=1 wcu=1 status=ACTIVE"],
         {"ddb_write_throttle_events": 300.0, "ddb_consumed_wcu": 1.0, "ddb_provisioned_wcu": 1.0}),
-        "table_throttled", "ReadCapacityUnits=1,WriteCapacityUnits=3"),
+        "table_throttled", "about 1 RCU / 3 WCU"),
     "fs-10": ("redis_unreachable", ctx(
         [_lam("reconciler", "redis.exceptions.TimeoutError: Timeout connecting to server "
                             "warden-dev-redis.abc123.cache.amazonaws.com:6379"),
@@ -171,21 +169,20 @@ FAULTS = {
          ("CONFIG lambda warden-dev-reconciler timeout=90s memory=256MB reserved_concurrency=none "
           "env=[RECONCILER_FF_1=by_id] sgs=[sg-0lambda] version=3 alias_live=-")],
         {"lambda_errors__reconciler": 5.0}),
-        "cache_unreachable", ("authorize-security-group-ingress --group-id sg-0redis --protocol tcp --port 6379 "
-                              "--source-group sg-0ecs")),
+        "cache_unreachable", "sg-0redis has no inbound tcp/6379 rule from sg-0ecs"),
     "fs-11": ("redis_memory_pressure", ctx(
         ["REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]"],
         {"redis_memory_pct": 97.0, "redis_evictions": 5400.0}),
-              "cache_memory", "--cache-node-type cache.t4g.small"),
+              "cache_memory", "the next size, cache.t4g.small,"),
     "fs-12": ("aurora_connection_exhaustion", ctx(
         [_lam("order-processor", 'psycopg2.OperationalError: connection to server failed: FATAL:  sorry, too many '
                                  'clients already')],
         {"connections_used_pct": 1.0, "aurora_connections": 90.0}),
-        "db_connections_refused", "pg_terminate_backend"),
+        "db_connections_refused", "can be ended without losing work"),
     "fs-13": ("aurora_lock_contention", ctx(
         ["postgres blocked session: pid=5123 waiting 300s on pid(s) 4077: UPDATE orders SET status = $1 WHERE id = $2"],
         {"locks_waiting": 1.0}),
-        "db_lock", "WHERE b.pid IN (4077)"),
+        "db_lock", "terminate the BLOCKER"),
     "fs-14": ("aurora_write_to_reader", ctx(
         [_lam("order-processor", RO_ERR), f"CODE warden-dev-order-processor app.py:30 in save: {RO_ERR}",
          "QUEUE warden-dev-orders visible=3 in_flight=0 dlq=warden-dev-orders-dlq dlq_visible=6 max_receive=3",
@@ -199,67 +196,67 @@ FAULTS = {
          _lam("order-processor", RO_ERR)],
         {"lambda_errors__order-processor": 18.0}),
         "db_pinned_after_failover",
-        "failover-db-cluster --db-cluster-identifier warden-dev-aurora --target-db-instance-identifier warden-dev-aurora-1"),
+        "Failing back would make warden-dev-aurora-1"),
     "fs-16": ("aurora_slow_query", ctx(
         [("postgres long-running query: pid=7311 running 140s user=app app=order-processor client=10.42.0.50: "
          "SELECT id, total FROM orders WHERE customer_ref = $1")],
         {"long_running_queries": 1.0, "aurora_acu_utilization_pct": 95.0}),
-        "db_long_query", None),
+        "db_long_query", "WARDEN never changes a schema"),
     "fs-17": ("ecs_bad_image", ctx(
         [_ecs("task 7f stopped: CannotPullContainerError: pull image manifest has been retried 5 time(s): failed to "
               "resolve ref warden-dev-app:does-not-exist: not found")], {}, [ECS_DEPLOY]),
-        "task_image_pull", "--task-definition warden-dev-orders-api:11"),
+        "task_image_pull", "ran task definition warden-dev-orders-api:11 before"),
     "fs-18": ("ecs_secret_access_denied", ctx(
         [_ecs("task 8a stopped: ResourceInitializationError: unable to pull secrets or registry auth: execution "
               "resource retrieval failed: unable to retrieve secret from asm: AccessDeniedException: User: "
               f"arn:aws:sts::{ACCT}:assumed-role/warden-dev-ecs-exec/8a is not authorized to perform: "
               f"secretsmanager:GetSecretValue on resource: arn:aws:secretsmanager:{REGION}:{ACCT}:secret:"
               "warden-dev-db-app-AbCdEf because no identity-based policy allows the action")]),
-        "task_secret_denied", None),
+        "task_secret_denied", "secretsmanager:GetSecretValue"),
     "fs-19": ("alb_health_check_wrong", ctx(
         [("TARGET warden-dev-orders 10.42.0.12:8080 unhealthy Target.ResponseCodeMismatch: Health checks failed "
          "with these codes: [404]"),
          "TARGETGROUP warden-dev-orders health_path=/healthz port=traffic-port matcher=200"],
         {"alb_unhealthy_hosts": 2.0, "alb_healthy_hosts": 0.0}),
-        "lb_health_check", None),
+        "lb_health_check", "Restore it from the infrastructure code"),
     "fs-20": ("ecs_oom", ctx(
         [_ecs("task 9c stopped: OutOfMemoryError: Container killed due to memory usage (exit code 137)")],
         {}, [ECS_DEPLOY]),
-        "task_oom", "--task-definition warden-dev-orders-api:11"),
+        "task_oom", "ran task definition warden-dev-orders-api:11 before"),
     "fs-21": ("db_iam_auth_revoked", ctx(
         [_ecs(PAM_ERR), "TASKROLE ecs/warden-dev-orders-api role=warden-dev-orders-api-task"],
         {"alb_target_5xx": 40.0}),
-        "db_iam_auth_refused", None),
+        "db_iam_auth_refused", "warden-dev-orders-api-task, the task role"),
     "fs-22": ("k8s_config_crashloop", ctx(
         [_k8s("catalog-api", "EVENT BackOff Pod/catalog-api-7d9-abcde: Back-off restarting failed container app"),
          _k8s("catalog-api", "catalog-api-7d9-abcde/app (previous) 2026-09-26T09:59:00Z ValueError: invalid literal "
                              "for int() with base 10: 'eight'")],
         {"crashloop_containers__catalog-api": 2.0, "pods_ready__catalog-api": 0.0}),
-        "crashloop", None),
+        "crashloop", "crashed container's own last output"),
     "fs-23": ("k8s_missing_secret_key", ctx(
         [_k8s("catalog-api", "EVENT Failed Pod/catalog-api-7d9-abcde: Error: couldn't find key CATALOG_SIGNING_KEY in "
                              "Secret shop/catalog-secret"),
          _k8s("catalog-api", "STATUS catalog-api-7d9-abcde/app: now waiting: CreateContainerConfigError")],
         {"pods_ready__catalog-api": 0.0}),
-        "secret_key_missing", None),
+        "secret_key_missing", "never reads secret values"),
     "fs-24": ("k8s_readiness_probe_wrong", ctx(
         [_k8s("catalog-api", 'EVENT Unhealthy Pod/catalog-api-7d9-abcde: Readiness probe failed: Get '
                              '"http://10.42.0.33:9999/ready": dial tcp 10.42.0.33:9999: connect: connection refused')],
         {"pods_ready__catalog-api": 0.0}),
-        "probe", "kubectl -n shop rollout undo deploy/catalog-api"),
+        "probe", "If the probe changed in the last deploy, roll back"),
     "fs-25": ("k8s_unschedulable_requests", ctx(
         [_k8s("cart-worker", "EVENT FailedScheduling Pod/cart-worker-5f8-xyz12: 0/1 nodes are available: "
                              "1 Insufficient cpu.")]),
-        "unschedulable", "kubectl -n shop rollout undo deploy/cart-worker"),
+        "unschedulable", "rolling it back returns them to what fitted"),
     "fs-26": ("k8s_image_pull", ctx(
         [_k8s("catalog-api", 'EVENT Failed Pod/catalog-api-9b1-qwert: Failed to pull image "app:nope": not found'),
          _k8s("catalog-api", "EVENT BackOff Pod/catalog-api-9b1-qwert: Back-off pulling image: ImagePullBackOff")],
         {"pods_ready__catalog-api": 1.0}),
-        "image_pull", "kubectl -n shop rollout undo deploy/catalog-api"),
+        "image_pull", "Roll back to the previous revision"),
     "fs-27": ("eventbridge_rule_disabled", ctx(
         ["RULE warden-dev-reconcile-5m State=DISABLED schedule=rate(5 minutes)"],
         {"rule_enabled__reconcile-5m": 0.0, "rule_invocations__reconcile-5m": 0.0}),
-        "schedule_off", "aws events enable-rule --name warden-dev-reconcile-5m --region ap-south-2"),
+        "schedule_off", None),
 }
 
 # Patterns a fault may legitimately raise beside its own: the same evidence read another true way.
@@ -268,60 +265,8 @@ EXTRA_OK = {
     "fs-22": {"deploy"}, "fs-24": set(), "fs-26": {"deploy"},
 }
 
-# ---------------------------------------------------------------- the harness allow-list (section 6)
-
-_MUTATIONS = {
-    "lambda": {"update-alias", "update-function-configuration", "put-function-concurrency",
-               "update-event-source-mapping"},
-    "dynamodb": {"update-table"}, "ecs": {"update-service"}, "elbv2": {"modify-target-group"},
-    "events": {"enable-rule"}, "sqs": {"set-queue-attributes"}, "rds": {"failover-db-cluster"},
-    "iam": {"put-role-policy"},
-    # Not in section 6's example list: printed for fs-11 when a node type is known. The harness must
-    # add it or record fix_not_allowed.
-    "elasticache": {"modify-replication-group"},
-    # fs-10: restoring the cache security group's ingress (the real harness checks the SG ids are the stack's).
-    "ec2": {"authorize-security-group-ingress"},
-}
-_NAME_FLAGS = ("--function-name", "--table-name", "--cluster", "--service", "--queue-name", "--names",
-               "--role-name", "--db-cluster-identifier", "--target-db-instance-identifier", "--replication-group-id",
-               "--task-definition")
-_KUBECTL = re.compile(r"^kubectl -n shop (rollout (undo|restart)|set|patch|scale|apply -f -) ")
-_SQL_OK = re.compile(r"(?is)^(SELECT .*\bpg_(terminate|cancel)_backend\(|CREATE INDEX CONCURRENTLY |ALTER DATABASE \S+ SET )")
-
-
-def allowed(entry: dict) -> str | None:
-    """None when the harness would run it; otherwise why not."""
-    cmd = entry["command"]
-    if entry["kind"] == "sql":
-        return None if _SQL_OK.match(cmd) and entry.get("target") == "writer" else f"sql not allowed: {cmd}"
-    if cmd.startswith("kubectl "):
-        return None if _KUBECTL.match(cmd) else f"kubectl not allowed: {cmd}"
-    if not cmd.startswith("aws "):
-        return f"not aws/kubectl/sql: {cmd}"
-    calls = re.findall(r"\baws ([a-z0-9-]+) ([a-z0-9-]+)", cmd)
-    if cmd.count(f"--region {REGION}") != len(calls):
-        return f"an aws call without --region {REGION}: {cmd}"
-    (svc, verb), *nested = calls
-    if verb not in _MUTATIONS.get(svc, set()):
-        return f"verb not allowed: {svc} {verb}"
-    if any(not re.match(r"(get|list|describe)-", v) for _, v in nested):
-        return f"a nested call that is not a read: {nested}"
-    if "delete" in cmd:
-        return "delete"
-    if svc == "events" and not re.search(r"--name warden-dev-", cmd):
-        return "a rule outside warden-dev-*"
-    if svc == "iam" and not re.search(r"--role-name warden-dev-", cmd):
-        return "iam on a role outside warden-dev-*"
-    tokens = shlex.split(cmd.replace("$(", " ").replace(")\"", "\""))
-    for flag, value in itertools.pairwise(tokens):
-        if flag in _NAME_FLAGS and not value.startswith("warden-dev-"):
-            return f"{flag} {value} is not a warden-dev-* resource"
-    return None
-
-
-def _fix_entries(fix: list[str]) -> list[dict]:
-    return [{"kind": "sql" if re.match(r"(?i)(SELECT|CREATE|ALTER)\b", c) else "shell", "command": c,
-             "target": "writer"} for c in fix]
+def _advice(pat) -> str:
+    return " ".join([pat.likely_cause, *pat.oncall, *pat.developers, *pat.platform, *pat.dba, *pat.prevention])
 
 
 @pytest.fixture(autouse=True)
@@ -337,19 +282,14 @@ def test_a_healthy_stack_detects_nothing():
 
 
 @pytest.mark.parametrize("fid", sorted(FAULTS))
-def test_each_fault_detects_its_own_class_with_an_aimed_fix(fid):
+def test_each_fault_detects_its_own_class_with_its_advice(fid):
     _, context, key, fragment = FAULTS[fid]
     found = {p.key: p for p in detect(alert(), context)}
     assert key in found, f"{fid}: {sorted(found)}"
     pat = found[key]
     assert pat.seen and pat.likely_cause
     if fragment:
-        assert any(fragment in c for c in pat.fix), (fid, pat.fix)
-    else:
-        assert pat.fix == [] and any(t.startswith("No command:") for t in pat.oncall), (fid, pat.oncall)
-    for entry in _fix_entries(pat.fix):
-        assert not _HOLE.search(entry["command"]), entry
-        assert allowed(entry) is None, allowed(entry)
+        assert fragment in _advice(pat), (fid, _advice(pat))
 
 
 @pytest.mark.parametrize("fid", sorted(FAULTS))
@@ -388,136 +328,115 @@ def test_the_timeout_is_computed_from_observed_duration_when_it_was_not_capped()
              "CONFIG lambda warden-dev-checkout timeout=3s memory=256MB env=[TABLE_NAME] version=6"],
             {"lambda_timeout_s__checkout": 3.0, "lambda_duration_max_ms__checkout": 2100.0})
     pat = next(p for p in detect(alert(), c) if p.key == "fn_timeout")
-    assert pat.fix == [("aws lambda update-function-configuration --function-name warden-dev-checkout "
-                       "--timeout 5 --region ap-south-2")]
-    assert "2 x the longest observed duration (2100 ms)" in pat.oncall[0]
+    assert "5s = 2 x the longest observed duration (2100 ms)" in pat.oncall[0]
 
 
-def test_env_without_values_prints_no_update_that_would_wipe_the_environment():
+def test_env_without_values_cannot_say_which_value_is_wrong():
     c = ctx([_lam("checkout", "ResourceNotFoundException: Requested resource not found")])
     pat = next(p for p in detect(alert(), c) if p.key == "missing_resource")
-    assert pat.fix == [] and "replaces all of it" in pat.oncall[0]
+    assert "without their values; WARDEN cannot tell which value is wrong" in pat.oncall[0]
 
 
-def test_a_bad_env_that_arrived_with_a_version_is_rolled_back_not_patched():
+def test_a_bad_env_that_arrived_with_a_version_names_the_version_it_served_before():
     c = ctx([_lam("checkout", "ResourceNotFoundException: Requested resource not found"),
              "CONFIG lambda warden-dev-checkout timeout=10s memory=256MB env=[TABLE_NAME] version=7 alias_live=7"],
             deploys=[{"kind": "lambda", "service": "warden-dev-checkout", "at": TS, "version": "7", "previous": "6"}])
     pat = next(p for p in detect(alert(), c) if p.key == "missing_resource")
-    assert pat.fix == [("aws lambda update-alias --function-name warden-dev-checkout --name live "
-                       "--function-version 6 --region ap-south-2")]
+    assert pat.oncall[0].startswith("Alias `live` of warden-dev-checkout moved to version 7")
+    assert "it served version 6 before" in pat.oncall[0]
 
 
-def test_throttling_without_a_reservation_is_the_account_limit_and_gets_no_command():
+def test_throttling_without_a_reservation_is_the_account_limit():
     pat = next(p for p in detect(alert(), ctx([], {"lambda_throttles__checkout": 9.0})) if p.key == "fn_throttled")
-    assert pat.fix == [] and "regional concurrency limit" in pat.oncall[0]
+    assert "regional concurrency limit" in pat.oncall[0]
 
 
-def test_a_reader_endpoint_without_env_values_prints_no_command_and_says_why():
+def test_a_reader_endpoint_without_env_values_names_no_endpoint():
     c = ctx([_lam("order-processor", RO_ERR)])
     pat = next(p for p in detect(alert(), c) if p.key == "db_write_on_reader")
-    assert pat.fix == [] and "not their values" in pat.oncall[0]
+    assert "writer endpoint `" not in _advice(pat), pat.oncall
 
 
-def test_the_sns_policy_is_valid_json_aimed_at_the_named_queue_and_topic():
+def test_the_sns_advice_keeps_the_queues_other_statements():
+    """Audit A6 (2026-10-16): the printed `set-queue-attributes` replaced the queue's whole policy, so every other
+    statement was lost. The advice names the queue and the topic and says to add, not replace."""
     pat = next(p for p in detect(alert(), FAULTS["fs-08"][1]) if p.key == "topic_delivery_refused")
-    attrs = json.loads(shlex.split(pat.fix[0])[-3])
-    stmt = json.loads(attrs["Policy"])["Statement"][0]
-    assert stmt["Resource"] == "arn:aws:sqs:ap-south-2:*:warden-dev-notifications"
-    assert stmt["Condition"]["ArnLike"]["aws:SourceArn"] == "arn:aws:sns:ap-south-2:*:warden-dev-order-events"
-    assert "get-queue-url --queue-name warden-dev-notifications" in pat.fix[0]
+    assert "warden-dev-order-events" in pat.oncall[0] and "warden-dev-notifications" in pat.oncall[0]
+    assert "beside the statements it already has" in pat.oncall[0]
 
 
-def test_a_denied_secret_read_prints_no_iam_command_only_what_to_compare():
+def test_a_denied_secret_read_names_only_what_to_compare():
     """Phase 0 (2026-09-27): WARDEN never writes IAM from a log line - the role, action and resource all
     come from text that whoever can write a log line controls. It names them, as advice."""
     pat = next(p for p in detect(alert(), FAULTS["fs-18"][1]) if p.key == "task_secret_denied")
-    assert pat.fix == []
     advice = " ".join(pat.oncall)
     assert "secretsmanager:GetSecretValue" in advice and "warden-dev-ecs-exec" in advice
     assert "never writes IAM" in advice
     assert "access_denied" not in {p.key for p in detect(alert(), FAULTS["fs-18"][1])}
 
 
-def test_an_attacker_shaped_denial_line_yields_no_command():
+def test_an_attacker_shaped_denial_line_yields_no_grant():
     """The plant: a log line naming the ADMIN role and `iam:*` used to become `iam put-role-policy`."""
     line = _lam("checkout", f"User: arn:aws:sts::{ACCT}:assumed-role/OrganizationAccountAccessRole/x is not "
                             "authorized to perform: iam:* on resource: arn:aws:iam::*:*")
     for p in detect(alert(), ctx([line])):
-        assert not any("put-role-policy" in c or "iam:" in c for c in p.fix), (p.key, p.fix)
+        assert "put-role-policy" not in _advice(p), (p.key, _advice(p))
+        if p.key == "access_denied":
+            assert "never writes IAM from a log line" in p.oncall[0]
 
 
 def test_redis_memory_names_the_next_node_size_only_when_the_node_type_is_read():
     c = ctx(["REPLGROUP warden-dev-redis node_type=cache.t4g.micro status=available"],
             {"redis_memory_pct": 97.0, "redis_evictions": 5400.0})
     pat = next(p for p in detect(alert(), c) if p.key == "cache_memory")
-    assert pat.fix == [("aws elasticache modify-replication-group --replication-group-id warden-dev-redis "
-                       "--cache-node-type cache.t4g.small --apply-immediately --region ap-south-2")]
-    assert allowed(_fix_entries(pat.fix)[0]) is None
+    assert pat.oncall[0].startswith("warden-dev-redis runs cache.t4g.micro; the next size, cache.t4g.small,")
 
 
-def test_the_allow_list_mirror_refuses_what_section_6_refuses():
-    bad = ["aws lambda delete-function-concurrency --function-name warden-dev-checkout --region ap-south-2",
-           "aws lambda update-alias --function-name other-fn --name live --function-version 1 --region ap-south-2",
-           "aws lambda update-alias --function-name warden-dev-checkout --name live --function-version 1",
-           "aws iam put-role-policy --role-name admin --policy-name x --policy-document '{}' --region ap-south-2",
-           "kubectl -n kube-system rollout undo deploy/coredns", "kubectl -n shop delete pod x"]
-    for cmd in bad:
-        assert allowed({"kind": "shell", "command": cmd}) is not None, cmd
-    assert allowed({"kind": "sql", "command": "DROP TABLE orders;", "target": "writer"}) is not None
-
-
-def test_with_no_region_known_no_region_is_invented(monkeypatch):
-    monkeypatch.delenv("AWS_REGION")
-    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
-    pat = next(p for p in detect(alert(), FAULTS["fs-27"][1]) if p.key == "schedule_off")
-    assert pat.fix == ["aws events enable-rule --name warden-dev-reconcile-5m"]
-
-
-def test_a_function_without_the_alias_gets_no_update_alias():
-    """The stack backend writes `alias_live=-` when the alias does not exist: moving it would fail."""
+def test_a_function_without_the_alias_names_no_alias_move():
+    """The stack backend writes `alias_live=-` when the alias does not exist."""
     c = ctx([("CONFIG lambda warden-dev-order-processor timeout=30s memory=256MB reserved_concurrency=none "
              "env=[DB_HOST] version=4 alias_live=-"),
              "CODE warden-dev-order-processor app.py:9 in handler: KeyError: 'id'"],
             deploys=[{"kind": "lambda", "service": "warden-dev-order-processor", "at": TS, "version": "4",
                       "previous": "3"}])
     pat = next(p for p in detect(alert(), c) if p.key == "code_error_after_deploy")
-    assert pat.fix == [] and pat.oncall[0].startswith("No command:")
+    assert "served version" not in _advice(pat), pat.oncall
 
 
-def test_the_crash_loop_advice_names_the_failing_deployment_not_the_label_list():
+def test_the_crash_loop_advice_holds_no_command_and_no_label_list():
+    """A8 (2026-10-16): the advice said `kubectl -n shop logs deploy/catalog-api --previous` - a read WARDEN had
+    already made (the crashed output is in the report). It says what to read, in words."""
     pat = next(p for p in detect(alert(), FAULTS["fs-22"][1]) if p.key == "crashloop")
-    assert "kubectl -n shop logs deploy/catalog-api --previous" in pat.oncall[0]
-    assert "catalog-api,cart-worker" not in " ".join(pat.oncall)
+    assert "crashed container's own last output" in pat.oncall[0]
+    assert "kubectl" not in _advice(pat) and "catalog-api,cart-worker" not in _advice(pat)
 
 
 def test_cache_ingress_names_only_the_missing_rules():
-    """Only application SGs with no rule on the cache SG get one; an allowed SG is never re-added."""
+    """Only application SGs with no rule on the cache SG are named; an allowed SG is never named."""
     base = [_lam("reconciler", "redis.exceptions.TimeoutError: Timeout connecting to server x:6379"),
             "REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]",
             "APPSG ecs/warden-dev-orders-api sgs=[sg-0ecs]", "APPSG eks/warden-dev-eks sgs=[sg-0eks]"]
     pats = {p.key: p for p in detect(alert(), ctx(base + ["SG sg-0redis ingress tcp/6379 from=[sg-0ecs]"]))}
-    fix = pats["cache_unreachable"].fix
-    assert len(fix) == 1 and "--source-group sg-0eks" in fix[0] and "sg-0ecs" not in fix[0], fix
+    said = pats["cache_unreachable"].oncall[0]
+    assert "no inbound tcp/6379 rule from sg-0eks -" in said and "sg-0ecs" not in said, said
     full = {p.key: p for p in detect(alert(), ctx(base + ["SG sg-0redis ingress tcp/6379 from=[sg-0ecs,sg-0eks]"]))}
-    assert full["cache_unreachable"].fix == []
+    assert full["cache_unreachable"].oncall[0].startswith("Every application security group already has")
     bare = {p.key: p for p in detect(alert(), ctx(base[:1]))}
-    assert bare["cache_unreachable"].fix == []
+    assert "security group" not in " ".join(bare["cache_unreachable"].oncall)
 
 
-def test_a_refused_iam_login_prints_no_grant_only_the_role_and_user_to_compare():
+def test_a_refused_iam_login_names_only_the_role_and_user_to_compare():
     pat = next(p for p in detect(alert(), FAULTS["fs-21"][1]) if p.key == "db_iam_auth_refused")
-    assert pat.fix == []
     advice = " ".join(pat.oncall)
     assert "warden-dev-orders-api-task" in advice and "rds-db:connect" in advice and "user app" in advice
     assert "stale_credentials" not in {p.key for p in detect(alert(), FAULTS["fs-21"][1])}
 
 
-def test_an_iam_login_refusal_without_the_role_in_evidence_prints_no_command_and_says_which_line():
+def test_an_iam_login_refusal_without_the_role_in_evidence_says_which_line_is_missing():
     pat = next(p for p in detect(alert(), ctx([_ecs(PAM_ERR)])) if p.key == "db_iam_auth_refused")
-    assert pat.fix == [] and "TASKROLE ecs/<service> role=<name>" in pat.oncall[0]
+    assert "TASKROLE ecs/<service> role=<name>" in pat.oncall[0]
     lam = next(p for p in detect(alert(), ctx([_lam("order-processor", PAM_ERR)])) if p.key == "db_iam_auth_refused")
-    assert lam.fix == [] and lam.oncall[0].startswith("No command:")
+    assert lam.oncall[0].startswith("The evidence does not carry")
     assert "code_error_after_deploy" not in {p.key for p in detect(alert(), ctx(
         [f"CODE warden-dev-order-processor app.py:40 in _connect: {PAM_ERR}"],
         deploys=[{"kind": "lambda", "service": "warden-dev-order-processor", "at": TS, "version": "4",
@@ -532,39 +451,37 @@ def test_a_rotated_password_is_still_read_as_stale_credentials():
             [{"kind": "secret", "service": "warden-dev-db-app", "at": "2026-09-26T09:50:00Z", "version": "v2",
               "previous": "v1"}])
     pat = next(p for p in detect(alert(), c) if p.key == "stale_credentials")
-    assert pat.fix == [("aws ecs update-service --cluster warden-dev-ecs --service warden-dev-orders-api "
-                        "--force-new-deployment --region ap-south-2")]
+    assert pat.oncall[0] == "New tasks of warden-dev-orders-api read the secret at start, so they get the current password."
 
 
-# ⛔ Audit A-C-14: a fix value is never taken from application output. Whoever can make the app log a
-# line (or send it a request) chose the node size, or the health-check path, the command would set.
+# ⛔ Audit A-C-14: a value in the advice is never taken from application output. Whoever can make the app log a
+# line (or send it a request) would choose the node size, or the health-check path, it names.
 def test_node_type_comes_only_from_config():
     forged = _ecs("cache stats node_type=cache.r6g.2xlarge hits=1")
     no_config = next(p for p in detect(alert(), ctx([forged], {"redis_memory_pct": 97.0, "redis_evictions": 9.0}))
                      if p.key == "cache_memory")
-    assert no_config.fix == [], no_config.fix
+    assert "next size" not in _advice(no_config) and "r6g" not in _advice(no_config), no_config.oncall
     both = ctx([forged, "REPLGROUP warden-dev-redis node_type=cache.t4g.micro sgs=[sg-0redis]"],
                {"redis_memory_pct": 97.0, "redis_evictions": 9.0})
     pat = next(p for p in detect(alert(), both) if p.key == "cache_memory")
-    assert len(pat.fix) == 1 and "--cache-node-type cache.t4g.small " in pat.fix[0], pat.fix
+    assert "the next size, cache.t4g.small," in pat.oncall[0] and "r6g" not in _advice(pat), pat.oncall
 
 
 def test_no_path_is_taken_from_application_logs():
     """The working health path used to come from an access-log line - which any client writes by
-    requesting a path. No command now; the text says where the path must come from."""
+    requesting a path. The text says where the path must come from."""
     _, context, _, _ = FAULTS["fs-19"]
     planted = ctx([*context.logs, _ecs('10.0.0.9 - "GET /healthz/../admin?health HTTP/1.1" 200 2')],
                   dict(context.metrics))
     for c in (context, planted):
         pat = next(p for p in detect(alert(), c) if p.key == "lb_health_check")
-        assert pat.fix == [], pat.fix
-        assert any(t.startswith("No command:") and "infrastructure code" in t for t in pat.oncall), pat.oncall
-        assert "admin" not in " ".join(pat.oncall + pat.fix)
+        assert any(t.startswith("The target group checks") and "infrastructure code" in t for t in pat.oncall), pat.oncall
+        assert "admin" not in _advice(pat)
 
 
 def test_a_value_merely_containing_the_rds_suffix_is_not_an_rds_host():
     """CodeQL (2026-10-02): `".rds.amazonaws.com" in val` took `<reader>.rds.amazonaws.com.evil.example` for an RDS
-    endpoint, and the printed fix would have pointed the function's database at another domain."""
+    endpoint, and the advice would have pointed the function's database at another domain."""
     from warden.playbook import _RDS_HOST
 
     good = "warden-dev-aurora.cluster-ro-abc123.ap-south-2.rds.amazonaws.com"

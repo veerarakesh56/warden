@@ -41,13 +41,19 @@ v0 (Phase 0 of the v2 re-architecture, 2026-09-27). Two of the planned rules:
   marked `[unverified: ...]` where it stands. "The root cause is" is not marked: the report already
   heads the model's text as its hypothesis, with its confidence.
 
+- **G4, commands** (`withhold_commands`, 2026-10-16). WARDEN prints no command for a person to run:
+  its reports carry none, and a write command (aws, kubectl, helm, terraform, SQL, `rm -r`,
+  `curl | sh`) in model-written prose is withheld where it stands, as the model's answer is read
+  (models.ModelProse, discuss.Answer). A change goes only through a catalogue plan and a signed
+  approval.
+
 Every way out uses this module (audit A-C-8):
 - chat sinks: `enforce`, with G5 also over the text as built, before notify re-redacts it;
 - stdout: `for_terminal`;
 - MCP results and generic webhooks: `outbound_data`.
 
 Verdicts: PASS (unchanged), REWRITE (G3 removed something), BLOCK (G5). G1 (every claim grounded) is
-P13 in the verifier; the report says when it fired. G4 (commands only from an approved plan) is Phase 2.
+P13 in the verifier; the report says when it fired.
 """
 
 from __future__ import annotations
@@ -333,6 +339,46 @@ _UNVERIFIABLE = re.compile(
 def hedge(text: str) -> str:
     """G2 over one piece of model-written text: mark each claim WARDEN cannot verify."""
     return _UNVERIFIABLE.sub(lambda m: f"[unverified: {m.group(0)}]", text)
+
+
+# G4 (2026-10-16): WARDEN prints no command a person could paste to change something - a fix goes only through a
+# catalogue plan and a signed approval, which WARDEN applies itself. Model-written prose can still carry one (a
+# hijacked model, or a log line it repeats), so each write-command shape in it is withheld where it stands. Write
+# verbs only: a read-only `kubectl get` or `aws ... describe-...` changes nothing, and grounding._COMMAND_WORDS
+# (any `delete`, `drop`, `rm`, `kill`) is for a one-name target - in prose it would mark plain English.
+# A command, not the story of one: the model often says what happened ("a Terraform apply at 07:31 rewrote the
+# schedules", "a 'kubectl rollout restart' replaced the pods", "queued behind a DDL on invoices"). Measured on
+# the 2,035 recorded model strings in the repository (docs/bench, evals, tests; 2026-10-16), a looser first version
+# withheld 8 of those and no command; so each shape here needs what makes it runnable - the program in lower case,
+# an aws verb-noun operation, a kubectl object, a terraform or helm flag or line end, an SQL object and clause in
+# capitals ("update its set of rules" is English), a call's parenthesis.
+_FLAGS = r"(?:--?[\w-]+(?:[= ][^\s-]\S*)?\s+)*"
+_K8S_OBJECT = (r"(?:deploy|deployment|deployments|ns|namespace|namespaces|po|pod|pods|svc|service|services|cm|configmap|"
+               r"secret|secrets|sts|statefulset|ds|daemonset|rs|replicaset|job|cronjob|hpa|ing|ingress|node|nodes|pvc|"
+               r"crd|all|-f|--filename)\b")
+_WRITE_COMMAND = re.compile(
+    r"\baws\s+" + _FLAGS + r"[a-z0-9-]+\s+(?:accept|add|apply|associate|attach|authorize|cancel|copy|create|delete|"
+    r"deregister|detach|disable|disassociate|enable|execute|failover|import|invoke|modify|publish|purge|put|reboot|"
+    r"register|reject|remove|replace|reset|restore|revoke|run|send|set|start|stop|tag|terminate|untag|update)-[a-z0-9-]+"
+    r"|\baws\s+" + _FLAGS + r"(?:s3\s+(?:cp|mv|rb|rm|sync)|lambda\s+invoke)\b"
+    r"|\bkubectl\s+" + _FLAGS + r"(?:annotate|apply|autoscale|cordon|cp|create|delete|drain|edit|exec|expose|label|"
+    r"patch|replace|rollout|run|scale|set|taint|uncordon)\s+(?:\S+\s+){0,2}" + _K8S_OBJECT
+    + r"|\bhelm\s+(?:install|rollback|uninstall|upgrade)\s+[\w.-]+(?=\s*$|\s+(?:\d+(?:\s|$)|-|\S*/))"
+    r"|\bterraform\s+(?:apply|destroy|import|taint|state\s+rm)(?=\s*$|\s*[-;&|])"
+    r"|\bpg_(?:cancel|terminate)_backend\s*\("
+    r"|\bALTER\s+(?:DATABASE|INDEX|ROLE|SCHEMA|TABLE|USER)\s+\S+\s+(?:ADD|ALTER|ATTACH|DETACH|DISABLE|DROP|ENABLE|"
+    r"OWNER|RENAME|RESET|SET|VALIDATE)\b|\bALTER\s+SYSTEM\s+(?:SET|RESET)\b"
+    r"|\b(?:DROP|TRUNCATE)\s+(?:DATABASE|INDEX|ROLE|SCHEMA|TABLE|USER)\s+(?:IF\s+EXISTS\s+)?[\w.\"]+"
+    r"|\bDELETE\s+FROM\s+[\w.\"]+|\bUPDATE\s+[\w.\"]+\s+SET\b"
+    r"|\brm\s+-[a-zA-Z]*[rRf][a-zA-Z]*(?=\s+\S)"
+    r"|\b(?:curl|wget)\s[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z)?sh\b")
+WITHHELD = "[command withheld (G4)]"
+
+
+def withhold_commands(text: str) -> str:
+    """G4 over one piece of model-written text: each write command in it is replaced where it stands, so what is
+    left cannot be pasted and run. The flags after it may stay: without the program and its verb they do nothing."""
+    return _WRITE_COMMAND.sub(WITHHELD, text)
 
 
 def leaked_kinds(text: str) -> list[str]:

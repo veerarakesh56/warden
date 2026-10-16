@@ -169,11 +169,11 @@ def decide_remediation(
         )
 
     # 4. This environment must be one WARDEN may auto-apply in at all. pre-prod/qa-prod/prod/unknown
-    #    are not — the fix is handed to a human, who applies it with the report as the runbook.
+    #    are not — the fix is left to a person there (the report prints no command to replay, 2026-10-16).
     if not env.auto_remediate:
         return result(
             RemediationOutcome.not_auto_remediable,
-            f"{alert.environment} does not auto-remediate; a human applies this fix (see report)",
+            f"{alert.environment} does not auto-remediate; a person decides the fix there",
         )
 
     # 5. The target must be the alerting resource itself. P14 only asks that the name EXIST; acting

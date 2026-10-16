@@ -2121,28 +2121,20 @@ def check_command(cmd: dict, *, stack_ids: frozenset[str] = frozenset()) -> str 
 # =========================================================================== running a fix
 
 
-def decide_fix(built: dict | None, verdict: str | None,
-               stack_ids: frozenset[str] = frozenset()) -> tuple[str | None, list[dict], list[dict]]:
-    """(outcome, commands to run - always empty now, rejected commands with reasons).
+def decide_fix(verdict: str | None) -> str:
+    """The fix outcome of one run, from the gate's verdict alone.
 
     ⛔ THE HARNESS RUNS NO FIX COMMAND (2026-09-27 security audit). It used to run an approved fix's
     printed commands through an allow-list, with the operator's full environment. The allow-list
     matched banned flags by exact name, and the AWS CLI accepts abbreviations: `--prof admin` ran
     as another profile, and `--regio us-east-1` in another region. A deny-list of flags cannot be
-    made complete, so the capability is gone rather than patched. An approved fix is recorded as
-    `execution_disabled`, and the allow-list verdict is still recorded. Fixes come back in v2
-    Phase 2 only as typed catalogue entries run by a workflow with just-in-time credentials, never
-    as a command string.
+    made complete, so the capability is gone rather than patched. Since 2026-10-16 the report prints
+    no command at all (a fix is a catalogue plan for an approver), so there is nothing to count or
+    check: an approved fix is recorded as `execution_disabled`. `no_fix_printed` and
+    `fix_not_allowed` stay valid outcomes for older run records (score.FIX_OUTCOMES).
     """
     if verdict == "rejected":
-        return "blocked_by_gate", [], []
-    commands = list((built or {}).get("fix_commands") or [])
-    if not commands:
-        return "no_fix_printed", [], []
+        return "blocked_by_gate"
     if verdict != "approved_for_human":
-        return "not_approved", [], []
-    rejected = [{**cmd, "reason": reason} for cmd in commands
-                if (reason := check_command(cmd, stack_ids=stack_ids))]
-    if rejected:
-        return "fix_not_allowed", [], rejected
-    return "execution_disabled", [], []
+        return "not_approved"
+    return "execution_disabled"

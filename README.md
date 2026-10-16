@@ -42,7 +42,7 @@ offered as a product to adopt as-is; read the audit and the benchmarks before tr
 | **Evidence** | live AWS: **CloudWatch + ECS**, **managed EKS**, **RDS PostgreSQL** (all measured, `docs/bench/`) · any Kubernetes · PostgreSQL, MySQL, Redis, MongoDB, SQL Server · recorded fixtures for the demo |
 | **Remediation** | only through the Temporal RemediationWorkflow: a closed catalogue, a signed approval of the exact plan, apply once, its own success check, rollback. Platforms for Kubernetes (restart, a bounded scale) and databases (close idle-in-transaction sessions of the app's logins) connect with `warden worker --platform`; the in-process live backends are removed (D16) |
 | **Environments** | per-environment allow/deny, authorised principals, auto-remediate — unknown environments fail closed |
-| **Reporting** | an incident report for every team - impact, what was read and when, diagnosis, detected patterns, risks before steps, a runbook with real names, per-team follow-ups - redacted, → Slack, Teams or any webhook |
+| **Reporting** | an incident report for every team - impact, what was read and when, diagnosis, detected patterns, who acts now, per-team follow-ups in words (no command to paste) - redacted, → Slack, Teams or any webhook |
 | **Integrations** | MCP server · OpenTelemetry GenAI conventions · Terraform ECS module |
 | **Models** | provider-agnostic: Claude via the Claude Max CLI (development and benchmarks), Anthropic API, Gemini, Ollama (local), OpenAI-compatible; in the cloud, Claude Sonnet 5.5 at effort high on the Claude API, chosen by WARDEN's own replay qualification (2026-10-15) |
 
@@ -122,9 +122,10 @@ alert → gather evidence → REDACT → diagnose (one model call) → VERIFY �
   `patch` deployments; an admission policy in the same file holds those patches to the replica count and
   the restart annotation (audit A-I-11, below). `warden run --principal ... --approve <digest>` is now a dry run of the
   older four-way gate: it says whether a fix would pass and changes nothing.
-- **A report built to be promoted.** Every run can emit a redacted Markdown/JSON report with a
-  promotion plan — the exact higher environments where the same fix is permitted — and push it to
-  Slack, Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed).
+- **A report a person can act on.** Every run can emit a redacted Markdown/JSON report - its data
+  also lists the higher environments whose policy permits the same action - and push it to Slack,
+  Teams or a webhook (redacted again on the way out, dry-run unless explicitly armed). It holds no
+  command to paste: a fix is a catalogue plan for an approver.
 - **A budget that stops things.** A USD ceiling (tokens priced in) and a model-call ceiling raise and
   halt the run. Under Temporal they are the incident's: a failed incident that runs again starts from what
   its earlier runs spent (failed requests count as calls).
@@ -369,7 +370,7 @@ proposes escalation — and the verifier lets that through precisely *because* e
 ## Environments, remediation and ChatOps
 
 The gate does not stop at "approved". WARDEN can **resolve** an incident where it is safe to, and turn
-every run into a report a human uses to promote the same fix upward.
+every run into a report for the people who decide.
 
 **Per-environment policy** lives in [`src/warden/data/environments.yaml`](src/warden/data/environments.yaml)
 (override with `WARDEN_ENV_POLICY_PATH`). Each environment declares its allowed/denied actions, its
@@ -713,7 +714,8 @@ flowchart TB
   these (`ip-10-0-3-22`) and merging log lines.
 - **The map never leaves the process.** `RunReport.redaction_map` is excluded from every
   serialisation. A human report may put back **identifiers only** (email, tenant id, IPv4/IPv6)
-  when `WARDEN_REPORT_SHOW_IDENTIFIERS=true`; secrets stay masked either way.
+  when `WARDEN_REPORT_SHOW_IDENTIFIERS=true` on a local run (the cloud runtime always masks them);
+  secrets stay masked either way.
 
 ### 3. The gate — the policies, and which verdict wins (drawn when there were twelve; P13–P16 are in `docs/ai-boundary.md`)
 
@@ -780,15 +782,16 @@ flowchart LR
     Q2 -->|yes| Q3{principal authorised<br/>for this environment?}
     Q3 -->|no| N3[unauthorized]
     Q3 -->|yes| Q4{environment allows<br/>auto-remediation?}
-    Q4 -->|no| N4[not_auto_remediable:<br/>promotion plan, a human applies it]
+    Q4 -->|no| N4[not_auto_remediable:<br/>a person decides the fix there]
     Q4 -->|yes| Q5{explicitly approved?}
     Q5 -->|no| N5[awaiting_approval]
     Q5 -->|yes| B{backend}
     B -->|always| DR[dry-run: records what it would do<br/>a live change goes through the RemediationWorkflow]
 ```
 
-Production is never auto-remediated by default (`environments.yaml`); the report's promotion plan
-says which higher environments permit the same action and what each requires.
+Production is never auto-remediated by default (`environments.yaml`); the report's data lists which
+higher environments permit the same action and what each requires. Its markdown no longer offers a
+manual replay there (2026-10-16): WARDEN watches and fixes only where it is installed.
 
 ### 5. Where evidence comes from, and over what window
 
@@ -828,9 +831,17 @@ committed. A stop is published, not tidied away: both Wave 2 stops are in its `r
 ### 7. The incident report - which parts come from the model
 
 Everything a person acts on is deterministic. The model contributes one hypothesis and one proposed
-action, both labelled as its own; the gate, the evidence, the detected patterns, the runbook and the
-team follow-ups are computed from the evidence by fixed code (`reporting.py`, `runbook.py`,
-`playbook.py`, `verifier.py`).
+action, both labelled as its own; the gate, the evidence, the detected patterns and the team
+follow-ups are computed from the evidence by fixed code (`reporting.py`, `playbook.py`,
+`verifier.py`).
+
+The report prints no command for anyone to run (since 2026-10-16). It used to carry a runbook (check,
+fix, confirm, undo), "Fix - exact commands", "Candidate fix - NOT APPROVED" and "Suggestions from
+deterministic patterns" sections, and `fix_commands` / `candidate_commands` / `pattern_suggestions` /
+`runbook` in its data - a second, unaudited way to make the change. A fix now goes only through a
+catalogue plan and a signed approval, which WARDEN applies itself; the follow-ups say what to look at
+and who acts, in words. A write command in the model's own prose (or in a discussion answer) is
+withheld by the gate's G4.
 
 ```mermaid
 flowchart LR
@@ -845,21 +856,16 @@ flowchart LR
         PT[patterns detected, each with<br/>the evidence line that triggered it]
         EV[metrics · UTC timeline · affected<br/>pods / pids / hosts / tenants · key log lines]
         GV[gate verdict + every reason]
-        RK[before you act - risks FIRST]
-        RB[runbook: check read-only, fix, confirm, undo<br/>real names, computed values, no placeholders]
-        TM[follow-ups: on-call · developers ·<br/>platform/DevOps · DBA · prevention]
+        RK[before you act - when the gate finds<br/>the action cannot work]
+        TM[follow-ups in words: on-call · developers ·<br/>platform/DevOps · DBA · prevention]
     end
     H & PA --> R([report])
-    NX & IM & SR & PT & EV & GV & RK & RB & TM --> R
+    NX & IM & SR & PT & EV & GV & RK & TM --> R
     R --> RD[redacted, seeded with the pipeline's map;<br/>notify redacts again before sending] --> ID{identifiers<br/>opt-in?}
     ID -->|yes| SH[emails · tenant ids · IPs shown<br/>secrets still masked]
     ID -->|no| MK[all masked]
-    SH & MK --> SL[Slack: mrkdwn, split under the limit<br/>never inside a command]
+    SH & MK --> SL[Slack: mrkdwn, split under the limit<br/>at line ends, never mid-line]
 ```
-
-The runbook prints no command it cannot aim: an unknown namespace is found by a real command first
-(`NS=$(kubectl get deploy -A --field-selector metadata.name=...)`), and an irreversible failover with
-no identifiable primary prints no command at all - the report says why.
 
 ### 8. Where WARDEN runs, and with which identity
 
