@@ -38,6 +38,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
 from . import approvals, passkeys
 from .approvals import ApproverPolicy, PasskeyAssertion, PasskeyCredential
+from .brand import LOGO_SVG
 from .environments import both_times
 
 LINK_TTL = timedelta(minutes=15)  # an enrolment's or a reset's link, and the least an approval link lasts
@@ -510,8 +511,8 @@ class ApprovalPage:
     def _may_read(self, member: str) -> bool:
         """WARDEN's records are for its approvers and the people on its viewer list (WARDEN_RECORD_VIEWERS, Slack
         member ids): the record names resources, people and what they wrote."""
-        viewers = {v.strip() for v in os.environ.get("WARDEN_RECORD_VIEWERS", "").split(",") if v.strip()}
-        return bool(member) and (member in viewers or any(a.slack == member for a in self.policy.approvers.values()))
+        return bool(member) and (member in self._viewers()
+                                 or any(a.slack == member for a in self.policy.approvers.values()))
 
     def _records(self, method: str, parts: list[str], cookies: Any, query: str = "") -> Response:
         """`/r`: every incident of the last 30 days; `/r/<incident>`: one, whole (records.py). For a reader Slack
@@ -537,19 +538,22 @@ class ApprovalPage:
             return self._served_html(403, records.refused_page())
         if self.log is None:
             return _json(503, {"error": "the record cannot be read here"})
+        allowed = self._environments_for(member)
         if not parts or not parts[0]:
-            import urllib.parse
-
-            ids = records.incident_ids(self.log)
-            pages = max(1, -(-len(ids) // records.PER_PAGE))
-            asked = urllib.parse.parse_qs(query).get("page", ["1"])[0]
-            page = min(max(int(asked) if asked.isdigit() else 1, 1), pages)
-            shown = ids[(page - 1) * records.PER_PAGE:page * records.PER_PAGE]
-            found = [records.record(self.log, i, self.policy, light=True) for i in shown]
-            return self._served_html(200, records.list_page([r for r in found if r is not None], page=page,
-                                                            pages=pages, total=len(ids)))
+            asked = records.parse_query(query)
+            if asked is None:
+                return self._served_html(400, records.bad_query_page())
+            ids, loaded, seen = records.matching(self.log, asked, allowed, self.policy)
+            pages = max(1, -(-len(ids) // asked.size))
+            page = min(asked.page, pages)  # past the end: the last page
+            shown = ids[(page - 1) * asked.size:page * asked.size]
+            found = [loaded.get(i) or records.record(self.log, i, self.policy, light=True) for i in shown]
+            return self._served_html(200, records.list_page(
+                [r for r in found if r is not None], page=page, pages=pages, total=seen, matched=len(ids),
+                asked=asked, envs=self._environment_choices(allowed)), form=True)
         one = records.record(self.log, parts[0], self.policy) if not parts[0].startswith("discuss-") else None
-        if one is None:
+        if one is None or (allowed is not None and one.environment not in allowed):
+            # One answer for "none" and "not yours": a reader limited to some environments is not told of the others.
             return self._served_html(404, records.missing_page())
         approver = self._approver_for(member, one)
         if "approve=1" in query.split("&"):
@@ -561,7 +565,37 @@ class ApprovalPage:
             token = self.new_link(str(one.plan["workflow_id"]), approver)
             return Response(303, {"Location": f"/a/{token}", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
                             "")
-        return self._served_html(200, records.incident_page(one, approve=f"/r/{one.id}?approve=1" if approver else ""))
+        asked = records.parse_query(query)
+        if asked is None:
+            return self._served_html(400, records.bad_query_page())
+        ids, _, _ = records.matching(self.log, asked, allowed, self.policy)
+        return self._served_html(200, records.incident_page(one, approve=f"/r/{one.id}?approve=1" if approver else "",
+                                                            near=records.neighbours(ids, one.id, asked)))
+
+    @staticmethod
+    def _viewers() -> set[str]:
+        return {v.strip() for v in os.environ.get("WARDEN_RECORD_VIEWERS", "").split(",") if v.strip()}
+
+    def _environments_for(self, member: str) -> set[str] | None:
+        """The environments a reader may read the records of: None for every one - a viewer, or an approver with no
+        environment list - else those of the approver entries this member is, every one of them limited (the bench
+        approver, owner 2026-10-15: dev only)."""
+        mine = [a for a in self.policy.approvers.values() if a.slack and a.slack == member]
+        if member in self._viewers() or not mine or any(not a.environments for a in mine):
+            return None
+        return {e for a in mine for e in a.environments}
+
+    @staticmethod
+    def _environment_choices(allowed: set[str] | None) -> tuple[str, ...]:
+        """The environments the list's filter offers: the reader's own when limited, else every configured one."""
+        if allowed is not None:
+            return tuple(sorted(allowed))
+        try:
+            from .environments import default_environment_policies
+
+            return tuple(default_environment_policies().known_environments)
+        except Exception:  # noqa: BLE001 - no configuration here: the filter offers "Any" and what the address asked
+            return ()
 
     def _approver_for(self, member: str, r: Any) -> str:
         """The approver this Slack member is, when the incident's plan waits for an approval their tier allows and
@@ -572,9 +606,10 @@ class ApprovalPage:
         return next((a for a, e in sorted(self.policy.approvers.items())
                      if e.slack and e.slack == member and tier in e.tiers and e.passkeys), "")
 
-    def _served_html(self, status: int, page: str) -> Response:
+    def _served_html(self, status: int, page: str, *, form: bool = False) -> Response:
         nonce = secrets.token_urlsafe(16)
-        return Response(status, _headers(nonce, "text/html; charset=utf-8"), page.replace("{{NONCE}}", nonce))
+        return Response(status, _headers(nonce, "text/html; charset=utf-8",
+                                         f"{self.origin}/r" if form else "'none'"), page.replace("{{NONCE}}", nonce))
 
     # ------------------------------------------------------------------ enrolment
 
@@ -839,11 +874,13 @@ class ApprovalPage:
         return _json(200, {"sent": True, "note": "WARDEN re-checks this approval before anything changes."})
 
 
-def _headers(nonce: str, content_type: str) -> dict[str, str]:
+def _headers(nonce: str, content_type: str, form_action: str = "'none'") -> dict[str, str]:
+    """`form_action`: 'none' everywhere but the records list, whose filters are a plain form that works with no
+    script - there, that one address of this site (owner, 2026-10-16)."""
     return {
         "Content-Type": content_type,
         "Content-Security-Policy": (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
-                                    "connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; "
+                                    f"connect-src 'self'; img-src 'none'; base-uri 'none'; form-action {form_action}; "
                                     "frame-ancestors 'none'"),
         "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
         "X-Content-Type-Options": "nosniff",
@@ -863,9 +900,13 @@ _INCIDENT_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
 
 def _notice(status: int, text: str) -> Response:
     """A page that only says something: where the Slack sign-in ends without a link to go back to."""
+    import html
+
     nonce = secrets.token_urlsafe(16)
+    # Escaped: a sign-in's failure can quote what Slack said.
+    shown = html.escape(text, quote=False).replace("{", "&#123;").replace("}", "&#125;")
     return Response(status, _headers(nonce, "text/html; charset=utf-8"),
-                    _NOTICE.replace("{{NONCE}}", nonce).replace("{{SLACK}}", "0").replace("{{TEXT}}", text))
+                    _NOTICE.replace("{{NONCE}}", nonce).replace("{{SLACK}}", "0").replace("{{TEXT}}", shown))
 
 
 def _json(status: int, payload: dict) -> Response:
@@ -873,55 +914,99 @@ def _json(status: int, payload: dict) -> Response:
 
 
 # ------------------------------------------------------------------ the pages
-# One look for both pages (owner, 2026-10-12: "they look like some poor pages"). Everything is in the page: the
-# Content-Security-Policy admits no font, image, frame or script from anywhere, and no style attribute - so the system
-# font, classes only, and a nonce on the one style and the one script. Light and dark follow the device. Depth says
-# what is what: the plan lies on a raised sheet, the old value is pressed in and the new one raised, the one button
-# that sends a decision can be pressed. Labelled controls, keyboard order, a status always in words (never colour
-# alone), readable at 200% and at a phone's width.
-_STYLE = """
-:root{color-scheme:light dark;
---bg:oklch(0.965 0.006 85);--bg2:oklch(0.925 0.01 85);--sheet:oklch(0.995 0.003 85);--well:oklch(0.958 0.007 85);
---line:oklch(0.875 0.008 85);--ink:oklch(0.24 0.012 265);--muted:oklch(0.46 0.012 265);
---accent:oklch(0.47 0.19 265);--accent-hi:oklch(0.42 0.19 265);--accent-edge:oklch(0.33 0.15 265);
---accent-ink:oklch(0.985 0.005 265);--glow:oklch(0.47 0.19 265/.26);
---ok:oklch(0.43 0.11 150);--warn:oklch(0.46 0.12 65);--bad:oklch(0.47 0.18 27);
---in:inset 0 1px 2px oklch(0.2 0.02 265/.10);--lift:0 1px 0 oklch(1 0 0/.6) inset,0 2px 6px oklch(0.2 0.02 265/.14);
---shadow:0 1px 1px oklch(0.2 0.02 265/.05),0 6px 14px oklch(0.2 0.02 265/.06),0 22px 48px oklch(0.2 0.02 265/.10)}
-@media (prefers-color-scheme:dark){:root{
---bg:oklch(0.205 0.013 265);--bg2:oklch(0.15 0.014 265);--sheet:oklch(0.235 0.013 265);--well:oklch(0.195 0.013 265);
---line:oklch(0.33 0.014 265);--ink:oklch(0.95 0.006 85);--muted:oklch(0.74 0.01 85);
---accent:oklch(0.74 0.13 265);--accent-hi:oklch(0.8 0.11 265);--accent-edge:oklch(0.52 0.14 265);
---accent-ink:oklch(0.17 0.02 265);--glow:oklch(0.74 0.13 265/.22);
---ok:oklch(0.8 0.13 150);--warn:oklch(0.83 0.12 80);--bad:oklch(0.76 0.15 27);
---in:inset 0 1px 2px oklch(0 0 0/.45);--lift:0 1px 0 oklch(1 0 0/.07) inset,0 2px 8px oklch(0 0 0/.4);
---shadow:0 1px 0 oklch(1 0 0/.05) inset,0 14px 40px oklch(0 0 0/.5)}}
+# One look for every page (owner, 2026-10-12: "they look like some poor pages"; 2026-10-16: themes, a sci-fi
+# background, a wave on touch). Everything is in the page: the Content-Security-Policy admits no font, image, frame or
+# script from anywhere, and no style attribute - so the system font, classes only, and a nonce on the one style and
+# the one script. Colours are custom properties, light and dark, chosen by the reader (remembered in this browser) or
+# by the device; every pair of text and ground passes WCAG 2.2 AA (tests/test_pages_ux.py measures them). The
+# background - a slow aurora, a faint grid, a drifting constellation - lies behind solid panels, holds still for
+# reduced motion and pauses in a hidden tab. Labelled controls, keyboard order, a visible focus, a status always in
+# words (never colour alone), targets of 24px and more, readable at 200% and at a phone's width.
+_LIGHT = (
+    "--bg:oklch(0.985 0.006 250);--bg2:oklch(0.935 0.018 255);--sheet:oklch(0.995 0.003 250);"
+    "--panel:oklch(0.995 0.003 250/.9);--well:oklch(0.968 0.008 255);--line:oklch(0.87 0.016 258);"
+    "--ink:oklch(0.22 0.03 265);--muted:oklch(0.45 0.03 262);"
+    "--accent:oklch(0.5 0.17 255);--accent-hi:oklch(0.44 0.17 255);--accent-edge:oklch(0.36 0.14 255);"
+    "--accent-ink:oklch(0.99 0.004 255);--glow:oklch(0.6 0.17 245/.24);"
+    "--ok:oklch(0.47 0.12 155);--warn:oklch(0.5 0.12 62);--bad:oklch(0.5 0.19 25);"
+    "--in:inset 0 1px 2px oklch(0.25 0.04 265/.1);"
+    "--lift:0 1px 0 oklch(1 0 0/.7) inset,0 2px 6px oklch(0.25 0.04 265/.14);"
+    "--shadow:0 1px 1px oklch(0.25 0.04 265/.05),0 8px 20px oklch(0.25 0.04 265/.07),"
+    "0 28px 60px oklch(0.25 0.06 270/.12);"
+    "--aur1:oklch(0.82 0.1 215/.55);--aur2:oklch(0.8 0.11 295/.45);--aur3:oklch(0.86 0.08 180/.4);"
+    "--grid:oklch(0.45 0.08 265/.07);--dot:oklch(0.45 0.14 268/.55)")
+_DARK = (
+    "--bg:oklch(0.2 0.035 272);--bg2:oklch(0.13 0.03 272);--sheet:oklch(0.205 0.03 270);"
+    "--panel:oklch(0.205 0.03 270/.88);--well:oklch(0.175 0.028 270);--line:oklch(0.34 0.04 268);"
+    "--ink:oklch(0.95 0.01 250);--muted:oklch(0.76 0.03 255);"
+    "--accent:oklch(0.82 0.13 210);--accent-hi:oklch(0.88 0.11 205);--accent-edge:oklch(0.56 0.12 220);"
+    "--accent-ink:oklch(0.17 0.03 260);--glow:oklch(0.8 0.14 210/.3);"
+    "--ok:oklch(0.82 0.15 155);--warn:oklch(0.85 0.13 85);--bad:oklch(0.77 0.15 25);"
+    "--in:inset 0 1px 2px oklch(0 0 0/.45);--lift:0 1px 0 oklch(1 0 0/.08) inset,0 2px 8px oklch(0 0 0/.45);"
+    "--shadow:0 1px 0 oklch(1 0 0/.06) inset,0 18px 50px oklch(0 0 0/.55);"
+    "--aur1:oklch(0.5 0.15 230/.42);--aur2:oklch(0.45 0.2 300/.36);--aur3:oklch(0.5 0.12 180/.26);"
+    "--grid:oklch(0.8 0.08 220/.055);--dot:oklch(0.86 0.09 215/.75)")
+_MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
+_STYLE = ("""
+:root{color-scheme:light;LIGHT}
+:root[data-theme=dark]{color-scheme:dark;DARK}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;DARK}}
 *{box-sizing:border-box}
 html{font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-text-size-adjust:100%}
-body{margin:0;min-height:100vh;color:var(--ink);
-background:radial-gradient(120% 55% at 50% -8%,var(--bg) 0,var(--bg2) 100%) fixed var(--bg2)}
-.page{max-width:36rem;margin:0 auto;padding:1.25rem 1rem 3rem}
-.top{display:flex;align-items:baseline;gap:.625rem;padding:.25rem .25rem 1rem}
-.mark{font-weight:700;letter-spacing:.14em;font-size:.8125rem}
-.where,.foot{color:var(--muted);font-size:.8125rem}
-.foot{margin:1rem .25rem 0}
-.sheet{background:var(--sheet);border:1px solid var(--line);border-radius:1rem;box-shadow:var(--shadow);overflow:hidden}
+body{margin:0;min-height:100vh;color:var(--ink);font-variant-numeric:tabular-nums;
+background:radial-gradient(130% 75% at 50% -10%,var(--bg) 0,var(--bg2) 75%) fixed var(--bg2)}
+body::before,body::after{content:"";position:fixed;z-index:-2;pointer-events:none}
+body::before{inset:-25vmax;background:radial-gradient(38vmax 28vmax at 22% 28%,var(--aur1),transparent 70%),
+radial-gradient(34vmax 26vmax at 80% 18%,var(--aur2),transparent 70%),
+radial-gradient(44vmax 30vmax at 62% 86%,var(--aur3),transparent 70%);
+animation:aurora 56s ease-in-out infinite alternate;will-change:transform}
+@keyframes aurora{50%{transform:translate3d(3vmax,-2vmax,0) rotate(5deg) scale(1.04)}
+to{transform:translate3d(-2vmax,2vmax,0) rotate(-4deg) scale(1.08)}}
+body::after{inset:0;background:linear-gradient(var(--grid) 1px,transparent 1px) 0 0/44px 44px,
+linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/44px 44px;
+-webkit-mask-image:radial-gradient(120% 85% at 50% 0,black 25%,transparent 100%);
+mask-image:radial-gradient(120% 85% at 50% 0,black 25%,transparent 100%)}
+#sky{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+.page{position:relative;max-width:38rem;margin:0 auto;padding:1rem 1rem 3rem}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .75rem;padding:.25rem .125rem 1rem}
+.mark{display:inline-flex;align-items:center;gap:.5rem;font-weight:750;letter-spacing:.18em;font-size:.875rem}
+.logo{flex:none;filter:drop-shadow(0 0 7px oklch(0.8 0.15 165/.5))}
+.where{color:var(--muted);font-size:.6875rem;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+padding:.125rem .5rem;border:1px solid var(--line);border-radius:999px;background:var(--panel)}
+.theme{margin-left:auto;display:inline-flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:999px;
+background:var(--panel)}
+.theme[hidden]{display:none!important}
+.theme button{width:2rem;height:2rem;padding:0;display:grid;place-items:center;border:0;border-radius:999px;
+background:none;color:var(--muted);box-shadow:none}
+.theme button:hover{color:var(--ink)}
+.theme button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.theme svg{width:1rem;height:1rem}
+.vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.where,.foot{color:var(--muted)}
+.foot{margin:1rem .25rem 0;font-size:.8125rem}
+.sheet{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:1.125rem;
+box-shadow:var(--shadow);overflow:hidden}
+.sheet::before{content:"";position:absolute;inset:0 0 auto;height:1px;pointer-events:none;opacity:.75;
+background:linear-gradient(90deg,transparent,var(--accent) 50%,transparent)}
+@media (hover:hover) and (pointer:fine){.sheet,.where,.theme{-webkit-backdrop-filter:blur(14px) saturate(1.3);
+backdrop-filter:blur(14px) saturate(1.3)}}
 .steps{list-style:none;margin:0;padding:.875rem 1.25rem;display:flex;flex-wrap:wrap;gap:.5rem 1.125rem;counter-reset:s;
 border-bottom:1px solid var(--line);background:var(--well);font-size:.8125rem;color:var(--muted)}
 .steps li{counter-increment:s;display:flex;align-items:center;gap:.4375rem}
 .steps li::before{content:counter(s);display:grid;place-items:center;width:1.375rem;height:1.375rem;border-radius:50%;
 border:1px solid var(--line);background:var(--sheet);font-weight:600;font-size:.75rem}
 .steps li[aria-current]{color:var(--ink);font-weight:600}
-.steps li[aria-current]::before{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.steps li[aria-current]::before{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
+box-shadow:0 0 0 4px var(--glow)}
 .steps li.done::before{content:"✓";color:var(--ok);border-color:currentColor}
-h1{font-size:1.375rem;line-height:1.25;letter-spacing:-.01em;margin:1.375rem 1.25rem .5rem}
+h1{font-size:1.5rem;line-height:1.2;letter-spacing:-.015em;margin:1.375rem 1.25rem .5rem}
 p{margin:0 0 1rem}
-.lede{margin:0 1.25rem 1.25rem;color:var(--muted);max-width:60ch}
+.lede{margin:0 1.25rem 1.25rem;color:var(--muted);max-width:62ch}
 .me{margin:0 1.25rem;font-weight:600;color:var(--ok)}
 .left{margin:.25rem 1.25rem 0;font-size:.875rem;color:var(--muted)}
-.eyebrow{margin:1.25rem 1.25rem .625rem;font-size:.75rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+.eyebrow{margin:1.25rem 1.25rem .625rem;font-size:.75rem;font-weight:650;letter-spacing:.1em;text-transform:uppercase;
 color:var(--muted)}
-.mono,.change{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.mono,.change{font-family:MONO}
 .mono{font-size:.875rem}
 .change{margin:0 1.25rem;display:grid;gap:.5rem}
 .change .line{display:grid;justify-items:start;gap:.4375rem;padding:.875rem 1rem;border-radius:.75rem;
@@ -933,7 +1018,7 @@ text-decoration:line-through}
 .change .to{font:600 .6875rem/1 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;letter-spacing:.1em;
 text-transform:uppercase;color:var(--muted)}
 .change .now{font-weight:700;padding:.3125rem .6875rem;border-radius:.5rem;background:var(--sheet);
-border:1px solid var(--line);box-shadow:var(--lift)}
+border:1px solid var(--accent);box-shadow:var(--lift),0 0 0 3px var(--glow)}
 .facts{margin:1.25rem 1.25rem 0;display:grid;grid-template-columns:minmax(7.5rem,max-content) 1fr}
 .facts dt,.facts dd{margin:0;padding:.625rem 0;border-top:1px solid var(--line)}
 .facts dt{color:var(--muted);font-size:.875rem;padding-right:1rem}
@@ -949,16 +1034,16 @@ body[data-busy="1"] .bar::before{opacity:1;animation:run 1.1s cubic-bezier(.22,1
 #status{margin:0 0 .875rem;font-weight:500}
 #status[data-kind="bad"]{color:var(--bad)}#status[data-kind="ok"]{color:var(--ok)}
 label{display:block;font-size:.875rem;font-weight:600;margin-bottom:.375rem}
-input,textarea{width:100%;font:inherit;color:inherit;background:var(--sheet);border:1px solid var(--line);
-border-radius:.625rem;padding:.625rem .75rem;box-shadow:var(--in)}
-textarea{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.8125rem;line-height:1.45;
-resize:vertical}
+input,textarea,select{width:100%;min-height:2.75rem;font:inherit;color:inherit;background:var(--sheet);
+border:1px solid var(--line);border-radius:.625rem;padding:.625rem .75rem;box-shadow:var(--in)}
+input:hover,textarea:hover,select:hover{border-color:var(--muted)}
+textarea{font-family:MONO;font-size:.8125rem;line-height:1.45;resize:vertical}
 .hint{display:block;margin-top:.375rem;font-size:.8125rem;font-weight:400;color:var(--muted)}
-button{width:100%;font:inherit;font-weight:600;border-radius:.75rem;padding:.75rem 1rem;border:1px solid transparent;
-cursor:pointer;transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s cubic-bezier(.22,1,.36,1),
-background-color .16s}
+button{width:100%;font:inherit;font-weight:600;color:var(--ink);border-radius:.75rem;padding:.75rem 1rem;
+border:1px solid transparent;cursor:pointer;transition:transform .16s cubic-bezier(.22,1,.36,1),
+box-shadow .16s cubic-bezier(.22,1,.36,1),background-color .16s,color .16s}
 .primary{color:var(--accent-ink);background:var(--accent);
-box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 3px 0 var(--accent-edge),0 10px 22px var(--glow)}
+box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 3px 0 var(--accent-edge),0 10px 24px var(--glow)}
 .primary:hover{background:var(--accent-hi)}
 .primary:active{transform:translateY(2px);box-shadow:inset 0 1px 0 oklch(1 0 0/.22),0 1px 0 var(--accent-edge),
 0 4px 10px var(--glow)}
@@ -969,13 +1054,21 @@ a.slack{display:block;text-align:center;text-decoration:none;font-weight:600;bor
 .danger:active{transform:translateY(1px)}
 button:disabled{opacity:.55;cursor:progress;transform:none}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+summary:focus-visible{outline-offset:-3px}
 .deny{margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--line)}
 .deny p{margin:0 0 .75rem}
 [hidden]{display:none!important}
+button,.primary,a.button,.chip,a.step,summary{position:relative;overflow:hidden;isolation:isolate}
+.rip{position:absolute;left:var(--x);top:var(--y);width:var(--d);height:var(--d);margin:calc(var(--d)/-2) 0 0
+calc(var(--d)/-2);border-radius:50%;background:currentColor;opacity:.22;transform:scale(0);pointer-events:none;
+z-index:-1;animation:rip .7s cubic-bezier(.2,.8,.3,1) forwards}
+@keyframes rip{to{transform:scale(1);opacity:0}}
 @media (max-width:26rem){.facts{grid-template-columns:1fr}.facts dt{padding-bottom:0}
-.facts dd{border-top:0;padding-top:.125rem}}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-"""
+.facts dd{border-top:0;padding-top:.125rem}.where{display:none}.mark{letter-spacing:.14em}}
+@media (prefers-reduced-motion:reduce){*,::before,::after{transition:none!important;animation:none!important}
+.rip{display:none}}
+@media print{body::before,body::after,#sky,.theme{display:none}}
+""".replace("LIGHT", _LIGHT).replace("DARK", _DARK).replace("MONO", _MONO))
 
 # What both pages' scripts share: the passkey encodings, the status line, the step marker, the POST.
 _JS = """
@@ -1007,17 +1100,130 @@ async function post(name, body) {
 }
 """
 
-_SHELL = """<!doctype html>
+# What every page's script ends with: the theme toggle, the wave on a press, the sky. Wrapped whole, and last: nothing
+# here can stop a page's own script, which has already run. No address, no inline handler; under reduced motion no
+# wave, and the sky drawn once, still.
+_UI_JS = """
+(() => { try {
+const R = document.documentElement, KEY = "warden-theme", MODES = ["system", "light", "dark"];
+const calm = matchMedia("(prefers-reduced-motion: reduce)"), night = matchMedia("(prefers-color-scheme: dark)");
+let sky = () => {};
+const mode = v => {
+  if (!MODES.includes(v)) { v = "system"; }
+  if (v === "system") { delete R.dataset.theme; } else { R.dataset.theme = v; }
+  try { if (v === "system") { localStorage.removeItem(KEY); } else { localStorage.setItem(KEY, v); } } catch (e) {}
+  for (const b of document.querySelectorAll("#theme button")) { b.setAttribute("aria-pressed", String(b.dataset.mode === v)); }
+  sky();
+};
+let saved = "system";
+try { saved = localStorage.getItem(KEY) || "system"; } catch (e) {}
+const box = document.getElementById("theme");
+if (box) {
+  box.hidden = false;
+  for (const b of box.querySelectorAll("button")) { b.hidden = false; b.addEventListener("click", () => mode(b.dataset.mode)); }
+}
+const HOST = "button,.primary,a.button,.chip,a.step,summary";
+const wave = (t, x, y) => {
+  if (calm.matches || t.disabled) { return; }
+  const b = t.getBoundingClientRect(), s = document.createElement("span");
+  s.className = "rip"; s.setAttribute("aria-hidden", "true");
+  s.style.setProperty("--x", x - b.left + "px"); s.style.setProperty("--y", y - b.top + "px");
+  s.style.setProperty("--d", Math.hypot(b.width, b.height) * 2 + "px");
+  t.append(s); setTimeout(() => s.remove(), 750);
+};
+const host = e => e.target && e.target.closest ? e.target.closest(HOST) : null;
+document.addEventListener("pointerdown", e => { const t = host(e); if (t) { wave(t, e.clientX, e.clientY); } },
+                          {passive: true});
+document.addEventListener("keydown", e => {
+  const t = (e.key === "Enter" || e.key === " ") && host(e);
+  if (t) { const b = t.getBoundingClientRect(); wave(t, b.left + b.width / 2, b.top + b.height / 2); }
+});
+SKY
+mode(saved);
+} catch (e) {} })();
+"""
+# The sky alone, under 3 KB: points that drift and join when near, and lean away from the pointer. The pixel ratio is
+# capped, the count follows the screen's size, and nothing is drawn while the tab is hidden.
+_SKY_JS = """
+const c = document.getElementById("sky"), g = c && c.getContext && c.getContext("2d");
+if (g) {
+  let w = 0, h = 0, pts = [], px = -9e3, py = -9e3, run = 0;
+  const fit = () => {
+    const d = Math.min(devicePixelRatio || 1, 1.5), nw = innerWidth;
+    h = innerHeight; c.width = nw * d; c.height = h * d; g.setTransform(d, 0, 0, d, 0, 0);
+    if (nw !== w) {
+      w = nw;
+      pts = Array.from({length: Math.min(70, Math.round(w * h / 20000))}, () => ({x: Math.random() * w,
+        y: Math.random() * h, vx: (Math.random() - .5) * .16, vy: (Math.random() - .5) * .16, r: Math.random() * 1.3 + .5}));
+    }
+  };
+  const draw = () => {
+    g.clearRect(0, 0, w, h); g.lineWidth = .7;
+    for (const p of pts) {
+      if (calm.matches) { continue; }
+      p.x = (p.x + p.vx + w) % w; p.y = (p.y + p.vy + h) % h;
+      const dx = p.x - px, dy = p.y - py, q = Math.hypot(dx, dy);
+      if (q < 160 && q > 1) { p.x += dx / q * (1 - q / 160) * .6; p.y += dy / q * (1 - q / 160) * .6; }
+    }
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      g.globalAlpha = .9; g.beginPath(); g.arc(a.x, a.y, a.r, 0, 7); g.fill();
+      for (let j = i + 1; j < pts.length; j++) {
+        const q = (a.x - pts[j].x) ** 2 + (a.y - pts[j].y) ** 2;
+        if (q < 14400) { g.globalAlpha = (1 - q / 14400) * .4; g.beginPath(); g.moveTo(a.x, a.y);
+                         g.lineTo(pts[j].x, pts[j].y); g.stroke(); }
+      }
+      const q = (a.x - px) ** 2 + (a.y - py) ** 2;
+      if (q < 32400) { g.globalAlpha = (1 - q / 32400) * .55; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(px, py);
+                       g.stroke(); }
+    }
+    g.globalAlpha = 1;
+  };
+  const loop = () => { draw(); run = requestAnimationFrame(loop); };
+  sky = () => {
+    cancelAnimationFrame(run); run = 0;
+    g.fillStyle = g.strokeStyle = getComputedStyle(R).getPropertyValue("--dot").trim() || "gray";
+    if (calm.matches) { px = py = -9e3; draw(); } else if (!document.hidden) { loop(); }
+  };
+  const away = () => { px = py = -9e3; };
+  addEventListener("resize", () => { fit(); sky(); });
+  addEventListener("pointermove", e => { px = e.clientX; py = e.clientY; }, {passive: true});
+  addEventListener("pointerup", e => { if (e.pointerType !== "mouse") { away(); } }, {passive: true});
+  R.addEventListener("pointerleave", away);
+  document.addEventListener("visibilitychange", sky);
+  for (const m of [calm, night]) { if (m.addEventListener) { m.addEventListener("change", sky); } }
+  fit();
+}
+"""
+_UI_JS = _UI_JS.replace("SKY", _SKY_JS)
+
+_ICONS = {
+    "system": '<circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>'
+              '<path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>',
+    "light": '<circle cx="12" cy="12" r="4" fill="currentColor"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5'
+             'M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" stroke="currentColor"'
+             ' stroke-width="2" stroke-linecap="round"/>',
+    "dark": '<path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6z" fill="currentColor"/>',
+}
+# Shown by the script only: with no script the device's own theme holds, and a toggle would do nothing.
+_THEME = ('<div id="theme" class="theme" role="group" aria-label="Colour theme" hidden>' + "".join(
+    f'<button type="button" data-mode="{m}" aria-pressed="{"true" if m == "system" else "false"}" title="{t}">'
+    f'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">{_ICONS[m]}</svg><span class="vh">{t}</span>'
+    "</button>" for m, t in (("system", "Theme as the device"), ("light", "Light theme"), ("dark", "Dark theme")))
+    + "</div>")
+
+_SHELL = ("""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}</title>
 <style nonce="{{NONCE}}">{{STYLE}}</style></head>
-<body data-busy="0" data-slack="{{SLACK}}"><div class="page">
-<header class="top"><span class="mark">WARDEN</span><span class="where">{{WHERE}}</span></header>
+<body data-busy="0" data-slack="{{SLACK}}"><canvas id="sky" aria-hidden="true"></canvas><div class="page">
+<header class="top"><span class="mark">""" + LOGO_SVG + """<span>WARDEN</span></span><span class="where">{{WHERE}}</span>"""
+          + _THEME + """</header>
 <main class="sheet">{{MAIN}}</main>
 <p class="foot">{{FOOT}}</p>
 </div>
-<script nonce="{{NONCE}}">{{JS}}{{SCRIPT}}</script></body></html>
-"""
+<script nonce="{{NONCE}}">{{JS}}{{SCRIPT}}""" + _UI_JS + """</script></body></html>
+""")
 
 
 def _page(title: str, where: str, main: str, foot: str, script: str) -> str:

@@ -333,6 +333,9 @@ why. Researched live on 2026-10-03: `docs/research/2026-10-03/build-or-adopt.md`
 - WARDEN's records pages: built - `records.py`, two server-rendered pages read from the signed audit, on the
   approval page's own domain, sign-in and Content-Security-Policy. A dashboard product (Grafana, Backstage) would be
   a second service to run and secure, reading a copy of the record; the record already holds every fact.
+- The pages' look: built - `brand.py` (the logo, inline SVG) and the shared style and script in the approval page:
+  CSS custom properties for light and dark, a small canvas background and a press ripple, no framework. A UI kit or
+  an animation library would be third-party script, which the pages' Content-Security-Policy refuses.
 - Talking to WARDEN about an incident: adopted - Slack's own Python SDK (slack-sdk, MIT) for the Socket Mode
   connection, so WARDEN needs no public address for it; built - `discuss.py`, which hears only mentions in one channel
   and hands each to a workflow. Slack's Bolt framework adds routing and middleware for many handlers; WARDEN has one.
