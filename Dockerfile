@@ -13,7 +13,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/warden \
 WORKDIR /app
 
 COPY --from=uv /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 COPY src ./src
 
 # The container is a DEPLOYMENT artifact, so it carries the cluster client. The pip package stays
