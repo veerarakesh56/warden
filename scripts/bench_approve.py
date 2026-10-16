@@ -7,7 +7,7 @@ incident's waiting plan and approving it through the approval page's signed path
     python scripts/bench_approve.py --record <id|latest>           # reads a record (dev only, read only)
     python scripts/bench_approve.py --incident <id> --deny "<why>"  # denies the waiting plan, with the reason
 
-The key lives at WARDEN_BENCH_KEY (default ~/.warden-bench/bench-approver.pem), never in the repository. The approval
+The key is bench-approver.pem in WARDEN_BENCH_KEY_DIR (default ~/.warden-bench), never in the repository. The approval
 domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) unless --domain names it. Every
 approval it sends is on the record as `bench`, the name the approver list shows as "bench approver (Claude), test".
 
@@ -34,8 +34,16 @@ NAME = "bench"
 PASSPHRASE_ENV = "WARDEN_BENCH_KEY_PASSPHRASE"
 
 
+KEY_NAME = "bench-approver.pem"
+
+
+def _key_dir() -> pathlib.Path:
+    """The one folder the bench key is written in (audit.write_private_key refuses any other place)."""
+    return pathlib.Path(os.environ.get("WARDEN_BENCH_KEY_DIR") or pathlib.Path.home() / ".warden-bench").expanduser()
+
+
 def _key_path() -> pathlib.Path:
-    return pathlib.Path(os.environ.get("WARDEN_BENCH_KEY") or pathlib.Path.home() / ".warden-bench" / "bench-approver.pem")
+    return _key_dir() / KEY_NAME
 
 
 def new_key(environment: str, *, unencrypted: bool = False) -> str:
@@ -59,7 +67,7 @@ def new_key(environment: str, *, unencrypted: bool = False) -> str:
     key = Ed25519PrivateKey.generate()
     encryption = serialization.BestAvailableEncryption(passphrase) if passphrase else serialization.NoEncryption()
     audit.write_private_key(path, key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                                    encryption))
+                                                    encryption), _key_dir())
     pem = key.public_key().public_bytes(serialization.Encoding.PEM,
                                         serialization.PublicFormat.SubjectPublicKeyInfo).decode()
     import yaml

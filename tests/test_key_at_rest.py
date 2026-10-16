@@ -77,11 +77,15 @@ def test_a_private_key_is_created_exclusively_and_owner_only(tmp_path):
         assert path.stat().st_mode & 0o777 == 0o600
 
 
+BENCH = "bench-approver.pem"
+
+
 def _bench(monkeypatch, path):
     spec = importlib.util.spec_from_file_location("bench_approve", ROOT / "scripts" / "bench_approve.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    monkeypatch.setenv("WARDEN_BENCH_KEY", str(path))
+    monkeypatch.setenv("WARDEN_BENCH_KEY_DIR", str(path.parent))
+    assert path.name == mod.KEY_NAME
     return mod
 
 
@@ -90,21 +94,22 @@ def test_the_bench_key_is_encrypted_unless_told_and_an_old_clear_one_still_loads
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    mod = _bench(monkeypatch, tmp_path / "a" / "bench.pem")
+    mod = _bench(monkeypatch, tmp_path / "a" / BENCH)
     monkeypatch.delenv(mod.PASSPHRASE_ENV, raising=False)
     with pytest.raises(SystemExit, match="no key was written"):
         mod.new_key("dev")
-    assert not (tmp_path / "a" / "bench.pem").exists()
+    assert not (tmp_path / "a" / BENCH).exists()
     monkeypatch.setenv(mod.PASSPHRASE_ENV, "bench pass")
     mod.new_key("dev")
-    assert (tmp_path / "a" / "bench.pem").read_bytes().startswith(ENCRYPTED)
+    assert (tmp_path / "a" / BENCH).read_bytes().startswith(ENCRYPTED)
     assert isinstance(mod.load_key(), Ed25519PrivateKey) and capsys.readouterr().err == ""
     monkeypatch.delenv(mod.PASSPHRASE_ENV)
     with pytest.raises(SystemExit, match="is encrypted: set WARDEN_BENCH_KEY_PASSPHRASE"):
         mod.load_key()
 
     # A key made before 2026-10-16, in the clear: still read, with a warning that says how to replace it.
-    old = tmp_path / "old.pem"
+    old = tmp_path / "old" / BENCH
+    old.parent.mkdir()
     old.write_bytes(Ed25519PrivateKey.generate().private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
     mod = _bench(monkeypatch, old)
@@ -112,8 +117,8 @@ def test_the_bench_key_is_encrypted_unless_told_and_an_old_clear_one_still_loads
     assert isinstance(mod.load_key(), Ed25519PrivateKey)
     assert f"WARNING: {old} is not encrypted" in capsys.readouterr().err
 
-    mod = _bench(monkeypatch, tmp_path / "b" / "bench.pem")
+    mod = _bench(monkeypatch, tmp_path / "b" / BENCH)
     monkeypatch.delenv(mod.PASSPHRASE_ENV)
     mod.new_key("dev", unencrypted=True)
-    assert (tmp_path / "b" / "bench.pem").read_bytes().startswith(CLEAR)
+    assert (tmp_path / "b" / BENCH).read_bytes().startswith(CLEAR)
     assert "IN THE CLEAR" in capsys.readouterr().err

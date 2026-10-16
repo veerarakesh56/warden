@@ -22,7 +22,7 @@ def _script():
 
 def test_the_entry_is_a_dev_only_t1_t2_approver_and_the_key_is_never_overwritten(tmp_path, monkeypatch):
     mod = _script()
-    monkeypatch.setenv("WARDEN_BENCH_KEY", str(tmp_path / "k" / "bench.pem"))
+    monkeypatch.setenv("WARDEN_BENCH_KEY_DIR", str(tmp_path / "k"))
     monkeypatch.setenv("WARDEN_BENCH_KEY_PASSPHRASE", "bench pass")
     entry = yaml.safe_load(mod.new_key("dev"))
     policy = ApproverPolicy.model_validate({"approvers": entry})
