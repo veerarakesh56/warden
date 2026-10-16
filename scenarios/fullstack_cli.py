@@ -206,8 +206,8 @@ def warden_dsns(creds: dict[str, str], target: fs.Target, port: int | str,
     that is exercised, so a WARDEN that can read the database is one whose role says it may."""
     rds = make_client("rds", region_name=target.region, aws_access_key_id=creds["AccessKeyId"],
                       aws_secret_access_key=creds["SecretAccessKey"], aws_session_token=creds["SessionToken"])
-    return {"WARDEN_STACK_DB_WRITER_DSN": iam_dsn(rds, RO_USER, target.writer_endpoint, target.database, port),
-            "WARDEN_STACK_DB_READER_DSN": iam_dsn(rds, RO_USER, target.reader_endpoint, target.database, port)}
+    return {"WARDEN_STACK_DB_PRIMARY_RO_DSN": iam_dsn(rds, RO_USER, target.writer_endpoint, target.database, port),
+            "WARDEN_STACK_DB_REPLICA_RO_DSN": iam_dsn(rds, RO_USER, target.reader_endpoint, target.database, port)}
 
 
 def fullstack_warden_env(creds: dict[str, str], arm: dict[str, str], region: str) -> dict[str, str]:
@@ -222,8 +222,8 @@ def fullstack_warden_env(creds: dict[str, str], arm: dict[str, str], region: str
         "AWS_REGION": region,
         "AWS_DEFAULT_REGION": region,
         "KUBECONFIG": creds["KUBECONFIG"],
-        "WARDEN_STACK_DB_WRITER_DSN": creds["WARDEN_STACK_DB_WRITER_DSN"],
-        "WARDEN_STACK_DB_READER_DSN": creds["WARDEN_STACK_DB_READER_DSN"],
+        "WARDEN_STACK_DB_PRIMARY_RO_DSN": creds["WARDEN_STACK_DB_PRIMARY_RO_DSN"],
+        "WARDEN_STACK_DB_REPLICA_RO_DSN": creds["WARDEN_STACK_DB_REPLICA_RO_DSN"],
         "WARDEN_BACKEND": "stack",
         **WARDEN_EVIDENCE_ENV,
         # One gather reads every labelled component plus a Lambda code download (builder A).
@@ -460,8 +460,8 @@ def dry_env() -> Env:
         alarm=lambda name: {"state": "ALARM" if firing["on"] else "OK", "description": f"dry run: {name}"},
         assume_reader=lambda: {"AWS_ACCESS_KEY_ID": "ASIADRY", "AWS_SECRET_ACCESS_KEY": "dry",
                                "AWS_SESSION_TOKEN": "dry", "KUBECONFIG": "/dry/kubeconfig",
-                               "WARDEN_STACK_DB_WRITER_DSN": "postgresql://warden_ro@dry.invalid/shop",
-                               "WARDEN_STACK_DB_READER_DSN": "postgresql://warden_ro@dry.invalid/shop",
+                               "WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro@dry.invalid/shop",
+                               "WARDEN_STACK_DB_REPLICA_RO_DSN": "postgresql://warden_ro@dry.invalid/shop",
                                "arn": f"arn:aws:sts::{EXAMPLE_ACCOUNT}:assumed-role/{fs.PREFIX}reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
         faults={fid: stub for fid in fs.FAULTS}, baseline=list,

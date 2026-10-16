@@ -101,7 +101,7 @@ def test_each_lambda_loads_only_its_own_settings(monkeypatch):
     alarm, webhook, page = loaded
     assert "WARDEN_ALERTMANAGER_TOKEN" in webhook and "WARDEN_ALERTMANAGER_TOKEN" not in alarm | page
     assert all({"WARDEN_TEMPORAL_API_KEY", "WARDEN_AUDIT_DSN"} <= s for s in loaded)
-    assert not any("WARDEN_GITHUB_TOKEN" in s or "WARDEN_DB_ADMIN_DSN" in s for s in loaded)
+    assert not any("WARDEN_GITHUB_TOKEN" in s or "WARDEN_DB_TERMINATE_DSN" in s for s in loaded)
 
 
 def test_the_approver_policy_comes_from_the_file_or_else_from_ssm(monkeypatch, tmp_path):

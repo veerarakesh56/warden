@@ -96,9 +96,9 @@ def test_a_zones_worker_loads_only_its_zones_secrets_and_its_own_temporal_key():
     from warden import settings
 
     llm, notify = settings.loadable_for("worker", "llm"), settings.loadable_for("worker", "notify")
-    assert "ANTHROPIC_API_KEY" in llm and "WARDEN_SLACK_BOT_TOKEN" not in llm and "WARDEN_DB_ADMIN_DSN" not in llm
+    assert "ANTHROPIC_API_KEY" in llm and "WARDEN_SLACK_BOT_TOKEN" not in llm and "WARDEN_DB_TERMINATE_DSN" not in llm
     assert "WARDEN_SLACK_BOT_TOKEN" in notify and "ANTHROPIC_API_KEY" not in notify
-    assert "WARDEN_DB_ADMIN_DSN" in settings.loadable_for("worker", "act")
+    assert "WARDEN_DB_TERMINATE_DSN" in settings.loadable_for("worker", "act")
     everything = settings.loadable_for("worker")
     assert settings.loadable_for("worker", "all") == everything >= llm | notify
     lam = settings.loadable_for("lambda-approval")

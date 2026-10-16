@@ -45,6 +45,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from . import settings
 from .aws_backend import (
     CONNECT_TIMEOUT,
     LOG_LOOKBACK,
@@ -647,8 +648,8 @@ class StackBackend:
             readers.append(("elasticache", lambda out: self._read_elasticache(out, alert, lab["elasticache"])))
         if lab.get("aurora_cluster"):
             readers.append(("aurora", lambda out: self._read_aurora(out, alert, lab["aurora_cluster"])))
-            readers.append(("aurora-db-writer", lambda out: self._read_db(out, "WARDEN_STACK_DB_WRITER_DSN", "", alert)))
-            readers.append(("aurora-db-reader", lambda out: self._read_db(out, "WARDEN_STACK_DB_READER_DSN", "reader_", alert)))
+            readers.append(("aurora-db-writer", lambda out: self._read_db(out, "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", alert)))
+            readers.append(("aurora-db-reader", lambda out: self._read_db(out, "WARDEN_STACK_DB_REPLICA_RO_DSN", "reader_", alert)))
         if lab.get("alb_target_group"):
             readers.append(("alb", lambda out: self._read_alb(out, alert, lab["alb_target_group"])))
         if lab.get("apigw"):
@@ -1413,7 +1414,7 @@ class StackBackend:
 
     def _read_db(self, out: _Out, env: str, prefix: str, alert: Alert) -> None:
         """The existing PostgreSQL backend on one Aurora endpoint, names unchanged (reader: `reader_`)."""
-        dsn = os.environ.get(env)
+        dsn = settings.getenv(env)
         if not dsn:
             raise ToolError(f"{env} is not set; the {'reader' if prefix else 'writer'} sessions were not read")
         if os.environ.get("WARDEN_STACK_DB_IAM_AUTH") == "1":

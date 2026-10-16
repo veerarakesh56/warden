@@ -522,7 +522,7 @@ failover, promotion, schema change, FLUSH, DROP - stays with a person: `failover
 policy in prod (P2) and by the staging / qa-staging / pre-prod / qa-prod allow-lists; in dev, P6
 escalates it.
 
-Its credential is a **separate least-privilege role** (`WARDEN_DB_ADMIN_DSN`), the database twin of the
+Its credential is a **separate least-privilege role** (`WARDEN_DB_TERMINATE_DSN`), the database twin of the
 write-RBAC ServiceAccount:
 
 | engine | to close | to SEE other users' sessions (without it the selection finds nothing) |
@@ -889,7 +889,7 @@ flowchart LR
     end
     subgraph DB[Any database]
         RD[WARDEN_DB_DSN<br/>a user that can read session views]
-        AD[WARDEN_DB_ADMIN_DSN, live remediation only<br/>one grant, e.g. pg_signal_backend]
+        AD[WARDEN_DB_TERMINATE_DSN, live remediation only<br/>one grant, e.g. pg_signal_backend]
     end
     subgraph LAP[An engineer's machine or CI]
         C[warden CLI<br/>kubeconfig / AWS profile / DSN it is given]

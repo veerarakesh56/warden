@@ -324,7 +324,7 @@ def test_warden_gets_only_the_reader_identity(tmp_path, monkeypatch):
     assert OPERATOR_KEY not in json.dumps(got)
     assert got["WARDEN_BACKEND"] == "stack"
     assert got["WARDEN_TOOL_TIMEOUT"] == "30"
-    assert got["KUBECONFIG"] and got["WARDEN_STACK_DB_WRITER_DSN"] and got["WARDEN_STACK_DB_READER_DSN"]
+    assert got["KUBECONFIG"] and got["WARDEN_STACK_DB_PRIMARY_RO_DSN"] and got["WARDEN_STACK_DB_REPLICA_RO_DSN"]
     assert got["WARDEN_PROVIDER"] == "claude_cli", "the provider is the operator's choice"
     assert got["WARDEN_KNOWLEDGE_IN_PROMPT"] == "1"
     rec = _record(tmp_path, "fs-27")
@@ -343,7 +343,7 @@ def test_the_dsns_never_reach_the_command_line(tmp_path, monkeypatch):
         return P()
 
     monkeypatch.setattr(cli.subprocess, "run", fake_run)
-    cli._subprocess_warden(5)({"WARDEN_STACK_DB_WRITER_DSN": "postgresql://warden_ro:pw@x/shop"},
+    cli._subprocess_warden(5)({"WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro:pw@x/shop"},
                               tmp_path / "a.yaml", tmp_path / "r.json")
     assert "pw@" not in " ".join(captured["cmd"])
     assert "--json" in captured["cmd"] and "--alert" in captured["cmd"]
@@ -520,10 +520,10 @@ def test_warden_ro_tokens_are_signed_with_the_assumed_reader_role_never_the_oper
     d = cli.warden_dsns(creds, t, 5432, make_client)
     assert made == [("rds", {"region_name": "ap-south-2", "aws_access_key_id": "ASIAREADER",
                              "aws_secret_access_key": "s", "aws_session_token": "tok"})]
-    assert d["WARDEN_STACK_DB_READER_DSN"].startswith(
+    assert d["WARDEN_STACK_DB_REPLICA_RO_DSN"].startswith(
         "postgresql://warden_dev_ro:warden-dev-aurora.cluster-ro-x%3A5432%2F%3FAction%3Dconnect%26DBUser%3Dwarden_dev_ro")
-    assert d["WARDEN_STACK_DB_READER_DSN"].endswith("@warden-dev-aurora.cluster-ro-x:5432/shop?sslmode=require")
-    assert "@warden-dev-aurora.cluster-x:5432/shop" in d["WARDEN_STACK_DB_WRITER_DSN"]
+    assert d["WARDEN_STACK_DB_REPLICA_RO_DSN"].endswith("@warden-dev-aurora.cluster-ro-x:5432/shop?sslmode=require")
+    assert "@warden-dev-aurora.cluster-x:5432/shop" in d["WARDEN_STACK_DB_PRIMARY_RO_DSN"]
 
 
 def test_the_stack_file_supplies_the_writer_instance_express_chose():
@@ -601,7 +601,7 @@ def test_only_a_diagnose_that_wrote_no_report_may_be_retried_and_it_stays_on_rec
 def test_every_evidence_window_is_pinned_and_the_quiet_gap_outlasts_the_longest():
     """fs-00 read the preflight's rollouts: WARDEN's deploy history was its 6 h default."""
     creds = {"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "s", "AWS_SESSION_TOKEN": "t",
-             "KUBECONFIG": "k", "WARDEN_STACK_DB_WRITER_DSN": "w", "WARDEN_STACK_DB_READER_DSN": "r"}
+             "KUBECONFIG": "k", "WARDEN_STACK_DB_PRIMARY_RO_DSN": "w", "WARDEN_STACK_DB_REPLICA_RO_DSN": "r"}
     env = cli.fullstack_warden_env(creds, {}, "ap-south-2")
     assert env["WARDEN_AWS_DEPLOY_WINDOW_H"] == env["WARDEN_K8S_DEPLOY_WINDOW_H"] == "0.5"
     assert env["WARDEN_AWS_LOG_LOOKBACK_M"] == env["WARDEN_K8S_LOG_LOOKBACK_M"] == "15"

@@ -17,7 +17,7 @@ comma-separated), `dynamodb_table`, `elasticache` (replication group id), `auror
 
 Environment given to WARDEN by the harness (never on argv): assumed-role AWS credentials of
 `warden-pg-fs-reader`, `AWS_REGION=ap-south-2`, `KUBECONFIG` (token-only, SA `warden` in `shop`),
-`WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN` (user `warden_ro`, sslmode=require).
+`WARDEN_STACK_DB_PRIMARY_RO_DSN` and `WARDEN_STACK_DB_REPLICA_RO_DSN` (user `warden_ro`, sslmode=require).
 Since 2026-09-26 (Aurora express configuration, IAM authentication only) the DSN's password is an
 IAM database token - valid 15 minutes for NEW connections, percent-encoded - that the harness signs
 with the ASSUMED `warden-pg-fs-reader` credentials, so the reader role's `rds-db:connect` on

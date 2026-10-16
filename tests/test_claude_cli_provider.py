@@ -310,7 +310,7 @@ def test_no_credential_in_the_parent_environment_reaches_the_model_process(provi
     """WARDEN's environment holds the evidence readers' credentials (the harness sets them). A
     denylist let AWS keys, database DSNs and a kubeconfig into `claude -p` (found 2026-09-27)."""
     planted = {"AWS_ACCESS_KEY_ID": "ASIAPLANTED", "AWS_SECRET_ACCESS_KEY": "s3cr3t", "AWS_SESSION_TOKEN": "tok",
-               "WARDEN_STACK_DB_WRITER_DSN": "postgresql://warden_ro:pw@h/db", "KUBECONFIG": "/tmp/kc",
+               "WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro:pw@h/db", "KUBECONFIG": "/tmp/kc",
                "ANTHROPIC_API_KEY": "sk-ant-planted", "WARDEN_SLACK_WEBHOOK": "https://hooks.example/x",
                "SOME_FUTURE_SECRET": "x"}
     for k, v in planted.items():

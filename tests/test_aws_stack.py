@@ -310,8 +310,8 @@ def _full_alert(**over):
 
 @pytest.fixture
 def dsns(monkeypatch):
-    monkeypatch.setenv("WARDEN_STACK_DB_WRITER_DSN", "postgresql://writer")
-    monkeypatch.setenv("WARDEN_STACK_DB_READER_DSN", "postgresql://reader")
+    monkeypatch.setenv("WARDEN_STACK_DB_PRIMARY_RO_DSN", "postgresql://writer")
+    monkeypatch.setenv("WARDEN_STACK_DB_REPLICA_RO_DSN", "postgresql://reader")
 
 
 # --------------------------------------------------------------------------- happy path
@@ -505,10 +505,10 @@ def test_a_missing_alias_is_normal_not_a_partial():
 
 
 def test_a_missing_dsn_is_a_partial_not_silence(monkeypatch):
-    monkeypatch.delenv("WARDEN_STACK_DB_WRITER_DSN", raising=False)
-    monkeypatch.delenv("WARDEN_STACK_DB_READER_DSN", raising=False)
+    monkeypatch.delenv("WARDEN_STACK_DB_PRIMARY_RO_DSN", raising=False)
+    monkeypatch.delenv("WARDEN_STACK_DB_REPLICA_RO_DSN", raising=False)
     lines = _backend().logs(_alert(aurora_cluster=f"{P}aurora"))
-    assert any(x.startswith(f"{PARTIAL_PREFIX}aurora-db-writer: [failed (unclassified)] WARDEN_STACK_DB_WRITER_DSN") for x in lines)
+    assert any(x.startswith(f"{PARTIAL_PREFIX}aurora-db-writer: [failed (unclassified)] WARDEN_STACK_DB_PRIMARY_RO_DSN") for x in lines)
     assert any(x.startswith("CLUSTER aurora") for x in lines)
 
 

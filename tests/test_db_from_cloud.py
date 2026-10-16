@@ -44,9 +44,9 @@ def test_the_stack_reader_signs_only_when_told_to(monkeypatch):
 
     b = aws_stack.StackBackend.__new__(aws_stack.StackBackend)
     b._rds, b._db_factory = _Rds(), lambda dsn: seen.append(dsn) or _Db()
-    monkeypatch.setenv("WARDEN_STACK_DB_WRITER_DSN", "postgresql://warden_dev_ro@h/shop")
+    monkeypatch.setenv("WARDEN_STACK_DB_PRIMARY_RO_DSN", "postgresql://warden_dev_ro@h/shop")
     monkeypatch.delenv("WARDEN_STACK_DB_IAM_AUTH", raising=False)
-    b._read_db(aws_stack._Out(), "WARDEN_STACK_DB_WRITER_DSN", "", None)
+    b._read_db(aws_stack._Out(), "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", None)
     monkeypatch.setenv("WARDEN_STACK_DB_IAM_AUTH", "1")
-    b._read_db(aws_stack._Out(), "WARDEN_STACK_DB_WRITER_DSN", "", None)
+    b._read_db(aws_stack._Out(), "WARDEN_STACK_DB_PRIMARY_RO_DSN", "", None)
     assert "password" not in conninfo_to_dict(seen[0]) and conninfo_to_dict(seen[1])["password"].startswith("signed-")

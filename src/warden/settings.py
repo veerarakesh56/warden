@@ -25,14 +25,28 @@ ponytail: loaded once per process; a long-running MCP server needs a restart to 
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 from .environments import names
 
+# Renamed 2026-10-16 so each name says the one grant it carries (naming audit items 6-7): the "admin" DSN was always
+# the least-privilege terminate role's (pg_signal_backend, platforms/db.py), and the Aurora "writer"/"reader" DSNs are
+# read-only logins to the primary and the replica instance - "writer" read as the privilege, not the endpoint. An old
+# name set in the environment is still read for one release, with a WARNING naming the new one (getenv).
+RENAMED = {"WARDEN_DB_ADMIN_DSN": "WARDEN_DB_TERMINATE_DSN",
+           "WARDEN_STACK_DB_WRITER_DSN": "WARDEN_STACK_DB_PRIMARY_RO_DSN",
+           "WARDEN_STACK_DB_READER_DSN": "WARDEN_STACK_DB_REPLICA_RO_DSN"}
+_OLD_NAME = {new: old for old, new in RENAMED.items()}
+# Their Secrets Manager slots keep the old names until terraform/modules/warden-runtime renames them (secrets.tf and
+# iam.tf, owned separately): until then each new name is read from its old slot, so a deployed runtime reads the same
+# secret it read before and its task roles need no change.
+_SLOT = {new: old.lower().removeprefix("warden_").replace("_", "-") for old, new in RENAMED.items()}
+
 LOADABLE = frozenset({
     "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_CHANNEL", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
-    "WARDEN_DB_DSN", "WARDEN_DB_ADMIN_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN",
+    "WARDEN_DB_DSN", "WARDEN_DB_TERMINATE_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_AWS_CLUSTER", "WARDEN_AWS_LOG_GROUP", "WARDEN_AWS_REGION", "WARDEN_MODEL",
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY",
@@ -66,7 +80,7 @@ LOADABLE = frozenset({
 # Loaded only for the commands that use them (audit A-B-L17): a diagnosis run and the MCP server have no use for the
 # terminate role's DSN or the audit key's passphrase, and a process that never holds a secret cannot leak it.
 RESTRICTED: dict[str, frozenset[str]] = {
-    "WARDEN_DB_ADMIN_DSN": frozenset({"worker"}),
+    "WARDEN_DB_TERMINATE_DSN": frozenset({"worker"}),
     "WARDEN_AUDIT_KEY_PASSPHRASE": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
                                               "label"}),
     "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
@@ -106,7 +120,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
 # The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM.
 SECRETS = frozenset({
     "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
-    "WARDEN_DB_DSN", "WARDEN_DB_ADMIN_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN",
+    "WARDEN_DB_DSN", "WARDEN_DB_TERMINATE_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
     "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
@@ -122,12 +136,12 @@ _EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", 
                          "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
-    "read": _EVERY_ZONE | {"WARDEN_DB_DSN", "WARDEN_STACK_DB_WRITER_DSN", "WARDEN_STACK_DB_READER_DSN",
+    "read": _EVERY_ZONE | {"WARDEN_DB_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
                            "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_GRAFANA_READ_TOKEN"},
     "llm": _EVERY_ZONE | {"GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"},
     "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK",
                              "WARDEN_WEBHOOK_URL", "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_GITHUB_TOKEN"},
-    "act": _EVERY_ZONE | {"WARDEN_DB_ADMIN_DSN"},
+    "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
 }
 # The runtime's Lambdas (lambdas.py): the codec, their Temporal key, the audit and the Alertmanager webhook's secrets -
 # what their role may read (terraform/modules/warden-runtime/iam.tf); RESTRICTED narrows it per Lambda.
@@ -141,8 +155,9 @@ PER_ZONE = frozenset({"WARDEN_TEMPORAL_API_KEY"})
 
 def secret_id(env: str, name: str, zone: str | None = None) -> str:
     """`warden/<env>/<name>`: WARDEN_SLACK_WEBHOOK -> warden/<env>/slack-webhook, GEMINI_API_KEY -> .../gemini-api-key;
-    a PER_ZONE name read by one zone's worker gets the zone: warden/<env>/temporal-api-key-read."""
-    slug = name.lower().removeprefix("warden_").replace("_", "-")
+    a PER_ZONE name read by one zone's worker gets the zone: warden/<env>/temporal-api-key-read; a RENAMED name keeps
+    its old slot (_SLOT)."""
+    slug = _SLOT.get(name) or name.lower().removeprefix("warden_").replace("_", "-")
     return f"warden/{names(env).env}/{slug}" + (f"-{zone}" if name in PER_ZONE and zone in ZONE_SECRETS else "")
 
 
@@ -155,7 +170,8 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
         return []
     allowed = LOADABLE if only is None else LOADABLE & only
     loaded = load_from_ssm(env, client=ssm, only=allowed)
-    wanted = sorted(n for n in SECRETS & allowed if n not in os.environ)
+    # A renamed secret set under its old name is a real environment variable too, and wins over the store.
+    wanted = sorted(n for n in SECRETS & allowed if n not in os.environ and _OLD_NAME.get(n, n) not in os.environ)
     if wanted and secrets is None:
         import boto3  # only when an environment is actually named
 
@@ -181,6 +197,19 @@ def load(env: str | None = None, *, only: frozenset[str] | None = None, ssm: Any
                 os.environ[name] = value["SecretString"]
                 loaded.append(name)
     return sorted(loaded)
+
+
+def getenv(name: str) -> str:
+    """The environment's value of `name` - or, for one release, of its pre-2026-10-16 name (RENAMED), with a WARNING
+    that names the new one. "" when neither is set."""
+    value = os.environ.get(name, "")
+    old = _OLD_NAME.get(name)
+    if not value and old and os.environ.get(old):
+        logging.getLogger("warden.settings").warning(
+            "%s is deprecated: set %s instead (renamed 2026-10-16; the old name stops being read in the next release)",
+            old, name)
+        value = os.environ[old]
+    return value
 
 
 def _code(exc: Exception) -> str:

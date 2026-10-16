@@ -28,6 +28,7 @@ import re
 import threading
 from typing import Any
 
+from .. import settings
 from ..database import IDLE_SECS, adapter_for, engine_of
 
 MAX_TERMINATE = int(os.environ.get("WARDEN_DB_TERMINATE_MAX", "20"))
@@ -242,7 +243,7 @@ class DatabasePlatform:
     def __init__(self, *, dsn: str | None = None, engine: str | None = None, conn: Any = None,
                  app_users: list[str] | None = None, max_terminate: int = MAX_TERMINATE,
                  environment: str | None = None) -> None:
-        self._dsn = dsn or os.environ.get("WARDEN_DB_ADMIN_DSN")
+        self._dsn = dsn or settings.getenv("WARDEN_DB_TERMINATE_DSN") or None
         # A database carries no tag WARDEN can read: whoever configures the connection states its environment
         # (P18, register S6). Unset, it is in no environment WARDEN may change.
         self._environment = environment or os.environ.get("WARDEN_DB_ENVIRONMENT") or None
@@ -251,7 +252,7 @@ class DatabasePlatform:
             raise DatabasePlatformError(f"no terminate support for engine {self._engine!r} "
                                         f"(supported: {', '.join(sorted(ENGINES))})")
         if conn is None and not self._dsn:
-            raise DatabasePlatformError("no database: set WARDEN_DB_ADMIN_DSN (the least-privilege terminate role)")
+            raise DatabasePlatformError("no database: set WARDEN_DB_TERMINATE_DSN (the least-privilege terminate role)")
         self._conn = conn
         # One connection, one user at a time: the worker runs activities on several threads, and pymysql and
         # pymssql connections are not thread-safe. One the platform opened itself is dropped after a failure

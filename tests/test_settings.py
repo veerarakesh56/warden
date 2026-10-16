@@ -160,7 +160,7 @@ def test_any_environments_prefix_is_stripped_longest_first():
 def test_a_command_loads_only_the_secrets_it_uses(monkeypatch):
     """Audit A-B-L17: every process loaded every allowed secret - the MCP server and a diagnosis run held the
     terminate role's DSN and the audit key's passphrase they never use."""
-    params = {secret_id("dev", n): "x" for n in ("WARDEN_DB_ADMIN_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
+    params = {secret_id("dev", n): "x" for n in ("WARDEN_DB_TERMINATE_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
                                                  "WARDEN_TEMPORAL_KEY", "WARDEN_SLACK_WEBHOOK")}
     by_id = {secret_id("dev", n): n for n in SECRETS}
     for command, expected in (("run", ["WARDEN_SLACK_WEBHOOK"]),
@@ -181,10 +181,10 @@ def test_a_diagnosis_run_never_loads_the_terminate_roles_dsn(monkeypatch):
     secrets = _FakeSecrets({"warden/dev/db-admin-dsn": "postgresql://terminator@db/x"})
     monkeypatch.setattr(settings, "load", lambda **kw: load("dev", ssm=fake, secrets=secrets, **kw))
     monkeypatch.setenv("WARDEN_ENV", "dev")
-    monkeypatch.delenv("WARDEN_DB_ADMIN_DSN", raising=False)
+    monkeypatch.delenv("WARDEN_DB_TERMINATE_DSN", raising=False)
     monkeypatch.delenv("WARDEN_MODEL", raising=False)
     assert main(["run", "--incident", "inc-001"]) == 0
-    assert os.environ.get("WARDEN_MODEL") == "m-1" and "WARDEN_DB_ADMIN_DSN" not in os.environ
+    assert os.environ.get("WARDEN_MODEL") == "m-1" and "WARDEN_DB_TERMINATE_DSN" not in os.environ
 
 
 def test_the_secrets_are_fetched_at_the_same_time_and_a_failure_of_any_still_raises():

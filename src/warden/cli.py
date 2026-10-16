@@ -686,7 +686,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_worker = sub.add_parser("worker", help="run the workflow worker against the Temporal server")
     p_worker.add_argument("--platform", choices=("none", "k8s", "db", "aws", "all"), default="none",
                           help="what this worker may change, behind a signed approval: none (default - every "
-                               "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_ADMIN_DSN, "
+                               "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_TERMINATE_DSN, "
                                "WARDEN_DB_APP_USERS), or all")
     p_worker.add_argument("--zone", choices=("all", "core", "read", "llm", "notify", "act"), default="all",
                           help="the trust zone this process serves (register S15): core runs the workflows and the "
