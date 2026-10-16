@@ -809,11 +809,17 @@ def test_a_lambda_rollback_targets_the_version_that_served_traffic_not_the_numer
     """Wave 4 rolled checkout back onto the previous fault's broken version twice (fs-01 -> 6,
     fs-02 -> 7) while version 3 had served the traffic for hours."""
     def served(MetricDataQueries, **_):
+        # As CloudWatch answers: per five-minute period. Version 3 served cleanly for hours; version 6, deployed
+        # three hours ago, a few erring calls since (2026-10-16: the evidence reads the same rule as the plan).
+        good = [NOW - timedelta(hours=6) + timedelta(minutes=5 * i) for i in range(36)]
+        bad = [NOW - timedelta(hours=3) + timedelta(minutes=5 * i) for i in range(30)]
         out = []
         for q in MetricDataQueries:
             dims = {d["Name"]: d["Value"] for d in q.get("MetricStat", {}).get("Metric", {}).get("Dimensions", [])}
-            v = dims.get("ExecutedVersion")
-            out.append({"Id": q["Id"], "Values": [900.0] if v == "3" else [4.0] if v == "6" else []})
+            v, errors = dims.get("ExecutedVersion"), q["MetricStat"]["Metric"]["MetricName"] == "Errors"
+            stamps = good if v == "3" else bad if v == "6" else []
+            value = (0.0 if v == "3" else 1.0) if errors else (25.0 if v == "3" else 4.0)
+            out.append({"Id": q["Id"], "Timestamps": stamps, "Values": [value] * len(stamps)})
         return {"MetricDataResults": out}
 
     def t(delta):

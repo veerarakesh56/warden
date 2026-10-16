@@ -80,6 +80,55 @@ MAX_CODE_FRAMES = 3  # distinct tracebacks per function turned into CODE/SOURCE 
 # version was published, among the newest SERVED_CANDIDATES older versions (_served_before).
 SERVED_LOOKBACK = timedelta(hours=6)
 SERVED_CANDIDATES = 10
+# Register C8: a version is known-good when it served KNOWN_GOOD of unbroken SERVED_PERIOD periods with invocations
+# and no error. One rule for the evidence (the report's "previous") and the plan (the version moved back to).
+KNOWN_GOOD = timedelta(minutes=30)
+SERVED_PERIOD = 300  # seconds
+
+
+def served_queries(fn: str, alias: str, cands: list[str]) -> list[dict]:
+    """GetMetricData queries: each candidate version's invocations (v<i>) and errors (e<i>) on the alias."""
+    def spec(prefix: str, metric: str) -> list[dict]:
+        return [{"Id": f"{prefix}{i}", "ReturnData": True, "MetricStat": {
+            "Metric": {"Namespace": "AWS/Lambda", "MetricName": metric, "Dimensions": [
+                {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:{alias}"},
+                {"Name": "ExecutedVersion", "Value": v}]}, "Period": SERVED_PERIOD, "Stat": "Sum"}}
+                for i, v in enumerate(cands)]
+    return spec("v", "Invocations") + spec("e", "Errors")
+
+
+def _stamp(t: Any) -> datetime | None:
+    if isinstance(t, datetime):
+        return t if t.tzinfo else t.replace(tzinfo=UTC)
+    try:
+        return datetime.fromisoformat(str(t))
+    except ValueError:
+        return None
+
+
+def last_known_good(results: list[dict], cands: list[str]) -> str:
+    """Of `cands`, the version whose latest known-good stretch ended latest - the state just before the change - or ""
+    when none was known-good. Not the one that served most (live, 2026-10-16, fs-01: the broken version 4 had served
+    3.5 erring hours, the good version 3 two clean hours up to the change) and not the one that served last (Wave 4,
+    2026-09-26: a broken version served a few calls after the good one's hours)."""
+    series: dict[tuple[str, str], dict[datetime, float]] = {}
+    for r in results:
+        rid = str(r.get("Id", ""))
+        if rid[:1] in ("v", "e") and rid[1:].isdigit() and int(rid[1:]) < len(cands):
+            series[(rid[0], cands[int(rid[1:])])] = {
+                s: float(n) for t, n in zip(r.get("Timestamps") or [], r.get("Values") or [], strict=False)
+                if (s := _stamp(t)) is not None}
+    ended: dict[str, datetime] = {}
+    for v in cands:
+        calls, errors = series.get(("v", v), {}), series.get(("e", v), {})
+        good = sorted(t for t, n in calls.items() if n > 0 and not errors.get(t))
+        start = 0
+        for i in range(1, len(good) + 1):
+            if i == len(good) or (good[i] - good[i - 1]).total_seconds() != SERVED_PERIOD:
+                if (i - start) * SERVED_PERIOD >= KNOWN_GOOD.total_seconds():
+                    ended[v] = good[i - 1]
+                start = i
+    return max(ended, key=lambda v: (ended[v], int(v))) if ended else ""
 
 _TRACEBACK = "Traceback (most recent call last):"
 _FRAME = re.compile(r'File "([^"]+)", line (\d+), in (\S+)')
@@ -980,8 +1029,8 @@ class StackBackend:
                                  "before the alert")
 
     def _served_before(self, fn: str, candidates: list[str], before: datetime) -> str:
-        """The version that served the most `live` traffic in the SERVED_LOOKBACK before `before`
-        (the current version's publish time), or "" when no candidate shows any.
+        """The version `live` last served while known-good in the SERVED_LOOKBACK before `before` (the current
+        version's publish time), or "" when none was (last_known_good: the plan reads the same rule).
 
         ⛔ Not "the numerically previous version". A version that was deployed and rolled back is
         still the newest older one: Wave 4 (2026-09-26) rolled checkout back onto the previous
@@ -991,20 +1040,12 @@ class StackBackend:
         cands = candidates[-SERVED_CANDIDATES:]
         if not cands:
             return ""
-        specs = [{"Id": f"v{i}", "ReturnData": True, "MetricStat": {
-            "Metric": {"Namespace": "AWS/Lambda", "MetricName": "Invocations", "Dimensions": [
-                {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:live"},
-                {"Name": "ExecutedVersion", "Value": v}]},
-            "Period": 300, "Stat": "Sum"}} for i, v in enumerate(cands)]
         try:
-            resp = self._cw.get_metric_data(MetricDataQueries=specs, StartTime=before - SERVED_LOOKBACK,
-                                            EndTime=before)
+            resp = self._cw.get_metric_data(MetricDataQueries=served_queries(fn, "live", cands),
+                                            StartTime=before - SERVED_LOOKBACK, EndTime=before)
         except Exception:  # noqa: BLE001 - no traffic data: the caller falls back, and says so
             return ""
-        served = {cands[int(r["Id"][1:])]: sum(r.get("Values") or [])
-                  for r in resp.get("MetricDataResults") or [] if str(r.get("Id", "")).startswith("v")}
-        best, calls = max(served.items(), key=lambda kv: (kv[1], int(kv[0])), default=("", 0.0))
-        return best if calls > 0 else ""
+        return last_known_good(resp.get("MetricDataResults") or [], cands)
 
     def _in_window(self, alert: Alert, at: datetime | None) -> bool:
         return deploy_in_window(alert, at, RECENT_DEPLOY_WINDOW)

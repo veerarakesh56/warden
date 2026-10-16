@@ -40,7 +40,6 @@ rollback). A pause, a shift and a freeze end "mitigated": the page stays open (c
 
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import re
@@ -50,7 +49,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .. import catalog
-from ..aws_stack import SERVED_LOOKBACK
+from ..aws_stack import KNOWN_GOOD, SERVED_LOOKBACK, last_known_good, served_queries
 
 ENV_TAG = os.environ.get("WARDEN_AWS_ENV_TAG", "Environment")
 HEALTH_WINDOW = timedelta(minutes=5)
@@ -64,10 +63,8 @@ SETTLE = timedelta(seconds=30)
 METRIC_SETTLE_MINUTES = 8
 METRIC_JUDGED = frozenset({"lambda_move_alias", "lambda_set_reserved_concurrency", "dynamodb_raise_capacity",
                            "apigw_raise_stage_throttle"})
-# Register C8: a revision WARDEN restores must have been healthy this long when it last served - known-good, not
-# merely older. A version that served for a minute before being replaced is no fallback.
-KNOWN_GOOD = timedelta(minutes=30)
-_PERIOD = 300  # CloudWatch's period for the served-version reads, seconds
+# Register C8's KNOWN_GOOD - a revision WARDEN restores must have been healthy this long when it last served - is
+# aws_stack's: the evidence (the report's "previous") and the plan read one rule (last_known_good).
 # G9-D: the tag on a Lambda function or an ECS service naming the pipeline stage that deploys it: `<pipeline>/<stage>`.
 PIPELINE_TAG = "warden:pipeline"
 _PIPELINE_NAME = re.compile(r"[A-Za-z0-9.@_-]{1,100}")  # CodePipeline's own pattern for both names
@@ -765,37 +762,20 @@ class AwsPlatform:
         raise AwsPlatformError(f"{fn} has more versions than WARDEN reads; the newest were not read")
 
     def _served_before(self, fn: str, alias: str, candidates: list[str], before: datetime | None) -> str:
-        """The version that served the alias's traffic most in the lookback before the current version was
-        published - Lambda keeps no alias history; its ExecutedVersion metric does (Wave 4, fs-01/fs-02) - and only
-        if it was known-good there: KNOWN_GOOD of unbroken five-minute periods with invocations and no error (C8)."""
+        """The version the alias last served while known-good, in the lookback before the current version was
+        published - Lambda keeps no alias history; its ExecutedVersion metric does (Wave 4, fs-01/fs-02). Known-good:
+        KNOWN_GOOD of unbroken five-minute periods with invocations and no error (C8); of those, the one whose good
+        stretch ended latest - the state just before the change.
+
+        Live, 2026-10-16 (fs-01): this took the version that served the MOST, then refused it unless it was good. The
+        broken version 4 had served 3.5 erroring hours, the good version 3 two clean hours right up to the change -
+        so 4 was taken, refused, and no plan was made at all."""
         if not candidates or before is None:
             return ""
         cands = candidates[-20:]
-        specs = [{"Id": f"v{i}", "ReturnData": True, "MetricStat": {
-            "Metric": {"Namespace": "AWS/Lambda", "MetricName": "Invocations", "Dimensions": [
-                {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:{alias}"},
-                {"Name": "ExecutedVersion", "Value": v}]}, "Period": _PERIOD, "Stat": "Sum"}} for i, v in enumerate(cands)]
-        specs += [{"Id": f"e{i}", "ReturnData": True, "MetricStat": {
-            "Metric": {"Namespace": "AWS/Lambda", "MetricName": "Errors", "Dimensions": [
-                {"Name": "FunctionName", "Value": fn}, {"Name": "Resource", "Value": f"{fn}:{alias}"},
-                {"Name": "ExecutedVersion", "Value": v}]}, "Period": _PERIOD, "Stat": "Sum"}} for i, v in enumerate(cands)]
-        resp = self._read("cloudwatch").get_metric_data(MetricDataQueries=specs, StartTime=before - SERVED_LOOKBACK,
-                                                        EndTime=before)
-        results = resp.get("MetricDataResults") or []
-        series = {(r["Id"][0], cands[int(r["Id"][1:])]): dict(zip(r.get("Timestamps") or [], r.get("Values") or [],
-                                                                  strict=False))
-                  for r in results if str(r.get("Id", ""))[:1] in ("v", "e")}
-        served = {v: sum(series.get(("v", v), {}).values()) for v in cands}
-        best, calls = max(served.items(), key=lambda kv: (kv[1], int(kv[0])), default=("", 0.0))
-        if calls <= 0:
-            return ""
-        calls_at, errors_at = series.get(("v", best), {}), series.get(("e", best), {})
-        good = sorted(_when(t) for t, n in calls_at.items() if n > 0 and not errors_at.get(t) and _when(t))
-        run = longest = 1 if good else 0
-        for a, b in itertools.pairwise(good):
-            run = run + 1 if (b - a).total_seconds() == _PERIOD else 1
-            longest = max(longest, run)
-        return best if longest * _PERIOD >= KNOWN_GOOD.total_seconds() else ""
+        resp = self._read("cloudwatch").get_metric_data(MetricDataQueries=served_queries(fn, alias, cands),
+                                                        StartTime=before - SERVED_LOOKBACK, EndTime=before)
+        return last_known_good(resp.get("MetricDataResults") or [], cands)
 
     def _move_alias(self, p, snapshot, now, who, back) -> str:
         self._expect(now, snapshot, ("function", "alias"), f"lambda {p['function']}:{p['alias']}")
