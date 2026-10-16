@@ -1,0 +1,214 @@
+<mxfile host="drawio" agent="WARDEN docs/diagrams generator" version="31.5.2">
+  <diagram name="Delivery" id="delivery-1">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1820" pageHeight="1240" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="logo" value="" style="shape=image;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJXQVJERU4iPgogIDxwYXRoIGQ9Ik0zMiA1OC41IDUuNCAzOS4yIDE1LjUgNy44aDMzbDEwLjEgMzEuNHoiIGZpbGw9IiMxMkM0ODMiLz4KICA8cGF0aCBkPSJNMTUuNSA3LjhoMzNsLTEwIDEzLjhoLTEzeiIgZmlsbD0iIzdERjJDNCIvPgogIDxwYXRoIGQ9Ik00OC41IDcuOGwxMC4xIDMxLjQtMTYuMS01LjMtNC0xMi4zeiIgZmlsbD0iIzNEQjlGNSIvPgogIDxwYXRoIGQ9Ik01OC42IDM5LjIgMzIgNTguNVY0MS41bDEwLjUtNy42eiIgZmlsbD0iIzFBOEZFMyIvPgogIDxwYXRoIGQ9Ik0zMiA1OC41IDUuNCAzOS4ybDE2LjEtNS4zTDMyIDQxLjV6IiBmaWxsPSIjMEE5QTZBIi8+CiAgPHBhdGggZD0iTTUuNCAzOS4yIDE1LjUgNy44bDEwIDEzLjgtNCAxMi4zeiIgZmlsbD0iIzEyQzQ4MyIvPgogIDxwYXRoIGQ9Ik0zMiA0MS41IDIxLjUgMzMuOWw0LTEyLjNoMTNsNCAxMi4zeiIgZmlsbD0iI0U4RkZGNSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzEiIHI9IjQiIGZpbGw9IiNGRjdFNkIiLz4KPC9zdmc+Cg==;imageAspect=1;aspect=fixed;verticalLabelPosition=bottom;html=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="22" width="54" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="&lt;b&gt;WARDEN · how changes are checked and delivered&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#0B2530;fontSize=24;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="98" y="24" width="1100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Branches main → dev → prod. main runs CI only; each environment deploys only from the branch of its name, through GitHub OIDC (no stored AWS keys)." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=13;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="98" y="56" width="1300" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="aws" value="AWS account · ap-south-2" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#33424F;fontSize=13;rounded=1;arcSize=2;fillColor=none;strokeColor=#7B8794;dashed=1;dashPattern=8 5;strokeWidth=1.5;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;fontStyle=1;container=0;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="1390" y="96" width="400" height="1100" as="geometry" />
+        </mxCell>
+        <mxCell id="r-main" value="main · CI only" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=13;startSize=30;fillColor=#0B2530;swimlaneFillColor=#FFFFFF;strokeColor=#0B2530;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;horizontal=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="100" width="1330" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="pr" value="&lt;b style='font-size:12px'&gt;Pull request&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;into main; actions pinned&lt;br&gt;to a commit SHA&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="150" width="170" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="ci-tool" value="&lt;b style='font-size:12px'&gt;CI · tool (ci-tool.yml)&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;security: pip-audit · bandit · zizmor&lt;br&gt;check: ruff · publishable scan · pytest ·&lt;br&gt;eval gate · demo verdicts&lt;br&gt;docker · k8s on k3d · db (5 engines) · terraform&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="290" y="120" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ci-ia" value="&lt;b style='font-size:12px'&gt;CI · infra · CI · apps&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;path-filtered validation of each part&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="290" y="252" width="300" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="scan" value="&lt;b style='font-size:12px'&gt;Workflow scan (scan-workflows.yml)&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;zizmor on every change, every workflow&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="290" y="320" width="300" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="codeql" value="&lt;b style='font-size:12px'&gt;CodeQL&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;GitHub default setup: Python&lt;br&gt;and the workflows&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="620" y="120" width="270" height="74" as="geometry" />
+        </mxCell>
+        <mxCell id="sonar" value="&lt;b style='font-size:12px'&gt;SonarCloud&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;Code Analysis on each push&lt;br&gt;(GitHub app)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="620" y="206" width="270" height="74" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbit" value="&lt;b style='font-size:12px'&gt;CodeRabbit&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;advisory reviews only: never&lt;br&gt;approves, merges or pushes&lt;br&gt;(.coderabbit.yaml)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="620" y="292" width="270" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="main" value="&lt;b style='font-size:12px'&gt;main&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;ruleset: no deletion, no force push&lt;br&gt;deploys nothing (owner, 2026-10-16)&lt;br&gt;promoted to dev by fast-forward&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F6FFFB;strokeColor=#12C483;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="930" y="180" width="390" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="r-dev" value="dev · deploys dev" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#062F45;fontSize=13;startSize=30;fillColor=#3DB9F5;swimlaneFillColor=#FFFFFF;strokeColor=#3DB9F5;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;horizontal=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="410" width="1330" height="330" as="geometry" />
+        </mxCell>
+        <mxCell id="omd" value="&lt;b style='font-size:12px'&gt;on-merge-dev.yml&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;on push to dev:&lt;br&gt;what changed?&lt;br&gt;infra (terraform/fullstack)&lt;br&gt;apps (code, k8s, helm)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="470" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="promo-d" value="&lt;b style='font-size:12px'&gt;Every deploy job first&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;checks the commit was&lt;br&gt;promoted from its upstream&lt;br&gt;branch (main for dev)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F6FFFB;strokeColor=#12C483;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="600" width="200" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="plan-d" value="&lt;b style='font-size:12px'&gt;infra: plan only&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;_infra-validate → _infra-deploy plan&lt;br&gt;Helios checks the plan (helios_gate.py)&lt;br&gt;the plan and its sha256 are&lt;br&gt;kept for a reviewer&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF9E8;strokeColor=#E8A33D;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="320" y="440" width="290" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="apply-d" value="&lt;b style='font-size:12px'&gt;infra: apply a reviewed plan&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;Deploy · dev (deploy-dev.yml), by hand:&lt;br&gt;apply-plan with the run id + sha256,&lt;br&gt;Helios on it again, apply,&lt;br&gt;Helios on the applied state&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF9E8;strokeColor=#E8A33D;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="650" y="440" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="apps-d" value="&lt;b style='font-size:12px'&gt;apps: check, then deploy&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;_apps-check → _apps-deploy: Lambdas · ECS · Kubernetes on EKS (with the Datadog agent)&lt;br&gt;only when the infra did not change in the same push - otherwise after its plan is applied&lt;br&gt;Deploy · dev also runs any part by hand: plan · apply · apply-plan · destroy · apps&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="320" y="590" width="630" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ff" value="&lt;b style='font-size:12px'&gt;dev → prod&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;by pull request: dev merged&lt;br&gt;into prod&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F6FFFB;strokeColor=#12C483;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="990" y="636" width="330" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="r-prod" value="prod · deploys prod" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#3D0E06;fontSize=13;startSize=30;fillColor=#FF7E6B;swimlaneFillColor=#FFFFFF;strokeColor=#FF7E6B;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;horizontal=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="760" width="1330" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="omp" value="&lt;b style='font-size:12px'&gt;on-merge-prod.yml&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;on push to prod:&lt;br&gt;the same jobs, with&lt;br&gt;environment prod&lt;br&gt;and upstream dev&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="800" width="200" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="plan-p" value="&lt;b style='font-size:12px'&gt;infra: plan, Helios&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;then apply a reviewed plan&lt;br&gt;(Deploy · prod, by hand)&lt;br&gt;apps: check, then deploy&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF9E8;strokeColor=#E8A33D;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="320" y="800" width="290" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="rev-p" value="&lt;b style='font-size:12px'&gt;Required reviewer&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;every prod job waits for the owner&lt;br&gt;(GitHub environment prod)&lt;br&gt;WARDEN never auto-remediates prod&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF7F5;strokeColor=#FF7E6B;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="650" y="800" width="300" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="r-ops" value="ops · WARDEN itself" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=13;startSize=30;fillColor=#0B2530;swimlaneFillColor=#FFFFFF;strokeColor=#0B2530;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;horizontal=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="990" width="1330" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="rt-img" value="&lt;b style='font-size:12px'&gt;runtime.yml · image&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;by hand, from dev only; environment ops&lt;br&gt;(required reviewer)&lt;br&gt;build Dockerfile.runtime with Prompt Guard 2&lt;br&gt;weights · push to ECR by SHA&lt;br&gt;cosign keyless sign + build attestation&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="1030" width="340" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="rt-dep" value="&lt;b style='font-size:12px'&gt;runtime.yml · deploy&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;verify the signature and provenance first&lt;br&gt;terraform plan / apply terraform/runtime with that digest&lt;br&gt;warden-ops-migrate: the audit's schema and writer login&lt;br&gt;every zone service runs the image just built&lt;br&gt;restart: a fresh deployment after a secret changes&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="460" y="1030" width="490" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="role-dev" value="&lt;b style='font-size:12px'&gt;warden-dev-deploy&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;trusts only this repository's OIDC token:&lt;br&gt;environment dev · ref refs/heads/dev&lt;br&gt;_infra-deploy / _apps-deploy at dev&lt;br&gt;boundary WardenEnvBoundary-dev + deploy-guard&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F4F6F8;strokeColor=#7B8794;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="440" width="360" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="stack-dev" value="&lt;b style='font-size:12px'&gt;dev stack warden-dev-*&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;terraform/fullstack: EKS, ECS, Lambda,&lt;br&gt;RDS / Aurora, DynamoDB, SQS, ElastiCache...&lt;br&gt;faults are injected only here&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#EAF7FE;strokeColor=#3DB9F5;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="580" width="360" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="role-prod" value="&lt;b style='font-size:12px'&gt;warden-prod-deploy&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;environment prod · ref refs/heads/prod&lt;br&gt;boundary WardenEnvBoundary-prod + deploy-guard&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F4F6F8;strokeColor=#7B8794;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="790" width="360" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="stack-prod" value="&lt;b style='font-size:12px'&gt;prod stack warden-prod-*&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;same shape as dev&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF7F5;strokeColor=#FF7E6B;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="892" width="360" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="role-ops" value="&lt;b style='font-size:12px'&gt;warden-ops-deploy&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;environment ops · ref refs/heads/dev · runtime.yml&lt;br&gt;boundary WardenEnvBoundary-ops + deploy-guard&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F4F6F8;strokeColor=#7B8794;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="1020" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="stack-ops" value="&lt;b style='font-size:12px'&gt;WARDEN runtime warden-ops-*&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;see architecture-detailed&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F6FFFB;strokeColor=#12C483;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="1112" width="360" height="66" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.6;entryDx=0;entryDy=0;" edge="1" parent="1" source="pr" target="ci-tool">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.6;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pr" target="ci-ia">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="270" y="204" />
+              <mxPoint x="270" y="280" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c3" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="pr" target="scan">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="262" y="231" />
+              <mxPoint x="262" y="348" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c4" value="merge" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.1;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="pr" target="main">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="165" y="384" />
+              <mxPoint x="969" y="384" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c5" value="fast-forward" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#12C483;strokeWidth=2;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="main" target="omd">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1125" y="400" />
+              <mxPoint x="180" y="400" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c6" value="infra changed" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="omd" target="plan-d">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="503" />
+              <mxPoint x="300" y="500" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c7" value="reviewed" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plan-d" target="apply-d">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="apps only" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="omd" target="apps-d">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="558" />
+              <mxPoint x="300" y="626" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c9" value="OIDC" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="apply-d" target="role-dev">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c10" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.15;exitDx=0;exitDy=0;entryX=0;entryY=0.85;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="apps-d" target="role-dev">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1370" y="608" />
+              <mxPoint x="1370" y="542" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c11" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="role-dev" target="stack-dev">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c12" value="merge" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#FF7E6B;strokeWidth=2;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="ff" target="omp">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1155" y="748" />
+              <mxPoint x="180" y="748" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c13" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="omp" target="plan-p">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c14" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="plan-p" target="rev-p">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" value="OIDC" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="rev-p" target="role-prod">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1180" y="870" />
+              <mxPoint x="1180" y="835" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c16" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="role-prod" target="stack-prod">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c17" value="digest" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="rt-img" target="rt-dep">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" value="OIDC" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="rt-dep" target="role-ops">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c19" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="role-ops" target="stack-ops">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="&lt;span style='font-size:10px;color:#52606D'&gt;Drawn from origin/main de1cbcd (2026-10-16): .github/workflows/*.yml, iam/&amp;lt;env&amp;gt;/trust.json, .coderabbit.yaml, scripts/helios_gate.py; CodeQL and SonarCloud are GitHub-side settings (their check runs on main's head commit). Orange: Helios gate. Dashed: OIDC role assumption.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1206" width="1760" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

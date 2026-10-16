@@ -1,0 +1,353 @@
+<mxfile host="drawio" agent="WARDEN docs/diagrams generator" version="31.5.2">
+  <diagram name="Incident lifecycle" id="incident-flow-1">
+    <mxGraphModel dx="0" dy="0" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1840" pageHeight="1800" math="0" shadow="0" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="logo" value="" style="shape=image;image=data:image/svg+xml,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgcm9sZT0iaW1nIiBhcmlhLWxhYmVsPSJXQVJERU4iPgogIDxwYXRoIGQ9Ik0zMiA1OC41IDUuNCAzOS4yIDE1LjUgNy44aDMzbDEwLjEgMzEuNHoiIGZpbGw9IiMxMkM0ODMiLz4KICA8cGF0aCBkPSJNMTUuNSA3LjhoMzNsLTEwIDEzLjhoLTEzeiIgZmlsbD0iIzdERjJDNCIvPgogIDxwYXRoIGQ9Ik00OC41IDcuOGwxMC4xIDMxLjQtMTYuMS01LjMtNC0xMi4zeiIgZmlsbD0iIzNEQjlGNSIvPgogIDxwYXRoIGQ9Ik01OC42IDM5LjIgMzIgNTguNVY0MS41bDEwLjUtNy42eiIgZmlsbD0iIzFBOEZFMyIvPgogIDxwYXRoIGQ9Ik0zMiA1OC41IDUuNCAzOS4ybDE2LjEtNS4zTDMyIDQxLjV6IiBmaWxsPSIjMEE5QTZBIi8+CiAgPHBhdGggZD0iTTUuNCAzOS4yIDE1LjUgNy44bDEwIDEzLjgtNCAxMi4zeiIgZmlsbD0iIzEyQzQ4MyIvPgogIDxwYXRoIGQ9Ik0zMiA0MS41IDIxLjUgMzMuOWw0LTEyLjNoMTNsNCAxMi4zeiIgZmlsbD0iI0U4RkZGNSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzEiIHI9IjQiIGZpbGw9IiNGRjdFNkIiLz4KPC9zdmc+Cg==;imageAspect=1;aspect=fixed;verticalLabelPosition=bottom;html=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="22" width="54" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="&lt;b&gt;WARDEN · one incident, end to end&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#0B2530;fontSize=24;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="98" y="24" width="1100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Time runs down the page. Each column is where a step runs: a trust zone (its own ECS service, role and secrets), the front door, or a person. Workflows: src/warden/workflows.py." style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#52606D;fontSize=13;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="98" y="56" width="1300" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-people" value="People · Slack" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#3D0E06;fontSize=13;startSize=30;fillColor=#FF7E6B;swimlaneFillColor=#FFF7F5;strokeColor=#FF7E6B;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="100" width="194" height="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-front" value="Front door (Lambdas)" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#3D2A06;fontSize=13;startSize=30;fillColor=#E8A33D;swimlaneFillColor=#FFF9E8;strokeColor=#E8A33D;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">
+          <mxGeometry x="230" y="100" width="194" height="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-read" value="read zone" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#062F45;fontSize=13;startSize=30;fillColor=#3DB9F5;swimlaneFillColor=#EAF7FE;strokeColor=#3DB9F5;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">
+          <mxGeometry x="430" y="100" width="194" height="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-llm" value="llm zone" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=13;startSize=30;fillColor=#1A8FE3;swimlaneFillColor=#E8F2FC;strokeColor=#1A8FE3;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">
+          <mxGeometry x="630" y="100" width="194" height="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-core" value="core zone" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=13;startSize=30;fillColor=#12C483;swimlaneFillColor=#E6F9F1;strokeColor=#12C483;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">
+          <mxGeometry x="830" y="100" width="194" height="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-notify" value="notify zone" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#06392A;fontSize=13;startSize=30;fillColor=#7DF2C4;swimlaneFillColor=#EFFDF7;strokeColor=#7DF2C4;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="100" width="194" height="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="lane-act" value="act zone" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#3D0E06;fontSize=13;startSize=30;fillColor=#FF7E6B;swimlaneFillColor=#FFF0ED;strokeColor=#FF7E6B;fontStyle=1;rounded=1;arcSize=2;collapsible=0;swimlaneLine=0;align=center;spacingLeft=0;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="100" width="194" height="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="&lt;b style='font-size:12px'&gt;Alarm → intake&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;EventBridge → Lambda&lt;br&gt;warden-ops-alarm:&lt;br&gt;dedupe by fingerprint,&lt;br&gt;flapping and storms only&lt;br&gt;escalate, open-incident cap&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="239" y="150" width="176" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="a1-s" value="&lt;b&gt;S1&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="381" y="141" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="&lt;b style='font-size:12px'&gt;IncidentWorkflow&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;id inc-&amp;lt;id&amp;gt; in Temporal&lt;br&gt;(same alarm twice = one&lt;br&gt;incident); waits for the&lt;br&gt;logs to arrive&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="839" y="150" width="176" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="&lt;b style='font-size:12px'&gt;prepare: gather&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;assumes warden-&amp;lt;env&amp;gt;-&lt;br&gt;platform-reader, 15 min,&lt;br&gt;SourceIdentity inc-&amp;lt;id&amp;gt;&lt;br&gt;logs, metrics, deploys, changes&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="439" y="290" width="176" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="a3-s" value="&lt;b&gt;S2&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="581" y="281" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="&lt;b style='font-size:12px'&gt;redact&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;mask identifiers and secrets,&lt;br&gt;then prove none survived;&lt;br&gt;the map never leaves&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="439" y="404" width="176" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="a4-s" value="&lt;b&gt;S3&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="581" y="395" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" value="&lt;b style='font-size:12px'&gt;tripwire · quarantine&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;Prompt Guard 2 scans every&lt;br&gt;untrusted line; the text&lt;br&gt;becomes typed facts&lt;br&gt;with evidence ids&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="439" y="508" width="176" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="a5-s" value="&lt;b&gt;S4&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="581" y="499" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a6" value="&lt;b style='font-size:12px'&gt;diagnose (the model)&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;Claude Sonnet 5.5 sees&lt;br&gt;redacted facts only:&lt;br&gt;hypothesis + citations +&lt;br&gt;ONE action from a closed set&lt;br&gt;≤ 6 calls · US$0.25&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="639" y="632" width="176" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="a6-s" value="&lt;b&gt;S5&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="781" y="623" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a6b" value="&lt;b style='font-size:12px'&gt;investigate&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;≤ 2 rounds: read what&lt;br&gt;trusted evidence names,&lt;br&gt;then diagnose again&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#F7FBFE;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="439" y="643" width="176" height="84" as="geometry" />
+        </mxCell>
+        <mxCell id="a7" value="&lt;b style='font-size:12px'&gt;verify (no model)&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;the policies: grounding,&lt;br&gt;allow-list, blast radius,&lt;br&gt;self-target, injection...&lt;br&gt;+ one repair round&lt;br&gt;+ a second opinion&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="839" y="772" width="176" height="118" as="geometry" />
+        </mxCell>
+        <mxCell id="a7-s" value="&lt;b&gt;S6&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="981" y="763" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a9" value="&lt;b style='font-size:12px'&gt;plan the fix&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;plan_fix · resolve_plan&lt;br&gt;from live state: exact&lt;br&gt;plan, plan hash; one open&lt;br&gt;plan per resource&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="439" y="920" width="176" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="a9-s" value="&lt;b&gt;S7&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="581" y="911" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a10" value="&lt;b style='font-size:12px'&gt;gate&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;bounds · cool-down&lt;br&gt;kill switch · freezes&lt;br&gt;approval-fatigue cap&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="839" y="920" width="176" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="a10-s" value="&lt;b&gt;S8&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="981" y="911" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a8" value="&lt;b style='font-size:12px'&gt;one Slack message&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;in the incident environment's&lt;br&gt;own alerts channel, through&lt;br&gt;the outbound gate; Review&lt;br&gt;button when a plan opened&lt;br&gt;(else the report is the end)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1039" y="1048" width="176" height="108" as="geometry" />
+        </mxCell>
+        <mxCell id="a8-s" value="&lt;b&gt;S9&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1181" y="1039" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a11" value="&lt;b style='font-size:12px'&gt;Approver&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;Review → approval page&lt;br&gt;Sign in with Slack, type&lt;br&gt;the target, passkey signs&lt;br&gt;the exact plan hash&lt;br&gt;(or deny; it expires)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="39" y="1176" width="176" height="118" as="geometry" />
+        </mxCell>
+        <mxCell id="a11-s" value="&lt;b&gt;S10&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="181" y="1167" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a12" value="&lt;b style='font-size:12px'&gt;approval Lambda&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;warden-ops-approval&lt;br&gt;signals approve_passkey&lt;br&gt;to the RemediationWorkflow&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="239" y="1176" width="176" height="118" as="geometry" />
+        </mxCell>
+        <mxCell id="a13" value="&lt;b style='font-size:12px'&gt;check_passkey&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;approver on the list,&lt;br&gt;signature over THIS plan,&lt;br&gt;enough approvers for&lt;br&gt;the tier&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="839" y="1176" width="176" height="118" as="geometry" />
+        </mxCell>
+        <mxCell id="a14" value="&lt;b style='font-size:12px'&gt;precheck&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;read the target again:&lt;br&gt;if it drifted, a new plan&lt;br&gt;goes to the approvers&lt;br&gt;(at most 2)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="439" y="1312" width="176" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="a14-s" value="&lt;b&gt;S11&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="581" y="1303" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a15" value="&lt;b style='font-size:12px'&gt;apply ONCE&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;re-reads approvals, precheck,&lt;br&gt;kill switch, freezes from&lt;br&gt;the audit · actor session&lt;br&gt;≤ 900 s, exact ARNs only&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF7F5;strokeColor=#FF7E6B;verticalAlign=middle;align=center;spacing=6;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="1239" y="1312" width="176" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="a15-s" value="&lt;b&gt;S12&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1381" y="1303" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a20" value="&lt;b style='font-size:12px'&gt;actor-use witness&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;every AssumeRole of an&lt;br&gt;actor role, from CloudTrail,&lt;br&gt;checked against the audit;&lt;br&gt;unapproved → page&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="239" y="1312" width="176" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="a20-s" value="&lt;b&gt;S13&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="381" y="1303" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="a16" value="&lt;b style='font-size:12px'&gt;check_success&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;every 30 s; 3 healthy in&lt;br&gt;a row; alarm again = not&lt;br&gt;recovered; re-checks at&lt;br&gt;+15 and +60 min&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="439" y="1452" width="176" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="a17" value="&lt;b style='font-size:12px'&gt;rollback&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;if it did not recover;&lt;br&gt;a failed apply or rollback&lt;br&gt;turns the kill switch on&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFF7F5;strokeColor=#FF7E6B;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1239" y="1586" width="176" height="96" as="geometry" />
+        </mxCell>
+        <mxCell id="a18" value="&lt;b style='font-size:12px'&gt;finish&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;how it ended, in Slack&lt;br&gt;and on the records page&lt;br&gt;(change record if set)&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="1039" y="1586" width="176" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="a19" value="&lt;b style='font-size:12px'&gt;signed record&lt;/b&gt;&lt;br&gt;&lt;span style='font-size:11px;color:#52606D'&gt;every step on the hash&lt;br&gt;chain; checkpoints signed&lt;br&gt;by KMS Ed25519, anchored&lt;br&gt;in S3 Object Lock&lt;/span&gt;" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;rounded=1;arcSize=10;fillColor=#FFFFFF;strokeColor=#9AA5B1;verticalAlign=middle;align=center;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="839" y="1586" width="176" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="a19-s" value="&lt;b&gt;S14&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=#FFFFFF;strokeWidth=2;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="981" y="1577" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="start or signal" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="a1" target="a2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="a2" target="a3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="927" y="262" />
+              <mxPoint x="626" y="262" />
+              <mxPoint x="626" y="318" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c3" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a3" target="a4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a4" target="a5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c5" value="facts only" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a5" target="a6">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="727" y="580" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c6" value="needs more" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0;exitY=0.4;exitDx=0;exitDy=0;entryX=1;entryY=0.4;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="a6" target="a6b">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c7" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.8;exitDx=0;exitDy=0;entryX=0;entryY=0.696;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="a6b" target="a6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c8" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" edge="1" parent="1" source="a6" target="a7">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="822" y="688" />
+              <mxPoint x="822" y="807.4" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c9" value="a fix to approve" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a7" target="a9">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="927" y="900" />
+              <mxPoint x="527" y="900" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c10" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="a9" target="a10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c11" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a10" target="a8">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1127" y="968" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c12" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;dashed=1;" edge="1" parent="1" source="a7" target="a8">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1026" y="860.5" />
+              <mxPoint x="1026" y="1074" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c13" value="Review" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a8" target="a11">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1127" y="1160" />
+              <mxPoint x="127" y="1160" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c14" value="passkey" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="a11" target="a12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c15" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="a12" target="a13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c16" value="approved" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a13" target="a14">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="927" y="1296" />
+              <mxPoint x="527" y="1296" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c17" value="clean" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#FF7E6B;strokeWidth=2;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.268;entryDx=0;entryDy=0;" edge="1" parent="1" source="a14" target="a15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c18" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a15" target="a16">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1327" y="1436" />
+              <mxPoint x="527" y="1436" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c19" value="not recovered" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#FF7E6B;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.85;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a16" target="a17">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1327" y="1540" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c20" value="recovered" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="a16" target="a18">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1127" y="1483" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="c21" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="a17" target="a18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="c22" value="" style="html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=11;edgeStyle=orthogonalEdgeStyle;rounded=1;jettySize=auto;orthogonalLoop=1;strokeColor=#42515E;strokeWidth=1.5;endArrow=blockThin;endFill=1;endSize=5;jumpStyle=arc;jumpSize=10;labelBackgroundColor=#FFFFFF;spacing=2;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="a18" target="a19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="Safety checks" style="swimlane;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#FFFFFF;fontSize=13;startSize=30;fillColor=#0A9A6A;swimlaneFillColor=#F6FFFB;strokeColor=#0A9A6A;fontStyle=1;rounded=1;arcSize=4;collapsible=0;swimlaneLine=0;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="100" width="370" height="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S1" value="&lt;b&gt;S1&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="142" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S1-t" value="&lt;span style='font-size:11px'&gt;Intake joins repeats and storms to one incident; flapping alarms only escalate; open incidents are capped.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="142" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S2" value="&lt;b&gt;S2&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="214" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S2-t" value="&lt;span style='font-size:11px'&gt;Reads use a read-only role for this incident only; CloudTrail stamps every call with inc-&amp;lt;id&amp;gt;.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="214" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S3" value="&lt;b&gt;S3&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="286" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S3-t" value="&lt;span style='font-size:11px'&gt;Redaction is proved, not assumed; the placeholder map never leaves the read zone.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="286" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S4" value="&lt;b&gt;S4&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="358" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S4-t" value="&lt;span style='font-size:11px'&gt;Untrusted text never reaches the model as text: only typed facts. Prompt Guard 2 is a tripwire, not a gate.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="358" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S5" value="&lt;b&gt;S5&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="430" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S5-t" value="&lt;span style='font-size:11px'&gt;The model's budget is enforced in the call path. No model, or over budget: a rules-only report to a person.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="430" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S6" value="&lt;b&gt;S6&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="502" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S6-t" value="&lt;span style='font-size:11px'&gt;Plain code decides: every claim must cite evidence; a second diagnosis must agree, or it goes to a person.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="502" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S7" value="&lt;b&gt;S7&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="574" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S7-t" value="&lt;span style='font-size:11px'&gt;A plan is made from live state and hashed; only the alarm's own resources can be a target.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="574" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S8" value="&lt;b&gt;S8&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="646" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S8-t" value="&lt;span style='font-size:11px'&gt;Kill switch, bounds, cool-down, change freezes and the approval-fatigue cap, checked before anyone is asked.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="646" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S9" value="&lt;b&gt;S9&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="718" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S9-t" value="&lt;span style='font-size:11px'&gt;Everything said leaves through the outbound gate (no links, images or secrets), and only to the incident environment's own channels: a dev incident never reaches a prod channel.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="718" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S10" value="&lt;b&gt;S10&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="790" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S10-t" value="&lt;span style='font-size:11px'&gt;A person signs the exact plan hash: a passkey on the approval page after typing the target (or the break-glass CLI key).&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="790" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S11" value="&lt;b&gt;S11&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="862" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S11-t" value="&lt;span style='font-size:11px'&gt;If the target changed after approval, nothing is applied unseen: a new plan is asked for.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="862" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S12" value="&lt;b&gt;S12&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="934" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S12-t" value="&lt;span style='font-size:11px'&gt;Applied at most once; credentials last ≤ 15 min, name the approvers, and reach only the plan's resources.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="934" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S13" value="&lt;b&gt;S13&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="1006" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S13-t" value="&lt;span style='font-size:11px'&gt;AWS's own record is checked against WARDEN's: an actor session without a signed approval pages a person.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="1006" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S14" value="&lt;b&gt;S14&lt;/b&gt;" style="rounded=1;arcSize=50;html=1;fillColor=#0A9A6A;strokeColor=none;fontColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1454" y="1078" width="40" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lg-S14-t" value="&lt;span style='font-size:11px'&gt;The record is tamper-evident: hash chain, KMS signature nobody can export, Object Lock anchors.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="1502" y="1078" width="294" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="foot" value="&lt;span style='font-size:10px;color:#52606D'&gt;Drawn from origin/main de1cbcd (2026-10-16): workflows.py (IncidentWorkflow, RemediationWorkflow), activities.py, lambdas.py, identity.py, bounds.py, verifier.py. Solid: the path taken; dashed: a loop or the other branch.&lt;/span&gt;" style="text;html=1;whiteSpace=wrap;fontFamily=Helvetica;fontColor=#1F2933;fontSize=12;strokeColor=none;fillColor=none;align=left;verticalAlign=top;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="1770" width="1780" height="24" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
