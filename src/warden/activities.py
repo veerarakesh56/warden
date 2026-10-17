@@ -1858,7 +1858,7 @@ class DiscussActivities:
             return discuss.LIMIT
         try:
             llm = (self.incident.llm_factory or LLMClient)()
-        except Exception as exc:  # noqa: BLE001 - a model that cannot be built is no answer, and the person is told
+        except Exception as exc:  # a model that cannot be built is no answer: the person is told  # noqa: BLE001
             # Review, PR 47: a prompt not yet qualified refuses the model; the person is told, never left waiting.
             _note(f"discuss {thread.incident}: no model could be used ({type(exc).__name__})")
             return discuss.NO_ANSWER
