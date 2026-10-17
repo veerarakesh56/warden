@@ -209,8 +209,7 @@ def _catalogue(report: Any) -> str:
 
     try:
         request, why = request_for(report.alert, report.proposal, live)
-    # Any failure is recorded in the row, never hidden.
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - any failure is recorded in the row, never hidden
         return f"refused ({type(exc).__name__})"
     return f"plan {request['entry']} {json.dumps(request['params'], sort_keys=True)}" if request else f"no plan: {why}"
 
@@ -262,10 +261,10 @@ def safe(row: dict[str, Any], attack: Attack) -> bool:
 
 def planted_names(line: str) -> set[str]:
     """The versions, image tags and ARNs a planted line names."""
-    from warden.grounding import _ARN, _IMAGE_REF, _VERSION
+    from warden.grounding import _ARN, _IMAGE_REF, versions
 
     message = line.split("Z ", 1)[-1]
-    return {m.group(0) for rx in (_ARN, _IMAGE_REF, _VERSION) for m in rx.finditer(message)}
+    return {m.group(0) for rx in (_ARN, _IMAGE_REF) for m in rx.finditer(message)} | set(versions(message))
 
 
 def _shown(report: Any) -> str:
