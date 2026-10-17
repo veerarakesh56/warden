@@ -48,6 +48,7 @@ Action = Literal["ignore", "signal_remediation", "signal_incident", "expected", 
 RUNS = ("start", "escalate_only", "reopen")
 # A watched fix whose last word was late - a worker restarting at the soak's end - is still in its soak this long.
 SOAK_GRACE = timedelta(minutes=5)
+MAX_SOAK = timedelta(days=1)  # FixRequest.soak_minutes' bound (activities.MAX_SOAK_MINUTES)
 
 
 class AlarmEvent(BaseModel):
@@ -125,33 +126,49 @@ def open_fix(ev: AlarmEvent, fixes: dict[tuple[str, str], str]) -> str | None:
 def held_fix(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, Any] | None:
     """The newest fix that was verified and is still in its soak - its run has a passing result and no end yet, and
     the result is no older than the plan's soak - for this alarm's own incident (the fingerprint its id starts with)
-    or a resource the alarm names, in its environment. None: no fix of this is being soaked."""
+    or a resource the alarm names, in its environment. None: no fix of this is being soaked.
+
+    Driven from the passing results, which are recent: a result older than the longest soak is past any soak. Each
+    one's plan row is read from its incident's record with no time limit (CodeRabbit, PR 43): it is written before
+    the approval wait, up to a week before the fix is verified."""
     from . import bounds
     from .resolver import named_resources
 
     fp, names = fingerprint(ev), named_resources(ev.alert)
+    since = now - MAX_SOAK - SOAK_GRACE
     ended = {(e["body"].get("workflow_id"), e["body"].get("run_id", "")) for e in log.entries(
-        kinds=("workflow.end",), since=now - LOOKBACK)}
-    verified: dict[tuple[str, str], datetime] = {}
-    for e in log.entries(kinds=(bounds.RESULT,), since=now - LOOKBACK):
+        kinds=("workflow.end",), since=since)}
+    verified: dict[tuple[str, str], tuple[datetime, str]] = {}
+    for e in log.entries(kinds=(bounds.RESULT,), since=since):
         key = (e["body"].get("workflow_id"), e["body"].get("run_id", ""))
         if e["body"].get("ok") is True and key not in verified:
-            verified[key] = e["at"]
-    for e in reversed(log.entries(kinds=("remediation.plan",), since=now - LOOKBACK)):
-        b, incident = e["body"], str(e["correlation_id"])
-        key = (b.get("workflow_id"), b.get("run_id", ""))
-        if key not in verified or key in ended or b.get("environment") != ev.alert.environment:
-            continue
-        if not (incident.startswith(f"{fp}-") or b.get("service") in names):
-            continue
-        if ev.transitioned_at < verified[key]:
-            continue  # an alarm from before the fix passed its checks says nothing of whether it held (PR 43)
-        if now - verified[key] > timedelta(minutes=int(b.get("soak_minutes") or 60)) + SOAK_GRACE:
-            continue
-        return {"incident": incident, "workflow_id": str(b.get("workflow_id")), "run_id": str(b.get("run_id", "")),
-                "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
-                "verified_at": verified[key].isoformat()}
+            verified[key] = (e["at"], str(e["correlation_id"]))
+    for key, (at, incident) in sorted(verified.items(), key=lambda kv: kv[1][0], reverse=True):
+        b = None if key in ended else _plan_row(log, incident, key)
+        if b and _in_soak(ev, b, incident, at, now, fp, names):
+            return {"incident": incident, "workflow_id": str(b.get("workflow_id")), "run_id": str(b.get("run_id", "")),
+                    "entry": str(b.get("entry", "")), "target": str(b.get("target", "")),
+                    "verified_at": at.isoformat()}
     return None
+
+
+def _plan_row(log: AuditLog, incident: str, key: tuple[str, str]) -> dict[str, Any] | None:
+    """The plan row of run `key` on its incident's record, however old."""
+    return next((p["body"] for p in reversed(log.entries(incident, kinds=("remediation.plan",)))
+                 if (p["body"].get("workflow_id"), p["body"].get("run_id", "")) == key), None)
+
+
+def _in_soak(ev: AlarmEvent, plan: dict[str, Any], incident: str, verified_at: datetime, now: datetime, fp: str,
+             names: set[str]) -> bool:
+    """Whether this alarm speaks of the fix `plan` - its incident's own, or on a resource it names, in its
+    environment - and came inside its soak: after the fix passed its checks (an alarm from before says nothing of
+    whether it held, PR 43), and no later than the soak's end."""
+    if plan.get("environment") != ev.alert.environment:
+        return False
+    if not (incident.startswith(f"{fp}-") or plan.get("service") in names):
+        return False
+    soak = timedelta(minutes=int(plan.get("soak_minutes") or 60)) + SOAK_GRACE
+    return ev.transitioned_at >= verified_at and now - verified_at <= soak
 
 
 def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict[str, str],
@@ -229,6 +246,16 @@ def reopen_pending(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, An
 
 
 REOPENED, REOPEN_STARTED = "incident.reopened", "intake.reopen_started"
+
+
+def _did_not_hold(log: AuditLog, incident: str, held: dict[str, Any], at: str, rule: str) -> None:
+    """The fix `held` did not hold, on `incident`'s record for this transition `at` - once, however often the
+    transition is delivered."""
+    from .history import DID_NOT_HOLD
+
+    if not any(e["body"].get("workflow_id") == held["workflow_id"] and e["body"].get("at") == at
+               for e in log.entries(incident, kinds=(DID_NOT_HOLD,))):
+        log.append(incident, DID_NOT_HOLD, {**held, "at": at, "rule": rule})
 
 
 async def _relapse(client: Any, log: AuditLog, fix: str, fp: str, at: str) -> None:
@@ -322,14 +349,15 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
     relapsed = open_fix(ev, watching) if d.action in RUNS else None
     if d.action == "reopen" and held:
         relapsed = relapsed or held["workflow_id"]
+        # On the incident's own record, first, both: the fix it had did not hold, which plan_fix reads before it
+        # offers a fix (history.did_not_hold) - and it is open again, the intent a retry of this transition honours
+        # if the start below fails (reopen_pending). The marker first, and once, on a retry too: an intent is never
+        # on the record without it (CodeRabbit, PR 43). The fix's own run is told once the incident has started.
+        incident = d.workflow_id.removeprefix("inc-")
+        _did_not_hold(log, incident, held, at, ev.rule[:200])
         if not pending:
-            # On the incident's own record, first, both: it is open again - the intent a retry of this transition
-            # honours if the start below fails (reopen_pending) - and the fix it had did not hold, which plan_fix reads
-            # before it offers a fix (history.did_not_hold). The fix's own run is told once the incident has started.
-            incident = d.workflow_id.removeprefix("inc-")
             log.append(incident, REOPENED, {"rule": ev.rule[:200], "at": at, "fingerprint": fp,
                                             "workflow_id": held["workflow_id"], "held": held})
-            log.append(incident, "remediation.did_not_hold", {**held, "at": at, "rule": ev.rule[:200]})
     if relapsed and d.action != "reopen":
         await _relapse(client, log, relapsed, fp, at)
     if d.action == "signal_remediation":

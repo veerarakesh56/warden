@@ -308,33 +308,46 @@ def _page(store, key="warden-ops-heartbeat-missing", opened="2026-10-16T01:00:00
 
 
 def _ack_world(tmp_path, **kw):
+    """The approval page with its pages, Slack's sign-in, and the owner's entry naming the Slack member who reads."""
+    import dataclasses
+
+    from test_slack_login_g10q import MEMBER, _login
+    from warden import slack_login
+
     w = World(tmp_path, **kw)
-    w.page.pages = paging.MemoryPages()
+    w.page = dataclasses.replace(w.page, pages=paging.MemoryPages(), slack=_login())
+    w.policy.approvers["owner"].slack = MEMBER
+    w.me = ["warden_who=" + slack_login.remember(w.page.slack, MEMBER)]
     return w
 
 
 def _show(w):
-    shown = w.page.handle("POST", "/p/pages")
+    shown = w.page.handle("POST", "/p/pages", cookies=w.me)
     assert shown.status == 200, shown.body
     return json.loads(shown.body)
 
 
+def _ack(w, shown, answer=None, **over):
+    answer = answer or w.device.assert_(json.dumps(shown["options"]))
+    return w.page.handle("POST", "/p/ack", json.dumps({"ask": shown["ask"], "response": answer, **over}), cookies=w.me)
+
+
 def test_an_approvers_passkey_acknowledges_exactly_the_pages_shown_on_the_record(tmp_path):
     w = _ack_world(tmp_path)
-    assert w.page.handle("GET", "/p").status == 200
+    assert w.page.handle("GET", "/p", cookies=w.me).status == 200
     assert _show(w) == {"open": []}
     _page(w.page.pages)
     shown = _show(w)
     assert [p["key"] for p in shown["open"]] == ["warden-ops-heartbeat-missing"] and shown["open"][0]["sent"] == 3
     answer = w.device.assert_(json.dumps(shown["options"]))
-    done = w.page.handle("POST", "/p/ack", json.dumps({"response": answer}))
+    done = _ack(w, shown, answer)
     assert done.status == 200 and json.loads(done.body) == {"acknowledged": 1}
     assert paging.open_pages(w.page.pages) == []
     [row] = [e["body"] for e in w.log.entries(kinds=(paging.ACK,))]
     assert row["approver"] == "owner" and row["method"] == "passkey" and row["pages"] == [
         {"key": "warden-ops-heartbeat-missing", "opened_at": "2026-10-16T01:00:00+00:00"}]
     # The same answer again acknowledges nothing.
-    assert w.page.handle("POST", "/p/ack", json.dumps({"response": answer})).status == 403
+    assert _ack(w, shown, answer).status == 403
 
 
 def test_a_page_opened_after_they_were_shown_is_not_acknowledged_unseen(tmp_path):
@@ -342,8 +355,7 @@ def test_a_page_opened_after_they_were_shown_is_not_acknowledged_unseen(tmp_path
     _page(w.page.pages)
     shown = _show(w)
     _page(w.page.pages, key="warden-ops-killswitch-on")
-    answer = w.device.assert_(json.dumps(shown["options"]))
-    assert w.page.handle("POST", "/p/ack", json.dumps({"response": answer})).status == 409
+    assert _ack(w, shown).status == 409
     assert len(paging.open_pages(w.page.pages)) == 2 and not w.log.entries(kinds=(paging.ACK,))
 
 
@@ -351,7 +363,7 @@ def test_an_approver_limited_to_some_environments_cannot_silence_the_runtimes_pa
     w = _ack_world(tmp_path)
     w.policy.approvers["owner"].environments = ["dev"]
     _page(w.page.pages)
-    assert w.page.handle("POST", "/p/pages").status == 403
+    assert w.page.handle("POST", "/p/pages", cookies=w.me).status == 403
 
 
 def test_no_pages_store_no_acknowledgement_page(tmp_path):
@@ -373,13 +385,80 @@ def test_an_acknowledgements_challenge_answers_once_even_if_a_store_gave_it_back
     w.page.store = MemoryLinkStore()
     _page(w.page.pages)
     shown = _show(w)
-    pending = w.page.store.challenge("pages:passkey")
-    answer = w.device.assert_(json.dumps(shown["options"]))
-    assert w.page.handle("POST", "/p/ack", json.dumps({"response": answer})).status == 200
+    [key] = list(w.page.store.pending)
+    pending = w.page.store.challenge(key)
+    assert _ack(w, shown).status == 200
     _page(w.page.pages, opened="2026-10-16T02:00:00+00:00")  # paging again, as a replay would want
-    w.page.store.put_challenge("pages:passkey", pending)
-    again = w.page.handle("POST", "/p/ack", json.dumps({"response": w.device.assert_(json.dumps(shown["options"]))}))
-    assert again.status == 403 and len(w.log.entries(kinds=(paging.ACK,))) == 1
+    w.page.store.put_challenge(key, pending)
+    assert _ack(w, shown).status == 403 and len(w.log.entries(kinds=(paging.ACK,))) == 1
+
+
+# ------------------------------------------------------------------ PR 43 review: who reads `/p`, and its challenges
+
+def test_with_no_slack_sign_in_nobody_reads_or_acknowledges_the_pages(tmp_path):
+    """CodeRabbit, PR 43 (CWE-306): with no Slack sign-in, anyone could list the pages and their reasons."""
+    import dataclasses
+
+    w = _ack_world(tmp_path)
+    _page(w.page.pages)
+    w.page = dataclasses.replace(w.page, slack=None)
+    for method, path in (("GET", "/p"), ("POST", "/p/pages"), ("POST", "/p/ack")):
+        out = w.page.handle(method, path, json.dumps({"ask": "a" * 22, "response": {}}))
+        assert out.status == 503 and "heartbeat" not in out.body, (method, path)
+
+
+def test_only_a_signed_in_approver_sees_the_pages(tmp_path):
+    from test_slack_login_g10q import OTHER
+    from warden import slack_login
+
+    w = _ack_world(tmp_path)
+    _page(w.page.pages)
+    signed_out = w.page.handle("GET", "/p")
+    assert signed_out.status == 200 and 'data-slack="1"' in signed_out.body and "heartbeat" not in signed_out.body
+    assert w.page.handle("POST", "/p/pages").status == 403
+    stranger = ["warden_who=" + slack_login.remember(w.page.slack, OTHER)]
+    out = w.page.handle("POST", "/p/pages", cookies=stranger)
+    assert out.status == 403 and "heartbeat" not in out.body
+
+
+def test_each_look_has_its_own_challenge_and_a_bad_answer_takes_none(tmp_path):
+    """CodeRabbit, PR 43: one shared challenge let any look replace another's, and a malformed answer consume it."""
+    w = _ack_world(tmp_path)
+    _page(w.page.pages)
+    first, second = _show(w), _show(w)
+    assert first["ask"] != second["ask"]
+    # Answers that name no passkey of this approver, or no look, take nothing.
+    assert w.page.handle("POST", "/p/ack", "not json", cookies=w.me).status == 403
+    assert _ack(w, first, {"id": "someone-elses-passkey"}).status == 403
+    assert _ack(w, first, ask="../../other").status == 403
+    assert not w.log.entries(kinds=("approval.challenge_taken",))
+    # The first look still answers, after the second was made.
+    assert _ack(w, first).status == 200
+
+
+def test_a_malformed_page_never_stops_the_others_being_acknowledged(tmp_path):
+    """CodeRabbit, PR 43: one bad object in `pages/` stopped `/p` showing any."""
+    w = _ack_world(tmp_path)
+    _page(w.page.pages)
+    _page(w.page.pages, key="warden-ops-alarm-dlq")
+    w.page.pages.objects["pages/warden-ops-alarm-dlq.json"].update(sent="many", opened_at="not a time")
+    w.page.pages.objects["pages/junk.json"] = [1, 2]  # type: ignore[assignment]
+    w.page.pages.objects["pages/nokey.json"] = {"why": "no key"}
+    w.page.pages.objects["pages/notes.txt"] = {"key": "notes", "opened_at": "x"}
+
+    class Broken(paging.MemoryPages):
+        def get(self, key):
+            if key == "acks/warden-ops-heartbeat-missing.json":
+                raise OSError("403")
+            return super().get(key)
+    broken = Broken()
+    broken.objects = w.page.pages.objects
+    w.page.pages = broken
+    shown = _show(w)
+    rows = {p["key"]: p for p in shown["open"]}
+    assert set(rows) == {"warden-ops-heartbeat-missing", "warden-ops-alarm-dlq"}
+    assert rows["warden-ops-alarm-dlq"]["sent"] == 0 and "cannot be read" in rows["warden-ops-alarm-dlq"]["opened"]
+    assert _ack(w, shown).status == 200
 
 
 def test_one_unreadable_page_never_stops_the_others_repeating(caplog):
@@ -411,3 +490,83 @@ def test_the_page_state_is_in_the_anchors_bucket_tls_only_and_under_object_lock(
     assert '"aws:SecureTransport" = "false"' in anchors and "object_lock_enabled = true" in anchors
     front = (MODULE / "frontdoor.tf").read_text(encoding="utf-8")
     assert "WARDEN_PAGES_BUCKET        = aws_s3_bucket.anchors.bucket" in front
+
+
+# ------------------------------------------------------------------ PR 43 review: the pager never goes quiet
+
+def _failing(fail):
+    """A channel that fails while `fail[0]` is true."""
+    said = []
+
+    def send(text):
+        if fail[0]:
+            raise OSError("down")
+        said.append(text)
+    return send, said
+
+
+def test_a_page_whose_first_saying_failed_everywhere_is_said_at_the_next_tick_and_on_the_retry():
+    """CodeRabbit, PR 43: the page was written as said before it was, and waited a whole repeat when it was not."""
+    s3, clock, down = FakeS3(), Clock(), [True]
+    slack, said = _failing(down)
+    p = pager.Pager(pager.Pages("b", s3=s3), env="ops", repeat_minutes=15, ack_url="", slack=slack, email=slack,
+                    clock=clock)
+    with pytest.raises(RuntimeError, match="a page was not sent"):
+        p.open("task-x", "the worker stopped")
+    page = json.loads(s3.objects["pages/task-x.json"])
+    assert page["sent"] == 0 and page["last_sent"] == ""  # written, not said
+    down[0] = False
+    assert p.open("task-x", "the worker stopped")  # EventBridge's retry of the same event says it now
+    assert said and json.loads(s3.objects["pages/task-x.json"])["sent"] == 1
+    assert p.open("task-x", "the worker stopped") is None  # said once: one page
+
+
+def test_an_unsaid_page_is_due_at_the_next_tick():
+    s3, clock, down = FakeS3(), Clock(), [True]
+    slack, said = _failing(down)
+    p = pager.Pager(pager.Pages("b", s3=s3), env="ops", repeat_minutes=15, ack_url="", slack=slack, email=slack,
+                    clock=clock)
+    with pytest.raises(RuntimeError):
+        p.open("task-x", "the worker stopped")
+    down[0] = False
+    assert _tick(p, clock, 5)["repeated"] == ["task-x"] and "said 1 times" in said[-1]
+
+
+def test_a_repeat_no_channel_took_is_not_recorded_as_sent():
+    """CodeRabbit, PR 43: `last_sent` and `sent` were written before the send, so a failed repeat waited 15 minutes."""
+    p, s3, clock, _ = _world()
+    pager.handler(_alarm(), pager=p)
+    down = [True]
+    p.slack, said = _failing(down)
+    p.email = p.slack
+    with pytest.raises(RuntimeError):
+        _tick(p, clock, 15)
+    assert json.loads(s3.objects["pages/warden-ops-killswitch-on.json"])["sent"] == 1  # not said: not counted
+    down[0] = False
+    assert _tick(p, clock, 20)["repeated"] == ["warden-ops-killswitch-on"] and "said 2 times" in said[-1]
+
+
+def test_an_alarm_state_or_acknowledgement_that_cannot_be_read_never_stops_the_repeats(caplog):
+    """CodeRabbit, PR 43: a DescribeAlarms failure, or an unreadable `acks/` object, aborted the whole tick."""
+    p, s3, clock, said = _world()
+    pager.handler(_alarm(), pager=p)
+    pager.handler(_alarm(name="warden-ops-alarm-dlq"), pager=p)
+
+    def no_states(names):
+        raise RuntimeError("Throttling")
+    p.alarm_states = no_states
+    s3.objects["acks/warden-ops-alarm-dlq.json"] = b"{not json"
+    caplog.set_level("WARNING", logger="warden.pager")
+    assert _tick(p, clock, 15)["repeated"] == ["warden-ops-alarm-dlq", "warden-ops-killswitch-on"]
+    assert "said 2 times" in said[-1][1]
+    assert any("could not be read" in r.getMessage() for r in caplog.records)
+
+
+def test_a_worker_stop_reason_never_carries_an_account_id(monkeypatch):
+    """CodeRabbit, PR 43: ECS's stoppedReason went into Slack and email unredacted."""
+    account = "1234" + "5678" + "9012"  # a placeholder, built from parts
+    event = {"source": "aws.ecs", "detail-type": "ECS Task State Change", "detail": {
+        "clusterArn": "arn:cluster", "lastStatus": "STOPPED", "stopCode": "TaskFailedToStart", "group": "service:w",
+        "stoppedReason": f"CannotPullContainerError: {account}.dkr.ecr.example/warden:1 not found"}}
+    _, why = pager.worker_stopped(event, "arn:cluster")
+    assert account not in why and "<ACCOUNTID>.dkr.ecr" in why

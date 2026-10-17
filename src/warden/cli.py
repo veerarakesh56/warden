@@ -519,23 +519,26 @@ def _usage_command(args: argparse.Namespace) -> int:
 
 
 def _offer_again_command(args: argparse.Namespace) -> int:
-    """Item 11: a fix that did not hold is offered again only after an approver signs that it may be."""
+    """Item 11: a fix that did not hold is offered again only after an approver signs that it may be - each fix of
+    this incident that is still held back, whether its alarm came back in the soak or a re-check failed."""
     from . import approvals, history, runtime
 
     log = runtime.open_audit()
-    rows = [e["body"] for e in log.entries(args.incident, kinds=(history.DID_NOT_HOLD,))]
-    if not rows:
-        _out(f"nothing to clear: no fix of {args.incident} is on record as not holding", err=True)
+    held = [(entry, target) for entry, target in history.failed_in(log, args.incident)
+            if history.did_not_hold(log, entry, target)[0]]
+    if not held:
+        _out(f"nothing to clear: no fix of {args.incident} is held back as not holding", err=True)
         return 1
-    entry, target = str(rows[-1].get("entry", "")), str(rows[-1].get("target", ""))
-    failed = history.failures(log, entry, target)
-    signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id=history.OFFER_AGAIN_WORKFLOW,
-                            plan_hash=history.offer_again_hash(entry, target, max(failed)[0]), tier="T2")
-    problems = history.offer_again(log, signed, policy=runtime.approver_policy(), entry=entry, target=target)
-    if problems:
-        _out("not cleared: " + "; ".join(problems), err=True)
-        return 1
-    _out(f"`{entry}` on `{target}` may be offered again; every plan still waits for an approval")
+    key, policy = _approver_key(args.key), runtime.approver_policy()
+    for entry, target in held:
+        failed_at = max(history.failures(log, entry, target))[0]
+        signed = approvals.sign(key, approver=args.approver, workflow_id=history.OFFER_AGAIN_WORKFLOW,
+                                plan_hash=history.offer_again_hash(entry, target, failed_at), tier="T2")
+        problems = history.offer_again(log, signed, policy=policy, entry=entry, target=target)
+        if problems:
+            _out(f"`{entry}` on `{target}` not cleared: " + "; ".join(problems), err=True)
+            return 1
+        _out(f"`{entry}` on `{target}` may be offered again; every plan still waits for an approval")
     return 0
 
 
