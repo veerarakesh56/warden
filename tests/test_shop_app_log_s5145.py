@@ -29,4 +29,5 @@ def test_a_failed_route_is_logged_by_its_route_not_the_request_line(monkeypatch,
     with caplog.at_level(logging.ERROR):
         handler._get("/orders", None)
     assert replies == [500]
-    assert "GET /orders failed" in caplog.text and "forged-line" not in caplog.text
+    assert "GET /orders failed" in caplog.text
+    assert "forged-line" not in caplog.text

@@ -5,8 +5,8 @@ An agent can drive WARDEN's command line and the repository's scripts, so a path
 the temp folder (and a CI job's RUNNER_TEMP), or one of the tools' own output folders in the home directory (bench runs,
 AWS proof runs, the Wave 4 build). ~/.ssh, ~/.aws, /etc or a synced folder are refused, whichever way the path is
 spelled. Key files have a folder of their own (audit.key_path). Stdlib only: the deploy jobs import this without
-installing the package. The benchmark harness keeps a byte-for-byte copy - it never imports the tool under test - and
-tests/test_cli_paths_s8707.py holds the two the same.
+installing the package, and the benchmark harness loads this one file by its path without importing the tool under
+test. The tool names nothing of the harness in return (tests/test_no_scenario_leakage.py).
 """
 
 from __future__ import annotations
