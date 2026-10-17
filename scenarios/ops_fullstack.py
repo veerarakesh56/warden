@@ -853,33 +853,47 @@ def fs10_inject(c, t):
     return {"revoked_rules": len(rules)}
 
 
+def _is_duplicate(exc: Exception) -> bool:
+    return "Duplicate" in f"{type(exc).__name__} {exc}"
+
+
+def _authorize_back(c, gid: str, rules: list[dict]) -> None:
+    """The saved rules back on the group. Some may be back and some not: on a Duplicate, re-add one rule at a time.
+    Any other error is raised."""
+    try:
+        c.ec2.authorize_security_group_ingress(GroupId=gid, IpPermissions=rules)
+    except Exception as exc:
+        if not _is_duplicate(exc):
+            raise
+        for rule in rules:
+            try:
+                c.ec2.authorize_security_group_ingress(GroupId=gid, IpPermissions=[rule])
+            except Exception as inner:
+                if not _is_duplicate(inner):
+                    raise
+
+
+def _revoke_extra(c, gid: str, saved_rules: list[dict]) -> list[tuple]:
+    """⛔ EXACT prior state: a fix may have authorised a group that was never there (WARDEN names the
+    application SGs it read). Anything group-sourced that the saved set lacks is revoked, one pair
+    at a time, so the next fault starts from the baseline and not from a wider network."""
+    saved = _group_pairs(saved_rules)
+    extra = sorted(_group_pairs([r for r in _sg(c, gid).get("IpPermissions") or []
+                                 if r.get("UserIdGroupPairs")]) - saved)
+    for proto, lo, hi, group in extra:
+        perm = {"IpProtocol": proto, "UserIdGroupPairs": [{"GroupId": group}]}
+        if proto != "-1":
+            perm.update(FromPort=lo, ToPort=hi)
+        c.ec2.revoke_security_group_ingress(GroupId=gid, IpPermissions=[perm])
+    return extra
+
+
 def fs10_revert(c, t):
     s = t.saved.get("fs-10")
     if not s:
         return {"nothing_saved": True}
-    try:
-        c.ec2.authorize_security_group_ingress(GroupId=t.redis_sg_id, IpPermissions=s["rules"])
-    except Exception as exc:
-        if "Duplicate" not in f"{type(exc).__name__} {exc}":
-            raise
-        # Some may be back and some not: re-add one rule at a time.
-        for rule in s["rules"]:
-            try:
-                c.ec2.authorize_security_group_ingress(GroupId=t.redis_sg_id, IpPermissions=[rule])
-            except Exception as inner:
-                if "Duplicate" not in f"{type(inner).__name__} {inner}":
-                    raise
-    # ⛔ EXACT prior state: a fix may have authorised a group that was never there (WARDEN names the
-    # application SGs it read). Anything group-sourced that the saved set lacks is revoked, one pair
-    # at a time, so the next fault starts from the baseline and not from a wider network.
-    saved = _group_pairs(s["rules"])
-    extra = sorted(_group_pairs([r for r in _sg(c, t.redis_sg_id).get("IpPermissions") or []
-                                 if r.get("UserIdGroupPairs")]) - saved)
-    for proto, lo, hi, gid in extra:
-        perm = {"IpProtocol": proto, "UserIdGroupPairs": [{"GroupId": gid}]}
-        if proto != "-1":
-            perm.update(FromPort=lo, ToPort=hi)
-        c.ec2.revoke_security_group_ingress(GroupId=t.redis_sg_id, IpPermissions=[perm])
+    _authorize_back(c, t.redis_sg_id, s["rules"])
+    extra = _revoke_extra(c, t.redis_sg_id, s["rules"])
     _done(t, "fs-10")
     return {"restored_rules": len(s["rules"]), "removed_extra": [e[3] for e in extra]}
 
