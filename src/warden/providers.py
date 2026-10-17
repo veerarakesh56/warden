@@ -33,6 +33,7 @@ for the budget ceiling, so a provider that cannot report them must estimate rath
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -91,6 +92,23 @@ class Completion:
     input_tokens: int
     output_tokens: int
     cut_off: bool = False  # the answer reached the output cap: charged, never retried (review 2026-10-10, M7)
+    # The model declined (stop_reason "refusal", HTTP 200): charged, never retried, escalated like a cut-off (B11).
+    refused: bool = False
+    refusal_category: str = ""  # stop_details.category when the provider names one ("cyber", "bio", ...)
+
+
+# Why a Claude answer ended, as the Messages API reports it (stop_reason; read 2026-10-17 on platform.claude.com,
+# "Handling stop reasons"): end_turn, max_tokens, stop_sequence, tool_use, pause_turn, refusal and
+# model_context_window_exceeded. Two of them leave the answer incomplete - the docs say to treat the second "as
+# truncated" - and asking again with the same prompt ends the same way.
+CUT_OFF_STOPS = frozenset({"max_tokens", "model_context_window_exceeded"})
+REFUSAL_STOP = "refusal"
+
+
+def _category(details: Any) -> str:
+    """stop_details.category of a refusal (an SDK object or the CLI's JSON dict), or ""."""
+    found = details.get("category") if isinstance(details, dict) else getattr(details, "category", None)
+    return str(found or "")[:40]
 
 
 class Provider(Protocol):
@@ -215,9 +233,11 @@ class AnthropicProvider:
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         # A cut-off answer read as "invalid JSON" three times, and the incident went to a person as "model
         # unavailable" (qualification 2026-10-10, ecs-07, at 1500 tokens). Returned flagged: the client charges it and
-        # says so, never asking again for the same cut-off.
-        return Completion(text, resp.usage.input_tokens, resp.usage.output_tokens,
-                          cut_off=getattr(resp, "stop_reason", None) == "max_tokens")
+        # says so, never asking again for the same cut-off. A refusal is an HTTP 200 too, and is flagged the same way.
+        stop = getattr(resp, "stop_reason", None)
+        return Completion(text, resp.usage.input_tokens, resp.usage.output_tokens, cut_off=stop in CUT_OFF_STOPS,
+                          refused=stop == REFUSAL_STOP,
+                          refusal_category=_category(getattr(resp, "stop_details", None)) if stop == REFUSAL_STOP else "")
 
 
 # --------------------------------------------------------------------------- gemini
@@ -362,6 +382,17 @@ _USAGE_LIMIT = re.compile(
 )
 
 
+def _cli_result(stdout: str | None) -> dict[str, Any] | None:
+    """The `claude -p --output-format json` result object, or None when stdout is not one (an older CLI, or a
+    failure printed before the run started). Only an object whose type is "result" counts: the model's own answer
+    is JSON too, and must never be read as the CLI's envelope."""
+    try:
+        found = json.loads(stdout or "")
+    except ValueError:
+        return None
+    return found if isinstance(found, dict) and found.get("type") == "result" else None
+
+
 class ClaudeCliProvider:
     """Inference through the locally installed `claude` CLI in headless (`-p`) mode.
 
@@ -483,6 +514,11 @@ class ClaudeCliProvider:
             # Not saved to the operator's profile: every call used to leave the whole prompt there as
             # a session transcript (second review, 2026-09-30).
             "--no-session-persistence",
+            # The result as JSON, so WHY the answer ended is read, not guessed: its stop_reason says "refusal" when the
+            # model declined and "max_tokens" when it was cut off (Agent SDK docs, "Handle the result", read
+            # 2026-10-17; checked against CLI 2.1.302 that day). Plain text hid both behind an answer that only failed
+            # to parse (B11).
+            "--output-format", "json",
         ]
         try:
             proc = subprocess.run(
@@ -515,13 +551,21 @@ class ClaudeCliProvider:
             )
         except subprocess.TimeoutExpired as exc:
             raise ProviderError(f"claude CLI exceeded {call_timeout_s(self):.0f}s") from exc
-        if proc.returncode != 0:
+        result = _cli_result(proc.stdout)
+        stop = result.get("stop_reason") if result else None
+        text = str(result.get("result") or "") if result else (proc.stdout or "")
+        if stop == REFUSAL_STOP:
+            # Declined, whatever the exit code: an answer, charged like one and never asked again (B11).
+            return Completion(text, _estimate_tokens(system + user), _estimate_tokens(text), refused=True,
+                              refusal_category=_category(result.get("stop_details")))
+        if proc.returncode != 0 or (result and result.get("is_error") is True):
             # ⛔ BOTH streams. The CLI writes its reason for refusing - including "usage limit
             # reached" - to STDOUT, and this used to report stderr only. So when the limit was hit
             # mid-wave every failure read `claude CLI exited 1:` followed by nothing at all, and the
-            # one fact that explained five ERROR rows had been thrown away.
+            # one fact that explained five ERROR rows had been thrown away. As JSON, the reason is the
+            # result's text, which comes last in the object: the first 400 characters of the JSON never held it.
             detail = " | ".join(
-                part.strip() for part in (proc.stdout, proc.stderr) if part and part.strip()
+                part.strip() for part in ((text if result else proc.stdout), proc.stderr) if part and part.strip()
             )[:400]
             if _USAGE_LIMIT.search(detail):
                 raise ProviderExhausted(f"claude CLI usage limit: {detail}")
@@ -529,11 +573,11 @@ class ClaudeCliProvider:
             # What the CLI says of the API, so a Claude outage reads as one: an error status is not billed, and a
             # connection that never opened sent nothing (ninth review - neither is carried to the next run).
             api = _CLI_API_ERROR.search(detail)
-            error.status_code = int(api.group(1)) if api else None
+            status = result.get("api_error_status") if result else None
+            error.status_code = status if isinstance(status, int) else (int(api.group(1)) if api else None)
             error.sent = not _CLI_UNSENT.search(detail)
             raise error
-        text = proc.stdout or ""
-        return Completion(text, _estimate_tokens(system + user), _estimate_tokens(text))
+        return Completion(text, _estimate_tokens(system + user), _estimate_tokens(text), cut_off=stop in CUT_OFF_STOPS)
 
     @property
     def version(self) -> str:
