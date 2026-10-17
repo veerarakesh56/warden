@@ -78,14 +78,17 @@ resource "aws_vpc_security_group_ingress_rule" "redis_apps" {
   to_port                      = 6379
 }
 
+# One node, no failover (cost plan, 2026-10-17: the owner's last ~USD 104 of credits): the replica was USD 14.6 a
+# month. Going from 2 removes -002, the replica; -001, the primary the redis-memory alarm reads, stays. Back to
+# production shape: num_cache_clusters 2 and failover on.
 resource "aws_elasticache_replication_group" "redis" {
   replication_group_id       = "${local.name}-redis"
   description                = "Wave 4 application cache"
   engine                     = "redis"
   engine_version             = "7.1"
   node_type                  = "cache.t4g.micro"
-  num_cache_clusters         = 2 # primary + 1 replica
-  automatic_failover_enabled = true
+  num_cache_clusters         = 1
+  automatic_failover_enabled = false
   parameter_group_name       = "default.redis7" # volatile-lru: filler keys carry a TTL so they evict
   port                       = 6379
   subnet_group_name          = aws_elasticache_subnet_group.redis.name

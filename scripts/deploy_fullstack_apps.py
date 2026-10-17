@@ -391,10 +391,15 @@ OTEL_IMAGE = "public.ecr.aws/aws-observability/aws-otel-collector:v0.50.0"
 
 
 def otel_config(region: str, *, datadog: bool = False) -> dict:
-    """The collector's configuration for the tools that are set up: X-Ray always (traces, by the pod's IAM role),
-    Datadog when its agent is on the cluster. No Grafana (owner, 2026-10-16: Datadog only)."""
-    exporters: dict = {"awsxray": {"region": region}}
-    traces, metrics, logs = ["awsxray"], [], []
+    """The collector's configuration for the tools that are set up: Datadog when its agent is on the cluster, else
+    X-Ray (traces, by the pod's IAM role). No Grafana (owner, 2026-10-16: Datadog only).
+
+    Not both (cost plan, 2026-10-17: the owner's last ~USD 104 of credits): with Datadog on, the X-Ray copy cost about
+    USD 8.5 a month in stored traces (USD 3 more of Application Signals, expected to stop with them), and nothing read it - the runtime's
+    WARDEN_EVIDENCE_TOOLS names datadog and github, which leaves X-Ray's reader out (tools.evidence_tools). The X-Ray
+    arm of scripts/compare_evidence.py needs the apps deployed without Datadog."""
+    exporters: dict = {} if datadog else {"awsxray": {"region": region}}
+    traces, metrics, logs = list(exporters), [], []
     if datadog:
         # Plaintext gRPC on purpose (2026-10-16, naming audit item 19): HOST_IP is the collector pod's own node,
         # and 4317 there is the Datadog agent's OTLP receiver on its hostPort, so the hop never leaves the node.

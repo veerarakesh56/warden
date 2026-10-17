@@ -32,28 +32,33 @@ Lambdas are created from a placeholder zip, ECS from a placeholder container tha
 every path; every code field is in `ignore_changes`, so a re-apply never rolls the apps back.
 Kubernetes objects are not in terraform at all.
 
-## ⛔ Cost - about USD 0.65/hour, USD 16/day (measured)
+## ⛔ Cost - about USD 0.53/hour, USD 13/day (after the cost plan)
 
-Measured in Cost Explorer for 2026-10-15 (a full day, before credits, ap-south-2 prices from the AWS
-Price List API the same day). WARDEN's runtime (terraform/runtime) adds about USD 0.30/hour more.
+Measured in Cost Explorer for 2026-10-15 (a full day, before credits: USD 0.65/hour for this stack,
+USD 0.99/hour with WARDEN's runtime), ap-south-2 prices from the AWS Price List API the same day, then
+the cost plan of 2026-10-16/17 subtracted. WARDEN's runtime (terraform/runtime) adds about USD
+0.18/hour (was 0.34): together about USD 17/day (was 23.81).
 
 | resource | per hour | note |
 |---|---|---|
-| EKS nodes, 2 x m7i-flex.large on-demand (0.1008 each) + 2 x 20 GB | ~0.205 | the largest line; c7i-flex.large is 0.0848 |
+| EKS node, 1 x m7i-flex.large on-demand (0.1008) + 20 GB | ~0.103 | was 2; production shape is 2 |
 | EKS control plane | 0.10 | standard support pinned; extended support would be 0.60 |
 | Aurora Serverless v2 (express), 1 instance at the 0.5 ACU floor (0.18 per ACU-hour) | ~0.095 | does not scale to zero at a 0.5 floor |
-| Container Insights enhanced (EKS add-on), X-Ray, Application Signals | ~0.085 | per observation; the pod_status alarms read it |
+| Container Insights enhanced (EKS add-on) | ~0.07 | per observation; the pod_status alarms read it. No X-Ray copy of the traces while Datadog is on |
 | NAT gateway (one, public[0]) + data processed | ~0.06 | also carries Secrets Manager, SQS and ECR calls |
-| ElastiCache, 2 x cache.t4g.micro | 0.04 | |
 | Fargate, 2 x (0.25 vCPU, 0.5 GB) on-demand, x86 | ~0.026 | ARM would be ~0.014 |
 | ALB | ~0.024 | |
+| ElastiCache, 1 x cache.t4g.micro | 0.02 | was 2 with failover |
 | Public IPv4 address (the NAT gateway's Elastic IP only) | 0.005 | |
 | DynamoDB, alarms, secrets, Lambda/SQS/SNS/API calls, Config's share | ~0.03 | |
-| **total** | **~0.65** | |
+| **total** | **~0.53** | |
 
-No interface endpoints since 2026-10-16 (they were 0.026/hour for the two); see main.tf.
+No interface endpoints since 2026-10-16 (they were 0.026/hour for the two); see main.tf. The one
+EKS node and the one cache node no longer survive a zone outage: Helios (R56) lets those two through
+only because they are listed in `helios/regressions.json`, the owner's choice of 2026-10-17. Back to
+production shape: 2 nodes, 2 cache nodes with failover, and that file deleted.
 
-**Budget:** this stack carries its own alarm, `warden-<env>-guard` (USD 50 a month by default,
+**Budget:** this stack carries its own alarm, `warden-<env>-guard` (USD 500 a month by default,
 `budget_usd`), on the whole account's GROSS spend (credits excluded: counted, a Free-plan account
 reads USD 0.00 until the credits are gone - and then the Free plan closes the account), emailing the
 address in SSM `/warden/<env>/tf/budget_email` (SecureString) on forecast 60%/90% and actual 50%/100%.

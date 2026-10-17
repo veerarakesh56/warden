@@ -23,8 +23,8 @@ variable "eks_admin_principal_arns" {
 }
 
 variable "budget_usd" {
-  description = "Monthly cost budget for the account, in USD (the owner's cap for Wave 4: 50)."
+  description = "Monthly cost budget for the account's gross spend, in USD (owner, 2026-10-17: 500 for dev)."
   type        = number
-  default     = 50
+  default     = 500
 }
 

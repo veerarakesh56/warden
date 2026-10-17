@@ -30,9 +30,9 @@ and every resource is tagged `Project=warden` and `Environment=<env>`. A workspa
 | Lambda | `checkout` (the API, alias `live`), `order-processor` (SQS consumer, in the VPC, writes to Aurora), `notifier`, `reconciler` (every 5 minutes, in the VPC, reads Aurora and Redis), `traffic` (a load generator, every minute), `ops` (harness-only admin commands for Redis) |
 | API Gateway | an HTTP API: `POST /checkout` (bearer token, from Secrets Manager) and `GET /health`, with access logs |
 | ECS | `orders-api` on Fargate (2 tasks) behind an **internal** ALB |
-| EKS | one cluster, a managed node group of 2 x m7i-flex.large (one per zone); namespace `shop` with `catalog-api` (2 replicas, HPA 2-4) and `cart-worker` |
+| EKS | one cluster, a managed node group of 1 x m7i-flex.large (min 1, max 2; two, one per zone, before the 2026-10-17 cost plan); namespace `shop` with `catalog-api` (2 replicas, HPA 2-4) and `cart-worker` |
 | Aurora PostgreSQL | Serverless v2 in express configuration, 0.5-2 ACU, a writer and a reader; IAM database authentication only, so **no database password exists** |
-| ElastiCache Redis | a primary and one replica, `cache.t4g.micro` |
+| ElastiCache Redis | one node, `cache.t4g.micro` (a primary and one replica before the 2026-10-17 cost plan) |
 | DynamoDB | `carts`, provisioned 5 RCU / 5 WCU with no autoscaling, so a capacity fault stays a capacity fault; point-in-time recovery on (any second of the last 35 days can be restored), deletion protection off so the stack can be destroyed on purpose |
 | SQS / SNS | `orders` and `notifications` queues, each with a dead-letter queue; topic `order-events` |
 | Secrets Manager | connection **metadata** for the app's database user (no password), the API token |

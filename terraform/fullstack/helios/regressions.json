@@ -1,0 +1,6 @@
+{
+ "az-outage": [
+  "aws_eks_node_group.this",
+  "aws_elasticache_replication_group.redis"
+ ]
+}
