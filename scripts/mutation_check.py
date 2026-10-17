@@ -238,8 +238,8 @@ MUTATIONS = [
     (
         "the gate stops catching a backend fault",
         "remediation.py",
-        "    except Exception as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
-        "    except ValueError as exc:  # noqa: BLE001 - a backend fault is a result, not a crash",
+        "    except Exception as exc:  # noqa: BLE001  # a backend fault is a result, not a crash",
+        "    except ValueError as exc:  # noqa: BLE001  # a backend fault is a result, not a crash",
         "a live-backend API error (403, unreachable) would crash the pipeline instead of a failed result",
     ),
     (
