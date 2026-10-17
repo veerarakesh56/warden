@@ -79,6 +79,9 @@ OUTCOME = {
 }
 
 
+MAX_SOAK_MINUTES = 24 * 60
+
+
 class FixRequest(BaseModel):
     incident_id: str
     # A catalogue entry name, never free text: an agent-supplied entry was printed raw by `warden
@@ -96,6 +99,10 @@ class FixRequest(BaseModel):
     # How many times this fix has been planned again after the target or WARDEN itself changed under an approved plan
     # (decision D7: re-plan and ask again, at most REPLAN_MAX times; workflows.RemediationWorkflow).
     replans: int = Field(0, ge=0, le=2)
+    # How long a verified fix is watched before it is called held (item 11, owner 2026-10-16): re-checked at 15 and
+    # 60 minutes, and at the soak's end when it is longer. The same alarm returning inside it reopens the incident
+    # (intake.held_fix). Bounded as the verify window is (register O3).
+    soak_minutes: int = Field(60, ge=60, le=MAX_SOAK_MINUTES)
 
     @field_validator("environment")
     @classmethod
@@ -331,7 +338,7 @@ class RemediationActivities:
                           {"workflow_id": workflow_id, "run_id": _run_id(), "entry": req.entry, "tier": plan.tier,
                            "environment": req.environment, "service": req.service,  # intake matches alarms on these (C1)
                            "params": req.params, "target": key, "basis": basis, "plan_hash": plan.plan_hash,
-                           "problems": problems})
+                           "problems": problems, "soak_minutes": req.soak_minutes})
         return plan
 
     @activity.defn
@@ -1308,10 +1315,20 @@ class IncidentActivities:
                 req, why = resolver.request_for(alert, proposal, live)
             except Exception as exc:  # noqa: BLE001 - a failed live read plans nothing; the person was told
                 req, why = None, f"the live read failed ({type(exc).__name__})"
+        not_again = ""
+        if req:
+            from . import history
+
+            # Item 11 (owner, 2026-10-16): a fix that was verified and did not hold is not offered again for the same
+            # target on WARDEN's own - a person decides (the MCP and CLI paths, a person's, still may ask for it).
+            not_again, why = history.did_not_hold(self.audit, req["entry"],
+                                                  f"{req['environment']}/{catalog.target_key(req['entry'], req['params'])}")
+            req = None if not_again else req
         if req:
             req["workflow_id"] = resolver.workflow_id(req)
         self.audit.append(alert_id, "incident.plan_fix", {
             "run_id": _run_id(), "planned": bool(req), "why": why, **({"offered": OFFERED_UNDO} if offer else {}),
+            **({"not_again": not_again} if not_again else {}),
             **({"entry": req["entry"], "params": req["params"], "workflow_id": req["workflow_id"]} if req else {})})
         _note(f"{alert_id} fix plan " + (f"opened: {req['entry']}" if req else f"not opened: {why}")
               + (f" ({OFFERED_UNDO})" if offer else ""))

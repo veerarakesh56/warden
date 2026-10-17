@@ -57,6 +57,11 @@ locals {
     Condition = { StringEquals = { "cloudwatch:namespace" = "WARDEN/${var.environment}" } }
   }
   own = concat(local.audit_and_settings, [local.who_may_approve, local.its_own_metrics])
+  acknowledge_pages = [
+    { Sid = "ListPages", Effect = "Allow", Action = ["s3:ListBucket"], Resource = [aws_s3_bucket.pages.arn] },
+    { Sid = "ReadPages", Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${aws_s3_bucket.pages.arn}/pages/*", "${aws_s3_bucket.pages.arn}/acks/*"] },
+    { Sid = "Acknowledge", Effect = "Allow", Action = ["s3:PutObject"], Resource = ["${aws_s3_bucket.pages.arn}/acks/*"] },
+  ]
   # Register S15, as settings.ZONE_SECRETS and settings.secret_id name them (tests/test_runtime_module_g6.py holds the
   # two together): every zone's own, and each zone's. Each zone also reads its own Temporal key, temporal-api-key-<zone>.
   every_zone_secrets = ["temporal-key"]
@@ -79,7 +84,7 @@ locals {
   front_door_access = {
     alarm        = { secrets = ["temporal-key", "temporal-api-key"], approvers = false, metrics = false }
     alertmanager = { secrets = ["temporal-key", "temporal-api-key", "datadog-webhook-token", "datadog-api-key", "datadog-app-key"], approvers = false, metrics = false }
-    approval     = { secrets = ["temporal-key", "temporal-api-key", "slack-client-secret"], approvers = true, metrics = false }
+    approval     = { secrets = ["temporal-key", "temporal-api-key", "slack-client-secret"], approvers = true, metrics = true }
     actor-use    = { secrets = [], approvers = false, metrics = true }
   }
 }
@@ -165,6 +170,8 @@ resource "aws_iam_role_policy" "front_door" {
   role     = aws_iam_role.front_door[each.key].id
   policy = jsonencode({ Version = "2012-10-17", Statement = concat(local.audit_and_settings,
     each.value.approvers ? [local.who_may_approve] : [], each.value.metrics ? [local.its_own_metrics] : [],
+    # WARDEN's own pages (paging.tf): the approval page shows them and writes an approver's acknowledgement.
+    [for s in local.acknowledge_pages : s if each.key == "approval"],
     length(each.value.secrets) == 0 ? [] : [{
       Sid      = "ItsOwnSecrets"
       Effect   = "Allow"
