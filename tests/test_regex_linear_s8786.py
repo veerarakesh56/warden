@@ -14,8 +14,10 @@ from warden import aws_stack, chatops, gate, grounding, playbook, quarantine, re
 N = 20_000
 CASES = {
     # Tried from one place only, so the old pattern was quadratic in one match: 20,000 spaces took 0.6 s, 60,000 take 5.
-    "an `ago` after a long run of spaces": (lambda s: grounding._AGO.match(s, 0), " " * (3 * N) + "x"),
-    "a scope clause after a long run of spaces": (lambda s: grounding._SCOPE.sub(" ", s), " " * N + "x"),
+    "an `ago` after a long run of spaces": (lambda s: grounding._ago(s, 0), " " * (3 * N) + "x"),
+    "a scope clause after a long run of spaces": (grounding._unscope, " " * N + "x"),
+    "a scope word then a long run of spaces": (grounding._unscope, "ns" + " " * N + "!"),
+    "many scope words with no name": (grounding._unscope, "ns !" * (N // 4)),
     "an image reference in a long word": (lambda s: grounding._IMAGE.sub(" ", s), "a" * N),
     "a fence of many tildes": (gate._FENCE_LINE.match, "~" * N + "\nx"),
     "a host of many non-ASCII letters": (lambda s: gate._NON_ASCII_HOST.sub("", s), "\u00e9" * N),
@@ -41,14 +43,21 @@ def test_an_assignment_in_a_long_name_is_still_refused_quickly(target):
     start = time.perf_counter()
     problem = grounding.target_problem(proposal, set())
     assert time.perf_counter() - start < 1.0
-    assert problem and "assignment" in problem, problem
+    assert problem is not None
+    assert "assignment" in problem, problem
 
 
 def test_the_rewritten_patterns_match_what_they_did():
-    assert grounding._AGO.match("5 min ago", 1)
-    assert grounding._AGO.match("  ago", 0)
-    assert not grounding._AGO.match(" minutes later", 0)
-    assert grounding._SCOPE.sub(" ", "checkout (namespace=shop), x").split() == ["checkout", "x"]
+    assert grounding._ago("5 min ago", 1)
+    assert grounding._ago("  ago", 0)
+    assert grounding._ago("0sago", 1)
+    assert grounding._ago("sago ago", 0)  # `s` + `ago`, as the one pattern read it
+    assert grounding._ago("ago ago", 0)
+    assert not grounding._ago(" minutes later", 0)
+    assert not grounding._ago(" xago", 0)
+    assert not grounding._ago(" lately ago", 0)
+    assert grounding._unscope("checkout (namespace=shop), x").split() == ["checkout", "x"]
+    assert grounding._unscope("ns ! namespace = shop orders") == "ns ! orders"  # a word with no name is passed over
     assert grounding._IMAGE.sub(" ", "use repo/app:v1.2 now").split() == ["use", "now"]
     assert chatops._HEADING.match("##   Title").group(1) == "Title"
     assert gate._FENCE_LINE.match("> ```py").groups() == ("> ", "```", "py")
