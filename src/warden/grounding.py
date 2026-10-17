@@ -350,7 +350,7 @@ _NOT_SHELL = re.compile(r"<[A-Z][A-Z0-9]*_\d+>|->|=>")
 # A namespace or cluster that qualifies a resource: `(namespace=shop)`, `namespace warden-pg`, `ns/x`.
 # At most 64 separators before the word, and each run of spaces read one way only (Sonar python:S8786, 2026-10-16): a long run of
 # spaces was searched again from each of them. More than 64 stay in the text, as spaces and commas do anyway.
-_SCOPE = re.compile(r"[\s,(]{0,64}\b(?:namespace|ns|cluster)\b(?:\s*[=:/]|[^\S ]*[ ])\s*[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*(?:\)\s*)?,?", re.IGNORECASE)
+_SCOPE = re.compile(r"[\s,(]{0,64}\b(?:namespace|ns|cluster)\b(?:\s*[=:/]|[^\S ]* )\s*[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*(?:\)\s*)?,?", re.IGNORECASE)
 # Words that describe a resource rather than name one: a second of these is not a second resource.
 _DESCRIPTORS = frozenset({
     "ecs", "ecs-service", "eks", "k8s", "service", "svc", "deploy", "sts", "rds", "aurora", "sqs", "sns",

@@ -30,7 +30,8 @@ def test_every_log_group_of_the_dev_stack_the_runtime_and_the_undo_lab_keeps_14_
         for name, body in _blocks(stack, "aws_cloudwatch_log_group"):
             found += 1
             days = re.search(r"retention_in_days\s*=\s*(\d+)", body)
-            assert days and int(days.group(1)) >= 14, name
+            assert days, name
+            assert int(days.group(1)) >= 14, name
     assert found >= 8, found
 
 

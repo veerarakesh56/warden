@@ -15,19 +15,24 @@ def _store(tmp_path):
     return store
 
 
+def _fail_after(store, statement: str, error: str) -> None:
+    with store.transaction():
+        store.run(statement)
+        raise ValueError(error)
+
+
 def test_an_error_in_the_body_keeps_nothing_and_is_the_error_raised(tmp_path):
     store = _store(tmp_path)
-    with pytest.raises(ValueError, match="the body failed"), store.transaction():
-        store.run("INSERT INTO t VALUES (1)")
-        raise ValueError("the body failed")
-    assert store.run("SELECT count(*) FROM t").fetchone()[0] == 0 and not store.db.in_transaction
+    with pytest.raises(ValueError, match="the body failed"):
+        _fail_after(store, "INSERT INTO t VALUES (1)", "the body failed")
+    assert store.run("SELECT count(*) FROM t").fetchone()[0] == 0
+    assert not store.db.in_transaction
 
 
 def test_a_body_whose_transaction_is_already_gone_raises_its_own_error(tmp_path):
     store = _store(tmp_path)
-    with pytest.raises(ValueError, match="after the rollback"), store.transaction():
-        store.run("ROLLBACK")
-        raise ValueError("after the rollback")
+    with pytest.raises(ValueError, match="after the rollback"):
+        _fail_after(store, "ROLLBACK", "after the rollback")
     assert not store.db.in_transaction
 
 
@@ -35,4 +40,5 @@ def test_a_clean_body_is_committed(tmp_path):
     store = _store(tmp_path)
     with store.transaction():
         store.run("INSERT INTO t VALUES (1)")
-    assert store.run("SELECT count(*) FROM t").fetchone()[0] == 1 and not store.db.in_transaction
+    assert store.run("SELECT count(*) FROM t").fetchone()[0] == 1
+    assert not store.db.in_transaction
