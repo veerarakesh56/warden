@@ -60,13 +60,18 @@ locals {
   # Register S15, as settings.ZONE_SECRETS and settings.secret_id name them (tests/test_runtime_module_g6.py holds the
   # two together): every zone's own, and each zone's. Each zone also reads its own Temporal key, temporal-api-key-<zone>.
   every_zone_secrets = ["temporal-key"]
+  # `platforms`: what the zone's worker connects (`warden worker --platform`, compute.tf). The read zone reads every
+  # platform's targets and health, the act zone writes through each; notify reads AWS alarms only. Kubernetes and the
+  # database are each watched environment's own (WARDEN_EKS_CLUSTERS, WARDEN_DB_ENVIRONMENT): one without them reads
+  # and changes nothing there, and its plans go to a person.
   zones = {
-    core   = { secrets = [], assumes = [] }
-    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key"], assumes = ["platform-reader"] }
-    llm    = { secrets = ["anthropic-api-key"], assumes = [] }
-    notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"] }
-    # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts.
-    act = { secrets = [], assumes = ["platform-reader", "actor"] }
+    core   = { secrets = [], assumes = [], platforms = [] }
+    read   = { secrets = ["stack-db-writer-dsn", "stack-db-reader-dsn", "datadog-api-key", "datadog-app-key"], assumes = ["platform-reader"], platforms = ["aws", "k8s", "db"] }
+    llm    = { secrets = ["anthropic-api-key"], assumes = [], platforms = [] }
+    notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"], platforms = ["aws"] }
+    # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts. Its one secret is
+    # the terminate login's DSN - no password in it: each close signs in with a token the plan's actor signs.
+    act = { secrets = ["db-admin-dsn"], assumes = ["platform-reader", "actor"], platforms = ["aws", "k8s", "db"] }
   }
   # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
   # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use

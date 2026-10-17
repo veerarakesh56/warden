@@ -80,6 +80,10 @@ LOADABLE = frozenset({
     # The watched database's DSNs carry no password: each read signs an IAM token in the incident's reader role
     # (aws_stack.iam_dsn).
     "WARDEN_STACK_DB_IAM_AUTH",
+    # The live platforms in the cloud runtime (platforms/k8s.py, platforms/db.py): the namespace the Kubernetes one
+    # serves, the environment of the one watched database and the application logins it may close sessions of. Plain;
+    # each only narrows what an approved plan may touch.
+    "WARDEN_K8S_NAMESPACE", "WARDEN_DB_ENVIRONMENT", "WARDEN_DB_APP_USERS",
 })
 
 
@@ -154,7 +158,8 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
     # (timeline.recent) - both notify-zone activities (workflows.ZONES).
     "notify": _EVERY_ZONE | {"WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN",
                              "WARDEN_GITHUB_TOKEN"},
-    "act": _EVERY_ZONE,
+    # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs).
+    "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
 }
 # The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;
 # tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches
