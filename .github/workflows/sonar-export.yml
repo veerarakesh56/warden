@@ -8,13 +8,25 @@ on:
     branches: [main]
     paths: [".github/workflows/sonar-export.yml"]
 
-permissions: {}
+# Read-only: the code-scanning alerts of main, counted per tool.
+permissions:
+  security-events: read
 
 jobs:
   export:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Open code-scanning alerts on main, per tool
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/code-scanning/alerts?ref=refs/heads/main&state=open&per_page=100" \
+            --jq '.[] | "CS|\(.tool.name)|\(.rule.id)|\(.rule.security_severity_level // .rule.severity)|\(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)|\(.number)"' \
+            > alerts.txt || echo "CS-ERROR could not list alerts"
+          echo "=== CODE-SCANNING open on main: $(wc -l < alerts.txt)"
+          cut -d'|' -f2 alerts.txt | sort | uniq -c
+          cat alerts.txt
       - name: Open issues on main, one per line
         shell: python
         run: |
