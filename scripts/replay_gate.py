@@ -27,6 +27,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from warden import paths  # after the sys.path line above, deliberately
 from warden.models import (  # after the sys.path line above, deliberately
     Alert,
     ContextBundle,
@@ -80,20 +81,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    reports = pathlib.Path(args.reports)
-    paths = sorted(reports.glob("*.json"))
-    if not paths:
+    # Both paths come from the command line: each must lie where the tools work (warden.paths).
+    try:
+        reports = paths.inside(args.reports)
+        out_path = paths.inside(args.json) if args.json else None
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
+    files = sorted(reports.glob("*.json"))
+    if not files:
         print(f"no reports in {reports}")
         return 2
 
     run_dir = reports.parent
-    if args.json:
-        out_path = pathlib.Path(args.json).resolve()
-        if run_dir.resolve() in out_path.parents:
-            raise SystemExit(
-                f"refusing to write {out_path} inside {run_dir}: a replay must not sit beside the "
-                "run's own results, where a reader would take it for a measurement."
-            )
+    if out_path is not None and run_dir in out_path.parents:
+        raise SystemExit(
+            f"refusing to write {out_path} inside {run_dir}: a replay must not sit beside the "
+            "run's own results, where a reader would take it for a measurement."
+        )
 
     for line in BANNER:
         print(line)
@@ -105,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"measured at commit {recorded} · replayed by the gate at commit {_git_commit()}\n")
 
     rows, matrix, skipped = [], collections.Counter(), []
-    for path in paths:
+    for path in files:
         try:
             old, new, policies = replay_one(path)
         except Exception as exc:  # noqa: BLE001 - a finding, never papered over
@@ -126,8 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     for line in skipped:
         print(f"  SKIPPED {line}")
 
-    if args.json:
-        pathlib.Path(args.json).write_text(json.dumps(
+    if out_path is not None:
+        out_path.write_text(json.dumps(
             {"replay_not_a_measurement": True, "reports": str(reports),
              "measured_at_commit": recorded, "replayed_at_commit": _git_commit(),
              "rows": rows, "skipped": skipped}, indent=2), encoding="utf-8")

@@ -18,6 +18,11 @@ import argparse
 import json
 import pathlib
 import re
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
+
+from warden import paths  # after the sys.path line above, deliberately
 
 SITUATIONS = [
     ("A-ecs-healthy", "ECS, healthy", "Real task counts from `ecs:DescribeServices` and real CPU/memory from `cloudwatch:GetMetricData`."),
@@ -93,7 +98,10 @@ def main() -> int:
     ap.add_argument("--eks", default="")
     args = ap.parse_args()
 
-    out = pathlib.Path(args.dir)
+    try:
+        out = paths.inside(args.dir)  # a path from the command line: only where the tools work (warden.paths)
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
     reports = out / "reports"
 
     # Redact EVERY file in the bundle in place. Anything published comes from these files, so they
