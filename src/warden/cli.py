@@ -524,6 +524,30 @@ def _usage_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _offer_again_command(args: argparse.Namespace) -> int:
+    """Item 11: a fix that did not hold is offered again only after an approver signs that it may be - each fix of
+    this incident that is still held back, whether its alarm came back in the soak or a re-check failed."""
+    from . import approvals, history, runtime
+
+    log = runtime.open_audit()
+    held = [(entry, target) for entry, target in history.failed_in(log, args.incident)
+            if history.did_not_hold(log, entry, target)[0]]
+    if not held:
+        _out(f"nothing to clear: no fix of {args.incident} is held back as not holding", err=True)
+        return 1
+    key, policy = _approver_key(args.key), runtime.approver_policy()
+    for entry, target in held:
+        failed_at = max(history.failures(log, entry, target))[0]
+        signed = approvals.sign(key, approver=args.approver, workflow_id=history.OFFER_AGAIN_WORKFLOW,
+                                plan_hash=history.offer_again_hash(entry, target, failed_at), tier="T2")
+        problems = history.offer_again(log, signed, policy=policy, entry=entry, target=target)
+        if problems:
+            _out(f"`{entry}` on `{target}` not cleared: " + "; ".join(problems), err=True)
+            return 1
+        _out(f"`{entry}` on `{target}` may be offered again; every plan still waits for an approval")
+    return 0
+
+
 def _label_command(args: argparse.Namespace) -> int:
     """Audit A-P-2: the approver's signed verdict on a diagnosis and its action, recorded for calibration."""
     from . import labels, runtime
@@ -773,6 +797,10 @@ def _main(argv: list[str] | None = None) -> int:
     p_label.add_argument("--note", help="optional, up to 500 characters")
     p_label.add_argument("--approver", required=True)
     p_label.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_again = sub.add_parser("offer-again", help="let WARDEN offer again a fix that did not hold (your signed decision)")
+    p_again.add_argument("incident")
+    p_again.add_argument("--approver", required=True)
+    p_again.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
 
     args = parser.parse_args(argv)
     _load_environment(args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
@@ -786,6 +814,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _killswitch_command(args)
     if args.cmd == "label":
         return _label_command(args)
+    if args.cmd == "offer-again":
+        return _offer_again_command(args)
     if args.cmd == "usage":
         return _usage_command(args)
 
