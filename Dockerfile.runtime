@@ -22,7 +22,8 @@ COPY src ./src
 # AWS, the PostgreSQL audit, passkeys), Kubernetes for the k8s platform, the Anthropic SDK for the llm zone's model
 # (the Claude API; Bedrock goes through boto3), Slack, and the injection tripwire (guard: transformers and torch, the
 # CPU-only build - pyproject.toml's pytorch-cpu index). Temporal is a core dependency.
-RUN uv sync --locked --no-editable --extra runtime --extra k8s --extra anthropic --extra slack --extra guard
+# --no-build: wheels only, as ./Dockerfile - no package's build script runs; WARDEN itself is built by uv in process.
+RUN uv sync --locked --no-build --no-editable --extra runtime --extra k8s --extra anthropic --extra slack --extra guard
 # Only the shipped kinds of file (registers R8-O4, R9-O1).
 COPY scripts/check_package.py ./
 RUN /opt/warden/bin/python check_package.py "$(/opt/warden/bin/python -c 'import os, warden; print(os.path.dirname(warden.__file__))')"
