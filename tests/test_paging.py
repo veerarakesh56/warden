@@ -466,7 +466,7 @@ def test_a_malformed_page_never_stops_the_others_being_acknowledged(tmp_path):
     _page(w.page.pages)
     _page(w.page.pages, key="warden-ops-alarm-dlq")
     w.page.pages.objects["pages/warden-ops-alarm-dlq.json"].update(sent="many", opened_at="not a time")
-    w.page.pages.objects["pages/junk.json"] = [1, 2]  # type: ignore[assignment]
+    w.page.pages.objects["pages/junk.json"] = {"not": "a page"}  # no key, no opening time
     w.page.pages.objects["pages/nokey.json"] = {"why": "no key"}
     w.page.pages.objects["pages/notes.txt"] = {"key": "notes", "opened_at": "x"}
 

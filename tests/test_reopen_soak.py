@@ -12,15 +12,18 @@ from datetime import UTC, datetime, timedelta
 
 from temporalio.common import WorkflowIDReusePolicy
 
+import test_remediation_workflow as remediation
 from test_false_recovery_c18a import _Sequence
 from test_incident_note import ALERT, _diag, _Plans
 from test_intake import _Client, _ev, _log
-from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401 - fixtures
+from test_remediation_workflow import _approve_with, _run
 from warden import bounds, catalog, history, intake, records, resolver, workflows
 from warden.activities import FixRequest, IncidentActivities, Verified
 from warden.audit import AuditLog
 from warden.models import Verdict, VerdictStatus
 
+# The remediation workflow's fixtures, shared: a test names them as its arguments.
+world, owner = remediation.world, remediation.owner
 
 def LATER():
     """An alarm that transitioned after the fix passed its checks (the record stamps those with the clock)."""
@@ -174,7 +177,7 @@ def test_the_soak_is_a_setting_bounded_by_the_request(monkeypatch):
     assert workflows.rechecks(FixRequest(**base, soak_minutes=120))[-1] == timedelta(minutes=120)
 
 
-def test_a_longer_soak_re_checks_at_its_end_and_a_relapse_there_is_said(world, owner):  # noqa: F811
+def test_a_longer_soak_re_checks_at_its_end_and_a_relapse_there_is_said(world, owner):
     world["platform"] = _Sequence([True, True, True, True, True, False])  # the streak, +15, +60, then fails
     out = _run(world, _approve_with(owner), soak_minutes=120)
     assert out.status == "relapsed"
@@ -182,7 +185,7 @@ def test_a_longer_soak_re_checks_at_its_end_and_a_relapse_there_is_said(world, o
     assert world["platform"].checks == 3 + 3
 
 
-def test_the_plan_row_carries_its_soak_for_intake(world, owner):  # noqa: F811
+def test_the_plan_row_carries_its_soak_for_intake(world, owner):
     world["platform"] = _Sequence([True])
     assert _run(world, _approve_with(owner), soak_minutes=90).status == "recovered"
     [plan] = [e["body"] for e in world["log"].entries(kinds=("remediation.plan",))]
