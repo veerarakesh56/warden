@@ -308,9 +308,26 @@ class RemediationActivities:
         self.critic = critic
 
     @activity.defn
+    def autonomy_state(self, environment: str) -> dict[str, Any]:
+        """What a person re-enabling autonomy is shown and signs (autonomy.enable_hash): the demotions on the record."""
+        rows = autonomy.demotions(self.audit, environment)
+        return {"environment": environment, "ceiling": autonomy.ceiling(environment),
+                "plan_hash": autonomy.enable_hash(self.audit, environment), "demotions": [why for _, why in rows]}
+
+    @activity.defn
+    def autonomy_enable(self, environment: str, approval: approvals.SignedApproval) -> list[str]:
+        """A person's signed re-enable, checked and recorded (autonomy.enable); every reason it was refused."""
+        problems = autonomy.enable(self.audit, approval, policy=self.policy, environment=environment,
+                                   now=datetime.now(UTC))
+        if problems:
+            self.audit.append(f"autonomy-{environment}", "autonomy.enable_refused",
+                              {"environment": environment, "approver": approval.approver, "problems": problems})
+        return problems
+
+    @activity.defn
     def critic_review(self, plan: Plan) -> approvals.SignedApproval | None:
         """Eldane's review of the plan (eldane.review), in the critic zone: on the record always, and its signed approval
-        only where the plan's class has earned autonomy. Never a person's decision, never past the gate."""
+        only where the plan's class is at L2 (dev, not demoted). Never past the gate; a person's no still wins."""
         from . import eldane
 
         if self.critic is None:
@@ -371,7 +388,7 @@ class RemediationActivities:
         (register S17)."""
         from .reporting import Report
 
-        actions = self._approval_links(plan) if what in ("opening", "waiting") else ()
+        actions = self._approval_links(plan) if what in ("opening", "waiting", "autonomous") else ()
         opening = what == "opening"
         if opening:
             # With no approval domain the request still goes, without its buttons: the incident's one message is
@@ -423,7 +440,14 @@ class RemediationActivities:
                              f"{environments.both_times(datetime.now(UTC))}. WARDEN checks the target once more, then "
                              "applies it." + noted),
                 "expired": (f"WARDEN's plan `{plan.entry}` on `{shown}` expired without an approval. No action "
-                            "was taken; the incident is still open.")}.get(what) or OUTCOME.get(
+                            "was taken; the incident is still open."),
+                # Owner, 2026-10-17: dev is autonomous through Eldane, and a person's "no" still wins.
+                "autonomous": (f"{approvals.AI_LABEL} (an AI) approved WARDEN's plan `{plan.entry}` on `{shown}` ({tier}) "
+                               f"at autonomy level {autonomy.L2} in {plan.environment}: {autonomy.MEANS[autonomy.L2]}. "
+                               f"WARDEN applies it after "
+                               f"{environments.both_times(datetime.now(UTC) + autonomy.VETO, seconds=False)} unless a "
+                               "person denies it first - with their passkey on the page below, with a note if they "
+                               "like; a person's decision always overrides Eldane's.")}.get(what) or OUTCOME.get(
             what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
                                                                                       target=shown)
         if what == "approved" and not did:
@@ -441,6 +465,10 @@ class RemediationActivities:
                 said = (f"WARDEN's plan `{plan.entry}` on `{shown}` was denied by {self.policy.said(who)} (with "
                         f"their passkey) at {environments.both_times(ended_at)}: nothing was changed." + words)
                 why = []
+        if what == "autonomous":
+            from . import eldane
+
+            said += eldane.said(self.audit, plan, _run_id())
         if what == "waiting":
             import contextlib
 
@@ -485,7 +513,7 @@ class RemediationActivities:
         footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it on "
                   "its Full record page, which shows the same head with its signatures checked. Approvals are signed out "
                   "of band, never given in chat.")
-        if actions:
+        if actions and what != "autonomous":
             said += " Approve with your passkey on the page below; it shows the exact plan first."
         # The incident's summary leads the first message about it that reaches the channel - the request for approval,
         # or how the run ended if it ended first (independent check, 2026-10-14: a refused or blocked run sent one
@@ -656,7 +684,7 @@ class RemediationActivities:
             problems.append(f"{approval.approver} has already approved this plan")
         ai = self.policy.is_ai(approval.approver)
         if ai and not problems:
-            # Eldane's approval counts only where autonomy was earned, below prod, off WARDEN's own guardrails, with
+            # Eldane's approval counts only at L2 (dev, not demoted), below prod, off WARDEN's own guardrails, with
             # the kill switch off - and its own agreement with exactly this plan on the record (autonomy.py).
             problems += autonomy.ai_problems(self.audit, plan, _run_id())
         kind = "approval.refused" if problems else "approval.accepted"
@@ -1004,7 +1032,7 @@ class RemediationActivities:
         return detail
 
     def _score(self, incident_id: str, workflow_id: str, run: str, outcome: FixOutcome) -> None:
-        """Earned autonomy (autonomy.py): this run's end, scored against Eldane's review of its plan, once per run, from
+        """Autonomy (autonomy.py): this run's end, scored against Eldane's review of its plan, once per run, from
         this run's own rows. Promotion and demotion are read from these scores, and from nothing else."""
         from types import SimpleNamespace
 
