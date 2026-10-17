@@ -9,7 +9,9 @@ import importlib.util
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
+import uuid
 
 import pytest
 
@@ -17,8 +19,9 @@ from warden import cli, paths
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Under the home directory, in none of the tools' folders: where a steered path would lead (~/.ssh, ~/.aws). A folder
-# of its own, so a regression that writes there harms nothing and is removed again.
-OUTSIDE_DIR = pathlib.Path.home() / ".warden-test-outside"
+# of its own with a name no one else has, so a regression that writes there harms nothing, and the clean-up below can
+# only ever remove what this run wrote.
+OUTSIDE_DIR = pathlib.Path.home() / f".warden-test-outside-{uuid.uuid4().hex}"
 OUTSIDE = OUTSIDE_DIR / "never-written"
 
 
@@ -38,7 +41,13 @@ def _script(name: str):
 
 
 def test_the_harness_has_the_same_rule_without_importing_the_tool():
-    assert (ROOT / "scenarios" / "paths.py").read_bytes() == (ROOT / "src" / "warden" / "paths.py").read_bytes()
+    """The harness runs WARDEN's own rule, loaded from its file: one copy of it, and no `warden` package imported."""
+    code = ("import sys; from scenarios import paths; "
+            "assert paths.RULE.samefile('src/warden/paths.py'), paths.RULE; "
+            "assert not any(m == 'warden' or m.startswith('warden.') for m in sys.modules), sorted(sys.modules)")
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    done = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
 
 
 def test_a_path_in_the_working_directory_or_the_temp_folder_is_used_resolved(tmp_path):
@@ -72,7 +81,8 @@ def test_warden_run_reads_no_alert_and_writes_no_report_outside(capsys):
     assert cli.main(["run", "--alert", str(OUTSIDE)]) == 2
     assert "error: --alert" in capsys.readouterr().err
     assert cli.main(["run", "--incident", "inc-001", "--json", str(OUTSIDE)]) == 2
-    assert "error: --json" in capsys.readouterr().err and not OUTSIDE.exists()
+    assert "error: --json" in capsys.readouterr().err
+    assert not OUTSIDE.exists()
 
 
 def test_warden_audit_reads_keys_from_the_key_folder_only_and_no_database_outside(tmp_path, capsys):
@@ -145,4 +155,5 @@ def test_the_bench_approver_sends_to_no_domain_a_command_line_names(monkeypatch)
     monkeypatch.setattr(bench, "_post", lambda domain, step, body: sent.append(domain) or (500, {}))
     with pytest.raises(SystemExit) as exc:
         bench.main(["--record", "latest", "--domain", "attacker.example"])
-    assert exc.value.code == 2 and not sent
+    assert exc.value.code == 2
+    assert not sent

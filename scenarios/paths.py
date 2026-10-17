@@ -1,48 +1,18 @@
-"""Where a path named on a command line may point (Sonar pythonsecurity:S8707, 2026-10-16).
-
-An agent can drive WARDEN's command line and the repository's scripts, so a path taken from argv is untrusted: after
-`..` and symlinks are resolved it must lie inside a place these tools work in - the working directory (the checkout),
-the temp folder (and a CI job's RUNNER_TEMP), or one of the tools' own output folders in the home directory (bench runs,
-AWS proof runs, the Wave 4 build). ~/.ssh, ~/.aws, /etc or a synced folder are refused, whichever way the path is
-spelled. Key files have a folder of their own (audit.key_path). Stdlib only: the deploy jobs import this without
-installing the package. The benchmark harness keeps a byte-for-byte copy - it never imports the tool under test - and
-tests/test_cli_paths_s8707.py holds the two the same.
-"""
+"""Where a path named on a command line may point: WARDEN's own rule (src/warden/paths.py, Sonar pythonsecurity:S8707),
+loaded from its file as region.py reads environments.yaml - never `import warden`, so the harness shares no package,
+settings or state with the tool it measures. That file is stdlib only; one copy of the rule, not two to keep in step
+(a byte-for-byte copy was 48 duplicated lines, Sonar's quality gate, 2026-10-17)."""
 
 from __future__ import annotations
 
-import os
+import importlib.util
 import pathlib
-import tempfile
 
-BENCH_DIR_ENV = "WARDEN_BENCH_DIR"
-# The tools' output folders under the home directory (the bench runner, scripts/aws_proof.sh,
-# scripts/deploy_fullstack_apps.py), and the variables that move the first two elsewhere.
-HOME_FOLDERS = ("warden-bench-runs", "warden-proof-runs", "warden-fullstack-build")
-FOLDER_ENVS = (BENCH_DIR_ENV, "WARDEN_PROOF_DIR", "RUNNER_TEMP")
+RULE = pathlib.Path(__file__).resolve().parents[1] / "src" / "warden" / "paths.py"
+_spec = importlib.util.spec_from_file_location("scenarios._warden_paths", RULE)
+_rule = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_rule)
 
-
-def bench_dir() -> pathlib.Path:
-    """Where the bench runner writes its runs: WARDEN_BENCH_DIR, or ~/warden-bench-runs."""
-    return pathlib.Path(os.environ.get(BENCH_DIR_ENV) or pathlib.Path.home() / HOME_FOLDERS[0]).expanduser()
-
-
-def work_roots() -> list[pathlib.Path]:
-    home = pathlib.Path.home()
-    return [pathlib.Path.cwd(), pathlib.Path(tempfile.gettempdir()), *(home / f for f in HOME_FOLDERS),
-            *(pathlib.Path(os.environ[e]) for e in FOLDER_ENVS if os.environ.get(e))]
-
-
-def inside(path: str | os.PathLike, roots: list[pathlib.Path] | None = None) -> pathlib.Path:
-    """The real (absolute, resolved) location of `path` when it lies inside one of `roots` (default: work_roots());
-    else ValueError. Absolute, so it can never be read as an option by a program it is passed to. A root that is a
-    whole filesystem (`/`, `C:\\`) counts as none."""
-    real = pathlib.Path(path).expanduser().resolve()
-    # A filesystem root holds everything (a container's working directory is often `/`): it is never a place.
-    bases = [b for b in (pathlib.Path(r).expanduser().resolve() for r in (roots or work_roots())) if b.parent != b]
-    for base in bases:
-        if real.is_relative_to(base):
-            return real
-    raise ValueError(f"{path} is outside the places WARDEN's tools work in ({', '.join(map(str, bases))}): a path "
-                     "from the command line must lie inside the working directory, the temp folder or a tool's "
-                     "output folder")
+bench_dir = _rule.bench_dir
+inside = _rule.inside
+work_roots = _rule.work_roots

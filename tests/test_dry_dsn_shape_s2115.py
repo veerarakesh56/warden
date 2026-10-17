@@ -12,7 +12,9 @@ def test_the_dry_runs_dsns_have_the_live_shape():
     env = fullstack_cli.dry_env().assume_reader()
     for name in ("WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN"):
         url = urllib.parse.urlsplit(env[name])
-        assert (url.username, url.hostname) == (fullstack_cli.RO_USER, "dry.invalid") and url.password, name
+        assert (url.username, url.hostname) == (fullstack_cli.RO_USER, "dry.invalid"), name
+        assert url.password, name
         assert "sslmode=require" in url.query
     db = urllib.parse.urlsplit(runner._db_dry_harness().target.dsn)
-    assert db.username == "warden" and db.password and db.hostname == "dry-run.invalid" and db.path == "/" + runner.DB_DATABASE
+    assert (db.username, db.hostname, db.path) == ("warden", "dry-run.invalid", "/" + runner.DB_DATABASE)
+    assert db.password

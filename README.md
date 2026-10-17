@@ -112,7 +112,8 @@ WARDEN_MOCK=1 warden incident --incident inc-002                   # diagnose as
 ```
 
 To let a worker change something, connect a platform (`warden worker --platform k8s|db|aws|all`) and approve a plan
-with `warden status <workflow-id>` and `warden approve <workflow-id> --plan-hash <hash> --approver <id> --key <pem>`.
+with `warden status <workflow-id>` and `warden approve <workflow-id> --plan-hash <hash> --approver <id> --key ~/.warden/<id>.pem`
+(key files are read only from the key folder, `WARDEN_KEY_DIR`, default `~/.warden`).
 
 ### Deploy it
 

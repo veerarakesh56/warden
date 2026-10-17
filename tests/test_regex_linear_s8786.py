@@ -13,7 +13,8 @@ from warden import aws_stack, chatops, gate, grounding, playbook, quarantine, re
 
 N = 20_000
 CASES = {
-    "an `ago` after a long run of spaces": (lambda s: grounding._AGO.match(s, 0), " " * N + "x"),
+    # Tried from one place only, so the old pattern was quadratic in one match: 20,000 spaces took 0.6 s, 60,000 take 5.
+    "an `ago` after a long run of spaces": (lambda s: grounding._AGO.match(s, 0), " " * (3 * N) + "x"),
     "a scope clause after a long run of spaces": (lambda s: grounding._SCOPE.sub(" ", s), " " * N + "x"),
     "an image reference in a long word": (lambda s: grounding._IMAGE.sub(" ", s), "a" * N),
     "a fence of many tildes": (gate._FENCE_LINE.match, "~" * N + "\nx"),
@@ -32,18 +33,20 @@ def test_the_worst_case_input_is_read_in_linear_time(name):
     assert time.perf_counter() - start < 1.0, name
 
 
-def test_an_assignment_in_a_long_name_is_still_refused_quickly():
-    proposal = type("P", (), {"target": "a" * N + "=b"})()
+@pytest.mark.parametrize("target", ["a" * N + " =b", "a" * 70 + "=b"], ids=["a long word", "a 70-letter name"])
+def test_an_assignment_in_a_long_name_is_still_refused_quickly(target):
+    """The worst case is a long word whose `=` comes after a space; a name longer than the pattern reads is still an
+    assignment, its `=` not counted as a resource kind's."""
+    proposal = type("P", (), {"target": target})()
     start = time.perf_counter()
-    try:
-        grounding.target_problem(proposal, set())
-    except (AttributeError, TypeError):
-        pass  # only the time of the pattern is measured here; what it decides is pinned in test_grounding
+    problem = grounding.target_problem(proposal, set())
     assert time.perf_counter() - start < 1.0
+    assert problem and "assignment" in problem, problem
 
 
 def test_the_rewritten_patterns_match_what_they_did():
-    assert grounding._AGO.match("5 min ago", 1) and grounding._AGO.match("  ago", 0)
+    assert grounding._AGO.match("5 min ago", 1)
+    assert grounding._AGO.match("  ago", 0)
     assert not grounding._AGO.match(" minutes later", 0)
     assert grounding._SCOPE.sub(" ", "checkout (namespace=shop), x").split() == ["checkout", "x"]
     assert grounding._IMAGE.sub(" ", "use repo/app:v1.2 now").split() == ["use", "now"]
