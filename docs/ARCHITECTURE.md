@@ -249,6 +249,14 @@ endpoints, and the local `claude` CLI. The default model per provider and the li
 data in `src/warden/data/providers.yaml`. A model must pass WARDEN's replay qualification before it may
 diagnose; an unqualified model is refused, and every incident is then escalated on the rules alone.
 
+`routing.py` picks the model per case: Claude Sonnet 5.5 by default, Claude Opus 5.5 when one of WARDEN's own
+checkable signals marks the case hard (the fix's tier T2/T3, prod, two diagnoses disagreeing, weak evidence, the top
+hypotheses too close, a re-investigation asked for in chat), and only when `providers.yaml` says Opus is qualified.
+Signals known before the first answer pick the model for it (`diagnose`); the rest are computed by `verify` and
+`second_opinion` on the verified answer, and when they mark the case hard the workflow asks Opus on the same evidence,
+verifies its answer and gives it its own second opinion (`IncidentWorkflow._take_over`). Each choice and its signals'
+values are on the audit (`incident.route`, `discuss.route`).
+
 ## Tracing
 
 `observability.py` wires OpenTelemetry: a span for the run, each read, the model call and the verdict,

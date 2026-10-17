@@ -38,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
         Plan,
         Recorded,
         RemediationActivities,
+        still_held,
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .autonomy import L2, VETO
@@ -650,6 +651,31 @@ class IncidentWorkflow:
     def repeats(self) -> list[str]:
         return list(self._repeats)
 
+    @staticmethod
+    async def _take_over(acts: Any, pack: Any, diagnosed: Any, verified: Any, escalate_only: str) -> tuple[Any, Any, Any]:
+        """The hard model's diagnosis, verified, in place of the default model's - or the default model's, unchanged,
+        when the hard model gives no answer. It never lifts the escalation two disagreeing answers caused (still_held)."""
+        hard = pack.model_copy(update={"model": verified.route["model"]})
+        once = {"start_to_close_timeout": timedelta(minutes=10), "retry_policy": RetryPolicy(maximum_attempts=1)}
+        try:
+            again = await workflow.execute_activity_method(acts.diagnose, **_zoned(acts.diagnose),
+                                                           args=[hard, escalate_only], **once)
+            if again.model_unavailable:
+                return pack, diagnosed, verified
+            checked = await workflow.execute_activity_method(acts.verify, **_zoned(acts.verify), args=[hard, again],
+                                                             **QUICK)
+        except ActivityError:
+            return pack, diagnosed, verified
+        if str(getattr(checked.verdict.status, "value", checked.verdict.status)) == "approved_for_human":
+            try:
+                second = await workflow.execute_activity_method(acts.diagnose, **_zoned(acts.diagnose),
+                                                                args=[hard, escalate_only], **once)
+            except ActivityError:
+                second = again.model_copy(update={"model_unavailable": "the second diagnosis could not be made"})
+            checked = await workflow.execute_activity_method(
+                acts.second_opinion, **_zoned(acts.second_opinion), args=[hard, again, second, checked], **QUICK)
+        return hard, again, still_held(checked, verified)
+
     @workflow.run
     async def run(self, alert: Alert, escalate_only: str = "", held: str = "") -> RunReport:
         """`escalate_only`: intake's reason to hand this alarm to a person on the rules alone (flapping, a storm),
@@ -744,6 +770,13 @@ class IncidentWorkflow:
                 second = diagnosed.model_copy(update={"model_unavailable": "the second diagnosis could not be made"})
             verified = await workflow.execute_activity_method(
                 acts.second_opinion, **_zoned(acts.second_opinion), args=[pack, diagnosed, second, verified], **QUICK)
+        # Model routing (owner, 2026-10-17; routing.py): when WARDEN's own signals on the verified answer mark the case
+        # hard - its fix's tier, prod, the two answers disagreeing, weak evidence - and the default model made it, the
+        # hard model takes the diagnosis over: asked on the same evidence, verified, and given its own second opinion
+        # like any answer. Within the incident's budget, counted at each model's price; a takeover that fails or cannot
+        # be paid for leaves the earlier answer standing. Patched: histories recorded before it replay unchanged.
+        if verified.route.get("take_over") and not diagnosed.model_unavailable and workflow.patched("model-routing"):
+            pack, diagnosed, verified = await self._take_over(acts, pack, diagnosed, verified, escalate_only)
         # One Slack message per incident (owner, 2026-10-14: "why all that alerts total details and approval thing
         # coming in 3 parts ... i want all in one part only"): the report is recorded first, and said once - in the
         # plan's request for approval when a plan opens, else on its own with why there is none.

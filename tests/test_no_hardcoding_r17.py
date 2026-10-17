@@ -116,6 +116,7 @@ NOT_AN_ENVIRONMENT = {
     "src/warden/verifier.py": ({"prod", "ops"}, "the prod TIER (P2), and a vocabulary of plain words"),
     "src/warden/reporting.py": ({"prod"}, "the tier ranks"),
     "src/warden/autonomy.py": ({"prod"}, "the prod TIER, which is never autonomous"),
+    "src/warden/routing.py": ({"prod"}, "the prod TIER, a routing signal that makes a case hard"),
     "src/warden/grounding.py": ({"prod", "dev"}, "a vocabulary of scope words"),
     "src/warden/redaction.py": ({"prod", "dev"}, "a vocabulary of common words never swept as secrets"),
     "scripts/probe_cluster.py": ({"prod"}, "a manual probe's sample alert"),
