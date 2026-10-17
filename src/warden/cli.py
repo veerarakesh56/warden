@@ -391,23 +391,41 @@ AWS_PLATFORMS = ("lambda", "events", "dynamodb", "ecs", "rds", "sqs", "athena", 
                  "ec2", "asg", "kms", "secretsmanager", "kinesis")
 
 
-def _platform(choice: str):
-    """The platforms a worker connects (decision D16). Building one reads its credentials now, so a worker
-    that cannot reach what it was told to change fails at start, not in the middle of an approved fix."""
+PLATFORM_KINDS = ("k8s", "db", "aws")
+
+
+def _platform_choice(value: str) -> frozenset[str]:
+    """`none`, `all`, or a comma-separated list of PLATFORM_KINDS (`aws,k8s`)."""
+    if value == "none":
+        return frozenset()
+    kinds = frozenset(PLATFORM_KINDS) if value == "all" else frozenset(v.strip() for v in value.split(","))
+    if not kinds or not kinds <= set(PLATFORM_KINDS):
+        raise argparse.ArgumentTypeError(f"{value!r}: none, all, or a list of {', '.join(PLATFORM_KINDS)}")
+    return kinds
+
+
+def _platform(choice: str | frozenset[str]):
+    """The platforms a worker connects (decision D16). Locally, building one reads its credentials now, so a worker
+    that cannot reach what it was told to change fails at start, not in the middle of an approved fix. In the cloud
+    runtime (WARDEN_AWS_ROLE_ARN_TEMPLATE set) Kubernetes and the database are each watched environment's own, reached
+    through that environment's roles when a plan names it: an environment without an EKS cluster or a database
+    configured reads and changes nothing there, and its plans go to a person."""
     from .platforms import RoutedPlatform
 
-    if choice == "none":
+    kinds = _platform_choice(choice) if isinstance(choice, str) else choice
+    if not kinds:
         return None
+    cloud = bool(os.environ.get("WARDEN_AWS_ROLE_ARN_TEMPLATE", "").strip())
     platforms = {}
-    if choice in ("k8s", "all"):
-        from .platforms.k8s import KubernetesPlatform
+    if "k8s" in kinds:
+        from .platforms.k8s import KubernetesPlatform, eks_from_environment
 
-        platforms["k8s"] = KubernetesPlatform()
-    if choice in ("db", "all"):
-        from .platforms.db import DatabasePlatform
+        platforms["k8s"] = eks_from_environment() if cloud else KubernetesPlatform()
+    if "db" in kinds:
+        from .platforms.db import DatabasePlatform, db_from_environment
 
-        platforms["db"] = DatabasePlatform()
-    if choice in ("aws", "all"):
+        platforms["db"] = db_from_environment() if cloud else DatabasePlatform()
+    if "aws" in kinds:
         from .platforms.aws import from_environment
 
         aws = from_environment()
@@ -453,7 +471,7 @@ async def _workflow_command(args: argparse.Namespace) -> int:
             if problem:
                 _out(f"error: {problem}", err=True)
                 return 1
-            _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {args.platform}); "
+            _out(f"worker running on task queue {runtime.TASK_QUEUE!r} (platforms: {','.join(sorted(args.platform)) or 'none'}); "
                  "Ctrl+C to stop")
             publish = runtime.cloudwatch_publisher()
             if publish is None:
@@ -744,10 +762,10 @@ def _main(argv: list[str] | None = None) -> int:
     p_migrate.add_argument("--writer-role", required=True, help="the runtime's database role: SELECT and INSERT only")
 
     p_worker = sub.add_parser("worker", help="run the workflow worker against the Temporal server")
-    p_worker.add_argument("--platform", choices=("none", "k8s", "db", "aws", "all"), default="none",
+    p_worker.add_argument("--platform", type=_platform_choice, default="none",
                           help="what this worker may change, behind a signed approval: none (default - every "
                                "remediation is refused), k8s (WARDEN_K8S_NAMESPACE), db (WARDEN_DB_TERMINATE_DSN, "
-                               "WARDEN_DB_APP_USERS), or all")
+                               "WARDEN_DB_APP_USERS), aws, a comma-separated list of those, or all")
     p_worker.add_argument("--zone", choices=("all", "core", "read", "llm", "notify", "act"), default="all",
                           help="the trust zone this process serves (register S15): core runs the workflows and the "
                                "audit's steps, read/llm/notify/act only that zone's activities with only its "

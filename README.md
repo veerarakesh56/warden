@@ -344,7 +344,12 @@ pip install -e ".[postgres]"; WARDEN_BACKEND=postgres warden run --incident inc-
 For Kubernetes, `kubectl apply -k k8s/` installs a read-only ServiceAccount (get and list only, bound per namespace)
 and `k8s/job.yaml` runs one diagnosis as a Job under the `restricted` Pod Security standard. The separate write
 identity is [`k8s/remediation-rbac.yaml`](k8s/remediation-rbac.yaml): get and patch deployments, held by an admission
-policy to the replica count and the restart annotation.
+policy to the replica count and the restart annotation. In the cloud runtime the read and act zones connect Kubernetes
+and the database too (`--platform aws,k8s,db`): reads in each watched environment's platform-reader role (view-only on
+EKS; the database's pg_monitor login), every write in the approved plan's own actor session (on EKS the remediator
+group, bound in `shop` only; on the database the `warden_<env>_terminate` login, an IAM token and no password). An
+environment with no EKS cluster (`WARDEN_EKS_CLUSTERS`) or database (`WARDEN_DB_ENVIRONMENT`) configured reads and
+changes nothing there; its plans go to a person.
 
 ### MCP server
 
@@ -392,7 +397,7 @@ make check     # ruff, unit tests and the eval gate - what CI runs
 ```
 
 Over 5,000 tests (`tests/`, kept a lower bound by `tests/test_docs_honesty.py`) and 26 evals (`evals/`: routing,
-safety invariants, cost, budget, audit trail), plus 41 opt-in live-infrastructure tests (28 against a live
+safety invariants, cost, budget, audit trail), plus 42 opt-in live-infrastructure tests (29 against a live
 Kubernetes cluster, 13 against five real database engines), which CI runs against k3d and service containers:
 
 ```bash

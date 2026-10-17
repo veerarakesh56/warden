@@ -71,6 +71,11 @@ subjects:
   - kind: ServiceAccount
     name: warden-remediator
     namespace: warden
+  # On EKS the actor role signs in through its access entry as this group (terraform/fullstack/eks.tf), bound in the
+  # shop namespace by manifests/shop/base/warden-rbac.yaml; here too, so CI proves the group's path on a real server.
+  - kind: Group
+    name: warden-remediators
+    apiGroup: rbac.authorization.k8s.io
 roleRef:
   kind: ClusterRole
   name: warden-remediator
@@ -94,8 +99,11 @@ spec:
         operations: ["UPDATE"]
         resources: ["deployments"]
   matchConditions:
+    # The ServiceAccount (a cluster WARDEN runs in), or the group an EKS access entry gives WARDEN's actor role.
     - name: only-the-remediator
-      expression: request.userInfo.username == "system:serviceaccount:warden:warden-remediator"
+      expression: >-
+        request.userInfo.username == "system:serviceaccount:warden:warden-remediator" ||
+        (has(request.userInfo.groups) && "warden-remediators" in request.userInfo.groups)
   variables:
     - name: ann
       expression: "has(object.spec.template.metadata.annotations) ? object.spec.template.metadata.annotations : {}"
