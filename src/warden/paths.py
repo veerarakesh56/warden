@@ -4,9 +4,10 @@ An agent can drive WARDEN's command line and the repository's scripts, so a path
 `..` and symlinks are resolved it must lie inside a place these tools work in - the working directory (the checkout),
 the temp folder (and a CI job's RUNNER_TEMP), or one of the tools' own output folders in the home directory (bench runs,
 AWS proof runs, the Wave 4 build). ~/.ssh, ~/.aws, /etc or a synced folder are refused, whichever way the path is
-spelled. Key files have a folder of their own (audit.key_path). Stdlib only: the deploy jobs import this without
-installing the package, and the benchmark harness loads this one file by its path without importing the tool under
-test. The tool names nothing of the harness in return (tests/test_no_scenario_leakage.py).
+spelled - also by a tool run from the home directory, which is then no working place. Key files have a folder of
+their own (audit.key_path). Stdlib only: the deploy jobs import this without installing the package, and the benchmark
+harness loads this one file by its path without importing the tool under test. The tool names nothing of the harness
+in return (tests/test_no_scenario_leakage.py).
 """
 
 from __future__ import annotations
@@ -28,8 +29,13 @@ def bench_dir() -> pathlib.Path:
 
 
 def work_roots() -> list[pathlib.Path]:
+    """The working directory - unless it is the home directory or holds it: run from ~, a tool would otherwise read and
+    write ~/.ssh and ~/.aws (CodeRabbit, PR 46) - the temp folder, the tools' own folders and the folders set for
+    them."""
     home = pathlib.Path.home()
-    return [pathlib.Path.cwd(), pathlib.Path(tempfile.gettempdir()), *(home / f for f in HOME_FOLDERS),
+    cwd = pathlib.Path.cwd().resolve()
+    here = [] if home.expanduser().resolve().is_relative_to(cwd) else [cwd]
+    return [*here, pathlib.Path(tempfile.gettempdir()), *(home / f for f in HOME_FOLDERS),
             *(pathlib.Path(os.environ[e]) for e in FOLDER_ENVS if os.environ.get(e))]
 
 

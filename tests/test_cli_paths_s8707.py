@@ -61,6 +61,26 @@ def test_a_path_elsewhere_or_climbing_out_is_refused(tmp_path):
             paths.inside(bad)
 
 
+def test_run_from_the_home_directory_or_above_it_nothing_in_home_is_a_working_place(tmp_path, monkeypatch):
+    """`warden` run from ~ (or from /home) must not read or write ~/.ssh or ~/.aws because the working directory holds
+    them (CodeRabbit, PR 46). A project folder under the home directory is still a working place."""
+    home = tmp_path / "home" / "op"
+    (home / "project").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(paths.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    for name in paths.FOLDER_ENVS:  # a CI job's RUNNER_TEMP is a place of its own, not under test here
+        monkeypatch.delenv(name, raising=False)
+    for where in (home, home.parent):
+        monkeypatch.chdir(where)
+        for secret in (home / ".ssh" / "id_ed25519", home / ".aws" / "credentials", home / "project" / "x.json"):
+            with pytest.raises(ValueError, match="outside the places"):
+                paths.inside(secret)
+    monkeypatch.chdir(home / "project")
+    assert paths.inside("x.json") == (home / "project" / "x.json").resolve()
+    with pytest.raises(ValueError, match="outside the places"):
+        paths.inside(home / ".ssh" / "id_ed25519")
+
+
 def test_a_symlink_out_of_the_working_places_is_refused(tmp_path):
     link = tmp_path / "out"
     try:
