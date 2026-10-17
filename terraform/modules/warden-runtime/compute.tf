@@ -86,6 +86,9 @@ resource "aws_ecs_task_definition" "zone" {
       }, each.key == "llm" && var.model_provider != "" ? { WARDEN_PROVIDER = var.model_provider, WARDEN_MODEL = var.model } : {},
       # The model's budget per incident, across the investigation loop's rounds (owner decision 2026-10-10).
       each.key == "llm" ? { WARDEN_MAX_CALLS = "6", WARDEN_MAX_USD = "0.25" } : {},
+      # Eldane, the AI critic, for the critic zone only - its own model, never loaded from SSM (settings.py).
+      each.key == "critic" && var.critic_provider != "" ? { WARDEN_ELDANE_PROVIDER = var.critic_provider } : {},
+      each.key == "critic" && var.critic_model != "" ? { WARDEN_ELDANE_MODEL = var.critic_model } : {},
       # The notify zone posts for real - the only zone that does. chatops.py is dry-run unless this is set, and it is
       # never loaded from SSM; without it every report was dropped silently (2026-10-09).
       each.key == "notify" ? { WARDEN_CHATOPS_LIVE = "1" } : {},

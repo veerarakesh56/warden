@@ -198,10 +198,11 @@ variable "zone_sizes" {
     llm    = { cpu = 512, memory = 2048 }
     notify = { cpu = 256, memory = 512 } # Fargate's least memory for a quarter vCPU
     act    = { cpu = 256, memory = 512 }
+    critic = { cpu = 256, memory = 512 } # Eldane: two model calls per plan, no local model
   }
   validation {
-    condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act"])
-    error_message = "zone_sizes names every trust zone: core, read, llm, notify, act."
+    condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act", "critic"])
+    error_message = "zone_sizes names every trust zone: core, read, llm, notify, act, critic."
   }
 }
 
@@ -215,6 +216,26 @@ variable "model_provider" {
   description = "The provider the llm zone calls (src/warden/providers.py: gemini, bedrock, ...); empty: the CLI's default. It must be qualified (register M20) or every incident is escalated on the rules alone."
   type        = string
   default     = ""
+}
+
+variable "critic_provider" {
+  description = "The provider Eldane, the AI critic, calls in the critic zone (src/warden/eldane.py) - never the diagnoser's model family; empty: no Eldane, and a person approves every plan as before."
+  type        = string
+  default     = "gemini"
+  validation {
+    condition     = contains(["", "gemini", "openai"], var.critic_provider)
+    error_message = "critic_provider is empty, gemini or openai: a model family other than WARDEN's diagnoser."
+  }
+}
+
+variable "critic_model" {
+  description = "Eldane's pinned model id; empty: data/providers.yaml `critic` for critic_provider."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.critic_model == "" || can(regex("^[a-z0-9][a-z0-9.:_-]{1,80}$", var.critic_model))
+    error_message = "critic_model is a plain model id."
+  }
 }
 
 variable "model" {
