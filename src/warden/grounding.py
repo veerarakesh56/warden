@@ -590,9 +590,15 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
 _ARN = re.compile(r"(?<![\w:/-])arn:[a-z0-9-]+:[^\s,;)'\"`]+")
 # An image reference: a name, then a tag or a digest (`checkout:1.2.0`, `checkout:latest`, `repo/app@sha256:...`,
 # `checkout:canary`). One linear pattern (possessive runs, nothing re-read: Sonar, PR 47); unread() decides per match.
-_IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w[\w.-]*+)|@sha256:[0-9a-f]{12,}+)(?![\w:/-])")
-_NUMBERED_TAG = re.compile(r"v?\d|latest$")
-_VERSION = re.compile(r"(?<![\w.:/-])(?:v?\d+(?:\.\d+){2,}(?:[-+][\w.]+)?|v\d+(?:\.\d+)?)(?![\w.])")
+# A tag never ends in a period: "roll back to checkout:1.2.0." ends a sentence.
+_IMAGE_REF = re.compile(r"(?<![\w.:/-])([A-Za-z][\w./-]*+)(?::(\w(?:[\w-]|\.(?=[\w-]))*+)|@sha256:[0-9a-f]{12,}+)"
+                        r"(?![\w:/-])")
+_NUMBERED_TAG = re.compile(r"(?:v?\d|latest$)")
+# A version: three or more dotted numbers (`1.18.0`, `2.4.1-alpine`), or a `v` and one or two (`v3`, `v1.2`). One
+# linear pattern for every number (possessive runs: Sonar, PR 47) and the decision in _is_version - times, rates and
+# counts are numbers, not versions.
+_NUMBER = re.compile(r"(?<![\w.:/-])v?+\d++(?:\.\d++)*+(?:[-+]\w(?:\w|\.(?=\w))*+)?+(?!\w|\.\w)")
+_NUMBER_CORE = re.compile(r"v?+(\d++(?:\.\d++)*+)")
 UNREAD = "[not read by WARDEN]"
 PREVIOUS = "[the previous revision WARDEN recorded]"
 REFUSED_TARGET = "[a target WARDEN refused - not shown]"
@@ -626,8 +632,21 @@ def unread(text: str, read: str, *, rollback: bool = False) -> str:
             return version
         return whole if tag in names or name != name.lower() else version
 
+    def number(m: re.Match[str]) -> str:
+        return version if _is_version(m.group(0)) and m.group(0) not in read else m.group(0)
+
     text = _IMAGE_REF.sub(image, _ARN.sub(keep_or(UNREAD), text))
-    return _VERSION.sub(keep_or(version), text)
+    return _NUMBER.sub(number, text)
+
+
+def _is_version(number: str) -> bool:
+    dots = _NUMBER_CORE.match(number).group(1).count(".")
+    return dots >= 2 or (number.startswith("v") and dots <= 1)
+
+
+def versions(text: str) -> list[str]:
+    """The versions written in `text` (what unread() withholds when WARDEN did not read them)."""
+    return [m.group(0) for m in _NUMBER.finditer(text) if _is_version(m.group(0))]
 
 
 def shown_target(proposal: RemediationProposal, alert: Any, context: Any) -> str:

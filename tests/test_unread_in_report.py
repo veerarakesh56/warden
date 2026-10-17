@@ -71,3 +71,11 @@ def test_the_crashed_containers_own_output_is_withheld_in_the_report():
     assert "checkout-abc/checkout (previous) pinned to" in md
     assert "checkout:1.2.0" not in md
     assert UNREAD in md
+
+
+def test_a_version_or_tag_that_ends_a_sentence_is_judged_without_its_period():
+    """Review, PR 47: "upgrade to 1.2.3." escaped (the period was read as part of the number), and a tag WARDEN read
+    was withheld when a period followed it."""
+    assert unread("upgrade to 1.2.3.", READ) == f"upgrade to {UNREAD}."
+    assert unread("roll back to checkout:canary.", READ) == f"roll back to {UNREAD}."
+    assert unread("it runs checkout:2.4.1.", READ) == "it runs checkout:2.4.1."

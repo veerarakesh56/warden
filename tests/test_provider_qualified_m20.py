@@ -55,8 +55,9 @@ def test_a_row_measured_on_another_prompt_admits_nothing(monkeypatch):
               "prompt": PROMPT}
     for stale in ({**passed, "prompt": "b" * 64}, {k: v for k, v in passed.items() if k != "prompt"}):
         _with(monkeypatch, [stale])
+        provider = _cli(monkeypatch)
         with pytest.raises(ProviderError, match="today's prompt"):
-            qualified(_cli(monkeypatch))
+            qualified(provider)
     _with(monkeypatch, [passed])
     assert qualified(_cli(monkeypatch)).model == "claude-sonnet-5-5"
 

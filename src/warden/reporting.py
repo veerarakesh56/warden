@@ -342,17 +342,23 @@ _STACK_READERS = (
 )
 
 
+def _items_of(context: ContextBundle | None) -> dict[str, Any]:
+    """The evidence items a citation may name; none when there is no context or its view cannot be built."""
+    from . import evidence
+
+    try:
+        return evidence.view(context) if context is not None else {}
+    except Exception:  # noqa: BLE001 - a view that cannot be built checks nothing: every reason unchecked, every count 0
+        return {}
+
+
 def _ruled_out(root_cause: Any, context: ContextBundle | None) -> list[dict[str, Any]]:
     """Each cause the model ruled out, its reason, and whether that reason holds against the evidence."""
     from types import SimpleNamespace
 
-    from . import evidence
     from .grounding import hypothesis_score, ruled_out_checked
 
-    try:
-        items = evidence.view(context) if context is not None else {}
-    except Exception:  # noqa: BLE001 - a view that cannot be built checks nothing: every reason shows unchecked
-        items = {}
+    items = _items_of(context)
     rows = [{"cause": hedge(r.cause), "why": hedge(r.why), "cites": [c.id for c in r.citations],
              "checked": ruled_out_checked(r, items)} for r in root_cause.ruled_out]
     # Item 7: the hypotheses that lost, each with why, the evidence against it (what rules it out) and WARDEN's count.
@@ -410,15 +416,11 @@ def _withhold_unread(data: dict[str, Any], alert: Alert, ctx: ContextBundle,
 def _weighed(root_cause: Any, context: ContextBundle | None) -> dict[str, Any] | None:
     """The chosen hypothesis as WARDEN weighed it (item 7): its evidence for and against and its count - or None for an
     answer that ranked none."""
-    from . import evidence
     from .grounding import hypothesis_score
 
     if not root_cause.hypotheses:
         return None
-    try:
-        items = evidence.view(context) if context is not None else {}
-    except Exception:  # noqa: BLE001 - nothing to weigh against: every count is 0
-        items = {}
+    items = _items_of(context)
     h = root_cause.hypotheses[0]
     support = list(dict.fromkeys(c.id for c in [*root_cause.citations, *h.supporting]))
     return {"cause": hedge(h.cause), "for": support, "against": [c.id for c in h.against],
