@@ -113,8 +113,9 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
      "a private key"),
     ("slack-webhook", re.compile(r"https://hooks\.slack\.com/(?:services|triggers|workflows)/\S+"),
      "a Slack webhook or workflow-trigger URL, which is a credential on its own"),
+    # The host bounded as DNS bounds one (253 characters; Sonar python:S8786, 2026-10-16).
     ("teams-webhook", re.compile(
-        r"https://[\w.-]+\.(?:webhook\.office\.com/webhookb2|logic\.azure\.com\S*sig=)\S*"),
+        r"https://[\w.-]{1,253}\.(?:webhook\.office\.com/webhookb2|logic\.azure\.com\S*sig=)\S*"),
      "a Microsoft Teams / Power Automate webhook URL, which is a credential on its own"),
     ("huggingface-token", re.compile(r"\bhf_[A-Za-z0-9]{30,}"),
      "a Hugging Face token"),

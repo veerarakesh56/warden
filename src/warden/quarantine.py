@@ -50,7 +50,9 @@ _KV = re.compile(r"(?<![\w.-])([A-Za-z_][\w.-]{0,40})=([^\s,;\]\)\"'`]{1,80})")
 _OBJECT = re.compile(r"\b((?:Pod|Deployment|ReplicaSet|StatefulSet|DaemonSet|Node|Job|Service)/[\w.-]{1,80})")
 _DURATION = re.compile(r"\b(\d+(?:\.\d+)?)\s?(ms|s|sec|seconds|m|min|minutes)\b")
 _SIZE = re.compile(r"\b(\d+(?:\.\d+)?)\s?(KB|KiB|MB|MiB|GB|GiB)\b")
-_IMAGE = re.compile(r"(?<![\w.-])((?:[\w.<>-]+/)+[\w.-]+:[\w.-]+)")
+# Bounded like the patterns above (a fact longer than 120 is dropped anyway) (Sonar python:S8786, 2026-10-16): a run of `<` or of
+# `a/` was searched again from each of its characters.
+_IMAGE = re.compile(r"(?<![\w.-])((?:[\w.<>-]{1,120}/){1,16}[\w.-]{1,120}:[\w.-]{1,120})")
 # The fields of a Lambda REPORT line, by name: "Memory Size" and "Max Memory Used" are both sizes,
 # and only the pair says how close a function runs to its limit. A closed set of keys, so a line
 # cannot name its own fact.

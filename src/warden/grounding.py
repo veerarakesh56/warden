@@ -116,7 +116,8 @@ _NEXT = re.compile(r"\s*[\"'\])]*\s*(?:\((?:was|from)[^)]{0,20}\)\s*)?,?\s*(?:->
                    r"\s*[\"'\[(]*\s*" + _VALUE)
 _WORD_AFTER = re.compile(r"[\s\"'\])]*([a-z]+)(?![a-z_]*\s*[=:])")
 # A zero that says WHEN, not how many: "restarted 0s ago" is a restart (fifth review, 2026-10-01).
-_AGO = re.compile(r"\s*(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?|h|hrs?|hours?|d|days?|w|weeks?)?\s*ago\b")
+# One run of spaces before "ago" when there is no unit: two `\s*` side by side split it every way (Sonar python:S8786, 2026-10-16).
+_AGO = re.compile(r"\s*(?:(?:ms|s|sec|secs|seconds?|m|min|mins|minutes?|h|hrs?|hours?|d|days?|w|weeks?)\s*)?ago\b")
 # For scale_down a zero of USE is its evidence: "cpu: 0%" is an idle service (fifth review).
 _USE = frozenset({"cpu", "memory", "utili"})
 # A zero of something good is a shortage, not an absence: "0/3 passing", "cache hit: 0%", "no free
@@ -347,7 +348,9 @@ _SHELL = re.compile(r"[;|&$\\`<>]")
 # Arrows and redaction placeholders are how targets are written; any other `<` or `>` is a redirect.
 _NOT_SHELL = re.compile(r"<[A-Z][A-Z0-9]*_\d+>|->|=>")
 # A namespace or cluster that qualifies a resource: `(namespace=shop)`, `namespace warden-pg`, `ns/x`.
-_SCOPE = re.compile(r"[\s,(]*\b(?:namespace|ns|cluster)\b\s*[=:/ ]\s*[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*\)?\s*,?", re.IGNORECASE)
+# At most 64 separators before the word, and each run of spaces read one way only (Sonar python:S8786, 2026-10-16): a long run of
+# spaces was searched again from each of them. More than 64 stay in the text, as spaces and commas do anyway.
+_SCOPE = re.compile(r"[\s,(]{0,64}\b(?:namespace|ns|cluster)\b(?:\s*[=:/]|[^\S ]*[ ])\s*[\"'\u201c\u201d\u2018\u2019]?[\w.-]+[\"'\u201c\u201d\u2018\u2019]?\s*(?:\)\s*)?,?", re.IGNORECASE)
 # Words that describe a resource rather than name one: a second of these is not a second resource.
 _DESCRIPTORS = frozenset({
     "ecs", "ecs-service", "eks", "k8s", "service", "svc", "deploy", "sts", "rds", "aurora", "sqs", "sns",
@@ -364,7 +367,10 @@ _COMMAND_WORDS = re.compile(r"(?<![\w.-])(?:kubectl|aws|gcloud|az|helm|psql|redi
                             r"eksctl|systemctl)(?![\w-]|\.(?!(?:exe|sh|bat|cmd|ps1)\b)\w)", re.IGNORECASE)
 # An image reference with a real tag or digest (`python:3.12-alpine`, `repo/app@sha256:...`): the state a
 # rollback returns to, not a second resource. A word after a colon (`x:payments`) is not a tag.
-_IMAGE = re.compile(r"[\w.-]+(?:/[\w.-]+)*(?::(?:v?\d[\w.-]*|latest)\b|@sha256:[0-9a-f]{12,})", re.IGNORECASE)
+# Bounded as an image reference is (OCI: a name of at most 255 characters; a digest of 64 hex) (Sonar python:S8786, 2026-10-16): a long
+# word with no tag was searched again from each of its characters. A longer word stays in the text and counts.
+_IMAGE = re.compile(r"[\w.-]{1,128}(?:/[\w.-]{1,128}){0,16}(?::(?:v?\d[\w.-]{0,127}|latest)\b|@sha256:[0-9a-f]{12,64})",
+                    re.IGNORECASE)
 _RESOURCE_KINDS = frozenset({"deployment", "namespace", "service", "statefulset", "daemonset", "pod", "function",
                              "lambda", "cluster", "table", "queue", "topic", "rule", "instance", "database", "db"})
 
@@ -400,7 +406,9 @@ def target_problem(proposal: RemediationProposal, inventory: set[str],
     if any(_invisible(ch) for ch in unprefixed):
         return f"target {proposal.target!r} contains invisible characters"
     plain = unprefixed
-    assigned = re.findall(r"([\w.-]+)=", plain)
+    # From the start of a name, at most 64 characters: a long word with no `=` was searched again from each of its
+    # characters (Sonar python:S8786, 2026-10-16). A longer name matches nothing, so the count below refuses it as before.
+    assigned = re.findall(r"(?<![\w.-])([\w.-]{1,64})=", plain)
     if (_FLAGLIKE.search(plain) or plain.count("=") != len(assigned)
             or any(k.lower() not in _RESOURCE_KINDS for k in assigned)):
         return f"target {proposal.target!r} looks like a flag or an assignment, not a resource name"

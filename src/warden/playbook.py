@@ -342,7 +342,8 @@ def _missing_cache_ingress(ctx: ContextBundle) -> tuple[str, str, list[str]] | N
 
 
 def _kv(line: str) -> dict[str, str]:
-    return dict(re.findall(r"(\w+)=(\[[^\]]*\]|\S+)", line))
+    # From the start of a word: a long word with no `=` was searched again from each of its letters (Sonar python:S8786, 2026-10-16).
+    return dict(re.findall(r"\b(\w+)=(\[[^\]]*\]|\S+)", line))
 
 
 def _first(ctx: ContextBundle, prefix: str, *needles: str) -> str | None:

@@ -411,7 +411,7 @@ def _platform(choice: str):
         from .platforms.aws import from_environment
 
         aws = from_environment()
-        platforms.update({p: aws for p in AWS_PLATFORMS})
+        platforms.update(dict.fromkeys(AWS_PLATFORMS, aws))
     return RoutedPlatform(**platforms)
 
 
