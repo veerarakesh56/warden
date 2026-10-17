@@ -19,7 +19,6 @@ from pydantic import ValidationError
 
 from fakes import AWS_ACCESS_KEY_ID
 from test_intake import _Client, _log
-from test_lambdas_g6 import submitted  # noqa: F401
 from warden import intake, lambdas, security_findings
 from warden.activities import IncidentActivities
 from warden.llm import LLMClient
@@ -290,7 +289,16 @@ def test_an_escalate_only_security_incident_proposes_no_fix_and_no_plan():
     assert acts.plan_fix(alert, diagnosed, verified) == {}
 
 
-def test_the_alarm_lambda_takes_findings_and_ignores_what_it_does_not_take(submitted):  # noqa: F811
+@pytest.fixture
+def submitted(monkeypatch):
+    """What the alarm Lambda hands intake, without Temporal or the audit."""
+    got = []
+    monkeypatch.setattr(lambdas, "_configure", lambda name: None)
+    monkeypatch.setattr(lambdas, "_submit", lambda events: got.extend(events) or [{"action": "start"}] * len(events))
+    return got
+
+
+def test_the_alarm_lambda_takes_findings_and_ignores_what_it_does_not_take(submitted):
     assert lambdas.alarm(_guardduty())["decisions"] == [{"action": "start"}]
     assert submitted[0].source == "security"
     assert submitted[0].escalate
