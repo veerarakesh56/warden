@@ -100,6 +100,11 @@ class ModelCutOff(ModelRefused):
     """The answer reached the output cap: it was charged, and the same prompt would be cut off again."""
 
 
+class ModelDeclined(ModelCutOff):
+    """The model refused to answer (stop_reason "refusal"). Handled exactly as a cut-off (B11): charged, never asked
+    again - the same prompt would be declined again - and the incident goes to a person on the evidence alone."""
+
+
 class LLMClient:
     def __init__(
         self,
@@ -238,6 +243,10 @@ class LLMClient:
                 # Charged BEFORE validation: a malformed response still costs money, and a budget
                 # that only counts successful calls can be exhausted by a model that keeps failing.
                 self._charge(completion.input_tokens, completion.output_tokens)
+                if getattr(completion, "refused", False):
+                    category = getattr(completion, "refusal_category", "") or "not named"
+                    raise ModelDeclined(f"the model declined to answer (refusal, category {category}); asking again "
+                                        "would be declined again")
                 if getattr(completion, "cut_off", False):
                     raise ModelCutOff("the answer was cut off at the output cap; asking again would cut it off again")
                 return schema.model_validate_json(extract_json(completion.text))
@@ -248,7 +257,7 @@ class LLMClient:
                 self.cost.add(0, 0, 0.0)
                 raise
             except ModelCutOff as exc:
-                last = exc  # charged above; the same prompt would be cut off the same way
+                last = exc  # charged above; the same prompt would be cut off (or declined) the same way
                 break
             except (BudgetExceeded, ProviderExhausted):
                 # Fatal by design: a blown budget must stop the run immediately, not be retried into an
