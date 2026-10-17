@@ -147,14 +147,20 @@ def deploy_shas(base: Any, alert: Any) -> list[str]:
         deploys = []
     shas: list[str] = []
     for d in deploys if isinstance(deploys, list) else []:
-        if not isinstance(d, dict):
-            continue
-        for v in (d.get("sha"), str(d.get("image") or "").rsplit(":", 1)[-1] if ":" in str(d.get("image") or "")
-                  else ""):
-            v = str(v or "").strip().lower()
-            if _SHA.fullmatch(v) and v not in shas:
+        for v in _commits_of(d):
+            if v not in shas:
                 shas.append(v)
     return shas
+
+
+def _commits_of(deploy: Any) -> list[str]:
+    """A deploy's own sha and its image's tag, where each is shaped like a commit id."""
+    if not isinstance(deploy, dict):
+        return []
+    image = str(deploy.get("image") or "")
+    tag = image.rsplit(":", 1)[-1] if ":" in image else ""
+    values = (str(v or "").strip().lower() for v in (deploy.get("sha"), tag))
+    return [v for v in values if _SHA.fullmatch(v)]
 
 
 class CommitReader:
