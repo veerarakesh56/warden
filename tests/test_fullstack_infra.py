@@ -1083,6 +1083,9 @@ def test_the_actor_maps_to_the_remediator_group_only_and_connects_only_as_the_te
     assert 'kubernetes_groups = ["warden-remediators"]' in entry and "-actor" in entry
     assert '"warden-remediator:{{SessionName}}"' in entry  # the incident, into the Kubernetes audit log
     assert "warden_actor" not in eks.replace('"aws_eks_access_entry" "warden_actor"', "")  # no access policy: RBAC only
+    # The reader's one group: the shop Application's get (register C4, k8s/argocd/shop.yaml; tests/test_automation_c4).
+    reader = eks[eks.index('resource "aws_eks_access_entry" "warden_reader"'):]
+    assert 'kubernetes_groups = ["warden-readers"]' in reader[:reader.index("\n}\n")]
     # In the shop namespace only, to the remediator role the admission policy narrows (test_platform_k8s).
     docs = list(yaml.safe_load_all((ROOT / "manifests" / "shop" / "base" / "warden-rbac.yaml").read_text(encoding="utf-8")))
     [rb] = [d for d in docs if d["kind"] == "RoleBinding" and d["roleRef"]["name"] == "warden-remediator"]
