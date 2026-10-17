@@ -6,7 +6,8 @@
 
 Three pipelines, each usable alone: INFRA (terraform/fullstack) produces stack.json; this tool reads
 it and never calls terraform; WARDEN's own CI is a third. Everything lands OUTSIDE the repo, in
---out (default ~/warden-fullstack-build): lambda/<fn>.zip, image-tag.txt, kubeconfig.
+--out (default ~/warden-fullstack-build): lambda/<fn>.zip, image-tag.txt, kubeconfig. --out and --stack must
+lie in ~/warden-fullstack-build, the temp folder (RUNNER_TEMP) or the working directory (warden.paths).
 
   build         Lambda zips (manylinux wheels via pip --platform, python zipfile) and the
                 container image (docker build).
@@ -43,6 +44,10 @@ import tempfile
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))  # warden.paths is stdlib only: the apps jobs need no WARDEN install
+
+from warden import paths  # after the sys.path line above, deliberately
+
 APPS = ROOT / "scenarios" / "fullstack"
 # The shop's workloads are in Git (manifests/shop, synced by Argo CD); the pipeline applies only what it owns.
 MANIFESTS = ROOT / "manifests" / "shop"
@@ -617,7 +622,14 @@ def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
     sub.add_parser("bootstrap-db")
     args = p.parse_args(argv)
 
-    out = args.out.expanduser().resolve()
+    # --out and --stack come from the command line, and deploy ecs writes stack.json back: each must lie where the
+    # tools work - ~/warden-fullstack-build, the temp folder (RUNNER_TEMP in CI) or the working directory
+    # (warden.paths; Sonar pythonsecurity:S2083, 2026-10-17). Both are used through the checked path only.
+    try:
+        out = paths.inside(args.out)
+        stack_path = paths.inside(args.stack) if args.stack else out / "stack.json"
+    except ValueError as e:
+        raise SystemExit(f"refused: {e}") from None
     if out == ROOT or ROOT in out.parents:
         raise SystemExit(f"--out {out} is inside the repository; build output must live outside it")
     out.mkdir(parents=True, exist_ok=True)
@@ -629,7 +641,6 @@ def main(argv: list[str] | None = None, *, aws=None, runner=run) -> int:
         if args.cmd == "build":
             return 0
 
-    stack_path = args.stack or out / "stack.json"
     stack = load_stack(stack_path)
     aws = aws or boto_factory(stack["region"])
     if args.cmd == "bootstrap-db":

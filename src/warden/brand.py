@@ -23,4 +23,23 @@ _RAW = """<svg class="logo" viewBox="0 0 64 64" width="30" height="30" aria-hidd
 <circle cx="32" cy="31" r="4" fill="#FF7E6B"/>
 </svg>"""
 
-LOGO_SVG = re.sub(r'\s+xmlns(?::\w+)?="[^"]*"', "", _RAW)
+_XMLNS = re.compile(r'xmlns(?::\w+)?="[^"]*"')
+
+
+def _drop_xmlns(svg: str) -> str:
+    """Every xmlns attribute that follows white space, with that white space - what `\\s+xmlns(?::\\w+)?="[^"]*"` removed,
+    read once from left to right (Sonar python:S8786, 2026-10-17: the leading `\\s+` was tried again from each
+    character of a run of white space, so a long run took time in its square)."""
+    kept, last, at = [], 0, 0
+    while found := _XMLNS.search(svg, at):
+        start = found.start()
+        if start > last and svg[start - 1].isspace():
+            kept.append(svg[last:start].rstrip())
+            last = at = found.end()
+        else:
+            at = start + 1
+    kept.append(svg[last:])
+    return "".join(kept)
+
+
+LOGO_SVG = _drop_xmlns(_RAW)
