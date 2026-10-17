@@ -43,7 +43,8 @@ def test_an_assignment_in_a_long_name_is_still_refused_quickly():
 
 
 def test_the_rewritten_patterns_match_what_they_did():
-    assert grounding._AGO.match("5 min ago", 1) and grounding._AGO.match("  ago", 0)
+    assert grounding._AGO.match("5 min ago", 1)
+    assert grounding._AGO.match("  ago", 0)
     assert not grounding._AGO.match(" minutes later", 0)
     assert grounding._SCOPE.sub(" ", "checkout (namespace=shop), x").split() == ["checkout", "x"]
     assert grounding._IMAGE.sub(" ", "use repo/app:v1.2 now").split() == ["use", "now"]

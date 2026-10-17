@@ -47,10 +47,13 @@ def test_no_install_runs_a_packages_build_script():
              for line in _code(st.get("run", "")).splitlines() if re.search(r"\buv sync\b", line)]
     for name in ("Dockerfile", "Dockerfile.runtime"):
         syncs += [line for line in (ROOT / name).read_text(encoding="utf-8").splitlines() if line.startswith("RUN uv sync")]
-    assert len(syncs) >= 13 and all("--no-build" in line for line in syncs), [s for s in syncs if "--no-build" not in s]
+    assert len(syncs) >= 13, syncs
+    assert all("--no-build" in line for line in syncs), [s for s in syncs if "--no-build" not in s]
     app = (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
     pips = [line for line in app.splitlines() if "pip install" in line]
-    assert pips and all("--only-binary :all:" in line and "--require-hashes" in line for line in pips), pips
+    assert pips
+    assert all("--only-binary :all:" in line for line in pips), pips
+    assert all("--require-hashes" in line for line in pips), pips
 
 
 def test_uv_is_pinned_and_checksum_verified_everywhere():

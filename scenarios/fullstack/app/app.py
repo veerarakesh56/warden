@@ -142,9 +142,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.reply(200, route(), span)
         except Exception as exc:
-            # The route's own path, one of the keys of `routes` - never the request line, whose query string the
-            # client writes (Sonar pythonsecurity:S5145, 2026-10-16).
-            log.exception("GET %s failed", path)
+            # The route as registered, a key of `routes` - never text from the request, whose path and query the
+            # client writes (Sonar pythonsecurity:S5145, 2026-10-16: the client's own `path` still counted as theirs).
+            log.exception("GET %s failed", next(known for known in self.routes if known == path))
             if span is not None:
                 span.record_exception(exc)
             self.reply(500, {"error": type(exc).__name__}, span)
