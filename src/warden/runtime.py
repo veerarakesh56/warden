@@ -180,7 +180,7 @@ async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEA
 async def _synthetic_once(shadow: Any, log: Any) -> None:
     try:
         failed = await asyncio.to_thread(synthetic)
-    except Exception as exc:  # noqa: BLE001 - a synthetic run that cannot run is a failed one
+    except Exception as exc:  # noqa: BLE001  # the heartbeat loop must go on; the failure is logged below
         failed = f"the synthetic incident could not run: {type(exc).__name__}"
     if failed:
         if log:

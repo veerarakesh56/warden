@@ -619,7 +619,7 @@ def build_server() -> Server:
 
             try:
                 client = client or await runtime.connect()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001  # any connect failure is answered to the client, named
                 return _err(f"the workflow service is not reachable: {type(exc).__name__}: {exc}")
             return await call_workflow_tool(params.name, dict(params.arguments or {}), client)
         return call_tool(params.name, dict(params.arguments or {}))
@@ -658,7 +658,7 @@ def main() -> int:
         raise
     except KeyboardInterrupt:
         raise
-    except Exception as exc:  # noqa: BLE001 - the last line of defence for what reaches the terminal
+    except Exception as exc:  # noqa: BLE001  # last line of defence: logged gated, exit status 1
         log.error("error: %s: %s", type(exc).__name__, exc)
         return 1
 

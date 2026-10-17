@@ -41,6 +41,7 @@ rollback). A pause, a shift and a freeze end "mitigated": the page stays open (c
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -51,6 +52,7 @@ from typing import Any
 from .. import catalog
 from ..aws_stack import KNOWN_GOOD, SERVED_LOOKBACK, last_known_good, served_queries
 
+_LOG = logging.getLogger("warden.platforms")
 ENV_TAG = os.environ.get("WARDEN_AWS_ENV_TAG", "Environment")
 HEALTH_WINDOW = timedelta(minutes=5)
 # Live, 2026-10-16: a metric health check summed the last HEALTH_WINDOW - which held the errors from before the fix, so
@@ -526,7 +528,8 @@ class AwsPlatform:
             return {}
         try:
             out = read(params)
-        except Exception:  # noqa: BLE001 - absent or unreadable allows nothing; the catalogue refuses
+        except Exception as exc:  # noqa: BLE001  # any failed read (AWS, or an answer of another shape) allows nothing
+            _LOG.warning("the live read for %s failed (%s): nothing is allowed", entry, type(exc).__name__)
             return {}
         alarm = params.get("alarm")
         # `slow_start_s`: what the resource itself needs before it can be healthy (a group's new instances).
@@ -534,7 +537,9 @@ class AwsPlatform:
         if out and isinstance(alarm, str):
             try:
                 minutes = self._alarm_clear_minutes(alarm)
-            except Exception:  # noqa: BLE001 - unread: the request's own default window stands
+            except Exception as exc:  # noqa: BLE001  # optional: unread, the request's own default window stands
+                _LOG.warning("the alarm's clear time could not be read (%s): the default window stands",
+                             type(exc).__name__)
                 minutes = None
             if minutes is not None:
                 out["recover_minutes"] = minutes + -(-slow // 60)
@@ -597,7 +602,8 @@ class AwsPlatform:
             return False
         try:
             return bool(check(service, params or {}))
-        except Exception:  # noqa: BLE001 - unknown is not healthy
+        except Exception as exc:  # noqa: BLE001  # fail closed: whatever stopped the check, unknown is not healthy
+            _LOG.warning("the health check for %s failed (%s): not healthy", entry, type(exc).__name__)
             return False
 
     def apply(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any] | None = None,
@@ -2745,7 +2751,8 @@ class AwsPlatform:
         for r in readers:
             try:
                 [i] = rds.describe_db_instances(DBInstanceIdentifier=r)["DBInstances"]
-            except Exception:  # noqa: BLE001, S112 - a reader that cannot be read cannot be named
+            except Exception as exc:  # noqa: BLE001  # fail closed: a reader that cannot be read is never a target
+                _LOG.warning("reader %s could not be read (%s): not a failover target", r, type(exc).__name__)
                 continue
             if i.get("DBInstanceStatus") == "available":  # only a reader that is up can take over
                 ready[r] = i["DBInstanceArn"]

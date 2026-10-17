@@ -657,7 +657,7 @@ def main(argv: list[str] | None = None) -> int:
         raise
     except KeyboardInterrupt:
         raise
-    except Exception as exc:  # noqa: BLE001 - the last line of defence for what reaches the terminal
+    except Exception as exc:  # noqa: BLE001  # last line of defence: printed gated, exit status 1
         _out(f"error: {type(exc).__name__}: {_one(exc)}", err=True)
         return 1
 

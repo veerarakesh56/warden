@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import http.client
 import json
 import os
 import time
@@ -72,15 +73,17 @@ class SlackLogin:
         try:
             answer = self.post(TOKEN_ENDPOINT, {"client_id": self.client_id, "client_secret": self.client_secret, "code": code,
                                        "redirect_uri": redirect_uri, "grant_type": "authorization_code"})
-        except Exception as exc:  # noqa: BLE001 - Slack unreachable is a sign-in that did not happen
+        except (OSError, http.client.HTTPException, ValueError) as exc:  # unreachable, refused, cut or unreadable
             raise SlackLoginError(f"Slack could not be reached ({type(exc).__name__})") from None
         if not isinstance(answer, dict) or answer.get("ok") is not True or not isinstance(answer.get("id_token"), str):
             raise SlackLoginError("Slack did not confirm the sign-in")
         try:
             body = answer["id_token"].split(".")[1]
             claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
-        except Exception:  # noqa: BLE001
+        except (IndexError, ValueError):  # no payload part, not base64, not UTF-8 or not JSON
             raise SlackLoginError("Slack's answer could not be read") from None
+        if not isinstance(claims, dict):  # JSON, but not the claims object: as unreadable, never a crash
+            raise SlackLoginError("Slack's answer could not be read")
         audience = claims.get("aud")
         if claims.get("iss") != ISSUER or self.client_id not in (audience if isinstance(audience, list) else [audience]):
             raise SlackLoginError("the sign-in was not issued by Slack for this app")

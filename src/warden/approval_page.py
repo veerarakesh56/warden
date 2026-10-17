@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
 from . import approvals, passkeys
@@ -297,7 +298,7 @@ class ApprovalPage:
             return self._signed_deny(str(data["approver"]), data)
         try:
             approval = approvals.SignedApproval.model_validate(data)
-        except Exception:  # noqa: BLE001 - a malformed approval is refused whole
+        except ValidationError:  # a malformed approval is refused whole
             return _json(400, {"error": "not a signed approval"})
         plan = self.plan_of(approval.workflow_id)
         if plan is None:
@@ -591,11 +592,11 @@ class ApprovalPage:
         if allowed is not None:
             return tuple(sorted(allowed))
         try:
-            from .environments import default_environment_policies
+            from .environments import EnvironmentPolicyError, default_environment_policies
 
             return tuple(default_environment_policies().known_environments)
-        except Exception:  # noqa: BLE001 - no configuration here: the filter offers "Any" and what the address asked
-            return ()
+        except (EnvironmentPolicyError, OSError, ValueError):
+            return ()  # no configuration here (missing, unreadable, malformed): "Any" and what the address asked
 
     def _approver_for(self, member: str, r: Any) -> str:
         """The approver this Slack member is, when the incident's plan waits for an approval their tier allows and
@@ -734,7 +735,7 @@ class ApprovalPage:
             return _json(403, {"error": "sign in with Slack first"})
         try:
             reason = " ".join(str(json.loads(body or "{}").get("reason", "")).split())
-        except Exception:  # noqa: BLE001 - a request that cannot be read stops nothing
+        except (ValueError, TypeError, AttributeError):  # not JSON, or not an object: a request that stops nothing
             reason = ""
         if not reason or len(reason) > STOP_REASON_MAX:
             return _json(400, {"error": f"say why you are stopping WARDEN, in 1 to {STOP_REASON_MAX} characters"})
@@ -750,7 +751,7 @@ class ApprovalPage:
         pending = self.store.take_challenge(key)
         try:
             response = json.loads(body)["response"]
-        except Exception:  # noqa: BLE001 - an answer that cannot be read stops nothing
+        except (ValueError, TypeError, KeyError):  # not JSON, not an object, or no answer: it stops nothing
             response = None
         credential = next((c for c in self._credentials(approver)
                            if isinstance(response, dict) and c.credential_id == response.get("id")), None)
