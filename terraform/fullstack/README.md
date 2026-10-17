@@ -37,7 +37,7 @@ Kubernetes objects are not in terraform at all.
 Measured in Cost Explorer for 2026-10-15 (a full day, before credits: USD 0.65/hour for this stack,
 USD 0.99/hour with WARDEN's runtime), ap-south-2 prices from the AWS Price List API the same day, then
 the cost plan of 2026-10-16/17 subtracted. WARDEN's runtime (terraform/runtime) adds about USD
-0.28/hour (was 0.34; every zone stays on on-demand Fargate): together about USD 18.4/day (was 23.81).
+0.28/hour (was 0.34; every zone stays on on-demand Fargate): together about USD 0.81/hour, so about USD 19.4/day (was 23.81).
 
 | resource | per hour | note |
 |---|---|---|
