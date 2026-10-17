@@ -155,7 +155,12 @@ front with HTTPS (a free ACM certificate) and WAF; this lab has no domain, so it
 - **The ALB is internal**, in private subnets, and accepts traffic only from the traffic Lambda's
   security group; the traffic Lambda runs **inside** the VPC (`in_vpc = true`). The API serves
   synthetic orders.
-- **EKS API endpoint locked to `/warden/<env>/tf/my_ip_cidr`**, private endpoint on (nodes join through it).
+- **EKS API endpoint locked to `/warden/<env>/tf/my_ip_cidr`**, private endpoint on (nodes join through it), plus
+  WARDEN's runtime NAT addresses (`eks.tf`, read by the runtime's NAT names): the runtime VPC's range overlaps this
+  one, so no peering reaches the private endpoint, and its Fargate workers arrive through their NAT. Pausing the
+  runtime releases its NAT address; re-apply this stack after resuming it, or cluster reads and fixes are refused
+  (and go to a person) until then. WARDEN's actor role has an access entry of its own: group `warden-remediators`, no
+  access policy - the remediator RBAC and admission policy (`k8s/remediation-rbac.yaml`) decide.
 - **No autoscaling on DynamoDB, no ECS circuit breaker, catalog-api rolls with maxSurge 0, cart-worker
   uses Recreate:** each would mask a fault before anything read it.
 - **Rules a fault revokes are separate resources** (Redis ingress per app SG, the ECS execution

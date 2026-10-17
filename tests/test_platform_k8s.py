@@ -251,7 +251,8 @@ def test_an_admission_policy_narrows_what_the_remediator_may_patch():
     assert vap["spec"]["failurePolicy"] == "Fail" and binding["spec"]["validationActions"] == ["Deny"]
     assert binding["spec"]["policyName"] == vap["metadata"]["name"]
     [who] = vap["spec"]["matchConditions"]
-    assert who["expression"] == 'request.userInfo.username == "system:serviceaccount:warden:warden-remediator"'
+    assert who["expression"] == ('request.userInfo.username == "system:serviceaccount:warden:warden-remediator" || '
+                                 '(has(request.userInfo.groups) && "warden-remediators" in request.userInfo.groups)')
     rules = " ".join(v["expression"] for v in vap["spec"]["validations"])
     for held in ("object.spec.template.spec == oldObject.spec.template.spec", "object.spec.selector ==",
                  "object.spec.replicas <= oldObject.spec.replicas + 2", "object.spec.replicas >= 1"):
