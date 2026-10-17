@@ -1,0 +1,46 @@
+name: "Review · security (optional)"
+
+# Anthropic's Claude Code security review (anthropics/claude-code-security-review, MIT) on a pull request into main:
+# OPTIONAL and OFF by default - it calls the Claude API on the owner's key, so it costs money per pull request. It runs
+# only when the repository variable WARDEN_SECURITY_REVIEW is "on" (docs/OPERATIONS.md, "Optional: Claude's security
+# review"), and only on a pull request from a branch of this repository: the action is not hardened against prompt
+# injection (its README), and a fork's pull request never gets the key (pull_request, never pull_request_target).
+# It holds no cloud identity and deploys nothing; it reads the diff and comments on the pull request.
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: security-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-review:
+    if: >-
+      vars.WARDEN_SECURITY_REVIEW == 'on'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read        # read the change
+      pull-requests: write  # comment its findings on the pull request
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      # Anthropic's own action; it publishes no tags or releases, so it is pinned to its main branch's commit of
+      # 2026-02-11 ("Pin all versions of any uses: ..."), read 2026-10-17. The model is named here: the action's own
+      # default is an older Opus.
+      - uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda  # main, 2026-02-11
+        with:
+          claude-api-key: ${{ secrets.SECURITY_REVIEW_ANTHROPIC_API_KEY }}
+          claude-model: ${{ vars.WARDEN_SECURITY_REVIEW_MODEL || 'claude-opus-5-5' }}
+          comment-pr: true
+          upload-results: false
+          claudecode-timeout: 20
+          exclude-directories: docs,tests/fixtures

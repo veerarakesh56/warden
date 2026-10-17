@@ -121,3 +121,34 @@ is removed. A covered alarm starts no incident and is recorded (`intake.decision
 cover ends WARDEN looks at the alarm again: still firing, it is an incident from that moment. A declaration that
 cannot be read covers nothing and is said in the intake's log: a typing mistake brings alarms back, it never hides
 one. A person who asks for a diagnosis (CLI, MCP) always gets one.
+
+## Optional: Claude's security review on pull requests
+
+`.github/workflows/security-review.yml` runs Anthropic's Claude Code security review
+(`anthropics/claude-code-security-review`, MIT, pinned by its commit) on a pull request into `main` and comments its
+findings on the pull request. It is **off by default**: it calls the Claude API on your key, so it costs money per pull
+request. It is advisory - it is not a required check, and CodeRabbit, SonarCloud and CodeQL stay the gates.
+
+To turn it on (once, in the repository's Settings):
+
+1. Create an Anthropic API key for this alone, in its own workspace with a monthly spend limit (Claude Console,
+   Workspaces and Limits) - not WARDEN's runtime key. Store it as the Actions secret
+   `SECURITY_REVIEW_ANTHROPIC_API_KEY` (Settings, Secrets and variables, Actions, Secrets).
+2. Set the Actions variable `WARDEN_SECURITY_REVIEW` to `on` (same page, Variables). Any other value, or none, turns
+   it off. Optionally set `WARDEN_SECURITY_REVIEW_MODEL` to `claude-sonnet-5-5` for a cheaper review; the default is
+   `claude-opus-5-5`.
+3. Keep Settings, Actions, General, "Fork pull request workflows from outside collaborators" at **Require approval for
+   all external contributors**. The action is not hardened against prompt injection (its README): it runs only on
+   pull requests from this repository's own branches, never on a fork's code with the key.
+
+What it costs: Claude API tokens only (Actions minutes are free on a public repository). It reviews a pull request
+once; later pushes to the same pull request are skipped unless it is run again. Claude Code reads the change and the
+code around it, then a second, smaller call filters false positives. At Claude Opus 5.5's list price ($4 per million
+input tokens, $20 per million output, read 2026-10-17) an estimated $1 to $3 per pull request for a change of a few
+hundred lines, about half that with Claude Sonnet 5.5 ($2 / $10) - an estimate, not measured here: read the real
+figure in the Claude Console's usage page after the first runs, and let the workspace's spend limit cap it. To turn
+it off, set `WARDEN_SECURITY_REVIEW` to anything but `on`, or delete it.
+
+Known limit, not verified here: the action's false-positive filter checks its API access with a fixed older model
+(`claude-3-5-haiku-20241022` in its code). If that model is retired, the filter step may fail and its findings may
+arrive unfiltered; read the first run's log.
