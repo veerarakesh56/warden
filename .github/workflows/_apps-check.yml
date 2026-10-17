@@ -23,7 +23,7 @@ jobs:
           checksum: "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
           python-version: "3.12"
           activate-environment: true
-      - run: uv sync --locked --only-group apps-check --only-group scan
+      - run: uv sync --locked --no-build --only-group apps-check --only-group scan
       - run: ruff check scenarios/fullstack scripts/deploy_fullstack_apps.py tests/test_deploy_fullstack_apps.py
       # What is deployed to AWS, audited and scanned here: the tool CI skips apps-only changes, and its
       # pip-audit reads uv.lock, not these files (fifth review E, 2026-10-01).
