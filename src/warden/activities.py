@@ -1243,16 +1243,8 @@ class IncidentActivities:
             proposal = proposal.model_copy(update={"action": ActionKind.revert_change})
         if verified.verdict.status != VerdictStatus.approved_for_human and not p6_only and not offer:
             why = f"the verdict is {verified.verdict.status.value}"
-        elif self.platform is None:
-            why = "this worker reads no platform"
         else:
-            def live(entry: str, params: dict[str, Any]) -> dict[str, Any]:
-                return self.platform.live(entry, params, **_env(self.platform.live, alert.environment))
-
-            try:
-                req, why = resolver.request_for(alert, proposal, live)
-            except Exception as exc:  # noqa: BLE001 - a failed live read plans nothing; the person was told
-                req, why = None, f"the live read failed ({type(exc).__name__})"
+            req, why = self._live_request(alert, proposal)
         not_again, why = self._not_again(req) if req else ("", why)
         req = None if not_again else req
         if req:
@@ -1264,6 +1256,21 @@ class IncidentActivities:
         _note(f"{alert_id} fix plan " + (f"opened: {req['entry']}" if req else f"not opened: {why}")
               + (f" ({OFFERED_UNDO})" if offer else ""))
         return req or {}
+
+    def _live_request(self, alert: Alert, proposal: Any) -> tuple[dict[str, Any] | None, str]:
+        """The fix plan request from the platform's live read, in the environment's reader role, or None and why."""
+        from . import resolver
+
+        if self.platform is None:
+            return None, "this worker reads no platform"
+
+        def live(entry: str, params: dict[str, Any]) -> dict[str, Any]:
+            return self.platform.live(entry, params, **_env(self.platform.live, alert.environment))
+
+        try:
+            return resolver.request_for(alert, proposal, live)
+        except Exception as exc:  # noqa: BLE001 - a failed live read plans nothing; the person was told
+            return None, f"the live read failed ({type(exc).__name__})"
 
     def _not_again(self, req: dict[str, Any]) -> tuple[str, str]:
         """Item 11 (owner, 2026-10-16): a fix that was verified and did not hold is not offered again for the same

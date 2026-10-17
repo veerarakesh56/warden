@@ -52,7 +52,8 @@ def test_the_same_alarm_inside_the_soak_reopens_the_same_incident():
     _fixed(log, incident, at=None, service="not-named-by-the-alarm")  # matched by its fingerprint alone
     client = _Reusing()
     d = asyncio.run(intake.submit(client, ev, log))
-    assert (d.action, d.workflow_id) == ("reopen", f"inc-{incident}") and "did not hold" in d.reason
+    assert (d.action, d.workflow_id) == ("reopen", f"inc-{incident}")
+    assert "did not hold" in d.reason
     start = [c for c in client.calls if c[0] == "start"]
     assert start == [("start", f"inc-{incident}", incident, WorkflowIDReusePolicy.ALLOW_DUPLICATE)]
     assert ("signal", "rem-prod-1", "alarm") in [c[:3] for c in client.calls]  # its run ends relapsed
@@ -120,7 +121,9 @@ def test_a_fix_that_did_not_hold_is_not_offered_again_for_that_target(tmp_path):
     log.append("inc-0", history.DID_NOT_HOLD, {"entry": first["entry"], "target": target, "workflow_id": "rem-0"})
     assert acts.plan_fix(ALERT, _diag(), passed) == {}
     row = log.entries(ALERT.alert_id, kinds=("incident.plan_fix",))[-1]["body"]
-    assert row["not_again"] == "inc-0" and "did not hold" in row["why"] and "a person decides" in row["why"]
+    assert row["not_again"] == "inc-0"
+    assert "did not hold" in row["why"]
+    assert "a person decides" in row["why"]
     # Another target, or another fix, is still offered.
     assert history.did_not_hold(log, first["entry"], "dev/table:another") == ("", "")
     assert history.did_not_hold(log, "dynamodb_raise_capacity", target) == ("", "")
@@ -174,7 +177,8 @@ def test_the_soak_is_a_setting_bounded_by_the_request(monkeypatch):
 def test_a_longer_soak_re_checks_at_its_end_and_a_relapse_there_is_said(world, owner):  # noqa: F811
     world["platform"] = _Sequence([True, True, True, True, True, False])  # the streak, +15, +60, then fails
     out = _run(world, _approve_with(owner), soak_minutes=120)
-    assert out.status == "relapsed" and "120-minute re-check" in out.reasons[0]
+    assert out.status == "relapsed"
+    assert "120-minute re-check" in out.reasons[0]
     assert world["platform"].checks == 3 + 3
 
 
@@ -200,7 +204,8 @@ def test_a_reopened_incident_keeps_the_alarms_reason_to_go_to_a_person():
     held = {"incident": "i", "entry": "e", "verified_at": "2026-10-16T01:00:00+00:00"}
     flapping = intake.decide(_ev(), recent=[{}] * (intake.FLAP_FLIPS - 1), open_incidents={}, verifying={},
                              open_count=0, held=held)
-    assert flapping.action == "reopen" and "flapping" in flapping.escalate
+    assert flapping.action == "reopen"
+    assert "flapping" in flapping.escalate
     health = _ev().model_copy(update={"escalate": "AWS Health reports an issue"})
     assert intake.decide(health, recent=[], open_incidents={}, verifying={}, open_count=0,
                          held=held).escalate == "AWS Health reports an issue"
@@ -303,7 +308,8 @@ def test_the_own_fix_that_did_not_hold_is_beside_the_reopened_diagnosis(tmp_path
     assert acts._own_fixes(alert) == []
     log.append("inc-r", history.DID_NOT_HOLD, {"workflow_id": "w", "entry": "e", "target": "dev/t"})
     [(_, link)] = acts._own_fixes(alert)
-    assert link["workflow_id"] == "w" and link["incident"] == "inc-r"
+    assert link["workflow_id"] == "w"
+    assert link["incident"] == "inc-r"
 
 
 def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_path, monkeypatch, capsys):
@@ -330,13 +336,16 @@ def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_pat
         monkeypatch.setenv(name, str(tmp_path / value))
     monkeypatch.delenv("WARDEN_ENV", raising=False)
     args = ["offer-again", "inc-9", "--approver", "owner", "--key", str(key_file)]
-    assert main(args) == 1 and "nothing to clear" in capsys.readouterr().err
+    assert main(args) == 1
+    assert "nothing to clear" in capsys.readouterr().err
     log = audit.AuditLog(pathlib.Path(tmp_path / "audit.db"))
     log.append("inc-9", history.DID_NOT_HOLD, {"entry": "e", "target": "dev/t", "workflow_id": "w"})
     assert history.did_not_hold(log, "e", "dev/t")[0] == "inc-9"
-    assert main(args) == 0 and "may be offered again" in capsys.readouterr().out
+    assert main(args) == 0
+    assert "may be offered again" in capsys.readouterr().out
     assert history.did_not_hold(audit.AuditLog(pathlib.Path(tmp_path / "audit.db")), "e", "dev/t") == ("", "")
-    assert main(args) == 1 and "nothing to clear" in capsys.readouterr().err  # cleared: nothing held back now
+    assert main(args) == 1
+    assert "nothing to clear" in capsys.readouterr().err  # cleared: nothing held back now
     # A fix whose re-check failed (its run ended `relapsed`, no did-not-hold row) is cleared the same way (PR 43).
     log = audit.AuditLog(pathlib.Path(tmp_path / "audit.db"))
     log.append("inc-7", "remediation.plan", {"workflow_id": "w7", "run_id": "r", "entry": "e", "target": "dev/u"})
@@ -361,7 +370,9 @@ def test_a_fix_verified_long_after_its_plan_is_watched_through_its_whole_soak(tm
     log.append(incident, bounds.RESULT, {"workflow_id": "rem-prod-1", "run_id": "r1", "ok": True, "service": "x"})
     clock[0] = datetime.now(UTC)
     held = intake.held_fix(ev, log, datetime.now(UTC))
-    assert held is not None and held["incident"] == incident and held["entry"] == "k8s_rollout_undo"
+    assert held is not None
+    assert held["incident"] == incident
+    assert held["entry"] == "k8s_rollout_undo"
     assert intake.held_fix(ev, log, datetime.now(UTC) + timedelta(hours=2)) is None  # past its soak
 
 
@@ -380,7 +391,8 @@ def test_a_long_soaks_own_fix_is_beside_the_reopened_diagnosis(tmp_path):
     assert acts._own_fixes(alert) == []
     log.append("inc-r", history.DID_NOT_HOLD, {"workflow_id": "w", "entry": "e", "target": "dev/t"})
     [(_, link)] = acts._own_fixes(alert)
-    assert link["workflow_id"] == "w" and int(link["minutes_before"]) >= 119
+    assert link["workflow_id"] == "w"
+    assert int(link["minutes_before"]) >= 119
 
 
 def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
@@ -398,6 +410,7 @@ def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
     log.append(incident, "workflow.end", {"workflow_id": "rem-prod-1", "run_id": "r1", "status": "recovered"})
     assert asyncio.run(intake.submit(_Reusing(), ev, log)).action == "reopen"
     [row] = [e["body"] for e in log.entries(incident, kinds=(history.DID_NOT_HOLD,))]
-    assert row["workflow_id"] == "rem-prod-1" and history.did_not_hold(log, "k8s_rollout_undo", row["target"])[0]
+    assert row["workflow_id"] == "rem-prod-1"
+    assert history.did_not_hold(log, "k8s_rollout_undo", row["target"])[0]
     asyncio.run(intake.submit(_Reusing(), ev, log))  # delivered once more: still one marker
     assert len(log.entries(incident, kinds=(history.DID_NOT_HOLD,))) == 1
