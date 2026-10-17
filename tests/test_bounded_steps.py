@@ -9,13 +9,13 @@ import pytest
 from temporalio.client import WorkflowFailureError
 
 from test_bounds import Clock
-from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401 - fixtures
+from test_remediation_workflow import _approve_with, _run
 from warden import approvals, bounds
 from warden.audit import AuditLog
 from warden.workflows import QUICK
 
 
-def _ends(world):  # noqa: F811
+def _ends(world):
     return [e["body"] for e in world["log"].entries(kinds=("workflow.end",))]
 
 
@@ -24,7 +24,7 @@ def test_every_quick_step_has_a_bounded_number_of_tries():
     assert policy.maximum_attempts and 1 < policy.maximum_attempts <= 20
 
 
-def test_a_step_that_keeps_failing_before_apply_ends_the_run_on_the_record(world):  # noqa: F811
+def test_a_step_that_keeps_failing_before_apply_ends_the_run_on_the_record(world):
     def unreadable(entry, params):
         raise RuntimeError("the platform cannot be read")
     world["platform"].live = unreadable
@@ -38,7 +38,7 @@ def test_a_step_that_keeps_failing_before_apply_ends_the_run_on_the_record(world
     assert bounds.killswitch(world["log"]) is None  # nothing was changed: no reason to stop every other fix
 
 
-def test_a_step_that_keeps_failing_after_apply_trips_the_kill_switch(world, owner):  # noqa: F811
+def test_a_step_that_keeps_failing_after_apply_trips_the_kill_switch(world, owner):
     def broken(service):
         raise RuntimeError("health cannot be read")
     world["platform"].healthy = broken

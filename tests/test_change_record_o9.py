@@ -8,7 +8,7 @@ import json
 import re
 
 from fakes import AWS_ACCESS_KEY_ID
-from test_remediation_workflow import _approve_with, _no_approval, _run, owner, world  # noqa: F401
+from test_remediation_workflow import _approve_with, _no_approval, _run
 from warden import changes
 
 
@@ -21,7 +21,7 @@ class _Recorder:
         return (None, "HTTP 503") if self.fail else ("https://github.example.test/o/r/issues/1", "opened")
 
 
-def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, owner):  # noqa: F811
+def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, owner):
     world["changes"] = rec = _Recorder()
     assert _run(world, _approve_with(owner)).status == "recovered"
     assert len(rec.opened) == 1
@@ -36,13 +36,13 @@ def test_an_applied_change_opens_one_record_citing_its_plan_and_audit(world, own
     assert row["url"].endswith("/issues/1") and row["detail"] == "opened"
 
 
-def test_nothing_applied_means_no_record(world):  # noqa: F811
+def test_nothing_applied_means_no_record(world):
     world["changes"] = rec = _Recorder()
     assert _run(world, _no_approval, approval_ttl_minutes=1).status == "expired"
     assert rec.opened == [] and world["log"].entries("inc-42", kinds=("change.recorded",)) == []
 
 
-def test_a_record_that_could_not_be_written_is_itself_recorded(world, owner):  # noqa: F811
+def test_a_record_that_could_not_be_written_is_itself_recorded(world, owner):
     world["changes"] = _Recorder(fail=True)
     assert _run(world, _approve_with(owner)).status == "recovered"
     row = world["log"].entries("inc-42", kinds=("change.recorded",))[-1]["body"]

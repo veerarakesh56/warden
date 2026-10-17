@@ -18,7 +18,6 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from test_approval_page import PLAN, T0, _show
-from test_approval_page import setup as page_setup  # noqa: F401
 from test_enrol_passkey_g10h import _pem
 from test_passkeys_h6 import RP, SoftAuthenticator
 from warden import approvals, audit, settings, slack_login
@@ -119,7 +118,7 @@ def _sign_in(page, slack, kind, token):
     return page.handle("GET", "/s/callback", query=f"code=c1&state={asked['state'][0]}", cookies=[cookie])
 
 
-def test_a_link_opens_only_after_slack_says_it_is_the_approver_it_was_made_for(page_setup):  # noqa: F811
+def test_a_link_opens_only_after_slack_says_it_is_the_approver_it_was_made_for(page_setup):
     page, device, _, _ = page_setup
     page, slack = _with_slack(page)
     token = page.new_link("rem-dev-1", "owner")
@@ -138,7 +137,7 @@ def test_a_link_opens_only_after_slack_says_it_is_the_approver_it_was_made_for(p
     assert plain.handle("GET", f"/s/a/{token}").status == 404
 
 
-def test_another_slack_member_or_a_sign_in_begun_elsewhere_opens_nothing(page_setup):  # noqa: F811
+def test_another_slack_member_or_a_sign_in_begun_elsewhere_opens_nothing(page_setup):
     page, slack = _with_slack(page_setup[0], member=OTHER)  # the approver is another member than Slack will name
     token = page.new_link("rem-dev-1", "owner")
     refused = _sign_in(page, slack, "a", token)
@@ -225,7 +224,7 @@ def test_the_kill_switch_reset_asks_slack_who_is_there_first_too(tmp_path):
     assert done.status == 200 and bounds.killswitch(world.log) is None
 
 
-def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_is_still_asked(page_setup, tmp_path):  # noqa: F811
+def test_a_browser_slack_named_is_remembered_for_the_next_links_and_the_passkey_is_still_asked(page_setup, tmp_path):
     """Owner, 2026-10-12: "why do I see that Slack thing again and again ... it should be only the first time".
     Slack is asked once in thirty days per browser, not once per link; every decision still takes the passkey; the
     record says how the member was known."""

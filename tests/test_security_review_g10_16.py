@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from test_heldout_harm_rules import _verify
 from test_own_fix_beside_new_alarm import _alert, _fix
-from test_remediation_workflow import owner, world  # noqa: F401
 from warden import audit, bounds
 from warden.activities import Diagnosed, IncidentActivities, RemediationActivities
 from warden.llm import LLMClient
@@ -40,7 +39,7 @@ def test_a_fix_counts_as_failed_only_when_a_later_diagnosis_cites_it_and_only_on
     assert [(r["body"]["ok"], r["body"]["connected_by"]) for r in rows] == [(False, alert.alert_id)]
 
 
-def test_a_re_diagnosis_is_not_diagnosed_again_automatically(tmp_path, world):  # noqa: F811
+def test_a_re_diagnosis_is_not_diagnosed_again_automatically(tmp_path, world):
     log = world["log"]
     acts = RemediationActivities(audit=log, policy=world["policy"], platform=world["platform"])
     log.append("inc-1", "incident.alert", {"alert": _alert().model_dump(mode="json")})

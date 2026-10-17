@@ -5,7 +5,7 @@ commit. Nothing WARDEN runs may write there. conftest.py also holds the whole te
 from __future__ import annotations
 
 from data_snapshot import snapshot
-from test_remediation_workflow import _approve_with, _run, owner, world  # noqa: F401
+from test_remediation_workflow import _approve_with, _run
 from warden.cli import main
 
 
@@ -21,7 +21,7 @@ def test_a_snapshot_shows_a_file_added_changed_or_removed(tmp_path):
     assert snapshot(tmp_path) == before
 
 
-def test_diagnosing_every_incident_and_applying_a_fix_writes_nothing_into_data(world, owner, capsys):  # noqa: F811
+def test_diagnosing_every_incident_and_applying_a_fix_writes_nothing_into_data(world, owner, capsys):
     before = snapshot()
     assert before, "the package's data directory was not found"
     assert main(["demo"]) == 0

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from test_aws_platform_g6 import FN, NOW, aws  # noqa: F401
+from test_aws_platform_g6 import FN, NOW
 
 CHANGE = NOW
 P = timedelta(minutes=5)
@@ -30,20 +30,20 @@ def _metrics(f, served):
     f.get_metric_data = get_metric_data
 
 
-def test_the_last_known_good_version_is_taken_not_the_one_that_served_most(aws):  # noqa: F811
+def test_the_last_known_good_version_is_taken_not_the_one_that_served_most(aws):
     f, p = aws
     _metrics(f, {"4": [(timedelta(hours=6), 210, 3)],      # 3.5 hours, erring every period
                  "3": [(timedelta(hours=2), 120, 0)]})     # 2 clean hours, up to the change
     assert p._served_before(FN, "live", ["3", "4"], CHANGE) == "3"
 
 
-def test_of_two_known_good_versions_the_later_one_is_taken(aws):  # noqa: F811
+def test_of_two_known_good_versions_the_later_one_is_taken(aws):
     f, p = aws
     _metrics(f, {"2": [(timedelta(hours=6), 180, 0)], "3": [(timedelta(hours=2), 60, 0)]})
     assert p._served_before(FN, "live", ["2", "3"], CHANGE) == "3"
 
 
-def test_none_known_good_is_no_version_and_a_short_clean_stretch_is_not_enough(aws):  # noqa: F811
+def test_none_known_good_is_no_version_and_a_short_clean_stretch_is_not_enough(aws):
     f, p = aws
     _metrics(f, {"4": [(timedelta(hours=6), 210, 3)], "3": [(timedelta(minutes=40), 25, 0)]})  # 25 min < KNOWN_GOOD
     assert p._served_before(FN, "live", ["3", "4"], CHANGE) == ""

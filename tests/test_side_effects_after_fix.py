@@ -22,16 +22,7 @@ from temporalio.worker import Worker
 from test_false_recovery_c18a import _Sequence
 from test_intake import _Client, _ev, _log
 from test_relapse_now_g10l import _schedule_alarm
-from test_remediation_workflow import (  # noqa: F401 - fixtures
-    CONVERTER,
-    QUEUE,
-    REQ,
-    FakePlatform,
-    _approve_with,
-    _run,
-    owner,
-    world,
-)
+from test_remediation_workflow import CONVERTER, QUEUE, REQ, FakePlatform, _approve_with, _run
 from warden import approvals, bounds, intake
 from warden.activities import FixRequest, RemediationActivities
 from warden.cli import DEMO_ALERTS
@@ -133,7 +124,7 @@ def test_a_side_effect_signal_the_record_does_not_bear_out_changes_nothing():
     assert [e["body"]["ok"] for e in log.entries(kinds=(bounds.RESULT,))] == [True]
 
 
-def test_a_relapse_no_alarm_reported_is_diagnosed_again_by_warden(world, owner):  # noqa: F811
+def test_a_relapse_no_alarm_reported_is_diagnosed_again_by_warden(world, owner):
     world["platform"] = _Sequence([True, True, True, False])  # fails at the T+15 re-check, no alarm fires
     world["log"].append("inc-42", "incident.alert", {"alert": Alert(**DEMO_ALERTS["inc-002"]).model_dump(mode="json")})
     out = _run(world, _approve_with(owner))

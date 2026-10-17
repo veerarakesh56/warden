@@ -6,8 +6,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from test_approval_ladder_h10 import sink  # noqa: F401
-from test_remediation_workflow import owner, world  # noqa: F401
 from warden import catalog
 from warden.activities import Plan, RemediationActivities
 
@@ -22,7 +20,7 @@ def test_every_entry_says_how_long_its_fix_lasts():
     assert catalog.LASTS["arc_zonal_shift"][0] == "temporary"
 
 
-def test_the_approval_request_says_how_long_the_fix_lasts(world, sink):  # noqa: F811
+def test_the_approval_request_says_how_long_the_fix_lasts(world, sink):
     acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
     plan = Plan(workflow_id="rem-dev-0123456789abcdef", incident_id="inc-8", entry="lambda_move_alias", tier="T2",
                 params={"function": "warden-dev-checkout", "alias": "live", "to_version": "3"}, plan_hash="p" * 64,

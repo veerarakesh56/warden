@@ -19,6 +19,9 @@ import pytest
 
 os.environ.setdefault("WARDEN_MOCK", "1")
 
+# Fixtures several files share (world, owner, sink, page_setup...), so no file imports another's fixtures.
+pytest_plugins = ["shared_fixtures"]
+
 
 @pytest.fixture(autouse=True, scope="session")
 def _keys_only_in_the_test_temp_folder(tmp_path_factory):

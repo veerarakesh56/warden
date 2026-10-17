@@ -6,9 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from test_approval_ladder_h10 import sink  # noqa: F401
 from test_own_fix_beside_new_alarm import _alert, _fix
-from test_remediation_workflow import owner, world  # noqa: F401
 from warden import audit
 from warden.activities import IncidentActivities, Plan, RemediationActivities
 from warden.llm import LLMClient
@@ -29,7 +27,7 @@ def test_the_link_records_the_evidence_ids_the_model_is_shown(tmp_path):
     assert step["fixes"][0]["entry"] == "lambda_enable_esm"
 
 
-def test_the_approver_hears_of_the_earlier_fix_and_whether_this_diagnosis_cites_it(tmp_path, world):  # noqa: F811
+def test_the_approver_hears_of_the_earlier_fix_and_whether_this_diagnosis_cites_it(tmp_path, world):
     log, alert = _incident(tmp_path)
     item = log.entries(alert.alert_id, kinds=("incident.own_fixes",))[-1]["body"]["items"][0]
     acts = RemediationActivities(audit=log, policy=world["policy"], platform=world["platform"])
@@ -43,7 +41,7 @@ def test_the_approver_hears_of_the_earlier_fix_and_whether_this_diagnosis_cites_
     assert acts._own_fix_said("inc-none") == ""
 
 
-def test_no_earlier_fix_says_nothing(tmp_path, world):  # noqa: F811
+def test_no_earlier_fix_says_nothing(tmp_path, world):
     log = audit.AuditLog(tmp_path / "b.db", key=None)
     alert = _alert().model_copy(update={"started_at": datetime.now(UTC).isoformat()})
     IncidentActivities(audit=log, llm_factory=lambda: LLMClient(mock=True)).prepare(alert)
@@ -51,7 +49,7 @@ def test_no_earlier_fix_says_nothing(tmp_path, world):  # noqa: F811
     assert acts._own_fix_said(alert.alert_id) == ""
 
 
-def test_the_diagnosis_records_what_it_cited_and_the_request_says_it(tmp_path, world, sink):  # noqa: F811
+def test_the_diagnosis_records_what_it_cited_and_the_request_says_it(tmp_path, world, sink):
     log, alert = _incident(tmp_path)
     inc = IncidentActivities(audit=log, llm_factory=lambda: LLMClient(mock=True))
     pack = IncidentActivities(audit=log, llm_factory=lambda: LLMClient(mock=True)).prepare(alert)

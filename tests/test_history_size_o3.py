@@ -5,13 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from test_remediation_workflow import (  # noqa: F401 - fixtures
-    REQ,
-    _approve_with,
-    _run,
-    owner,
-    world,
-)
+from test_remediation_workflow import REQ, _approve_with, _run
 from warden import activities
 from warden.activities import FixRequest
 
@@ -23,7 +17,7 @@ def test_a_window_outside_its_bounds_is_refused(field, value):
         FixRequest(**{**REQ, field: value})
 
 
-def test_the_longest_verify_window_keeps_the_history_far_under_temporals_limits(world, owner):  # noqa: F811
+def test_the_longest_verify_window_keeps_the_history_far_under_temporals_limits(world, owner):
     world["platform"].healthy_after = None  # never recovers: every check of the longest window runs
     out = _run(world, _approve_with(owner), recover_within_minutes=activities.MAX_RECOVER_WITHIN_MINUTES)
     assert out.status == "rolled_back"

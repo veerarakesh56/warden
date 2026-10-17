@@ -18,17 +18,8 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from test_approval_ladder_h10 import sink  # noqa: F401
 from test_approval_page import PLAN, _show
-from test_approval_page import setup as page_setup  # noqa: F401
-from test_remediation_workflow import (  # noqa: F401
-    _approve_with,
-    _no_approval,
-    _run,
-    owner,
-    recorded,
-    world,
-)
+from test_remediation_workflow import _approve_with, _no_approval, _run, recorded
 from warden import approvals, audit, bounds, codec
 from warden.activities import (
     OUTCOME,
@@ -47,11 +38,11 @@ from warden.models import Alert, Verdict, VerdictStatus
 from warden.workflows import END_STAGES, TOLD, IncidentWorkflow, RemediationWorkflow
 
 
-def _whats(world):  # noqa: F811
+def _whats(world):
     return [e["body"]["what"] for e in world["log"].entries("inc-42", kinds=("remediation.announce",))]
 
 
-def test_a_fix_that_did_not_work_and_was_undone_is_said_with_its_reason(world, owner, sink):  # noqa: F811
+def test_a_fix_that_did_not_work_and_was_undone_is_said_with_its_reason(world, owner, sink):
     world["platform"].healthy_after = None
     out = _run(world, _approve_with(owner))
     assert out.status == "rolled_back" and _whats(world) == ["waiting", "approved", "rolled_back"]
@@ -61,7 +52,7 @@ def test_a_fix_that_did_not_work_and_was_undone_is_said_with_its_reason(world, o
     assert audit.verify(world["db"], world["log"].key.public_key()).unsigned_tail == 0  # the record still ends signed
 
 
-def test_an_approved_plan_the_platform_refused_is_said_as_nothing_changed(world, owner, sink):  # noqa: F811
+def test_an_approved_plan_the_platform_refused_is_said_as_nothing_changed(world, owner, sink):
     from warden.platforms.k8s import KubernetesPlatformRefused
 
     def refuse(entry, params):
@@ -74,7 +65,7 @@ def test_an_approved_plan_the_platform_refused_is_said_as_nothing_changed(world,
     assert "nothing was changed" in sink.texts[-1] and "no longer has 3 replica(s)" in sink.texts[-1]
 
 
-def test_an_end_that_leaves_the_target_unknown_says_every_fix_is_stopped(world, owner, sink):  # noqa: F811
+def test_an_end_that_leaves_the_target_unknown_says_every_fix_is_stopped(world, owner, sink):
     world["platform"].healthy_after = None
     world["platform"].rollback_error = "422 the count moved"
     out = _run(world, _approve_with(owner))
@@ -82,7 +73,7 @@ def test_an_end_that_leaves_the_target_unknown_says_every_fix_is_stopped(world, 
     assert "undoing it FAILED" in sink.texts[-1] and "`warden killswitch link --approver YOU --key YOUR.pem` opens the page" in sink.texts[-1]
 
 
-def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink):  # noqa: F811
+def test_an_expired_plan_is_said_once_and_the_tier_is_said_in_words(world, sink):
     out = _run(world, _no_approval)
     # The request, its halfway reminder, the expiry - not a further "ended" message.
     assert out.status == "expired" and _whats(world) == ["waiting", "waiting", "expired"]
@@ -103,7 +94,7 @@ def test_every_end_a_person_is_told_of_has_its_own_words_and_the_unknown_ones_na
         assert "{entry}" in text and "{target}" in text
 
 
-def test_the_message_is_read_from_the_runs_own_end_row_never_from_the_caller(world):  # noqa: F811
+def test_the_message_is_read_from_the_runs_own_end_row_never_from_the_caller(world):
     acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
     plan = Plan(workflow_id="rem-dev-1", incident_id="inc-42", entry="k8s_rollout_undo", tier="T2", params={},
                 created_at=PLAN.created_at, target="dev/k8s/shop/orders", environment="dev")
@@ -113,7 +104,7 @@ def test_the_message_is_read_from_the_runs_own_end_row_never_from_the_caller(wor
     assert world["log"].entries("inc-42", kinds=("remediation.announce",)) == []
 
 
-def test_the_approval_page_says_the_risk_in_words(page_setup):  # noqa: F811
+def test_the_approval_page_says_the_risk_in_words(page_setup):
     page, device, _, _ = page_setup
     plan = json.loads(_show(page, device, page.new_link("rem-dev-1", "owner")).body)["plan"]
     assert plan["tier"] == "T2" and plan["risk"] == approvals.TIER_MEANS["T2"]
@@ -158,7 +149,7 @@ def _incidents(tmp_path, answers):
     return asyncio.run(main())
 
 
-def test_a_report_that_held_a_fix_for_approval_is_followed_by_why_there_is_no_plan(tmp_path, sink):  # noqa: F811
+def test_a_report_that_held_a_fix_for_approval_is_followed_by_why_there_is_no_plan(tmp_path, sink):
     """One message per incident (G10-46): the report's summary says why no plan was opened - no second message."""
     rows = _incidents(tmp_path, [""])
     assert rows == [] and len(sink.texts) == 1, sink.texts
@@ -171,7 +162,7 @@ def test_a_report_that_held_a_fix_for_approval_is_followed_by_why_there_is_no_pl
 
 
 def test_a_plan_that_opened_is_not_followed_by_one_and_a_second_on_the_same_resource_says_the_first_is_open(
-        tmp_path, sink):  # noqa: F811
+        tmp_path, sink):
     rows = _incidents(tmp_path, [dict(REQUEST), dict(REQUEST)])
     assert len(rows) == 1, rows  # the first opened its plan; the second met it still open (one per resource, C3)
     assert "an earlier plan for the same resource (`rem-dev-test`) is still open" in rows[0]["why"]
@@ -193,7 +184,7 @@ def test_each_told_end_is_a_sentence_a_person_can_act_on(status):
     assert said.endswith(".") and "`e`" in said and "`t`" in said
 
 
-def test_the_page_tells_someone_it_was_not_made_for_that_they_cannot_approve(page_setup):  # noqa: F811
+def test_the_page_tells_someone_it_was_not_made_for_that_they_cannot_approve(page_setup):
     """Owner, 2026-10-12: "anyone who has access to that Slack can do that, right?" - no, and the page now says so."""
     page, _, _, _ = page_setup
     token = page.new_link("rem-dev-1", "owner")
@@ -206,7 +197,7 @@ def test_the_page_tells_someone_it_was_not_made_for_that_they_cannot_approve(pag
     assert stranger.status == 403 and "plan" not in json.loads(stranger.body)
 
 
-def test_who_approved_is_read_from_the_record_and_nothing_is_claimed_without_one(world):  # noqa: F811
+def test_who_approved_is_read_from_the_record_and_nothing_is_claimed_without_one(world):
     acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=world["platform"])
     plan = Plan(workflow_id="rem-dev-1", incident_id="inc-42", entry="k8s_rollout_undo", tier="T2", params={},
                 created_at=PLAN.created_at, target="dev/k8s/shop/orders", environment="dev", plan_hash="h" * 64)
@@ -216,7 +207,7 @@ def test_who_approved_is_read_from_the_record_and_nothing_is_claimed_without_one
     assert acts.announce(plan, "approved") == []  # another plan's approval is not this one's
 
 
-def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_record(page_setup, tmp_path):  # noqa: F811
+def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_record(page_setup, tmp_path):
     """Owner, 2026-10-12: once the passkey has said who it is, the page should give the name - and who looked at,
     approved or denied a plan should be on the record."""
     import dataclasses
@@ -239,7 +230,7 @@ def test_a_confirmed_approver_is_shown_by_name_and_who_saw_the_plan_is_on_the_re
     assert approvals.ApproverPolicy.loads(__import__("yaml").safe_dump(named.model_dump())).approvers["owner"].name == "Asha Rao"
 
 
-def test_an_undo_wardens_own_check_refuses_is_not_a_failed_rollback_and_the_switch_stays_off(world, owner, sink):  # noqa: F811
+def test_an_undo_wardens_own_check_refuses_is_not_a_failed_rollback_and_the_switch_stays_off(world, owner, sink):
     """The first live rollback (2026-10-12): the fix was applied, the rule was switched off again by someone else,
     and WARDEN's undo found nothing to undo - it said "undoing it FAILED: the target's state is unknown" and stopped
     every automatic fix. The state was known. Only a call that AWS refuses, or one that may be half-made, is that."""
@@ -260,7 +251,7 @@ def test_an_undo_wardens_own_check_refuses_is_not_a_failed_rollback_and_the_swit
     assert not world["log"].entries("inc-42", kinds=("remediation.rollback_failed",))
 
 
-def test_an_undo_aws_itself_refuses_is_still_a_failed_rollback(world, owner, sink):  # noqa: F811
+def test_an_undo_aws_itself_refuses_is_still_a_failed_rollback(world, owner, sink):
     class Denied(RuntimeError):
         nothing_changed = True  # never written - and WARDEN's change is still in place, not undone
 
@@ -287,7 +278,7 @@ def test_the_aws_platform_marks_its_own_refusal_of_an_undo_and_not_awss():
     assert not hasattr(AwsPlatformRefused("AWS refused x; nothing was changed"), "own_check")
 
 
-def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(world, owner, sink, monkeypatch):  # noqa: F811
+def test_a_message_mentions_the_people_it_names_only_from_the_approver_list(world, owner, sink, monkeypatch):
     """2026-10-12: a message names the approver with an @-mention, so people can see in Slack who that person is."""
     from warden import chatops
 
@@ -354,7 +345,7 @@ def test_the_slack_sinks_name_the_approver_where_the_sentence_does_and_nowhere_e
 
 
 @pytest.mark.parametrize("typed", ["not now", ""])
-def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, typed):  # noqa: F811
+def test_a_denial_says_who_denied_how_and_when_as_an_approval_does(world, sink, typed):
     """2026-10-14: a denial must say who denied, how and when, as an approval does. The message read
     "was denied: nothing was changed. Why: denied by owner"."""
     import re

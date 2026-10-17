@@ -187,7 +187,10 @@ def sample_twice():
     return 1
 
 
-def sample_twice():  # noqa: F811 - the reviewer's `def`, `del`, `def` under one name
+del sample_twice  # the reviewer's `def`, `del`, `def` under one name
+
+
+def sample_twice():
     return 1
 
 

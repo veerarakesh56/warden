@@ -11,19 +11,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from test_passkeys_h6 import ORIGIN, RP, SoftAuthenticator, _enrol
-from test_remediation_workflow import (  # noqa: F401
-    _no_approval,
-    _run,
-    _until_awaiting_approval,
-    owner,
-    world,
-)
+from test_remediation_workflow import _no_approval, _run, _until_awaiting_approval
 from warden import approvals, bounds, passkeys
 from warden.workflows import RemediationWorkflow
 
 
 @pytest.fixture
-def phone(world, monkeypatch):  # noqa: F811
+def phone(world, monkeypatch):
     monkeypatch.setenv("WARDEN_APPROVAL_RP_ID", RP)
     device = SoftAuthenticator()
     cred = _enrol(device)
@@ -51,14 +45,14 @@ def _approve_by_passkey(device, cred, **kw):
     return drive
 
 
-def test_a_passkey_approval_of_the_exact_plan_applies_it(world, phone):  # noqa: F811
+def test_a_passkey_approval_of_the_exact_plan_applies_it(world, phone):
     out = _run(world, _approve_by_passkey(*phone))
     assert out.status == "recovered" and len(world["platform"].applied) == 1
     accepted = world["log"].entries("inc-42", kinds=("approval.accepted",))
     assert [(e["body"]["method"], e["body"]["sign_count"]) for e in accepted] == [("passkey", 1)]
 
 
-def test_a_passkey_approval_of_another_plan_is_refused(world, phone):  # noqa: F811
+def test_a_passkey_approval_of_another_plan_is_refused(world, phone):
     async def drive(handle):
         await _approve_by_passkey(*phone, plan_hash="0" * 64)(handle)
         await _no_approval(handle)
@@ -69,7 +63,7 @@ def test_a_passkey_approval_of_another_plan_is_refused(world, phone):  # noqa: F
     assert any("different plan" in p for p in refused[0]["body"]["problems"])
 
 
-def test_a_key_the_approver_never_enrolled_is_refused(world, phone):  # noqa: F811
+def test_a_key_the_approver_never_enrolled_is_refused(world, phone):
     stranger = SoftAuthenticator()
     stranger_cred = _enrol(stranger)
     async def drive(handle):
@@ -82,7 +76,7 @@ def test_a_key_the_approver_never_enrolled_is_refused(world, phone):  # noqa: F8
     assert any("not one owner enrolled" in p for p in problems)
 
 
-def _twice(world, phone, fresh):  # noqa: F811
+def _twice(world, phone, fresh):
     device, cred = phone
 
     async def drive(handle):
@@ -100,16 +94,16 @@ def _twice(world, phone, fresh):  # noqa: F811
     return [p for e in world["log"].entries("inc-42", kinds=("approval.refused",)) for p in e["body"]["problems"]]
 
 
-def test_a_replayed_passkey_approval_is_refused(world, phone):  # noqa: F811
+def test_a_replayed_passkey_approval_is_refused(world, phone):
     assert any("already used" in p for p in _twice(world, phone, fresh=False))
 
 
-def test_one_person_cannot_be_two_approvers_with_two_fresh_passkey_approvals(world, phone):  # noqa: F811
+def test_one_person_cannot_be_two_approvers_with_two_fresh_passkey_approvals(world, phone):
     problems = _twice(world, phone, fresh=True)
     assert any("has already approved this plan" in p for p in problems), problems
 
 
-def test_a_cloned_passkey_whose_counter_restarted_is_refused_in_a_later_run(world, phone):  # noqa: F811
+def test_a_cloned_passkey_whose_counter_restarted_is_refused_in_a_later_run(world, phone):
     device, cred = phone
     world["limits"] = bounds.Limits(cooldown=timedelta(0))  # one target twice; the cool-down has its own test
     assert _run(world, _approve_by_passkey(device, cred)).status == "recovered"  # the counter is now 1, in the audit
