@@ -51,6 +51,19 @@ def test_a_create_that_stopped_part_way_is_judged_by_today_for_what_exists_and_a
     assert verdict == "refuse" and "aws_eks_node_group.this" in why  # not accepted: refused, made or not
 
 
+def test_a_regression_the_owner_chose_passes_named_and_nothing_else_rides_on_it():
+    """2026-10-17 (cost plan): one EKS node and one cache node fail a zone loss the stack survives today. The owner's
+    choice, in helios/regressions.json, lets exactly those through - per scenario kind, named in the summary."""
+    taken = {"az-outage": ["aws_eks_node_group.this"]}
+    verdict, why = gate.judge("lose-z1", {"aws_eks_node_group.this"}, set(), {}, {"aws_eks_node_group.this"}, taken)
+    assert verdict == "ok" and "taken on by the owner: aws_eks_node_group.this" in why
+    assert gate.judge("lose-z1", {"aws_eks_node_group.this", "aws_lb.app"}, set(), {}, None, taken)[0] == "refuse"
+    assert gate.judge("nodegroup-loss", {"aws_eks_node_group.this"}, set(), {}, None, taken)[0] == "refuse"
+    assert "taken on" not in gate.judge("lose-z1", {"aws_lb.app"}, {"aws_lb.app"}, {}, None, taken)[1]
+    fullstack = json.loads((gate.HELIOS / "regressions.json").read_text(encoding="utf-8"))
+    assert fullstack == {"az-outage": ["aws_eks_node_group.this", "aws_elasticache_replication_group.redis"]}
+
+
 def test_what_helios_cannot_run_refuses_and_what_it_cannot_decide_waits_for_the_applied_state():
     assert gate.judge("redis-loss", ("error", "scenario names x"), set(), ACCEPTED)[0] == "refuse"
     assert gate.judge("lose-z1", "inconclusive", set(), ACCEPTED)[0] == "later"

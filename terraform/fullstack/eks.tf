@@ -121,7 +121,11 @@ resource "aws_iam_role_policy_attachment" "eks_node" {
   policy_arn = each.value
 }
 
-# 2 x m7i-flex.large ON_DEMAND, one per private subnet's zone (owner, 2026-10-15: counts like production); was 1.
+# 1 x m7i-flex.large ON_DEMAND (cost plan, 2026-10-17: the owner's last ~USD 104 of credits; was 2 from 2026-10-15,
+# "counts like production"). Measured 2026-10-14..17 on the two nodes: CPU requested 1.66 of 3.86 vCPU, 0.4 of it
+# per-node daemons, so one node holds ~1.26 of 1.93 (65%); memory working set at most 2.3 GiB a node, so one node
+# peaks near 3 GiB of 7.6. c7i-flex.large (4 GiB, 16% cheaper) would leave under 50% headroom on that peak. A scale
+# from 2 to 1 drains a node in place - no replacement. Back to production shape: 2/2/2.
 # Each: 2 vCPU, 8 GiB, 29 pods. Changed 2026-09-26 from t3.medium: the
 # account is on the AWS Free plan, which refuses instance types that are not Free Tier eligible
 # (in ap-south-2: t3/t4g/t8i micro+small, c7i-flex.large, m7i-flex.large). t3.small takes 11 pods,
@@ -142,8 +146,8 @@ resource "aws_eks_node_group" "this" {
   }
 
   scaling_config {
-    desired_size = 2
-    min_size     = 2
+    desired_size = 1
+    min_size     = 1
     max_size     = 2
   }
 

@@ -154,11 +154,14 @@ variable "paused" {
 variable "zone_sizes" {
   description = "CPU units and memory (MiB) of each trust zone's task (register S15). The read zone holds the tripwire model."
   type        = map(object({ cpu = number, memory = number }))
+  # llm: its synthetic incidents run the whole pipeline, detector included - peak 774 MiB over 72 h with a synthetic run
+  # in 30 of them (2026-10-14..17), so 2048 is 2.6x the peak (cost plan, 2026-10-17; was 3072). read peaked at 1368 MiB:
+  # 2048 would be under 1.5x, so it stays at 3072.
   default = {
     core   = { cpu = 256, memory = 512 }
     read   = { cpu = 1024, memory = 3072 } # Prompt Guard 2 (1.1 GB of weights) and torch: R47, 2026-10-14
-    llm    = { cpu = 512, memory = 3072 }  # its daily synthetic incident runs the whole pipeline, detector included
-    notify = { cpu = 256, memory = 512 }   # Fargate's least memory for a quarter vCPU
+    llm    = { cpu = 512, memory = 2048 }
+    notify = { cpu = 256, memory = 512 } # Fargate's least memory for a quarter vCPU
     act    = { cpu = 256, memory = 512 }
   }
   validation {

@@ -357,22 +357,24 @@ def test_an_extra_a_requirement_asks_for_is_followed(tmp_path):
     assert tool.missing_dependencies(tmp_path, extras={"boto3": {"crt"}}) == []
 
 
-def test_one_collector_sends_the_same_data_to_xray_and_datadog_before_the_apps_start(tmp_path):
-    """One OpenTelemetry collector, the same spans to every tool: X-Ray always (by the pod's IAM role), Datadog when its
-    agent is on the cluster. No Grafana (owner, 2026-10-16: Datadog only), and so no key in the collector at all."""
+def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_path):
+    """One OpenTelemetry collector: Datadog when its agent is on the cluster, else X-Ray (by the pod's IAM role) - not
+    both (cost plan, 2026-10-17: nothing read the X-Ray copy). No Grafana (owner, 2026-10-16: Datadog only), and so no
+    key in the collector at all."""
     import yaml
 
     full = tool.otel_config("ap-south-2", datadog=True)
-    assert full["service"]["pipelines"]["traces"]["exporters"] == ["awsxray", "otlp/datadog"]
+    assert full["service"]["pipelines"]["traces"]["exporters"] == ["otlp/datadog"]
     # Logs to Datadog with their severity (Datadog would file the apps' stdout lines as info).
     assert full["service"]["pipelines"]["logs"]["exporters"] == ["otlp/datadog"]
-    assert full["exporters"]["awsxray"] == {"region": "ap-south-2"}
+    assert "awsxray" not in full["exporters"]
     alone = tool.otel_config("ap-south-2")
+    assert alone["exporters"]["awsxray"] == {"region": "ap-south-2"}
     assert alone["service"]["pipelines"] == {"traces": {"receivers": ["otlp"], "processors": ["memory_limiter", "batch"],
                                                         "exporters": ["awsxray"]}}
     run = Runner()
     config = tool.deploy_otel(STACK, "k", True, run)
-    assert set(config["exporters"]) == {"awsxray", "otlp/datadog"}
+    assert set(config["exporters"]) == {"otlp/datadog"}
     docs = list(yaml.safe_load_all(run.inputs[0]))
     assert not [d for d in docs if d["kind"] == "Secret"] and "grafana" not in run.inputs[0].lower()
     dep = next(d for d in docs if d["kind"] == "Deployment")

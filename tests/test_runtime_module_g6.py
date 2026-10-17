@@ -436,7 +436,9 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     dockerfile = (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8")
     assert 'RUN chmod 1777 /tmp\nVOLUME ["/tmp"]\nUSER warden' in dockerfile  # else the volume is root's 0755
     service = _block(tf, "aws_ecs_service", "zone")
-    assert 'capacity_provider = "FARGATE"' in service and "force_new_deployment = true" in service  # the provider needs it
+    assert "force_new_deployment = true" in service  # the provider needs it
+    # Spot only where an interruption is a retry (cost plan, 2026-10-17): never for the zones that write, decide or page.
+    assert 'capacity_provider = contains(["llm", "read"], each.key) ? "FARGATE_SPOT" : "FARGATE"' in service
     assert "placement_constraints" not in service and "ordered_placement_strategy" not in service  # Fargate refuses them
     assert "task_role_arn            = aws_iam_role.zone[each.key].arn" in task and "readonlyRootFilesystem = true" in task
     assert "for_each                 = local.zones" in task
@@ -500,13 +502,14 @@ def test_on_the_aws_free_plan_the_audit_is_one_private_rds_instance_with_the_sam
 
 def test_no_ec2_instance_is_left_to_run_the_workers():
     """Fargate (owner, 2026-10-14): the EC2 group, its launch template, capacity provider, instance role and profile,
-    the instances' group and the AMI lookup are gone, and the cluster's only provider is FARGATE."""
+    the instances' group and the AMI lookup are gone, and the cluster's only providers are FARGATE and (cost plan,
+    2026-10-17) FARGATE_SPOT."""
     module = "\n".join(f.read_text(encoding="utf-8") for f in MODULE.glob("*.tf"))
     for gone in ("aws_autoscaling_group", "aws_launch_template", "aws_ecs_capacity_provider", "aws_iam_instance_profile",
                  'aws_security_group" "instances"', "ecs/optimized-ami", "worker_instance_types", "worker_tasks_per_instance"):
         assert gone not in module, gone
     cluster = " ".join(_block(module, "aws_ecs_cluster_capacity_providers", "runtime").split())
-    assert 'capacity_providers = ["FARGATE"]' in cluster
+    assert 'capacity_providers = ["FARGATE", "FARGATE_SPOT"]' in cluster
 
 
 def test_the_runtime_reaches_out_on_https_temporal_clouds_port_and_the_audit_only():
