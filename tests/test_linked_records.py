@@ -284,3 +284,15 @@ def test_a_links_note_is_kept_as_an_approvals_note_is(world):
     [k] = links.links_of(log, "inc-a")
     assert AWS_ACCESS_KEY_ID not in k["note"]
     assert "\x07" not in k["note"]
+
+
+def test_a_walk_reads_the_link_rows_once(world, monkeypatch):
+    """CodeRabbit, PR 56: the walk read every link row again for each record it reached."""
+    owner, _, policy, log = world
+    for a, b in (("inc-a", "inc-b"), ("inc-b", "inc-c"), ("inc-c", "inc-d")):
+        links.record(log, _link(owner, a, b, "same-root-cause"), policy)
+    reads = []
+    real = log.entries
+    monkeypatch.setattr(log, "entries", lambda *a, **kw: reads.append(kw.get("kinds")) or real(*a, **kw))
+    links.proven_fix(log, "inc-a")
+    assert reads.count((links.KIND,)) == 1
