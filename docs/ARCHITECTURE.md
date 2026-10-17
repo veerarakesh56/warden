@@ -226,7 +226,8 @@ Beside the backend, `tools.evidence_tools` adds readers that are switched on (X-
 commits, and code review's findings on the deploy's pull request - `findings.py`, register G10-59). The findings are
 text a pull request's author or a bot wrote, so they enter as typed `FINDING` lines only (evidence kind R): the model is
 shown them between data markers and may cite them, grounding never lets one support an action on its own, and a
-finding whose text reads as an instruction is held back and counted.
+CodeRabbit comment whose own prose reads as an instruction, or any finding whose fields fail their shape, is held back
+and counted.
 
 ### `KubernetesBackend` — what it is honest about
 
