@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
             fault.inject(env.clients, env.target)
             env.sleep(10)
             landed = fs.check_baseline(env.clients, env.target, [fault.area]) if not env.dry_run else ["dry"]
-        except Exception as exc:  # noqa: BLE001 - reported, then reverted regardless
+        except Exception as exc:  # noqa: BLE001  # reported, then reverted regardless
             error = f"inject raised {type(exc).__name__}: {exc}"
         try:
             fault.revert(env.clients, env.target)

@@ -401,7 +401,7 @@ def cmd_hold(env: Env, run: pathlib.Path, fid: str) -> int:
         deadline = time.monotonic() + HOLD_MAX_S
         while time.monotonic() < deadline and not (hold / f"{fid}.stop").exists():
             time.sleep(2)
-    except Exception as exc:  # noqa: BLE001 - reported to the waiting inject, then exit
+    except Exception as exc:  # noqa: BLE001  # reported to the waiting inject, then exit
         _write_json(hold / f"{fid}.ready.json", {"ok": False, "error": f"{type(exc).__name__}: {exc}"})
     finally:
         for conn in held:

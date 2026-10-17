@@ -433,7 +433,7 @@ def verify(path: str | pathlib.Path, public_key: Ed25519PublicKey,
                 checkpoints = db.execute("SELECT seq, hash, signature FROM checkpoints ORDER BY seq").fetchall()
             finally:
                 db.close()
-    except Exception as exc:  # noqa: BLE001 - damage or an unreachable store is a finding, never a crash
+    except Exception as exc:  # noqa: BLE001  # damage or an unreachable store is a finding, never a crash
         result.problems.append(f"the audit database cannot be read: {exc}")
         return result
 

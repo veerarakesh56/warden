@@ -213,7 +213,7 @@ def scan(items: dict[str, Item], classify: Any = None, *,
         return "ran", {}
     try:
         classify = classify or _classifier()
-    except Exception as exc:  # noqa: BLE001 - the extra is missing, or the weights are not available
+    except Exception as exc:  # noqa: BLE001  # the extra is missing, or the weights are not available
         return f"unavailable: model not loaded ({type(exc).__name__})", {}
     try:
         exact = hasattr(classify, "model") and hasattr(classify, "tokenizer")
@@ -267,7 +267,7 @@ def scan(items: dict[str, Item], classify: Any = None, *,
         worst: dict[str, float] = {}
         for item_id, score in zip(owner, scores, strict=True):
             worst[item_id] = max(worst.get(item_id, 0.0), score)
-    except Exception as exc:  # noqa: BLE001 - missing library, no model access, a classify error (A-C-12)
+    except Exception as exc:  # noqa: BLE001  # missing library, no model access, a classify error (A-C-12)
         return f"unavailable: {type(exc).__name__}", {}
     status = "ran" if scanned == len(logs) else f"ran-partial: {scanned} of {len(logs)} log lines"
     return status, {i: round(s, 3) for i, s in worst.items() if s >= limit}

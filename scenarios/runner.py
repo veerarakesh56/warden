@@ -524,7 +524,7 @@ def run_scenario(harness: Harness, scenario: dict, out: pathlib.Path, *, repeat:
     except ModelExhausted as exc:
         record["status"] = "exhausted"
         record["error"] = f"model provider exhausted: {exc}"
-    except Exception as exc:  # noqa: BLE001 - recorded as an error, never swallowed
+    except Exception as exc:  # noqa: BLE001  # recorded as an error, never swallowed
         record["status"] = "error"
         record["error"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -673,7 +673,7 @@ def _live_harness(timeout_s: float) -> Harness:
                 cluster=target.cluster, services=[target.service],
                 WaiterConfig={"Delay": 15, "MaxAttempts": attempts},
             )
-        except Exception as exc:  # noqa: BLE001 - the baseline gate decides, not the waiter
+        except Exception as exc:  # noqa: BLE001  # the baseline gate decides, not the waiter
             print(f"   (services-stable did not converge in ~{attempts * 15}s: "
                   f"{type(exc).__name__}. The baseline check will decide whether to continue.)")
 

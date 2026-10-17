@@ -216,7 +216,7 @@ def diagnose_with(env: cli.Env, run: pathlib.Path, out: pathlib.Path, key: str, 
             row["status"], row["report"] = "ok", f"{tool}/{entry['report']}"
             report = json.loads((tool_run / entry["report"]).read_text(encoding="utf-8"))
             measure(row, report, FAULTED.get(fs.fault_of(scenario), ()))
-    except Exception as exc:  # noqa: BLE001 - a failed run is recorded as failed, never dropped
+    except Exception as exc:  # noqa: BLE001  # a failed run is recorded as failed, never dropped
         row["error"] = f"{type(exc).__name__}: {exc}"[:500]
     finally:
         env.invoke_warden = real

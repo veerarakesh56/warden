@@ -342,7 +342,7 @@ async def call_workflow_tool(name: str, args: dict[str, Any], client: Any) -> ty
                     out["result"].pop("context", None)
             return _ok(out)
         return _err(f"unknown tool: {name}")
-    except Exception as exc:  # noqa: BLE001 - an MCP tool must return an error, not crash the server
+    except Exception as exc:  # noqa: BLE001  # an MCP tool must return an error, not crash the server
         return _err(f"{type(exc).__name__}: {exc}")
 
 
@@ -596,7 +596,7 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
             )
 
         return _err(f"unknown tool: {name}")
-    except Exception as exc:  # noqa: BLE001 - an MCP tool must return an error, not crash the server
+    except Exception as exc:  # noqa: BLE001  # an MCP tool must return an error, not crash the server
         return _err(f"{type(exc).__name__}: {exc}")
 
 
