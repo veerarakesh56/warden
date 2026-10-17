@@ -56,10 +56,19 @@ resource "aws_db_instance" "this" {
 
   db_subnet_group_name   = aws_db_subnet_group.this[0].name
   vpc_security_group_ids = [aws_security_group.db[0].id]
-  publicly_accessible    = true # no NAT Gateway and no bastion; bounded by the SG above
+  # Public on purpose (Sonar terraform:S8793, by design - owner to review; tests/test_iac_leftovers_sonar.py holds every
+  # point): WARDEN runs on the operator's laptop and reaches the database directly, and a private one needs a NAT
+  # Gateway or a bastion, both billed. What stands in for private: the stack is off unless enable_rds = true, the
+  # security group above admits 5432 from the operator's one address only, the master password is 16+ characters
+  # from a per-run generator (precondition below), PostgreSQL 16 on RDS refuses a connection without TLS
+  # (rds.force_ssl defaults to 1 from 15 on), and the instance lives for one session.
+  publicly_accessible = true
 
-  multi_az                = false
-  backup_retention_period = 0    # ⛔ no backups. Deliberate: it makes destroy fast and free
+  multi_az = false
+  # ⛔ No backups (Sonar terraform:S6364, by design - owner to review): the AWS Free plan refuses any retention over
+  # 1 day (FreeTierRestrictionError), so the rule's 7 days cannot be had here at any setting, and the instance holds
+  # nothing but the benchmark's own rows for one session. 0 also keeps destroy fast and leaves no backup behind.
+  backup_retention_period = 0
   skip_final_snapshot     = true # ⛔ without this, `terraform destroy` FAILS and leaves the bill running
   deletion_protection     = false
   apply_immediately       = true
