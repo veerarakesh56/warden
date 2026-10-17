@@ -37,5 +37,5 @@ spec:
         capabilities:
           drop: ["ALL"]
       resources:
-        requests: { cpu: 10m, memory: 32Mi }
+        requests: { cpu: 10m, memory: 32Mi, ephemeral-storage: 16Mi }  # two log lines (Sonar kubernetes:S6897)
         limits: { cpu: 100m, memory: 64Mi }

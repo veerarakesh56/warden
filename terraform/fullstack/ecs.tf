@@ -24,8 +24,9 @@ resource "aws_ecr_lifecycle_policy" "app" {
 }
 
 resource "aws_cloudwatch_log_group" "orders_api" {
-  name              = "/ecs/${local.name}-orders-api"
-  retention_in_days = 3
+  name = "/ecs/${local.name}-orders-api"
+  # 14 days (Sonar terraform:S6413, 2026-10-16): enough to look back at an incident found days later.
+  retention_in_days = 14
 }
 
 resource "aws_ecs_cluster" "this" {

@@ -6,8 +6,10 @@
 #
 # So every IaC linter finding on it is the point (2026-10-16, naming audit item 18): privileged, root,
 # and none of the hardening the real workloads carry, because the namespace must refuse exactly that.
-# It is never created - a server-side dry run only - so resource limits, probes and a NetworkPolicy
-# would mean nothing either. The skips below cover this one object, each with its reason; they are the
+# It is never created - a server-side dry run only - so probes and a NetworkPolicy would mean nothing
+# either. It does carry requests and limits (2026-10-16, Sonar kubernetes:S6864): they cost nothing,
+# Pod Security does not judge them, and four skips fewer. The skips below cover this one object, each
+# with its reason; they are the
 # findings checkov 3.3.29 and kube-linter 0.8.3 raised on this file on 2026-10-16. Trivy (0.76.0) has
 # no in-file skip for a plain manifest: its inline `trivy:ignore` covers Terraform, CloudFormation,
 # Helm and Dockerfiles only (a comment here was tried, and ignored), and a path-scoped
@@ -29,17 +31,11 @@ metadata:
     checkov.io/skip9: CKV_K8S_22=negative test - never created, a server-side dry run only
     checkov.io/skip10: CKV_K8S_8=negative test - never created, a server-side dry run only
     checkov.io/skip11: CKV_K8S_9=negative test - never created, a server-side dry run only
-    checkov.io/skip12: CKV_K8S_10=negative test - never created, a server-side dry run only
-    checkov.io/skip13: CKV_K8S_11=negative test - never created, a server-side dry run only
-    checkov.io/skip14: CKV_K8S_12=negative test - never created, a server-side dry run only
-    checkov.io/skip15: CKV_K8S_13=negative test - never created, a server-side dry run only
     checkov.io/skip16: CKV2_K8S_6=negative test - never created, a server-side dry run only
     ignore-check.kube-linter.io/privileged-container: "negative test - admission must reject a privileged container"
     ignore-check.kube-linter.io/privilege-escalation-container: "negative test - admission must reject it"
     ignore-check.kube-linter.io/run-as-non-root: "negative test - admission must reject a root container"
     ignore-check.kube-linter.io/no-read-only-root-fs: "negative test - never created, a server-side dry run only"
-    ignore-check.kube-linter.io/unset-cpu-requirements: "negative test - never created, a server-side dry run only"
-    ignore-check.kube-linter.io/unset-memory-requirements: "negative test - never created, a server-side dry run only"
 spec:
   restartPolicy: Never
   automountServiceAccountToken: false
@@ -47,6 +43,9 @@ spec:
     - name: bad
       image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
       command: ["sh", "-c", "id"]
+      resources:
+        requests: { cpu: 10m, memory: 16Mi, ephemeral-storage: 16Mi }
+        limits: { cpu: 100m, memory: 32Mi }
       securityContext:
         privileged: true          # restricted PSS forbids this
         runAsUser: 0              # and this
