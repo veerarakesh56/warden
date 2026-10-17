@@ -31,7 +31,7 @@ import urllib.request
 import boto3
 
 _KEY = re.compile(r"[A-Za-z0-9._-]{1,200}")
-_ACCOUNT = re.compile(r"(?<![0-9])[0-9]{12}(?![0-9])")
+_ACCOUNT = re.compile(r"(?<!\d)\d{12}(?!\d)")
 _LOG = logging.getLogger("warden.pager")
 _LOG.setLevel(logging.INFO)
 _SLACK = "https://hooks." + "slack.com/"  # the only place a page is posted; built from parts, as every such literal
