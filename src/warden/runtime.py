@@ -166,7 +166,7 @@ async def heartbeat(client: Client, publish: Any, *, every: timedelta = HEARTBEA
     while True:
         try:
             problem = await beat(client, publish, task_queue)
-        except Exception as exc:  # noqa: BLE001 - a beat that cannot run is a missed beat, never a crashed worker
+        except Exception as exc:  # noqa: BLE001  # a beat that cannot run is a missed beat, never a crashed worker
             problem = f"the heartbeat could not run: {type(exc).__name__}"
         if problem and log:
             log(f"heartbeat missed: {problem}")

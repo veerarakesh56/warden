@@ -2458,7 +2458,7 @@ class AwsPlatform:
         if not why:
             try:
                 apigw.get_deployment(restApiId=api_id, deploymentId=str(before))
-            except Exception:  # noqa: BLE001 - gone, or unreadable: nothing to go back to
+            except Exception:  # noqa: BLE001  # gone, or unreadable: nothing to go back to
                 why = f"the deployment before the change ({before}) no longer exists"
         return {**live, "event": set() if why else {e["event"]}, "deployment": set() if why else {str(before)},
                 "refused": why, "state": state}

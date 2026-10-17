@@ -204,7 +204,7 @@ def decide_remediation(
     exec_backend = backend or DryRunBackend()
     try:
         change = exec_backend.apply(action, target, alert.environment)
-    except Exception as exc:  # noqa: BLE001 - a backend fault is a result, not a crash
+    except Exception as exc:  # noqa: BLE001  # a backend fault is a result, not a crash
         return result(RemediationOutcome.failed, f"backend error: {exc}")
     outcome = RemediationOutcome.applied if exec_backend.live else RemediationOutcome.dry_run
     return result(outcome, f"applied by '{request.principal}' after approval", change)

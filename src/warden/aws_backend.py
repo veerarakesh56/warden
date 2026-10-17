@@ -344,7 +344,7 @@ class AwsBackend:
                                    f"{'before reaching the alert time' if lo == start_ms and len(windows) == 1 else 'the alert-time lines read first'} "
                                    "(raise WARDEN_AWS_LOG_MAX_PAGES to read the rest of the window)")
                     break
-        except Exception as exc:  # noqa: BLE001 - a missing group is data, not a crash
+        except Exception as exc:  # noqa: BLE001  # a missing group is data, not a crash
             if not events:
                 return [f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}"]
             partial.append(f"{PARTIAL_PREFIX}logs: {group}: {failure(exc)}")

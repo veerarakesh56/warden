@@ -103,7 +103,7 @@ def replay(src: pathlib.Path, out: pathlib.Path, *, per_scenario: int, only: set
                 runs.append({**run, "exit_code": 0, "report_written": True, "stderr_tail": ""})
                 log(f"{gt['scenario_id']}.{run['index']}: {new.proposal.action.value} "
                     f"{new.verdict.status.value} {new.verdict.policy_ids} calls={new.cost.calls}")
-            except Exception as exc:  # noqa: BLE001 - a failed replay is an ERROR row, never skipped
+            except Exception as exc:  # noqa: BLE001  # a failed replay is an ERROR row, never skipped
                 runs.append({**run, "exit_code": 1, "report_written": False, "stderr_tail": str(exc)[:500]})
                 log(f"{gt['scenario_id']}.{run['index']}: ERROR {exc}")
         (out / "ground-truth" / gt_path.name).write_text(json.dumps({**gt, "runs": runs}, indent=2),

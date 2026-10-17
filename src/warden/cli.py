@@ -93,7 +93,7 @@ def _one(text: object) -> str:
     """A field someone else wrote, on one line: a newline in an alert name forged `VERDICT` lines."""
     try:
         return " ".join(str(text).split())
-    except Exception:  # noqa: BLE001 - an exception whose text raises (fifth review, 2026-10-01)
+    except Exception:  # noqa: BLE001  # an exception whose text raises (fifth review, 2026-10-01)
         return "(text withheld)"
 
 
