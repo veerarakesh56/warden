@@ -196,3 +196,20 @@ def test_a_full_version_list_makes_room_by_deleting_the_oldest_non_default(monke
     assert iam.calls[0] == ("delete", "v1")
     assert iam.default == "v3"
     assert "  default back to v3; temporary v9 deleted; versions now ['v2', 'v3', 'v4', 'v5']; " in capsys.readouterr().out
+
+
+def test_a_probe_that_errors_is_a_failure_whatever_was_expected(monkeypatch, tmp_path, capsys):
+    """An error other than AccessDenied proves nothing: the legitimate path failing with Throttling is a FAIL, not a
+    pass."""
+
+    class Throttled(ProbeIam):
+        def create_role(self, RoleName, PermissionsBoundary=None, **kw):
+            if PermissionsBoundary is not None:
+                raise prove_boundary.ClientError({"Error": {"Code": "Throttling", "Message": "x"}}, "CreateRole")
+            return super().create_role(RoleName, PermissionsBoundary, **kw)
+
+    _probe(monkeypatch, tmp_path, Throttled())
+    assert prove_boundary.main() == 1
+    out = capsys.readouterr().out
+    assert "  FAIL  create a warden-pg-* role WITH the boundary: ERROR Throttling (expected ALLOWED)\n" in out
+    assert out.endswith("\n4/5 checks passed\n")

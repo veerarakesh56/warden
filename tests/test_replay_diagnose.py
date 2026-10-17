@@ -133,3 +133,23 @@ def test_a_spent_quota_leaves_the_rest_unasked_with_its_reason(tmp_path):
         [row] = json.loads((out / "ground-truth" / f"{sid}.json").read_text(encoding="utf-8"))["runs"]
         assert (row["exit_code"], row["report_written"]) == (1, False)
         assert row["stderr_tail"] == "not asked: the model's quota refused the calls before it"
+
+
+def test_a_row_recorded_as_unanswered_is_asked_again_even_with_a_report_on_disk(tmp_path):
+    """Resume keeps only a row that says it was answered: an earlier ERROR row is asked again, report file or not."""
+    sid = min(p.stem for p in (RUN / "ground-truth").glob("*.json"))
+    out = tmp_path / "replay"
+    rd.replay(RUN, out, per_scenario=1, only={sid}, llm_factory=lambda: LLMClient(mock=True), log=lambda _: None)
+    gt_path = out / "ground-truth" / f"{sid}.json"
+    gt = json.loads(gt_path.read_text(encoding="utf-8"))
+    gt["runs"][0]["report_written"] = False
+    gt_path.write_text(json.dumps(gt), encoding="utf-8")
+    asked: list[int] = []
+
+    def counted():
+        asked.append(1)
+        return LLMClient(mock=True)
+
+    rd.replay(RUN, out, per_scenario=1, only={sid}, llm_factory=counted, log=lambda _: None, resume=True)
+    assert asked == [1]
+    assert json.loads(gt_path.read_text(encoding="utf-8"))["runs"][0]["report_written"] is True
