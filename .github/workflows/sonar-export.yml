@@ -1,0 +1,50 @@
+name: "Temp · Sonar export (never merged)"
+
+# Throwaway (cloud session, 2026-10-17): sonarcloud.io is unreachable from the cloud sandbox, so this prints the open
+# SonarCloud issues of main from Sonar's public API into the job log. No checkout, no secrets, no third-party action.
+# This pull request is closed without merging once the list is read.
+on:
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/sonar-export.yml"]
+
+permissions: {}
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Open issues on main, one per line
+        shell: python
+        run: |
+          import json, time, urllib.request
+          base = "https://sonarcloud.io/api/issues/search?componentKeys=veerarakesh56_warden&resolved=false&ps=500"
+          def get(url):
+              for attempt in range(5):
+                  try:
+                      with urllib.request.urlopen(url, timeout=60) as r:
+                          return json.load(r)
+                  except Exception as e:
+                      print("retry", attempt, e); time.sleep(5)
+              raise SystemExit("sonar api unreachable")
+          for quality in ("SECURITY", "RELIABILITY", "MAINTAINABILITY"):
+              page, seen = 1, 0
+              while True:
+                  d = get(f"{base}&impactSoftwareQualities={quality}&p={page}")
+                  if page == 1:
+                      print(f"=== {quality} total={d['total']}")
+                  for i in d["issues"]:
+                      imp = ",".join(f"{x['softwareQuality'][0]}{x['severity'][0]}" for x in i.get("impacts", []))
+                      comp = i["component"].split(":", 1)[-1]
+                      msg = i["message"].replace("\n", " ")[:200]
+                      print(f"{quality[0]}|{i['rule']}|{imp}|{comp}|{i.get('line', '')}|{i['key']}|{msg}")
+                  seen += len(d["issues"])
+                  if seen >= d["total"] or not d["issues"] or page >= 20:
+                      break
+                  page += 1
+          h = get("https://sonarcloud.io/api/hotspots/search?projectKey=veerarakesh56_warden&status=TO_REVIEW&ps=500")
+          print(f"=== HOTSPOTS to review total={h['paging']['total']}")
+          for i in h["hotspots"]:
+              comp = i["component"].split(":", 1)[-1]
+              print(f"H|{i['ruleKey']}|{i['vulnerabilityProbability']}|{comp}|{i.get('line', '')}|{i['key']}|{i['message'][:200]}")
