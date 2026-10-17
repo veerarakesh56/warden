@@ -69,6 +69,10 @@ NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": Retry
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
+# Eldane's review: two model calls and perhaps a catch trial, once. A critic zone that is not running holds nobody up
+# for long: unstarted within two minutes, the plan goes to a person as before.
+CRITIC = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=6),
+          "retry_policy": RetryPolicy(maximum_attempts=1)}
 # Register S15, the trust zones: each activity runs where its credentials are. The read zone holds the watched
 # environments' readers, the llm zone the model, the notify zone the paging, chat and change-record secrets (and so a
 # run's end, which resolves its page and records the change), the act zone the actors;
@@ -79,7 +83,9 @@ ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan"
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
-         "act": ("apply", "rollback")}
+         "act": ("apply", "rollback"),
+         # Eldane, the AI critic (eldane.py): its own model, its own signing key, no other zone's credentials.
+         "critic": ("critic_review",)}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -259,22 +265,38 @@ class RemediationWorkflow:
             return await end("blocked", blocked or ["the gate's answer could not be read"])
         done["policy"] = True
 
+        accepted: list[SignedApproval] = []
+        auto = False
+        # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
+        # own zone; where the plan's class has earned autonomy (autonomy.py) its signed approval comes back and is
+        # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
+        if workflow.patched("eldane-critic"):
+            offered = None
+            with contextlib.suppress(ActivityError):
+                offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
+                                                                 args=[plan], **CRITIC)
+            if isinstance(offered, SignedApproval):
+                result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
+                                                                args=[plan, offered, []], **QUICK)
+                if not result.problems:
+                    accepted.append(offered)
+                    auto = result.enough
+
         # Registers H6/R28: the approvers are told as the wait starts - with the approval links when the runtime has an
         # approval domain - not only at the halfway reminder. Sent before the stage reads "awaiting_approval", so
         # whoever sees the plan waiting can already have its links.
-        if workflow.patched("h6-links"):
+        if not auto and workflow.patched("h6-links"):
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"], **NOTIFY)
         self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
-        accepted: list[SignedApproval] = []
         refused: list[str] = []
         seen = 0
         # Register H10: halfway through the wait a person is reminded, and at the end told that nothing was done -
         # an approval request that only expires is one nobody may ever have seen. A failed message changes nothing.
         ladder = workflow.patched("h10-ladder")
         halfway, reminded = workflow.now() + timedelta(minutes=req.approval_ttl_minutes) / 2, False
-        while True:
+        while not auto:
             until = halfway if ladder and not reminded and not accepted else deadline
             try:
                 await workflow.wait_condition(lambda n=seen: len(self._inbox) > n,
