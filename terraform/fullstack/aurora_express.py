@@ -131,8 +131,10 @@ def merge_stack(path: pathlib.Path, values: dict) -> None:
     raw = json.loads(path.read_text(encoding="utf-8"))
     wrapped = any(isinstance(v, dict) and "value" in v for v in raw.values())
     for key, value in values.items():
-        raw[key] = {"value": value, "sensitive": False,
-                    "type": "string" if isinstance(value, str) else "object"} if wrapped else value
+        if wrapped:
+            raw[key] = {"value": value, "sensitive": False, "type": "string" if isinstance(value, str) else "object"}
+        else:
+            raw[key] = value
     path.write_text(json.dumps(raw, indent=1), encoding="utf-8")
 
 

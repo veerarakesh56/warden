@@ -778,7 +778,10 @@ def step_verify(env: Env, run: pathlib.Path, key: str, *, timeout_s: float | Non
     run0 = (record.get("runs") or [{}])[0]
     fix = run0.get("fix") or {}
     applied = fix.get("outcome") == "applied"
-    budget = float(timeout_s if timeout_s is not None else (scenario.get("recover_within") or 0) if applied else 0)
+    if timeout_s is not None:
+        budget = float(timeout_s)
+    else:
+        budget = float((scenario.get("recover_within") or 0) if applied else 0)
     last = {"ok": False, "detail": ""}
 
     def check() -> bool:
@@ -853,7 +856,10 @@ def step_soak(env: Env, run: pathlib.Path, *, min_s: float = 1800, max_s: float 
     while True:
         problems = stack_problems(env)
         now = env.clock()
-        healthy_since = None if problems else (now if healthy_since is None else healthy_since)
+        if problems:
+            healthy_since = None
+        elif healthy_since is None:
+            healthy_since = now
         streak = 0.0 if healthy_since is None else now - healthy_since
         env.log(f"soak {(now - start) / 60:5.1f} min: " + (f"healthy for {streak / 60:.1f} min" if not problems
                                                            else "; ".join(problems)))

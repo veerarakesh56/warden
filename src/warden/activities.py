@@ -1601,8 +1601,14 @@ class DiscussActivities:
         approver = bool(self.policy) and any(a.slack == turn.user for a in self.policy.approvers.values())
         recent = self.audit.entries(key, kinds=("discuss.replan",),
                                     since=datetime.now(UTC) - timedelta(seconds=REPLAN_EVERY))
-        why = ("not an approver" if not approver else "no alarm on the record" if not rows
-               else "asked again within the hour" if any(e["body"].get("started") for e in recent) else "")
+        if not approver:
+            why = "not an approver"
+        elif not rows:
+            why = "no alarm on the record"
+        elif any(e["body"].get("started") for e in recent):
+            why = "asked again within the hour"
+        else:
+            why = ""
         now = datetime.now(UTC)
         new = f"{incident.split('-')[0]}-{now:%Y%m%dT%H%M%SZ}"
         self.audit.append(key, "discuss.replan", {"run_id": _run_id(), "user": turn.user, "ts": turn.ts,

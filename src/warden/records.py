@@ -393,11 +393,11 @@ def _summary_facts(r: Record) -> list[tuple[str, str]]:
     conf = f" (confidence {r.confidence:.2f})" if r.confidence is not None else ""
     plan = (f'<span class="mono">{_e(r.plan.get("entry"))}</span> on <span class="mono">{_e(r.plan.get("target"))}'
             f'</span> - risk {_e(r.plan.get("tier"))}' if r.plan else "")
+    policies = f" ({', '.join(r.policies)})" if r.policies else ""
     return [("Alarm", _e(r.alarm)), ("Where", _e(" / ".join(x for x in (r.environment, r.service) if x))),
             ("Severity", _e(r.severity)), ("Alert says", _e(r.summary)), ("First seen", _e(_when(r.first))),
             ("Last step", _e(_when(r.last))), ("WARDEN thinks", _e(r.hypothesis + conf) if r.hypothesis else ""),
-            ("Safety check", _e(r.verdict.replace("_", " ") + (f" ({', '.join(r.policies)})" if r.policies else ""))
-             if r.verdict else ""),
+            ("Safety check", _e(r.verdict.replace("_", " ") + policies) if r.verdict else ""),
             ("Fix plan", plan or (_e("None: " + r.no_plan) if r.no_plan else "")),
             ("Also fired", _e("; ".join(r.also)) if r.also else ""),
             ("Discussion", _e(f"{r.asked} question(s) in the discussion channel") if r.asked else "")]
