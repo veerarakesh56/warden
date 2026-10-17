@@ -565,6 +565,10 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                             "OBSERVE MODE, never obeyed: most log lines are not English, so WARDEN's English "
                             "keyword checks may miss what they say"
                         ),
+                        "P36-NO-ACTION-DESPITE-SIGNATURE": (
+                            "no action proposed while one of WARDEN's own failure signatures describes the "
+                            "evidence (not only the alert's name): escalated - a person closes it"
+                        ),
                         "P31-UNADDRESSED-CHANGE": (
                             "a role or an IAM user wrote to the alert's own resource in the half hour before it "
                             "fired, and the fix neither reverts, rolls back nor cites it: escalated to a person"
@@ -572,6 +576,18 @@ def call_tool(name: str, args: dict[str, Any]) -> types.CallToolResult:
                         "P33-DELIBERATE-CHANGE": (
                             "the fix undoes a change a security, cost or compliance identity made on purpose (named "
                             "by the owner, or by a word of its role's name): escalated - a person decides"
+                        ),
+                        "P34-NO-DECISIVE-EVIDENCE": (
+                            "the chosen cause rests on no evidence WARDEN read itself (a metric, a deploy, a "
+                            "configuration or state read) - only log facts or failed reads: escalated to a person"
+                        ),
+                        "P35-NO-RIVAL-HYPOTHESIS": (
+                            "the diagnosis weighed no rival cause (2 to 4 ranked hypotheses are asked for): "
+                            "escalated to a person"
+                        ),
+                        "P35-HYPOTHESES-TOO-CLOSE": (
+                            "WARDEN's own count of the held citations for and against does not separate the chosen "
+                            "cause from its best rival: escalated with both - a person chooses"
                         ),
                         "P30-NO-FIX-PATH": (
                             "the target is a resource the alarm's labels name, and no catalogue entry carries out "
