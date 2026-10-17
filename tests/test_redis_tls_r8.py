@@ -147,8 +147,8 @@ def test_a_cache_that_never_completes_the_tls_handshake_fails_the_call_after_one
     assert elapsed < ONE_TRY_S
 
 
-def _answer_all_but_ping(server: socket.socket, stop: threading.Event) -> None:
-    """A Redis server that is connected and answers the connection's setup commands, then never answers PING."""
+def _answer_all_but_ping(server: socket.socket, stop: threading.Event, pinged: threading.Event) -> None:
+    """A Redis server that answers the connection's setup commands, then never answers PING (sets `pinged`)."""
     server.settimeout(0.05)
     peers = []
     while not stop.is_set():
@@ -168,7 +168,9 @@ def _answer_all_but_ping(server: socket.socket, stop: threading.Event) -> None:
                 if end is None:
                     break
                 command, entry[1] = entry[1][:end], entry[1][end:]
-                if b"PING" not in command.upper():
+                if b"PING" in command.upper():
+                    pinged.set()
+                else:
                     entry[0].sendall(b"+OK\r\n")
     for peer, _ in peers:
         peer.close()
@@ -193,9 +195,9 @@ def test_a_cache_that_takes_a_command_and_never_replies_fails_the_call_after_one
     """The connection is up and the server reads PING but never replies: the client waits one read timeout and
     gives up - no retry. TLS is left out here only (a test server has no ElastiCache certificate; the TLS options
     are checked above): the client's own protocol, retry and keepalive options, with the timeouts shortened."""
-    stop = threading.Event()
+    stop, pinged = threading.Event(), threading.Event()
     with socket.create_server(("127.0.0.1", 0)) as server:
-        worker = threading.Thread(target=_answer_all_but_ping, args=(server, stop), daemon=True)
+        worker = threading.Thread(target=_answer_all_but_ping, args=(server, stop, pinged), daemon=True)
         worker.start()
         try:
             client = _built(redis, _client_calls()[rel], host="127.0.0.1", port=server.getsockname()[1],
@@ -204,5 +206,6 @@ def test_a_cache_that_takes_a_command_and_never_replies_fails_the_call_after_one
         finally:
             stop.set()
             worker.join(timeout=5)
+    assert pinged.is_set(), "the client timed out before it sent PING"
     assert elapsed >= QUICK * 0.8
     assert elapsed < ONE_TRY_S
