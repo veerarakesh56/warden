@@ -557,6 +557,20 @@ def _label_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _link_command(args: argparse.Namespace) -> int:
+    """Item 16a: an approver's signed, two-way link between two incidents' records (links.py)."""
+    from . import links, runtime
+
+    link = links.sign(_approver_key(args.key), incident=args.incident, other=args.other, type=args.type,
+                      approver=args.approver, note=args.note or "", removed=args.remove)
+    problems = links.record(runtime.open_audit(), link, runtime.approver_policy())
+    if problems:
+        _out("link not recorded: " + "; ".join(problems), err=True)
+        return 1
+    _out(f"{'link removed' if args.remove else 'linked'}: {args.incident} {links.WORDS[args.type]} {args.other}")
+    return 0
+
+
 def _killswitch_command(args: argparse.Namespace) -> int:
     from . import approvals, bounds, runtime
 
@@ -784,6 +798,15 @@ def _main(argv: list[str] | None = None) -> int:
 
     p_usage = sub.add_parser("usage", help="model calls, tokens and cost per day, from the audit")
     p_usage.add_argument("--days", type=int, default=30)
+    p_link = sub.add_parser("link", help="link two incidents' records, signed: a similar incident then finds the proven fix")
+    p_link.add_argument("incident")
+    p_link.add_argument("other")
+    p_link.add_argument("--as", dest="type", required=True, choices=("same-root-cause", "recurrence-of", "caused-by"),
+                        help="read as: <incident> has the same root cause as / is a recurrence of / was caused by <other>")
+    p_link.add_argument("--note", help="optional, up to 500 characters")
+    p_link.add_argument("--remove", action="store_true", help="take this link back")
+    p_link.add_argument("--approver", required=True)
+    p_link.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
     p_label = sub.add_parser("label", help="record your signed verdict on an incident's diagnosis and action")
     p_label.add_argument("incident")
     p_label.add_argument("--diagnosis", required=True, choices=("right", "wrong", "unsure"))
@@ -793,7 +816,7 @@ def _main(argv: list[str] | None = None) -> int:
     p_label.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
 
     args = parser.parse_args(argv)
-    _load_environment(args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
+    _load_environment("label" if args.cmd == "link" else args.cmd, getattr(args, "zone", None))  # after parsing: what is loaded depends on the command (audit A-B-L17)
     if args.cmd == "audit":
         return _audit_command(args)
     if args.cmd in ("worker", "incident", "intake", "status", "approve"):
@@ -802,6 +825,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _enrol_command(args)
     if args.cmd == "killswitch":
         return _killswitch_command(args)
+    if args.cmd == "link":
+        return _link_command(args)
     if args.cmd == "label":
         return _label_command(args)
     if args.cmd == "usage":

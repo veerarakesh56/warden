@@ -391,6 +391,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - Security findings as intake - `security_findings.py`: built. AWS's own responders (Security Hub automation rules,
   the GuardDuty-to-Lambda samples) act on a finding; WARDEN must only read and hand it to a person, deduplicated
   and redacted as its other alerts are, so the parser is a small function over the documented event shapes.
+- Linked incident records - `links.py`: built. Incident tools link incidents by hand (incident.io, PagerDuty's
+  related incidents); WARDEN's links must be signed by an approver, read two ways and lead only to a fix its own
+  record shows applied and verified, which no tool's links do.
 - The pipeline and its outputs - `graph.py`, `reporting.py`, `playbook.py`, `cli.py`, and the
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 - Where a command-line path may point - `paths.py`: the standard library's `pathlib` (resolve, is_relative_to) and
