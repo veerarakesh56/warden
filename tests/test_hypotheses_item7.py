@@ -159,3 +159,36 @@ def test_the_mock_weighs_a_rival_for_every_incident():
         rc = run(Alert(**DEMO_ALERTS[incident]), llm=LLMClient(mock=True)).root_cause
         assert len(rc.hypotheses) == 2, incident
         assert rc.hypotheses[1].why_rejected, incident
+
+
+def test_a_made_up_citation_in_the_chosen_causes_own_support_is_ungrounded():
+    """Review, PR 47: the chosen hypothesis's support decides P34 and P35, so a citation of it that does not hold is
+    ungrounded (P13), never quietly left out of the count."""
+    report, _ = _run({"hypothesis": "the deploy broke checkout", "citations": [D1, M1],
+                      "hypotheses": [{"cause": "the deploy broke checkout",
+                                      "supporting": [{"id": "M9", "quote": "error_rate=0.99"}]},
+                                     {"cause": "CPU saturation", "against": [M4], "why_rejected": "CPU is at 41%"}]})
+    assert "P13-UNGROUNDED" in report.verdict.policy_ids
+    assert any("M9 is not an evidence id" in r for r in report.verdict.reasons), report.verdict.reasons
+
+
+def test_the_count_says_which_cause_it_is_for_when_the_model_worded_them_differently():
+    """Review, PR 47: the count is the first ranked hypothesis's; when its words differ from the diagnosis's, both."""
+    report, _ = _run({"hypothesis": "the 09:58 deploy broke checkout",
+                      "hypotheses": [{"cause": "a bad release", "supporting": [D1, M1]},
+                                     {"cause": "CPU saturation", "against": [M4], "why_rejected": "CPU is at 41%"}]})
+    md = build_report(report.alert, root_cause=report.root_cause, proposal=report.proposal, verdict=report.verdict,
+                      context=report.context).markdown
+    assert "the count is for the cause it ranked first: a bad release" in md
+    same, _ = _run(_ranked([D1, M1], rival_against=[M4]))
+    md = build_report(same.alert, root_cause=same.root_cause, proposal=same.proposal, verdict=same.verdict,
+                      context=same.context).markdown
+    assert "the count is for the cause it ranked first" not in md
+
+
+def test_a_models_explicit_null_is_no_rival_weighed_not_an_old_answer():
+    """Plant check (PR 47): `"hypotheses": null` from the model is made [] in diagnose, so P35 applies - only a stored
+    answer read back may carry None."""
+    report, _ = _run({"hypothesis": "the deploy broke checkout", "citations": [D1, M1], "hypotheses": None})
+    assert report.root_cause.hypotheses == []
+    assert "P35-NO-RIVAL-HYPOTHESIS" in report.verdict.policy_ids

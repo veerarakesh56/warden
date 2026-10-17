@@ -28,17 +28,27 @@ bump may carry a breaking change.
   (`RootCause.hypotheses`). The report shows the chosen cause and each rejected one with why and WARDEN's own count.
   New gate policies: `P34-NO-DECISIVE-EVIDENCE` (the chosen cause needs a held metric, deploy or configuration/state
   citation - never only log facts or failed reads), `P35-NO-RIVAL-HYPOTHESIS` and `P35-HYPOTHESES-TOO-CLOSE` (a rule
-  over the held citations, never the model's confidence; escalated with both causes). Answers recorded before this
-  keep their verdicts (P35 does not apply to them). **The prompt changed and has not been qualified on a model yet.**
+  over the held citations, never the model's confidence; escalated with both causes). A citation of the chosen
+  cause's own support that does not hold is ungrounded (P13). Answers recorded before this keep their verdicts (P35
+  does not apply to them). **The prompt changed and has not been qualified on a model yet.**
 - **Poisoned-log eval** (`evals/poisoned_logs.py`, `evals/test_poisoned_logs.py`): eleven planted payloads in the
   styles of Pasquini et al. (USENIX Security 2026), a model that follows them, dev and prod; a `--live` variant (costs
-  money, off by default). `P36-NO-ACTION-DESPITE-SIGNATURE` (enforced, owner 2026-10-17) escalates "nothing to do"
-  while WARDEN's own failure signatures describe the evidence: it stops the one attack that passed every layer (a
-  followed "expected during maintenance" close). Cost on the recorded held-out answers: 4 of 8 right closes now go
-  to a person, none wrong.
-- **No unread version, tag, ARN or target in the report or Slack** (owner, 2026-10-17): the model's words, and the
-  log lines shown, are stripped of any version, image tag, ARN or resource name WARDEN did not read itself; a
-  rollback names "the previous revision WARDEN recorded". The verifier still sees the model's words as written.
+  money, off by default). 42 of 44 runs held; the 2 that reach the approver are the rollback the evidence also
+  supports, with no plan or report naming the payload's version (docs/BENCHMARKS.md).
+  `P36-NO-ACTION-DESPITE-SIGNATURE` (enforced, owner 2026-10-17) escalates "nothing to do" while WARDEN's own failure
+  signatures describe what WARDEN read (never the alert's own name or summary): it stops the one attack that passed
+  every layer (a followed "expected during maintenance" close). Cost, from the held-out keys alone: of the 33 cases a
+  person may close, 11 now go to a person (G9 4 of 8, G10 7 of 25); each of those keys accepts the hand-off.
+- **No unread version, tag, ARN or target in the report or Slack** (owner, 2026-10-17): the model's words, the log
+  lines shown and a crashed container's output are stripped of any version, image tag (`checkout:canary` too), ARN
+  or resource name WARDEN did not read itself; a rollback names "the previous revision WARDEN recorded"; a command
+  in a shown log line is withheld (G4). The verifier still sees the model's words as written.
+
+### Changed (a model is qualified on the prompt it was measured with, review of PR 47)
+- `providers.qualified` admits a provider and model only through a row measured on today's pinned prompt. **Until
+  the item 7 prompt is qualified (`scripts/qualify_provider.py` in the cloud runtime), every model is refused and
+  each incident gets the rules-only diagnosis, escalated to a person** (register M19); a Slack discussion answers
+  that no answer could be had instead of failing.
 
 ### Changed (the bench approver, 2026-10-16)
 - **The bench approver approves only in a nonprod environment, enforced by WARDEN.** A signed approval, a passkey
