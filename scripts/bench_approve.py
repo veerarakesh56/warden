@@ -32,6 +32,8 @@ from datetime import UTC, datetime
 
 NAME = "bench"
 PASSPHRASE_ENV = "WARDEN_BENCH_KEY_PASSPHRASE"
+# What the clear-key warning tells a person to set: the variable's name, printed; never its value.
+UNLOCK_VARIABLE = "WARDEN_BENCH_KEY_PASSPHRASE"  # = PASSPHRASE_ENV (tests/test_key_at_rest.py holds them equal)
 
 
 KEY_NAME = "bench-approver.pem"
@@ -95,7 +97,7 @@ def load_key():
         clear = None
     if clear is not None:
         print(f"WARNING: {path} is not encrypted: anyone who can read it can approve as the bench approver. Make an "
-              f"encrypted one: set {PASSPHRASE_ENV}, delete the file, run --new-key and replace the approver entry",
+              f"encrypted one: set {UNLOCK_VARIABLE}, delete the file, run --new-key and replace the approver entry",
               file=sys.stderr)
         return clear
     passphrase = os.environ.get(PASSPHRASE_ENV, "").encode()
