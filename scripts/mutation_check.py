@@ -396,8 +396,8 @@ MUTATIONS = [
     (
         'Eldane no longer picks the model the diagnosis did not use',
         'eldane.py',
-        '        return next((m for m in self.models if m != diagnosed_by), "")',
-        '        return self.models[0]',
+        '    model = next((m for m in models if m != diagnosed_by), "")',
+        '    model = models[0]',
         'a Sonnet diagnosis reviewed by Sonnet, an Opus one by Opus: no second model at all',
     ),
     (
