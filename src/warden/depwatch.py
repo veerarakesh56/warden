@@ -164,8 +164,17 @@ _HASH_LINE = re.compile(r"^[+-](?![+-]).*(?:sha256[:=]|--hash=)")
 _JUMPS = ("patch", "minor", "unknown", "major")
 
 
+_LEADING_VERSION = re.compile(r"v?(\d{1,9}(?:\.\d{1,9}){0,3})")
+_COMMIT = re.compile(r"[0-9a-f]{7,40}")
+
+
 def _version(v: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in re.findall(r"\d+", v.split("-")[0])[:4])
+    """The leading dotted number of a version (`v2.1.0-rc1` -> (2, 1, 0)); () for a commit SHA - a SHA-pinned
+    action's bump is `from 8e5e7e5 to 11bd719` - or anything else that does not start with one."""
+    if _COMMIT.fullmatch(v):
+        return ()
+    m = _LEADING_VERSION.match(v)
+    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
 
 
 def jump(a: str, b: str) -> str:
@@ -558,7 +567,9 @@ def advisories(pr: dict[str, Any], alerts: list[dict[str, Any]]) -> tuple[list[i
     for a in alerts:
         for c in pr["changes"]:
             if _same_package(a, pr["ecosystem"], c) and a["patched"]:
-                (fixes if _version(c["to"]) >= _version(a["patched"]) else below).append(a["number"])
+                to, fixed_in = _version(c["to"]), _version(a["patched"])
+                # A version that cannot be read is never "fixed": the alert stays open below the fix.
+                (fixes if to and fixed_in and to >= fixed_in else below).append(a["number"])
     return sorted(set(fixes)), sorted(set(below) - set(fixes))
 
 

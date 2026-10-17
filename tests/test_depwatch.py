@@ -617,6 +617,23 @@ def test_the_risk_level_bounds(score, level):
     assert depwatch._level(score) == level
 
 
+def test_a_sha_pinned_bump_has_no_version_so_no_jump_and_fixes_no_alert():
+    """Dependabot titles a SHA-pinned action without a version comment `Bump x from 8e5e7e5 to 11bd719`: no digit of a
+    SHA is a version, so the jump is unknown and an open alert on it is not said to be fixed."""
+    changes = depwatch.changes_of("Bump actions/checkout from 8e5e7e5 to 11bd719", "")
+    assert changes == [{"package": "actions/checkout", "from": "8e5e7e5", "to": "11bd719", "jump": "unknown"}]
+    pr = {"number": 7, "ecosystem": "github_actions", "changes": changes, "notes": [], "sites": [],
+          "ci": {"state": "passing", "failed_names": []}}
+    alerts = [{"number": 9, "package": "actions/checkout", "ecosystem": "actions", "patched": "4.1.7"}]
+    assert depwatch.advisories(pr, alerts) == ([], [9])
+    assert "fixes security alert" not in depwatch.plan(pr, "low", alerts)
+    assert depwatch._version("v2.1.0-rc1") == (2, 1, 0)
+    assert depwatch._version("3.13-slim") == (3, 13)
+    assert depwatch.jump("1.43.109", "1.43.110") == "patch"
+    bad = [{"number": 10, "package": "actions/checkout", "ecosystem": "actions", "patched": "next"}]
+    assert depwatch.advisories({**pr, "changes": [{**changes[0], "to": "5.0.0"}]}, bad) == ([], [10])
+
+
 def test_nothing_read_is_never_said_as_nothing_open(world):
     class Down(FakeGitHub):
         def __call__(self, req, timeout):
