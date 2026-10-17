@@ -1052,3 +1052,118 @@ def test_the_cloud_read_role_may_only_view_the_cluster():
     assert re.search(r'policy_arn\s+= "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"', block)
     assert "Admin" not in block
     assert '${local.name}-platform-reader"' in tf
+
+
+# ---- characterisation of aurora_express.create and main (before their cognitive-complexity split)
+
+
+def test_aurora_create_logs_each_step_in_order(tmp_path):
+    ax, rds, said = _aurora(), FakeRds(), []
+    ax.create(rds, FakeSm(), _wrapped_stack(tmp_path), log=said.append)
+    assert said == [
+        "creating warden-dev-aurora (express configuration; bootstrap-db creates database shop)",
+        "serverless v2 capacity default -> {'MinCapacity': 0.5, 'MaxCapacity': 2.0}",
+        "adding reader warden-dev-aurora-2 in az-b",
+        ("writer warden-dev-aurora-instance-1, reader endpoint warden-dev-aurora.cluster-ro-x.rds.example; "
+         f"warden-dev-db-app and {tmp_path / 'stack.json'} updated")]
+    said.clear()
+    ax.create(rds, FakeSm(), _wrapped_stack(tmp_path), log=said.append)
+    assert said[0] == "warden-dev-aurora exists - refreshing the secret and stack.json only"
+    assert len(said) == 2
+
+
+def test_aurora_create_waits_for_the_capacity_change_and_gives_up_after_30_minutes(tmp_path, monkeypatch):
+    class Slow(FakeRds):
+        polls = 0
+        settle_after = 3
+
+        def modify_db_cluster(self, **kw):
+            self._log("modify_db_cluster", **kw)
+            self.cluster["Status"] = "modifying"
+
+        def describe_db_clusters(self, DBClusterIdentifier):
+            out = super().describe_db_clusters(DBClusterIdentifier)
+            if self.cluster.get("Status") == "modifying":
+                self.polls += 1
+                if self.polls >= self.settle_after:
+                    self.cluster.update(Status="available", ServerlessV2ScalingConfiguration=dict(_aurora().ACU))
+            return out
+
+    ax = _aurora()
+    slept = []
+    monkeypatch.setattr(ax.time, "sleep", slept.append)
+    rds = Slow()
+    ax.create(rds, FakeSm(), _wrapped_stack(tmp_path), log=lambda *_: None)
+    assert slept == [15, 15, 15]
+    assert any(n == "create_db_instance" for n, _ in rds.calls)
+    never = Slow()
+    never.settle_after = 10**6
+    slept.clear()
+    with pytest.raises(SystemExit, match=r"capacity change to \{'MinCapacity': 0.5, 'MaxCapacity': 2.0\} did not "
+                                         "complete in 30 minutes"):
+        ax.create(never, FakeSm(), _wrapped_stack(tmp_path), log=lambda *_: None)
+    assert len(slept) == 120
+    assert not any(n == "create_db_instance" for n, _ in never.calls)
+
+
+def test_aurora_create_names_no_zone_when_the_writer_holds_the_only_one(tmp_path):
+    class OneZone(FakeRds):
+        def create_db_cluster(self, **kw):
+            super().create_db_cluster(**kw)
+            self.cluster["AvailabilityZones"] = ["az-a"]
+
+    ax, rds, said = _aurora(), OneZone(), []
+    ax.create(rds, FakeSm(), _wrapped_stack(tmp_path), log=said.append)
+    assert "adding reader warden-dev-aurora-2" in said
+    reader = next(kw for n, kw in rds.calls if n == "create_db_instance")
+    assert "AvailabilityZone" not in reader
+
+
+def test_aurora_main_refuses_without_the_environment_its_stack_and_user_agree_on(tmp_path, monkeypatch):
+    ax = _aurora()
+    clients = {"rds": FakeRds(), "secretsmanager": FakeSm()}
+    stack = tmp_path / "s.json"
+    monkeypatch.delenv("WARDEN_ENV", raising=False)
+    with pytest.raises(SystemExit, match="refusing: set WARDEN_ENV to the environment whose Aurora this is"):
+        ax.main(["status", "--stack", str(stack)], clients=clients)
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    stack.write_text(json.dumps({"environment": "prod"}), encoding="utf-8")
+    with pytest.raises(SystemExit, match=f"refusing: {re.escape(str(stack))} is environment 'prod', WARDEN_ENV is 'dev'"):
+        ax.main(["status", "--stack", str(stack)], clients=clients)
+    stack.write_text(json.dumps({"environment": "dev", "db_users": {"app": "app"}}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="names the app user 'app', not 'warden_dev_app'"):
+        ax.main(["status", "--stack", str(stack)], clients=clients)
+    stack.write_text(json.dumps({"environment": "dev"}), encoding="utf-8")
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    with pytest.raises(SystemExit, match="refusing: no region - set AWS_REGION or pass --region"):
+        ax.main(["status", "--stack", str(stack)])
+    assert clients["rds"].calls == []
+
+
+def test_aurora_main_runs_the_command_asked_for(tmp_path, monkeypatch, capsys):
+    import sys
+    import types
+
+    ax = _aurora()
+    monkeypatch.setenv("WARDEN_ENV", "dev")
+    stack = _wrapped_stack(tmp_path)
+    rds, sm = FakeRds(), FakeSm()
+    assert ax.main(["status", "--stack", str(stack)], clients={"rds": rds, "secretsmanager": sm}) == 1
+    assert capsys.readouterr().out == "warden-dev-aurora: does not exist\n"
+    assert ax.main(["create", "--stack", str(stack)], clients={"rds": rds, "secretsmanager": sm}) == 0
+    assert len(sm.puts) == 1
+    assert ax.main(["status", "--stack", str(stack)], clients={"rds": rds, "secretsmanager": sm}) == 0
+    assert ax.main(["destroy", "--stack", str(stack)], clients={"rds": rds, "secretsmanager": sm}) == 0
+    assert rds.cluster is None
+    made = {}
+
+    def session(region_name):
+        made["region"] = region_name
+        return types.SimpleNamespace(client=lambda name: {"rds": FakeRds(), "secretsmanager": FakeSm()}[name])
+
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(Session=session))
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    assert ax.main(["status", "--stack", str(stack)]) == 1
+    assert made == {"region": "ap-south-2"}
+    assert ax.main(["status", "--stack", str(stack), "--region", "eu-x-1"]) == 1
+    assert made == {"region": "eu-x-1"}
