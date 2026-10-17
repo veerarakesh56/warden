@@ -784,10 +784,10 @@ class ApprovalPage:
 
     def _page_approvers(self, member: str) -> list[str]:
         """Who may acknowledge WARDEN's own pages here: an approver with a passkey and no environment list - a person
-        over the whole runtime, never an approver limited to some environments (the bench approver) - and, with Slack
-        sign-in, only the approver entries this member is."""
+        over the whole runtime, never an approver limited to some environments (the bench approver) - and only the
+        approver entries the Slack member signed in here is."""
         return [a for a, e in sorted(self.policy.approvers.items()) if e.passkeys and not e.environments
-                and (self.slack is None or (bool(member) and e.slack == member))]
+                and bool(member) and e.slack == member]
 
     def _pages(self, method: str, parts: list[str], body: str, cookies: Any) -> Response:
         """`/p`: the pages the pager repeats every 15 minutes (paging.py), and an approver's passkey acknowledging
@@ -797,25 +797,30 @@ class ApprovalPage:
 
         if self.pages is None or self.log is None:
             return _json(404, {"error": "not found"})
+        if self.slack is None:
+            # The pages name WARDEN's own faults and have no link behind them: with no Slack sign-in to say who is
+            # reading, nobody reads them, as the records (CodeRabbit, PR 43: anyone could list them).
+            return _json(503, {"error": "WARDEN's pages are acknowledged after Slack's sign-in, and this runtime "
+                                        "has none: acknowledge them where it does, or end what they name"})
         value = next((c.split("=", 1)[1] for c in cookies if isinstance(c, str) and c.startswith(_WHO + "=")), "")
-        member = remembered(self.slack, value) if self.slack is not None and value else ""
-        approvers = self._page_approvers(member)
+        member = remembered(self.slack, value) if value else ""
         if (method, parts) == ("GET", []):
-            return self._served(_ACK, self.slack is not None and not member)
-        if self.slack is not None and not member:
+            return self._served(_ACK, not member)
+        if not member:
             return _json(403, {"error": "sign in with Slack first"})
+        approvers = self._page_approvers(member)
         if not approvers:
             return _json(403, {"error": "only an approver with a passkey acknowledges WARDEN's pages"})
         credentials = [c for a in approvers for c in self._credentials(a)]
-        key = f"pages:{member or 'passkey'}"
         if (method, parts) == ("POST", ["pages"]):
-            return self._pages_shown(credentials, key)
+            return self._pages_shown(credentials, member)
         if (method, parts) != ("POST", ["ack"]):
             return _json(404, {"error": "not found"})
-        return self._pages_ack(credentials, key, body)
+        return self._pages_ack(credentials, member, body)
 
-    def _pages_shown(self, credentials: list[passkeys.Credential], key: str) -> Response:
-        """The open pages, and a passkey challenge over exactly those."""
+    def _pages_shown(self, credentials: list[passkeys.Credential], member: str) -> Response:
+        """The open pages, and a passkey challenge over exactly those - under an id of its own, so one look never
+        replaces or takes another's challenge (CodeRabbit, PR 43)."""
         from . import paging
 
         shown = paging.open_pages(self.pages)
@@ -824,21 +829,23 @@ class ApprovalPage:
         options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=credentials,
                                                      workflow_id=paging.WORKFLOW, plan_hash=paging.signed_for(shown),
                                                      tier="T1", now=self.clock())
-        self.store.put_challenge(key, pending)
-        return _json(200, {"options": json.loads(options), "open": [
-            {"key": p["key"], "why": str(p.get("why", ""))[:600], "sent": int(p.get("sent", 1)),
-             "opened": both_times(datetime.fromisoformat(p["opened_at"]))} for p in shown]})
+        ask = secrets.token_urlsafe(16)
+        self.store.put_challenge(f"pages:{member}:{ask}", pending)
+        return _json(200, {"options": json.loads(options), "ask": ask, "open": [
+            {"key": p["key"], "why": str(p.get("why", ""))[:600], "sent": _count(p.get("sent")),
+             "opened": _opened(p.get("opened_at"))} for p in shown]})
 
-    def _pages_ack(self, credentials: list[passkeys.Credential], key: str, body: str) -> Response:
+    def _pages_ack(self, credentials: list[passkeys.Credential], member: str, body: str) -> Response:
         """The passkey's answer: checked, then on the record, then in the bucket - only for the pages it signed."""
         from . import paging
 
         now = self.clock()
-        pending = self.store.take_challenge(key)
         try:
-            response = json.loads(body)["response"]
+            got = json.loads(body)
+            response, ask = got["response"], str(got["ask"])
         except Exception:  # noqa: BLE001 - an answer that cannot be read acknowledges nothing
-            response = None
+            response, ask = None, ""
+        pending = self.store.take_challenge(f"pages:{member}:{ask}") if _ASK.fullmatch(ask) else None
         credential = next((c for c in credentials if isinstance(response, dict) and c.credential_id == response.get("id")),
                           None)
         if pending is None or credential is None:
@@ -987,6 +994,23 @@ RECORD_LIST, RECORD_SCAN = 20, 200
 _WHO = "warden_who"  # the member Slack named in this browser, sealed (slack_login.remember): no script can read it
 # An incident id's shape (chatops: the "Full record" link's): all that travels through Slack's sign-in, and back.
 _INCIDENT_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
+_ASK = re.compile(r"[A-Za-z0-9_-]{16,64}")  # a `/p` challenge's own id (secrets.token_urlsafe)
+
+
+def _count(value: Any) -> int:
+    """A page's count of times said, as shown: one the pager wrote badly is shown as 0, never a failed page."""
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _opened(value: Any) -> str:
+    """A page's opening time, as shown; one that cannot be read says so (CodeRabbit, PR 43)."""
+    try:
+        return both_times(datetime.fromisoformat(str(value)))
+    except (TypeError, ValueError):
+        return "a time that cannot be read"
 
 
 def _notice(status: int, text: str) -> Response:
