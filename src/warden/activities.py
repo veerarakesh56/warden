@@ -724,7 +724,8 @@ class RemediationActivities:
         - the plan resolve_plan made for this workflow and run, same entry and parameters, no problems;
         - as many distinct approvers of that plan hash, in this run, as its tier needs;
         - a clean precheck of that plan hash, in this run, AFTER the approvals (drift);
-        - bounds and the kill switch, checked again now - the gate ran before the approval wait."""
+        - bounds and the kill switch, checked again now - the gate ran before the approval wait.
+        The bounds key on the target the plan changes: service is not read here (audit A-B-M4)."""
         run = _run_id()
 
         def rows(kind: str) -> list[dict[str, Any]]:

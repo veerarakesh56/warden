@@ -648,7 +648,7 @@ def test_the_alert_names_the_runs_own_environments_stack(tmp_path, monkeypatch, 
     """Seventh review (2026-10-01): the template named dev's stack and nothing rewrote it, while the reader is scoped
     to its own environment's stack - outside dev every scoped read of the alert's labels was AccessDenied."""
     monkeypatch.setattr(cli.fs, "PREFIX", prefix)
-    path = cli._alert_file(None, tmp_path, {"id": "fs-01", "alarm": "a", "severity": "high"}, {})
+    path = cli._alert_file(tmp_path, {"id": "fs-01", "alarm": "a", "severity": "high"}, {})
     labels = yaml.safe_load(path.read_text(encoding="utf-8"))["labels"]
     names = [v for v in labels.values() if isinstance(v, str) and "warden-" in v]
     assert len(names) == 13, labels

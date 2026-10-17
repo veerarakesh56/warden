@@ -59,12 +59,14 @@ class NoPlatform:
     """No live system is connected: nothing is read, so every catalogue check refuses."""
 
     def live(self, entry: str, params: dict[str, Any]) -> dict[str, Any]:
+        # The Platform signature: with no platform, no entry or params can be read.
         return {}
 
     def apply(self, entry: str, params: dict[str, Any]) -> str:
         raise RuntimeError("no platform is connected")
 
     def healthy(self, service: str) -> bool:
+        # The Platform signature: no platform, so no service reads as healthy.
         return False
 
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:

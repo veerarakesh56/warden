@@ -928,7 +928,7 @@ def db_warden_env(creds: dict[str, str], target: ops_db.Target,
     return env
 
 
-def check_baseline_db(clients: ops_db.Clients, target: ops_db.Target) -> list[str]:
+def check_baseline_db(clients: ops_db.Clients) -> list[str]:
     """Is the database back at baseline? Empty list means yes.
 
     ⛔ The gate before every scenario. A session the previous revert failed to close is exactly the
@@ -1293,6 +1293,7 @@ class _FakeDbCursor:
         return False
 
     def execute(self, sql: str, params: Any = None) -> _FakeDbCursor:
+        # A DB-API cursor's signature; this stand-in records the SQL only, params are not needed.
         self._conn.last = sql
         return self
 
@@ -1429,7 +1430,7 @@ def _db_live_harness(timeout_s: float) -> Harness:
         clients=clients, target=target, account="",
         assume_reader=assume,
         invoke_warden=_subprocess_warden_db(target, timeout_s),
-        baseline=lambda: check_baseline_db(clients, target),
+        baseline=lambda: check_baseline_db(clients),
         # No `stabilize`: the default no-op is right here, not an omission. ECS waits for
         # services-stable and Kubernetes waits for a rollout because both revert ASYNCHRONOUSLY -
         # the API returns before the change lands. Closing a session and cancelling a query return
@@ -1467,7 +1468,7 @@ def _db_dry_harness() -> Harness:
         # As in the Kubernetes dry run: the REAL baseline gate runs against the fake above, because
         # check_baseline_db decides whether a scenario may start and must not first be exercised
         # against a billed database.
-        baseline=lambda: check_baseline_db(clients, target),
+        baseline=lambda: check_baseline_db(clients),
         sleep=lambda _seconds: None,
         build_env=db_warden_env,
         registry=ops_db.OPS,

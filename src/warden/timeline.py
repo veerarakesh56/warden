@@ -192,7 +192,9 @@ class CommitReader:
         return out
 
     def traces(self, alert: Any) -> list[str]:
+        # The evidence-source signature: a deploy timeline holds no traces, whatever the alert is.
         return []
 
     def metrics(self, alert: Any) -> dict[str, float]:
+        # The evidence-source signature: a deploy timeline holds no metrics, whatever the alert is.
         return {}

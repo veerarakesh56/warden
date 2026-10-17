@@ -454,6 +454,7 @@ class DatabasePlatform:
     def rollback(self, entry: str, params: dict[str, Any], snapshot: dict[str, Any]) -> str:
         if entry not in _ENTRIES:
             raise DatabasePlatformError(f"{entry} is not something the database platform does")
+        # Nothing was changed that a snapshot or the params could restore: the Platform signature, unread here.
         return "nothing to roll back: a closed session's transaction rolled back, and the application reconnects"
 
 

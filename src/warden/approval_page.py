@@ -104,6 +104,7 @@ class MemoryLinkStore:
         return token in self.spent
 
     def note_slack(self, token: str, approver: str, member: dict[str, str]) -> None:
+        # The link store's interface: AuditLinkStore records approver on the audit row; memory keeps only the user.
         self.slack = {**getattr(self, "slack", {}), token: member["user"]}
 
     def slack_of(self, token: str) -> str:

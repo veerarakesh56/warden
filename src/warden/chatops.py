@@ -81,6 +81,7 @@ class ConsoleSink:
     live = False
 
     def send(self, text: str, data: dict) -> Notification:
+        # ChatOpsSink.send: the console renders nothing of text or data here - the CLI prints the report itself.
         return Notification(sink=self.name, delivered=True, detail="rendered locally (not transmitted)")
 
 
@@ -265,7 +266,8 @@ class TeamsWebhookSink:
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
-        # Microsoft Teams incoming webhook: a legacy MessageCard carries plain text reliably.
+        # Microsoft Teams incoming webhook: a legacy MessageCard carries plain text reliably (the structured
+        # data is not sent: a MessageCard has no place for it).
         card = {
             "@type": "MessageCard",
             "@context": "https://schema.org/extensions",
@@ -287,6 +289,7 @@ class GenericWebhookSink:
     def send(self, text: str, data: dict) -> Notification:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
+        # A generic webhook gets the structured data as JSON; the rendered text is for people, not its receiver.
         return _post_json(self._url, data, self.name)
 
 
@@ -303,6 +306,7 @@ class WithheldSink:
         self.detail = detail
 
     def send(self, text: str, data: dict) -> Notification:
+        # Withheld: the message text is never logged (it may carry what the sink was refused for), only the alert id.
         import logging
 
         logging.getLogger("warden.incident").warning("a message about %s was %s",

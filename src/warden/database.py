@@ -576,7 +576,7 @@ class DatabaseBackend:
         return lines
 
     def deploys(self, alert: Alert) -> list[dict[str, str]]:
-        # Databases don't "deploy" in the rollout sense P5 checks for.
+        # Databases don't "deploy" in the rollout sense P5 checks for, so the alert is not read.
         return []
 
 
