@@ -412,3 +412,100 @@ def test_eldane_never_sees_a_plan_the_gate_stopped(world):
     out = _run(world, _nobody)
     assert out.status == "blocked" and world["platform"].applied == []
     assert world["model"].prompts == [] and not world["log"].entries(INC, kinds=(autonomy.VERDICT,))
+
+
+# ----------------------------------------------------------------------------- PR 42 review (CodeRabbit)
+
+
+def test_a_review_with_no_diagnosis_provenance_is_refused_not_trusted(world):
+    """CWE-636: a diagnosis that does not say which model made it is a family that cannot be told (register R10)."""
+    _earn(world["log"], world["models"])
+    world["log"].append(INC, "incident.diagnose", {"hypothesis": "rules only", "action": "rollback_deploy"})
+    assert _review(world) is None
+    verdict = autonomy.verdict_of(world["log"], _plan(), "")
+    assert verdict["agree"] is None and "not on the record" in verdict["skipped"]
+    assert world["model"].prompts == []
+
+
+@pytest.mark.parametrize("answer, caught", [
+    (None, True),                                                                           # a grounded no
+    ("not json", None),                                                                     # no answer: unscored
+    (json.dumps({"agree": False, "reasons": [{"text": "x", "evidence": ["Z9"]}]}), None),   # a no on nothing
+    (json.dumps({"agree": True, "reasons": [{"text": "x", "evidence": []}]}), False),       # any yes is a miss
+])
+def test_a_catch_trial_is_scored_only_from_a_real_answer(world, answer, caught):
+    _earn(world["log"], world["models"], trials=0)
+    picks = iter([0, 0])
+    real = FakeModel()
+    world["model"].complete = lambda **kw: (real.complete(**kw) if "values: " + json.dumps(PARAMS, sort_keys=True)
+                                            in kw["user"] or answer is None else Completion(answer, 1, 1))
+    _review(world, chance=lambda n: next(picks, n - 1))
+    [row] = [e["body"] for e in world["log"].entries(INC, kinds=(autonomy.TRIAL,))]
+    assert row["caught"] is caught
+    assert autonomy.trials(world["log"], world["models"]["critic"]) == ((0, 0) if caught is None else
+                                                                        (1, int(bool(caught))))
+
+
+def test_a_provider_outage_never_counts_as_a_catch(world):
+    def down(**kw):
+        raise ConnectionError("the provider is down")
+
+    world["model"].complete = down
+    picks = iter([0, 0])
+    _review(world, chance=lambda n: next(picks, n - 1))
+    assert autonomy.trials(world["log"], world["models"]["critic"]) == (0, 0)
+
+
+def _applied_plan_rows(world, plan, approver="eldane", ai=True, run=""):
+    from warden import activities, catalog
+
+    plan.basis = {"catalog": catalog.fingerprint(), "code": activities.code_version()}
+    log, ids = world["log"], {"workflow_id": plan.workflow_id, "run_id": run, "plan_hash": plan.plan_hash}
+    log.append(INC, "remediation.plan", {**ids, "entry": plan.entry, "params": plan.params, "target": plan.target,
+                                         "basis": plan.basis, "tier": plan.tier, "environment": plan.environment,
+                                         "problems": []})
+    log.append(INC, "approval.accepted", {**ids, "approver": approver, "nonce": uuid.uuid4().hex,
+                                          **({"ai": True} if ai else {})})
+    log.append(INC, "remediation.precheck", {**ids, "problems": []})
+
+
+def test_an_approval_recorded_as_an_ai_s_is_checked_as_one_at_apply_whatever_the_list_says_now(world):
+    """CWE-863: the approver entry changed after the approval was recorded - it must not pass as a person's."""
+    plan = _plan()
+    _applied_plan_rows(world, plan)
+    changed = approvals.ApproverPolicy(approvers={
+        "owner": world["policy"].approvers["owner"],
+        "eldane": approvals.Approver(public_key=world["policy"].approvers["eldane"].public_key, tiers=["T1", "T2"])})
+    acts = RemediationActivities(audit=world["log"], policy=changed, platform=None)
+    refused = acts._not_approved(plan, "orders")
+    assert any("no agreement with this exact plan" in p for p in refused)
+    # And it never scores as a person agreeing with Eldane.
+    row = autonomy.record_outcome(world["log"], INC, plan={"environment": "dev", "entry": plan.entry},
+                                  status="recovered", approvers=["eldane"], ai=frozenset({"eldane"}), policy=changed,
+                                  verdict={"agree": True, "models": world["models"]}, workflow_id="w", run_id="r")
+    assert row["person"] == "" and row["agreed"] is None and row["mode"] == "autonomous"
+
+
+def test_a_retried_end_still_scores_the_run_once(world, monkeypatch):
+    """A failure to score after the end row must not lose the demotion: the retry scores it, and only once."""
+    from warden.activities import FixOutcome
+
+    monkeypatch.setattr("warden.activities._run_id", lambda: "run-1")
+    plan = _plan()
+    _applied_plan_rows(world, plan, approver="owner", ai=False, run="run-1")
+    acts = RemediationActivities(audit=world["log"], policy=world["policy"], platform=None)
+    outcome = FixOutcome(status="rolled_back", checklist={}, plan_hash=plan.plan_hash)
+    real = autonomy.record_outcome
+
+    def blip(*a, **k):
+        raise RuntimeError("the database blinked")
+
+    monkeypatch.setattr(autonomy, "record_outcome", blip)
+    with pytest.raises(RuntimeError):
+        acts.finish(INC, plan.workflow_id, outcome)
+    assert world["log"].entries(INC, kinds=("workflow.end",))  # the end row was written before scoring failed
+    monkeypatch.setattr(autonomy, "record_outcome", real)
+    acts.finish(INC, plan.workflow_id, outcome)  # Temporal's retry: it finds the end row
+    acts.finish(INC, plan.workflow_id, outcome)
+    rows = [e["body"] for e in world["log"].entries("autonomy-dev", kinds=(autonomy.OUTCOME,))]
+    assert [(r["status"], r["failed"]) for r in rows] == [("rolled_back", True)]

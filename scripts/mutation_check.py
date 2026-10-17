@@ -379,6 +379,49 @@ MUTATIONS = [
         '        if False:',
         "an Eldane-signed approval would count like a person's, with no earned level or recorded agreement",
     ),
+    # PR 42 review fixes, planted (tests/test_eldane_autonomy.py).
+    (
+        'Eldane reviews a plan whose diagnosis does not say which model made it',
+        'eldane.py',
+        '    if not diagnosis or not prov:',
+        '    if False:',
+        'PR 42 review, CWE-636: an unknown diagnoser family must be refused, never reviewed as independent',
+    ),
+    (
+        'a catch trial with no valid answer is scored a catch',
+        'eldane.py',
+        '    caught = False if yes is True else True if yes is False and verdict._grounded else None',
+        '    caught = not verdict.agree',
+        "PR 42 review: a provider outage or an unreadable reply would raise Eldane's catch rate",
+    ),
+    (
+        'unscored catch trials count as answered',
+        'autonomy.py',
+        '            and e["body"].get("caught") in (True, False)]',
+        '            ]',
+        'PR 42 review: non-answers would count towards the trials and the rate',
+    ),
+    (
+        "an approval recorded as an AI's passes as a person's at apply",
+        'activities.py',
+        'if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved)',
+        'if any(self.policy.is_ai(str(e["body"].get("approver"))) for e in approved)',
+        'PR 42 review, CWE-863: a changed approver list would let an AI approval skip the AI rules at apply',
+    ),
+    (
+        "an AI's recorded approval scores as a person's decision",
+        'autonomy.py',
+        '    people = [a for a in approvers if a not in ai and not policy.is_ai(a)]',
+        '    people = [a for a in approvers if not policy.is_ai(a)]',
+        "Eldane's own approvals would count as a person agreeing with it",
+    ),
+    (
+        'a retried end no longer scores its run',
+        'activities.py',
+        '            self._score(incident_id, workflow_id, run, outcome)\n            self.audit.checkpoint()\n            return',
+        '            self.audit.checkpoint()\n            return',
+        'PR 42 review: a failed fix whose scoring failed once would never demote its class',
+    ),
 ]
 
 
