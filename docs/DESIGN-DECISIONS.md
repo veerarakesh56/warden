@@ -385,6 +385,9 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
 - The alert webhook's front door - `webhooks.py`: Prometheus Alertmanager does not sign its webhooks (it can send
   an Authorization header, read 2026-10-03), so the check is a bearer secret in constant time, size caps, and
   Alertmanager's own API confirming each alert is active; no ready-made receiver does that third part.
+- Security findings as intake - `security_findings.py`: built. AWS's own responders (Security Hub automation rules,
+  the GuardDuty-to-Lambda samples) act on a finding; WARDEN must only read and hand it to a person, deduplicated
+  and redacted as its other alerts are, so the parser is a small function over the documented event shapes.
 - The pipeline and its outputs - `graph.py`, `reporting.py`, `playbook.py`, `cli.py`, and the
   approval page `approval_page.py` (its ceremonies are py_webauthn's): WARDEN's own product surface.
 
