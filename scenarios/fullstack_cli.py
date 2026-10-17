@@ -456,13 +456,17 @@ def dry_env() -> Env:
 
     stub = fs.Fault(lambda c, t: flip(True), lambda c, t: flip(False),
                     lambda c, t: (True, "dry run"), "rule")
+    # The live DSNs' shape (warden_dsns: the reader user, a password - there an IAM token - and sslmode), with a
+    # placeholder for the token and a host that never resolves (.invalid, RFC 6761). It was a URL with no password,
+    # a shape the live run never has (Sonar python:S2115, 2026-10-16).
+    dry_dsn = pg_dsn(RO_USER, "dry-run-token", "dry.invalid", "shop")
     return Env(
         clients=fs.Clients(), target=fs.Target(),
         alarm=lambda name: {"state": "ALARM" if firing["on"] else "OK", "description": f"dry run: {name}"},
         assume_reader=lambda: {"AWS_ACCESS_KEY_ID": "ASIADRY", "AWS_SECRET_ACCESS_KEY": "dry",
                                "AWS_SESSION_TOKEN": "dry", "KUBECONFIG": "/dry/kubeconfig",
-                               "WARDEN_STACK_DB_PRIMARY_RO_DSN": "postgresql://warden_ro@dry.invalid/shop",
-                               "WARDEN_STACK_DB_REPLICA_RO_DSN": "postgresql://warden_ro@dry.invalid/shop",
+                               "WARDEN_STACK_DB_PRIMARY_RO_DSN": dry_dsn,
+                               "WARDEN_STACK_DB_REPLICA_RO_DSN": dry_dsn,
                                "arn": f"arn:aws:sts::{EXAMPLE_ACCOUNT}:assumed-role/{fs.PREFIX}reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
         faults={fid: stub for fid in fs.FAULTS}, baseline=list,
