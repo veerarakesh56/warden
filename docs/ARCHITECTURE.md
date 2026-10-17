@@ -109,6 +109,12 @@ alert twice is one incident; a repeat while it is open is counted, not started a
 With no model, a broken provider or a spent budget, WARDEN still reports: it escalates on the rules alone
 and says why.
 
+**Security findings** (`security_findings.py`): GuardDuty's findings at Medium and above, and Security Hub's
+active threat findings, on a resource named for a watched environment, come in through the same alarm Lambda.
+Each is an incident of its own that goes to a person on the rules alone: WARDEN reads the resource's evidence and
+proposes nothing, because no fix on its list contains a compromise. Intake never holds one as expected down, never
+folds one into another alarm's incident and never tells a fix of WARDEN's that one is its relapse.
+
 ## From approval to a change
 
 `RemediationWorkflow` carries one catalogue entry from plan to verified result:

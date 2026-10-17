@@ -88,6 +88,23 @@ locals {
       "detail-type" = ["AWS Health Event"]
       detail        = { eventTypeCategory = ["issue"], eventScopeCode = ["ACCOUNT_SPECIFIC"], statusCode = ["open"] }
     })
+    # Security findings (security_findings.py): GuardDuty's at Medium and above, Security Hub CSPM's active, open,
+    # Medium and above. Each goes to a person on the rules alone, never to a fix. A rule on a service that is not
+    # turned on receives nothing and costs nothing; turning GuardDuty or Security Hub on is the owner's choice.
+    guardduty = jsonencode({
+      source        = ["aws.guardduty"]
+      "detail-type" = ["GuardDuty Finding"]
+      detail        = { severity = [{ numeric = [">=", 4] }] }
+    })
+    securityhub = jsonencode({
+      source        = ["aws.securityhub"]
+      "detail-type" = ["Security Hub Findings - Imported"]
+      detail = { findings = {
+        Severity    = { Label = ["MEDIUM", "HIGH", "CRITICAL"] }
+        RecordState = ["ACTIVE"]
+        Workflow    = { Status = ["NEW", "NOTIFIED"] }
+      } }
+    })
     rds = jsonencode({
       source        = ["aws.rds"]
       "detail-type" = ["RDS DB Instance Event", "RDS DB Cluster Event"]
