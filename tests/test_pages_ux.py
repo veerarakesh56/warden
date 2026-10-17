@@ -5,6 +5,7 @@ logo in every header - all inside the pages' Content-Security-Policy."""
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import math
 import re
@@ -163,7 +164,8 @@ def test_every_page_keeps_its_policy_and_needs_nothing_it_refuses(site):
     for name, r in _every_page(site).items():
         csp = r.headers["Content-Security-Policy"]
         nonce = re.search(r"script-src 'nonce-([^']+)'", csp).group(1)
-        assert "default-src 'none'" in csp and "img-src 'none'" in csp and "frame-ancestors 'none'" in csp, name
+        assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp, name
+        assert re.search(r"img-src ([^;]+);", csp).group(1) == "data:", name  # the tab icon only; no host
         assert f"style-src 'nonce-{nonce}'" in csp and "unsafe" not in csp, name
         form = re.search(r"form-action ([^;]+);", csp).group(1)
         assert form == ("https://approve.example.test/r" if name == "list" else "'none'"), name
@@ -171,8 +173,9 @@ def test_every_page_keeps_its_policy_and_needs_nothing_it_refuses(site):
         assert body.count("<script") == body.count(f'<script nonce="{nonce}">') == 1, name
         assert body.count("<style") == body.count(f'<style nonce="{nonce}">') == 1, name
         assert not re.search(r"\son[a-z]+\s*=", body, re.IGNORECASE) and ' style="' not in body, name  # no inline handler
-        for refused in ("http://", "https://", "<img", "<link", "<iframe", "@import", "url(", "{{"):
+        for refused in ("http://", "https://", "<img", "<iframe", "@import", "url(", "{{"):
             assert refused not in body, (name, refused)
+        assert body.count("<link") == 1 and brand.FAVICON_LINK in body.split("</head>")[0], name  # the tab icon alone
         assert brand.LOGO_SVG in body and '<canvas id="sky" aria-hidden="true">' in body, name
 
 
@@ -208,6 +211,17 @@ def test_the_logo_stays_inside_the_policy():
     assert all(i.startswith("wdn-") for i in re.findall(r'\sid="([^"]+)"', svg))
     assert all(u.startswith("url(#wdn-") for u in re.findall(r"url\([^)]*\)", svg))
     assert "#000" not in svg and "#fff" not in svg.lower()  # the pages' own test refuses them
+
+
+def test_the_tab_icon_is_the_logo_embedded_and_fetches_nothing():
+    link = brand.FAVICON_LINK
+    prefix = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,'
+    assert link.startswith(prefix) and link.endswith('">')
+    tab = base64.b64decode(link[len(prefix):-2], validate=True).decode()
+    assert tab.startswith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">')
+    assert re.findall(r"<(?:path|circle)[^>]*/>", tab) == re.findall(r"<(?:path|circle)[^>]*/>", brand.LOGO_SVG)
+    rest = tab.replace('xmlns="http://www.w3.org/2000/svg"', "")
+    assert not re.search(r"\son[a-z]+\s*=|style=|<script|<image|<use|<foreignObject|//|href", rest, re.IGNORECASE)
 
 
 # ------------------------------------------------------------------ escaping

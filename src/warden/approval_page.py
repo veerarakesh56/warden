@@ -38,7 +38,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
 from . import approvals, passkeys
 from .approvals import ApproverPolicy, PasskeyAssertion, PasskeyCredential
-from .brand import LOGO_SVG
+from .brand import FAVICON_LINK, LOGO_SVG
 from .environments import both_times
 
 LINK_TTL = timedelta(minutes=15)  # an enrolment's or a reset's link, and the least an approval link lasts
@@ -880,7 +880,7 @@ def _headers(nonce: str, content_type: str, form_action: str = "'none'") -> dict
     return {
         "Content-Type": content_type,
         "Content-Security-Policy": (f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
-                                    f"connect-src 'self'; img-src 'none'; base-uri 'none'; form-action {form_action}; "
+                                    f"connect-src 'self'; img-src data:; base-uri 'none'; form-action {form_action}; "
                                     "frame-ancestors 'none'"),
         "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
         "X-Content-Type-Options": "nosniff",
@@ -1214,7 +1214,7 @@ _THEME = ('<div id="theme" class="theme" role="group" aria-label="Colour theme" 
 
 _SHELL = ("""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{TITLE}}</title>
+<title>{{TITLE}}</title>""" + FAVICON_LINK + """
 <style nonce="{{NONCE}}">{{STYLE}}</style></head>
 <body data-busy="0" data-slack="{{SLACK}}"><canvas id="sky" aria-hidden="true"></canvas><div class="page">
 <header class="top"><span class="mark">""" + LOGO_SVG + """<span>WARDEN</span></span><span class="where">{{WHERE}}</span>"""
