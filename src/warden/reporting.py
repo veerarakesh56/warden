@@ -584,7 +584,7 @@ def _review_findings(logs: list[str]) -> dict[str, list[dict[str, str]]]:
         if not _finding(line):
             continue
         head, *fields = line.split(" ")
-        values = dict(f.split("=", 1) for f in fields if "=" in f)
+        values = {k: v for k, _, v in (f.partition("=") for f in fields if "=" in f)}
         if head == "FINDING" and fields:
             out["findings"].append({"tool": fields[0], **values})
         elif head == "FINDINGS":
