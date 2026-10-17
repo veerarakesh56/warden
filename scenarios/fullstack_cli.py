@@ -664,7 +664,7 @@ def step_inject(env: Env, run: pathlib.Path, key: str, *, skip_quiet: bool = Fal
     return record
 
 
-def _alert_file(env: Env, run: pathlib.Path, scenario: dict, alarm: dict) -> pathlib.Path:
+def _alert_file(run: pathlib.Path, scenario: dict, alarm: dict) -> pathlib.Path:
     alert = yaml.safe_load(ALERT_TEMPLATE.read_text(encoding="utf-8"))
     alert["name"] = scenario.get("alarm") or alert["name"]
     alert["summary"] = alarm.get("description") or alert["summary"]
@@ -720,7 +720,7 @@ def step_diagnose(env: Env, run: pathlib.Path, key: str, *, arm: dict[str, str] 
     alarm["state_at_diagnose"] = live_alarm.get("state")
     if alarm.get("expected") and "never_fired" not in alarm:
         alarm["never_fired"] = live_alarm.get("state") != "ALARM"
-    alert = _alert_file(env, run, scenario, live_alarm)
+    alert = _alert_file(run, scenario, live_alarm)
 
     # ⭐ Assumed per run and recorded: "WARDEN read only as warden-dev-reader" must be checkable.
     creds = env.assume_reader()

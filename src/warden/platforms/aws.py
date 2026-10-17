@@ -564,7 +564,8 @@ class AwsPlatform:
         return out
 
     def knows(self, service: str) -> bool:
-        return False  # health is asked by entry (healthy_for), never by a bare name that two kinds could share
+        # A bare service name is never trusted: two kinds could share it. Health is asked by entry (healthy_for).
+        return False
 
     def alarm_state(self, alarm: str) -> str | None:
         """The alarm's state as CloudWatch reports it, through this environment's reader; None when it is not found."""
@@ -984,9 +985,11 @@ class AwsPlatform:
         return f"{'disabled' if back else 'enabled'} event source mapping {p['mapping']}"
 
     def _esm_healthy(self, uuid: str, params: dict[str, Any]) -> bool:
+        # The check table calls every check as (target, params); params is not needed here.
         return self._read("lambda").get_event_source_mapping(UUID=uuid).get("State") == "Enabled"
 
     def _esm_paused(self, uuid: str, params: dict[str, Any]) -> bool:
+        # The check table calls every check as (target, params); params is not needed here.
         return self._read("lambda").get_event_source_mapping(UUID=uuid).get("State") == "Disabled"
 
     # ------------------------------------------------------------------ eventbridge: enable a rule
@@ -1024,9 +1027,11 @@ class AwsPlatform:
         return f"{'disabled' if back else 'enabled'} rule {p['rule']}"
 
     def _rule_healthy(self, name: str, params: dict[str, Any]) -> bool:
+        # The check table calls every check as (target, params); params is not needed here.
         return self._read("events").describe_rule(**_rule_on_bus(name)).get("State") == "ENABLED"
 
     def _rule_paused(self, name: str, params: dict[str, Any]) -> bool:
+        # The check table calls every check as (target, params); params is not needed here.
         return self._read("events").describe_rule(**_rule_on_bus(name)).get("State") == "DISABLED"
 
     # ------------------------------------------------------------------ dynamodb: raise write capacity
@@ -1267,7 +1272,8 @@ class AwsPlatform:
                 f"{p['per_second']} a second")
 
     def _redrive_done(self, name: str, params: dict[str, Any]) -> bool:
-        """The latest move finished, and the dead-letter queue is empty - a positive signal."""
+        """The latest move finished, and the dead-letter queue is empty - a positive signal. The check table passes
+        params too; the queue name is all this needs."""
         sqs = self._read("sqs")
         url = sqs.get_queue_url(QueueName=name)["QueueUrl"]
         attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "ApproximateNumberOfMessages"])
@@ -1555,7 +1561,7 @@ class AwsPlatform:
 
     def _appconfig_reverted(self, config_env: str, params: dict[str, Any]) -> bool:
         """That deployment reads REVERTED or ROLLED_BACK, AND the alarm that guards it reads OK: the write landing is
-        not a recovery (review-e M4)."""
+        not a recovery (review-e M4). The check table passes the target as config_env too; params name it fully."""
         st = self._live_appconfig(params).get("state") or {}
         alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
@@ -1681,7 +1687,8 @@ class AwsPlatform:
         return f"revoked {len(perms)} {side.lower()} rule(s) on {p['group']}"
 
     def _sg_alarm_ok(self, group: str, params: dict[str, Any]) -> bool:
-        """The undo is in place and the alarm it was for reads OK: the write landing is not a recovery."""
+        """The undo is in place and the alarm it was for reads OK: the write landing is not a recovery. The check table
+        passes the target as group too; params name the change fully."""
         st = self._live_sg_change(params).get("state") or {}
         alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
@@ -2541,6 +2548,7 @@ class AwsPlatform:
         return f"{'deregistered' if back else 'registered'} {len(targets)} target(s) in {p['target_group']}"
 
     def _targets_healthy(self, name: str, params: dict[str, Any]) -> bool:
+        # The check table passes the target group's name too; params carry the ARN and the targets that are read.
         st = self._live_targets(params).get("state") or {}
         if not st.get("targets"):
             return False
@@ -2635,6 +2643,7 @@ class AwsPlatform:
         return f"cancelled the deletion of key {p['key']} (it stays disabled until a person enables it)"
 
     def _key_kept(self, key: str, params: dict[str, Any]) -> bool:
+        # The check table calls every check as (target, params); params is not needed here.
         return self._read("kms").describe_key(KeyId=key)["KeyMetadata"].get("KeyState") == "Disabled"
 
     def _live_secret_deletion(self, params: dict[str, Any]) -> dict[str, Any]:

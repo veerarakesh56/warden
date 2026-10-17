@@ -31,9 +31,11 @@ class XRayReader:
         self._client = client
 
     def logs(self, alert: Alert) -> list[str]:
-        return []  # X-Ray holds traces; the logs are CloudWatch's, read by the AWS backend
+        # The evidence-source signature: X-Ray holds traces; the logs for an alert are CloudWatch's (the AWS backend).
+        return []
 
     def metrics(self, alert: Alert) -> dict[str, float]:
+        # The evidence-source signature: X-Ray holds traces; the metrics for an alert are CloudWatch's.
         return {}
 
     def traces(self, alert: Alert) -> list[str]:
