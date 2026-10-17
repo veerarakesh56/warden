@@ -12,8 +12,8 @@ The JSON is checked before it is used (register C22): its shape, its size, its f
 every number finite. A file that fails keeps the last one that passed, or none - never a half-read model.
 
 What `p` is used for: nothing decides on it yet. It is recorded in observe mode (verifier.OBSERVED, audit A-P-8)
-and shown in reports. `tier_enabled` (register E5) is what earned autonomy promotes by (autonomy.level, 2026-10-16):
-an action class leaves shadow only when the Wilson lower bound of Eldane's agreement with the person clears it.
+and shown in reports. `tier_enabled` (register E5) is a measured bar any tier can be held to; dev's autonomy no
+longer waits for it (owner, 2026-10-17: dev is autonomous through Eldane from the first plan - autonomy.py).
 """
 
 from __future__ import annotations

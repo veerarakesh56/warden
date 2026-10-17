@@ -29,7 +29,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
 | `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`GEMINI_API_KEY`: Eldane's, the critic zone's alone - a paid-tier key) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock (`ANTHROPIC_API_KEY`: read by the llm zone and by Eldane's critic zone - one key, owner 2026-10-17) | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
 | `WARDEN_ELDANE_KEY` | Eldane's own Ed25519 signing key (eldane.py; the critic zone's alone): its approvals in dev | `warden audit keygen --private eldane.pem --public eldane.pub.pem --unencrypted` a new pair; put the public key in the approver list's AI entry (a reviewed change) and the private PEM in `warden/<env>/eldane-key`; restart the critic worker; destroy the old private key | Eldane's approvals stop until both halves match: rotate between incidents |
 
 Keys that are not environment secrets:
@@ -41,6 +41,41 @@ Keys that are not environment secrets:
 | An approver's passkey | `warden enrol --approver <name> --key <their Ed25519 key>` opens a 15-minute link in the browser; the approval page creates the passkey and shows the approver list with it; save that list as the `approvers` parameter and restart the workers (`runtime.yml`, action `restart`). Remove the old credential from the list the same way; a lost device is removed at once. |
 | The webhook's bearer secret (webhooks.py) | add the new secret beside the old one (both are accepted), change Alertmanager's `http_config.authorization`, then remove the old one. |
 | The operator's IAM Roles Anywhere certificate (if you use one) | before it expires, run `python scripts/roles_anywhere_cert.py issue` and at once replace the trust anchor's certificate bundle with the new CA (sign-ins fail between the two steps); see [SETUP.md](SETUP.md), section 3d. |
+
+## Dev autonomy: Eldane, demotions and a person's re-enable (owner, 2026-10-17)
+
+Who approves a fix:
+
+- **prod:** a person, with a passkey (or the signed CLI key), always. Eldane, the AI critic, reviews the plan and
+  says so beside the request; it never approves there.
+- **dev:** Eldane alone, from the first plan, when it agrees with the plan on both of its passes and nothing in
+  the gate, the bounds, the self-guard or the kill switch stands. The channel gets "Eldane · AI critic (an AI)
+  approved ..." with the approval page's buttons. A person can still say no - on the page, with their passkey
+  and a note - for five minutes, and any time before the fix is applied; a person's decision always overrides
+  Eldane's. People keep the rest too: they can ask WARDEN anything in the dev discussion channel, and an approver
+  can ask there for a new plan.
+
+Dev drops to **L1** - Eldane reviews, a person approves - the moment any of these is on the record:
+
+- a fix of that action class ended badly (rolled back, relapsed, not recovered, or left in an unknown state);
+- a person said no to a plan Eldane said yes to;
+- the diagnosing model, Eldane's model or Eldane's prompt changed;
+- Eldane said yes to a planted bad plan (a catch trial: about one review in ten, more while its model is new;
+  each is labelled a test on the record and never applied) - this one stops its approvals for every class;
+- the kill switch is on (dev returns when an approver resets the switch).
+
+It goes back to L2 only when a person turns it back on, signed and recorded:
+
+1. `warden autonomy status --environment dev` lists every demotion since autonomy was last enabled.
+2. Read each one. When the cause is understood (and fixed, if it needed a fix), run
+   `warden autonomy enable --environment dev --approver YOU --key YOUR.pem --demotions N`, where N is how many you
+   read. Your key signs exactly those demotions (a T3 approval, so the newest must be at least ten minutes old);
+   one added after you read the list makes the signature not match, and nothing changes.
+3. The runtime's `AutonomyWorkflow` checks the signature in the core zone and records `autonomy.enabled` with
+   your name and the demotions it covers. Eldane can never do this step: an AI approver has no T3 and is refused by
+   name.
+
+Prod has nothing to re-enable: it is never autonomous.
 
 ## WARDEN's records (registers G10-46, G10-47)
 

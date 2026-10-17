@@ -1,18 +1,20 @@
-"""Earned autonomy (owner, 2026-10-16): per (environment, action class) a level, derived from the audit - never a flag.
+"""Autonomy (owner, 2026-10-16, changed 2026-10-17): per (environment, action class) a level, derived from the audit -
+never a flag.
 
-    L0  escalate only: WARDEN proposes, a person decides. The environment's ceiling is L0, or nothing is earned.
+    L0  escalate only: WARDEN proposes, a person decides. The environment's ceiling is L0.
     L1  shadow: WARDEN and Eldane (eldane.py, the AI critic) decide, a person still approves, and Eldane's decision is
-        scored against the person's.
-    L2  autonomous: Eldane's signed approval is enough. Earned only, and only below prod.
+        scored against the person's. Prod (a person's passkey, always), and dev after a demotion.
+    L2  autonomous: Eldane's signed approval is enough. Only below prod.
 
-The level is read from the audit every time it is asked, so it is as tamper-evident as the record and cannot be set:
+Owner, 2026-10-17: dev is autonomous through Eldane from the first plan - every action class there STARTS at L2, with
+no shadow period and no minimum of catch trials (decide.tier_enabled stays available, required by nothing). What keeps:
 - the environment's ceiling (environments.yaml `autonomy`); prod-tier never above L1 (refused at load, capped here);
-- promotion to L2 only after the shadow decisions since the class's last demotion - scored under the SAME models and
-  critic prompt as now - clear decide.tier_enabled (the Wilson lower bound of agreement with the person >= 0.90:
-  about 35 decisions, all agreeing), with none harmful, and while Eldane's catch-trial rate holds (CATCH_AT);
-- demotion, at once: any failed fix of that class there (rolled back, relapsed, not recovered, unknown state), a
-  harmful shadow decision (Eldane agreed, the person denied), a change of either model or of Eldane's prompt (the
-  record earned under the old one stops counting), or a missed catch trial (Eldane's approvals stop everywhere).
+- demotion, at once, to L1: a failed fix of that class there (rolled back, relapsed, not recovered, unknown state), a
+  harmful decision (Eldane said yes, a person said no - a veto of an Eldane-approved plan included), a change of
+  either model or of Eldane's prompt since the class was last enabled, a missed catch trial (catch trials keep running
+  as monitoring: one miss stops Eldane's approvals everywhere), and the kill switch while it is on;
+- after a demotion the environment returns to L2 only when a PERSON re-enables it: a T3 approval, signed with their
+  own key, of exactly the demotions on the record (`warden autonomy enable`; enable() below) - recorded, never an AI's.
 
 Self-guard (register R6, item 12): neither WARDEN nor Eldane ever approves a plan whose target is WARDEN's own runtime
 (P22 SELF-TARGET) or that touches WARDEN's guardrails - the gate, the catalogue, environments.yaml, the approvers,
@@ -23,11 +25,13 @@ The kill switch stops autonomous approvals too (the Red Button): no AI approval 
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 
-from . import bounds, decide, environments
+from . import approvals, bounds, environments
 
 L0, L1, L2 = "L0", "L1", "L2"
 MEANS = {L0: "escalate only - a person decides every fix",
@@ -36,17 +40,17 @@ MEANS = {L0: "escalate only - a person decides every fix",
 OUTCOME = "autonomy.outcome"  # one per fix run with a plan, written by its signed end (activities.finish)
 TRIAL = "eldane.trial"  # a planted known-bad plan shown to Eldane, and whether it said no (eldane.py)
 VERDICT = "eldane.verdict"  # Eldane's review of a real plan
-AGREE_AT = decide.ENABLE_AT  # register E5, the same bar as every automatic tier
-MIN_SHADOW = 30  # never fewer shadow decisions than this, whatever the bound says
-MIN_TRIALS = 20  # catch trials Eldane must have answered on its current model before any approval of its counts
-CATCH_AT = 0.99  # register R11: the catch rate it must hold (below 100 trials: no miss at all)
+ENABLED = "autonomy.enabled"  # a person's signed re-enable of an environment after a demotion (enable)
+# How long an Eldane-approved plan waits for a person's "no" before WARDEN applies it (owner, 2026-10-17: a person's
+# decision always overrides Eldane's). A "no" any time before apply still stops it.
+VETO = timedelta(minutes=5)
 # Ends that say the fix did not work, or left its target in an unknown state: each demotes its class at once.
 FAILED = frozenset({"rolled_back", "not_recovered", "rollback_failed", "apply_failed", "relapsed", "side_effects",
                     "failed_after_apply", "cancelled_after_apply"})
 
 
 def ceiling(environment: str) -> str:
-    """The highest level an action class may earn in `environment`: an unknown one is L0, the prod tier at most L1."""
+    """The highest level an action class may be at in `environment`: an unknown one is L0, the prod tier at most L1."""
     pol = environments.default_environment_policies().for_env(environment)
     level = pol.autonomy if pol.autonomy in MEANS else L0
     return L1 if level == L2 and pol.tier == "prod" else level
@@ -56,10 +60,6 @@ def ceiling(environment: str) -> str:
 class Level:
     level: str
     reasons: list[str] = field(default_factory=list)
-    shadow: int = 0
-    agreed: int = 0
-    trials: int = 0
-    caught: int = 0
 
     def said(self, entry: str, environment: str) -> str:
         why = f" ({'; '.join(self.reasons)})" if self.reasons else ""
@@ -74,52 +74,99 @@ def trials(log: Any, critic: str) -> tuple[int, int]:
     return len(rows), sum(1 for r in rows if r.get("caught") is True)
 
 
-def critic_holds(log: Any, critic: str) -> list[str]:
-    """Why Eldane's approvals may not count now (register R11): too few catch trials on this model, or a miss."""
-    n, caught = trials(log, critic)
-    if n < MIN_TRIALS:
-        return [f"Eldane has answered {n} of the {MIN_TRIALS} catch trials it needs on its current model"]
-    if caught / n < CATCH_AT:
-        return [(f"Eldane caught {caught} of {n} planted bad plans, under the {CATCH_AT:.0%} it must hold: its "
-                 "approvals are off until it is re-qualified")]
-    return []
+def _since_enabled(log: Any, environment: str) -> int:
+    """The audit sequence number of the environment's latest re-enable by a person; 0 for none."""
+    rows = [e for e in log.entries(f"autonomy-{environment}", kinds=(ENABLED,))
+            if e["body"].get("environment") == environment]
+    return rows[-1]["seq"] if rows else 0
+
+
+def demotions(log: Any, environment: str, entry: str | None = None,
+              models: dict[str, str] | None = None) -> list[tuple[int, str]]:
+    """What demotes `entry` (every class when None) in `environment` now, since a person last enabled it: (row seq,
+    why) - a failed fix or a harmful decision of that class, a missed catch trial (any), or a model or prompt change:
+    Eldane's reviews and scored ends there under more than one set of models, `models` (this review's) included."""
+    after = _since_enabled(log, environment)
+
+    def here(e: dict) -> bool:
+        b = e["body"]
+        return e["seq"] > after and b.get("environment") == environment and (not entry or b.get("entry") == entry)
+
+    out: list[tuple[int, str]] = []
+    for e in filter(here, log.entries(kinds=(OUTCOME,))):
+        b = e["body"]
+        if b.get("failed"):
+            out.append((e["seq"], f"`{b.get('entry')}` ended {b.get('status')} (incident {b.get('incident', '?')})"))
+        elif b.get("harmful"):
+            out.append((e["seq"], (f"a person said no to a plan Eldane said yes to (`{b.get('entry')}`, incident "
+                                   f"{b.get('incident', '?')})")))
+    # Only models that did review (CodeRabbit, PR 42): a skipped review - no diagnosis provenance, the daily ceiling -
+    # records placeholder models, and an end with no review copies them; neither is a model that changed.
+    under = sorted(((e["seq"], e["body"]["models"]) for e in filter(here, log.entries(kinds=(OUTCOME, VERDICT)))
+                    if e["body"].get("models") and not e["body"].get("skipped")), key=lambda x: x[0])
+    changed = next((seq for seq, m in under if m != under[0][1]), None) if under else None
+    if changed is None and models and under and models != under[-1][1]:
+        changed = under[-1][0]
+    if changed is not None:
+        out.append((changed, "the diagnosing model, Eldane's model or its prompt changed"))
+    out += [(e["seq"], f"Eldane missed a catch trial ({e['body'].get('kind', '?')})")
+            for e in log.entries(kinds=(TRIAL,)) if e["seq"] > after and e["body"].get("caught") is False]
+    return sorted(set(out))
 
 
 def level(log: Any, environment: str, entry: str, models: dict[str, str] | None) -> Level:
     """The level `entry` is at in `environment` now, from the audit alone. `models`: the diagnosing model and Eldane
-    (provider/model@prompt) as this plan's review recorded them - a record earned under others does not count."""
+    (provider/model@prompt) as this plan's review recorded them."""
     top = ceiling(environment)
     if top == L0:
         return Level(L0, ["the environment allows no autonomy"])
     if not models or not models.get("critic"):
         return Level(L1, ["Eldane has not reviewed this plan"])
-    rows = [e["body"] for e in log.entries(kinds=(OUTCOME,))
-            if e["body"].get("environment") == environment and e["body"].get("entry") == entry]
-    # The window starts after the last demotion of this class: a failed fix or a harmful shadow decision.
-    last = max((i for i, r in enumerate(rows) if r.get("failed") or r.get("harmful")), default=-1)
-    scored = [r for r in rows[last + 1:] if r.get("agreed") is not None and r.get("models") == models]
-    agreed = sum(1 for r in scored if r["agreed"] is True)
-    n_t, caught = trials(log, models["critic"])
-    out = Level(L1, shadow=len(scored), agreed=agreed, trials=n_t, caught=caught)
     if top != L2:
-        out.reasons.append("a person approves every change here")
-        return out
+        return Level(L1, ["a person approves every change here"])
+    reasons = []
     if bounds.killswitch(log) is not None:
-        out.reasons.append("the kill switch is on")
-    out.reasons += critic_holds(log, models["critic"])
-    if len(scored) < MIN_SHADOW or not decide.tier_enabled(agreed, len(scored), AGREE_AT):
-        out.reasons.append(f"Eldane agreed with the person on {agreed} of {len(scored)} shadow decisions under these "
-                           f"models since the last demotion; promotion needs at least {MIN_SHADOW} and a 95% lower "
-                           f"bound of {AGREE_AT:.0%}")
-    if not out.reasons:
-        out.level = L2
-    return out
+        reasons.append("the kill switch is on")
+    reasons += [f"demoted: {why}; a person re-enables it (`warden autonomy enable`)"
+                for _, why in demotions(log, environment, entry, models)]
+    return Level(L1, reasons) if reasons else Level(L2)
+
+
+def enable_hash(log: Any, environment: str) -> str:
+    """What a person's re-enable signs: every demotion on the record in `environment` since the last re-enable. A
+    demotion added after they signed changes it, so they cannot re-enable past one they were never shown."""
+    seqs = ",".join(str(s) for s, _ in demotions(log, environment))
+    return "autonomy-enable-" + hashlib.sha256(f"{environment}:{seqs}".encode()).hexdigest()
+
+
+def enable(log: Any, approval: approvals.SignedApproval, *, policy: approvals.ApproverPolicy, environment: str,
+           now: datetime) -> list[str]:
+    """A person turns autonomy back on in `environment` after a demotion: a T3 approval, with their own key, of exactly
+    the demotions now on the record (enable_hash). Never an AI's - Eldane cannot re-enable itself - and never in an
+    environment whose ceiling is below L2 (prod)."""
+    if ceiling(environment) != L2:
+        return [f"{environment} is never autonomous: there is nothing to re-enable"]
+    if policy.is_ai(approval.approver):
+        return ["an AI never re-enables autonomy: a person does"]
+    rows = demotions(log, environment)
+    if not rows:
+        return [f"autonomy in {environment} is not demoted"]
+    used = {e["body"].get("nonce") for e in log.entries(kinds=(ENABLED,))}
+    latest = max((e["at"] for e in log.entries(kinds=(OUTCOME, TRIAL, VERDICT)) if e["seq"] == rows[-1][0]), default=now)
+    problems = approvals.check(approval, policy=policy, workflow_id=f"autonomy-{environment}",
+                               plan_hash=enable_hash(log, environment), tier="T3", plan_created_at=latest,
+                               used_nonces=used, now=now, environment=environment)
+    if not problems:
+        log.append(f"autonomy-{environment}", ENABLED, {"environment": environment, "approver": approval.approver,
+                                                        "nonce": approval.nonce, "demotions": [s for s, _ in rows]})
+        log.checkpoint()
+    return problems
 
 
 def record_outcome(log: Any, incident: str, *, plan: dict[str, Any], status: str, approvers: list[str],
                    policy: Any, verdict: dict[str, Any] | None, ai: frozenset[str] = frozenset(),
                    **run: str) -> dict[str, Any] | None:
-    """The scored end of one fix run (activities.finish), for an environment where anything can be earned. Shadow:
+    """The scored end of one fix run (activities.finish), for an environment with any autonomy. Shadow:
     Eldane's verdict against the person's decision - agreed when it said yes to what they approved, or no to what they
     denied; unscored when nobody decided (expired, refused, blocked). Harmful: Eldane said yes to a plan a person
     denied. Failed: the fix did not work - whoever approved it."""
@@ -138,7 +185,9 @@ def record_outcome(log: Any, incident: str, *, plan: dict[str, Any], status: str
     yes = verdict.get("agree") if verdict else None
     body = {"environment": env, "entry": entry, "status": status, "person": person, "eldane": yes,
             "mode": "autonomous" if approvers and not people else "shadow" if verdict else "none",
-            "models": (verdict or {}).get("models") or {}, "failed": status in FAILED,
+            # A skipped review's models are placeholders, never the models that reviewed (CodeRabbit, PR 42).
+            "models": {} if (verdict or {}).get("skipped") else (verdict or {}).get("models") or {},
+            "failed": status in FAILED,
             "harmful": yes is True and person == "denied",
             "agreed": None if yes is None or not person else yes == (person == "approved"), "incident": incident, **run}
     # Kept as the environment's own autonomy record, not the incident's: the incident's record reads as it did.

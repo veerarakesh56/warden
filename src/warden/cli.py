@@ -339,6 +339,51 @@ def _approver_key(path: pathlib.Path):
     return audit.load_private_key(path, os.environ.get("WARDEN_APPROVER_KEY_PASSPHRASE", "").encode() or None)
 
 
+async def _autonomy_command(args: argparse.Namespace) -> int:
+    """A person turns autonomy back on in an environment after a demotion (autonomy.enable, owner 2026-10-17), through
+    the runtime's own AutonomyWorkflow: every demotion is shown first, and the approver states how many they read - the
+    signature covers exactly those, as a kill switch reset does."""
+    import uuid
+
+    from . import approvals, runtime
+    from .workflows import AutonomyWorkflow
+
+    client = await runtime.connect()
+    handle = await client.start_workflow(AutonomyWorkflow.run, args.environment,
+                                         id=f"autonomy-{args.environment}-{uuid.uuid4().hex[:12]}",
+                                         task_queue=runtime.TASK_QUEUE)
+    state = None
+    for _ in range(120):
+        if (state := await handle.query(AutonomyWorkflow.state)) is not None:
+            break
+        await asyncio.sleep(0.5)
+    if state is None:
+        await handle.cancel()
+        _out("error: the runtime did not answer: is a core worker running?", err=True)
+        return 1
+    shown = state["demotions"]
+    _out(f"autonomy in {args.environment}: at most {state['ceiling']}; "
+         f"{len(shown)} demotion{'s' if len(shown) != 1 else ''} since a person last enabled it")
+    for why in shown:
+        _out(f"  - {_one(why)}")
+    if args.autonomy_cmd == "status" or not shown or args.demotions != len(shown):
+        await handle.cancel()
+        if args.autonomy_cmd == "enable" and shown:
+            _out(f"not enabled: you reviewed {args.demotions}, there are {len(shown)}; check them and pass "
+                 f"--demotions {len(shown)}")
+            return 1
+        return 0
+    signed = approvals.sign(_approver_key(args.key), approver=args.approver, workflow_id=f"autonomy-{args.environment}",
+                            plan_hash=state["plan_hash"], tier="T3")
+    await handle.signal(AutonomyWorkflow.enable, signed)
+    problems = await handle.result()
+    for problem in problems:
+        _out(f"not enabled: {_one(problem)}")
+    if not problems:
+        _out(f"autonomy in {args.environment} is enabled again, signed by {args.approver} and recorded")
+    return 1 if problems else 0
+
+
 def _enrol_command(args: argparse.Namespace) -> int:
     """A link for enrolling a passkey on the approval page, signed here with the approver's own key - and opened in
     this machine's browser, never printed: whoever holds the link may use it, and a terminal is an egress (_out)."""
@@ -764,6 +809,17 @@ def _main(argv: list[str] | None = None) -> int:
     p_reset.add_argument("--key", required=True, type=pathlib.Path)
     p_reset.add_argument("--trips", required=True, type=int, help="how many trips you reviewed (`warden killswitch status`)")
 
+    p_auto = sub.add_parser("autonomy", help="see an environment's demotions, or re-enable its autonomy (signed, T3)")
+    auto_sub = p_auto.add_subparsers(dest="autonomy_cmd", required=True)
+    p_astatus = auto_sub.add_parser("status")
+    p_astatus.add_argument("--environment", required=True)
+    p_enable = auto_sub.add_parser("enable", help="after a demotion: Eldane approves alone again (never in prod)")
+    p_enable.add_argument("--environment", required=True)
+    p_enable.add_argument("--approver", required=True)
+    p_enable.add_argument("--key", required=True, type=pathlib.Path, help="your Ed25519 private key (PEM)")
+    p_enable.add_argument("--demotions", required=True, type=int,
+                          help="how many demotions you reviewed (`warden autonomy status`)")
+
     p_usage = sub.add_parser("usage", help="model calls, tokens and cost per day, from the audit")
     p_usage.add_argument("--days", type=int, default=30)
     p_label = sub.add_parser("label", help="record your signed verdict on an incident's diagnosis and action")
@@ -786,6 +842,8 @@ def _main(argv: list[str] | None = None) -> int:
         return _killswitch_command(args)
     if args.cmd == "label":
         return _label_command(args)
+    if args.cmd == "autonomy":
+        return asyncio.run(_autonomy_command(args))
     if args.cmd == "usage":
         return _usage_command(args)
 

@@ -82,7 +82,7 @@ class EnvPolicy:
     # WARDEN_TRIPWIRE applies.
     tripwire: str = "off"
     approval_wait_hours: int = APPROVAL_WAIT_HOURS
-    # The highest autonomy level an action class may EARN here (autonomy.py, owner 2026-10-16): L0 escalate only, L1
+    # The highest autonomy level an action class may be at here (autonomy.py, owner 2026-10-16/17): L0 escalate only, L1
     # shadow (WARDEN and Eldane decide, a person still approves), L2 autonomous. A ceiling, never a level: what a class
     # is at is derived from the audit. The prod tier never above L1 - refused at load, and capped again in code.
     autonomy: str = "L0"

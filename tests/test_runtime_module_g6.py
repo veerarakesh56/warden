@@ -69,7 +69,7 @@ def test_every_secret_the_runtime_reads_has_a_slot_and_no_slot_is_unused():
     assert {n for n, _ in read} <= settings.SECRETS
     assert slots == {_slug(n, z) for n, z in read}
     for gone in ("grafana-read-token", "audit-dsn", "audit-key-passphrase", "temporal-key-previous", "db-dsn",
-                 "alertmanager-token", "pagerduty-routing-key", "openai-api-key", "teams-webhook"):
+                 "alertmanager-token", "pagerduty-routing-key", "gemini-api-key", "openai-api-key", "teams-webhook"):
         assert gone not in slots, gone
     assert 'name                    = "warden/${var.environment}/${each.key}"' in text
     assert "secret_string" not in _module_text()  # no secret value in Terraform, so none in its state
@@ -292,13 +292,12 @@ ZONE_READS = {
     "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
     "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
-    "ANTHROPIC_API_KEY": ("providers.py", {"llm"}),
+    "ANTHROPIC_API_KEY": ("providers.py", {"llm", "critic"}),
     "WARDEN_SLACK_BOT_TOKEN": ("chatops.py", {"notify"}),
     "WARDEN_SLACK_APP_TOKEN": ("discuss.py", {"notify"}),
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
-    # Eldane, the AI critic (2026-10-16): its model's key (a paid-tier Gemini key) and its own signing key.
-    "GEMINI_API_KEY": ("providers.py", {"critic"}),
+    # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
     "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
 }
 
