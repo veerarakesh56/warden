@@ -133,7 +133,7 @@ class GitHub:
             headers["Authorization"] = f"Bearer {self._token}"
         req = urllib.request.Request(url, headers=headers, method="GET")
         try:
-            with self._open(req, timeout=_TIMEOUT_S) as resp:  # nosec B310 - https to GitHub's API host only
+            with self._open(req, timeout=_TIMEOUT_S) as resp:
                 body = resp.read(limit + 1)
         except urllib.error.HTTPError as exc:
             where = str(exc.headers.get("Location") or "") if exc.code in (301, 302, 303, 307, 308) else ""
