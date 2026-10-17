@@ -15,6 +15,7 @@
         "logs:*",
         "cloudwatch:*",
         "elasticloadbalancing:*",
+        "acm:*",
         "lambda:*",
         "sqs:*",
         "autoscaling:*",
@@ -83,7 +84,8 @@
           "kms:ViaService": [
             "secretsmanager.${region}.amazonaws.com",
             "rds.${region}.amazonaws.com",
-            "ssm.${region}.amazonaws.com"
+            "ssm.${region}.amazonaws.com",
+            "sns.${region}.amazonaws.com"
           ]
         }
       }
@@ -139,7 +141,7 @@
       "Resource": "arn:aws:iam::*:role/aws-service-role/*"
     },
     {
-      "Sid": "DenyRoleWithoutThisBoundary",
+      "Sid": "DenyUnboundedRoles",
       "Effect": "Deny",
       "Action": [
         "iam:CreateRole",
@@ -176,9 +178,7 @@
         "ec2:AllocateHosts",
         "ecs:RunTask",
         "ecs:StartTask",
-        "s3:Put*PublicAccessBlock",
         "s3:Put*Acl",
-        "s3:PutBucketPolicy",
         "rds:Modify*SnapshotAttribute",
         "ec2:ModifySnapshotAttribute",
         "ec2:ModifyImageAttribute",
@@ -271,6 +271,15 @@
           "aws:ResourceTag/Environment": "true"
         }
       }
+    },
+    {
+      "Sid": "DenyS3Policy",
+      "Effect": "Deny",
+      "Action": [
+        "s3:Put*Policy",
+        "s3:Put*PublicAccess*"
+      ],
+      "NotResource": "arn:aws:s3:::warden-${env}-alb-logs-*"
     },
     {
       "Sid": "DenyDestroyingOthers",

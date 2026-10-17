@@ -167,6 +167,48 @@
       }
     },
     {
+      "Sid": "AlbLogsBucket",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::warden-dev-alb-logs-*",
+        "arn:aws:s3:::warden-dev-alb-logs-*/*"
+      ]
+    },
+    {
+      "Sid": "AlbCertificateImport",
+      "Effect": "Allow",
+      "Action": [
+        "acm:ImportCertificate",
+        "acm:AddTagsToCertificate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2",
+          "aws:RequestTag/Environment": "dev"
+        }
+      }
+    },
+    {
+      "Sid": "AlbCertificateOwn",
+      "Effect": "Allow",
+      "Action": [
+        "acm:DescribeCertificate",
+        "acm:GetCertificate",
+        "acm:ListTagsForCertificate",
+        "acm:RemoveTagsFromCertificate",
+        "acm:DeleteCertificate"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-south-2",
+          "aws:ResourceTag/Environment": "dev"
+        }
+      }
+    },
+    {
       "Sid": "AccessLogsOnlyToThisEnvironmentsGroup",
       "Effect": "Deny",
       "Action": [

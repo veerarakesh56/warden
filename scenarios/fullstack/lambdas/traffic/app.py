@@ -3,11 +3,15 @@
 Per run: CHECKOUTS_PER_MIN x POST {API_URL}/checkout, the same number of GET {ALB_URL}/orders, and
 ORDERS_PER_MIN order messages onto the orders queue. Tiny payloads. Failures are logged, never
 raised: the generator must keep generating while the stack is broken.
+
+The internal ALB answers over HTTPS with the stack's own self-signed certificate (terraform/fullstack/ecs.tf): its
+calls trust that one certificate, ALB_CA_PEM, and nothing else.
 """
 import json
 import logging
 import os
 import random
+import ssl
 import urllib.error
 import urllib.request
 import uuid
@@ -20,6 +24,7 @@ log.setLevel(logging.INFO)
 SQS = boto3.client("sqs")
 SKUS = [f"sku-{n}" for n in range(1, 21)]
 _TOKEN: list[str] = []  # the API's bearer token (audit A-I-13), read once per container
+_ALB_TLS: list[ssl.SSLContext] = []  # trusts the ALB's certificate only, built once per container
 
 
 def _bearer():
@@ -29,6 +34,16 @@ def _bearer():
     return {"Authorization": f"Bearer {_TOKEN[0]}"}
 
 
+def _tls_for(url):
+    """The ALB's own certificate as the only trust for a call to the ALB; the system's trust for anything else."""
+    pem, alb = os.environ.get("ALB_CA_PEM"), os.environ.get("ALB_URL")
+    if not (pem and alb and url.startswith(alb + "/")):
+        return None
+    if not _ALB_TLS:
+        _ALB_TLS.append(ssl.create_default_context(cadata=pem))
+    return _ALB_TLS[0]
+
+
 def _call(method, url, body=None, headers=None):
     if not url.startswith(("http://", "https://")):
         raise ValueError("only http(s) URLs are called")
@@ -36,7 +51,7 @@ def _call(method, url, body=None, headers=None):
     req = urllib.request.Request(url, data=data, method=method,
                                  headers={"Content-Type": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 - scheme checked above
+        with urllib.request.urlopen(req, timeout=5, context=_tls_for(url)) as resp:  # nosec B310 - scheme checked above
             return resp.status
     except urllib.error.HTTPError as exc:
         return exc.code
