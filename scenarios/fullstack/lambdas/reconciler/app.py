@@ -16,6 +16,8 @@ import time
 import boto3
 import psycopg
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
@@ -61,7 +63,11 @@ def handler(event, context):
         else:
             checked = len(conn.execute("SELECT order_id FROM orders WHERE order_id = ANY(%s)",
                                        ([f"seed-{random.randint(1, 3000000)}" for _ in range(30)],)).fetchall())
-    cache = redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, socket_timeout=3, socket_connect_timeout=3)
+    # Every option set, not left to redis-py's defaults (8.0: RESP3, 10 retries with backoff, keepalive, 5 s
+    # timeouts): RESP2, one try, no keepalive, 3 s timeouts. TLS checks the certificate and host name.
+    cache = redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, ssl_cert_reqs="required",
+                        ssl_check_hostname=True, protocol=2, retry=Retry(NoBackoff(), 0), socket_keepalive=False,
+                        socket_timeout=3, socket_connect_timeout=3)
     cache.set("reconcile:last", json.dumps({"at": int(time.time()), "orders_last_hour": count}), ex=3600)
     log.info("reconciled lookup=%s orders_last_hour=%d checked=%d", lookup, count, checked)
     return {"orders_last_hour": count, "checked": checked}

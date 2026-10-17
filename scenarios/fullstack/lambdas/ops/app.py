@@ -13,6 +13,8 @@ import logging
 import os
 
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
@@ -27,7 +29,11 @@ def _info(r):
 
 
 def handler(event, context):
-    r = redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, socket_timeout=10, socket_connect_timeout=5)
+    # Every option set, not left to redis-py's defaults (8.0: RESP3, 10 retries with backoff, keepalive, 5 s
+    # timeouts): RESP2, one try, no keepalive, the timeouts below. TLS checks the certificate and host name.
+    r = redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, ssl_cert_reqs="required",
+                    ssl_check_hostname=True, protocol=2, retry=Retry(NoBackoff(), 0), socket_keepalive=False,
+                    socket_timeout=10, socket_connect_timeout=5)
     cmd = event.get("op")
     prefix = event.get("prefix", "filler:")
     if cmd in ("fill", "flush_prefix") and not prefix.startswith("filler:"):

@@ -28,6 +28,8 @@ from typing import ClassVar
 import boto3
 import psycopg
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 ROLE = os.environ.get("APP_ROLE", "orders-api")
 log = logging.getLogger(ROLE)
@@ -61,8 +63,12 @@ def int_setting(name: str, default: int, low: int, high: int) -> int:
 
 
 def cache() -> redis.Redis:
-    return redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, socket_timeout=2,
-                       socket_connect_timeout=2, decode_responses=True)
+    # Every option set, not left to redis-py's defaults (8.0: RESP3, 10 retries with backoff, keepalive, 5 s
+    # timeouts): RESP2, one try, no keepalive, 2 s timeouts - an unreachable cache fails a request in about 2 s.
+    # TLS checks the certificate and host name: REDIS_HOST is the endpoint name the certificate is issued for.
+    return redis.Redis(host=os.environ["REDIS_HOST"], port=6379, ssl=True, ssl_cert_reqs="required",
+                       ssl_check_hostname=True, protocol=2, retry=Retry(NoBackoff(), 0), socket_keepalive=False,
+                       socket_timeout=2, socket_connect_timeout=2, decode_responses=True)
 
 
 def db_token(host: str, user: str) -> str:
