@@ -110,34 +110,32 @@ class DatadogReader:
         start, end = at - LOOKBACK, at + LOOKBACK
         out: list[str] = []
         for svc in services(alert):
-            got, problem = self._ask("traces", "POST", "/api/v2/spans/events/search", {"data": {"type": "search_request",
-                "attributes": {"filter": {"query": f"service:{svc} status:error", "from": _iso(start),
-                                          "to": _iso(end)}, "sort": "-timestamp", "page": {"limit": MAX_SPANS}}}})
-            if problem:
-                out.append(problem)
-                continue
-            if got is None:
-                continue
-            spans = got.get("data") or []
-            if not spans:
-                out.append(f"{PARTIAL}datadog traces: no failed spans for {svc} between {_iso(start)} and {_iso(end)}"
-                           " (late, not instrumented, or none) - not a sign of health")
-                continue
-            downstream: dict[str, int] = {}
-            for sp in spans[:MAX_SPANS]:
-                a = sp.get("attributes") or {}
-                tags = a.get("custom") or {}
-                peer = str((tags.get("peer") or {}).get("service") or tags.get("peer.service")
-                           or (tags.get("db") or {}).get("system") or "")[:80]
-                when = _when(a.get("start_timestamp") or a.get("timestamp"))
-                out.append(f"DATADOG span {svc} {_iso(when) if when else '?'} "
-                           f"{' '.join(str(a.get('resource_name') or '?').split())[:120]} "
-                           f"duration_ms={round(float(a.get('duration') or 0) / 1e6, 1)} failed_in={peer or svc}")
-                if peer and peer != svc:
-                    downstream[peer] = downstream.get(peer, 0) + 1
-            for peer, n in sorted(downstream.items(), key=lambda kv: -kv[1])[:3]:
-                out.append(f"DATADOG dependency {svc} -> {peer}: failing in {n} of {len(spans[:MAX_SPANS])} "
-                           "failed spans read")
+            out += self._traces_of(svc, start, end)
+        return out
+
+    def _traces_of(self, svc: str, start: datetime, end: datetime) -> list[str]:
+        """One service's failed spans, then the services they fail in."""
+        got, problem = self._ask("traces", "POST", "/api/v2/spans/events/search", {"data": {"type": "search_request",
+            "attributes": {"filter": {"query": f"service:{svc} status:error", "from": _iso(start),
+                                      "to": _iso(end)}, "sort": "-timestamp", "page": {"limit": MAX_SPANS}}}})
+        if problem:
+            return [problem]
+        if got is None:
+            return []
+        spans = got.get("data") or []
+        if not spans:
+            return [(f"{PARTIAL}datadog traces: no failed spans for {svc} between {_iso(start)} and {_iso(end)}"
+                     " (late, not instrumented, or none) - not a sign of health")]
+        out: list[str] = []
+        downstream: dict[str, int] = {}
+        for sp in spans[:MAX_SPANS]:
+            line, peer = _span_line(svc, sp)
+            out.append(line)
+            if peer and peer != svc:
+                downstream[peer] = downstream.get(peer, 0) + 1
+        for peer, n in sorted(downstream.items(), key=lambda kv: -kv[1])[:3]:
+            out.append(f"DATADOG dependency {svc} -> {peer}: failing in {n} of {len(spans[:MAX_SPANS])} "
+                       "failed spans read")
         return out
 
     def metrics(self, alert: Alert) -> dict[str, float]:
@@ -155,6 +153,18 @@ class DatadogReader:
                 if values:
                     out[name] = round(max(values), 4)
         return out
+
+
+def _span_line(svc: str, span: dict) -> tuple[str, str]:
+    """A failed span's line, and the service it names as where it failed ("" when none)."""
+    a = span.get("attributes") or {}
+    tags = a.get("custom") or {}
+    peer = str((tags.get("peer") or {}).get("service") or tags.get("peer.service")
+               or (tags.get("db") or {}).get("system") or "")[:80]
+    when = _when(a.get("start_timestamp") or a.get("timestamp"))
+    return (f"DATADOG span {svc} {_iso(when) if when else '?'} "
+            f"{' '.join(str(a.get('resource_name') or '?').split())[:120]} "
+            f"duration_ms={round(float(a.get('duration') or 0) / 1e6, 1)} failed_in={peer or svc}"), peer
 
 
 def _when(value: Any) -> datetime | None:
