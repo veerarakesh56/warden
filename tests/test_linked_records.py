@@ -5,13 +5,14 @@ that say two incidents share a cause, and only a fix that was applied and verifi
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from fakes import AWS_ACCESS_KEY_ID
 from warden import approvals, audit, labels, links, records
 from warden.cli import main
 
@@ -61,11 +62,13 @@ def test_a_link_is_recorded_on_both_records_each_read_from_its_own_side(world):
     [here] = links.links_of(log, "inc-b")
     [there] = links.links_of(log, "inc-a")
     assert (here["side"], here["with"], there["side"], there["with"]) == ("recurrence-of", "inc-a", "recurred-as", "inc-b")
-    assert links.describe(here) == "is a recurrence of inc-a" and links.describe(there) == "came back as inc-b"
+    assert links.describe(here) == "is a recurrence of inc-a"
+    assert links.describe(there) == "came back as inc-b"
     assert links.record(log, _link(owner, "inc-c", "inc-d", "caused-by"), policy) == []
     assert links.describe(links.links_of(log, "inc-d")[0]) == "caused inc-c"
     assert links.links_of(log, "inc-c")[0]["side"] == "caused-by"
-    assert set(links.INVERSE) == set(links.TYPES) and set(links.WORDS) == set(links.TYPES) | set(links.INVERSE.values())
+    assert set(links.INVERSE) == set(links.TYPES)
+    assert set(links.WORDS) == set(links.TYPES) | set(links.INVERSE.values())
 
 
 def test_a_link_taken_back_is_gone_from_both_sides_and_an_older_word_does_not_undo_a_newer_one(world):
@@ -182,14 +185,23 @@ def test_the_record_page_shows_the_links_who_made_them_by_name_and_the_proven_fi
     links.record(log, _link(owner, "inc-b", "inc-a", "recurrence-of", note="<script>x</script>"), policy)
     links.record(log, _link(other, "inc-b", "inc-c", "caused-by", approver="noname"), policy)
     page = records.incident_page(records.record(log, "inc-b", policy))
-    assert "<h2>Linked records</h2>" in page and "This incident is a recurrence of" in page
-    assert 'href="/r/inc-a"' in page and "linked by Asha Rao (SRE)" in page
-    assert "was caused by" in page and "linked by an approver" in page  # never the list's id
-    assert ">owner<" not in page and "noname" not in page and "&lt;script&gt;" in page and "<script>x" not in page
-    assert "Proven fix on a linked record:" in page and "rollback_deploy" in page and "WARDEN does not apply it" in page
+    assert "<h2>Linked records</h2>" in page
+    assert "This incident is a recurrence of" in page
+    assert 'href="/r/inc-a"' in page
+    assert "linked by Asha Rao (SRE)" in page
+    assert "was caused by" in page
+    assert "linked by an approver" in page  # never the list's id
+    assert ">owner<" not in page
+    assert "noname" not in page
+    assert "&lt;script&gt;" in page
+    assert "<script>x" not in page
+    assert "Proven fix on a linked record:" in page
+    assert "rollback_deploy" in page
+    assert "WARDEN does not apply it" in page
     assert "Linked records" not in records.incident_page(records.record(log, "inc-d", policy))
     light = records.record(log, "inc-b", policy, light=True)
-    assert light.links == [] and light.proven is None  # the list does not read them
+    assert light.links == []
+    assert light.proven is None  # the list does not read them
 
 
 def test_the_command_links_two_records_and_refuses_a_wrong_key(tmp_path, monkeypatch, capsys):
@@ -215,3 +227,60 @@ def test_the_command_links_two_records_and_refuses_a_wrong_key(tmp_path, monkeyp
     assert main([*args, "--key", str(key_file)]) == 0
     assert "linked: inc-2 is a recurrence of inc-1" in capsys.readouterr().out
     assert [k["with"] for k in links.links_of(audit.AuditLog(tmp_path / "audit.db"), "inc-1")] == ["inc-2"]
+
+
+def test_the_newest_signed_word_is_decided_by_time_not_by_its_text(world):
+    """CodeRabbit, PR 56: as text, a whole second (`...:00Z`) sorted after the same second's half (`...:00.5Z`), and a
+    +05:30 time against a UTC one by its digits."""
+    owner, _, policy, log = world
+    links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", now=T0), policy)
+    links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", removed=True,
+                            now=T0 + timedelta(milliseconds=500)), policy)
+    assert links.links_of(log, "inc-a") == []
+    ist = timezone(timedelta(hours=5, minutes=30))
+    links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", now=(T0 + timedelta(hours=1)).astimezone(ist)),
+                 policy)
+    links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", removed=True, now=T0 + timedelta(minutes=30)),
+                 policy)
+    assert [k["with"] for k in links.links_of(log, "inc-a")] == ["inc-b"]
+
+
+def test_a_link_is_one_row_written_whole_and_read_from_both_sides(world):
+    """CodeRabbit, PR 56: two appends could leave one side written; one row cannot."""
+    owner, _, policy, log = world
+    links.record(log, _link(owner, "inc-b", "inc-a", "recurrence-of"), policy)
+    assert len(log.entries(kinds=(links.KIND,))) == 1
+    assert [k["side"] for k in links.links_of(log, "inc-a")] == ["recurred-as"]
+
+
+def test_a_fix_a_later_incident_found_failed_is_not_proven(world):
+    """CodeRabbit, PR 56: a later incident that cites the fix as its cause records a failed result for it."""
+    owner, _, policy, log = world
+    wid = _fix(log, "inc-a", "recovered")
+    links.record(log, _link(owner, "inc-b", "inc-a", "same-root-cause"), policy)
+    log.append("inc-a", "remediation.result", {"workflow_id": "rem-other", "ok": False})
+    assert links.proven_fix(log, "inc-b") is not None  # another fix's result says nothing of this one
+    log.append("inc-a", "remediation.result", {"workflow_id": wid, "ok": False, "connected_by": "inc-c"})
+    assert links.proven_fix(log, "inc-b") is None
+
+
+def test_the_walk_reads_no_more_records_than_its_limit(world, monkeypatch):
+    owner, _, policy, log = world
+    for i in range(6):
+        _incident(log, f"inc-n{i}")
+        links.record(log, _link(owner, "inc-a", f"inc-n{i}", "same-root-cause"), policy)
+    read = []
+    real = links._fixes
+    monkeypatch.setattr(links, "MOST_REACHED", 4)
+    monkeypatch.setattr(links, "_fixes", lambda log, inc: read.append(inc) or real(log, inc))
+    links.proven_fix(log, "inc-a")
+    assert len(read) == 3  # four records with inc-a itself
+
+
+def test_a_links_note_is_kept_as_an_approvals_note_is(world):
+    owner, _, policy, log = world
+    links.record(log, _link(owner, "inc-a", "inc-b", "same-root-cause", note=f"key {AWS_ACCESS_KEY_ID}\x07 rotated"),
+                 policy)
+    [k] = links.links_of(log, "inc-a")
+    assert AWS_ACCESS_KEY_ID not in k["note"]
+    assert "\x07" not in k["note"]
