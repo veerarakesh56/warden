@@ -100,16 +100,19 @@ def line_of(f: dict[str, Any], pr: int, sha: str, alert: Any) -> str:
     return f"FINDING {f['tool']} " + " ".join(fields)
 
 
+_SONAR_STATUS = {"ACCEPTED": "accepted", "WONTFIX": "accepted", "FALSE_POSITIVE": "accepted", "FIXED": "fixed",
+                 "CLOSED": "fixed", "RESOLVED": "fixed"}
+
+
 def _sonar(issue: dict[str, Any]) -> dict[str, Any] | None:
     impacts = [i for i in issue.get("impacts") or [] if isinstance(i, dict)]
+    first = impacts[0] if impacts else {}
     status = str(issue.get("issueStatus") or issue.get("status") or "").upper()
     return finding("sonarcloud", rule=str(issue.get("rule") or ""),
-                   severity=str((impacts[0].get("severity") if impacts else None) or issue.get("severity") or ""),
+                   severity=str(first.get("severity") or issue.get("severity") or ""),
                    path=str(issue.get("component") or "").split(":", 1)[-1], line=issue.get("line"),
-                   status="accepted" if status in ("ACCEPTED", "WONTFIX", "FALSE_POSITIVE") else
-                   "fixed" if status in ("FIXED", "CLOSED", "RESOLVED") else "open",
-                   category=str((impacts[0].get("softwareQuality") if impacts else None)
-                                or str(issue.get("type") or "").replace("_", "-")),
+                   status=_SONAR_STATUS.get(status, "open"),
+                   category=str(first.get("softwareQuality") or str(issue.get("type") or "").replace("_", "-")),
                    text=str(issue.get("message") or ""))
 
 
@@ -129,16 +132,63 @@ def _code_scanning(alert: dict[str, Any]) -> dict[str, Any] | None:
 
 _RABBIT_SEVERITY = re.compile(r"(?<![A-Za-z])(Critical|Major|Minor|Trivial)(?![A-Za-z])")  # `_Major_`: no word edge
 _RABBIT_KIND = (("potential issue", "potential-issue"), ("refactor suggestion", "refactor"), ("nitpick", "nitpick"))
+# CodeRabbit's own marker of a comment's kind, in an HTML comment at its end: `<!-- cr-indicator-types:potential_issue -->`.
+_RABBIT_INDICATOR = re.compile(r"cr-indicator-types:(potential_issue|refactor_suggestion|nitpick)")
+# CodeRabbit's standard blocks: folded sections (its analysis chain, "Proposed fix", "Committable suggestion", "Prompt
+# for AI Agents") and HTML comments. Their words are CodeRabbit's template ("Script executed", "Proposed fix"), not the
+# finding, and they held back nearly every real comment (PR 41's review). The innermost fold first, until none is left.
+_RABBIT_BLOCK = re.compile(r"<details>(?:(?!<details>).)*?</details>|<!--.*?-->", re.DOTALL | re.IGNORECASE)
+
+
+def rabbit_prose(body: str) -> str:
+    """A CodeRabbit comment without its standard blocks: what the steering check reads."""
+    while True:
+        stripped = _RABBIT_BLOCK.sub(" ", body)
+        if stripped == body:
+            return body
+        body = stripped
 
 
 def _coderabbit(comment: dict[str, Any]) -> dict[str, Any] | None:
     body = str(comment.get("body") or "")
     head = body[:300]  # CodeRabbit opens each comment with its kind and severity: `Potential issue | Major`
     sev = _RABBIT_SEVERITY.search(head)
-    kind = next((k for words, k in _RABBIT_KIND if words in head.lower()), "comment")
-    status = "fixed" if "addressed in commit" in body.lower() else "outdated" if comment.get("line") is None else "open"
+    marked = _RABBIT_INDICATOR.search(body)
+    kind = (dict(_RABBIT_KIND)[marked.group(1).replace("_", " ")] if marked
+            else next((k for words, k in _RABBIT_KIND if words in head.lower()), "comment"))
+    if "addressed in commit" in body.lower():
+        status = "fixed"
+    elif comment.get("line") is None:
+        status = "outdated"
+    else:
+        status = "open"
     return finding("coderabbit", severity=sev.group(1) if sev else "", path=str(comment.get("path") or ""),
-                   line=comment.get("line") or comment.get("original_line"), status=status, category=kind, text=body)
+                   line=comment.get("line") or comment.get("original_line"), status=status, category=kind,
+                   text=rabbit_prose(body))
+
+
+class _Tally:
+    """One pull request's findings as they are read: the typed ones, how many were seen and held back, which tools
+    answered."""
+
+    def __init__(self) -> None:
+        self.found: list[dict[str, Any]] = []
+        self.read: list[str] = []
+        self.seen = self.held = 0
+
+    def take(self, tool: str, rows: Any, parse: Any) -> None:
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict):
+                self.seen += 1
+                f = parse(row)
+                if f is None:
+                    self.held += 1
+                else:
+                    self.found.append(f)
+        self.read.append(tool)
+
+
+_REVIEW_STATES = {"APPROVED": "no-objection", "CHANGES_REQUESTED": "changes-requested", "COMMENTED": "commented"}
 
 
 class FindingsReader:
@@ -160,8 +210,9 @@ class FindingsReader:
         left = self._deadline - self._clock()
         if left <= 0:
             raise TimeoutError("the findings read's time is spent")
-        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"} \
-            if url.startswith(_API) else {"Accept": "application/json"}
+        github = urllib.parse.urlsplit(url).netloc == urllib.parse.urlsplit(_API).netloc
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"} if github \
+            else {"Accept": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(url, headers=headers, method="GET")
@@ -180,6 +231,13 @@ class FindingsReader:
             return []  # no deploy in the window: nothing to read
         self._deadline = self._clock() + BUDGET_S
         out: list[str] = []
+        prs = self._pull_requests(shas, out)
+        for n, sha in prs:
+            out += self._pull_request(alert, n, sha)
+        return out
+
+    def _pull_requests(self, shas: list[str], out: list[str]) -> list[tuple[int, str]]:
+        """The pull requests of the deployed commits, at most max_prs; a failed lookup is named in `out`."""
         prs: list[tuple[int, str]] = []
         for sha in shas:
             if len(prs) >= self.max_prs:
@@ -189,71 +247,61 @@ class FindingsReader:
             except _FAILED as exc:
                 out.append(self._unread(exc, f"pull requests of commit {sha[:12]}"))
                 continue
-            for pr in rows if isinstance(rows, list) else []:
-                n = pr.get("number") if isinstance(pr, dict) else None
+            numbers = [pr.get("number") for pr in (rows if isinstance(rows, list) else []) if isinstance(pr, dict)]
+            for n in numbers:
                 if isinstance(n, int) and n > 0 and n not in {p for p, _ in prs} and len(prs) < self.max_prs:
                     prs.append((n, sha))
-        for n, sha in prs:
-            out += self._pull_request(alert, n, sha)
-        return out
+        return prs
+
+    def _sonar_issues(self, n: int) -> Any:
+        q = urllib.parse.urlencode({"componentKeys": self.sonar_project, "pullRequest": n,
+                                    "issueStatuses": "OPEN,CONFIRMED,ACCEPTED", "ps": self.max_per_pr})
+        body = self._get(f"{SONAR}/api/issues/search?{q}", self.sonar_token)
+        return body.get("issues") if isinstance(body, dict) else None
+
+    def _scanning_alerts(self, n: int) -> Any:
+        # Open alerts only: dismissed and fixed ones filled the page before an open one was read (PR 41's review).
+        ref = urllib.parse.quote(f"refs/pull/{n}/merge", safe="")
+        return self._get(f"{_API}/repos/{self.repo}/code-scanning/alerts?ref={ref}&state=open"
+                         f"&per_page={self.max_per_pr}", self.token)
+
+    def _rabbit_comments(self, n: int) -> list[dict[str, Any]]:
+        rows = self._get(f"{_API}/repos/{self.repo}/pulls/{n}/comments?per_page=100", self.token)
+        return [c for c in (rows if isinstance(rows, list) else []) if isinstance(c, dict)
+                and (c.get("user") or {}).get("login") == CODERABBIT and not c.get("in_reply_to_id")]
+
+    def _rabbit_review(self, n: int) -> str:
+        """CodeRabbit's latest review state. APPROVED is said without the word: "approved" is a steering word, and the
+        line would lose its trust."""
+        rows = self._get(f"{_API}/repos/{self.repo}/pulls/{n}/reviews?per_page=100", self.token)
+        states = [str(r.get("state") or "") for r in (rows if isinstance(rows, list) else []) if isinstance(r, dict)
+                  and (r.get("user") or {}).get("login") == CODERABBIT]
+        return _REVIEW_STATES.get(states[-1], "") if states else ""
 
     def _pull_request(self, alert: Any, n: int, sha: str) -> list[str]:
         out: list[str] = []
-        found: list[dict[str, Any]] = []
-        read: list[str] = []
-        seen = held_back = 0
+        tally = _Tally()
+        reads = [("sonarcloud", self._sonar_issues, _sonar, f"sonarcloud issues for PR #{n}")] if self.sonar_project \
+            else []
+        reads += [("code-scanning", self._scanning_alerts, _code_scanning, f"code scanning alerts for PR #{n}"),
+                  ("coderabbit", self._rabbit_comments, _coderabbit, f"coderabbit review of PR #{n}")]
         review = ""
-
-        def take(tool: str, rows: list[Any], parse: Any) -> None:
-            nonlocal seen, held_back
-            for row in rows:
-                if isinstance(row, dict):
-                    seen += 1
-                    f = parse(row)
-                    if f is None:
-                        held_back += 1
-                    else:
-                        found.append(f)
-            read.append(tool)
-
-        if self.sonar_project:
-            q = urllib.parse.urlencode({"componentKeys": self.sonar_project, "pullRequest": n,
-                                        "issueStatuses": "OPEN,CONFIRMED,ACCEPTED", "ps": self.max_per_pr})
+        for tool, fetch, parse, what in reads:
             try:
-                body = self._get(f"{SONAR}/api/issues/search?{q}", self.sonar_token)
-                issues = body.get("issues") if isinstance(body, dict) else None
-                take("sonarcloud", list(issues if isinstance(issues, list) else []), _sonar)
+                tally.take(tool, fetch(n), parse)
+                if tool == "coderabbit":
+                    review = self._rabbit_review(n)
             except _FAILED as exc:
-                out.append(self._unread(exc, f"sonarcloud issues for PR #{n}"))
-        try:
-            ref = urllib.parse.quote(f"refs/pull/{n}/merge", safe="")
-            rows = self._get(f"{_API}/repos/{self.repo}/code-scanning/alerts?ref={ref}&per_page={self.max_per_pr}",
-                             self.token)
-            take("code-scanning", list(rows if isinstance(rows, list) else []), _code_scanning)
-        except _FAILED as exc:
-            out.append(self._unread(exc, f"code scanning alerts for PR #{n}"))
-        try:
-            rows = self._get(f"{_API}/repos/{self.repo}/pulls/{n}/comments?per_page=100", self.token)
-            mine = [c for c in rows if isinstance(c, dict) and (c.get("user") or {}).get("login") == CODERABBIT
-                    and not c.get("in_reply_to_id")] if isinstance(rows, list) else []
-            take("coderabbit", mine, _coderabbit)
-            reviews = self._get(f"{_API}/repos/{self.repo}/pulls/{n}/reviews?per_page=100", self.token)
-            states = [str(r.get("state") or "") for r in reviews if isinstance(r, dict)
-                      and (r.get("user") or {}).get("login") == CODERABBIT] if isinstance(reviews, list) else []
-            # APPROVED is said without the word: "approved" is a steering word, and the line would lose its trust.
-            review = {"APPROVED": "no-objection", "CHANGES_REQUESTED": "changes-requested",
-                      "COMMENTED": "commented"}.get(states[-1], "") if states else ""
-        except _FAILED as exc:
-            out.append(self._unread(exc, f"coderabbit review of PR #{n}"))
-        found.sort(key=lambda f: (STATUSES.index(f["status"]), _SEVERITY_RANK[f["severity"]]))
-        shown = found[:self.max_per_pr]
+                out.append(self._unread(exc, what))
+        tally.found.sort(key=lambda f: (STATUSES.index(f["status"]), _SEVERITY_RANK[f["severity"]]))
+        shown = tally.found[:self.max_per_pr]
         out += [line_of(f, n, sha, alert) for f in shown]
-        out.append(f"FINDINGS pr={n} commit={sha[:12]} read={','.join(read) or 'none'} shown={len(shown)} "
-                   f"found={seen} held={held_back}" + (f" coderabbit_review={review}" if review else ""))
+        out.append(f"FINDINGS pr={n} commit={sha[:12]} read={','.join(tally.read) or 'none'} shown={len(shown)} "
+                   f"found={tally.seen} held={tally.held}" + (f" coderabbit_review={review}" if review else ""))
         return out
 
-    def traces(self, alert: Any) -> list[str]:
+    def traces(self, _alert: Any) -> list[str]:
         return []
 
-    def metrics(self, alert: Any) -> dict[str, float]:
+    def metrics(self, _alert: Any) -> dict[str, float]:
         return {}
