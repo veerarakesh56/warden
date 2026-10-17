@@ -99,8 +99,12 @@ def judge(name: str, now, before, accepted: dict[str, list[str]], existing: set[
     # refused by IAM) is compared with today for what exists and with the accepted failures for the rest.
     key = AZ if name.startswith("lose-") else name
     ok = set(accepted.get(key, []))
-    allowed = before | (ok - existing) if isinstance(before, set) and existing is not None else \
-        before if isinstance(before, set) else ok
+    if not isinstance(before, set):
+        allowed = ok
+    elif existing is not None:
+        allowed = before | (ok - existing)
+    else:
+        allowed = before
     taken = sorted((now - allowed) & set((regressions or {}).get(key, [])))
     new = sorted(now - allowed - set(taken))
     if new:

@@ -240,7 +240,8 @@ def warning(rows: list[dict[str, Any]], *, entry: str, target: str, plan_hash: s
     # ...and what did hold is said too: "none lasted" stood beside a run of the same fix that had worked an hour
     # before (live, 2026-10-12).
     held = [r for r in same if r["status"] == "recovered"]
-    also = (f" It held {'once' if len(held) == 1 else f'{len(held)} times'} in that day, most recently "
+    held_times = "once" if len(held) == 1 else f"{len(held)} times"
+    also = (f" It held {held_times} in that day, most recently "
             f"{both_times(held[0]['at'], seconds=False)}." if held else "")
     return f" Before you decide: in the last day this same fix did not last {times} - {latest}.{also}"
 

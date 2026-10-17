@@ -444,10 +444,10 @@ def _db_iam_refused(ctx: ContextBundle, line: str) -> str:
     tline = _first(ctx, f"TASKROLE ecs/{src[1]} ") if src and src[0] == "ecs" else None
     role = _kv(tline).get("role") if tline else None
     if not (user and role):
-        needed = ([] if user else ["the refused user in the PAM line"]) + ([] if role else [
-            "a `TASKROLE ecs/<service> role=<name>` line for the failing ECS service" if src and src[0] == "ecs"
-            else "the identity that signs the tokens (WARDEN names it only for an ECS service, from its "
-                 "task definition: a `TASKROLE ecs/<service> role=<name>` line)"])
+        role_needed = ("a `TASKROLE ecs/<service> role=<name>` line for the failing ECS service" if src and src[0] == "ecs"
+                       else "the identity that signs the tokens (WARDEN names it only for an ECS service, from its "
+                            "task definition: a `TASKROLE ecs/<service> role=<name>` line)")
+        needed = ([] if user else ["the refused user in the PAM line"]) + ([] if role else [role_needed])
         return f"The evidence does not carry {' and '.join(needed)}."
     return (f"{role}, the task role of {src[1]} (its TASKROLE line), is refused as database user {user.group(1)}. "
             "Compare its declared policy (Terraform) for rds-db:connect on that user and restore it through a "
