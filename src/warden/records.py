@@ -38,6 +38,7 @@ STEP = {
     "intake.grouped": "Another alert on the same resource joined this incident",
     "incident.reopened": "Reopened: the alarm came back while the fix was being watched",
     "remediation.did_not_hold": "The fix did not hold - WARDEN will not offer it again on its own",
+    "remediation.offer_again": "An approver let WARDEN offer this fix again",
     "intake.decision": "The alarm came in", "incident.alert": "The alarm was recorded",
     "incident.ingest": "WARDEN started reading", "incident.gather": "Evidence read",
     "incident.redact": "Secrets removed from the evidence", "incident.tripwire": "Injection check on the evidence",
@@ -75,7 +76,7 @@ STATUSES = tuple(dict.fromkeys(("In progress", "Diagnosed", "No fix plan", "Wait
                                 "Approved - being applied", "Cleared while expected down",
                                 *(label for label, _ in ENDED.values()), "Failed", "Cancelled")))
 _QUIET = {"incident.llm_spend", "incident.llm_reserve", "approval.challenge", "approval.challenge_taken",
-          "approval.link", "approval.link_used", "chatops.thread", "discuss.reply"}
+          "approval.link", "approval.link_used", "chatops.thread", "discuss.reply", "intake.reopen_started"}
 
 
 @dataclass

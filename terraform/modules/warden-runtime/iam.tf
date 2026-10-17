@@ -58,9 +58,9 @@ locals {
   }
   own = concat(local.audit_and_settings, [local.who_may_approve, local.its_own_metrics])
   acknowledge_pages = [
-    { Sid = "ListPages", Effect = "Allow", Action = ["s3:ListBucket"], Resource = [aws_s3_bucket.pages.arn] },
-    { Sid = "ReadPages", Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${aws_s3_bucket.pages.arn}/pages/*", "${aws_s3_bucket.pages.arn}/acks/*"] },
-    { Sid = "Acknowledge", Effect = "Allow", Action = ["s3:PutObject"], Resource = ["${aws_s3_bucket.pages.arn}/acks/*"] },
+    { Sid = "ListPages", Effect = "Allow", Action = ["s3:ListBucket"], Resource = [aws_s3_bucket.anchors.arn] },
+    { Sid = "ReadPages", Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${aws_s3_bucket.anchors.arn}/pages/*", "${aws_s3_bucket.anchors.arn}/acks/*"] },
+    { Sid = "Acknowledge", Effect = "Allow", Action = ["s3:PutObject"], Resource = ["${aws_s3_bucket.anchors.arn}/acks/*"] },
   ]
   # Register S15, as settings.ZONE_SECRETS and settings.secret_id name them (tests/test_runtime_module_g6.py holds the
   # two together): every zone's own, and each zone's. Each zone also reads its own Temporal key, temporal-api-key-<zone>.

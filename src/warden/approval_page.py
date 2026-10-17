@@ -494,7 +494,9 @@ class ApprovalPage:
 
                 return self._served_html(403, refused_page())
             back = token if kind == "r" and token != "records" and _INCIDENT_ID.fullmatch(token) else ""
-            to = "/p" if kind == "p" else f"/r/{back}" if back else "/r"
+            to = f"/r/{back}" if back else "/r"
+            if kind == "p":
+                to = "/p"
             return Response(302, {"Location": to, "Cache-Control": "no-store",
                                   "Set-Cookie": (f"{_WHO}={remember(self.slack, member['user'])}; Max-Age={REMEMBER_S}; "
                                                  "Path=/; Secure; HttpOnly; SameSite=Lax")}, "")
@@ -791,7 +793,6 @@ class ApprovalPage:
         """`/p`: the pages the pager repeats every 15 minutes (paging.py), and an approver's passkey acknowledging
         exactly those shown (owner, 2026-10-16). Acknowledging stops the repeats and nothing else: the kill switch
         stays on, an alarm stays in ALARM. On the record, signed, before the pager is told."""
-        from . import paging
         from .slack_login import remembered
 
         if self.pages is None or self.log is None:
@@ -806,20 +807,33 @@ class ApprovalPage:
         if not approvers:
             return _json(403, {"error": "only an approver with a passkey acknowledges WARDEN's pages"})
         credentials = [c for a in approvers for c in self._credentials(a)]
-        key, now = f"pages:{member or 'passkey'}", self.clock()
+        key = f"pages:{member or 'passkey'}"
         if (method, parts) == ("POST", ["pages"]):
-            shown = paging.open_pages(self.pages)
-            if not shown:
-                return _json(200, {"open": []})
-            options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=credentials,
-                                                         workflow_id=paging.WORKFLOW,
-                                                         plan_hash=paging.signed_for(shown), tier="T1", now=now)
-            self.store.put_challenge(key, pending)
-            return _json(200, {"options": json.loads(options), "open": [
-                {"key": p["key"], "why": str(p.get("why", ""))[:600], "sent": int(p.get("sent", 1)),
-                 "opened": both_times(datetime.fromisoformat(p["opened_at"]))} for p in shown]})
+            return self._pages_shown(credentials, key)
         if (method, parts) != ("POST", ["ack"]):
             return _json(404, {"error": "not found"})
+        return self._pages_ack(credentials, key, body)
+
+    def _pages_shown(self, credentials: list[passkeys.Credential], key: str) -> Response:
+        """The open pages, and a passkey challenge over exactly those."""
+        from . import paging
+
+        shown = paging.open_pages(self.pages)
+        if not shown:
+            return _json(200, {"open": []})
+        options, pending = passkeys.approval_options(rp_id=self.rp_id, credentials=credentials,
+                                                     workflow_id=paging.WORKFLOW, plan_hash=paging.signed_for(shown),
+                                                     tier="T1", now=self.clock())
+        self.store.put_challenge(key, pending)
+        return _json(200, {"options": json.loads(options), "open": [
+            {"key": p["key"], "why": str(p.get("why", ""))[:600], "sent": int(p.get("sent", 1)),
+             "opened": both_times(datetime.fromisoformat(p["opened_at"]))} for p in shown]})
+
+    def _pages_ack(self, credentials: list[passkeys.Credential], key: str, body: str) -> Response:
+        """The passkey's answer: checked, then on the record, then in the bucket - only for the pages it signed."""
+        from . import paging
+
+        now = self.clock()
         pending = self.store.take_challenge(key)
         try:
             response = json.loads(body)["response"]

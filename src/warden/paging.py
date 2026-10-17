@@ -1,7 +1,7 @@
 """WARDEN's own pages, seen from the approval page: which are open, and a person's acknowledgement of them.
 
 The pager (terraform/modules/warden-runtime/pager/pager.py, a function of its own with no WARDEN code in it) writes
-each page as `pages/<key>.json` in the runtime's pages bucket and says it again every 15 minutes until an
+each page as `pages/<key>.json` in the runtime's anchors bucket and says it again every 15 minutes until an
 `acks/<key>.json` names the same opening time. Only this side writes an acknowledgement, and only after an
 approver's passkey signed exactly the pages shown (approval_page `/p`); the acknowledgement is on WARDEN's record
 first (`page.acknowledged`), then in the bucket. tests/test_paging.py holds this layout to the pager's.
@@ -51,7 +51,7 @@ def signed_for(pages: list[dict[str, Any]]) -> str:
 
 
 class MemoryPages:
-    """The bucket's two prefixes in memory: a test, or a runtime with no pages bucket."""
+    """The bucket's two prefixes in memory: a test, or a runtime with no bucket for them."""
 
     def __init__(self) -> None:
         self.objects: dict[str, dict[str, Any]] = {}
@@ -67,7 +67,9 @@ class MemoryPages:
 
 
 class S3Pages:
-    """The runtime's pages bucket (WARDEN_PAGES_BUCKET): the approval function reads `pages/` and writes `acks/`."""
+    """The runtime's anchors bucket (WARDEN_PAGES_BUCKET), its `pages/` and `acks/`: the approval function reads
+    `pages/` and writes `acks/`. Under Object Lock, as the audit's anchors are: no page or acknowledgement is lost or
+    rewritten unseen, every version kept for the anchors' retention."""
 
     def __init__(self, bucket: str, s3: Any = None) -> None:
         if s3 is None:
@@ -85,7 +87,9 @@ class S3Pages:
             return None
 
     def put(self, key: str, body: dict[str, Any]) -> None:
-        self.s3.put_object(Bucket=self.bucket, Key=key, Body=json.dumps(body).encode(), ContentType="application/json")
+        # The anchors bucket is under Object Lock, which refuses a write without a checksum.
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=json.dumps(body).encode(), ContentType="application/json",
+                           ChecksumAlgorithm="SHA256")
 
     def list(self, prefix: str) -> list[str]:
         out: list[str] = []

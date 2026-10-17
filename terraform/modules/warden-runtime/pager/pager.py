@@ -12,7 +12,7 @@ the Lambda runtime ships them - so a dead worker, a dead database or a broken im
   once every REPEAT_MINUTES, with how long it has been open and why. A Temporal API key that expires within
   KEY_WARN_DAYS opens one too.
 
-A page is `pages/<key>.json` in this runtime's pages bucket, written only here. Its acknowledgement is
+A page is `pages/<key>.json` in this runtime's anchors bucket, written only here. Its acknowledgement is
 `acks/<key>.json`, written only by the approval page after an approver's passkey signed it (warden.paging): one
 writer per object, so neither overwrites the other. An acknowledgement ends the page it names by its opening time;
 the same alarm going into ALARM again later is a new page.
@@ -23,6 +23,7 @@ its reason, CloudWatch emails exactly that reason - no SNS permission outside wh
 
 import datetime as _dt
 import json
+import logging
 import os
 import re
 import urllib.request
@@ -30,6 +31,8 @@ import urllib.request
 import boto3
 
 _KEY = re.compile(r"[A-Za-z0-9._-]{1,200}")
+_LOG = logging.getLogger("warden.pager")
+_LOG.setLevel(logging.INFO)
 _SLACK = "https://hooks." + "slack.com/"  # the only place a page is posted; built from parts, as every such literal
 _REASON_MAX = 1023  # CloudWatch's limit on an alarm state's reason
 _SLACK_MAX = 3500
@@ -46,8 +49,17 @@ def _iso(t):
     return t.isoformat(timespec="seconds")
 
 
+def _when(value):
+    """A page's own time, or None when it cannot be read: a page is never silenced for a bad field."""
+    try:
+        t = _dt.datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=_dt.UTC)
+
+
 class Pages:
-    """The pages bucket: `pages/` written here, `acks/` written by the approval page."""
+    """The anchors bucket's pages: `pages/` written here, `acks/` written by the approval page."""
 
     def __init__(self, bucket, s3=None):
         self.bucket, self.s3 = bucket, s3 or boto3.client("s3")
@@ -66,8 +78,9 @@ class Pages:
         return bool(ack) and ack.get("opened_at") == page.get("opened_at")
 
     def put(self, page):
+        # The anchors bucket is under Object Lock, which refuses a write without a checksum.
         self.s3.put_object(Bucket=self.bucket, Key=f"pages/{page['key']}.json", Body=json.dumps(page).encode(),
-                           ContentType="application/json")
+                           ContentType="application/json", ChecksumAlgorithm="SHA256")
 
     def keys(self):
         out = []
@@ -95,31 +108,47 @@ class Pager:
         page = {"key": key, "why": str(why)[:600], "opened_at": _iso(now), "last_sent": _iso(now), "sent": 1,
                 "alarm": alarm, "about": about}
         self.pages.put(page)
-        said = (f"WARDEN {self.env} page: {key}: {page['why']} {self._ack_line()}")
+        said = f"WARDEN {self.env} page: {key}: {page['why']} {self._ack_line()}"
         self._send(said, email=not emailed)
         return page
 
+    def _due(self, key, now):
+        """The page for `key` when it is to be said again now; None otherwise. One that cannot be read is said
+        again rather than silenced (CodeRabbit, PR 43): a page whose times are unreadable is due at every tick, and
+        a key whose object is not a page is logged and skipped - the other pages still go."""
+        try:
+            page = self.pages.page(key)
+        except Exception as exc:  # noqa: BLE001 - one broken object never stops the others
+            _LOG.warning("page %s could not be read (%s): skipped", key, type(exc).__name__)
+            return None
+        if not isinstance(page, dict) or not _KEY.fullmatch(str(page.get("key", ""))):
+            _LOG.warning("page %s is not a page: skipped", key)
+            return None
+        if self.pages.acked(page):
+            return None
+        last = _when(page.get("last_sent"))
+        # A minute's slack: the schedule's ticks drift by seconds, and a page a few seconds early waits a tick.
+        return page if last is None or now - last >= self.repeat - _dt.timedelta(minutes=1) else None
+
+    def _line(self, page, now, state):
+        opened = _when(page.get("opened_at"))
+        sent = page.get("sent") if isinstance(page.get("sent"), int) else 0
+        how_long = f"open {int((now - opened).total_seconds() // 60)} min" if opened else "open since a time that cannot be read"
+        now_is = {"ALARM": " Its alarm is still in ALARM.", "OK": " Its alarm is OK now; acknowledge to stop this."}
+        page.update(last_sent=_iso(now), sent=sent + 1, opened_at=page.get("opened_at") if opened else _iso(now))
+        return (f"{page['key']}: {how_long}, said {sent + 1} times - {str(page.get('why', ''))[:600]}"
+                + now_is.get(state, ""))
+
     def tick(self):
         """Every open page not acknowledged, said again once each REPEAT_MINUTES: how long, and why."""
-        now, due = self.clock(), []
-        for key in sorted(self.pages.keys()):
-            page = self.pages.page(key)
-            if not page or self.pages.acked(page):
-                continue
-            # A minute's slack: the schedule's ticks drift by seconds, and a page a few seconds early waits a tick.
-            if now - _dt.datetime.fromisoformat(page["last_sent"]) >= self.repeat - _dt.timedelta(minutes=1):
-                due.append(page)
+        now = self.clock()
+        due = [p for p in (self._due(k, now) for k in sorted(self.pages.keys())) if p]
         if not due:
             return []
         states = self.alarm_states([p["alarm"] for p in due if p.get("alarm")])
         lines = []
         for page in due:
-            minutes = int((now - _dt.datetime.fromisoformat(page["opened_at"])).total_seconds() // 60)
-            state = states.get(page.get("alarm") or "")
-            now_is = {"ALARM": " Its alarm is still in ALARM.", "OK": " Its alarm is OK now; acknowledge to stop this."}
-            lines.append(f"{page['key']}: open {minutes} min, said {page['sent'] + 1} times - {page['why']}"
-                         + now_is.get(state, ""))
-            page.update(last_sent=_iso(now), sent=page["sent"] + 1)
+            lines.append(self._line(page, now, states.get(page.get("alarm") or "")))
             self.pages.put(page)
         said = (f"WARDEN {self.env}: {len(due)} page{'s' if len(due) > 1 else ''} not acknowledged. "
                 + " | ".join(lines) + " " + self._ack_line())
@@ -213,25 +242,35 @@ def worker_stopped(event, cluster_arn):
     return key, f"a worker task of {group} stopped on its own ({d.get('stopCode')}): {reason}"
 
 
+def _from_environment():
+    return Pager(Pages(os.environ["PAGES_BUCKET"]), env=os.environ["WARDEN_ENV"],
+                 repeat_minutes=int(os.environ["REPEAT_MINUTES"]), ack_url=os.environ.get("ACK_URL", ""),
+                 slack=slack_sender(os.environ["SLACK_SECRET_ID"]), email=email_sender(os.environ["REPEAT_ALARM"]),
+                 alarm_states=alarm_states())
+
+
+def _on_alarm(pager, detail):
+    name = str(detail.get("alarmName") or "")
+    if (detail.get("state") or {}).get("value") != "ALARM" or name == os.environ.get("REPEAT_ALARM"):
+        return {"ignored": "not a self-alarm going into ALARM"}
+    why = str((detail.get("configuration") or {}).get("description") or "")
+    return {"opened": bool(pager.open(name, why or "a WARDEN self-alarm is in ALARM", emailed=True, alarm=name))}
+
+
+def _on_tick(pager, now):
+    param = os.environ.get("KEY_EXPIRY_PARAM", "")
+    expiring = key_expiry(param, now or pager.clock(), int(os.environ.get("KEY_WARN_DAYS", "7"))) if param else None
+    opened = bool(expiring and pager.open("temporal-key-expiry", expiring[1], about=expiring[0]))
+    return {"opened": opened, "repeated": pager.tick()}
+
+
 def handler(event, context=None, *, pager=None, now=None):
-    env = os.environ["WARDEN_ENV"]
-    if pager is None:
-        pager = Pager(Pages(os.environ["PAGES_BUCKET"]), env=env, repeat_minutes=int(os.environ["REPEAT_MINUTES"]),
-                      ack_url=os.environ.get("ACK_URL", ""), slack=slack_sender(os.environ["SLACK_SECRET_ID"]),
-                      email=email_sender(os.environ["REPEAT_ALARM"]), alarm_states=alarm_states())
-    detail = event.get("detail") or {}
+    pager = pager or _from_environment()
     if event.get("source") == "aws.cloudwatch" and event.get("detail-type") == "CloudWatch Alarm State Change":
-        name = str(detail.get("alarmName") or "")
-        if (detail.get("state") or {}).get("value") != "ALARM" or name == os.environ.get("REPEAT_ALARM"):
-            return {"ignored": "not a self-alarm going into ALARM"}
-        why = str((detail.get("configuration") or {}).get("description") or "")
-        return {"opened": bool(pager.open(name, why or "a WARDEN self-alarm is in ALARM", emailed=True, alarm=name))}
+        return _on_alarm(pager, event.get("detail") or {})
     if event.get("source") == "aws.ecs":
         found = worker_stopped(event, os.environ.get("CLUSTER_ARN", ""))
         return {"opened": bool(found and pager.open(*found))}
     if event.get("detail-type") == "Scheduled Event":
-        expiring = key_expiry(os.environ.get("KEY_EXPIRY_PARAM", ""), now or pager.clock(),
-                              int(os.environ.get("KEY_WARN_DAYS", "7"))) if os.environ.get("KEY_EXPIRY_PARAM") else None
-        opened = bool(expiring and pager.open("temporal-key-expiry", expiring[1], about=expiring[0]))
-        return {"opened": opened, "repeated": pager.tick()}
+        return _on_tick(pager, now)
     return {"ignored": "not an event the pager takes"}
