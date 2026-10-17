@@ -70,11 +70,11 @@ def test_every_redis_client_states_protocol_retries_keepalive_timeouts_and_tls()
     calls = _client_calls()
     assert sorted(calls) == sorted(TIMEOUTS)
     for rel, kwargs in calls.items():
-        stated = {k: kwargs.get(k) for k in EXPLICIT}
-        assert stated == EXPLICIT, rel
-        assert kwargs.get("retry") == NO_RETRY, rel
-        assert (kwargs.get("socket_timeout"), kwargs.get("socket_connect_timeout")) == TIMEOUTS[rel], rel
-        assert kwargs.get("port") == 6379, rel
+        socket_timeout, connect_timeout = TIMEOUTS[rel]
+        expected = {**EXPLICIT, "retry": NO_RETRY, "port": 6379, "socket_timeout": socket_timeout,
+                    "socket_connect_timeout": connect_timeout}
+        stated = {k: kwargs.get(k) for k in expected}
+        assert stated == expected, rel
 
 
 @pytest.fixture
