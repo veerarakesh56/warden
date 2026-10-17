@@ -399,9 +399,9 @@ class RemediationActivities:
         gave = [b for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
                 if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
                 and b.get("plan_hash") == plan.plan_hash]
-        did = sorted({f"{self.policy.said(str(b.get('approver')))} (an AI, with its own signing key, at autonomy level "
+        did = sorted({f"{approvals.AI_LABEL} (an AI, with its own signing key, at autonomy level "
                       f"{b.get('autonomy', autonomy.L2)}: {autonomy.MEANS[autonomy.L2]})"
-                      if self.policy.is_ai(str(b.get("approver"))) else
+                      if b.get("ai") is True or self.policy.is_ai(str(b.get("approver"))) else
                       f"{self.policy.said(str(b.get('approver')))} (with their "
                       f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
         # What each wrote with their approval, in their own words - inert, one line each (_words).
@@ -783,7 +783,8 @@ class RemediationActivities:
         if len({e["body"].get("approver") for e in approved}) < need:
             return [f"{len({e['body'].get('approver') for e in approved})} of {need} approval(s) recorded for this plan"]
         # An AI approval is checked again here: anything may have changed since it arrived (autonomy.ai_problems).
-        if any(self.policy.is_ai(str(e["body"].get("approver"))) for e in approved) and (
+        # As recorded (PR 42 review, CWE-863): an approval recorded as an AI's is one, whatever the list says now.
+        if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved) and (
                 again := autonomy.ai_problems(self.audit, plan, run)):
             return again
         last_approval = max(e["seq"] for e in approved)
@@ -1002,6 +1003,27 @@ class RemediationActivities:
         self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail, "undone": undone})
         return detail
 
+    def _score(self, incident_id: str, workflow_id: str, run: str, outcome: FixOutcome) -> None:
+        """Earned autonomy (autonomy.py): this run's end, scored against Eldane's review of its plan, once per run, from
+        this run's own rows. Promotion and demotion are read from these scores, and from nothing else."""
+        from types import SimpleNamespace
+
+        def ours(kind: str) -> list[dict[str, Any]]:
+            return [e["body"] for e in self.audit.entries(incident_id, kinds=(kind,))
+                    if e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id", "") == run
+                    and (not outcome.plan_hash or e["body"].get("plan_hash") == outcome.plan_hash)]
+
+        plans = ours("remediation.plan")
+        if not plans:
+            return
+        accepted = ours("approval.accepted")
+        verdict = autonomy.verdict_of(self.audit, SimpleNamespace(
+            incident_id=incident_id, workflow_id=workflow_id, plan_hash=plans[-1].get("plan_hash")), run)
+        autonomy.record_outcome(self.audit, incident_id, plan=plans[-1], status=outcome.status,
+                                approvers=sorted({str(b.get("approver")) for b in accepted if b.get("approver")}),
+                                ai=frozenset(str(b.get("approver")) for b in accepted if b.get("ai") is True),
+                                policy=self.policy, verdict=verdict, workflow_id=workflow_id, run_id=run)
+
     @activity.defn
     def finish(self, incident_id: str, workflow_id: str, outcome: FixOutcome) -> None:
         # The signed end row states what THIS run's audit rows show, not what the workflow claims (fourth
@@ -1012,7 +1034,9 @@ class RemediationActivities:
         if run and any(e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id") == run
                        for e in self.audit.entries(incident_id, kinds=("workflow.end",))):
             # Signed even when this try only finds the row: the try that wrote it may have failed before its
-            # checkpoint (register R9-O4), and the end of a run must not stay unsigned.
+            # checkpoint (register R9-O4), and the end of a run must not stay unsigned. Scored too, if the try that
+            # wrote it failed before it could be (PR 42 review): a failed fix that is never scored never demotes.
+            self._score(incident_id, workflow_id, run, outcome)
             self.audit.checkpoint()
             return
 
@@ -1049,16 +1073,7 @@ class RemediationActivities:
             bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}",
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, "workflow.end", body)
-        if plans:
-            # Earned autonomy (autonomy.py): this run's end, scored against Eldane's review of its plan - promotion and
-            # demotion are read from these rows, and from nothing else.
-            from types import SimpleNamespace
-
-            verdict = autonomy.verdict_of(self.audit, SimpleNamespace(
-                incident_id=incident_id, workflow_id=workflow_id, plan_hash=plans[-1].get("plan_hash")), run)
-            autonomy.record_outcome(self.audit, incident_id, plan=plans[-1], status=outcome.status,
-                                    approvers=body["approvers"], policy=self.policy, verdict=verdict,
-                                    workflow_id=workflow_id, run_id=run)
+        self._score(incident_id, workflow_id, run, outcome)
         self.audit.checkpoint()
         # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
         # only the audit could say (live, 2026-10-12). The status and who approved - never a typed reason.
