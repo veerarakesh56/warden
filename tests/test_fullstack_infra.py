@@ -480,7 +480,7 @@ def test_infra_ci_triggers_only_on_terraform_and_holds_no_credentials():
               "tests/test_supply_chain.py", "tests/test_terraform_versions.py", "tests/test_env_iam.py",
               "tests/test_helios_gate_r56.py", "tests/test_platform_iam_g6.py", "tests/test_aws_platform_g6.py",
               "tests/test_runtime_module_g6.py", "tests/test_runtime_pipeline_s9.py", "tests/test_runtime_iam_g6.py", "tests/test_actor_use_g6.py", "tests/test_redis_tls_r8.py", "tests/test_api_auth_ai13.py", "tests/test_runtime_network_g6.py",
-              "tests/test_backups.py"}
+              "tests/test_backups.py", "tests/test_iac_hardening_sonar.py"}
     assert all(p.startswith(("terraform/fullstack/", "terraform/undo-lab/", "terraform/modules/", "terraform/runtime/", ".github/workflows/", "iam/")) or p in checks
                or p in ("uv.lock", "pyproject.toml", "scripts/render_env_iam.py", "scripts/helios_gate.py", "src/warden/platforms/aws.py",
                          "src/warden/data/environments.yaml")

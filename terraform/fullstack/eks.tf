@@ -173,6 +173,16 @@ resource "aws_launch_template" "nodes" {
     }
   }
 
+  # Never a public address, whatever subnet a node lands in (Sonar terraform:S6329, 2026-10-16): the private subnets
+  # give none already, and this keeps it so if the node group's subnets ever change. Security groups set here replace
+  # the ones EKS would choose, so it names the one EKS applies without a template: the cluster security group (pods
+  # use it too - the cache allows it, main.tf).
+  network_interfaces {
+    associate_public_ip_address = false
+    delete_on_termination       = true
+    security_groups             = [aws_eks_cluster.this.vpc_config[0].cluster_security_group_id]
+  }
+
   # Hop limit 1: a pod in its own network namespace cannot reach IMDS, so it cannot take the NODE role's
   # credentials (audit A-I-12). What needs IMDS runs on the host network and still reaches it: vpc-cni,
   # kube-proxy, the Pod Identity agent, and the CloudWatch agent (its chart sets agent.hostNetwork: true,
@@ -224,8 +234,9 @@ resource "aws_eks_addon" "this" {
 # The observability agent writes here. Created by terraform so a destroy removes it: left to the
 # agent it would outlive the stack, untagged.
 resource "aws_cloudwatch_log_group" "container_insights" {
-  name              = "/aws/containerinsights/${aws_eks_cluster.this.name}/performance"
-  retention_in_days = 1
+  name = "/aws/containerinsights/${aws_eks_cluster.this.name}/performance"
+  # 14 days (Sonar terraform:S6413, 2026-10-16): enough to look back at an incident found days later.
+  retention_in_days = 14
 }
 
 # --------------------------------------------------------------------------- catalog-api's identity

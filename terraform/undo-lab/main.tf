@@ -191,12 +191,12 @@ data "archive_file" "consumer" {
 
 resource "aws_cloudwatch_log_group" "producer" {
   name              = "/aws/lambda/${local.name}-producer"
-  retention_in_days = 7
+  retention_in_days = 14 # long enough to look back at an incident (Sonar terraform:S6413, 2026-10-16)
 }
 
 resource "aws_cloudwatch_log_group" "consumer" {
   name              = "/aws/lambda/${local.name}-consumer"
-  retention_in_days = 7
+  retention_in_days = 14
 }
 
 resource "aws_iam_role" "producer" {
