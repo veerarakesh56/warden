@@ -45,6 +45,7 @@ STEP = {
     "incident.report": "Report written", "incident.notify": "Report sent", "incident.plan_fix": "Fix plan looked for",
     "incident.no_plan": "No fix plan", "incident.after_hold": "Looked at again after expected down",
     "incident.evidence": "Evidence kept for questions",
+    "record.link": "Linked to another record by an approver (links.py)",
     "intake.side_effect": "Another alarm started while this fix was checked",
     "remediation.side_effects": "Other alarms started after this fix - each diagnosed on its own", "remediation.rediagnose": "Diagnosed again",
     "incident.later_alarm": "Another alarm started after this fix - diagnosed beside it",
@@ -113,6 +114,9 @@ class Record:
     unsigned: int = 0
     broken: int = 0
     named: Any = None  # a machine text with each approver id replaced by their name
+    # Its links to other records as they stand, and the proven fix they lead to (links.py); not read for the list.
+    links: list[dict[str, Any]] = field(default_factory=list)
+    proven: dict[str, Any] | None = None
 
 
 def incident_ids(log: Any) -> list[str]:
@@ -238,6 +242,10 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
             r.status, r.kind = "Cleared while expected down", "ok"
         elif r.verdict:
             r.status, r.kind = "Diagnosed", "info"
+    if not light:
+        from . import links
+
+        r.links, r.proven = links.links_of(log, incident), links.proven_fix(log, incident)
     return r
 
 
@@ -586,12 +594,47 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
             '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
             'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
-            f'<h2>Decisions</h2>{_decisions(r)}'
+            f'<h2>Decisions</h2>{_decisions(r)}{linked(r)}'
             f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
             f'<tbody>{"".join(steps)}</tbody></table></div></details>')
     return _shell(f"WARDEN - {r.alarm or r.id}", "Record", main, script=_OPEN_ALL_JS)
+
+
+def _at(value: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def linked(r: Record) -> str:
+    """The incident's links to other records - each in plain words, who linked it and when, the other record one
+    click away - and the proven fix they lead to (links.py). Nothing when it has none."""
+    if not r.links and not r.proven:
+        return ""
+    from . import links
+
+    def who(approver: str) -> str:
+        name = r.shown(approver) if r.shown else ""
+        return name if name and name != approver else "an approver"  # never the list's id
+
+    items = []
+    for k in r.links:
+        note = f'<blockquote class="note">{_e(k["note"])}</blockquote>' if k.get("note") else ""
+        items.append(f'<li><p>This incident {_e(links.WORDS[k["side"]])} <a href="{_e(Query().href(incident=k["with"]))}">'
+                     f'<span class="mono">{_e(k["with"])}</span></a> - linked by {_e(who(str(k.get("approver"))))} '
+                     f'at <time>{_e(_when(_at(k.get("at"))))}</time></p>{note}</li>')
+    out = '<h2>Linked records</h2><ul class="decisions">' + "".join(items) + "</ul>" if items else ""
+    if r.proven:
+        f = r.proven
+        out += (f'<p class="pad"><strong>Proven fix on a linked record:</strong> <span class="mono">{_e(f["entry"])}</span>'
+                f' on <span class="mono">{_e(f["target"])}</span> was applied and verified in '
+                f'<a href="{_e(Query().href(incident=f["incident"]))}"><span class="mono">{_e(f["incident"])}</span></a> '
+                f'at <time>{_e(_when(f["verified_at"]))}</time> ({len(f["path"])} link(s) away). A fact from the '
+                'record for a person to weigh: WARDEN does not apply it on that account.</p>')
+    return out
 
 
 _FENCE = "```"
