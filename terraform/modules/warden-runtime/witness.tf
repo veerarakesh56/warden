@@ -83,6 +83,15 @@ resource "aws_s3_bucket_policy" "witness" {
   depends_on = [aws_s3_bucket_public_access_block.witness]
 }
 
+# Server access logs (Sonar terraform:S6258): every read and write of the trail's own bucket, into the access-log bucket
+# (anchors.tf) - CloudTrail itself records management events only.
+resource "aws_s3_bucket_logging" "witness" {
+  bucket        = aws_s3_bucket.witness.id
+  target_bucket = aws_s3_bucket.access_logs.id
+  target_prefix = "witness/"
+  depends_on    = [aws_s3_bucket_policy.access_logs]
+}
+
 resource "aws_cloudtrail" "witness" {
   name                          = local.witness_trail
   s3_bucket_name                = aws_s3_bucket.witness.id
