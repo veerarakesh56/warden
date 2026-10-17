@@ -54,8 +54,8 @@ class _Cursor:
             self.conn.killed.append(int(sql.split()[1]))
         elif "p.id = %s" in sql:
             self.rows = [(params[0],)] if params[0] in self.conn.still else []
-        elif "WHERE session_id = " in sql:
-            spid = int(sql.split("WHERE session_id = ")[1].split()[0])
+        elif "WHERE session_id = %d" in sql:
+            spid = params[0]
             self.rows = [(spid,)] if spid in self.conn.still else []
         else:
             self.rows = [(i,) for i in self.conn.stuck]
@@ -117,8 +117,8 @@ def test_mysql_and_mssql_are_scoped_the_same_way():
     ms = _Conn()
     _platform("mssql", ms, users=["orders_app", "orders_ro"]).apply("db_terminate_idle_in_tx", PARAMS)
     sql, params = next((s, p) for s, p in ms.sql if "dm_exec_sessions" in s)
-    assert "database_id = DB_ID()" in sql and "login_name IN (%s, %s)" in sql and "@@SPID" in sql
-    assert params == ("orders_app", "orders_ro")
+    assert "database_id = DB_ID()" in sql and "login_name IN %s" in sql and "@@SPID" in sql
+    assert params == (5, ("orders_app", "orders_ro"), 300)
 
 
 def test_the_ceiling_holds_in_python_even_if_the_server_returns_more():

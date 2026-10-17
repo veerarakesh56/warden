@@ -114,7 +114,7 @@ def migrate(dsn: str, writer_role: str | None = None, *, iam_login: bool = False
                 raise ValueError(f"not a plain database role name: {writer_role!r}")
             if iam_login:
                 db.execute(f"DO $r$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{writer_role}') THEN "
-                           f"CREATE ROLE {writer_role} LOGIN; END IF; END $r$")  # nosec B608 - a checked role name
+                           f"CREATE ROLE {writer_role} LOGIN; END IF; END $r$")  # nosec B608  # a role name checked by the regex above
                 db.execute(f"GRANT rds_iam TO {writer_role}")
                 db.execute(f"GRANT USAGE ON SCHEMA public TO {writer_role}")
             for t in ("entries", "checkpoints"):
