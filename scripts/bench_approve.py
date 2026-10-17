@@ -8,8 +8,10 @@ incident's waiting plan and approving it through the approval page's signed path
     python scripts/bench_approve.py --incident <id> --deny "<why>"  # denies the waiting plan, with the reason
 
 The key is bench-approver.pem in WARDEN_BENCH_KEY_DIR (default ~/.warden-bench), never in the repository. The approval
-domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) unless --domain names it. Every
-approval it sends is on the record as `bench`, the name the approver list shows as "bench approver (Claude), test".
+domain comes from the runtime's settings (SSM /warden/<runtime env>/tf/approval_domain) only: a signed approval is sent
+to no host a command line names (Sonar pythonsecurity:S8703, 2026-10-16 - `--domain` was that; an agent driving this
+script could have posted a valid signature anywhere). Every approval it sends is on the record as `bench`, the name the
+approver list shows as "bench approver (Claude), test".
 
 The key at rest (2026-10-16, naming audit item 4: it was always written in the clear, with default permissions). A new
 key is encrypted with WARDEN_BENCH_KEY_PASSPHRASE, and written in the clear only with --unencrypted. It is created
@@ -125,7 +127,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--incident", default="")
     ap.add_argument("--approve", action="store_true")
     ap.add_argument("--deny", default=None, help="deny the waiting plan, with this reason")
-    ap.add_argument("--domain", default="")
     ap.add_argument("--record", default="", help="read an incident's record, or `latest` for the newest ones")
     args = ap.parse_args(argv)
     if args.new_key:
@@ -136,14 +137,12 @@ def main(argv: list[str] | None = None) -> int:
     if not (args.incident or args.record):
         ap.error("--incident or --record is needed")
     key = load_key()
-    domain = args.domain
-    if not domain:
-        import boto3
+    import boto3
 
-        from warden.environments import default_environment_policies
+    from warden.environments import default_environment_policies
 
-        runtime = default_environment_policies().runtime_environment
-        domain = boto3.client("ssm").get_parameter(Name=f"/warden/{runtime}/tf/approval_domain")["Parameter"]["Value"]
+    runtime = default_environment_policies().runtime_environment
+    domain = boto3.client("ssm").get_parameter(Name=f"/warden/{runtime}/tf/approval_domain")["Parameter"]["Value"]
     from warden import approvals
 
     issued = datetime.now(UTC).isoformat()

@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 import yaml
 from pydantic import ValidationError
 
-from . import gate
+from . import gate, paths
 from .chatops import notify
 from .graph import run
 from .knowledge import default_knowledge_base
@@ -170,6 +170,24 @@ def _alert_from(incident: str) -> Alert:
     return Alert(**DEMO_ALERTS[incident])
 
 
+def _contained(path: str | pathlib.Path, what: str) -> pathlib.Path:
+    """`path` from the command line, refused unless it lies where WARDEN's tools work (paths.inside)."""
+    try:
+        return paths.inside(path)
+    except ValueError as e:
+        raise SystemExit(f"{what}: {e}") from None
+
+
+def _key_file(path: pathlib.Path) -> pathlib.Path:
+    """A --key or --public-key from the command line: read from the key folder only, where keygen writes keys."""
+    from . import audit
+
+    try:
+        return audit.key_path(path)
+    except (ValueError, FileNotFoundError) as e:
+        raise SystemExit(str(e)) from None
+
+
 def _alert_from_file(path: str) -> Alert:
     """Load an alert from a YAML file with the same fields as a bundled one.
 
@@ -182,7 +200,7 @@ def _alert_from_file(path: str) -> Alert:
     Validation is pydantic's, and it is loud: a malformed alert fails here rather than becoming a
     confusing result later.
     """
-    data = yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
+    data = yaml.safe_load(_contained(path, "--alert").read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise SystemExit(f"--alert {path}: expected a YAML mapping, got {type(data).__name__}")
     try:
@@ -304,14 +322,14 @@ def _audit_command(args: argparse.Namespace) -> int:
         _out(f"audit tables ready; {args.writer_role} may read and append, nothing else")
         return 0
     # The DSN comes from the environment (a secret), never the command line; else the --db file.
-    target = os.environ.get("WARDEN_AUDIT_DSN", "").strip() or args.db
+    target = os.environ.get("WARDEN_AUDIT_DSN", "").strip() or (_contained(args.db, "--db") if args.db else None)
     if target is None:
         _out("error: give --db, or set WARDEN_AUDIT_DSN", err=True)
         return 1
     # With the anchor bucket, every checkpoint must also match its Object Lock copy (register S12).
     bucket = getattr(args, "anchor_bucket", None)
     anchors = audit.S3Anchor(bucket).all() if bucket else None
-    result = audit.verify(target, audit.load_public_key(args.public_key), anchors)
+    result = audit.verify(target, audit.load_public_key(_key_file(args.public_key)), anchors)
     if args.audit_cmd == "show":
         # Register S17: what a message's footer names, read from the record itself, after the chain is verified.
         from .environments import both_times
@@ -336,7 +354,7 @@ def _approver_key(path: pathlib.Path):
     from . import audit
 
     # The approver's passphrase comes from the environment, never from the command line (shell history).
-    return audit.load_private_key(path, os.environ.get("WARDEN_APPROVER_KEY_PASSPHRASE", "").encode() or None)
+    return audit.load_private_key(_key_file(path), os.environ.get("WARDEN_APPROVER_KEY_PASSPHRASE", "").encode() or None)
 
 
 def _enrol_command(args: argparse.Namespace) -> int:
@@ -804,7 +822,7 @@ def _main(argv: list[str] | None = None) -> int:
         # was written, so the result was lost and a benchmark run recorded as ERROR. The report is
         # the audit record; a failure to DISPLAY it must never be able to destroy it.
         if args.json:
-            path = pathlib.Path(args.json)
+            path = _contained(args.json, "--json")
             path.parent.mkdir(parents=True, exist_ok=True)
             # Redacted once more with the run's own map (audit A-C-8): the artefact gets attached
             # to tickets, and a value an upstream step missed must not ride along.

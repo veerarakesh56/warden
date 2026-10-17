@@ -27,6 +27,10 @@ import subprocess  # nosec B404 - runs the pinned Helios binary with fixed argum
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))  # warden.paths is stdlib only: the deploy job installs no package
+
+from warden import paths  # after the sys.path line above, deliberately
+
 HELIOS = ROOT / "terraform" / "fullstack" / "helios"
 INCONCLUSIVE = 3
 AZ = "az-outage"
@@ -128,12 +132,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: terraform/{args.stack}/helios/accepted.json does not exist - a stack says what it accepts, "
               "even when that is nothing")
         return 1
-    document = args.plan or args.after
+    # Every file it reads, writes or hands Helios lies where the job works (RUNNER_TEMP, the checkout): a path from the
+    # command line names nothing else, and an absolute path is never read as one of Helios's options.
+    try:
+        document = paths.inside(args.plan or args.after)
+        baseline_path = paths.inside(args.baseline) if args.baseline else None
+        out_dir = paths.inside(args.out_dir)
+    except ValueError as e:
+        print(f"refused: {e}")
+        return 1
     doc = _load(document)
     if doc is None:
         print(f"refused: {document} is not a `terraform show -json` document")
         return 1
-    baseline = _load(args.baseline)
+    baseline = _load(baseline_path)
     existing = {r.get("address") for r in _resources(_root(baseline))} if baseline is not None else None
     accepted = json.loads((helios_dir / "accepted.json").read_text(encoding="utf-8"))
     taken = helios_dir / "regressions.json"
@@ -150,8 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     refused = False
     lines = [f"### Helios {'after apply' if args.after else 'before apply'}", "",
              "| Scenario | Verdict | Why |", "|---|---|---|"]
-    for name, path in scenarios(doc, args.out_dir, helios_dir).items():
-        before = simulate(helios, args.baseline, path) if baseline is not None else None
+    for name, path in scenarios(doc, out_dir, helios_dir).items():
+        before = simulate(helios, baseline_path, path) if baseline is not None else None
         verdict, why = judge(name, simulate(helios, document, path), before, accepted, existing, regressions)
         if args.after and verdict == "later":
             verdict, why = "refuse", "inconclusive on the applied state"
