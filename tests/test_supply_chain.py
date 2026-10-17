@@ -62,7 +62,8 @@ def test_the_images_run_the_same_uv_as_ci():
           if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")}
     images = {d.name: re.findall(r"^FROM ghcr\.io/astral-sh/uv:(\S+)@(sha256:[0-9a-f]{64}) AS uv$",
                                  d.read_text(encoding="utf-8"), re.MULTILINE) for d in sorted(ROOT.glob("Dockerfile*"))}
-    assert set(images) == {"Dockerfile", "Dockerfile.runtime"} and all(len(v) == 1 for v in images.values()), images
+    assert set(images) == {"Dockerfile", "Dockerfile.runtime"}, images
+    assert all(len(v) == 1 for v in images.values()), images
     assert len({v[0] for v in images.values()}) == 1, images  # the same tag and digest in both
     assert {v[0][0] for v in images.values()} == ci, (images, ci)
 
@@ -82,7 +83,8 @@ def test_every_uv_names_its_python():
     requires = SpecifierSet(tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
                             ["requires-python"])
     local = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
-    assert re.fullmatch(r"3\.\d+", local) and f"{local}.0" in requires, local
+    assert re.fullmatch(r"3\.\d+", local), local
+    assert f"{local}.0" in requires, local
     for dockerfile in ("Dockerfile", "Dockerfile.runtime"):
         text = (ROOT / dockerfile).read_text(encoding="utf-8")
         base = re.search(r"^FROM \S+/python:(3\.\d+)-slim@\S+ AS build$", text, re.MULTILINE)
