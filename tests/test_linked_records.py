@@ -296,3 +296,84 @@ def test_a_walk_reads_the_link_rows_once(world, monkeypatch):
     monkeypatch.setattr(log, "entries", lambda *a, **kw: reads.append(kw.get("kinds")) or real(*a, **kw))
     links.proven_fix(log, "inc-a")
     assert reads.count((links.KIND,)) == 1
+
+
+# ------------------------------------------------------------------ links WARDEN finds in its own rows (owner B8)
+FP, FP2 = "0123456789abcdef", "fedcba9876543210"
+
+
+def _found(log, incident, alike=False):
+    """The found links; without `alike`, only those through a fix (every test incident shares one service)."""
+    return {(k["with"], k["side"]) for k in links.found(log, incident)
+            if alike or k["side"] not in ("same-alarm", "same-resource")}
+
+
+def test_a_rediagnosis_after_a_failed_fix_is_found_from_both_sides(world):
+    _, _, _, log = world
+    log.append("inc-a", "remediation.rediagnose", {"new": "inc-b", "why": "the re-check failed"})
+    assert _found(log, "inc-a") == {("inc-b", "rediagnosed-as")}
+    assert _found(log, "inc-b") == {("inc-a", "rediagnosis-of")}
+
+
+def test_a_refused_rediagnosis_names_nothing(world):
+    _, _, _, log = world
+    log.append("inc-a", "remediation.rediagnose", {"new": "", "refused": "already a re-diagnosis"})
+    assert _found(log, "inc-a") == set()
+
+
+@pytest.mark.parametrize(("kind", "body"), [("incident.later_alarm", {"incident": "inc-b", "workflow_id": "rem-1"}),
+                                            ("remediation.side_effects", {"incidents": ["inc-inc-b"]})])
+def test_an_incident_that_started_after_a_fix_is_found_from_both_sides(world, kind, body):
+    _, _, _, log = world
+    log.append("inc-a", kind, body)
+    assert (_found(log, "inc-a"), _found(log, "inc-b")) == ({("inc-b", "followed-by")}, {("inc-a", "followed-fix-of")})
+
+
+def test_a_relapse_is_found_from_the_fix_and_from_the_incident_its_alarm_started(world):
+    _, _, _, log = world
+    new = f"{FP}-20261001T100000Z"
+    _incident(log, new)
+    log.append("inc-a", "remediation.plan", {"workflow_id": "rem-a", "run_id": "r1", "entry": "restart_service"})
+    log.append("rem-a", "intake.relapse", {"workflow_id": "rem-a", "fingerprint": FP, "at": "2026-10-01T10:00:00+00:00"})
+    assert (_found(log, "inc-a"), _found(log, new)) == ({(new, "relapsed-as")}, {("inc-a", "relapse-of")})
+
+
+def test_the_same_alarm_and_the_same_resource_are_found_in_one_environment_only(world):
+    _, _, _, log = world
+    here, again, other_alarm = f"{FP}-20261003T100000Z", f"{FP}-20261002T100000Z", f"{FP2}-20261002T110000Z"
+    for inc in (here, again, other_alarm):
+        _incident(log, inc)
+    _incident(log, f"{FP}-20261002T120000Z", env="prod")
+    assert _found(log, here, alike=True) == {(again, "same-alarm"), (other_alarm, "same-resource"),
+                                 ("inc-a", "same-resource"), ("inc-b", "same-resource"), ("inc-c", "same-resource"),
+                                 ("inc-d", "same-resource")}
+
+
+def test_at_most_the_newest_few_alike_records_are_found(world):
+    _, _, _, log = world
+    for i in range(links.FOUND_MOST + 3):
+        _incident(log, f"{FP}-2026100{i % 9}T10{i:02d}00Z")
+    alarms = [k for k in links.found(log, f"{FP}-20261000T100000Z") if k["side"] == "same-alarm"]
+    assert len(alarms) == links.FOUND_MOST
+
+
+def test_a_found_link_never_makes_a_fix_proven(world):
+    _, _, _, log = world
+    _fix(log, "inc-a", "recovered")
+    log.append("inc-a", "remediation.rediagnose", {"new": "inc-b"})
+    assert links.proven_fix(log, "inc-b") is None
+
+
+def test_the_record_page_shows_found_links_as_warden_s_not_a_persons(world):
+    _, _, policy, log = world
+    log.append("inc-a", "remediation.rediagnose", {"new": "inc-b"})
+    page = records.incident_page(records.record(log, "inc-b", policy))
+    assert "<h2>Related records WARDEN found</h2>" in page
+    assert 'This incident is a new diagnosis, after a failed fix, of <a href="/r/inc-a">' in page
+
+
+def test_a_found_links_words_and_ids_are_text_never_markup(world):
+    _, _, policy, log = world
+    r = records.record(log, "inc-a", policy)
+    r.found = [{"with": "<img src=x onerror=alert(1)>", "side": "same-alarm", "words": "has the same alarm as"}]
+    assert "<img src=x" not in records.found_links(r)

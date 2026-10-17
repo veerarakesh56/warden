@@ -117,6 +117,7 @@ class Record:
     # Its links to other records as they stand, and the proven fix they lead to (links.py); not read for the list.
     links: list[dict[str, Any]] = field(default_factory=list)
     proven: dict[str, Any] | None = None
+    found: list[dict[str, Any]] = field(default_factory=list)  # links WARDEN finds in its own rows (links.found)
 
 
 def incident_ids(log: Any) -> list[str]:
@@ -246,6 +247,7 @@ def record(log: Any, incident: str, policy: Any = None, *, light: bool = False) 
         from . import links
 
         r.links, r.proven = links.links_of(log, incident), links.proven_fix(log, incident)
+        r.found = links.found(log, incident)
     return r
 
 
@@ -594,7 +596,7 @@ def incident_page(r: Record, *, approve: str = "", near: str = "") -> str:
             '<p class="pad tools"><button type="button" class="link" id="all" aria-controls="sections">'
             'Open all sections</button></p>'
             f'<h2>Summary</h2>{_facts(_summary_facts(r))}'
-            f'<h2>Decisions</h2>{_decisions(r)}{linked(r)}'
+            f'<h2>Decisions</h2>{_decisions(r)}{linked(r)}{found_links(r)}'
             f'<h2>Anything that tried to steer WARDEN</h2>{_flags(r)}{told_html}{report}'
             f'<details class="block"><summary>Every step on the record</summary><div class="scroll"><table>'
             f'<thead><tr><th scope="col">When</th><th scope="col">Step</th><th scope="col">Details</th></tr></thead>'
@@ -635,6 +637,18 @@ def linked(r: Record) -> str:
                 f'at <time>{_e(_when(f["verified_at"]))}</time> ({len(f["path"])} link(s) away). A fact from the '
                 'record for a person to weigh: WARDEN does not apply it on that account.</p>')
     return out
+
+
+def found_links(r: Record) -> str:
+    """The links WARDEN found in its own record (links.found): a re-diagnosis, an alarm after a fix, a relapse, the
+    same alarm or resource - each one click away, said to be WARDEN's finding and not a person's link."""
+    if not r.found:
+        return ""
+    items = "".join(f'<li>This incident {_e(k["words"])} <a href="{_e(Query().href(incident=k["with"]))}">'
+                    f'<span class="mono">{_e(k["with"])}</span></a></li>' for k in r.found)
+    return ('<h2>Related records WARDEN found</h2><p class="lede">From WARDEN\'s own signed rows. A person confirms a '
+            'shared cause with <code>warden link</code>; only then can a fix there count as proven here.</p>'
+            f'<ul class="flags">{items}</ul>')
 
 
 _FENCE = "```"

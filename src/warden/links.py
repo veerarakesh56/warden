@@ -218,3 +218,107 @@ def proven_fix(log: Any, incident: str) -> dict[str, Any] | None:
 def describe(link: dict[str, Any]) -> str:
     """A link in a person's words, from this incident's side."""
     return f"{WORDS[link['side']]} {link['with']}"
+
+
+# ------------------------------------------------------------------ links WARDEN finds in its own record (owner B8)
+# Derived when a record is read, from rows WARDEN itself wrote and signed - nothing is stored, nothing is guessed:
+# - rediagnosis: a fix that failed a re-check started a new diagnosis of the same alarm (remediation.rediagnose);
+# - followed after a fix: another incident started while, or shortly after, a fix was applied (incident.later_alarm,
+#   remediation.side_effects);
+# - relapse: a fix being watched heard its alarm fire again, which started a new incident (intake.relapse);
+# - same alarm (the same intake fingerprint) or same resource (the same environment and service), in the last
+#   FOUND_DAYS days, the newest FOUND_MOST of each.
+# A found link is shown as WARDEN's and is never followed for a proven fix: only a person's signed link says two
+# incidents share a cause.
+FOUND_WORDS = {
+    "rediagnosis-of": "is a new diagnosis, after a failed fix, of", "rediagnosed-as": "was diagnosed again as",
+    "followed-fix-of": "started after a fix of", "followed-by": "was followed, after its fix, by",
+    "relapse-of": "is the alarm coming back after a fix of", "relapsed-as": "came back, after its fix, as",
+    "same-alarm": "has the same alarm as", "same-resource": "is on the same resource as"}
+FOUND_DAYS, FOUND_MOST = 30, 5
+_FP = re.compile(r"^([0-9a-f]{16})-\d{8}T\d{6}Z$")
+
+
+def _incident_id(value: Any) -> str:
+    text = str(value or "")
+    return text if re.fullmatch(_ID, text) else ""
+
+
+# Each row that ties a later incident to a fix: (the fix's incident's side, the later incident's side).
+_FIX_ROWS = {"remediation.rediagnose": ("rediagnosed-as", "rediagnosis-of"),
+             "incident.later_alarm": ("followed-by", "followed-fix-of"),
+             "remediation.side_effects": ("followed-by", "followed-fix-of")}
+
+
+def _later(e: dict[str, Any]) -> list[str]:
+    """The later incidents a fix row names."""
+    b = e["body"]
+    if e["kind"] == "remediation.rediagnose":
+        return [_incident_id(b.get("new"))]
+    if e["kind"] == "incident.later_alarm":
+        return [_incident_id(b.get("incident"))]
+    named = b.get("incidents")
+    # These are the incidents' workflow ids (intake.submit): `inc-` and the incident's id.
+    return [_incident_id(str(i).removeprefix("inc-")) for i in named] if isinstance(named, list) else []
+
+
+def _fix_links(log: Any, incident: str) -> list[tuple[str, str]]:
+    """(other incident, side) from the rows that tie one incident to another through a fix."""
+    out = []
+    for e in log.entries(kinds=tuple(_FIX_ROWS)):
+        owner, (ahead, behind) = str(e["correlation_id"]), _FIX_ROWS[e["kind"]]
+        later = [n for n in _later(e) if n]
+        if owner == incident:
+            out += [(n, ahead) for n in later if n != incident]
+        elif incident in later:
+            out.append((owner, behind))
+    return out
+
+
+def _relapse_links(log: Any, incident: str) -> list[tuple[str, str]]:
+    """(other incident, side) from a watched fix that heard its alarm again: the incident that alarm started is the
+    fingerprint and the alarm's time (intake.decide), and the fix's incident is its plan's."""
+    fixed = {str(e["body"].get("workflow_id")): str(e["correlation_id"])
+             for e in log.entries(kinds=("remediation.plan",))}
+    out = []
+    for e in log.entries(kinds=("intake.relapse",)):
+        b = e["body"]
+        try:
+            at = datetime.fromisoformat(str(b.get("at"))).astimezone(UTC)
+        except ValueError:
+            continue
+        new, old = f"{b.get('fingerprint')}-{at:%Y%m%dT%H%M%SZ}", fixed.get(str(b.get("workflow_id")), "")
+        if old and new == incident:
+            out.append((old, "relapse-of"))
+        elif old == incident and _FP.match(new):
+            out.append((new, "relapsed-as"))
+    return out
+
+
+def _alike_links(log: Any, incident: str, now: datetime) -> list[tuple[str, str]]:
+    """(other incident, side) for the same alarm or the same resource, newest first, FOUND_MOST of each."""
+    seen: dict[str, tuple[str, str, datetime]] = {}
+    for e in log.entries(kinds=("incident.alert",), since=now - timedelta(days=FOUND_DAYS)):
+        a = e["body"].get("alert") or {}
+        seen[str(e["correlation_id"])] = (str(a.get("environment") or ""), str(a.get("service") or ""), e["at"])
+    if incident not in seen:
+        return []
+    env, service, _ = seen[incident]
+    fp = _FP.match(incident)
+    newest = sorted((k for k in seen if k != incident and seen[k][0] == env), key=lambda k: seen[k][2], reverse=True)
+    same_alarm = [k for k in newest if fp and _FP.match(k) and k.startswith(fp.group(1))][:FOUND_MOST]
+    same_resource = [k for k in newest if service and seen[k][1] == service and k not in same_alarm][:FOUND_MOST]
+    return [(k, "same-alarm") for k in same_alarm] + [(k, "same-resource") for k in same_resource]
+
+
+def found(log: Any, incident: str, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    """The links WARDEN finds for this incident in its own record, one per other incident and side, in a fixed order:
+    through a fix first, then the same alarm, then the same resource."""
+    pairs = _fix_links(log, incident) + _relapse_links(log, incident) + _alike_links(log, incident,
+                                                                                     now or datetime.now(UTC))
+    out, kept = [], set()
+    for other, side in pairs:
+        if (other, side) not in kept and other != incident:
+            kept.add((other, side))
+            out.append({"with": other, "side": side, "words": FOUND_WORDS[side]})
+    return out
