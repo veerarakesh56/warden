@@ -41,7 +41,7 @@ class _NoSuchKey(Exception):
 
 
 class FakeS3:
-    """The pages bucket, as both the pager's and the approval function's S3 clients see it."""
+    """The anchors bucket's pages, as both the pager's and the approval function's S3 clients see it."""
 
     exceptions = type("E", (), {"NoSuchKey": _NoSuchKey})
 
@@ -53,7 +53,8 @@ class FakeS3:
             raise _NoSuchKey(Key)
         return {"Body": io.BytesIO(self.objects[Key])}
 
-    def put_object(self, Bucket, Key, Body, ContentType=""):
+    def put_object(self, Bucket, Key, Body, ContentType="", ChecksumAlgorithm=""):
+        assert ChecksumAlgorithm, "the anchors bucket is under Object Lock: a write without a checksum is refused"
         self.objects[Key] = Body
 
     def get_paginator(self, name):
@@ -379,3 +380,34 @@ def test_an_acknowledgements_challenge_answers_once_even_if_a_store_gave_it_back
     w.page.store.put_challenge("pages:passkey", pending)
     again = w.page.handle("POST", "/p/ack", json.dumps({"response": w.device.assert_(json.dumps(shown["options"]))}))
     assert again.status == 403 and len(w.log.entries(kinds=(paging.ACK,))) == 1
+
+
+def test_one_unreadable_page_never_stops_the_others_repeating(caplog):
+    """CodeRabbit, PR 43: one page with a bad time made every tick fail, and no page repeated."""
+    p, s3, clock, said = _world()
+    pager.handler(_alarm(), pager=p)
+    pager.handler(_alarm(name="warden-ops-alarm-dlq"), pager=p)
+    broken = json.loads(s3.objects["pages/warden-ops-alarm-dlq.json"])
+    broken.update(last_sent="not a time", opened_at=None)
+    s3.objects["pages/warden-ops-alarm-dlq.json"] = json.dumps(broken).encode()
+    s3.objects["pages/junk.json"] = b"[1, 2]"  # not a page at all
+    caplog.set_level("WARNING", logger="warden.pager")
+    assert _tick(p, clock, 15)["repeated"] == ["warden-ops-alarm-dlq", "warden-ops-killswitch-on"]
+    assert "open since a time that cannot be read" in said[-1][1] and "open 15 min" in said[-1][1]
+    assert any("junk" in r.getMessage() for r in caplog.records)
+    # Said again, its times now readable: it repeats on the schedule from here.
+    assert _tick(p, clock, 20)["repeated"] == []
+    assert _tick(p, clock, 30)["repeated"] == ["warden-ops-alarm-dlq", "warden-ops-killswitch-on"]
+
+
+def test_the_page_state_is_in_the_anchors_bucket_tls_only_and_under_object_lock():
+    """SonarCloud, PR 43: a bucket of its own had no TLS-only policy and no access log - and the boundary lets only
+    the anchors and witness buckets have a policy. The anchors bucket has both TLS-only and Object Lock."""
+    tf = (MODULE / "paging.tf").read_text(encoding="utf-8")
+    assert 'resource "aws_s3_bucket"' not in tf and "aws_s3_bucket.pages" not in tf
+    assert 'PAGES_BUCKET     = aws_s3_bucket.anchors.bucket' in tf
+    assert '"${aws_s3_bucket.anchors.arn}/pages/*"' in tf
+    anchors = (MODULE / "anchors.tf").read_text(encoding="utf-8")
+    assert '"aws:SecureTransport" = "false"' in anchors and "object_lock_enabled = true" in anchors
+    front = (MODULE / "frontdoor.tf").read_text(encoding="utf-8")
+    assert "WARDEN_PAGES_BUCKET        = aws_s3_bucket.anchors.bucket" in front

@@ -16,7 +16,7 @@ locals {
     WARDEN_AUDIT_IAM_AUTH      = "1"
     # A kill switch trip is counted here (paging.killswitch_tripped), and the approval page reads the pages.
     WARDEN_HEARTBEAT_NAMESPACE = "WARDEN/${var.environment}"
-    WARDEN_PAGES_BUCKET        = aws_s3_bucket.pages.bucket
+    WARDEN_PAGES_BUCKET        = aws_s3_bucket.anchors.bucket
   }
   # `approval` is the one a person waits for. Lambda gives CPU in proportion to memory, a whole vCPU at 1,769 MB
   # (AWS's Lambda guide, "Configure Lambda function memory", read 2026-10-12); at 512 MB its cold start - Python
