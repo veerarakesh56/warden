@@ -66,7 +66,7 @@ ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 note "account $ACCOUNT"
 note "evidence -> $OUT"
 
-[ -f "$TF_DIR/terraform.tfvars" ] || die "create $TF_DIR/terraform.tfvars first (see terraform.tfvars.example)"
+[[ -f "$TF_DIR/terraform.tfvars" ]] || die "create $TF_DIR/terraform.tfvars first (see terraform.tfvars.example)"
 
 # A per-run password. Never written to a tfvars file: a real credential must not outlive the
 # environment it belongs to.
@@ -77,9 +77,9 @@ DB_PASSWORD="$("$PY" -c 'import secrets,string; a=string.ascii_letters+string.di
 destroyed=0
 teardown() {
   local rc=$?
-  [ "$destroyed" = "1" ] && return $rc
+  [[ "$destroyed" = "1" ]] && return $rc
   destroyed=1
-  if [ "$KEEP" = "1" ]; then
+  if [[ "$KEEP" = "1" ]]; then
     printf '\n\033[31m⛔ KEEP=1 — the environment is STILL RUNNING and still billing.\033[0m\n'
     printf '   Destroy it with:  terraform -chdir=%s destroy -var db_password=<the one it was created with>\n' "$TF_DIR"
     return $rc
@@ -99,7 +99,7 @@ teardown() {
             --query 'length(ResourceTagMappingList)' --output text 2>/dev/null || echo unknown)"
   note "resources still tagged warden-proving-ground: $left"
   echo "$left" > "$OUT/teardown-remaining.txt"
-  [ "$left" = "0" ] || printf '\033[31m   ⛔ not zero — check the console before you sleep\033[0m\n'
+  [[ "$left" = "0" ]] || printf '\033[31m   ⛔ not zero — check the console before you sleep\033[0m\n'
   return $rc
 }
 trap teardown EXIT
@@ -186,7 +186,7 @@ warden_run C-ecs-bad-deploy "ECS bad deploy — real OOM kills, rollback should 
 
 # --------------------------------------------------------------------------- D: EKS
 
-if [ -n "$EKS_CLUSTER" ]; then
+if [[ -n "$EKS_CLUSTER" ]]; then
   log "D — EKS (managed Kubernetes, not k3d)"
   aws eks update-kubeconfig --region "$REGION" --name "$EKS_CLUSTER" 2>&1 | tee -a "$OUT/run.log"
   kubectl wait --for=condition=Ready node --all --timeout=300s 2>&1 | tee -a "$OUT/run.log"
@@ -216,7 +216,7 @@ fi
 # --------------------------------------------------------------------------- E: RDS
 
 DSN="$(terraform -chdir="$TF_DIR" output -raw db_dsn 2>/dev/null || true)"
-if [ -n "$DSN" ]; then
+if [[ -n "$DSN" ]]; then
   log "E — RDS PostgreSQL"
   # ⛔ The DSN carries the master password. It is scrubbed out of the transcript on the way past,
   # and aws_proof_bundle.py scrubs the whole bundle again afterwards. Two passes, because this is
@@ -239,7 +239,7 @@ log "Writing the evidence bundle"
 
 # The password reached the log through terraform's own output in a few places. Scrub before the
 # bundle is shown to anyone. Belt and braces: it should never have been echoed at all.
-if [ -f "$OUT/run.log" ]; then
+if [[ -f "$OUT/run.log" ]]; then
   "$PY" - "$OUT/run.log" "$DB_PASSWORD" <<'PY'
 import pathlib, sys
 path, secret = pathlib.Path(sys.argv[1]), sys.argv[2]

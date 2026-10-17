@@ -546,7 +546,9 @@ class ClaudeCliProvider:
                                      check=False).stdout or ""
             except (OSError, subprocess.SubprocessError):
                 out = ""
-            found = re.search(r"\d+(?:\.\d+)+", out)
+            # Bounded, and from the start of a digit run: a long run without a dot was searched again from each of
+            # its digits, in time that grew with the square of its length (Sonar python:S8786, 2026-10-16).
+            found = re.search(r"(?<!\d)\d{1,20}(?:\.\d{1,20}){1,8}", out)
             self._version = f"claude-cli {found.group(0) if found else 'unknown'}"
         return self._version
 

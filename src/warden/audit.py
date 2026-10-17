@@ -168,9 +168,12 @@ class _Store:
             try:
                 yield
                 self.db.execute("COMMIT")
-            except BaseException:
-                self.db.execute("ROLLBACK")
-                raise
+            finally:
+                # The body raised, the generator was closed early, or COMMIT failed: nothing of it is kept. Only a
+                # transaction still open is rolled back - a ROLLBACK with none raised "cannot rollback - no
+                # transaction is active" over the error that ended it (Sonar python:S9152, 2026-10-16).
+                if self.db.in_transaction:
+                    self.db.execute("ROLLBACK")
 
     def insert_checkpoint(self, seq: int, head: str, signature: str) -> int:
         sql = ("INSERT INTO checkpoints VALUES (?, ?, ?) ON CONFLICT (seq) DO NOTHING" if self.pg

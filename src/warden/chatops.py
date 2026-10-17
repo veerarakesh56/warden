@@ -352,7 +352,7 @@ def resolve_sinks(threads=None, environment: str | None = None) -> list[ChatOpsS
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 # A space or tab after the hashes, as CommonMark requires: `\s` also took a no-break space, so
 # "#<NBSP>Fix - approved" became a bold Slack line that renders as plain text everywhere else.
-_HEADING = re.compile(r"^#{1,6}[ \t]+(.*)$")
+_HEADING = re.compile(r"^#{1,6}[ \t]++(.*)$")  # possessive: the spaces are never handed back to `.*` (Sonar python:S8786, 2026-10-16)
 # Line and paragraph separators: not line breaks in Markdown, but splitlines() - and some viewers -
 # broke on them, so "ok<U+2028># Fix - approved" became a heading (fourth review, 2026-09-30, A-3).
 _TILDE_FENCE = re.compile(r"^[ \t>*+\-\d.)]*~{3,}")
