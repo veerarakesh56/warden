@@ -297,6 +297,7 @@ ZONE_READS = {
     "WARDEN_SLACK_APP_TOKEN": ("discuss.py", {"notify"}),
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
+    "WARDEN_DB_TERMINATE_DSN": ("platforms/db.py", {"act"}),
 }
 
 
@@ -442,7 +443,7 @@ def test_the_worker_runs_on_fargate_with_its_own_role_only():
     assert "for_each                 = local.zones" in task
     uid = re.search(r"useradd --create-home --uid (\d+)", (ROOT / "Dockerfile.runtime").read_text(encoding="utf-8"))
     assert f'user                   = "{uid.group(1)}"' in task
-    assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.assumes) > 0 ? "aws" : "none"]' in task
+    assert 'command                = ["worker", "--zone", each.key, "--platform", length(each.value.platforms) > 0 ? join(",", each.value.platforms) : "none"]' in task
     assert 'WARDEN_HEARTBEAT_NAMESPACE   = "WARDEN/${var.environment}"' in task
     template = re.search(r'WARDEN_AWS_ROLE_ARN_TEMPLATE = "([^"]+)"', task).group(1)
     assert "{env}" in template and "{role}" in template and template.startswith("arn:aws:iam::${local.account}:role/")

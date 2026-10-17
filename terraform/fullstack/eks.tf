@@ -37,7 +37,7 @@ resource "aws_eks_cluster" "this" {
     subnet_ids              = aws_subnet.private[*].id
     endpoint_public_access  = true
     endpoint_private_access = true # ⛔ see the header
-    public_access_cidrs     = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
+    public_access_cidrs     = local.eks_public_access_cidrs
   }
 
   access_config {
@@ -52,6 +52,26 @@ resource "aws_eks_cluster" "this" {
   }
 
   depends_on = [aws_iam_role_policy_attachment.eks_cluster]
+}
+
+# WARDEN's runtime (environments.yaml `runtime:`) runs in a VPC of its own whose range overlaps this one, so no peering
+# or transit gateway can carry it to the private endpoint (EKS user guide, "Cluster API server endpoint", read
+# 2026-10-17: the private endpoint answers only the cluster's VPC or a connected network). Its Fargate workers reach the
+# public endpoint through their NAT gateways, so those addresses are let in - read by the runtime's own NAT names, never
+# written here. A paused runtime has no NAT and adds nothing; an un-paused one has new addresses, so re-apply this stack
+# after resuming the runtime, or WARDEN's cluster reads and fixes are refused and go to a person until then.
+data "aws_eips" "runtime_nat" {
+  filter {
+    name   = "tag:Name"
+    values = ["warden-${yamldecode(file("${path.module}/../../src/warden/data/environments.yaml")).runtime}-nat-*"]
+  }
+}
+
+locals {
+  eks_cidrs_base = coalesce(var.eks_public_access_cidrs, [local.my_ip_cidr])
+  # An endpoint already open to everyone (EKS_PUBLIC_CIDRS, audit A-I-16) needs no more addresses.
+  eks_public_access_cidrs = contains(local.eks_cidrs_base, "0.0.0.0/0") ? local.eks_cidrs_base : distinct(concat(
+  local.eks_cidrs_base, [for ip in data.aws_eips.runtime_nat.public_ips : "${ip}/32"]))
 }
 
 # Whoever runs terraform (the role behind an assumed-role session, not the session) plus any extra
@@ -72,6 +92,17 @@ resource "aws_eks_access_entry" "admin" {
 resource "aws_eks_access_entry" "warden_reader" {
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-platform-reader"
+}
+
+# WARDEN's actor writes only as the remediator group (k8s/remediation-rbac.yaml: get and patch Deployments, list HPAs,
+# bound in the shop namespace by manifests/shop/base/warden-rbac.yaml; the admission policy holds each patch to a
+# restart or a bounded scale). No access policy: RBAC alone decides. The username carries the session name - the
+# incident (identity.actor_session) - into the Kubernetes audit log. The role is assumed only for one approved plan.
+resource "aws_eks_access_entry" "warden_actor" {
+  cluster_name      = aws_eks_cluster.this.name
+  principal_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.name}-actor"
+  kubernetes_groups = ["warden-remediators"]
+  user_name         = "warden-remediator:{{SessionName}}"
 }
 
 resource "aws_eks_access_policy_association" "warden_reader" {

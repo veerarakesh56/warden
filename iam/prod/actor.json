@@ -42,6 +42,17 @@
       }
     },
     {
+      "Sid": "ClosesSessionsAsTheTerminateLoginOnly",
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:ap-south-2:*:dbuser:*/warden_prod_terminate",
+      "Condition": {
+        "StringLike": {
+          "aws:SourceIdentity": "inc-*"
+        }
+      }
+    },
+    {
       "Sid": "PipelineStagesOfThisEnvironment",
       "Effect": "Allow",
       "Action": [
