@@ -41,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
     from .catalog import MITIGATES
+    from .depwatch import DepWatchActivities
     from .discuss import (
         ELSEWHERE,
         LIMIT,
@@ -76,9 +77,10 @@ PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": Retr
 # queue sends each zoned activity to its zone's queue; one on any other queue (a test's) keeps them all with it.
 MAIN_QUEUE = "warden"
 ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan", "precheck", "check_success", "after_hold",
-                  "discuss_evidence", "discuss_replan"),
-         "llm": ("diagnose", "discuss_answer"),
-         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
+                  "discuss_evidence", "discuss_replan", "depwatch_read"),
+         "llm": ("diagnose", "discuss_answer", "depwatch_effects"),
+         "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed",
+                    "depwatch_post"),
          "act": ("apply", "rollback")}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
@@ -497,6 +499,34 @@ class DiscussWorkflow:
         await workflow.execute_activity_method(acts.discuss_reply, **_zoned(acts.discuss_reply),
                                                args=[turn, text, thread.incident], **NOTIFY)
         return text
+
+
+@workflow.defn
+class DependencyWatchWorkflow:
+    """The dependency review (depwatch.py), started by its Temporal Schedule: GitHub read, each PR's effects asked of
+    the model, the review made and recorded, the digest posted - each step in its zone. It reads GitHub only and
+    starts nothing: no step of it can merge, approve, comment or change anything."""
+
+    @workflow.run
+    async def run(self) -> str:
+        acts = DepWatchActivities
+        digest = f"depwatch-{workflow.now():%Y%m%dT%H%M%SZ}"
+        snap = await workflow.execute_activity_method(
+            acts.depwatch_read, **_zoned(acts.depwatch_read), args=[digest],
+            start_to_close_timeout=timedelta(minutes=15), retry_policy=RetryPolicy(maximum_attempts=3))
+        effects: dict[str, Any] = {}
+        for pr in snap["prs"]:  # the call cap is the activity's own, counted from the audit
+            try:
+                effects[str(pr["number"])] = await workflow.execute_activity_method(
+                    acts.depwatch_effects, **_zoned(acts.depwatch_effects), args=[digest, pr],
+                    start_to_close_timeout=timedelta(minutes=5), retry_policy=RetryPolicy(maximum_attempts=1))
+            except ActivityError:
+                effects[str(pr["number"])] = {"effects": None, "why": "the model step failed"}
+        texts = await workflow.execute_activity_method(acts.depwatch_review, **_zoned(acts.depwatch_review),
+                                                       args=[digest, snap, effects], **QUICK)
+        await workflow.execute_activity_method(acts.depwatch_post, **_zoned(acts.depwatch_post),
+                                               args=[digest, texts], **NOTIFY)
+        return digest
 
 
 @workflow.defn

@@ -27,6 +27,7 @@ there: before using one, add it to the zone or Lambda that reads it, to secrets.
 | `WARDEN_DATADOG_WEBHOOK_TOKEN` | Datadog monitors' webhook into WARDEN (`POST /datadog`; the webhook Lambda's alone) | run `scripts/datadog_setup.py` again: it makes a new token, stores it and puts it in the webhook's header in one step | none: rotate between alerts |
 | `WARDEN_SLACK_APP_TOKEN` | the discussion channel's Socket Mode connection (discuss.py; the notify zone's alone) | in the Slack app's Basic Information, App-Level Tokens: generate a new token with `connections:write`, store it, restart the notify workers, then revoke the old token | both work until the old one is revoked |
 | `WARDEN_SLACK_WEBHOOK`, `WARDEN_TEAMS_WEBHOOK`, `WARDEN_WEBHOOK_URL` | posting through an incoming webhook | create a new webhook, store it, restart, delete the old one | both work until the old one is deleted |
+| `WARDEN_GITHUB_READ_TOKEN` | the dependency review's reads of WARDEN's own repository (depwatch.py; the read zone's alone; read-only: pull requests, contents, Dependabot alerts, Actions, metadata) | create a new fine-grained token with exactly those read permissions on that repository, with an expiry; store it in `warden/<env>/github-read-token`, restart the read workers, revoke the old one | both work until the old one is revoked |
 | `WARDEN_GITHUB_TOKEN` | opening change-record issues in one repository | create a new fine-grained token limited to issues on that repository, with an expiry; store it, restart, revoke the old one | both work until the old one is revoked |
 | `WARDEN_DB_DSN`, `WARDEN_DB_TERMINATE_DSN`, `WARDEN_STACK_DB_PRIMARY_RO_DSN`, `WARDEN_STACK_DB_REPLICA_RO_DSN` | the database readers and the narrow terminate role (renamed 2026-10-16 from `WARDEN_DB_ADMIN_DSN`, `WARDEN_STACK_DB_WRITER_DSN` and `WARDEN_STACK_DB_READER_DSN`, which are still read for one release with a warning; the Secrets Manager slots keep the old names `db-admin-dsn`, `stack-db-writer-dsn` and `stack-db-reader-dsn` until the runtime module renames them) | change the role's password (or let RDS rotate the managed secret), store the new DSN, restart | a database role has one password: rotate, then restart promptly |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | a model provider, when it is not Bedrock | create a new key in the provider's console, store it, restart, delete the old key | both work until the old one is deleted |
@@ -91,6 +92,34 @@ Without the maps, as before: the webhook (`warden/<runtime>/slack-webhook`) for 
 `WARDEN_SLACK_CHANNEL` when that is set, and the one discussion channel `WARDEN_DISCUSS_CHANNEL` for every environment.
 
 The notify worker holds the connection; if it cannot connect it says so in its log and goes on sending alerts.
+
+## The dependency review (register G10-60)
+
+Every 72 hours WARDEN reviews each open Dependabot pull request and security alert of its own repository and posts
+one review in the discussion channel: per PR the change, the files and lock hashes it touches, its release notes as
+facts, where the package is imported and shipped, the effects if merged (each one cited, or dropped), its CI runs, a
+risk (low / medium / high) and a plan (merge now / needs a named code change or test first / hold, with the reason).
+A security alert open 3 days or more is said in the alerts channel too. WARDEN reads GitHub only: it never merges,
+approves, comments or writes anything there. At most 6 model calls a review, inside the daily model cap.
+
+Setup, once:
+
+1. A fine-grained personal access token on the one repository, read-only: **Pull requests: read**, **Contents: read**,
+   **Dependabot alerts: read**, **Actions: read** (the PR's CI runs) and **Metadata: read** (GitHub adds it). Nothing
+   else. Store it in the secret `warden/<env>/github-read-token`; only the read zone's role may read it. It is not
+   `github-token`: that one is the notify zone's, for change records (issues on the change repository).
+2. The plain settings `/warden/<env>/env/WARDEN_DEPWATCH_REPO` (`owner/name`) and, to change the interval,
+   `/warden/<env>/env/WARDEN_DEPWATCH_EVERY_HOURS` (whole hours, 1 to 720).
+3. Restart the core worker: it makes the Temporal Schedule `warden-dependency-watch`, or brings its interval up to
+   date, and logs which. The review posts with the bot token in `WARDEN_DISCUSS_CHANNEL` (and `WARDEN_SLACK_CHANNEL`
+   for old alerts); with the per-environment maps `WARDEN_DISCUSS_CHANNELS` / `WARDEN_SLACK_CHANNELS` set, in the
+   nonprod environment's channels from them - the review is about the repository, never production's. The maps are
+   read as strictly as the incidents' (`settings.by_environment`): a malformed one sends the review nowhere and says
+   so on the record. To run one now: `temporal schedule trigger --schedule-id warden-dependency-watch`.
+
+Release notes are written by whoever publishes the package: a line that addresses a reader ("ignore ...", "approve",
+"merge now") or that the injection detector flags is held back whole - the review says how many, and they are read on
+GitHub. Every review is on WARDEN's record (`depwatch.review`, under `depwatch-<time>`).
 
 ## Expected down: nights, weekends, holidays, not in use (register G10-39)
 
