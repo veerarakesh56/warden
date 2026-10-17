@@ -45,6 +45,8 @@ def _call(method, url, body=None, headers=None):
         return 0
 
 
+# `random`, not `secrets`, on purpose (Sonar python:S2245, 2026-10-16): these numbers only pick synthetic load -
+# which cart, SKU, customer or order id to send or look up. Nothing guesses, signs or trusts them.
 def handler(event, context):
     n_checkout = int(os.environ.get("CHECKOUTS_PER_MIN", "10"))
     n_orders = int(os.environ.get("ORDERS_PER_MIN", "10"))

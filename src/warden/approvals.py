@@ -136,7 +136,7 @@ NOTE_SECRET = "[removed: it looked like a secret]"
 # this only names it. Words aimed at an AI are found by plain phrases: WARDEN's model never reads a note at all.
 _TRIES = (
     ("something that looked like a password or a key, removed", lambda t: NOTE_SECRET in t),
-    ("a link, not made clickable", lambda t: "http://" in t.lower() or "https://" in t.lower() or "](" in t),
+    ("a link, not made clickable", lambda t: re.search(r"(?i)https?://", t) is not None or "](" in t),
     ("a ping of the channel or a person, not sent", lambda t: "<!" in t or "<@" in t or "@@" in t),
     ("text written as a command or a heading, shown as plain text", lambda t: "```" in t or "\n#" in "\n" + t),
     ("words that try to instruct an AI, ignored", lambda t: re.search(
