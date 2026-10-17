@@ -219,22 +219,12 @@ variable "model_provider" {
 }
 
 variable "critic_provider" {
-  description = "The provider Eldane, the AI critic, calls in the critic zone (src/warden/eldane.py) - never the diagnoser's model family; empty: no Eldane, and a person approves every plan as before."
+  description = "The provider Eldane, the AI critic, calls in the critic zone (src/warden/eldane.py): anthropic, with the diagnosis's key, using for each incident the Claude model that did not diagnose it (data/providers.yaml critic); empty: no Eldane, and a person approves every plan as before."
   type        = string
-  default     = "gemini"
+  default     = "anthropic"
   validation {
-    condition     = contains(["", "gemini", "openai"], var.critic_provider)
-    error_message = "critic_provider is empty, gemini or openai: a model family other than WARDEN's diagnoser."
-  }
-}
-
-variable "critic_model" {
-  description = "Eldane's pinned model id; empty: data/providers.yaml `critic` for critic_provider."
-  type        = string
-  default     = ""
-  validation {
-    condition     = var.critic_model == "" || can(regex("^[a-z0-9][a-z0-9.:_-]{1,80}$", var.critic_model))
-    error_message = "critic_model is a plain model id."
+    condition     = contains(["", "anthropic"], var.critic_provider)
+    error_message = "critic_provider is empty or anthropic."
   }
 }
 

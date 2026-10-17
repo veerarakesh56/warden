@@ -96,9 +96,9 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DB_TERMINATE_DSN": frozenset({"worker"}),
     "WARDEN_AUDIT_KEY_PASSPHRASE": frozenset({"worker", "incident", "intake", "status", "approve", "killswitch", "audit",
                                               "label", "offer-again"}),
-    "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
-    "WARDEN_TEMPORAL_API_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
-    "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
+    "WARDEN_TEMPORAL_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
+    "WARDEN_TEMPORAL_API_KEY": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
+    "WARDEN_TEMPORAL_KEY_PREVIOUS": frozenset({"worker", "incident", "intake", "status", "approve", "autonomy", "mcp", "lambda-alarm", "lambda-alertmanager", "lambda-approval"}),
     "WARDEN_GITHUB_TOKEN": frozenset({"worker"}),
     # Only the worker writes to AWS or beats; no other command needs to know the roles (audit A-P-5, register C13).
     "WARDEN_AWS_READER_ROLE_ARN": frozenset({"worker"}),
@@ -165,8 +165,9 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
                              "WARDEN_GITHUB_TOKEN"},
     # The terminate login's DSN (no password: each close signs in with a token an approved plan's actor signs).
     "act": _EVERY_ZONE | {"WARDEN_DB_TERMINATE_DSN"},
-    # Eldane, the AI critic (eldane.py; register R10): its model's key and its own signing key - nobody else's.
-    "critic": _EVERY_ZONE | {"GEMINI_API_KEY", "WARDEN_ELDANE_KEY"},
+    # Eldane, the AI critic (eldane.py): the same Claude API key as the diagnosis (owner, 2026-10-17), and its own
+    # signing key, which nobody else holds.
+    "critic": _EVERY_ZONE | {"ANTHROPIC_API_KEY", "WARDEN_ELDANE_KEY"},
 }
 # The runtime's Lambdas (lambdas.py), each with a role of its own that reads exactly these (iam.tf front_door_access;
 # tests/test_runtime_module_g6.py runs each handler's load and holds the two together). Every one but actor-use reaches

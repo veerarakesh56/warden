@@ -252,7 +252,7 @@ WARDEN's workflows run on Temporal. Create a namespace in Temporal Cloud and not
 gRPC address (`host:7233`); neither is secret, and they go into the two Parameter Store values above.
 
 Create one namespace-scoped service account per trust zone, so Temporal's audit log names the zone that called:
-`warden-ops-core`, `-read`, `-llm`, `-notify` and `-act`, each with the namespace permission **Write** (a worker
+`warden-ops-core`, `-read`, `-llm`, `-notify`, `-act` and `-critic` (Eldane, below), each with the namespace permission **Write** (a worker
 needs it to poll and complete tasks). Store each API key in its slot `warden/ops/temporal-api-key-<zone>`. Give
 every key an expiry and replace it before then.
 
@@ -263,6 +263,21 @@ base64-encoded, in `warden/ops/temporal-key`, for example from CloudShell withou
 aws secretsmanager put-secret-value --secret-id warden/ops/temporal-key \
   --secret-string "$(head -c 32 /dev/urandom | base64)"
 ```
+
+### Eldane, the AI critic (dev's approver)
+
+The sixth zone, `critic`, runs Eldane (`src/warden/eldane.py`). Until the two steps below are done it does nothing,
+and a person approves every plan in dev as in prod. Its model key is the diagnosis's own
+`warden/ops/anthropic-api-key`, which the critic zone may read too; it uses, for each incident, the other Claude
+model from the one that diagnosed it (`src/warden/data/providers.yaml`, `critic`).
+
+1. Its Temporal key: the service account `warden-ops-critic` above, its key in `warden/ops/temporal-api-key-critic`.
+2. Its signing key, on your own machine: `warden audit keygen --private eldane.pem --public eldane.pub.pem
+   --unencrypted`. Put the whole of `eldane.pem` into `warden/ops/eldane-key`, then delete the file. Add Eldane to the
+   approver list (`/warden/ops/approvers`) with the contents of `eldane.pub.pem`:
+   `eldane: {public_key: "<eldane.pub.pem>", tiers: [T1, T2], environments: [dev], ai: true}`. WARDEN always shows it
+   as "Eldane · AI critic", refuses it for T3 and in prod, and a person's "no" on the approval page stops any plan it
+   approved before it is applied. Demotions and a person's re-enable are in [OPERATIONS.md](OPERATIONS.md).
 
 ## 7. Slack
 
