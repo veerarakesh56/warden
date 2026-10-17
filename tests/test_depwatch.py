@@ -529,8 +529,9 @@ def test_with_the_watch_off_its_schedule_is_removed_and_a_stray_run_says_so(worl
     assert asyncio.run(depwatch.remove_schedule(there)) is True
     assert there.deleted == [depwatch.SCHEDULE_ID]
     assert asyncio.run(depwatch.remove_schedule(Client(RPCError("gone", RPCStatusCode.NOT_FOUND, b"")))) is False
+    denied = depwatch.remove_schedule(Client(RPCError("no", RPCStatusCode.PERMISSION_DENIED, b"")))
     with pytest.raises(RPCError):  # any other answer is not "nothing to remove"
-        asyncio.run(depwatch.remove_schedule(Client(RPCError("no", RPCStatusCode.PERMISSION_DENIED, b""))))
+        asyncio.run(denied)
     cli = (ROOT / "src" / "warden" / "cli.py").read_text(encoding="utf-8")
     assert "if depwatch.configured():" in cli
     assert "await depwatch.remove_schedule(client)" in cli
