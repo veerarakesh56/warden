@@ -311,7 +311,7 @@ secrets from AWS Secrets Manager (`src/warden/settings.py`); each trust zone may
 | Variable | Meaning |
 |---|---|
 | `WARDEN_MOCK=1` | Deterministic, no network, no model. What CI runs. |
-| `WARDEN_PROVIDER`, `WARDEN_MODEL` | The model provider and model id. The default provider is `anthropic`, whose default model is `claude-sonnet-5-5`. |
+| `WARDEN_PROVIDER`, `WARDEN_MODEL` | The model provider and model id. The default provider is `anthropic`, whose default model is `claude-sonnet-5-5`; on it, WARDEN picks Sonnet or Opus per case (below). A `WARDEN_MODEL` that is neither turns that choice off. |
 | `ANTHROPIC_API_KEY` | The Anthropic API key. In the cloud runtime, only the llm zone reads it, from Secrets Manager. |
 | `WARDEN_MODEL_EFFORT` | Override the reasoning effort set per model in `providers.yaml`. |
 | `WARDEN_BACKEND` | Evidence source: fixtures (default), `aws`, `k8s`, `postgres`, `mysql`, `redis`, `mongo`, `mssql` or `db`. |
@@ -329,6 +329,36 @@ incidents recorded on a live AWS account, and only a model with no wrong answer 
 is listed in [`src/warden/data/providers.yaml`](src/warden/data/providers.yaml). Any other pair is refused. Today the
 one qualified model is **Claude Sonnet 5.5** (`claude-sonnet-5-5`) on the Anthropic API. Qualify another before you
 use it.
+
+**How a model is chosen.** Claude Sonnet 5.5 answers by default. Claude Opus 5.5 takes over only when the case is
+hard, and "hard" is decided by facts WARDEN can check itself, never by how sure the model says it is:
+
+- the fix it proposes is of risk tier T2 or T3 (service-wide, or not reversible);
+- the incident is in production;
+- two diagnoses of the same evidence disagree (another fix, or another target);
+- the two most likely causes are too close to call, counting the evidence for and against each (this needs the
+  ranked causes that are still being added; until then it never fires);
+- the evidence is weak: fewer than 2 of the cited facts are WARDEN's own readings (a metric, a deploy, a resource's
+  state), or too little was gathered at all;
+- someone asked in the discussion channel for a new plan, or to investigate again.
+
+One of these is enough. Production and a new plan asked for in chat are known before the first answer, so Opus answers
+from the start; the others are known only after Sonnet has answered, and then Opus diagnoses again on the same
+evidence and its answer replaces Sonnet's, after the same checks. Its answer can never undo the hand-off to a person
+that two disagreeing answers caused. In the discussion channel a plain question gets Sonnet and a request to look
+again in depth gets Opus. Eldane, the AI that reviews fixes, always uses the other of the two models from the one
+that made the diagnosis. Every choice is written to the signed audit log with the facts that decided it and their
+values (`incident.route`, `discuss.route`); the rules and their thresholds are in
+[`src/warden/routing.py`](src/warden/routing.py).
+
+A model still has to pass the replay set to diagnose. **Opus 5.5 has not** (15 of 30 on 2026-10-15, below the bar
+of 17): until it does, a hard case is diagnosed by Sonnet, the record says so, and its fix goes to a person. Both
+models must be measured again in the cloud runtime before anything acts on its own
+(`python scripts/cloud_run.py qualify --model <model> --record`, which uses the runtime's own key).
+
+**Cost.** Opus costs twice what Sonnet does per token (USD 4 / 20 per million input / output tokens against 2 / 10,
+in `providers.yaml`). Every call counts against the incident's ceiling at its own model's price, so a takeover the
+remaining budget cannot pay for is not made and the earlier answer stands; the daily cap holds the same way.
 
 Keys and connection strings are read from the environment. Put them in a gitignored `.env` file or export them from
 a secret manager; never type one on the command line, where it stays in the shell's history.
@@ -365,7 +395,8 @@ Version 0.10.0. Measured, as of 2026-10-16:
   in 132-138 of 172 across three runs, against a floor of 103 for an answer that always escalates; the gate stopped
   all but one harmful or wrong proposal in each run. The cases are synthetic and the runs are single runs.
 - **Choosing the model.** The production model, Claude Sonnet 5.5, scored 17 of 30 on the replay set with no wrong
-  answer let through (2026-10-15). The bar is 17.
+  answer let through (2026-10-15). The bar is 17. Claude Opus 5.5, the model for hard cases, scored 15 and is not
+  qualified: until it is, Sonnet answers hard cases too. Which of the two answered how often has not been measured.
 - **Applying fixes.** The write platforms are exercised in CI against a real k3d Kubernetes cluster and real
   PostgreSQL, MySQL and SQL Server servers. **No published run has applied a fix on a live AWS account.**
 

@@ -58,6 +58,17 @@ prices:
 effort:
   claude-sonnet-5-5: high
   claude-opus-5-5: medium
+# Which model answers (owner, 2026-10-17; src/warden/routing.py): `default` for every case, `hard` only when one of
+# WARDEN's own checkable signals marks the case hard - the fix's tier T2/T3, prod, two diagnoses disagreeing, the top
+# hypotheses too close, weak evidence, a re-investigation asked for in chat - never the model's own confidence. Eldane
+# (the AI critic) always uses the other one of the two from the incident's diagnosis. Each is still held to
+# `qualified` below (register M20): a hard case whose model is not qualified is answered by `default`, and the audit
+# says so. ⚠ BOTH models must be qualified again in the cloud runtime (scripts/qualify_provider.py, on today's prompt)
+# before anything acts on its own: Opus 5.5 scored 15/30 on 2026-10-15, below the bar, and is NOT qualified. A row
+# here is a routing choice, never a qualification. Opus costs twice Sonnet per token (`prices`); the incident's USD
+# ceiling counts each call at its own model's price.
+routing:
+  anthropic: {default: claude-sonnet-5-5, hard: claude-opus-5-5}
 # The model each provider uses when WARDEN_MODEL names none (no model id in code). A default is not
 # a qualification: the model must still be in `qualified` below, or it is refused (register M20).
 defaults:

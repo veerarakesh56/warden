@@ -1060,6 +1060,8 @@ class EvidencePack(BaseModel):
     # The evidence source the read side used. The report names it, and it is rendered in another zone, whose own
     # WARDEN_BACKEND is unset: live reads were labelled "a recorded demo incident (fixture)" (2026-10-09).
     backend: str = "fixture"
+    # The model a takeover asks (routing.py): set only when WARDEN's checks found the case hard after the first answer.
+    model: str = ""
 
 
 class Diagnosed(BaseModel):
@@ -1070,6 +1072,7 @@ class Diagnosed(BaseModel):
     cost: CostRecord
     steps: list[dict[str, Any]] = Field(default_factory=list)
     model_unavailable: str = ""  # why the model was not used: verify then escalates (register M19)
+    route: dict[str, Any] = Field(default_factory=dict)  # which model was asked for this answer, and why (routing.py)
 
 
 # A cap across incidents (registers M18, A-P-4): a storm of incidents, each within its own budget, still spent without
@@ -1084,6 +1087,8 @@ class Verified(BaseModel):
     verdict: Verdict
     halted_reason: str | None = None
     steps: list[dict[str, Any]] = Field(default_factory=list)
+    # Every routing signal on the verified answer (routing.after_answer): `take_over` when Opus should take it over.
+    route: dict[str, Any] = Field(default_factory=dict)
 
 
 class IncidentActivities:
@@ -1216,19 +1221,28 @@ class IncidentActivities:
             return out
         return out
 
+    def _route(self, alert_id: str, stage: str, route: Any, **more: Any) -> dict[str, Any]:
+        """A routing choice on the signed record (routing.py): the model, the signals with their values, and why."""
+        row = {**route.record(), **more}
+        self.audit.append(alert_id, "incident.route", {"run_id": _run_id(), "stage": stage, **row})
+        return row
+
     @activity.defn
     def diagnose(self, pack: EvidencePack, escalate_only: str = "") -> Diagnosed:
-        from . import graph
+        from . import graph, routing
         from .llm import LLMClient
 
+        # Which model answers (owner, 2026-10-17): Sonnet unless WARDEN's own signals mark the case hard.
+        route = routing.for_diagnosis(self.audit, pack)
         try:
-            llm, refused = (self.llm_factory or LLMClient)(), ""
+            llm, refused = routing.client(route.model, factory=self.llm_factory), ""
         except Exception as exc:  # noqa: BLE001 - any model that cannot be built is the rules-only diagnosis
             # Live, 2026-10-15: the runtime named a model that was no longer qualified (register M20 refused it, as it
             # must) - and the incident failed here, before any path that tells a person, so it reached nobody. Now it
             # is the degraded, rules-only diagnosis with the reason said (register M19); no model is asked.
             llm, refused = LLMClient(mock=True), f"no qualified model could be used ({_safe_error(exc)})"
             _note(f"ERROR {pack.alert.alert_id}: {refused} - rules-only diagnosis (security review L4)")
+        routed = self._route(pack.alert.alert_id, "diagnose", route, used="" if refused else llm.model)
         # One budget per incident, across its runs. A FAILED run may run again (ALLOW_DUPLICATE_FAILED_ONLY) - also
         # one that failed because it spent its budget - and each run built a fresh client: five restarts spent
         # $3.00 against a $0.50 cap (seventh review, 2026-10-01). Every run records what it spent, failed or not,
@@ -1247,7 +1261,7 @@ class IncidentActivities:
             steps = graph.apply_node(state, graph.node_diagnose(state))
             self._record(pack.alert.alert_id, steps)
             return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
-                             model_unavailable=reason)
+                             model_unavailable=reason, route=routed)
         # Reserved BEFORE the call (register R8-O1): what is left of the incident's budget, under an id that this
         # run's spend row settles. A run cancelled, terminated or killed mid-call wrote its spend late or never, and
         # the next run started as if nothing had been spent. Now an unsettled reservation counts as spent: the next
@@ -1269,7 +1283,7 @@ class IncidentActivities:
         self._record(pack.alert.alert_id, steps)
         return Diagnosed(root_cause=state["root_cause"], proposal=state["proposal"], cost=llm.cost, steps=steps,
                          model_unavailable=state.get("model_unavailable", ""),
-                         need_evidence=list(state.get("need_evidence") or []))
+                         need_evidence=list(state.get("need_evidence") or []), route=routed)
 
     @activity.defn
     def plan_fix(self, alert: Alert, diagnosed: Diagnosed, verified: Verified) -> dict[str, Any]:
@@ -1570,7 +1584,16 @@ class IncidentActivities:
         verdict = state["verdict"]
         _note(f"{pack.alert.alert_id} alarm={pack.alert.labels.get('alarm', '-')} action={diagnosed.proposal.action.value} "
               f"verdict={verdict.status.value} policies={','.join(verdict.policy_ids) or '-'}")
-        return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps)
+        return Verified(verdict=state["verdict"], halted_reason=state.get("halted_reason"), steps=steps,
+                        route=self._after_answer(pack, diagnosed, "verify"))
+
+    def _after_answer(self, pack: EvidencePack, diagnosed: Diagnosed, stage: str, second: Any = None) -> dict[str, Any]:
+        """Every routing signal on a verified answer, on the record; {} when an answer had no model (rules only)."""
+        from . import routing
+
+        if diagnosed.model_unavailable:
+            return {}
+        return self._route(pack.alert.alert_id, stage, routing.after_answer(self.audit, pack, diagnosed, second))
 
     @activity.defn
     def second_opinion(self, pack: EvidencePack, first: Diagnosed, second: Diagnosed, verified: Verified) -> Verified:
@@ -1584,8 +1607,10 @@ class IncidentActivities:
             "run_id": _run_id(), "agree": agree, "first": {"action": a.action.value, "target": a.target},
             "second": ({"action": b.action.value, "target": b.target} if not second.model_unavailable
                        else {"unavailable": str(second.model_unavailable)[:200]})})
+        # The two answers are a routing signal too: when they disagree, the case is hard (routing.py).
+        route = self._after_answer(pack, first, "second_opinion", None if second.model_unavailable else second)
         if agree:
-            return verified
+            return verified.model_copy(update={"route": route})
         why = (f"no second opinion could be had ({str(second.model_unavailable)[:120]})" if second.model_unavailable
                else f"two independent diagnoses disagree: `{a.action.value}` on `{a.target}`, then "
                     f"`{b.action.value}` on `{b.target}`")
@@ -1597,11 +1622,29 @@ class IncidentActivities:
             "reasons": [*verified.verdict.reasons, f"{why}: a person decides, and no fix is offered for approval."]})
         _note(f"{pack.alert.alert_id} second opinion: {'unavailable' if second.model_unavailable else 'differs'} - "
               "escalated")
-        return verified.model_copy(update={"verdict": verdict})
+        return verified.model_copy(update={"verdict": verdict, "route": route})
 
 
 # The policy a disagreement of two independent diagnoses escalates under (IncidentActivities.second_opinion).
 SECOND_OPINION = "P32-SECOND-OPINION-DIFFERS"
+
+
+STILL_HELD = "the two diagnoses before it disagreed: a person decides, and no fix is offered for approval."
+
+
+def still_held(taken_over: Verified, before: Verified) -> Verified:
+    """A takeover (routing.py) never lifts the escalation two disagreeing answers caused: when the answers before it
+    disagreed, its verdict is escalated under SECOND_OPINION too - a person decides. Pure: the workflow calls it."""
+    if "disagreement" not in (before.route.get("fired") or []) or taken_over.verdict.status.value in (
+            "escalated", "rejected"):
+        return taken_over
+    from .models import VerdictStatus
+
+    verdict = taken_over.verdict.model_copy(update={
+        "status": VerdictStatus.escalated, "requires_approval": True,
+        "policy_ids": [*taken_over.verdict.policy_ids, SECOND_OPINION],
+        "reasons": [*taken_over.verdict.reasons, STILL_HELD]})
+    return taken_over.model_copy(update={"verdict": verdict})
 
 
 def _same_target(a: str, b: str) -> bool:
@@ -1727,8 +1770,7 @@ class DiscussActivities:
     def discuss_answer(self, turn: Any, thread: Any, evidence: dict[str, str], fresh: bool) -> str:
         """The model's answer to the mention, as the reply to post. Capped per incident per day and by the daily cap
         every incident shares; the people's words are data to it (discuss.SYSTEM)."""
-        from . import discuss
-        from .llm import LLMClient
+        from . import discuss, routing
 
         turn, thread = discuss.Turn.model_validate(turn), discuss.Thread.model_validate(thread)
         key = f"discuss-{thread.incident}"
@@ -1739,7 +1781,10 @@ class DiscussActivities:
         today = self.incident._spent_since(since)
         if calls >= discuss.DAILY_CALLS or today.usd >= DAILY_MAX_USD:
             return discuss.LIMIT
-        llm = (self.incident.llm_factory or LLMClient)()
+        # A simple question gets the default model, a deep re-investigation the hard one (routing.py), on the record.
+        route = routing.for_question(turn.text)
+        self.audit.append(key, "discuss.route", {"run_id": _run_id(), "ts": turn.ts, **route.record()})
+        llm = routing.client(route.model, factory=self.incident.llm_factory)
         attempt = secrets.token_hex(8)
         self.audit.append(key, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt, "usd": llm.max_usd,
                                                         "calls": 1})

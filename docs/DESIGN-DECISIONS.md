@@ -294,6 +294,8 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   non-exportable signer and S3 Object Lock for the anchors (`audit.py`, register S12).
 - Injection tripwire: Meta Llama Prompt Guard 2, pinned by commit, safetensors only - `tripwire.py`.
 - Model access: the vendors' own SDKs and the Claude CLI, behind one client - `providers.py`, `llm.py`.
+- Which Claude model answers (Sonnet by default, Opus for a case WARDEN's own signals mark hard): built, a few
+  dozen lines of plain rules over WARDEN's own data - no router library decides on data it cannot show - `routing.py`.
 - Typed contracts: Pydantic - `models.py`. Tracing: OpenTelemetry - `observability.py`. MCP: the `mcp` SDK -
   `mcp_server.py`. CommonMark parsing for the outbound gate: `markdown-it-py` - `gate.py`.
 - AWS, Kubernetes and database reads: boto3, the Kubernetes client and the database drivers - `aws_backend.py`,
