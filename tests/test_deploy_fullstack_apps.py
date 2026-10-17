@@ -367,6 +367,7 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
     assert full["service"]["pipelines"]["traces"]["exporters"] == ["otlp/datadog"]
     # Logs to Datadog with their severity (Datadog would file the apps' stdout lines as info).
     assert full["service"]["pipelines"]["logs"]["exporters"] == ["otlp/datadog"]
+    assert full["service"]["pipelines"]["metrics"]["exporters"] == ["otlp/datadog"]
     assert "awsxray" not in full["exporters"]
     alone = tool.otel_config("ap-south-2")
     assert alone["exporters"]["awsxray"] == {"region": "ap-south-2"}
@@ -375,6 +376,8 @@ def test_one_collector_sends_to_datadog_or_else_xray_before_the_apps_start(tmp_p
     run = Runner()
     config = tool.deploy_otel(STACK, "k", True, run)
     assert set(config["exporters"]) == {"otlp/datadog"}
+    assert {p: v["exporters"] for p, v in config["service"]["pipelines"].items()} == {
+        "traces": ["otlp/datadog"], "metrics": ["otlp/datadog"], "logs": ["otlp/datadog"]}
     docs = list(yaml.safe_load_all(run.inputs[0]))
     assert not [d for d in docs if d["kind"] == "Secret"] and "grafana" not in run.inputs[0].lower()
     dep = next(d for d in docs if d["kind"] == "Deployment")

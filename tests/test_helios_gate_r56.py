@@ -64,6 +64,25 @@ def test_a_regression_the_owner_chose_passes_named_and_nothing_else_rides_on_it(
     assert fullstack == {"az-outage": ["aws_eks_node_group.this", "aws_elasticache_replication_group.redis"]}
 
 
+@pytest.mark.parametrize("text", ['["aws_eks_node_group.this"]', '{"az-outage": "aws_eks_node_group.this"}',
+                                  '{"az-outage": [1]}', '{"az-outage": [["x"]]}', "null", "not json", ""])
+def test_a_malformed_regressions_file_is_refused_cleanly(tmp_path, monkeypatch, capsys, text):
+    """PR 44 review: regressions.json is checked before any scenario runs - an object of lists of addresses, or the
+    change is refused with a reason, never a traceback (a string would have excused every address it contains)."""
+    own = tmp_path / "terraform" / "other" / "helios"
+    (own / "scenarios").mkdir(parents=True)
+    (own / "accepted.json").write_text("{}", encoding="utf-8")
+    (own / "regressions.json").write_text(text, encoding="utf-8")
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"planned_values": {"root_module": {"resources": []}}}), encoding="utf-8")
+    monkeypatch.setattr(gate, "ROOT", tmp_path)
+    monkeypatch.setattr(gate, "simulate", lambda *a: set())
+    assert gate.main(["--helios", "h", "--plan", str(plan), "--out-dir", str(tmp_path / "s"), "--stack", "other"]) == 1
+    assert "refused: terraform/other/helios/regressions.json must be an object" in capsys.readouterr().out
+    (own / "regressions.json").write_text('{"az-outage": ["aws_eks_node_group.this"]}', encoding="utf-8")
+    assert gate.main(["--helios", "h", "--plan", str(plan), "--out-dir", str(tmp_path / "s"), "--stack", "other"]) == 0
+
+
 def test_what_helios_cannot_run_refuses_and_what_it_cannot_decide_waits_for_the_applied_state():
     assert gate.judge("redis-loss", ("error", "scenario names x"), set(), ACCEPTED)[0] == "refuse"
     assert gate.judge("lose-z1", "inconclusive", set(), ACCEPTED)[0] == "later"

@@ -23,7 +23,7 @@ variable "eks_admin_principal_arns" {
 }
 
 variable "budget_usd" {
-  description = "Monthly cost budget for the account's gross spend, in USD (owner, 2026-10-17: 500 for dev)."
+  description = "Monthly cost budget for the account's gross spend (credits excluded), in USD."
   type        = number
   default     = 500
 }
