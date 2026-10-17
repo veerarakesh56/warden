@@ -920,7 +920,26 @@ class ApprovalPage:
             "entry": plan.entry, "target": plan.target, "tier": plan.tier,
             "risk": approvals.TIER_MEANS.get(plan.tier, ""), "environment": plan.environment,
             "values": plan.params, "plan_hash": plan.plan_hash, "made": both_times(plan.created_at),
-            "link_expires": both_times(link.expires_at), "type_the_target": plan.tier in TYPED_TIERS}})
+            "link_expires": both_times(link.expires_at), "type_the_target": plan.tier in TYPED_TIERS,
+            # Eldane's review and the plan's autonomy level (autonomy.py), from the record - said to be an AI.
+            **self._ai_review(plan)}})
+
+    def _ai_review(self, plan: Any) -> dict[str, str]:
+        if self.log is None:
+            return {}
+        from . import autonomy
+
+        rows = [e["body"] for e in self.log.entries(plan.incident_id, kinds=(autonomy.VERDICT,))
+                if e["body"].get("workflow_id") == plan.workflow_id and e["body"].get("plan_hash") == plan.plan_hash]
+        if not rows:
+            return {"autonomy": f"at most {autonomy.ceiling(plan.environment)} in {plan.environment}; Eldane, the AI "
+                                "critic, has not reviewed this plan"}
+        v = rows[-1]
+        if v.get("skipped"):
+            return {"ai_critic": f"{approvals.AI_LABEL} (an AI) did not review it: {v['skipped']}"}
+        why = "; ".join(r.get("text", "") for p in (v.get("passes") or [])[-1:] for r in p.get("reasons", [])[:3])
+        return {"ai_critic": f"{approvals.AI_LABEL} (an AI) {'agrees' if v.get('agree') else 'does not agree'}"
+                             + (f": {why}" if why else ""), "autonomy": str(v.get("level_said", ""))}
 
     def _approve_options(self, token: str, link: Link, data: dict) -> Response:
         plan = self.plan_of(link.workflow_id)
