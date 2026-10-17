@@ -357,7 +357,7 @@ def _approvers_changed(detail: dict[str, Any]) -> dict[str, Any]:
             "refused": detail.get("errorCode") or ""}
     try:
         runtime.open_audit().append("approvers", "approvers.changed", body)
-    except Exception as e:  # noqa: BLE001 - the page below still goes out, and the log line says why
+    except Exception as e:  # noqa: BLE001  # the page below still goes out, and the log line says why
         body["audit_error"] = type(e).__name__
     import boto3
 
@@ -400,7 +400,7 @@ def actor_use(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     if log is not None:
         try:
             log.append(str(params.get("sourceIdentity") or "actor-use"), "actor.unapproved", body)
-        except Exception as e:  # noqa: BLE001 - the page below still goes out, and the log line says why
+        except Exception as e:  # noqa: BLE001  # the page below still goes out, and the log line says why
             body["audit_error"] = type(e).__name__
     import boto3
 
