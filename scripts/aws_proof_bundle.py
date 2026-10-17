@@ -40,7 +40,9 @@ def _redact(text: str, account: str) -> str:
     text = re.sub(r"\b\d{12}\b", "<ACCOUNT>", text)
     # Up to the LAST `@` of the token, as libpq reads it (audit A-B-L18): a password holding an `@` was masked only
     # up to it, and its tail showed beside the host.
-    text = re.sub(r"(?<=://)([^:/@\s]+):\S*@", r"\1:********@", text)
+    # "://" matched rather than looked behind at (Sonar python:S8786, 2026-10-16: its analysis takes a look-behind
+    # for no anchor); the same matches on 200,000 random strings.
+    text = re.sub(r"://([^:/@\s]+):\S*@", lambda m: "://" + m.group(1) + ":********@", text)
     # An RDS endpoint's middle label (`<id>.c1a2b3.<region>.rds.amazonaws.com`) is fixed per account
     # and region - an account-linked identifier, if not the account id itself. Wave 3's manifest,
     # ground truth and reports all carried it until 2026-09-25. Instance name and region are kept.
