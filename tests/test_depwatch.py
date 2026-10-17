@@ -10,13 +10,18 @@ import io
 import json
 import os
 import pathlib
+import re
 import tarfile
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from typing import ClassVar
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from hypothesis import example, given
+from hypothesis import settings as settings_
+from hypothesis import strategies as st
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -137,6 +142,7 @@ class FakeGitHub:
         if path.startswith("pulls?"):
             return _Answer(json.dumps(self.prs).encode())
         if path.startswith("dependabot/alerts"):
+            self.alerts_query = path
             return _Answer(json.dumps(self.alerts).encode())
         if path == "tarball":
             return _Answer(tarball(self.files))
@@ -156,11 +162,14 @@ class FakeGitHub:
 class FakeLLM:
     """A model that answers each PR from `answers` (by package), recording every prompt it was shown."""
 
+    retries_seen: ClassVar[list[int]] = []
+
     def __init__(self, answers=None, prompts=None):
         self.answers, self.prompts = answers or {}, prompts if prompts is not None else []
         self.cost, self.max_usd, self.unanswered = CostRecord(), 0.5, 0
 
     def structured(self, *, system, user, schema, mock_factory=None, retries=2):
+        FakeLLM.retries_seen.append(retries)
         self.prompts.append(system + "\n" + user)
         self.cost.add(100, 50, 0.001)
         pkg = user.split(": ", 1)[1].split(" ", 1)[0]
@@ -214,12 +223,14 @@ def test_each_dependabot_pr_is_reviewed_change_notes_usage_ci_risk_and_plan(worl
     by = {p["number"]: p for p in snap["prs"]}
     # (1) the change
     assert by[13]["changes"] == [{"package": "pydantic", "from": "2.9.0", "to": "3.0.0", "jump": "major"}]
-    assert by[11]["ecosystem"] == "pip" and by[14]["ecosystem"] == "github_actions"
+    assert by[11]["ecosystem"] == "pip"
+    assert by[14]["ecosystem"] == "github_actions"
     assert by[12]["files"] == [{"path": "uv.lock", "status": "modified", "add": 3, "del": 3, "hashes": 2}]
     # (2) the release notes, as facts: categories and code names - never the commits list
     assert [n["category"] for n in by[13]["notes"]] == ["other", "breaking", "deprecation", "fix"]
     assert "field_validator" in by[13]["notes"][1]["names"]
-    assert by[11]["notes"][1]["category"] == "security" and by[11]["notes"][1]["ids"] == ["CVE-2024-37891"]
+    assert by[11]["notes"][1]["category"] == "security"
+    assert by[11]["notes"][1]["ids"] == ["CVE-2024-37891"]
     # (3) where it is used: imports by ast, manifests, locks, workflows - README is not read
     sites = {(s["path"], s["kind"]) for s in by[12]["sites"]}
     assert sites == {("src/warden/llm.py", "import"), ("tests/test_llm.py", "import"), ("pyproject.toml", "manifest"),
@@ -230,7 +241,8 @@ def test_each_dependabot_pr_is_reviewed_change_notes_usage_ci_risk_and_plan(worl
     assert {(s["path"], s["kind"]) for s in by[11]["sites"]} == {(APP_REQS, "lock")}
     # (5) CI, and (6) risk and plan from verifiable signals
     reviews = _reviews(world["log"])
-    assert by[14]["ci"]["state"] == "pending" and by[12]["ci"]["state"] == "passing"
+    assert by[14]["ci"]["state"] == "pending"
+    assert by[12]["ci"]["state"] == "passing"
     assert (reviews[11]["risk"], reviews[11]["plan"]) == ("low", "merge now - it fixes security alert #3")
     assert (reviews[12]["risk"], reviews[12]["plan"]) == ("low", "merge now")
     assert reviews[13]["risk"] == "high"
@@ -238,7 +250,8 @@ def test_each_dependabot_pr_is_reviewed_change_notes_usage_ci_risk_and_plan(worl
     assert (reviews[14]["risk"], reviews[14]["plan"]) == ("medium", "needs its CI checks first (CI pending)")
     assert reviews[13]["why"] == ["major version jump (+2)", "breaking changes in the release notes: N2 (+2)",
                                   "deprecations in the release notes: N3 (+1)"]
-    assert texts["discuss"] and texts["alerts"]
+    assert texts["discuss"]
+    assert texts["alerts"]
 
 
 def test_the_risk_follows_failing_ci_an_unfixed_advisory_and_a_major_with_no_tests(world):
@@ -247,14 +260,16 @@ def test_the_risk_follows_failing_ci_an_unfixed_advisory_and_a_major_with_no_tes
     gh.alerts.append(alert(5, "requests", "pip", "2.33.0", "medium", 2))  # 2.32.0 is still below its fix
     _run(world["acts"])
     reviews = _reviews(world["log"])
-    assert reviews[12]["plan"] == "hold: its CI failed (CI · tool)" and reviews[12]["below"] == [5]
+    assert reviews[12]["plan"] == "hold: its CI failed (CI · tool)"
+    assert reviews[12]["below"] == [5]
     assert "it stays below the fix for security alert #5 (+2)" in reviews[12]["why"]
     pr = {"number": 1, "ecosystem": "uv", "changes": [{"package": "x", "from": "1.0", "to": "2.0", "jump": "major"}],
           "notes": [{"id": "N1", "category": "breaking", "names": ["Thing.gone"], "ids": [], "versions": []}],
           "sites": [{"id": "U1", "path": "src/warden/a.py", "line": 3, "kind": "import", "component": "warden.a",
                      "what": "imports x.other"}], "ci": {"state": "passing", "failed_names": []}}
     level, _ = depwatch.risk(pr, [])
-    assert level == "high" and depwatch.plan(pr, level, []) == (
+    assert level == "high"
+    assert depwatch.plan(pr, level, []) == (
         "needs a test that exercises x in warden.a first: no test imports it")
 
 
@@ -288,7 +303,8 @@ def test_an_injection_in_the_release_notes_moves_neither_risk_nor_plan_and_reach
     for never in ("Ignore previous", "IgnoreAllPrevious", "evil.example", "<!channel>", "approve this",
                   "Fixed a bug", "abc123"):
         assert never not in shown, never
-    assert "[N3] held back by WARDEN (not shown)" in shown and "<<DATA " in shown
+    assert "[N3] held back by WARDEN (not shown)" in shown
+    assert "<<DATA " in shown
     # And it reached no Slack message, raw or as a mention; the advisory's own text is never kept either.
     world["acts"].depwatch_post("depwatch-20261016T040000Z", texts)
     sent = json.dumps([p for _, p in world["posted"]])
@@ -310,7 +326,8 @@ def test_a_line_the_injection_tripwire_flags_is_held_back_too(monkeypatch):
     monkeypatch.setenv("WARDEN_TRIPWIRE", "required")
     facts, status = depwatch.notes_of(body("x", "1.0", "1.1", ["Added a flag."]),
                                       classify=lambda w, batch_size=16: 1 / 0)
-    assert status.startswith("unavailable") and all(f.get("held") for f in facts)
+    assert status.startswith("unavailable")
+    assert all(f.get("held") for f in facts)
 
 
 def test_an_effect_not_grounded_in_the_notes_or_the_usage_is_dropped(world):
@@ -326,9 +343,11 @@ def test_an_effect_not_grounded_in_the_notes_or_the_usage_is_dropped(world):
     snap, texts = _run(world["acts"])
     assert _site(snap, 13, "src/warden/models.py") == "U2"
     review = _reviews(world["log"])[13]
-    assert review["effects"] == [{"kind": "breaking", "cites": ["N2", "U2"]}] and review["dropped"] == 5
+    assert review["effects"] == [{"kind": "breaking", "cites": ["N2", "U2"]}]
+    assert review["dropped"] == 5
     assert "[breaking] field_validator is gone; the models use it. (N2, U2)" in texts["discuss"]
-    assert "5 claim(s) dropped: not grounded" in texts["discuss"] and "Everything changes" not in texts["discuss"]
+    assert "5 claim(s) dropped: not grounded" in texts["discuss"]
+    assert "Everything changes" not in texts["discuss"]
     held = {"id": "N1", "held": "steering words"}
     pr = {"notes": [held], "sites": []}
     assert depwatch.ground([{"kind": "fix", "what": "x", "cites": ["N1"]}], pr) == ([], 1)  # a held line is no ground
@@ -342,7 +361,9 @@ def test_an_effect_not_grounded_in_the_notes_or_the_usage_is_dropped(world):
 def test_warden_only_ever_reads_github(world):
     _run(world["acts"])
     seen = world["gh"].seen
-    assert seen and {m for m, *_ in seen} == {"GET"} and all(data is None for _, _, data, _ in seen)
+    assert seen
+    assert {m for m, *_ in seen} == {"GET"}
+    assert all(data is None for _, _, data, _ in seen)
     assert all(url.startswith(f"https://api.github.com/repos/{REPO}/") for _, url, _, _ in seen)
     assert {auth for *_, auth in seen} == {f"Bearer {TOKEN}"}
     # There is no way to send anything else: one GET, and a redirect only to GitHub's archive host, without the token.
@@ -363,7 +384,8 @@ def test_warden_only_ever_reads_github(world):
         return calls, GitHub(REPO, TOKEN, opener=opener)
 
     calls, gh = redirect("https://codeload.github.com/example-owner/example-repo/legacy.tar.gz/main")
-    assert gh.get("tarball") == b"archive" and calls[1][1] is None  # the archive host never gets the token
+    assert gh.get("tarball") == b"archive"
+    assert calls[1][1] is None  # the archive host never gets the token
     calls, gh = redirect("https://evil.example/archive")
     with pytest.raises(GitHubError, match="HTTP 302"):
         gh.get("tarball")
@@ -378,8 +400,10 @@ def test_the_github_token_is_the_read_zones_alone():
     for zone in ("core", "llm", "notify", "act"):
         assert "WARDEN_GITHUB_READ_TOKEN" not in settings.loadable_for("worker", zone), zone
     assert settings.secret_id("dev", "WARDEN_GITHUB_READ_TOKEN") == "warden/dev/github-read-token"
-    assert ZONES["read"][-1] == "depwatch_read" and "depwatch_effects" in ZONES["llm"]
-    assert "depwatch_post" in ZONES["notify"] and not any("depwatch_review" in z for z in ZONES.values())
+    assert ZONES["read"][-1] == "depwatch_read"
+    assert "depwatch_effects" in ZONES["llm"]
+    assert "depwatch_post" in ZONES["notify"]
+    assert not any("depwatch_review" in z for z in ZONES.values())
 
 
 # ------------------------------------------------------------------ the digest
@@ -401,21 +425,26 @@ def test_the_digest_says_each_review_and_old_security_alerts_go_to_the_alerts_ch
     assert "- Security: fixes alert #3" in d
     assert ("- #3 urllib3 (pip, uv.lock): GHSA-abcd-abcd-abcd, CVE-2024-37891, high - vulnerable < 2.2.2, fixed in "
             "2.2.2 - open 5 days - fixed by PR #11") in d
-    assert "open 1 days - no open PR fixes it" in d and INJECTION not in d  # an advisory's own words are never kept
+    assert "open 1 days - no open PR fixes it" in d
+    assert INJECTION not in d  # an advisory's own words are never kept
     # GitHub's own time format; a time with no zone is no age at all, never a guess.
-    assert depwatch._utc("2026-10-11T14:27:00Z") == "2026-10-11T14:27:00Z" and depwatch._utc("2026-10-11T14:27") == ""
+    assert depwatch._utc("2026-10-11T14:27:00Z") == "2026-10-11T14:27:00Z"
+    assert depwatch._utc("2026-10-11T14:27") == ""
     assert d.rstrip().endswith(f"WARDEN dependency review {DIGEST}")
     a = texts["alerts"]
-    assert a.startswith("**WARDEN: 1 security alert(s) open 3 days or more**") and "#3 urllib3" in a
+    assert a.startswith("**WARDEN: 1 security alert(s) open 3 days or more**")
+    assert "#3 urllib3" in a
     assert "#4 jinja2" not in a  # open a day: the digest only
     sent = world["acts"].depwatch_post(DIGEST, texts)
     assert sent == {"discuss": "sent", "alerts": "sent"}
     channels = [p["channel"] for m, p in world["posted"] if m == "chat.postMessage"]
-    assert channels[0] == DISCUSS and ALERTS in channels
+    assert channels[0] == DISCUSS
+    assert ALERTS in channels
     assert all("thread_ts" not in p or p["thread_ts"] == "1760000000.000100" for _, p in world["posted"])
     assert "plan: **hold: its CI failed (CI · tool https://ci.example/run/1)**" in d
     sent = json.dumps([p for _, p in world["posted"]])
-    assert "ci.example" not in sent and "http" not in sent  # no link leaves: the outbound gate takes URLs out
+    assert "ci.example" not in sent
+    assert "http" not in sent  # no link leaves: the outbound gate takes URLs out
     assert "pydantic 2.9.0 -&gt; 3.0.0" in sent  # and Slack gets mrkdwn, its "<" and ">" escaped
 
 
@@ -428,7 +457,10 @@ def test_with_per_environment_channels_the_review_goes_to_the_nonprod_environmen
     _, texts = _run(world["acts"])
     assert world["acts"].depwatch_post(DIGEST, texts) == {"discuss": "sent", "alerts": "sent"}
     used = [p["channel"] for m, p in world["posted"] if m == "chat.postMessage"]
-    assert used[0] == dev_talk and dev_alerts in used and prod not in used and DISCUSS not in used
+    assert used[0] == dev_talk
+    assert dev_alerts in used
+    assert prod not in used
+    assert DISCUSS not in used
     monkeypatch.setenv("WARDEN_DISCUSS_CHANNELS", f"prod={prod}")  # a map with no nonprod channel: nothing is sent
     assert depwatch.channel("WARDEN_DISCUSS_CHANNELS", "WARDEN_DISCUSS_CHANNEL") == ""
     assert world["acts"].depwatch_post(DIGEST, {"discuss": "x"})["discuss"].startswith("not sent: no channel")
@@ -444,9 +476,144 @@ def test_a_malformed_channel_map_sends_nothing_rather_than_a_guess(world, monkey
             depwatch.channel("WARDEN_DISCUSS_CHANNELS", "WARDEN_DISCUSS_CHANNEL")
         world["posted"].clear()
         said = world["acts"].depwatch_post(DIGEST, {"discuss": "x"})
-        assert said == {"discuss": "not sent: WARDEN_DISCUSS_CHANNELS is malformed"} and not world["posted"], bad
+        assert said == {"discuss": "not sent: WARDEN_DISCUSS_CHANNELS is malformed"}, bad
+        assert not world["posted"], bad
     post = world["log"].entries(DIGEST, kinds=("depwatch.post",))
     assert post[-1]["body"]["result"] == "not sent: WARDEN_DISCUSS_CHANNELS is malformed"
+
+
+def test_a_hyphenated_package_is_found_in_manifests_and_requirements():
+    """PEP 503: `-`, `_` and `.` are one separator in a name - python-dateutil is python_dateutil in a requirements
+    file - and a longer name that starts the same is another package."""
+    files = {"pyproject.toml": 'dependencies = [\n  "python-dateutil>=2.9",\n  "python-dateutil-extras>=1",\n]\n',
+             APP_REQS: "Python_Dateutil==2.9.0 \\\n    --hash=sha256:abc\nboto3==1.0\n"}
+    sites, total = depwatch.usage([{"package": "python-dateutil", "from": "2.9.0", "to": "2.10.0", "jump": "minor"}],
+                                  "pip", files)
+    assert total == 2
+    assert {(s["path"], s["line"]) for s in sites} == {("pyproject.toml", 2), (APP_REQS, 1)}
+
+
+def test_the_oldest_alerts_are_read_first_and_whatever_is_past_a_cap_is_said(world, monkeypatch):
+    gh = world["gh"]
+    gh.alerts = [alert(n, "jinja2", "pip", "3.1.5", "high", 200 - n) for n in range(1, 61)]  # #1 the oldest
+    snap = world["acts"].depwatch_read(DIGEST)
+    assert "sort=created&direction=asc" in gh.alerts_query
+    assert [a["number"] for a in snap["alerts"]] == list(range(1, 51))
+    assert "security alerts past the oldest 50" in snap["unread"]
+    monkeypatch.setattr(depwatch, "MAX_PRS", 2)
+    snap = world["acts"].depwatch_read(DIGEST)
+    assert [p["number"] for p in snap["prs"]] == [11, 12]
+    assert "Dependabot PRs past the first 2 (2 more)" in snap["unread"]
+    texts = world["acts"].depwatch_review(DIGEST, snap, {})
+    assert "this review is incomplete, not clean" in texts["discuss"]
+
+
+def test_with_the_watch_off_its_schedule_is_removed_and_a_stray_run_says_so(world, monkeypatch):
+    from temporalio.service import RPCError, RPCStatusCode
+
+    class Client:
+        def __init__(self, error=None):
+            self.error, self.deleted = error, []
+
+        def get_schedule_handle(self, sid):
+            client = self
+
+            class Handle:
+                async def delete(self):
+                    if client.error:
+                        raise client.error
+                    client.deleted.append(sid)
+            return Handle()
+
+    there = Client()
+    assert asyncio.run(depwatch.remove_schedule(there)) is True
+    assert there.deleted == [depwatch.SCHEDULE_ID]
+    assert asyncio.run(depwatch.remove_schedule(Client(RPCError("gone", RPCStatusCode.NOT_FOUND, b"")))) is False
+    with pytest.raises(RPCError):  # any other answer is not "nothing to remove"
+        asyncio.run(depwatch.remove_schedule(Client(RPCError("no", RPCStatusCode.PERMISSION_DENIED, b""))))
+    cli = (ROOT / "src" / "warden" / "cli.py").read_text(encoding="utf-8")
+    assert "if depwatch.configured():" in cli
+    assert "await depwatch.remove_schedule(client)" in cli
+    monkeypatch.delenv("WARDEN_DEPWATCH_REPO")
+    world["acts"].github = None
+    snap = world["acts"].depwatch_read(DIGEST)
+    assert snap["unread"] == ["everything (WARDEN_DEPWATCH_REPO is not set to owner/name)"]
+    assert not world["gh"].seen
+    assert "Nothing open" not in world["acts"].depwatch_review(DIGEST, snap, {})["discuss"]
+
+
+def test_a_failed_first_part_stops_the_post_rather_than_scattering_the_rest(world, monkeypatch):
+    calls = []
+
+    def slack(method, payload, token, form=False):
+        calls.append(payload)
+        return None, "slack error: ratelimited"
+
+    monkeypatch.setattr(chatops, "_slack_call", slack)
+    sink = chatops.SlackThreadSink("xoxb-" + "test", DISCUSS, "", live=True)
+    sent = sink.send("x" * 9000 + "\n\n" + "y" * 9000, {})  # more than one Slack message
+    assert not sent.delivered
+    assert len(calls) == 1
+    assert "thread_ts" not in calls[0]
+
+
+# The version pattern before Sonar S5852 (super-linear backtracking): the reference the linear reader must agree with.
+_OLD_VERSIONS = re.compile(r"(?<![\w.])v?(\d+\.\d+(?:\.\d+)?)(?![\w.])")
+
+
+@settings_(max_examples=400, deadline=None)
+@given(st.text(alphabet="v0123456789.ab_ -()", max_size=40))
+@example("1.2.3.4")
+@example("v1.2.3 and 1.2.3. and a1.2 (2.0) 1.2_3 .1.2 1..2")
+def test_versions_are_read_as_the_old_pattern_read_them(line):
+    assert depwatch.versions(line) == _OLD_VERSIONS.findall(line)
+
+
+def test_versions_are_read_in_linear_time_on_an_adversarial_line():
+    import time
+
+    for line in ("1." + "1" * 200_000 + "x", "1" * 200_000 + ".", ("1.2" * 60_000) + "a"):
+        started = time.perf_counter()
+        depwatch.versions(line)
+        assert time.perf_counter() - started < 1.0
+    assert depwatch.versions("Fixed in v2.1.3 (was 2.1), not 1.2.3.4 nor abc1.2") == ["2.1.3", "2.1"]
+
+
+def test_only_block_tags_break_release_note_lines():
+    got = depwatch.note_text("<summary>Release notes</summary><P class=x>one<preview>two</preview><br/>three"
+                             "<h2>four</h2></details>")
+    assert got == ["onetwo", "three", "four"]
+
+
+def test_a_ci_answer_of_any_shape_is_counted_never_raises_and_names_at_most_five():
+    runs = {"workflow_runs": ["not a run", 7, None,
+                              *({"name": f"job {i}", "status": "completed", "conclusion": "failure"} for i in range(7)),
+                              {"name": "new", "status": "completed", "conclusion": "a-conclusion-from-later"}]}
+    ci = depwatch.ci_of(runs)
+    assert ci == {"state": "failing", "passed": 0, "failed": 7, "pending": 1,
+                  "failed_names": [f"job {i}" for i in range(5)]}
+    assert depwatch.ci_of({"workflow_runs": "x"})["state"] == "none"
+    assert depwatch.ci_of(None)["state"] == "none"
+    assert depwatch.ci_of({"workflow_runs": [{"status": "queued"}]})["state"] == "pending"
+
+
+def test_an_alert_of_any_shape_is_kept_only_in_its_fields_shapes():
+    rows = ["x", {"dependency": "x"}, {"dependency": {"package": {"name": "jinja2", "ecosystem": "PIP"}},
+                                       "security_advisory": "x", "security_vulnerability": {"first_patched_version": 3},
+                                       "number": "5"},
+            alert(6, "jinja2", "pip", "3.1.5", "Critical", 1)]
+    got = depwatch.alerts_of(rows)
+    assert [a["number"] for a in got] == [0, 6]
+    assert got[0]["severity"] == "unknown"
+    assert got[0]["patched"] == ""
+    assert got[0]["ecosystem"] == "pip"
+    assert got[1]["severity"] == "critical"
+    assert got[1]["patched"] == "3.1.5"
+
+
+@pytest.mark.parametrize(("score", "level"), [(0, "low"), (1, "low"), (2, "medium"), (3, "medium"), (4, "high"), (9, "high")])
+def test_the_risk_level_bounds(score, level):
+    assert depwatch._level(score) == level
 
 
 def test_nothing_read_is_never_said_as_nothing_open(world):
@@ -500,11 +667,29 @@ def test_the_interval_is_a_setting_and_the_schedule_is_made_or_brought_up_to_dat
         assert sid == depwatch.SCHEDULE_ID == "warden-dependency-watch"
         assert [i.every for i in schedule.spec.intervals] == [timedelta(hours=72)]
         assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
-        assert schedule.action.workflow == "DependencyWatchWorkflow" and schedule.action.task_queue == "warden"
+        assert schedule.action.workflow == "DependencyWatchWorkflow"
+        assert schedule.action.task_queue == "warden"
     monkeypatch.delenv("WARDEN_DEPWATCH_REPO", raising=False)
     assert not depwatch.configured()
     monkeypatch.setenv("WARDEN_DEPWATCH_REPO", REPO)
     assert depwatch.configured()
+
+
+def test_one_reservation_is_one_call_and_the_daily_cap_counts_this_calls_budget_and_tokens(world, monkeypatch):
+    """A reservation is one provider call (no retry), so MAX_CALLS counts calls; and the day's cap is checked as the
+    diagnosis checks it: this call's whole budget must fit, and the day's tokens must be under theirs."""
+    from warden import activities
+
+    FakeLLM.retries_seen.clear()
+    pr13 = next(p for p in world["acts"].depwatch_read(DIGEST)["prs"] if p["number"] == 13)
+    assert world["acts"].depwatch_effects(DIGEST, pr13)["effects"] == []
+    assert FakeLLM.retries_seen == [0]
+    monkeypatch.setattr(activities, "DAILY_MAX_USD", 0.5)  # 0.001 spent today + this call's 0.50 is over
+    assert world["acts"].depwatch_effects(DIGEST, pr13) == {"effects": None, "why": "the daily model cap is reached"}
+    monkeypatch.setattr(activities, "DAILY_MAX_USD", 10.0)
+    monkeypatch.setattr(activities, "DAILY_MAX_TOKENS", 150)  # the first call's 150 tokens reach it
+    assert world["acts"].depwatch_effects(DIGEST, pr13)["why"] == "the daily model cap is reached"
+    assert FakeLLM.retries_seen == [0]  # neither capped call reached the model
 
 
 def test_model_calls_are_capped_per_digest_counted_from_the_audit(world, monkeypatch):
@@ -516,9 +701,11 @@ def test_model_calls_are_capped_per_digest_counted_from_the_audit(world, monkeyp
     assert "this review's 2 model calls are used" in _reviews(world["log"])[13]["effects_missing"]
     # Counted from the record, not from this process: a worker restarted mid-digest does not get a fresh allowance.
     fresh = DepWatchActivities(audit=world["log"], incident=world["acts"].incident, github=world["acts"].github)
-    assert fresh.depwatch_effects(DIGEST, {"number": 99})["effects"] is None and len(world["prompts"]) == 2
+    assert fresh.depwatch_effects(DIGEST, {"number": 99})["effects"] is None
+    assert len(world["prompts"]) == 2
     spend = world["log"].entries(DIGEST, kinds=("incident.llm_spend",))
-    assert len(spend) == 2 and all(e["body"]["calls"] == 1 for e in spend)
+    assert len(spend) == 2
+    assert all(e["body"]["calls"] == 1 for e in spend)
 
 
 # ------------------------------------------------------------------ the workflow
@@ -538,9 +725,11 @@ def test_the_whole_review_runs_as_a_scheduled_workflow_reading_only(world):
                                                      task_queue="depwatch-test")
 
     digest = asyncio.run(main())
-    assert digest.startswith("depwatch-") and depwatch._when(digest) <= datetime.now(UTC)
+    assert digest.startswith("depwatch-")
+    assert depwatch._when(digest) <= datetime.now(UTC)
     kinds = [e["kind"] for e in world["log"].entries(digest)]
-    assert kinds.count("depwatch.review") == 4 and kinds.count("depwatch.post") == 2
+    assert kinds.count("depwatch.review") == 4
+    assert kinds.count("depwatch.post") == 2
     assert {m for m, *_ in world["gh"].seen} == {"GET"}
     assert world["posted"][0][1]["channel"] == DISCUSS
     flow = (ROOT / "src" / "warden" / "workflows.py").read_text(encoding="utf-8")

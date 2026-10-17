@@ -23,6 +23,7 @@ WARDEN never writes to GitHub: GitHub.get is the only call, a GET, on the one re
 from __future__ import annotations
 
 import ast
+import contextlib
 import hashlib
 import html
 import io
@@ -34,6 +35,7 @@ import tarfile
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -47,6 +49,7 @@ DEFAULT_EVERY_HOURS = 72
 MAX_CALLS = 6  # model calls in one digest, counted from the audit
 ALERT_AFTER = timedelta(days=3)  # a security alert open longer is said in the alerts channel too
 MAX_PRS, MAX_ALERTS, MAX_NOTE_LINES, MAX_SITES = 20, 50, 60, 40
+PAGE = 100  # GitHub's largest page: one page is read, and a full one is said as possibly more
 MAX_JSON = 5_000_000
 MAX_TARBALL = 60_000_000
 MAX_FILE, MAX_FILES_TOTAL = 1_000_000, 80_000_000
@@ -54,6 +57,8 @@ _TIMEOUT_S = 20.0
 _API = "https://api.github.com"
 _REPO = re.compile(r"[A-Za-z0-9][\w.-]{0,99}/[A-Za-z0-9][\w.-]{0,99}")
 DEPENDABOT = "dependabot[bot]"
+LOCK = "uv.lock"
+WORKFLOWS = ".github/workflows/"
 
 
 def every() -> timedelta:
@@ -136,7 +141,7 @@ class GitHub:
             if where and hops == 0 and parts.scheme == "https" and parts.hostname == "codeload.github.com":
                 return self._fetch(where, auth=False, limit=limit, hops=1)
             raise GitHubError(f"HTTP {exc.code}") from None
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except OSError as exc:  # URLError and TimeoutError are OSErrors
             raise GitHubError(type(exc).__name__) from None
         if len(body) > limit:
             raise GitHubError("answer too large")
@@ -213,31 +218,49 @@ _PASSED, _FAILED = {"success", "skipped", "neutral"}, {"failure", "timed_out", "
                                                       "startup_failure", "stale"}
 
 
+def _run_state(run: dict[str, Any]) -> str:
+    """One workflow run: passed, failed or pending (not completed, or a conclusion GitHub may add later)."""
+    if run.get("status") != "completed":
+        return "pending"
+    if run.get("conclusion") in _FAILED:
+        return "failed"
+    if run.get("conclusion") in _PASSED:
+        return "passed"
+    return "pending"
+
+
+def _ci_state(counts: dict[str, int]) -> str:
+    if counts["failed"]:
+        return "failing"
+    if counts["pending"]:
+        return "pending"
+    if counts["passed"]:
+        return "passing"
+    return "none"
+
+
 def ci_of(runs: Any) -> dict[str, Any]:
-    """The PR head's workflow runs (GitHub Actions): passing, failing, pending or none."""
-    rows = (runs or {}).get("workflow_runs") if isinstance(runs, dict) else None
-    passed = failed = pending = 0
-    failed_names = []
-    for r in rows if isinstance(rows, list) else []:
-        name = inert(str(r.get("name", "?")), 80)
-        if r.get("status") != "completed":
-            pending += 1
-        elif r.get("conclusion") in _FAILED:
-            failed += 1
-            failed_names.append(name)
-        elif r.get("conclusion") in _PASSED:
-            passed += 1
-        else:
-            pending += 1
-    state = "failing" if failed else "pending" if pending else "passing" if passed else "none"
-    return {"state": state, "passed": passed, "failed": failed, "pending": pending, "failed_names": failed_names[:5]}
+    """The PR head's workflow runs (GitHub Actions): passing, failing, pending or none, and the first 5 failed names.
+    A row that is not an object is not a run."""
+    rows = runs.get("workflow_runs") if isinstance(runs, dict) else None
+    counts = {"passed": 0, "failed": 0, "pending": 0}
+    failed_names: list[str] = []
+    for run in rows if isinstance(rows, list) else []:
+        if not isinstance(run, dict):
+            continue
+        state = _run_state(run)
+        counts[state] += 1
+        if state == "failed" and len(failed_names) < 5:
+            failed_names.append(inert(str(run.get("name", "?")), 80))
+    return {"state": _ci_state(counts), **counts, "failed_names": failed_names}
 
 
 # ------------------------------------------------------------------ the release notes, as facts
 
 # Release notes and changelog, as Dependabot quotes them in the PR body. The commits list is left out.
 _SECTION = re.compile(r"<summary>\s*(?:Release notes|Changelog)\s*</summary>(.*?)</details>", re.DOTALL | re.IGNORECASE)
-_BLOCK = re.compile(r"(?i)<(?:br|/?p|/?li|/?h[1-6]|/?blockquote|/?ul|/?ol|/?tr|/?pre)\b[^>]{0,200}>")
+_ANY_TAG = re.compile(r"</?([A-Za-z][A-Za-z0-9]{0,15})\b[^>]{0,200}>")
+_BLOCK_TAGS = frozenset({"br", "p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "tr", "pre"})
 _TAG = re.compile(r"<[^>]{0,500}>")
 # A closed vocabulary, first match wins: the category is all of a line that counts toward risk.
 CATEGORIES = (
@@ -259,16 +282,25 @@ _SQUASHED = re.compile(r"ignoreall|ignoreprevious|disregard|instruction|pretend|
 _NAME = re.compile(r"`([^`\s]{2,60})`|\b([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?:\(\))?)|\b([A-Za-z_]\w{2,}\(\))|"
                    r"\b([A-Z][a-z0-9]+[A-Z]\w+)\b|\b([a-z][a-z0-9]*_[a-z0-9_]+)\b")
 _IDS = re.compile(r"\b(CVE-\d{4}-\d{4,7}|GHSA(?:-[a-z0-9]{4}){3})\b")
-_VERSIONS = re.compile(r"(?<![\w.])v?(\d+\.\d+(?:\.\d+)?)(?![\w.])")
+_WORD = re.compile(r"[\w.]+")
+_VERSION = re.compile(r"v?(\d+\.\d+(?:\.\d+)?)")
 _NOT_A_NAME = re.compile(r"(?i)^https?|\.(?:com|org|io|net|dev|html|md)$|^\d")
 
 
 def note_text(body: str) -> list[str]:
     """The release-notes and changelog lines Dependabot quoted, as plain one-line strings, at most MAX_NOTE_LINES."""
     chunks = "\n".join(m.group(1) for m in _SECTION.finditer(body or ""))
-    text = html.unescape(_TAG.sub("", _BLOCK.sub("\n", chunks)))
+    blocks = _ANY_TAG.sub(lambda m: "\n" if m.group(1).lower() in _BLOCK_TAGS else m.group(0), chunks)
+    text = html.unescape(_TAG.sub("", blocks))
     lines = [" ".join(line.split()) for line in text.splitlines()]
     return [line[:300] for line in lines if len(line) >= 3 and not line.startswith("Sourced from")][:MAX_NOTE_LINES]
+
+
+def versions(line: str) -> list[str]:
+    """The version numbers a line names (`2.1`, `v2.1.3`), each a whole word of letters, digits, `_` and `.` - so
+    not `1.2.3.4` nor `abc1.2`. Linear in the line: no pattern here can backtrack over it (Sonar S5852)."""
+    found = (_VERSION.fullmatch(word) for word in _WORD.findall(line))
+    return [m.group(1) for m in found if m]
 
 
 def _names(line: str) -> list[str]:
@@ -297,7 +329,7 @@ def note_facts(lines: list[str], *, flagged: frozenset[str] = frozenset()) -> li
             continue
         category = next((c for c, rx in CATEGORIES if rx.search(line)), "other")
         out.append({"id": nid, "category": category, "names": _names(line),
-                    "ids": sorted(set(_IDS.findall(line)))[:4], "versions": _VERSIONS.findall(line)[:3]})
+                    "ids": sorted(set(_IDS.findall(line)))[:4], "versions": versions(line)[:3]})
     return out
 
 
@@ -338,9 +370,9 @@ def wanted(path: str) -> bool:
     workflows; Terraform."""
     name = path.rsplit("/", 1)[-1]
     return ((path.endswith(".py") and path.split("/", 1)[0] in ("src", "scenarios", "scripts", "tests"))
-            or name in ("pyproject.toml", "uv.lock") or name.startswith("Dockerfile")
+            or name in ("pyproject.toml", LOCK) or name.startswith("Dockerfile")
             or (name.endswith((".txt", ".in")) and "requirements" in name)
-            or (path.startswith(".github/workflows/") and name.endswith((".yml", ".yaml"))) or name.endswith(".tf"))
+            or (path.startswith(WORKFLOWS) and name.endswith((".yml", ".yaml"))) or name.endswith(".tf"))
 
 
 def repo_files(archive: bytes) -> dict[str, str]:
@@ -368,7 +400,7 @@ def component(path: str) -> str:
     parts = path.split("/")
     if parts[0] == "src" and len(parts) > 2:
         return ".".join(parts[1:3]).removesuffix(".py")
-    if path.startswith(".github/workflows/"):
+    if path.startswith(WORKFLOWS):
         return "workflow " + parts[-1]
     if "lambdas" in parts[:-1]:
         return "lambda " + parts[parts.index("lambdas") + 1]
@@ -398,13 +430,48 @@ def _imports(text: str, module: str) -> list[tuple[int, list[str]]]:
 
 def _manifest_kind(path: str) -> str:
     name = path.rsplit("/", 1)[-1]
-    if name == "uv.lock" or (name.endswith(".txt") and "requirements" in name):
+    if name == LOCK or (name.endswith(".txt") and "requirements" in name):
         return "lock"
     if name.startswith("Dockerfile"):
         return "image"
-    if path.startswith(".github/workflows/"):
+    if path.startswith(WORKFLOWS):
         return "workflow"
     return "manifest"
+
+
+def _patterns(pkg: str) -> dict[str, re.Pattern[str]]:
+    """How a package is named: in a manifest or requirements line (PEP 503: `-`, `_` and `.` are one separator, so
+    each part is escaped and the separators matched as any of them), a workflow's `uses:` and an image's FROM."""
+    return {
+        "token": re.compile(r"(?i)(?<![\w.-])" + "[-_.]".join(re.escape(p) for p in re.split(r"[-_.]+", pkg))
+                            + r"(?![\w-])"),
+        "action": re.compile(r"uses:\s*['\"]?" + re.escape(pkg) + r"(?:/[\w./-]*)?@"),
+        "image": re.compile(r"(?i)\s*FROM\s+(?:--\S+\s+)*(?:\S+/)?" + re.escape(pkg) + r"[:@\s]"),
+    }
+
+
+def _hit(ecosystem: str, pkg: str, path: str, line: str, rx: dict[str, re.Pattern[str]]) -> bool:
+    """Whether one line of a non-Python file names the package, as its ecosystem writes it."""
+    if ecosystem == "github_actions":
+        return path.startswith(WORKFLOWS) and bool(rx["action"].search(line))
+    if ecosystem == "docker":
+        return _manifest_kind(path) == "image" and bool(rx["image"].match(line + " "))
+    if path.endswith(LOCK):
+        return line.strip().lower() == f'name = "{_norm(pkg)}"'
+    return bool(rx["token"].search(line))
+
+
+def _sites_in(pkg: str, ecosystem: str, path: str, text: str,
+              rx: dict[str, re.Pattern[str]]) -> list[tuple[str, int, str, str]]:
+    """(path, line, kind, what) for each place one file uses the package: a Python import (by `ast`, for pip and uv
+    only), else each line naming it."""
+    if path.endswith(".py"):
+        if ecosystem not in ("pip", "uv"):
+            return []
+        return [(path, line, "import", "imports " + ", ".join(names[:4])) for line, names in _imports(text, module_of(pkg))]
+    kind = _manifest_kind(path)
+    return [(path, n, kind, inert(line.strip(), 120)) for n, line in enumerate(text.splitlines(), start=1)
+            if _hit(ecosystem, pkg, path, line, rx)]
 
 
 def usage(changes: list[dict[str, str]], ecosystem: str, files: dict[str, str]) -> tuple[list[dict[str, Any]], int]:
@@ -412,29 +479,9 @@ def usage(changes: list[dict[str, str]], ecosystem: str, files: dict[str, str]) 
     found: list[tuple[str, int, str, str]] = []
     for change in changes:
         pkg = change["package"]
-        token = re.compile(r"(?i)(?<![\w.-])" + re.escape(pkg).replace(r"\-", "[-_.]").replace("_", "[-_.]")
-                           + r"(?![\w-])")
+        rx = _patterns(pkg)
         for path, text in sorted(files.items()):
-            kind = _manifest_kind(path)
-            if ecosystem in ("pip", "uv") and path.endswith(".py"):
-                found += [(path, line, "import", "imports " + ", ".join(names[:4]))
-                          for line, names in _imports(text, module_of(pkg))]
-                continue
-            if path.endswith(".py"):
-                continue
-            for n, line in enumerate(text.splitlines(), start=1):
-                if ecosystem == "github_actions":
-                    hit = path.startswith(".github/workflows/") and re.search(
-                        r"uses:\s*['\"]?" + re.escape(pkg) + r"(?:/[\w./-]*)?@", line)
-                elif ecosystem == "docker":
-                    hit = kind == "image" and re.match(r"(?i)\s*FROM\s+(?:--\S+\s+)*(?:\S+/)?" + re.escape(pkg)
-                                                       + r"[:@\s]", line + " ")
-                elif path.endswith("uv.lock"):
-                    hit = line.strip().lower() == f'name = "{_norm(pkg)}"'
-                else:
-                    hit = token.search(line)
-                if hit:
-                    found.append((path, n, kind, inert(line.strip(), 120)))
+            found += _sites_in(pkg, ecosystem, path, text, rx)
     rows = [{"id": f"U{i}", "path": p, "line": n, "kind": k, "component": component(p), "what": w}
             for i, (p, n, k, w) in enumerate(sorted(set(found)), start=1)]
     return rows[:MAX_SITES], len(rows)
@@ -450,29 +497,45 @@ _ALERT_ECOSYSTEM = {"uv": "pip", "pip": "pip", "github_actions": "actions", "npm
                     "maven": "maven", "gradle": "maven"}
 
 
+def _obj(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _shaped(rx: re.Pattern[str], value: Any) -> str:
+    """The value as text when all of it has the expected shape, else "" - nothing else of an advisory is kept."""
+    text = str(value or "")
+    return text if rx.fullmatch(text) else ""
+
+
+_PACKAGE = re.compile(r"[A-Za-z0-9@][\w@/.-]{0,99}")
+_ECOSYSTEM = re.compile(r"[a-z]{2,12}")
+_FIXED_IN = re.compile(r"[\w.+-]{1,40}")
+_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
+
+
+def _alert(a: Any) -> dict[str, Any] | None:
+    """One open Dependabot alert as typed facts, or None when it names no package WARDEN can read."""
+    a = _obj(a)
+    dep, adv, vuln = _obj(a.get("dependency")), _obj(a.get("security_advisory")), _obj(a.get("security_vulnerability"))
+    pkg = _obj(dep.get("package"))
+    name, eco = _shaped(_PACKAGE, pkg.get("name")), _shaped(_ECOSYSTEM, str(pkg.get("ecosystem") or "").lower())
+    if not name or not eco:
+        return None
+    severity = str(adv.get("severity") or vuln.get("severity") or "").lower()
+    number = a.get("number")
+    return {"number": number if isinstance(number, int) else 0, "package": name, "ecosystem": eco,
+            "manifest": _shaped(_PATH, dep.get("manifest_path")),
+            "ghsa": _shaped(_GHSA, adv.get("ghsa_id")), "cve": _shaped(_CVE, adv.get("cve_id")),
+            "severity": severity if severity in _SEVERITIES else "unknown",
+            "vulnerable": _shaped(_RANGE, vuln.get("vulnerable_version_range")),
+            "patched": _shaped(_FIXED_IN, _obj(vuln.get("first_patched_version")).get("identifier")),
+            "created_at": _utc(a.get("created_at"))}
+
+
 def alerts_of(rows: Any) -> list[dict[str, Any]]:
     """Open Dependabot alerts as typed facts: the advisory's summary and description are never kept."""
-    out = []
-    for a in rows if isinstance(rows, list) else []:
-        dep = a.get("dependency") or {}
-        pkg = dep.get("package") or {}
-        adv, vuln = a.get("security_advisory") or {}, a.get("security_vulnerability") or {}
-        name, eco = str(pkg.get("name", "")), str(pkg.get("ecosystem", "")).lower()
-        if not re.fullmatch(r"[A-Za-z0-9@][\w@/.-]{0,99}", name) or not re.fullmatch(r"[a-z]{2,12}", eco):
-            continue
-        patched = str((vuln.get("first_patched_version") or {}).get("identifier") or "")
-        vulnerable = str(vuln.get("vulnerable_version_range") or "")
-        severity = str(adv.get("severity") or vuln.get("severity") or "").lower()
-        manifest = str(dep.get("manifest_path") or "")
-        out.append({"number": int(a.get("number") or 0), "package": name, "ecosystem": eco,
-                    "manifest": manifest if _PATH.fullmatch(manifest) else "",
-                    "ghsa": str(adv.get("ghsa_id") or "") if _GHSA.fullmatch(str(adv.get("ghsa_id") or "")) else "",
-                    "cve": str(adv.get("cve_id") or "") if _CVE.fullmatch(str(adv.get("cve_id") or "")) else "",
-                    "severity": severity if severity in ("low", "medium", "high", "critical") else "unknown",
-                    "vulnerable": vulnerable if _RANGE.fullmatch(vulnerable) else "",
-                    "patched": patched if re.fullmatch(r"[\w.+-]{1,40}", patched) else "",
-                    "created_at": _utc(a.get("created_at"))})
-    return out[:MAX_ALERTS]
+    alerts = (_alert(a) for a in (rows if isinstance(rows, list) else []))
+    return [a for a in alerts if a][:MAX_ALERTS]
 
 
 def _utc(value: Any) -> str:
@@ -580,6 +643,14 @@ def _ids(rows: list[dict[str, Any]]) -> str:
     return ", ".join(r["id"] for r in rows[:6]) + (f" and {len(rows) - 6} more" if len(rows) > 6 else "")
 
 
+def _level(score: int) -> str:
+    if score >= 4:
+        return "high"
+    if score >= 2:
+        return "medium"
+    return "low"
+
+
 def risk(pr: dict[str, Any], alerts: list[dict[str, Any]]) -> tuple[str, list[str]]:
     """low / medium / high and why: the version jump, breaking and deprecation lines, CI, how widely the package is
     imported, and an advisory the update leaves unfixed. Never the model's words."""
@@ -609,8 +680,7 @@ def risk(pr: dict[str, Any], alerts: list[dict[str, Any]]) -> tuple[str, list[st
     _, below = advisories(pr, alerts)
     if below:
         add(2, "it stays below the fix for security alert " + ", ".join(f"#{n}" for n in below))
-    level = "high" if score >= 4 else "medium" if score >= 2 else "low"
-    return level, why or ["patch release, CI passing, no breaking or deprecation lines"]
+    return _level(score), why or ["patch release, CI passing, no breaking or deprecation lines"]
 
 
 def plan(pr: dict[str, Any], level: str, alerts: list[dict[str, Any]]) -> str:
@@ -663,39 +733,55 @@ def _alert_line(a: dict[str, Any], now: datetime, fixed_by: dict[int, list[int]]
             + (f"fixed by PR {', '.join(f'#{n}' for n in by)}" if by else "no open PR fixes it"))
 
 
-def _pr_section(r: dict[str, Any]) -> list[str]:
-    pr = r["pr"]
-    change = "; ".join(f"{c['package']} {c['from']} -> {c['to']}" for c in pr["changes"])
-    jumps = ", ".join(sorted({c["jump"] for c in pr["changes"]}))
-    out = [f"**#{pr['number']} {change}** ({pr['ecosystem']}, {jumps}) - risk **{r['risk']}** - plan: **{r['plan']}**"]
+def _files_line(pr: dict[str, Any]) -> str:
     files = "; ".join(f"{f['path']} (+{f['add']} -{f['del']}" + (f", {f['hashes']} hash lines" if f["hashes"] else "")
                       + ")" for f in pr["files"][:6]) or ("not read" if pr.get("files_unread") else "none listed")
-    out.append(f"- Change: {files}" + (f" and {len(pr['files']) - 6} more files" if len(pr["files"]) > 6 else ""))
-    shown = [n for n in pr["notes"] if not n.get("held")]
-    held = len(pr["notes"]) - len(shown)
-    counts = {}
-    for n in shown:
-        counts[n["category"]] = counts.get(n["category"], 0) + 1
-    notes = (f"{len(pr['notes'])} lines - " + ", ".join(f"{v} {k}" for k, v in sorted(counts.items()))
-             if pr["notes"] else "none quoted in the PR")
-    out.append(f"- Release notes: {notes}" + (f"; {held} held back by WARDEN (steering words or flagged as an "
-                                               "injection attempt - read them on GitHub)" if held else ""))
+    more = len(pr["files"]) - 6
+    return f"- Change: {files}" + (f" and {more} more files" if more > 0 else "")
+
+
+def _notes_line(pr: dict[str, Any]) -> str:
+    if not pr["notes"]:
+        return "- Release notes: none quoted in the PR"
+    shown = Counter(n["category"] for n in pr["notes"] if not n.get("held"))
+    held = len(pr["notes"]) - sum(shown.values())
+    line = f"- Release notes: {len(pr['notes'])} lines - " + ", ".join(f"{v} {k}" for k, v in sorted(shown.items()))
+    if held:
+        line += f"; {held} held back by WARDEN (steering words or flagged as an injection attempt - read them on GitHub)"
+    return line
+
+
+def _where_line(pr: dict[str, Any]) -> str:
     by_part: dict[str, list[str]] = {}
     for s in pr["sites"]:
         by_part.setdefault(s["component"], []).append(s["id"])
     where = "; ".join(f"{p} ({', '.join(ids[:3])}{' ...' if len(ids) > 3 else ''})" for p, ids in sorted(by_part.items()))
-    out.append(f"- Where it is used: {pr['sites_total']} places" + (f" - {where}" if where else "")
-               + (f" (the first {MAX_SITES} listed)" if pr["sites_total"] > MAX_SITES else ""))
+    return (f"- Where it is used: {pr['sites_total']} places" + (f" - {where}" if where else "")
+            + (f" (the first {MAX_SITES} listed)" if pr["sites_total"] > MAX_SITES else ""))
+
+
+def _effects_line(r: dict[str, Any]) -> str:
     if r["effects"] is None:
-        out.append(f"- Effects if merged: not assessed ({r['why_not']})")
-    else:
-        said = "; ".join(f"[{e['kind']}] {e['what']} ({', '.join(e['cites'])})" for e in r["effects"]) or "none found"
-        out.append(f"- Effects if merged: {said}" + (f" - {r['dropped']} claim(s) dropped: not grounded in the notes "
-                                                      "or the usage" if r["dropped"] else ""))
-    ci = pr["ci"]
-    out.append(f"- CI: {ci['state']}" + (f" - {ci.get('passed', 0)} passed, {ci.get('failed', 0)} failed, "
-                                         f"{ci.get('pending', 0)} pending" if ci["state"] != "unread" else ""))
-    out.append(f"- Why this risk: {'; '.join(r['why'])}")
+        return f"- Effects if merged: not assessed ({r['why_not']})"
+    said = "; ".join(f"[{e['kind']}] {e['what']} ({', '.join(e['cites'])})" for e in r["effects"]) or "none found"
+    dropped = f" - {r['dropped']} claim(s) dropped: not grounded in the notes or the usage" if r["dropped"] else ""
+    return f"- Effects if merged: {said}{dropped}"
+
+
+def _ci_line(ci: dict[str, Any]) -> str:
+    if ci["state"] == "unread":
+        return "- CI: unread"
+    return (f"- CI: {ci['state']} - {ci.get('passed', 0)} passed, {ci.get('failed', 0)} failed, "
+            f"{ci.get('pending', 0)} pending")
+
+
+def _pr_section(r: dict[str, Any]) -> list[str]:
+    pr = r["pr"]
+    change = "; ".join(f"{c['package']} {c['from']} -> {c['to']}" for c in pr["changes"])
+    jumps = ", ".join(sorted({c["jump"] for c in pr["changes"]}))
+    out = [f"**#{pr['number']} {change}** ({pr['ecosystem']}, {jumps}) - risk **{r['risk']}** - plan: **{r['plan']}**",
+           _files_line(pr), _notes_line(pr), _where_line(pr), _effects_line(r), _ci_line(pr["ci"]),
+           f"- Why this risk: {'; '.join(r['why'])}"]
     if r["fixes"]:
         out.append(f"- Security: fixes alert {', '.join(f'#{n}' for n in r['fixes'])}")
     return out
@@ -751,6 +837,30 @@ def _run_id() -> str:
         return "direct"
 
 
+def _read_lists(gh: GitHub, snap: dict[str, Any]) -> list[dict[str, Any]]:
+    """The open alerts into `snap` (the oldest first: those are the ones the alerts channel must hear of) and the open
+    Dependabot PRs returned - whatever could not be read, or lies past a cap, said in snap["unread"]."""
+    try:
+        pulls = gh.json(f"pulls?state=open&per_page={PAGE}")
+    except GitHubError as exc:
+        pulls = []
+        snap["unread"].append(f"pull requests ({exc})")
+    pulls = pulls if isinstance(pulls, list) else []
+    if len(pulls) >= PAGE:
+        snap["unread"].append(f"pull requests past the first {PAGE} open")
+    try:
+        rows = gh.json(f"dependabot/alerts?state=open&sort=created&direction=asc&per_page={PAGE}")
+        snap["alerts"] = alerts_of(rows)
+        if isinstance(rows, list) and (len(rows) > MAX_ALERTS or len(rows) >= PAGE):
+            snap["unread"].append(f"security alerts past the oldest {len(snap['alerts'])}")
+    except GitHubError as exc:
+        snap["unread"].append(f"security alerts ({exc})")
+    ours = [p for p in pulls if isinstance(p, dict) and _obj(p.get("user")).get("login") == DEPENDABOT]
+    if len(ours) > MAX_PRS:
+        snap["unread"].append(f"Dependabot PRs past the first {MAX_PRS} ({len(ours) - MAX_PRS} more)")
+    return ours
+
+
 class DepWatchActivities:
     """The review's steps, each in its zone: GitHub read in read, the model in llm, grounding, risk, plan and the
     record in core, the post in notify. `github` makes the reader (tests give a fake); `classify` is the tripwire's
@@ -767,18 +877,15 @@ class DepWatchActivities:
     @activity.defn
     def depwatch_read(self, digest_id: str) -> dict[str, Any]:
         """Read zone: the open Dependabot PRs, the open alerts and the default branch, as typed facts."""
-        gh = self._reader()
+        try:
+            gh = self._reader()
+        except ValueError:  # WARDEN_DEPWATCH_REPO not set or not owner/name: nothing is read, and the review says so
+            snap = {"repo": "", "prs": [], "alerts": [], "skipped": [], "tripwire": "",
+                    "unread": ["everything (WARDEN_DEPWATCH_REPO is not set to owner/name)"]}
+            self.audit.append(digest_id, "depwatch.read", {"run_id": _run_id(), "repo": "", "unread": snap["unread"]})
+            return snap
         snap: dict[str, Any] = {"repo": gh.repo, "prs": [], "alerts": [], "skipped": [], "unread": [], "tripwire": ""}
-        try:
-            pulls = gh.json("pulls?state=open&per_page=100")
-        except GitHubError as exc:
-            pulls = []
-            snap["unread"].append(f"pull requests ({exc})")
-        try:
-            snap["alerts"] = alerts_of(gh.json("dependabot/alerts?state=open&per_page=100"))
-        except GitHubError as exc:
-            snap["unread"].append(f"security alerts ({exc})")
-        ours = [p for p in pulls if isinstance(p, dict) and (p.get("user") or {}).get("login") == DEPENDABOT]
+        ours = _read_lists(gh, snap)
         files: dict[str, str] = {}
         if ours:
             try:
@@ -787,28 +894,11 @@ class DepWatchActivities:
                 snap["unread"].append(f"the repository's files ({exc if isinstance(exc, GitHubError) else 'archive'})")
         statuses = set()
         for p in ours[:MAX_PRS]:
-            number, body = int(p.get("number") or 0), str(p.get("body") or "")
-            changes = changes_of(str(p.get("title") or ""), body)
-            if not changes:
-                snap["skipped"].append(number)
+            pr = self._read_pr(gh, p, files)
+            if pr is None:
+                snap["skipped"].append(int(p.get("number") or 0))
                 continue
-            head = p.get("head") or {}
-            sha = str(head.get("sha") or "")
-            pr: dict[str, Any] = {"number": number, "ecosystem": ecosystem_of(str(head.get("ref") or "")),
-                                  "changes": changes, "files": [], "files_unread": False}
-            try:
-                pr["files"] = files_of(gh.json(f"pulls/{number}/files?per_page=100"))
-            except GitHubError:
-                pr["files_unread"] = True
-            try:
-                pr["ci"] = ci_of(gh.json(f"actions/runs?head_sha={sha}&per_page=50")) if _SHA.fullmatch(sha) \
-                    else {"state": "unread"}
-            except GitHubError:
-                pr["ci"] = {"state": "unread"}
-            pr["notes"], status = notes_of(body, classify=self.classify)
-            statuses.add(status)
-            pr["notes_sha256"] = hashlib.sha256(body.encode("utf-8")).hexdigest()
-            pr["sites"], pr["sites_total"] = usage(changes, pr["ecosystem"], files)
+            statuses.add(pr.pop("tripwire"))
             snap["prs"].append(pr)
         snap["tripwire"] = ", ".join(sorted(statuses))
         self.audit.append(digest_id, "depwatch.read", {
@@ -818,28 +908,54 @@ class DepWatchActivities:
             "held": {str(p["number"]): [n["id"] for n in p["notes"] if n.get("held")] for p in snap["prs"]}})
         return snap
 
+    def _read_pr(self, gh: GitHub, p: dict[str, Any], files: dict[str, str]) -> dict[str, Any] | None:
+        """One Dependabot PR as facts (its tripwire status under "tripwire"), or None when it is not an update."""
+        number, body = int(p.get("number") or 0), str(p.get("body") or "")
+        changes = changes_of(str(p.get("title") or ""), body)
+        if not changes:
+            return None
+        head = _obj(p.get("head"))
+        sha = str(head.get("sha") or "")
+        pr: dict[str, Any] = {"number": number, "ecosystem": ecosystem_of(str(head.get("ref") or "")),
+                              "changes": changes, "files": [], "files_unread": False, "ci": {"state": "unread"}}
+        try:
+            pr["files"] = files_of(gh.json(f"pulls/{number}/files?per_page={PAGE}"))
+        except GitHubError:
+            pr["files_unread"] = True
+        if _SHA.fullmatch(sha):
+            with contextlib.suppress(GitHubError):
+                pr["ci"] = ci_of(gh.json(f"actions/runs?head_sha={sha}&per_page=50"))
+        pr["notes"], pr["tripwire"] = notes_of(body, classify=self.classify)
+        pr["notes_sha256"] = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        pr["sites"], pr["sites_total"] = usage(changes, pr["ecosystem"], files)
+        return pr
+
     @activity.defn
     def depwatch_effects(self, digest_id: str, pr: dict[str, Any]) -> dict[str, Any]:
         """Llm zone: the model's effects for one PR from its facts, or why there are none. At most MAX_CALLS calls in
         one digest, counted from the audit's reservations, and within the daily cap every model call shares."""
-        from .activities import DAILY_MAX_USD
+        from .activities import DAILY_MAX_TOKENS, DAILY_MAX_USD
         from .llm import LLMClient
 
         calls = len(self.audit.entries(digest_id, kinds=("incident.llm_reserve",)))
+        llm = ((self.incident.llm_factory if self.incident else None) or LLMClient)()
         today = self.incident._spent_since(datetime.now(UTC) - timedelta(hours=24)) if self.incident else None
-        if calls >= MAX_CALLS or (today is not None and today.usd >= DAILY_MAX_USD):
+        # As IncidentActivities.diagnose: this call's whole budget must fit under the day's, and the day's tokens too.
+        over = today is not None and (today.usd + llm.max_usd > DAILY_MAX_USD
+                                      or today.input_tokens + today.output_tokens >= DAILY_MAX_TOKENS)
+        if calls >= MAX_CALLS or over:
             why = (f"this review's {MAX_CALLS} model calls are used" if calls >= MAX_CALLS
                    else "the daily model cap is reached")
             self.audit.append(digest_id, "depwatch.capped", {"run_id": _run_id(), "pr": pr["number"], "why": why})
             return {"effects": None, "why": why}
-        llm = ((self.incident.llm_factory if self.incident else None) or LLMClient)()
         attempt = secrets.token_hex(8)
         self.audit.append(digest_id, "incident.llm_reserve", {"run_id": _run_id(), "attempt": attempt,
                                                               "usd": llm.max_usd, "calls": 1, "pr": pr["number"]})
         before = llm.cost.model_copy()
         got = None
         try:
-            got = llm.structured(system=SYSTEM, user=prompt(pr), schema=Effects, mock_factory=Effects)
+            # No retry: one reservation is one call to the provider, so MAX_CALLS counts calls, not attempts.
+            got = llm.structured(system=SYSTEM, user=prompt(pr), schema=Effects, mock_factory=Effects, retries=0)
         except Exception:  # noqa: BLE001 - the review goes on with the facts; the model's part says it is missing
             got = None
         finally:
@@ -946,3 +1062,17 @@ async def ensure_schedule(client: Any, task_queue: str) -> str:
     except ScheduleAlreadyRunningError:
         await client.get_schedule_handle(SCHEDULE_ID).update(lambda _: ScheduleUpdate(schedule=schedule))
         return "updated"
+
+
+async def remove_schedule(client: Any) -> bool:
+    """With the watch off (WARDEN_DEPWATCH_REPO not set), its schedule is deleted, so no run starts that can only
+    fail: True when one was there. Any other error is not this worker's to stop on."""
+    from temporalio.service import RPCError, RPCStatusCode
+
+    try:
+        await client.get_schedule_handle(SCHEDULE_ID).delete()
+    except RPCError as exc:
+        if exc.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return True

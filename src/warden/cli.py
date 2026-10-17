@@ -463,6 +463,12 @@ async def _workflow_command(args: argparse.Namespace) -> int:
                     _out(f"dependency review schedule {done}: every {depwatch.every()}", err=True)
                 except Exception as exc:  # noqa: BLE001 - the incidents this worker runs never wait on the review
                     _out(f"the dependency review's schedule could not be set ({type(exc).__name__})", err=True)
+            else:  # turned off: a schedule left from before would start runs that can only fail
+                try:
+                    if await depwatch.remove_schedule(client):
+                        _out("dependency review schedule removed: WARDEN_DEPWATCH_REPO is not set", err=True)
+                except Exception as exc:  # noqa: BLE001 - as above: the incidents never wait on the review
+                    _out(f"the dependency review's schedule could not be removed ({type(exc).__name__})", err=True)
             publish = runtime.cloudwatch_publisher()
             if publish is None:
                 await asyncio.Event().wait()

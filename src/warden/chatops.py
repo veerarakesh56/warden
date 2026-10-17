@@ -209,6 +209,8 @@ class SlackThreadSink:
                                          self._token)
             if detail != "ok":
                 failed.append(detail)
+                if not thread:  # no message to thread the rest under: stop, rather than scatter them in the channel
+                    break
             elif not thread:
                 thread = str((answer or {}).get("ts") or "")
         if failed:
