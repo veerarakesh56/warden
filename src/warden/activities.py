@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from . import approvals, audit, bounds, catalog, environments, freeze
+from . import approvals, audit, autonomy, bounds, catalog, environments, freeze
 from .approvals import Plan  # lives there: the approval page reads a plan without this module
 from .audit import AuditLog
 from .models import Alert, ContextBundle, CostRecord, RemediationProposal, RootCause, Verdict
@@ -289,9 +289,38 @@ def _send(log: AuditLog, incident: str, report: Any) -> list[Any]:
 
 class RemediationActivities:
     def __init__(self, *, audit: AuditLog, policy: approvals.ApproverPolicy, platform: Platform,
-                 limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None) -> None:
+                 limits: bounds.Limits = bounds.DEFAULT_LIMITS, changes: Any = None, critic: Any = None) -> None:
         self.audit, self.policy, self.platform, self.limits = audit, policy, platform, limits
         self.changes = changes  # register O9: where an applied change is recorded (changes.GitHubIssues), if anywhere
+        # Eldane (eldane.Critic), in the critic zone's process; None: as the zone's task configures it, or none at all.
+        self.critic = critic
+
+    @activity.defn
+    def autonomy_state(self, environment: str) -> dict[str, Any]:
+        """What a person re-enabling autonomy is shown and signs (autonomy.enable_hash): the demotions on the record."""
+        rows = autonomy.demotions(self.audit, environment)
+        return {"environment": environment, "ceiling": autonomy.ceiling(environment),
+                "plan_hash": autonomy.enable_hash(self.audit, environment), "demotions": [why for _, why in rows]}
+
+    @activity.defn
+    def autonomy_enable(self, environment: str, approval: approvals.SignedApproval) -> list[str]:
+        """A person's signed re-enable, checked and recorded (autonomy.enable); every reason it was refused."""
+        problems = autonomy.enable(self.audit, approval, policy=self.policy, environment=environment,
+                                   now=datetime.now(UTC))
+        if problems:
+            self.audit.append(f"autonomy-{environment}", "autonomy.enable_refused",
+                              {"environment": environment, "approver": approval.approver, "problems": problems})
+        return problems
+
+    @activity.defn
+    def critic_review(self, plan: Plan) -> approvals.SignedApproval | None:
+        """Eldane's review of the plan (eldane.review), in the critic zone: on the record always, and its signed approval
+        only where the plan's class is at L2 (dev, not demoted). Never past the gate; a person's no still wins."""
+        from . import eldane
+
+        if self.critic is None:
+            self.critic = eldane.Critic.from_environment()
+        return eldane.review(self.audit, self.policy, plan, self.critic, run_id=_run_id())
 
     @activity.defn
     def resolve_plan(self, req: FixRequest, workflow_id: str) -> Plan:
@@ -347,7 +376,7 @@ class RemediationActivities:
         (register S17)."""
         from .reporting import Report
 
-        actions = self._approval_links(plan) if what in ("opening", "waiting") else ()
+        actions = self._approval_links(plan) if what in ("opening", "waiting", "autonomous") else ()
         opening = what == "opening"
         if opening:
             # With no approval domain the request still goes, without its buttons: the incident's one message is
@@ -375,7 +404,10 @@ class RemediationActivities:
         gave = [b for b in (e["body"] for e in self.audit.entries(plan.incident_id, kinds=("approval.accepted",)))
                 if b.get("workflow_id") == plan.workflow_id and b.get("run_id") == _run_id()
                 and b.get("plan_hash") == plan.plan_hash]
-        did = sorted({f"{self.policy.said(str(b.get('approver')))} (with their "
+        did = sorted({f"{approvals.AI_LABEL} (an AI, with its own signing key, at autonomy level "
+                      f"{b.get('autonomy', autonomy.L2)}: {autonomy.MEANS[autonomy.L2]})"
+                      if b.get("ai") is True or self.policy.is_ai(str(b.get("approver"))) else
+                      f"{self.policy.said(str(b.get('approver')))} (with their "
                       f"{'passkey' if b.get('method') == 'passkey' else 'signing key'})" for b in gave})
         # What each wrote with their approval, in their own words - inert, one line each (_words).
         notes = [(str(b.get("approver")), str(b["note"])) for b in gave if b.get("note")]
@@ -396,7 +428,14 @@ class RemediationActivities:
                              f"{environments.both_times(datetime.now(UTC))}. WARDEN checks the target once more, then "
                              "applies it." + noted),
                 "expired": (f"WARDEN's plan `{plan.entry}` on `{shown}` expired without an approval. No action "
-                            "was taken; the incident is still open.")}.get(what) or OUTCOME.get(
+                            "was taken; the incident is still open."),
+                # Owner, 2026-10-17: dev is autonomous through Eldane, and a person's "no" still wins.
+                "autonomous": (f"{approvals.AI_LABEL} (an AI) approved WARDEN's plan `{plan.entry}` on `{shown}` ({tier}) "
+                               f"at autonomy level {autonomy.L2} in {plan.environment}: {autonomy.MEANS[autonomy.L2]}. "
+                               f"WARDEN applies it after "
+                               f"{environments.both_times(datetime.now(UTC) + autonomy.VETO, seconds=False)} unless a "
+                               "person denies it first - with their passkey on the page below, with a note if they "
+                               "like; a person's decision always overrides Eldane's.")}.get(what) or OUTCOME.get(
             what, "WARDEN's plan `{entry}` on `{target}` ended `" + what + "`.").format(entry=plan.entry,
                                                                                       target=shown)
         if what == "approved" and not did:
@@ -414,6 +453,10 @@ class RemediationActivities:
                 said = (f"WARDEN's plan `{plan.entry}` on `{shown}` was denied by {self.policy.said(who)} (with "
                         f"their passkey) at {environments.both_times(ended_at)}: nothing was changed." + words)
                 why = []
+        if what == "autonomous":
+            from . import eldane
+
+            said += eldane.said(self.audit, plan, _run_id())
         if what == "waiting":
             import contextlib
 
@@ -422,6 +465,10 @@ class RemediationActivities:
             # WARDEN's own earlier fix beside this incident's evidence: said, with whether this diagnosis named it the
             # cause - the approver decides knowing both (owner, 2026-10-15).
             said += self._own_fix_said(plan.incident_id)
+            # Eldane's review and the plan's autonomy level, beside the request: said to be an AI (Art. 50).
+            from . import eldane
+
+            said += eldane.said(self.audit, plan, _run_id())
 
             # The same fix, on the same target, that ended badly in the last day: said before the decision. A record
             # that cannot be read does not hold an approval request back.
@@ -454,7 +501,7 @@ class RemediationActivities:
         footer = (f"\n\n---\nWARDEN · incident `{plan.incident_id}` · audit head `{audit.short(head)}` · check it on "
                   "its Full record page, which shows the same head with its signatures checked. Approvals are signed out "
                   "of band, never given in chat.")
-        if actions:
+        if actions and what != "autonomous":
             said += " Approve with your passkey on the page below; it shows the exact plan first."
         # The incident's summary leads the first message about it that reaches the channel - the request for approval,
         # or how the run ended if it ended first (independent check, 2026-10-14: a refused or blocked run sent one
@@ -623,17 +670,25 @@ class RemediationActivities:
                                    used_nonces=used, environment=plan.environment)
         if any(a.approver == approval.approver for a in accepted):
             problems.append(f"{approval.approver} has already approved this plan")
+        ai = self.policy.is_ai(approval.approver)
+        if ai and not problems:
+            # Eldane's approval counts only at L2 (dev, not demoted), below prod, off WARDEN's own guardrails, with
+            # the kill switch off - and its own agreement with exactly this plan on the record (autonomy.py).
+            problems += autonomy.ai_problems(self.audit, plan, _run_id())
         kind = "approval.refused" if problems else "approval.accepted"
         # Register H1: how long the approver had the plan before signing. Under HASTY_S is recorded as hasty - read
         # by the person who audits approvals, and by the catch trials (G7).
         latency = (approval.issued_at - plan.created_at).total_seconds()
         self.audit.append(plan.incident_id, kind, {"workflow_id": plan.workflow_id, "run_id": _run_id(),
-                                                   "latency_s": round(latency, 1), "hasty": latency < HASTY_S,
+                                                   # Hasty is a person's not reading; an AI's speed is not.
+                                                   "latency_s": round(latency, 1), "hasty": latency < HASTY_S and not ai,
                                                    "approver": approval.approver,
                                                    "approver_list": self.policy.fingerprint(),
                                                    "nonce": approval.nonce, "plan_hash": plan.plan_hash,
                                                    # Requirement R50: how many different people this tier needs.
                                                    "required": self.policy.required.get(plan.tier, 1),
+                                                   **({"ai": True, "label": approvals.AI_LABEL,
+                                                       "autonomy": autonomy.L2} if ai else {}),
                                                    "problems": problems})
         valid = accepted + ([approval] if not problems else [])
         return ApprovalResult(problems=problems, enough=approvals.enough(valid, plan.tier, self.policy))
@@ -743,6 +798,11 @@ class RemediationActivities:
         need = self.policy.required.get(made[-1].get("tier", ""), 1)
         if len({e["body"].get("approver") for e in approved}) < need:
             return [f"{len({e['body'].get('approver') for e in approved})} of {need} approval(s) recorded for this plan"]
+        # An AI approval is checked again here: anything may have changed since it arrived (autonomy.ai_problems).
+        # As recorded (PR 42 review, CWE-863): an approval recorded as an AI's is one, whatever the list says now.
+        if any(e["body"].get("ai") is True or self.policy.is_ai(str(e["body"].get("approver"))) for e in approved) and (
+                again := autonomy.ai_problems(self.audit, plan, run)):
+            return again
         last_approval = max(e["seq"] for e in approved)
         checks = [e for e in rows("remediation.precheck") if e["seq"] > last_approval]
         if not checks or checks[-1]["body"].get("problems"):
@@ -902,6 +962,27 @@ class RemediationActivities:
         self.audit.append(plan.incident_id, "remediation.rollback", {**row, "detail": detail, "undone": undone})
         return detail
 
+    def _score(self, incident_id: str, workflow_id: str, run: str, outcome: FixOutcome) -> None:
+        """Autonomy (autonomy.py): this run's end, scored against Eldane's review of its plan, once per run, from
+        this run's own rows. Promotion and demotion are read from these scores, and from nothing else."""
+        from types import SimpleNamespace
+
+        def ours(kind: str) -> list[dict[str, Any]]:
+            return [e["body"] for e in self.audit.entries(incident_id, kinds=(kind,))
+                    if e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id", "") == run
+                    and (not outcome.plan_hash or e["body"].get("plan_hash") == outcome.plan_hash)]
+
+        plans = ours("remediation.plan")
+        if not plans:
+            return
+        accepted = ours("approval.accepted")
+        verdict = autonomy.verdict_of(self.audit, SimpleNamespace(
+            incident_id=incident_id, workflow_id=workflow_id, plan_hash=plans[-1].get("plan_hash")), run)
+        autonomy.record_outcome(self.audit, incident_id, plan=plans[-1], status=outcome.status,
+                                approvers=sorted({str(b.get("approver")) for b in accepted if b.get("approver")}),
+                                ai=frozenset(str(b.get("approver")) for b in accepted if b.get("ai") is True),
+                                policy=self.policy, verdict=verdict, workflow_id=workflow_id, run_id=run)
+
     @activity.defn
     def finish(self, incident_id: str, workflow_id: str, outcome: FixOutcome) -> None:
         # The signed end row states what THIS run's audit rows show, not what the workflow claims (fourth
@@ -912,7 +993,9 @@ class RemediationActivities:
         if run and any(e["body"].get("workflow_id") == workflow_id and e["body"].get("run_id") == run
                        for e in self.audit.entries(incident_id, kinds=("workflow.end",))):
             # Signed even when this try only finds the row: the try that wrote it may have failed before its
-            # checkpoint (register R9-O4), and the end of a run must not stay unsigned.
+            # checkpoint (register R9-O4), and the end of a run must not stay unsigned. Scored too, if the try that
+            # wrote it failed before it could be (PR 42 review): a failed fix that is never scored never demotes.
+            self._score(incident_id, workflow_id, run, outcome)
             self.audit.checkpoint()
             return
 
@@ -949,6 +1032,7 @@ class RemediationActivities:
             bounds.trip(self.audit, incident_id, f"{workflow_id} ended {outcome.status}: {'; '.join(outcome.reasons)}",
                         workflow_id=workflow_id, run_id=run)
         self.audit.append(incident_id, "workflow.end", body)
+        self._score(incident_id, workflow_id, run, outcome)
         self.audit.checkpoint()
         # How every plan ended, in the worker's log beside how it opened: a denied or expired plan left no line, and
         # only the audit could say (live, 2026-10-12). The status and who approved - never a typed reason.

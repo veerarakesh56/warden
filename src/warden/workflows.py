@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         RemediationActivities,
     )
     from .approvals import Denial, PasskeyAssertion, SignedApproval
+    from .autonomy import VETO
     from .catalog import MITIGATES
     from .discuss import (
         ELSEWHERE,
@@ -69,6 +70,10 @@ NOTIFY = {"start_to_close_timeout": timedelta(seconds=60), "retry_policy": Retry
 # a few attempts, then the incident FAILS visibly - never an endless retry (second review, 2026-09-30).
 # 15 min: a full-budget scan measured ~7 min on a loaded laptop CPU (third review, 2026-09-30).
 PREPARE = {"start_to_close_timeout": timedelta(minutes=15), "retry_policy": RetryPolicy(maximum_attempts=3)}
+# Eldane's review: two model calls and perhaps a catch trial, once. A critic zone that is not running holds nobody up
+# for long: unstarted within two minutes, the plan goes to a person as before.
+CRITIC = {"schedule_to_start_timeout": timedelta(minutes=2), "start_to_close_timeout": timedelta(minutes=6),
+          "retry_policy": RetryPolicy(maximum_attempts=1)}
 # Register S15, the trust zones: each activity runs where its credentials are. The read zone holds the watched
 # environments' readers, the llm zone the model, the notify zone the paging, chat and change-record secrets (and so a
 # run's end, which resolves its page and records the change), the act zone the actors;
@@ -79,7 +84,9 @@ ZONES = {"read": ("prepare", "reread", "investigate", "plan_fix", "resolve_plan"
                   "discuss_evidence", "discuss_replan"),
          "llm": ("diagnose", "discuss_answer"),
          "notify": ("notify", "announce", "finish", "no_plan", "discuss_thread", "discuss_reply", "summary_owed"),
-         "act": ("apply", "rollback")}
+         "act": ("apply", "rollback"),
+         # Eldane, the AI critic (eldane.py): its own model, its own signing key, no other zone's credentials.
+         "critic": ("critic_review",)}
 _ZONE_OF = {name: zone for zone, names in ZONES.items() for name in names}
 
 
@@ -217,6 +224,11 @@ class RemediationWorkflow:
                 await end("failed_after_apply" if self._applying else "failed", [f"a step failed: {exc.cause or exc}"])
             raise
 
+    def _vetoed(self, wid: str, plan: Plan) -> Denial | None:
+        """A person's "no" to exactly this plan, if one has come."""
+        return next((d for d in self._inbox if isinstance(d, Denial) and d.workflow_id == wid
+                     and d.plan_hash == plan.plan_hash), None)
+
     async def _side_effects_end(self, req: FixRequest, acts, plan: Plan, end) -> FixOutcome | None:
         """The fix passed its own checks, and other alarms started after it: not called fixed, and not undone either -
         they may be unrelated; each alarm's own incident says whether it is connected. What they were is read from the
@@ -259,22 +271,50 @@ class RemediationWorkflow:
             return await end("blocked", blocked or ["the gate's answer could not be read"])
         done["policy"] = True
 
+        accepted: list[SignedApproval] = []
+        auto = False
+        # Eldane, the AI critic (owner, 2026-10-16), after the gate: it can only add a "no". It reviews the plan in its
+        # own zone; where the plan's class is at L2 (autonomy.py; dev, not demoted) its signed approval comes back and is
+        # checked like any other approval. Anything else, or no answer in time, and a person decides as before.
+        if workflow.patched("eldane-critic"):
+            offered = None
+            with contextlib.suppress(ActivityError):
+                offered = await workflow.execute_activity_method(acts.critic_review, **_zoned(acts.critic_review),
+                                                                 args=[plan], **CRITIC)
+            if isinstance(offered, SignedApproval):
+                result = await workflow.execute_activity_method(acts.check_approval, **_zoned(acts.check_approval),
+                                                                args=[plan, offered, []], **QUICK)
+                if not result.problems:
+                    accepted.append(offered)
+                    auto = result.enough
+        if auto:
+            # A person's decision always overrides Eldane's (owner, 2026-10-17): the channel is told Eldane approved,
+            # with the page's links, and a person's "no" in the next VETO minutes - or any time before apply - ends the
+            # plan with nothing changed.
+            with contextlib.suppress(ActivityError):
+                await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "autonomous"],
+                                                       **NOTIFY)
+            self._stage = "awaiting_veto"
+            with contextlib.suppress(TimeoutError):
+                await workflow.wait_condition(lambda: self._vetoed(wid, plan) is not None, timeout=VETO)
+            if (no := self._vetoed(wid, plan)) is not None:
+                return await end("denied", [f"denied by {no.approver}" + (f": {no.reason}" if no.reason else "")])
+
         # Registers H6/R28: the approvers are told as the wait starts - with the approval links when the runtime has an
         # approval domain - not only at the halfway reminder. Sent before the stage reads "awaiting_approval", so
         # whoever sees the plan waiting can already have its links.
-        if workflow.patched("h6-links"):
+        if not auto and workflow.patched("h6-links"):
             with contextlib.suppress(ActivityError):
                 await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "opening"], **NOTIFY)
         self._stage = "awaiting_approval"
         deadline = workflow.now() + timedelta(minutes=req.approval_ttl_minutes)
-        accepted: list[SignedApproval] = []
         refused: list[str] = []
         seen = 0
         # Register H10: halfway through the wait a person is reminded, and at the end told that nothing was done -
         # an approval request that only expires is one nobody may ever have seen. A failed message changes nothing.
         ladder = workflow.patched("h10-ladder")
         halfway, reminded = workflow.now() + timedelta(minutes=req.approval_ttl_minutes) / 2, False
-        while True:
+        while not auto:
             until = halfway if ladder and not reminded and not accepted else deadline
             try:
                 await workflow.wait_condition(lambda n=seen: len(self._inbox) > n,
@@ -324,6 +364,8 @@ class RemediationWorkflow:
                 workflow.continue_as_new(req.model_copy(update={"replans": req.replans + 1}))
             return outcome
         done["prechecked"] = True
+        if auto and (no := self._vetoed(wid, plan)) is not None:  # a person said no while it was checked
+            return await end("denied", [f"denied by {no.approver}" + (f": {no.reason}" if no.reason else "")])
 
         self._stage = "applying"
         self._applying = True
@@ -432,6 +474,36 @@ class RemediationWorkflow:
         if str(undone).startswith(("nothing to roll back", "not rolled back")):
             return await end("not_recovered", [why, str(undone)])
         return await end("rolled_back", [why])
+
+
+@workflow.defn
+class AutonomyWorkflow:
+    """A person turns autonomy back on in an environment after a demotion (autonomy.enable, owner 2026-10-17): the
+    demotions are read from the record and shown (`state`), the person signs exactly those with their own key (T3,
+    never an AI's) and signals it, and the core zone checks and records it. `warden autonomy enable` drives it."""
+
+    def __init__(self) -> None:
+        self._approval: SignedApproval | None = None
+        self._state: dict | None = None
+
+    @workflow.signal
+    def enable(self, approval: SignedApproval) -> None:
+        self._approval = approval
+
+    @workflow.query
+    def state(self) -> dict | None:
+        return self._state
+
+    @workflow.run
+    async def run(self, environment: str) -> list[str]:
+        acts = RemediationActivities
+        self._state = await workflow.execute_activity_method(acts.autonomy_state, args=[environment], **QUICK)
+        try:
+            await workflow.wait_condition(lambda: self._approval is not None, timeout=timedelta(minutes=30))
+        except TimeoutError:
+            return ["no signed re-enable arrived within 30 minutes: nothing changed"]
+        return await workflow.execute_activity_method(acts.autonomy_enable, args=[environment, self._approval],
+                                                      **QUICK)
 
 
 @workflow.defn

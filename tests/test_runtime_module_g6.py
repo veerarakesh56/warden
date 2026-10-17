@@ -284,7 +284,7 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
 # Each zone secret, the module that reads it, and the zones whose code reads it - the map each zone's task role is held
 # to (secrets audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is
 # added here by name, with its reader and zones.
-_EVERY = {"core", "read", "llm", "notify", "act"}
+_EVERY = {"core", "read", "llm", "notify", "act", "critic"}
 ZONE_READS = {
     "WARDEN_TEMPORAL_KEY": ("codec.py", _EVERY),
     "WARDEN_TEMPORAL_API_KEY": ("runtime_base.py", _EVERY),
@@ -292,11 +292,13 @@ ZONE_READS = {
     "WARDEN_STACK_DB_REPLICA_RO_DSN": ("aws_stack.py", {"read"}),
     "WARDEN_DATADOG_API_KEY": ("datadog.py", {"read"}),
     "WARDEN_DATADOG_APP_KEY": ("datadog.py", {"read"}),
-    "ANTHROPIC_API_KEY": ("providers.py", {"llm"}),
+    "ANTHROPIC_API_KEY": ("providers.py", {"llm", "critic"}),
     "WARDEN_SLACK_BOT_TOKEN": ("chatops.py", {"notify"}),
     "WARDEN_SLACK_APP_TOKEN": ("discuss.py", {"notify"}),
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
+    # Eldane, the AI critic: its own signing key (its model key is the diagnosis's, above; owner 2026-10-17).
+    "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
 }
 
 

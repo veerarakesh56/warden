@@ -65,6 +65,12 @@ defaults:
   claude_cli: claude-sonnet-5-5
   gemini: gemini-3.6-flash
   openai: gpt-4o-mini
+# Eldane, the AI critic (eldane.py; owner, 2026-10-17): the models it may use, per provider - for each incident the
+# first that is not the one that diagnosed it (WARDEN_ELDANE_MODELS overrides). The same family as the diagnosis, on the
+# same API key: the self-preference risk and its mitigations are in eldane.py. Not qualified on the diagnosis replay
+# set (that bar is the diagnosis's): its catch trials watch it (autonomy.py).
+critic:
+  anthropic: [claude-opus-5-5, claude-sonnet-5-5]
 qualified:
   # The production model from 2026-10-15 (only Claude Sonnet 5.5 and Opus 5.5 are qualified). Both at
   # effort high on the same 30 incidents, today's code: Sonnet 5.5 17/30, 0 wrong-and-allowed - meets the bar; Opus 5.5

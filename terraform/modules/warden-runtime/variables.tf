@@ -163,10 +163,11 @@ variable "zone_sizes" {
     llm    = { cpu = 512, memory = 2048 }
     notify = { cpu = 256, memory = 512 } # Fargate's least memory for a quarter vCPU
     act    = { cpu = 256, memory = 512 }
+    critic = { cpu = 256, memory = 512 } # Eldane: two model calls per plan, no local model
   }
   validation {
-    condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act"])
-    error_message = "zone_sizes names every trust zone: core, read, llm, notify, act."
+    condition     = toset(keys(var.zone_sizes)) == toset(["core", "read", "llm", "notify", "act", "critic"])
+    error_message = "zone_sizes names every trust zone: core, read, llm, notify, act, critic."
   }
 }
 
@@ -180,6 +181,16 @@ variable "model_provider" {
   description = "The provider the llm zone calls (src/warden/providers.py: gemini, bedrock, ...); empty: the CLI's default. It must be qualified (register M20) or every incident is escalated on the rules alone."
   type        = string
   default     = ""
+}
+
+variable "critic_provider" {
+  description = "The provider Eldane, the AI critic, calls in the critic zone (src/warden/eldane.py): anthropic, with the diagnosis's key, using for each incident the Claude model that did not diagnose it (data/providers.yaml critic); empty: no Eldane, and a person approves every plan as before."
+  type        = string
+  default     = "anthropic"
+  validation {
+    condition     = contains(["", "anthropic"], var.critic_provider)
+    error_message = "critic_provider is empty or anthropic."
+  }
 }
 
 variable "model" {
