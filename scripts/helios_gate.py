@@ -137,7 +137,15 @@ def main(argv: list[str] | None = None) -> int:
     existing = {r.get("address") for r in _resources(_root(baseline))} if baseline is not None else None
     accepted = json.loads((helios_dir / "accepted.json").read_text(encoding="utf-8"))
     taken = helios_dir / "regressions.json"
-    regressions = json.loads(taken.read_text(encoding="utf-8")) if taken.is_file() else {}
+    try:
+        regressions = json.loads(taken.read_text(encoding="utf-8")) if taken.is_file() else {}
+    except ValueError:
+        regressions = None
+    if not (isinstance(regressions, dict) and all(
+            isinstance(v, list) and all(isinstance(a, str) for a in v) for v in regressions.values())):
+        print(f"refused: terraform/{args.stack}/helios/regressions.json must be an object of scenario kind to a list "
+              "of resource addresses")
+        return 1
     helios = [args.helios]
     refused = False
     lines = [f"### Helios {'after apply' if args.after else 'before apply'}", "",

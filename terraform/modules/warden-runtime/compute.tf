@@ -21,7 +21,7 @@ resource "aws_ecs_cluster_capacity_providers" "runtime" {
   # Fargate (owner decision 2026-10-14): each zone's task in its own micro-VM, no shared kernel, no instance metadata
   # service at all, and none of the account's EC2 vCPUs - those went to the test stack's EKS node.
   cluster_name       = aws_ecs_cluster.runtime.name
-  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
+  capacity_providers = ["FARGATE"]
   default_capacity_provider_strategy {
     capacity_provider = "FARGATE"
     weight            = 1
@@ -114,12 +114,11 @@ resource "aws_ecs_service" "zone" {
   cluster         = aws_ecs_cluster.runtime.id
   task_definition = aws_ecs_task_definition.zone[each.key].arn
   desired_count   = var.worker_instances
-  # Fargate Spot for the two zones that only read and think (cost plan, 2026-10-17: the owner's last ~USD 104 of
-  # credits): the largest tasks, and an interruption costs a two-minute warning and a retry - their work waits in
-  # Temporal. ECS does not fall back to on-demand when Spot has no capacity: the zone waits, and the heartbeat alarm
-  # says so. act, core and notify - which write, decide and page - stay on on-demand Fargate.
+  # On-demand for every zone, never Spot (PR 44 review, 2026-10-17): ECS does not fall back from Spot to on-demand, so
+  # a zone without Spot capacity would simply not run, and the heartbeat - one per task queue - does not see one
+  # zone's gap.
   capacity_provider_strategy {
-    capacity_provider = contains(["llm", "read"], each.key) ? "FARGATE_SPOT" : "FARGATE"
+    capacity_provider = "FARGATE"
     weight            = 1
   }
   platform_version = "LATEST"
