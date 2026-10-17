@@ -187,7 +187,7 @@ failure each one prevents are listed in [`ai-boundary.md`](ai-boundary.md).
   and filters by environment, status, service, days and title text; a reader whose approver entries are limited
   to some environments sees only those. Every page has a light, dark or system theme and WARDEN's logo.
 - **Linked records** (`links.py`): an approver links two incidents with their key (`warden link`, typed:
-  same root cause, a recurrence, caused by), recorded on both records. An incident's page then shows its links
+  same root cause, a recurrence, caused by), one signed row read from either record. An incident's page then shows its links
   and the proven fix they lead to - a fix on a linked record that was applied and verified - as a fact for a
   person; WARDEN never applies a fix on that account.
 - **Discussion** (`discuss.py`): anyone in a second Slack channel can ask WARDEN about an incident; WARDEN
