@@ -21,7 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # open rows were carried into this one.
 REGISTERS = ("docs/FAILURE-MODES.md",)
 ORDER = ("G0", "W0-now", "G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
-CURRENT_GROUP = "G0"  # advance only when every row of the group is closed
+CURRENT_GROUP = "G5"  # the last group before the one in progress (G6); advance only when every row of the next is closed
 STATUSES = {"OPEN", "DONE-local", "DONE-live", "DEFERRED", "WITHHELD"}
 CLOSED = {"DONE-local", "DONE-live", "DEFERRED"}
 # A real window of the plan, and the date it ran. `\bW[\w-]+` let "Worked on my machine" and an invented
