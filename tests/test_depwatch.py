@@ -89,9 +89,9 @@ FILES = {
 }
 
 
-def alert(number, pkg, eco, patched, severity, days_old, *, now=NOW):
+def alert(number, pkg, eco, patched, severity, days_old, *, now=NOW, manifest="uv.lock"):
     return {"number": number, "state": "open", "created_at": (now - timedelta(days=days_old)).isoformat(),
-            "dependency": {"package": {"ecosystem": eco, "name": pkg}, "manifest_path": "uv.lock"},
+            "dependency": {"package": {"ecosystem": eco, "name": pkg}, "manifest_path": manifest},
             "security_advisory": {"ghsa_id": "GHSA-" + "-".join(["abcd"] * 3), "cve_id": "CVE-2024-37891",
                                   "severity": severity, "summary": INJECTION, "description": INJECTION},
             "security_vulnerability": {"vulnerable_version_range": f"< {patched}",
@@ -128,7 +128,7 @@ class FakeGitHub:
 
     def __init__(self, prs=PRS, alerts=None, files=FILES, ci=None):
         self.prs, self.files = prs, files
-        self.alerts = alerts if alerts is not None else [alert(3, "urllib3", "pip", "2.2.2", "high", 5),
+        self.alerts = alerts if alerts is not None else [alert(3, "urllib3", "pip", "2.2.2", "high", 5, manifest=APP_REQS),
                                                         alert(4, "jinja2", "pip", "3.1.5", "critical", 1)]
         self.ci = ci or {SHA: [("CI · tool", "completed", "success"), ("Scan · workflows", "completed", "success")],
                          "b" * 40: [("CI · tool", "in_progress", None)]}
@@ -149,7 +149,7 @@ class FakeGitHub:
         if path.startswith("pulls/") and path.endswith("/files?per_page=100"):
             number = int(path.split("/")[1])
             pkg = next(p for p in self.prs if p["number"] == number)
-            lock = "uv.lock" if "uv" in pkg["head"]["ref"] else "requirements.txt"
+            lock = "uv.lock" if "uv" in pkg["head"]["ref"] else APP_REQS
             return _Answer(json.dumps([{"filename": lock, "status": "modified", "additions": 3, "deletions": 3,
                                         "patch": "-    --hash=sha256:old\n+    --hash=sha256:new\n context"}]).encode())
         if path.startswith("actions/runs?head_sha="):
@@ -423,7 +423,7 @@ def test_the_digest_says_each_review_and_old_security_alerts_go_to_the_alerts_ch
                  "- CI: passing - 2 passed, 0 failed, 0 pending", "- Why this risk: major version jump (+2)"):
         assert line in section, line
     assert "- Security: fixes alert #3" in d
-    assert ("- #3 urllib3 (pip, uv.lock): GHSA-abcd-abcd-abcd, CVE-2024-37891, high - vulnerable < 2.2.2, fixed in "
+    assert (f"- #3 urllib3 (pip, {APP_REQS}): GHSA-abcd-abcd-abcd, CVE-2024-37891, high - vulnerable < 2.2.2, fixed in "
             "2.2.2 - open 5 days - fixed by PR #11") in d
     assert "open 1 days - no open PR fixes it" in d
     assert INJECTION not in d  # an advisory's own words are never kept
@@ -623,15 +623,30 @@ def test_a_sha_pinned_bump_has_no_version_so_no_jump_and_fixes_no_alert():
     changes = depwatch.changes_of("Bump actions/checkout from 8e5e7e5 to 11bd719", "")
     assert changes == [{"package": "actions/checkout", "from": "8e5e7e5", "to": "11bd719", "jump": "unknown"}]
     pr = {"number": 7, "ecosystem": "github_actions", "changes": changes, "notes": [], "sites": [],
-          "ci": {"state": "passing", "failed_names": []}}
-    alerts = [{"number": 9, "package": "actions/checkout", "ecosystem": "actions", "patched": "4.1.7"}]
+          "files": [{"path": FLOWS}], "ci": {"state": "passing", "failed_names": []}}
+    alerts = [{"number": 9, "package": "actions/checkout", "ecosystem": "actions", "patched": "4.1.7",
+               "manifest": FLOWS}]
     assert depwatch.advisories(pr, alerts) == ([], [9])
     assert "fixes security alert" not in depwatch.plan(pr, "low", alerts)
     assert depwatch._version("v2.1.0-rc1") == (2, 1, 0)
     assert depwatch._version("3.13-slim") == (3, 13)
     assert depwatch.jump("1.43.109", "1.43.110") == "patch"
-    bad = [{"number": 10, "package": "actions/checkout", "ecosystem": "actions", "patched": "next"}]
+    bad = [{"number": 10, "package": "actions/checkout", "ecosystem": "actions", "patched": "next", "manifest": FLOWS}]
     assert depwatch.advisories({**pr, "changes": [{**changes[0], "to": "5.0.0"}]}, bad) == ([], [10])
+
+
+def test_an_update_fixes_only_the_alert_on_a_manifest_it_changes():
+    """The same package can be locked in several manifests (uv.lock and an app's requirements): an update to one leaves
+    an alert on another open, neither fixed nor said to be below its fix; an alert whose manifest is unknown, or a PR
+    whose files were not read, is neither."""
+    pr = {"number": 1, "ecosystem": "pip", "changes": [{"package": "urllib3", "from": "2.2.1", "to": "2.2.2",
+                                                        "jump": "patch"}], "files": [{"path": APP_REQS}]}
+    here, there, unknown = ({"number": n, "package": "urllib3", "ecosystem": "pip", "patched": "2.2.2", "manifest": m}
+                            for n, m in ((1, APP_REQS), (2, "scenarios/other/requirements.txt"), (3, "")))
+    assert depwatch.advisories(pr, [here, there, unknown]) == ([1], [])
+    assert depwatch.advisories({**pr, "files": []}, [here]) == ([], [])  # files not read: no claim
+    below = {**here, "number": 4, "patched": "2.3.0"}
+    assert depwatch.advisories(pr, [below]) == ([], [4])
 
 
 def test_nothing_read_is_never_said_as_nothing_open(world):
@@ -731,7 +746,7 @@ def test_model_calls_are_capped_per_digest_counted_from_the_audit(world, monkeyp
 
 def test_the_whole_review_runs_as_a_scheduled_workflow_reading_only(world):
     now = datetime.now(UTC)
-    world["gh"].alerts = [alert(3, "urllib3", "pip", "2.2.2", "high", 5, now=now)]
+    world["gh"].alerts = [alert(3, "urllib3", "pip", "2.2.2", "high", 5, now=now, manifest=APP_REQS)]
     acts = world["acts"]
 
     async def main():

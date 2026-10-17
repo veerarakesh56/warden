@@ -562,9 +562,14 @@ def _same_package(alert: dict[str, Any], ecosystem: str, change: dict[str, str])
 
 
 def advisories(pr: dict[str, Any], alerts: list[dict[str, Any]]) -> tuple[list[int], list[int]]:
-    """(alerts this PR fixes, alerts on its packages it leaves below the fix)."""
+    """(alerts this PR fixes, alerts it leaves below the fix). Only an alert on a manifest the PR changes: the same
+    package in another manifest (another app's requirements, another workflow) is not touched by it. An alert whose
+    manifest is unknown, or a PR whose files were not read, is neither."""
+    changed = {f["path"] for f in pr.get("files") or []}
     fixes, below = [], []
     for a in alerts:
+        if not a.get("manifest") or a["manifest"] not in changed:
+            continue
         for c in pr["changes"]:
             if _same_package(a, pr["ecosystem"], c) and a["patched"]:
                 to, fixed_in = _version(c["to"]), _version(a["patched"])
