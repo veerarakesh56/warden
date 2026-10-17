@@ -69,7 +69,7 @@ def test_every_secret_the_runtime_reads_has_a_slot_and_no_slot_is_unused():
     assert {n for n, _ in read} <= settings.SECRETS
     assert slots == {_slug(n, z) for n, z in read}
     for gone in ("grafana-read-token", "audit-dsn", "audit-key-passphrase", "temporal-key-previous", "db-dsn",
-                 "alertmanager-token", "pagerduty-routing-key", "gemini-api-key", "openai-api-key", "teams-webhook"):
+                 "alertmanager-token", "pagerduty-routing-key", "openai-api-key", "teams-webhook"):
         assert gone not in slots, gone
     assert 'name                    = "warden/${var.environment}/${each.key}"' in text
     assert "secret_string" not in _module_text()  # no secret value in Terraform, so none in its state
@@ -285,7 +285,7 @@ def test_each_zone_reads_exactly_the_secrets_its_worker_loads():
 # Each zone secret, the module that reads it, and the zones whose code reads it - the map each zone's task role is held
 # to (secrets audit, 2026-10-16: the GitHub token was moved to a zone that never reads it). A secret added later is
 # added here by name, with its reader and zones.
-_EVERY = {"core", "read", "llm", "notify", "act"}
+_EVERY = {"core", "read", "llm", "notify", "act", "critic"}
 ZONE_READS = {
     "WARDEN_TEMPORAL_KEY": ("codec.py", _EVERY),
     "WARDEN_TEMPORAL_API_KEY": ("runtime_base.py", _EVERY),
@@ -299,6 +299,9 @@ ZONE_READS = {
     "WARDEN_SLACK_WEBHOOK": ("chatops.py", {"notify"}),
     "WARDEN_GITHUB_TOKEN": ("changes.py", {"notify"}),
     "WARDEN_DB_TERMINATE_DSN": ("platforms/db.py", {"act"}),
+    # Eldane, the AI critic (2026-10-16): its model's key (a paid-tier Gemini key) and its own signing key.
+    "GEMINI_API_KEY": ("providers.py", {"critic"}),
+    "WARDEN_ELDANE_KEY": ("eldane.py", {"critic"}),
 }
 
 
