@@ -11,8 +11,10 @@ requests on GitHub and reads, with GET requests only:
 
 All of it is text a pull request's author, or a bot reading their code, wrote: UNTRUSTED. None of it is passed on as
 written. Each finding becomes one typed line - tool, rule id, severity, file, line, status, category, each value from
-a closed set or a checked shape - and a finding whose text uses instruction-like or action words, or whose fields
-fail their shape, is held back and only counted. The typed lines are evidence kind R (evidence.py): the model is shown
+a closed set or a checked shape - and a finding whose fields fail their shape, or a CodeRabbit comment whose own prose
+uses instruction-like or action words, is held back and only counted. SonarCloud's and code scanning's text is a rule
+catalogue's fixed wording ("code execution", "privilege escalation") around names from the code: it is never read for
+steering words, which would hold back the most serious findings, and it is dropped like every finding's text. The typed lines are evidence kind R (evidence.py): the model is shown
 them between data markers and may cite them; they go through redaction and the tripwire like every item it reads;
 grounding never lets one support an action on its own (a finding is a suspect, never proof). A read that fails is
 named as not read - never "no findings".
@@ -112,8 +114,7 @@ def _sonar(issue: dict[str, Any]) -> dict[str, Any] | None:
                    severity=str(first.get("severity") or issue.get("severity") or ""),
                    path=str(issue.get("component") or "").split(":", 1)[-1], line=issue.get("line"),
                    status=_SONAR_STATUS.get(status, "open"),
-                   category=str(first.get("softwareQuality") or str(issue.get("type") or "").replace("_", "-")),
-                   text=str(issue.get("message") or ""))
+                   category=str(first.get("softwareQuality") or str(issue.get("type") or "").replace("_", "-")))
 
 
 def _code_scanning(alert: dict[str, Any]) -> dict[str, Any] | None:
@@ -125,9 +126,7 @@ def _code_scanning(alert: dict[str, Any]) -> dict[str, Any] | None:
                    rule=str(rule.get("id") or ""), severity=str(security or rule.get("severity") or ""),
                    path=str(where.get("path") or ""), line=where.get("start_line"),
                    status={"dismissed": "accepted", "fixed": "fixed"}.get(str(alert.get("state")), "open"),
-                   category="security" if security else "quality",
-                   text=" ".join(str(x) for x in ((instance.get("message") or {}).get("text"), rule.get("description"))
-                                 if x))
+                   category="security" if security else "quality")
 
 
 _RABBIT_SEVERITY = re.compile(r"(?<![A-Za-z])(Critical|Major|Minor|Trivial)(?![A-Za-z])")  # `_Major_`: no word edge
