@@ -16,7 +16,7 @@ import re
 import unicodedata
 from typing import Any
 
-from .evidence import PATH, Item, tokens
+from .evidence import NO_ACTION_SUPPORT, PATH, Item, tokens
 from .models import ActionKind, RemediationProposal, RootCause
 
 MIN_QUOTE = 4  # characters, whitespace excluded: a quote of "a" is in everything
@@ -274,8 +274,10 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
     # wording supported scale_up and terminate_connections (independent review 2026-09-28).
     # Words split at camelCase first: WARDEN's own facts spell codes `OOMKilled`, `exitCode=137`,
     # `CPUUtilization`, and none of those "contained" oom, exit or cpu (second review, 2026-09-30).
+    # Nor an R item: a code-review finding on the deployed change is a suspect, never proof (findings.py) - it names
+    # "deploy", "commit", "file", and alone it supported a rollback.
     cited = [c.quote for c in root_cause.citations
-             if c.id.strip().strip("[]") in items and not c.id.strip().strip("[]").startswith("T")]
+             if c.id.strip().strip("[]") in items and c.id.strip().strip("[]")[:1] not in NO_ACTION_SUPPORT]
     if proposal.action is ActionKind.revert_change:
         # An API's name, never a measure (G10 held-out baseline, 2026-10-10: the keys are run-together event names, but
         # quotes were split at camelCase first, and the "none" rule read `sg-0d4c` as a zero - P15 held back every
@@ -283,7 +285,7 @@ def action_support_problem(root_cause: RootCause, proposal: RemediationProposal,
         ok = []
         for c in root_cause.citations:
             item = items.get(c.id.strip().strip("[]"))
-            if item is None or c.id.strip().strip("[]").startswith("T"):
+            if item is None or c.id.strip().strip("[]")[:1] in NO_ACTION_SUPPORT:
                 continue
             named = _REQUEST_NAMED.search(item.text)
             fields = set(named.group(1).lower().split(",")) if named else None

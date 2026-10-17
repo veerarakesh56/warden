@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .environments import EnvironmentPolicies, both_times, default_environment_policies
+from .evidence import _finding
 from .gate import hedge
 from .knowledge import SignatureMatch
 from .models import ActionKind, Alert, ContextBundle, RemediationProposal, RootCause, Verdict
@@ -496,6 +497,30 @@ def _code_findings(logs: list[str]) -> list[dict]:
     return found
 
 
+def _review_findings(logs: list[str]) -> dict[str, list[dict[str, str]]]:
+    """Code review's findings on the deployed change (findings.py): the typed R lines WARDEN built, field by field -
+    never a finding's own text, which WARDEN never kept. Each pull request read has one summary line."""
+    out: dict[str, list[dict[str, str]]] = {"findings": [], "pull_requests": []}
+    for line in logs:
+        if not _finding(line):
+            continue
+        head, *fields = line.split(" ")
+        values = {k: v for k, _, v in (f.partition("=") for f in fields if "=" in f)}
+        if head == "FINDING" and fields:
+            out["findings"].append({"tool": fields[0], **values})
+        elif head == "FINDINGS":
+            out["pull_requests"].append(values)
+    return out
+
+
+_FINDING_STATUS = {"open": "Unresolved finding in the deployed change",
+                   "outdated": "Finding on code changed since it was made (it may be fixed)",
+                   "accepted": "Finding accepted in review (left in on purpose)",
+                   "fixed": "Finding marked fixed"}
+_TOOL_NAMES = {"sonarcloud": "SonarCloud", "coderabbit": "CodeRabbit", "codeql": "CodeQL",
+               "code-scanning": "GitHub code scanning"}
+
+
 # A resource of one of these kinds is the data team's to own; any other the alarm names, the platform team's.
 _DATA_KINDS = frozenset({"aurora_cluster", "rds_instance", "dynamodb_table", "docdb_cluster", "docdb_instance",
                          "elasticache_node", "elasticache_serverless", "memorydb", "opensearch", "redshift"})
@@ -573,6 +598,8 @@ def _who_acts(alert: Alert, data: dict) -> list[list[str]]:
                                        "pipeline should look first")])
     if data.get("code") or (data.get("evidence") or {}).get("recent_deploys"):
         out.append(["Developers", "the evidence holds a code finding or a recent deploy: review that change"])
+    elif (data.get("review") or {}).get("findings"):
+        out.append(["Developers", "code review flagged the deployed change: check those findings first"])
     return out
 
 
@@ -625,6 +652,8 @@ def build_report(
     promotion = _promotion_targets(alert, proposal, pol) if proposal and proposal.action not in _LOCAL_ONLY else []
     affected = _affected(ctx.logs)
     checked, ordinary_logs = _checked(ctx.logs)
+    review = _review_findings(ctx.logs)
+    ordinary_logs = [ln for ln in ordinary_logs if not _finding(ln)]  # shown in their own section
     patterns = detect_patterns(alert, ctx)
 
     data: dict = {
@@ -649,6 +678,7 @@ def build_report(
         ],
         "patterns": [dataclasses.asdict(p) for p in patterns],
         "code": _code_findings(ctx.logs),
+        "review": review,
         "root_cause": None,
         "evidence": {
             "metrics": dict(ctx.metrics),
@@ -883,6 +913,31 @@ def _render_markdown(d: dict) -> str:
             lines.append("```")
         lines.append(f"- **Developers**: start at {_c(str(c['file']) + ':' + str(c['line']))} in {_c(c['in'])} ({c['function']})"
                      + (" - the line marked `>|` is the one that raised." if c["source"] else "."))
+        lines.append("")
+
+    review = d.get("review") or {}
+    if review.get("findings") or review.get("pull_requests"):
+        lines.append("## Code review's findings on the deployed change  (suspects, not proof)")
+        for f in review.get("findings") or []:
+            where = f"{f.get('file', '?')}" + (f":{f['line']}" if f.get("line") else "")
+            what = ", ".join(x for x in (_TOOL_NAMES.get(f.get("tool", ""), f.get("tool", "")),
+                                         f"rule {_c(f['rule'])}" if f.get("rule") else "", f.get("severity", ""),
+                                         f.get("category", "")) if x)
+            lines.append(f"- **{_FINDING_STATUS.get(f.get('status', ''), 'Finding')}**: PR #{f.get('pr', '?')} "
+                         f"(commit {_c(f.get('commit', '?'))}), {what} - {_c(where)}"
+                         + (f" - the path matches service {_c(f['maybe_service'])} (a guess from the file name)"
+                            if f.get("maybe_service") else ""))
+        for pr in review.get("pull_requests") or []:
+            said = [f"read {pr.get('read', 'none').replace(',', ', ')}",
+                    f"{pr.get('shown', '0')} shown of {pr.get('found', '0')} found"]
+            if pr.get("held", "0") != "0":
+                said.append(f"{pr['held']} held back - its text read like an instruction or failed a check, so WARDEN "
+                            "did not use it")
+            if pr.get("coderabbit_review"):
+                said.append(f"CodeRabbit's last review: {pr['coderabbit_review']}")
+            lines.append(f"- PR #{pr.get('pr', '?')}: " + "; ".join(said) + ".")
+        lines.append("- A finding is a lead for the developers, never proof of the cause: WARDEN's gate does not let "
+                     "one justify a fix. What could not be read is listed under \"could NOT read\".")
         lines.append("")
 
     if d["matched_signatures"]:
