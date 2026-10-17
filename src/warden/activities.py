@@ -1113,6 +1113,8 @@ class IncidentActivities:
         out = []
         try:
             applied = self.audit.entries(kinds=(bounds.APPLIED,), since=started - OWN_FIX_WINDOW)
+            reopened_by = {r["body"].get("workflow_id")
+                           for r in self.audit.entries(alert.alert_id, kinds=("remediation.did_not_hold",))}
             # WARDEN's own undos too (live, 2026-10-16): each is told with the fix it undid, at the time of the undo.
             undos = []
             for r in self.audit.entries(kinds=("remediation.rollback",), since=started - OWN_FIX_WINDOW):
@@ -1127,8 +1129,8 @@ class IncidentActivities:
                 b, at, undo = e["body"], e["at"], bool(e.get("undo"))
                 if str(b.get("service", "")).partition("/")[0] != alert.environment or at > started:
                     continue
-                if e["correlation_id"] == alert.alert_id:
-                    continue  # this incident's own fix
+                if e["correlation_id"] == alert.alert_id and b.get("workflow_id") not in reopened_by:
+                    continue  # this incident's own fix - unless it did not hold and reopened the incident (item 11)
                 plan = next((p["body"] for p in self.audit.entries(e["correlation_id"], kinds=("remediation.plan",))
                              if p["body"].get("workflow_id") == b.get("workflow_id")), {})
                 on = _safe(str(plan.get("service") or "").strip() or "?")
@@ -1246,15 +1248,8 @@ class IncidentActivities:
                 req, why = resolver.request_for(alert, proposal, live)
             except Exception as exc:  # noqa: BLE001 - a failed live read plans nothing; the person was told
                 req, why = None, f"the live read failed ({type(exc).__name__})"
-        not_again = ""
-        if req:
-            from . import history
-
-            # Item 11 (owner, 2026-10-16): a fix that was verified and did not hold is not offered again for the same
-            # target on WARDEN's own - a person decides (the MCP and CLI paths, a person's, still may ask for it).
-            not_again, why = history.did_not_hold(self.audit, req["entry"],
-                                                  f"{req['environment']}/{catalog.target_key(req['entry'], req['params'])}")
-            req = None if not_again else req
+        not_again, why = self._not_again(req) if req else ("", why)
+        req = None if not_again else req
         if req:
             req["workflow_id"] = resolver.workflow_id(req)
         self.audit.append(alert_id, "incident.plan_fix", {
@@ -1264,6 +1259,15 @@ class IncidentActivities:
         _note(f"{alert_id} fix plan " + (f"opened: {req['entry']}" if req else f"not opened: {why}")
               + (f" ({OFFERED_UNDO})" if offer else ""))
         return req or {}
+
+    def _not_again(self, req: dict[str, Any]) -> tuple[str, str]:
+        """Item 11 (owner, 2026-10-16): a fix that was verified and did not hold is not offered again for the same
+        target on WARDEN's own - a person decides (`warden offer-again`; the MCP and CLI paths, a person's, may still
+        ask for it). (incident, why), or ("", "")."""
+        from . import history
+
+        return history.did_not_hold(self.audit, req["entry"],
+                                    f"{req['environment']}/{catalog.target_key(req['entry'], req['params'])}")
 
     @activity.defn
     def no_plan(self, alert_id: str, why: str = "") -> list[str]:

@@ -89,6 +89,9 @@ class Decision(BaseModel):
     # told of it (RemediationWorkflow.side_effect). The incident is started as any other - connected or not is for
     # its diagnosis to say (owner, 2026-10-15).
     after_fix: list[str] = Field(default_factory=list)
+    # A reopened incident's reason to go to a person on the rules alone (flapping, a storm, AWS's own fault): carried
+    # into its run as an escalate-only one is (CodeRabbit, PR 43).
+    escalate: str = ""
 
 
 def fingerprint(ev: AlarmEvent) -> str:
@@ -131,6 +134,8 @@ def held_fix(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, Any] | N
             continue
         if not (incident.startswith(f"{fp}-") or b.get("service") in names):
             continue
+        if ev.transitioned_at < verified[key]:
+            continue  # an alarm from before the fix passed its checks says nothing of whether it held (PR 43)
         if now - verified[key] > timedelta(minutes=int(b.get("soak_minutes") or 60)) + SOAK_GRACE:
             continue
         return {"incident": incident, "workflow_id": str(b.get("workflow_id")), "run_id": str(b.get("run_id", "")),
@@ -177,22 +182,52 @@ def decide(ev: AlarmEvent, *, recent: list[dict[str, Any]], open_incidents: dict
                         fingerprint=fp, reason=f"expected down ({name!r})" + (
                             f" until {until:%Y-%m-%d %H:%M} UTC: looked at again then" if until
                             else ": nothing ends that declaration, so nothing is looked at again"))
+    wid = f"inc-{fp}-{ev.transitioned_at:%Y%m%dT%H%M%SZ}"
+    escalate = _escalation(ev, len(recent) + 1, open_count)
     if held and ev.source == "alarm":
-        return Decision(action="reopen", workflow_id=f"inc-{held['incident']}", fingerprint=fp,
+        return Decision(action="reopen", workflow_id=f"inc-{held['incident']}", fingerprint=fp, escalate=escalate,
                         reason=(f"WARDEN's fix `{held['entry']}` of incident {held['incident']} was verified at "
                                 f"{held['verified_at'][:16]}Z and its alarm came back inside the soak: the fix did not "
                                 "hold, and the incident is reopened"))
-    wid = f"inc-{fp}-{ev.transitioned_at:%Y%m%dT%H%M%SZ}"
-    if ev.escalate:
-        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp, reason=ev.escalate)
-    flips = len(recent) + 1
-    if flips >= FLAP_FLIPS:
-        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp,
-                        reason=f"the alarm is flapping: {flips} changes in {FLAP_WINDOW.seconds // 60} min")
-    if open_count >= MAX_OPEN:
-        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp,
-                        reason=f"{open_count} incidents are open, the cap is {MAX_OPEN}: an alarm storm")
+    if escalate:
+        return Decision(action="escalate_only", workflow_id=wid, fingerprint=fp, reason=escalate)
     return Decision(action="start", workflow_id=wid, fingerprint=fp, reason="a new alarm")
+
+
+def _escalation(ev: AlarmEvent, flips: int, open_count: int) -> str:
+    """Why this alarm goes to a person on the rules alone - AWS's own fault, flapping (C21), a storm (C2) - or ""."""
+    if ev.escalate:
+        return ev.escalate
+    if flips >= FLAP_FLIPS:
+        return f"the alarm is flapping: {flips} changes in {FLAP_WINDOW.seconds // 60} min"
+    if open_count >= MAX_OPEN:
+        return f"{open_count} incidents are open, the cap is {MAX_OPEN}: an alarm storm"
+    return ""
+
+
+def reopen_pending(ev: AlarmEvent, log: AuditLog, now: datetime) -> dict[str, Any] | None:
+    """The reopen this same transition already decided and recorded, when its incident never started - a start that
+    failed, retried by EventBridge after the fix's run had ended (CodeRabbit, PR 43): the intent outlives the soak."""
+    fp, at = fingerprint(ev), ev.transitioned_at.isoformat()
+    started = {(e["correlation_id"], e["body"].get("at")) for e in log.entries(kinds=(REOPEN_STARTED,),
+                                                                              since=now - LOOKBACK)}
+    for e in reversed(log.entries(kinds=(REOPENED,), since=now - LOOKBACK)):
+        b = e["body"]
+        if b.get("fingerprint") == fp and b.get("at") == at and (e["correlation_id"], at) not in started:
+            return b.get("held") or None
+    return None
+
+
+REOPENED, REOPEN_STARTED = "incident.reopened", "intake.reopen_started"
+
+
+async def _relapse(client: Any, log: AuditLog, fix: str, fp: str, at: str) -> None:
+    """A watched fix whose alarm came back is told: it ends `relapsed` (C18a)."""
+    from .workflows import RemediationWorkflow
+
+    log.append(fix, "intake.relapse", {"workflow_id": fix, "fingerprint": fp, "at": at})
+    with contextlib.suppress(Exception):  # recorded above; a run that ended meanwhile cannot be told
+        await client.get_workflow_handle(fix).signal(RemediationWorkflow.alarm, at)
 
 
 async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str | None = None) -> Decision:
@@ -252,7 +287,8 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
         elif stage == "watching":
             watching[key] = b["workflow_id"]
 
-    held = held_fix(ev, log, now)
+    pending = reopen_pending(ev, log, now) if ev.source == "alarm" else None
+    held = pending or held_fix(ev, log, now)
     d = decide(ev, recent=recent, open_incidents=open_incidents, verifying=verifying, open_count=open_count,
                expected=expected.covering(ev.alert, now), related=related, held=held)
     if d.action in RUNS:
@@ -271,17 +307,17 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
     at = ev.transitioned_at.isoformat()
     relapsed = open_fix(ev, watching) if d.action in RUNS else None
     if d.action == "reopen" and held:
-        incident = d.workflow_id.removeprefix("inc-")
-        # On the incident's own record, both: it is open again, and the fix it had did not hold - which plan_fix reads
-        # before it offers a fix (history.did_not_hold). The fix's own run is told below and ends `relapsed`.
-        log.append(incident, "incident.reopened", {"rule": ev.rule[:200], "at": at, "fingerprint": fp,
-                                                   "workflow_id": held["workflow_id"]})
-        log.append(incident, "remediation.did_not_hold", {**held, "at": at, "rule": ev.rule[:200]})
         relapsed = relapsed or held["workflow_id"]
-    if relapsed:
-        log.append(relapsed, "intake.relapse", {"workflow_id": relapsed, "fingerprint": fp, "at": at})
-        with contextlib.suppress(Exception):  # recorded above; a run that ended meanwhile cannot be told
-            await client.get_workflow_handle(relapsed).signal(RemediationWorkflow.alarm, at)
+        if not pending:
+            # On the incident's own record, first, both: it is open again - the intent a retry of this transition
+            # honours if the start below fails (reopen_pending) - and the fix it had did not hold, which plan_fix reads
+            # before it offers a fix (history.did_not_hold). The fix's own run is told once the incident has started.
+            incident = d.workflow_id.removeprefix("inc-")
+            log.append(incident, REOPENED, {"rule": ev.rule[:200], "at": at, "fingerprint": fp,
+                                            "workflow_id": held["workflow_id"], "held": held})
+            log.append(incident, "remediation.did_not_hold", {**held, "at": at, "rule": ev.rule[:200]})
+    if relapsed and d.action != "reopen":
+        await _relapse(client, log, relapsed, fp, at)
     if d.action == "signal_remediation":
         await client.get_workflow_handle(d.workflow_id).signal(RemediationWorkflow.alarm, at)
     elif d.action == "signal_incident":
@@ -290,7 +326,8 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
         alert = ev.alert.model_copy(update={"alert_id": d.workflow_id.removeprefix("inc-")})
         try:
             # A reopen runs the incident's own workflow id again, after its first run completed: the same record.
-            await client.start_workflow(IncidentWorkflow.run, args=[alert, d.reason if d.action == "escalate_only" else ""],
+            await client.start_workflow(IncidentWorkflow.run, args=[alert, d.reason if d.action == "escalate_only" else
+                                                                    d.escalate],
                                         id=d.workflow_id, task_queue=queue,
                                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE if d.action == "reopen"
                                         else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY)
@@ -298,6 +335,10 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
             if d.action == "reopen":  # its run is still going: it is told, as a repeat is
                 await client.get_workflow_handle(d.workflow_id).signal(IncidentWorkflow.repeat, at)
             # else the same transition delivered twice: one incident (C20)
+        if d.action == "reopen":
+            log.append(d.workflow_id.removeprefix("inc-"), REOPEN_STARTED, {"at": at, "workflow_id": d.workflow_id})
+            if relapsed:
+                await _relapse(client, log, relapsed, fp, at)
         # Each of WARDEN's fixes in the environment that was being checked is told, after the incident started: a
         # fix that ended meanwhile cannot be told, and that holds no alarm back.
         said = f"incident {d.workflow_id.removeprefix('inc-')} started at {at}"  # never the alarm's own words (M2)

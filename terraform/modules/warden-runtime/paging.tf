@@ -6,11 +6,12 @@
 # on its own; an EventBridge schedule runs it every five minutes, and it says each open page again - Slack and email -
 # once every `page_repeat_minutes` until an approver acknowledges it on the approval page (`/p`, passkey-signed, on
 # WARDEN's record). The pager is a zip of its own (pager/pager.py): no image, no VPC, no Temporal, no audit database -
-# a dead worker, database or image does not silence it. Its state is the pages bucket: `pages/` the pager's,
-# `acks/` the approval function's. Email goes through `page_repeat`, set to ALARM with the page's words as its reason:
+# a dead worker, database or image does not silence it. Its state is in the anchors bucket (anchors.tf): `pages/` the
+# pager's, `acks/` the approval function's - TLS only, Object Lock, every version kept; no second bucket to secure. Email goes through `page_repeat`, set to ALARM with the page's words as its reason:
 # CloudWatch already publishes to the page topic, so nothing here needs an SNS permission.
 # Within the environment's boundary and deploy role as they are (S3, Lambda, EventBridge, CloudWatch, Secrets
-# Manager, SSM reads): EventBridge Scheduler and DynamoDB are not in them, so a scheduled rule and a bucket.
+# Manager, SSM reads): EventBridge Scheduler and DynamoDB are not in them, and the boundary lets only the anchors and
+# witness buckets have a bucket policy - so a scheduled rule, and the anchors bucket's own TLS-only policy.
 locals {
   ack_url = var.approval_domain == "" ? "" : "https://${var.approval_domain}/p"
   # The self-alarms that page and repeat. Paused, the workers are off on purpose: their silence pages nobody.
@@ -34,12 +35,6 @@ locals {
   key_expiry_param = "/warden/${var.environment}/env/WARDEN_TEMPORAL_KEY_EXPIRES"
 }
 
-resource "aws_s3_bucket" "pages" {
-  bucket_prefix = "warden-${var.environment}-pages-"
-  force_destroy = true # a page's state only; the acknowledgements themselves are on WARDEN's record
-  tags          = { Project = "warden", Environment = var.environment }
-}
-
 # --------------------------------------------------------------------------- the pager
 
 resource "aws_iam_role" "pager" {
@@ -54,9 +49,10 @@ resource "aws_iam_role_policy" "pager" {
   name = "warden-${var.environment}-pager"
   role = aws_iam_role.pager.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Sid = "ListPages", Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.pages.arn },
-    { Sid = "ItsPages", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${aws_s3_bucket.pages.arn}/pages/*" },
-    { Sid = "ReadAcknowledgements", Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.pages.arn}/acks/*" },
+    # ListBucket on the bucket: without it S3 answers a missing acknowledgement 403, not NoSuchKey.
+    { Sid = "ListPages", Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.anchors.arn },
+    { Sid = "ItsPages", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${aws_s3_bucket.anchors.arn}/pages/*" },
+    { Sid = "ReadAcknowledgements", Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.anchors.arn}/acks/*" },
     {
       Sid      = "EmailThroughTheRepeatAlarm"
       Effect   = "Allow"
@@ -103,7 +99,7 @@ resource "aws_lambda_function" "pager" {
   environment {
     variables = {
       WARDEN_ENV       = var.environment
-      PAGES_BUCKET     = aws_s3_bucket.pages.bucket
+      PAGES_BUCKET     = aws_s3_bucket.anchors.bucket
       REPEAT_MINUTES   = tostring(var.page_repeat_minutes)
       REPEAT_ALARM     = local.page_repeat_alarm
       SLACK_SECRET_ID  = "warden/${var.environment}/slack-webhook"
