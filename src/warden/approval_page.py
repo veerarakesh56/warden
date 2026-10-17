@@ -334,7 +334,7 @@ class ApprovalPage:
         plan = self.plan_of(wid) if wid else None
         approver = self.policy.approvers[name]
         if (plan is None or plan.plan_hash != ph or plan.environment not in approver.environments
-                or plan.tier not in approver.tiers):
+                or approvals.environment_refusal(name, approver, plan.environment) or plan.tier not in approver.tiers):
             return _json(404, {"error": "no plan this approver may deny is waiting under that id and hash"})
         try:
             denial = approvals.Denial(approver=name, workflow_id=wid, plan_hash=ph, reason=reason)

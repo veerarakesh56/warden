@@ -36,6 +36,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from pydantic import BaseModel, Field
 
+from . import environments
+
 TIERS = ("T1", "T2", "T3")
 # What a tier means, in the words of the person asked to approve one (owner, 2026-10-12: a message said "(T1)" and
 # nothing else). Said wherever a tier is shown to a person.
@@ -277,6 +279,30 @@ def sign(key: Ed25519PrivateKey, *, approver: str, workflow_id: str, plan_hash: 
     return approval
 
 
+# The bench approver (owner, 2026-10-15): a labelled test identity Claude holds (scripts/bench_approve.py), for dev.
+# It approves only in an environment of the nonprod tier (environments.yaml), whatever its entry in the approver list
+# names: an edit of that list cannot let a test identity approve in production.
+BENCH = "bench"
+BENCH_LABEL = "bench approver"
+
+
+def is_bench(name: str, approver: Approver) -> bool:
+    return name == BENCH or BENCH_LABEL in approver.name.lower()
+
+
+def environment_refusal(name: str, approver: Approver, environment: str) -> str | None:
+    """Why `name` may not approve in `environment`, or None. One rule for every path that takes an approval or a
+    denial: the approver's own environment list, and the bench approver's nonprod-only limit."""
+    if approver.environments and environment not in approver.environments:
+        return f"{name} may not approve in {environment or 'this environment'}"
+    if is_bench(name, approver):
+        policies = environments.default_environment_policies()
+        if environment not in policies.known_environments or policies.for_env(environment).tier != "nonprod":
+            return (f"{name} is the bench approver, a test identity: it approves only in a nonprod environment, "
+                    f"never in {environment or 'this one'}")
+    return None
+
+
 def check(approval: SignedApproval, *, policy: ApproverPolicy, workflow_id: str, plan_hash: str,
           tier: str, plan_created_at: datetime, used_nonces: set[str], now: datetime | None = None,
           environment: str = "") -> list[str]:
@@ -292,9 +318,9 @@ def check(approval: SignedApproval, *, policy: ApproverPolicy, workflow_id: str,
         return [f"the signature is not {approval.approver}'s"]
     if tier not in policy.approvers[approval.approver].tiers:
         problems.append(f"{approval.approver} may not approve {tier}")
-    allowed = policy.approvers[approval.approver].environments
-    if allowed and environment not in allowed:
-        problems.append(f"{approval.approver} may not approve in {environment or 'this environment'}")
+    refusal = environment_refusal(approval.approver, policy.approvers[approval.approver], environment)
+    if refusal:
+        problems.append(refusal)
     if approval.tier != tier:
         problems.append(f"approval is for {approval.tier}, the plan is {tier}")
     if approval.workflow_id != workflow_id:

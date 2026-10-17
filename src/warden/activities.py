@@ -653,8 +653,8 @@ class RemediationActivities:
             problems.append(f"{assertion.approver!r} is not an approver")
         elif plan.tier not in approver.tiers:
             problems.append(f"{assertion.approver} may not approve {plan.tier}")
-        elif approver.environments and plan.environment not in approver.environments:
-            problems.append(f"{assertion.approver} may not approve in {plan.environment or 'this environment'}")
+        elif refusal := approvals.environment_refusal(assertion.approver, approver, plan.environment):
+            problems.append(refusal)
         if (assertion.workflow_id, assertion.plan_hash, assertion.tier) != (plan.workflow_id, plan.plan_hash, plan.tier):
             problems.append("the passkey approval is for a different plan")
         cooling = timedelta(minutes=self.policy.cooling_off_minutes.get(plan.tier, 0))
