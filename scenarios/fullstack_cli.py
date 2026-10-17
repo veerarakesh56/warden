@@ -469,7 +469,7 @@ def dry_env() -> Env:
                                "WARDEN_STACK_DB_REPLICA_RO_DSN": dry_dsn,
                                "arn": f"arn:aws:sts::{EXAMPLE_ACCOUNT}:assumed-role/{fs.PREFIX}reader/dry"},
         invoke_warden=invoke, extract_fix=extract,
-        faults={fid: stub for fid in fs.FAULTS}, baseline=list,
+        faults=dict.fromkeys(fs.FAULTS, stub), baseline=list,
         sleep=sleep, clock=lambda: now[0], dry_run=True,
     )
 
