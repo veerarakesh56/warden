@@ -67,6 +67,8 @@ locals {
     notify = { secrets = ["slack-bot-token", "slack-app-token", "slack-webhook", "github-token"], assumes = ["platform-reader"] }
     # Every write re-reads its target first (platforms/aws.py), so the act zone reads as well as acts.
     act = { secrets = [], assumes = ["platform-reader", "actor"] }
+    # Eldane, the AI critic (eldane.py): its own model key and its own signing key; it reads the audit, assumes nothing.
+    critic = { secrets = ["gemini-api-key", "eldane-key"], assumes = [] }
   }
   # The Lambdas (frontdoor.tf), as settings.LAMBDA_SECRETS names what each handler reads (tests/test_runtime_module_g6.py
   # runs each one's load and holds the two together). Only the approval page reads who may approve; only actor-use

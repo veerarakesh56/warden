@@ -18,7 +18,9 @@ locals {
     #                          script together with the webhook itself
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
-    "temporal-api-key-act",
+    "temporal-api-key-act", "temporal-api-key-critic",
+    "gemini-api-key", # Eldane's model (eldane.py, a paid-tier Gemini API key): the critic zone's alone
+    "eldane-key",     # Eldane's own Ed25519 signing key (PEM): the critic zone's alone
   ])
 }
 
