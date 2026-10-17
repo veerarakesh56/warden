@@ -15,6 +15,9 @@ locals {
     WARDEN_APPROVAL_RP_ID      = var.approval_domain
     WARDEN_AUDIT_DSN           = local.audit_dsn
     WARDEN_AUDIT_IAM_AUTH      = "1"
+    # A kill switch trip is counted here (paging.killswitch_tripped), and the approval page reads the pages.
+    WARDEN_HEARTBEAT_NAMESPACE = "WARDEN/${var.environment}"
+    WARDEN_PAGES_BUCKET        = aws_s3_bucket.pages.bucket
   }
   # `approval` is the one a person waits for. Lambda gives CPU in proportion to memory, a whole vCPU at 1,769 MB
   # (AWS's Lambda guide, "Configure Lambda function memory", read 2026-10-12); at 512 MB its cold start - Python
@@ -349,11 +352,12 @@ resource "aws_lambda_permission" "webhook_auth" {
 resource "aws_apigatewayv2_route" "approval" {
   # /a/: approving a plan. /e/: enrolling a passkey, /k/: resetting the kill switch, /x/: turning it on - each on a link the approver's
   # own key signed. /s/interact: Slack's note of a button click, answered by the function below. /r: WARDEN's records
-  # (records.py), for a reader Slack names who is on the approver or viewer list; /s/r starts that sign-in.
+  # (records.py), for a reader Slack names who is on the approver or viewer list; /s/r starts that sign-in. /p: WARDEN's
+  # own pages, acknowledged with an approver's passkey (paging.tf); /s/p starts its sign-in.
   for_each = toset(["GET /a/{token}", "POST /a/{token}/{step}", "GET /e/{token}", "POST /e/{token}/{step}",
     "GET /k/{token}", "POST /k/{token}/{step}", "GET /x/{token}", "POST /x/{token}/{step}",
     "GET /s/callback", "GET /s/{kind}/{token}", "POST /s/interact",
-  "GET /r", "GET /r/{incident}", "GET /s/r"])
+  "GET /r", "GET /r/{incident}", "GET /s/r", "GET /p", "POST /p/{step}", "GET /s/p"])
   api_id    = aws_apigatewayv2_api.front.id
   route_key = each.key
   target = "integrations/${each.key == "POST /s/interact" ? aws_apigatewayv2_integration.ack.id :

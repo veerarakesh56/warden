@@ -207,9 +207,10 @@ def test_each_lambda_has_its_own_role_that_reads_only_what_its_handler_reads():
         assert access[name]["secrets"] == {_slug(n) for n in reads}, name
         for secret, module in reads.items():  # each grant has its reader
             assert f'"{secret}"' in (src / module).read_text(encoding="utf-8"), (name, secret, module)
-    # Only the approval page asks who may approve; only actor-use counts (UnapprovedActorUse, ApproverListChanged).
+    # Only the approval page asks who may approve; actor-use counts (UnapprovedActorUse, ApproverListChanged), and the
+    # approval page counts a kill switch it turns on (/x: paging.killswitch_tripped).
     assert {n for n, a in access.items() if a["approvers"]} == {"approval"}
-    assert {n for n, a in access.items() if a["metrics"]} == {"actor-use"}
+    assert {n for n, a in access.items() if a["metrics"]} == {"actor-use", "approval"}
     lambdas = (src / "lambdas.py").read_text(encoding="utf-8")
     assert lambdas.count("put_metric_data(") == 2 and lambdas.count("approver_policy()") == 1
     assert "approver_policy()" in lambdas.split("def approval_page")[1].split("\ndef ")[0]
@@ -394,12 +395,12 @@ def test_the_lambdas_get_the_names_the_runtime_reads():
     tf = _frontdoor()
     names = set(re.findall(r"^\s+(WARDEN_[A-Z_]+)\s+=", tf, re.MULTILINE))
     assert names == {"WARDEN_ENV", "WARDEN_AUDIT_KMS_KEY_ID", "WARDEN_AUDIT_ANCHOR_BUCKET", "WARDEN_APPROVAL_RP_ID",
-                     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_IAM_AUTH"}
+                     "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_IAM_AUTH", "WARDEN_HEARTBEAT_NAMESPACE", "WARDEN_PAGES_BUCKET"}
     import inspect
 
-    from warden import audit
+    from warden import audit, paging
 
-    src = inspect.getsource(runtime) + inspect.getsource(audit)
+    src = inspect.getsource(runtime) + inspect.getsource(audit) + inspect.getsource(paging)
     for name in names - {"WARDEN_ENV", "WARDEN_APPROVAL_RP_ID"}:
         assert f'"{name}"' in src, name
 

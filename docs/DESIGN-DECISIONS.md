@@ -366,6 +366,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   `identity.py`, and boto3 for the AWS writes in `platforms/aws.py`. IAM Roles Anywhere and Teleport's Machine ID
   issue the same STS sessions on AWS (decision D11), so WARDEN calls STS directly.
 - Approver labels: signed with the approvers' own Ed25519 keys (`cryptography`), recorded in the audit - `labels.py`.
+- Pages of WARDEN's own that repeat until acknowledged - `paging.py` with the runtime module's pager: CloudWatch
+  alarms, EventBridge rules and a schedule, S3 for the page state, CloudWatch's own email action. CloudWatch sends an
+  alarm action once; Systems Manager Incident Manager, AWS's paging with acknowledgement, takes no new customers since
+  2025-11-07 (read 2026-10-16); PagerDuty (WARDEN_PAGERDUTY_ROUTING_KEY) stays an adopter's choice, not a dependency.
 
 **Built, and why no ready-made tool fits:**
 
