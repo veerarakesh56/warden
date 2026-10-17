@@ -134,7 +134,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "DenyRoleWithoutThisBoundary",
+      "Sid": "DenyUnboundedRoles",
       "Effect": "Deny",
       "Action": [
         "iam:CreateRole",
@@ -222,7 +222,8 @@
       ],
       "NotResource": [
         "arn:aws:s3:::warden-ops-anchors-*",
-        "arn:aws:s3:::warden-ops-witness-*"
+        "arn:aws:s3:::warden-ops-witness-*",
+        "arn:aws:s3:::warden-ops-access-logs-*"
       ]
     },
     {
