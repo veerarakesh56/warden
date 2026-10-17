@@ -83,7 +83,8 @@ def test_a_guardduty_finding_on_a_watched_resource_goes_to_a_person_on_the_rules
     ev = lambdas.alarm_event(_guardduty(), "ops") or security_findings.finding_event(_guardduty())
     assert (ev.source, ev.state, ev.stateless) == ("security", "ALARM", True)
     assert (ev.alert.service, ev.alert.environment, ev.alert.severity) == ("warden-dev-bastion", "dev", Severity.high)
-    assert ev.alert.name == "UnauthorizedAccess:EC2/SSHBruteForce" and ev.alert.labels == {"via": "guardduty"}
+    assert ev.alert.name == "UnauthorizedAccess:EC2/SSHBruteForce"
+    assert ev.alert.labels == {"via": "guardduty"}
     assert ev.escalate.startswith("GuardDuty reports a high security finding (UnauthorizedAccess:EC2/SSHBruteForce) on "
                                   "warden-dev-bastion: a possible attack or misuse. No fix on WARDEN's list answers it")
     assert ev.transitioned_at == datetime(2026, 10, 17, 4, 15, tzinfo=UTC)  # the finding's own update time
@@ -96,12 +97,17 @@ def test_a_security_hub_threat_finding_on_a_watched_resource_goes_to_a_person():
     ev = security_findings.finding_event(_hub())
     assert (ev.source, ev.alert.service, ev.alert.environment, ev.alert.severity) == (
         "security", "warden-dev-orders", "dev", Severity.high)
-    assert ev.alert.labels == {"via": "securityhub"} and ev.escalate.startswith(
+    assert ev.alert.labels == {"via": "securityhub"}
+    assert ev.escalate.startswith(
         "Security Hub (Detective) reports a high security finding (UnauthorizedAccess) on warden-dev-orders")
     tagged = _hub()
     tagged["detail"]["findings"][0]["Resources"] = [{"Type": "AwsEc2Instance", "Id": "i-0a1b2c3d4e5f60718",
                                                      "Tags": {"Name": "warden-dev-bastion"}}]
     assert security_findings.finding_event(tagged).alert.service == "warden-dev-bastion"
+    # A name inside an ARN, not at its end: a load balancer's id follows its name (CodeRabbit, PR 52).
+    alb = _hub(Resources=[{"Type": "AwsElbv2LoadBalancer",
+                           "Id": f"arn:aws:elasticloadbalancing:ap-south-2:{ACCOUNT}:loadbalancer/app/warden-dev-web/abc123"}])
+    assert security_findings.finding_event(alb).alert.service == "warden-dev-web"
 
 
 @pytest.mark.parametrize(("value", "level"), [
@@ -157,8 +163,10 @@ def _hub_v2():
 @pytest.mark.parametrize("event", [
     _hub(label="LOW"), _hub(label="INFORMATIONAL"), _hub(label="high"),
     _hub(types=("Software and Configuration Checks/Vulnerabilities/CVE",)),        # a vulnerability, not an attack
+    _hub(types=("Sensitive Data Identifications/PII/Name",)),                     # data found, nothing happening
     _hub(types=("Software and Configuration Checks/Industry and Regulatory Standards",), Compliance={"Status": "FAILED"}),
     _hub(Compliance={"Status": "FAILED"}),                                        # a posture check, whatever its type
+    _hub(types=("TTPs/Initial Access/UnauthorizedAccess", "Software and Configuration Checks/Vulnerabilities/CVE")),
     _hub(product="GuardDuty"),                                                    # GuardDuty's own come in directly
     _hub(workflow="RESOLVED"), _hub(workflow="SUPPRESSED"), _hub(record="ARCHIVED"), _hub(Sample=True),
     _hub(product="x; drop table"), _hub(Id=""), _hub(findings=[]), _hub(findings=["text"]),
@@ -179,8 +187,10 @@ def test_the_findings_resource_details_are_redacted_and_the_rule_carries_no_iden
             assert raw not in everything, raw
         assert not re.search(r"i-0[0-9a-f]{8,}", ev.rule + ev.escalate)
     gd = security_findings.finding_event(_guardduty())
-    assert "<IPV4_" in gd.alert.summary and "instance: i-0a1b2c3d4e5f60718" in gd.alert.summary
-    assert "seen 3 time(s)" in gd.alert.summary and "GuardDuty severity 8.0 (high)" in gd.alert.summary
+    assert "<IPV4_" in gd.alert.summary
+    assert "instance: i-0a1b2c3d4e5f60718" in gd.alert.summary
+    assert "seen 3 time(s)" in gd.alert.summary
+    assert "GuardDuty severity 8.0 (high)" in gd.alert.summary
     assert "<APIKEY_" in security_findings.finding_event(_hub()).alert.summary
     assert gd.rule == f"guardduty:UnauthorizedAccess:EC2/SSHBruteForce:{security_findings.hashlib.sha256(FINDING_ID.encode()).hexdigest()[:12]}"
 
@@ -208,7 +218,8 @@ def test_a_security_finding_is_escalate_only_however_intake_finds_the_world():
     held = _decide(ev, expected=("dev nights", datetime(2026, 10, 17, 9, tzinfo=UTC)))
     assert held.action == "escalate_only"  # a planned shutdown explains an alarm going off, not an attack
     grouped = _decide(ev, related={"inc-other": ("dev", {"warden-dev-bastion"})})
-    assert grouped.action == "escalate_only" and not grouped.grouped
+    assert grouped.action == "escalate_only"
+    assert not grouped.grouped
     verifying = _decide(ev, verifying={("dev", "warden-dev-bastion"): "rem-1"})
     assert verifying.action == "escalate_only"
     assert intake.open_fix(ev, {("dev", "warden-dev-bastion"): "rem-1"}) is None
@@ -216,12 +227,29 @@ def test_a_security_finding_is_escalate_only_however_intake_finds_the_world():
 
 
 def test_intake_refuses_a_security_event_without_its_reason_to_go_to_a_person():
-    ev = security_findings.finding_event(_guardduty())
+    fields = security_findings.finding_event(_guardduty()).model_dump()
+    without = {k: v for k, v in fields.items() if k != "escalate"}
+    blank = {**fields, "escalate": "   "}
     with pytest.raises(ValidationError, match="escalate-only"):
-        intake.AlarmEvent(source="security", rule=ev.rule, state="ALARM", transitioned_at=ev.transitioned_at,
-                          alert=ev.alert, stateless=True)
+        intake.AlarmEvent.model_validate(without)
     with pytest.raises(ValidationError, match="escalate-only"):
-        ev.model_validate({**ev.model_dump(), "escalate": "   "})
+        intake.AlarmEvent.model_validate(blank)
+
+
+def test_an_ordinary_alarm_on_the_same_resource_is_never_folded_into_a_security_incident():
+    """CodeRabbit, PR 52: a security incident records no resources to group by, so a later ordinary alarm on the same
+    resource starts its own incident rather than signalling the security one."""
+    log, now = _log(), datetime.now(UTC)
+    sec = asyncio.run(intake.submit(_Client(), security_findings.finding_event(_guardduty(updatedAt=now.isoformat())), log))
+    assert sec.action == "escalate_only"
+    assert sec.resources == []
+    alert = Alert(alert_id="cw", name="HighErrorRate", severity=Severity.high, service="warden-dev-bastion",
+                  environment="dev", summary="", labels={"alarm": "warden-dev-bastion-errors"})
+    ordinary = intake.AlarmEvent(rule="warden-dev-bastion-errors", state="ALARM", transitioned_at=now, alert=alert)
+    d = asyncio.run(intake.submit(_Client(running={sec.workflow_id}), ordinary, log))
+    assert d.action == "start"
+    assert not d.grouped
+    assert d.resources
 
 
 def test_a_security_incident_tells_no_fix_it_failed_or_had_side_effects():
@@ -235,7 +263,8 @@ def test_a_security_incident_tells_no_fix_it_failed_or_had_side_effects():
     ev = security_findings.finding_event(_guardduty(updatedAt=now.isoformat()))
     client = _Client(stages={"rem-same": "watching", "rem-other": "verifying"})
     d = asyncio.run(intake.submit(client, ev, log))
-    assert d.action == "escalate_only" and d.after_fix == []
+    assert d.action == "escalate_only"
+    assert d.after_fix == []
     assert client.calls == [("start", d.workflow_id, ev.escalate)]
     assert not log.entries(kinds=("intake.relapse", "intake.side_effect"))
 
@@ -254,7 +283,8 @@ def test_an_escalate_only_security_incident_proposes_no_fix_and_no_plan():
     acts = IncidentActivities(audit=_log(), llm_factory=lambda: LLMClient(provider=_NoModel(), mock=False))
     pack = acts.prepare(alert)
     diagnosed = acts.diagnose(pack, ev.escalate)
-    assert diagnosed.proposal.action == ActionKind.escalate_to_human and diagnosed.model_unavailable == ev.escalate
+    assert diagnosed.proposal.action == ActionKind.escalate_to_human
+    assert diagnosed.model_unavailable == ev.escalate
     verified = acts.verify(pack, diagnosed)
     assert verified.verdict.status != VerdictStatus.approved_for_human
     assert acts.plan_fix(alert, diagnosed, verified) == {}
@@ -262,27 +292,34 @@ def test_an_escalate_only_security_incident_proposes_no_fix_and_no_plan():
 
 def test_the_alarm_lambda_takes_findings_and_ignores_what_it_does_not_take(submitted):  # noqa: F811
     assert lambdas.alarm(_guardduty())["decisions"] == [{"action": "start"}]
-    assert submitted[0].source == "security" and submitted[0].escalate
-    assert lambdas.alarm(_hub())["decisions"] == [{"action": "start"}] and submitted[1].alert.labels["via"] == "securityhub"
-    assert "ignored" in lambdas.alarm(_guardduty(2.0)) and "ignored" in lambdas.alarm(_hub_v2())
+    assert submitted[0].source == "security"
+    assert submitted[0].escalate
+    assert lambdas.alarm(_hub())["decisions"] == [{"action": "start"}]
+    assert submitted[1].alert.labels["via"] == "securityhub"
+    assert "ignored" in lambdas.alarm(_guardduty(2.0))
+    assert "ignored" in lambdas.alarm(_hub_v2())
     assert len(submitted) == 2
 
 
 def test_the_runtime_subscribes_to_medium_and_above_findings_with_retries_and_the_dead_letter_queue():
     tf = (ROOT / "terraform" / "modules" / "warden-runtime" / "frontdoor.tf").read_text(encoding="utf-8")
     gd = tf[tf.index("    guardduty = jsonencode({"):tf.index("    securityhub = jsonencode({")]
-    assert 'source        = ["aws.guardduty"]' in gd and '"detail-type" = ["GuardDuty Finding"]' in gd
+    assert 'source        = ["aws.guardduty"]' in gd
+    assert '"detail-type" = ["GuardDuty Finding"]' in gd
     floor = float(re.search(r'numeric = \[">=", ([0-9.]+)\]', gd).group(1))
     assert floor == security_findings.MIN_GUARDDUTY_SEVERITY  # the rule and the parser take the same findings
     hub = tf[tf.index("    securityhub = jsonencode({"):tf.index("    rds = jsonencode({")]
-    assert 'source        = ["aws.securityhub"]' in hub and '"detail-type" = ["Security Hub Findings - Imported"]' in hub
+    assert 'source        = ["aws.securityhub"]' in hub
+    assert '"detail-type" = ["Security Hub Findings - Imported"]' in hub
     labels = json.loads(re.search(r"Label = (\[[^\]]+\])", hub).group(1))
     assert set(labels) == set(security_findings.SECURITY_HUB_LABELS)
     assert json.loads(re.search(r"Status = (\[[^\]]+\])", hub).group(1)) == list(security_findings.SECURITY_HUB_WORKFLOW)
-    assert 'RecordState = ["ACTIVE"]' in hub and "Findings Imported V2" not in tf
+    assert 'RecordState = ["ACTIVE"]' in hub
+    assert "Findings Imported V2" not in tf
     # One of the service_events map: its rule pauses with the runtime, retries, and dead-letters to the alarm queue.
     block = tf[tf.index("  service_events = {"):tf.index('resource "aws_cloudwatch_event_rule" "service_events"')]
-    assert "guardduty = jsonencode" in block and "securityhub = jsonencode" in block
+    assert "guardduty = jsonencode" in block
+    assert "securityhub = jsonencode" in block
 
 
 def test_a_security_alert_is_held_to_every_check_an_alert_is():

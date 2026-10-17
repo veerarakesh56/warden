@@ -54,8 +54,10 @@ GUARDDUTY_BANDS = ((9.0, Severity.critical), (7.0, Severity.high), (4.0, Severit
 MIN_GUARDDUTY_SEVERITY = 4.0
 SECURITY_HUB_LABELS = {"CRITICAL": Severity.critical, "HIGH": Severity.high, "MEDIUM": Severity.medium}
 SECURITY_HUB_WORKFLOW = ("NEW", "NOTIFIED")
-# ASFF type namespaces that describe something happening, not a configuration to improve.
+# ASFF type namespaces that describe something happening, not a configuration to improve - and the one that never
+# makes a finding an incident, whatever other type it also carries: a vulnerability or a failed posture check.
 THREAT_TYPES = ("TTPs/", "Effects/", "Unusual Behaviors/")
+NOT_AN_INCIDENT = ("Software and Configuration Checks/",)
 
 # UnauthorizedAccess:EC2/SSHBruteForce, CryptoCurrency:EC2/BitcoinTool.B!DNS, AttackSequence:EKS/CompromisedCluster
 _GD_TYPE = re.compile(r"[A-Za-z][A-Za-z0-9]{1,63}:[A-Za-z0-9]{1,63}/[A-Za-z0-9][A-Za-z0-9._!-]{0,127}")
@@ -73,9 +75,10 @@ def _list(v: Any) -> list[Any]:
     return v if isinstance(v, list) else []
 
 
-def _last(value: Any) -> str:
-    """A resource's own name: an ARN's last part (after `/` or `:`), or the value itself."""
-    return re.split(r"[/:]", str(value or ""))[-1]
+def _parts(value: Any) -> list[str]:
+    """The names a resource id may carry, most specific first: every part of an ARN (split at `/` and `:`) from the
+    end - a load balancer's name sits before its id (`loadbalancer/app/<name>/<id>`) - or the value itself."""
+    return [p for p in reversed(re.split(r"[/:]", str(value or ""))) if p]
 
 
 def _tag(tags: Any, key: str) -> str:
@@ -139,14 +142,16 @@ def _summary(title: str, description: str, details: list[str]) -> str:
     return redact(text).text[:_SUMMARY_MAX]
 
 
-def _event(product: str, kind: str, finding_id: str, name: str, severity: Severity, when: datetime, summary: str,
-           via: str, sample: str = "") -> AlarmEvent:
+def _event(by: tuple[str, str], kind: str, finding_id: str, name: str, severity: Severity, when: datetime,
+           summary: str) -> AlarmEvent:
+    """`by`: (the label intake records - `guardduty`, `securityhub` -, the product as a person reads it)."""
     from .environments import env_of_name
 
+    via, product = by
     digest = hashlib.sha256(finding_id.encode()).hexdigest()[:12]
     return AlarmEvent(
         source="security", rule=f"{via}:{kind}:{digest}"[:512], state="ALARM", transitioned_at=when, stateless=True,
-        escalate=(f"{product} reports a {severity.value} security finding ({kind[:60]}) on {name}{sample}: a "
+        escalate=(f"{product} reports a {severity.value} security finding ({kind[:60]}) on {name}: a "
                   "possible attack or misuse. No fix on WARDEN's list answers it; a person decides")[:300],
         alert=Alert(alert_id="sec", name=kind[:512], severity=severity, service=name,
                     environment=env_of_name(name) or "", summary=summary, started_at=when.isoformat(),
@@ -183,37 +188,52 @@ def guardduty(event: dict[str, Any]) -> AlarmEvent | None:
     level = next(s for floor, s in GUARDDUTY_BANDS if sev >= floor)
     summary = _summary(str(d.get("title") or kind), str(d.get("description") or ""),
                        [f"GuardDuty severity {sev:.1f} ({level.value})", *_guardduty_details(resource, service)])
-    return _event("GuardDuty", kind, fid, name, level, when, summary, "guardduty")
+    return _event(("guardduty", "GuardDuty"), kind, fid, name, level, when, summary)
+
+
+def _hub_finding(event: dict[str, Any]) -> dict[str, Any] | None:
+    """The one ASFF finding a Security Hub event carries; None for another event or another shape (AWS sends one
+    finding per event)."""
+    if (event.get("source"), event.get("detail-type")) != SECURITY_HUB:
+        return None
+    findings = _list(_obj(event.get("detail")).get("findings"))
+    return findings[0] if len(findings) == 1 and isinstance(findings[0], dict) else None
+
+
+def _hub_threat(f: dict[str, Any]) -> str:
+    """The finding's threat type when it is one WARDEN takes - open, active, not a sample, medium or above, not a
+    posture check or a vulnerability, not GuardDuty's own - else ""."""
+    types = [str(t) for t in _list(f.get("Types")) if isinstance(t, str)]
+    if any(t.startswith(NOT_AN_INCIDENT) for t in types) or _obj(f.get("Compliance")).get("Status"):
+        return ""
+    product = str(f.get("ProductName") or "")
+    open_ = (f.get("RecordState") == "ACTIVE" and f.get("Sample") is not True
+             and _obj(f.get("Workflow")).get("Status") in SECURITY_HUB_WORKFLOW)
+    if not (open_ and _PRODUCT.fullmatch(product) and product != "GuardDuty" and f.get("Id")
+            and _obj(f.get("Severity")).get("Label") in SECURITY_HUB_LABELS):
+        return ""
+    return next((t for t in types if t.startswith(THREAT_TYPES) and _ASFF_TYPE.fullmatch(t)), "")
 
 
 def security_hub(event: dict[str, Any]) -> AlarmEvent | None:
     """A Security Hub CSPM finding event (ASFF) as an escalate-only intake event; None for anything not taken."""
-    if (event.get("source"), event.get("detail-type")) != SECURITY_HUB:
-        return None
-    findings = _list(_obj(event.get("detail")).get("findings"))
-    if len(findings) != 1 or not isinstance(findings[0], dict):
-        return None  # AWS sends one finding per event: anything else is not its shape
-    f = findings[0]
-    product, fid = str(f.get("ProductName") or ""), str(f.get("Id") or "")
-    label = str(_obj(f.get("Severity")).get("Label") or "")
-    types = [str(t) for t in _list(f.get("Types")) if isinstance(t, str)]
-    threat = next((t for t in types if t.startswith(THREAT_TYPES) and _ASFF_TYPE.fullmatch(t)), "")
-    if (label not in SECURITY_HUB_LABELS or not _PRODUCT.fullmatch(product) or product == "GuardDuty" or not fid
-            or not threat or f.get("RecordState") != "ACTIVE" or f.get("Sample") is True
-            or _obj(f.get("Workflow")).get("Status") not in SECURITY_HUB_WORKFLOW
-            or _obj(f.get("Compliance")).get("Status")):
+    f = _hub_finding(event)
+    threat = _hub_threat(f) if f is not None else ""
+    if f is None or not threat:
         return None
     resources = [_obj(r) for r in _list(f.get("Resources"))]
-    name = watched([n for r in resources for n in (_last(r.get("Id")), _tag(r.get("Tags"), "Name"))])
+    name = watched([n for r in resources for n in (_tag(r.get("Tags"), "Name"), *_parts(r.get("Id")))])
     when = _when(f.get("UpdatedAt"), event.get("time"))
     if not name or when is None:
         return None
-    level = SECURITY_HUB_LABELS[label]
+    label = str(_obj(f.get("Severity")).get("Label"))
     details = [f"Security Hub severity {label}", f"type: {threat}",
                *(f"resource: {r.get('Type') or 'unknown'} {r.get('Id') or ''}".rstrip() for r in resources[:5])]
     summary = _summary(str(f.get("Title") or threat), str(f.get("Description") or ""), details)
     kind = threat.rsplit("/", 1)[-1] or threat
-    return _event(f"Security Hub ({product})", kind, fid, name, level, when, summary, "securityhub")
+    product = str(f.get("ProductName"))
+    return _event(("securityhub", f"Security Hub ({product})"), kind, str(f["Id"]), name, SECURITY_HUB_LABELS[label],
+                  when, summary)
 
 
 def finding_event(event: dict[str, Any]) -> AlarmEvent | None:

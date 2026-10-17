@@ -224,9 +224,13 @@ async def submit(client: Any, ev: AlarmEvent, log: AuditLog, *, task_queue: str 
         from .resolver import named_resources
 
         names = named_resources(ev.alert)
-        others = sorted({w for (env, service), w in {**verifying, **watching}.items()
-                         if env == ev.alert.environment and service not in names and ev.source != "security"})
-        d = d.model_copy(update={"environment": ev.alert.environment, "resources": sorted(names), "after_fix": others})
+        # A security finding is an incident of its own (item 15): no later alarm groups into it by the resources it
+        # names, and no fix of WARDEN's is told of it as a side effect.
+        security = ev.source == "security"
+        others = [] if security else sorted({w for (env, service), w in {**verifying, **watching}.items()
+                                             if env == ev.alert.environment and service not in names})
+        d = d.model_copy(update={"environment": ev.alert.environment, "resources": [] if security else sorted(names),
+                                 "after_fix": others})
     log.append(d.workflow_id or f"intake-{fp}", "intake.decision", d.model_dump())
     if d.grouped:
         # On the incident's own record: which other alarm said the same, and where it came from (records.py).
