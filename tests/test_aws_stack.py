@@ -609,7 +609,7 @@ def test_download_is_https_only_and_size_capped(monkeypatch):
     with pytest.raises(Exception, match="https"):
         aws_stack._download("file:///etc/passwd")
     monkeypatch.setattr(aws_stack, "CODE_MAX_BYTES", 10)
-    monkeypatch.setattr(aws_stack.urllib.request, "urlopen", lambda url, timeout: io.BytesIO(b"x" * 11))
+    monkeypatch.setattr(aws_stack.web, "urlopen", lambda url, timeout: io.BytesIO(b"x" * 11))
     with pytest.raises(Exception, match="larger than 10"):
         aws_stack._download("https://bucket.example/pkg.zip")
 

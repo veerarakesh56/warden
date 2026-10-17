@@ -39,13 +39,12 @@ import os
 import re
 import threading
 import time
-import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from . import settings
+from . import settings, web
 from .aws_backend import (
     CONNECT_TIMEOUT,
     LOG_LOOKBACK,
@@ -495,7 +494,7 @@ def source_excerpt(fn: str, package: bytes, path: str, line_no: int) -> list[str
 def _download(url: str) -> bytes:
     if not url.startswith("https://"):
         raise ToolError("code location is not an https URL")
-    with urllib.request.urlopen(url, timeout=READ_TIMEOUT) as resp:  # nosec B310
+    with web.urlopen(url, timeout=READ_TIMEOUT) as resp:
         data = resp.read(CODE_MAX_BYTES + 1)
     if len(data) > CODE_MAX_BYTES:
         raise ToolError(f"deployment package larger than {CODE_MAX_BYTES} bytes, not read")

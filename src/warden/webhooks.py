@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 
 from pydantic import ValidationError
 
+from . import web
 from .intake import AlarmEvent
 from .models import Alert, Severity
 
@@ -116,17 +117,13 @@ def alertmanager_active(base_url: str, *, timeout: float = 5.0) -> Callable[[], 
     """`active` for confirm_firing: the fingerprints of Alertmanager's active, unsilenced, uninhibited alerts, read
     from its API v2. https only (or loopback), bounded by a timeout; an unreadable answer is an empty set, so nothing
     is confirmed - a failure to check never counts as a check."""
-    import urllib.parse
-    import urllib.request
-
-    parts = urllib.parse.urlsplit(base_url)
-    if parts.scheme != "https" and parts.hostname not in ("127.0.0.1", "localhost", "::1"):
+    if not web.allowed(base_url, loopback_http=True):
         raise ValueError("the Alertmanager URL must be https")
     url = base_url.rstrip("/") + "/api/v2/alerts?active=true&silenced=false&inhibited=false"
 
     def active() -> set[str]:
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as resp:  # nosec B310 - https checked above
+            with web.urlopen_loopback(url, timeout=timeout) as resp:
                 return {str(a.get("fingerprint")) for a in json.loads(resp.read()) if isinstance(a, dict)}
         except (OSError, ValueError):
             return set()
@@ -210,7 +207,7 @@ def datadog_alerting(site: str, api_key: str, app_key: str, *, timeout: float = 
 
     def fetch(url: str, hdrs: dict) -> dict:
         req = urllib.request.Request(url, headers=hdrs)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - https to a known Datadog site
+        with web.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read() or b"{}")
 
     fetch = get or fetch

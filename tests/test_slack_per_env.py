@@ -45,7 +45,8 @@ def slack(monkeypatch):
         raise AssertionError("no test sends over the network")
 
     monkeypatch.setattr(chatops, "_slack_call", fake)
-    monkeypatch.setattr(chatops.urllib.request, "urlopen", no_network)
+    monkeypatch.setattr(chatops.web, "urlopen", no_network)
+    monkeypatch.setattr(chatops.web, "urlopen_loopback", no_network)
     for name in ("WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_CHANNEL", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
                  "WARDEN_PAGERDUTY_ROUTING_KEY"):
         monkeypatch.delenv(name, raising=False)

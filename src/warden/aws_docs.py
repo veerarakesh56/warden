@@ -21,6 +21,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from . import web
+
 ENDPOINT = os.environ.get("WARDEN_AWS_DOCS_URL", "https://knowledge-mcp.global.api.aws")
 MAX_CODES = 2
 MAX_CHARS = 700
@@ -73,8 +75,8 @@ def _rpc(method: str, params: dict, session: str | None, rid: int) -> tuple[str 
         headers["Mcp-Session-Id"] = session
     if not ENDPOINT.startswith("https://"):
         raise ValueError("the AWS docs endpoint must be https")
-    request = urllib.request.Request(ENDPOINT, data=body, headers=headers)  # nosec B310 - https, checked above
-    with urllib.request.urlopen(request, timeout=TIMEOUT_S) as resp:  # nosec B310 - https, checked above
+    request = urllib.request.Request(ENDPOINT, data=body, headers=headers)
+    with web.urlopen(request, timeout=TIMEOUT_S) as resp:
         text = resp.read(200_000).decode("utf-8", "replace")
         if "text/event-stream" in (resp.headers.get("Content-Type") or ""):
             text = next((line[5:].strip() for line in text.splitlines() if line.startswith("data:")), "{}")
