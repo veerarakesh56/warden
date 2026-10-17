@@ -61,6 +61,25 @@ def plans(log: Any, *, now: datetime | None = None) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda r: r["at"], reverse=True)
 
 
+DID_NOT_HOLD = "remediation.did_not_hold"
+
+
+def did_not_hold(log: Any, entry: str, target: str, *, now: datetime | None = None) -> tuple[str, str]:
+    """(incident, why) when the fix `entry` on `target` was verified and then did not hold in LOOKBACK - its alarm came
+    back inside the soak (intake.held_fix), or a re-check failed (it ended `relapsed`); ("", "") otherwise."""
+    since = (now or datetime.now(UTC)) - LOOKBACK
+    rows = [(e["at"], e["correlation_id"]) for e in log.entries(kinds=(DID_NOT_HOLD,), since=since)
+            if e["body"].get("entry") == entry and e["body"].get("target") == target]
+    rows += [(r["at"], r["incident"]) for r in plans(log, now=now)
+             if r["status"] == "relapsed" and r["entry"] == entry and r["target"] == target]
+    if not rows:
+        return "", ""
+    at, incident = max(rows)
+    return incident, (f"`{entry}` on this target was verified and did not hold (incident `{incident}`, "
+                      f"{both_times(at, seconds=False)}): WARDEN does not offer the same fix again on its own - a person "
+                      "decides what to do next")
+
+
 def _denier(end: dict[str, Any]) -> str:
     """Who denied the plan, from its end row's own reason (`denied by <approver>`, workflows.py) - or ""."""
     first = str((end.get("reasons") or [""])[0])
@@ -87,7 +106,8 @@ def past(alert: Any, log: Any, *, now: datetime | None = None) -> list[dict[str,
     from .resolver import named_resources
 
     names = named_resources(alert)
-    return [r for r in plans(log, now=now) if r["incident"] != alert.alert_id
+    # A reopened incident's own fix that worked and did not hold is its history too (item 11, intake `reopen`).
+    return [r for r in plans(log, now=now) if (r["incident"] != alert.alert_id or r["status"] in FIXED_BEFORE)
             and r["environment"] == alert.environment and r["service"] in names][:MOST]
 
 

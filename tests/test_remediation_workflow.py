@@ -263,9 +263,10 @@ def test_an_approver_limited_to_t1_cannot_approve_a_t2_fix(world, owner):
 
 
 def test_the_checklist_cannot_be_given_as_input():
-    # `replans` can only lower how often WARDEN plans again (D7); a caller setting it skips nothing.
+    # `replans` can only lower how often WARDEN plans again (D7); a caller setting it skips nothing. `soak_minutes` can
+    # only lengthen the watch (at least 60, item 11).
     assert set(FixRequest.model_fields) == {"incident_id", "entry", "params", "service", "environment",
-                                            "approval_ttl_minutes", "recover_within_minutes", "replans"}
+                                            "approval_ttl_minutes", "recover_within_minutes", "replans", "soak_minutes"}
 
 
 def test_the_ttl_is_honoured(world, owner):

@@ -101,6 +101,15 @@ CHECK_EVERY = timedelta(seconds=30)
 # Recovered = this many healthy checks in a row; then re-checked this long after, the run open until the last.
 CONSECUTIVE_HEALTHY = 3
 RECHECK_AFTER = (timedelta(minutes=15), timedelta(minutes=60))
+
+
+def rechecks(req: FixRequest) -> tuple[timedelta, ...]:
+    """The watch's re-checks: RECHECK_AFTER, then the soak's end when it is longer (item 11). A request from before the
+    soak had none and replays as it ran: its default is RECHECK_AFTER's last."""
+    soak = timedelta(minutes=req.soak_minutes)
+    return RECHECK_AFTER + ((soak,) if soak > RECHECK_AFTER[-1] else ())
+
+
 # Stages that are ends: a failure there is the end row's own (finish), with nothing left to record.
 # Decision D7: when the target, or WARDEN itself, changed under an approved plan, the plan is made again from what
 # WARDEN reads now and put to the approvers again - never applied unseen. Live, 2026-10-12: a deploy a minute before
@@ -378,7 +387,7 @@ class RemediationWorkflow:
                     with contextlib.suppress(ActivityError):
                         await workflow.execute_activity_method(acts.announce, **_zoned(acts.announce), args=[plan, "verified"], **NOTIFY)
                 now_too = workflow.patched("g10-relapse-now")
-                for after in RECHECK_AFTER:
+                for after in rechecks(req):
                     wait = max(since + after - workflow.now(), timedelta(0))
                     if now_too and wait > timedelta(0):
                         # The alarm firing again ends the watch at once (intake signals it): the people are told of the
