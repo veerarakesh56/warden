@@ -13,10 +13,12 @@ verdicts only, never a document or an account id.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import pathlib
 import sys
 import urllib.parse
+from collections.abc import Callable
 from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -55,6 +57,29 @@ def _doc(value: Any) -> Any:
     return json.loads(urllib.parse.unquote(value)) if isinstance(value, str) else value
 
 
+def _verdict(path: pathlib.Path, read_live: Callable[[], Any]) -> str:
+    """MATCHES, DIFFERS, NOT IN ACCOUNT, UNREADABLE (...) or FILE HAS PLACEHOLDERS for one file and its live document."""
+    want = path.read_text(encoding="utf-8")
+    if "<" in want and ">" in want and not path.name.endswith(".local.json"):
+        return "FILE HAS PLACEHOLDERS"
+    try:
+        live = read_live()
+    except Exception as exc:  # noqa: BLE001 - one missing policy does not stop the rest
+        return ("NOT IN ACCOUNT" if "NoSuchEntity" in type(exc).__name__ + str(exc) else
+                f"UNREADABLE ({type(exc).__name__})")
+    return "MATCHES" if norm(_doc(live)) == norm(json.loads(want)) else "DIFFERS"
+
+
+def _live_policy(iam: Any, account: str, name: str) -> Any:
+    arn = f"arn:aws:iam::{account}:policy/{name}"
+    version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
+    return iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
+
+
+def _live_trust(iam: Any, name: str) -> Any:
+    return iam.get_role(RoleName=name)["Role"]["AssumeRolePolicyDocument"]
+
+
 def check(iam: Any, account: str, envs: list[str]) -> list[tuple[str, str]]:
     """(name, verdict) for every policy and trust whose file exists: MATCHES, DIFFERS, NOT IN ACCOUNT, or FILE HAS
     PLACEHOLDERS (no `.local.json` render to compare)."""
@@ -62,36 +87,12 @@ def check(iam: Any, account: str, envs: list[str]) -> list[tuple[str, str]]:
     for env in envs:
         for template, kind in POLICIES:
             path, name = _file(env, kind), template.format(env=env)
-            if path is None:
-                continue
-            want = path.read_text(encoding="utf-8")
-            if "<" in want and ">" in want and not path.name.endswith(".local.json"):
-                out.append((name, "FILE HAS PLACEHOLDERS"))
-                continue
-            try:
-                arn = f"arn:aws:iam::{account}:policy/{name}"
-                version = iam.get_policy(PolicyArn=arn)["Policy"]["DefaultVersionId"]
-                live = iam.get_policy_version(PolicyArn=arn, VersionId=version)["PolicyVersion"]["Document"]
-            except Exception as exc:  # noqa: BLE001 - one missing policy does not stop the rest
-                out.append((name, "NOT IN ACCOUNT" if "NoSuchEntity" in type(exc).__name__ + str(exc) else
-                            f"UNREADABLE ({type(exc).__name__})"))
-                continue
-            out.append((name, "MATCHES" if norm(_doc(live)) == norm(json.loads(want)) else "DIFFERS"))
+            if path is not None:
+                out.append((name, _verdict(path, functools.partial(_live_policy, iam, account, name))))
         for template, kind in TRUSTS:
             path, name = _file(env, kind), template.format(env=env)
-            if path is None:
-                continue
-            want = path.read_text(encoding="utf-8")
-            if "<" in want and ">" in want and not path.name.endswith(".local.json"):
-                out.append((f"{name} trust", "FILE HAS PLACEHOLDERS"))
-                continue
-            try:
-                live = iam.get_role(RoleName=name)["Role"]["AssumeRolePolicyDocument"]
-            except Exception as exc:  # noqa: BLE001
-                out.append((f"{name} trust", "NOT IN ACCOUNT" if "NoSuchEntity" in type(exc).__name__ + str(exc) else
-                            f"UNREADABLE ({type(exc).__name__})"))
-                continue
-            out.append((f"{name} trust", "MATCHES" if norm(_doc(live)) == norm(json.loads(want)) else "DIFFERS"))
+            if path is not None:
+                out.append((f"{name} trust", _verdict(path, functools.partial(_live_trust, iam, name))))
     return out
 
 

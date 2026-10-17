@@ -340,6 +340,40 @@ tr:last-child td{border-bottom:0}td.note{white-space:normal;color:var(--muted);f
 """
 
 
+def _summary_row(s: dict, best: float | None) -> str:
+    cls = "best" if best is not None and s["accuracy"] == best and best > 0 else ""
+    dep = f"{s['dependency_found']} / {s['dependency_known']}" if s["dependency_known"] else "-"
+    return ("<tr>" + _cell(_LABEL.get(s["tool"], s["tool"]), cls) + _cell(_pct(s["accuracy"]), cls)
+            + _cell(f"{s['correct']} / {s['runs']}") + _cell(s["failed"], "bad" if s["failed"] else "")
+            + _cell(_secs(s["mean_wall_s"])) + _cell(_usd(s["mean_usd"])) + _cell(dep) + "</tr>")
+
+
+def _run_row(r: dict) -> str:
+    result = "failed" if r["status"] != "ok" else ("correct" if r["correct"] else r["diagnosis"].lower())
+    rcls = "ok" if r["correct"] else ("bad" if r["status"] != "ok" or r["diagnosis"] != score.SAFE else "warn")
+    gate = {True: "allowed", False: "refused"}.get(r["gate_allowed"], "-")
+    tokens = "-" if r["input_tokens"] is None else f"{r['input_tokens']} / {r['output_tokens']}"
+    lines = ", ".join(f"{p} {n}" for p, n in (r.get("lines") or {}).items() if n) or "none"
+    dep = {True: "named it", False: "not named", None: "-"}[r["dependency_named"]]
+    note = r.get("error") or ""
+    if r.get("tool_read_failures"):
+        note = f"{r['tool_read_failures']} read(s) of the tool failed. {note}"
+    return ("<tr>" + _cell(_LABEL.get(r["tool"], r["tool"])) + _cell(result, rcls)
+            + _cell(r["action"] or "-") + _cell(gate) + _cell(tokens) + _cell(_usd(r["usd"]))
+            + _cell(_secs(r["wall_s"])) + _cell(lines) + _cell(dep) + _cell(note.strip(), "note")
+            + "</tr>")
+
+
+def _fault_section(f: dict) -> list[str]:
+    return [f"<h2>{html.escape(f['fault'])}</h2><p class=\"meta\">{html.escape(f.get('title', ''))}"
+            + (f" - {html.escape(f['error'])}" if f.get("error") else "") + "</p>",
+            ('<div class="wrap"><table><thead><tr><th>Evidence</th><th>Result</th><th>Action</th>'
+             "<th>Gate</th><th>Tokens in / out</th><th>Cost</th><th>Time</th><th>Tool lines</th>"
+             "<th>Dependency</th><th>Note</th></tr></thead><tbody>"),
+            *(_run_row(r) for r in f.get("runs") or []),
+            "</tbody></table></div>"]
+
+
 def render_html(results: dict) -> str:
     """One self-contained page: no script, no external font, every value escaped."""
     summary = results.get("summary") or []
@@ -354,34 +388,10 @@ def render_html(results: dict) -> str:
              *(f'<p class="warn note-box">{html.escape(w)}</p>' for w in results.get("warnings") or []),
              ('<div class="wrap"><table><thead><tr><th>Evidence</th><th>Accuracy</th><th>Correct / runs</th>'
               "<th>Failed runs</th><th>Mean time</th><th>Mean cost</th><th>Dependency found</th></tr></thead><tbody>")]
-    for s in summary:
-        cls = "best" if best is not None and s["accuracy"] == best and best > 0 else ""
-        dep = f"{s['dependency_found']} / {s['dependency_known']}" if s["dependency_known"] else "-"
-        parts.append("<tr>" + _cell(_LABEL.get(s["tool"], s["tool"]), cls) + _cell(_pct(s["accuracy"]), cls)
-                     + _cell(f"{s['correct']} / {s['runs']}") + _cell(s["failed"], "bad" if s["failed"] else "")
-                     + _cell(_secs(s["mean_wall_s"])) + _cell(_usd(s["mean_usd"])) + _cell(dep) + "</tr>")
+    parts += [_summary_row(s, best) for s in summary]
     parts.append("</tbody></table></div>")
     for f in results.get("faults") or []:
-        parts.append(f"<h2>{html.escape(f['fault'])}</h2><p class=\"meta\">{html.escape(f.get('title', ''))}"
-                     + (f" - {html.escape(f['error'])}" if f.get("error") else "") + "</p>")
-        parts.append('<div class="wrap"><table><thead><tr><th>Evidence</th><th>Result</th><th>Action</th>'
-                     "<th>Gate</th><th>Tokens in / out</th><th>Cost</th><th>Time</th><th>Tool lines</th>"
-                     "<th>Dependency</th><th>Note</th></tr></thead><tbody>")
-        for r in f.get("runs") or []:
-            result = "failed" if r["status"] != "ok" else ("correct" if r["correct"] else r["diagnosis"].lower())
-            rcls = "ok" if r["correct"] else ("bad" if r["status"] != "ok" or r["diagnosis"] != score.SAFE else "warn")
-            gate = {True: "allowed", False: "refused"}.get(r["gate_allowed"], "-")
-            tokens = "-" if r["input_tokens"] is None else f"{r['input_tokens']} / {r['output_tokens']}"
-            lines = ", ".join(f"{p} {n}" for p, n in (r.get("lines") or {}).items() if n) or "none"
-            dep = {True: "named it", False: "not named", None: "-"}[r["dependency_named"]]
-            note = r.get("error") or ""
-            if r.get("tool_read_failures"):
-                note = f"{r['tool_read_failures']} read(s) of the tool failed. {note}"
-            parts.append("<tr>" + _cell(_LABEL.get(r["tool"], r["tool"])) + _cell(result, rcls)
-                         + _cell(r["action"] or "-") + _cell(gate) + _cell(tokens) + _cell(_usd(r["usd"]))
-                         + _cell(_secs(r["wall_s"])) + _cell(lines) + _cell(dep) + _cell(note.strip(), "note")
-                         + "</tr>")
-        parts.append("</tbody></table></div>")
+        parts += _fault_section(f)
     parts.append("</main></body></html>")
     return "".join(parts)
 
@@ -402,6 +412,21 @@ def plan(faults: list[str], tools: list[str], values: dict[str, str]) -> list[st
     return lines + [f"  WARNING: {w}" for w in warnings()]
 
 
+def _selection(ap: argparse.ArgumentParser, args: argparse.Namespace) -> tuple[list[str], list[str]]:
+    """The tools and faults asked for, each known and each tool once; anything else is argparse's refusal."""
+    tools = [t.strip().lower() for t in args.tools.split(",") if t.strip()]
+    unknown = [t for t in tools if t not in TOOLS]
+    if unknown or not tools or len(set(tools)) != len(tools):
+        ap.error(f"--tools: each once, from {', '.join(TOOLS)}")
+    faults = [f.strip() for f in args.faults.split(",") if f.strip()]
+    try:
+        for f in faults:
+            cli.scenario_for(f)
+    except (cli.StepError, fs.OpError) as exc:
+        ap.error(f"--faults: {exc}")
+    return tools, faults
+
+
 def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -420,17 +445,7 @@ def main(argv: list[str] | None = None, *, env: cli.Env | None = None) -> int:
     ap.add_argument("--warden-timeout", type=float, default=900)
     ap.add_argument("--settle-minutes", type=float, default=20)
     args = ap.parse_args(argv)
-
-    tools = [t.strip().lower() for t in args.tools.split(",") if t.strip()]
-    unknown = [t for t in tools if t not in TOOLS]
-    if unknown or not tools or len(set(tools)) != len(tools):
-        ap.error(f"--tools: each once, from {', '.join(TOOLS)}")
-    faults = [f.strip() for f in args.faults.split(",") if f.strip()]
-    try:
-        for f in faults:
-            cli.scenario_for(f)
-    except (cli.StepError, fs.OpError) as exc:
-        ap.error(f"--faults: {exc}")
+    tools, faults = _selection(ap, args)
 
     if args.dry_run:
         # Names only, and from this shell only: a dry run reads no store.
