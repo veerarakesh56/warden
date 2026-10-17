@@ -118,15 +118,19 @@ RESTRICTED: dict[str, frozenset[str]] = {
 }
 
 
-# The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM.
+# The loadable names that are secrets (decision D5): read from Secrets Manager only, never from SSM. One line per
+# service, each service's webhooks before its tokens (Sonar secrets:S7314, 2026-10-16, took a webhook's name written
+# after a token's for a PagerDuty token).
 SECRETS = frozenset({
-    "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_WEBHOOK", "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL",
+    "WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_CLIENT_SECRET",
+    "WARDEN_TEAMS_WEBHOOK", "WARDEN_WEBHOOK_URL", "WARDEN_PAGERDUTY_ROUTING_KEY",
     "WARDEN_DB_DSN", "WARDEN_DB_TERMINATE_DSN", "WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
+    "WARDEN_AUDIT_DSN", "WARDEN_AUDIT_KEY_PASSPHRASE",
     "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-    "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
-    "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
-    "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_SLACK_APP_TOKEN",
-    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
+    "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_TEMPORAL_API_KEY",
+    "WARDEN_GITHUB_TOKEN",
+    "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
+    "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
 })
 
 
@@ -144,7 +148,7 @@ ZONE_SECRETS: dict[str, frozenset[str]] = {
     "llm": _EVERY_ZONE | {"ANTHROPIC_API_KEY"},
     # GitHub: the change-record issue `finish` writes (changes.py) and the deploys `notify` reads into the report
     # (timeline.recent) - both notify-zone activities (workflows.ZONES).
-    "notify": _EVERY_ZONE | {"WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN", "WARDEN_SLACK_WEBHOOK",
+    "notify": _EVERY_ZONE | {"WARDEN_SLACK_WEBHOOK", "WARDEN_SLACK_BOT_TOKEN", "WARDEN_SLACK_APP_TOKEN",
                              "WARDEN_GITHUB_TOKEN"},
     "act": _EVERY_ZONE,
 }

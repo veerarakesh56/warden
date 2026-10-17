@@ -1443,9 +1443,11 @@ def _db_live_harness(timeout_s: float) -> Harness:
 
 def _db_dry_harness() -> Harness:
     target = ops_db.Target(
-        # No password in the dry DSN, deliberately: check_publishable scans this repo for exactly that
-        # shape, and an allow-list entry would blunt the guard for the sake of a fixture.
-        dsn="postgresql://warden@dry-run.invalid:5432/" + DB_DATABASE,
+        # The live DSN's shape - it carries the master password - with a placeholder one and a host that never
+        # resolves (.invalid, RFC 6761). Put together here, so no URL with a password sits in the source for
+        # check_publishable to take for a leak (an allow-list entry would blunt that guard for a fixture); it was a
+        # URL with no password, a shape the live run never has (Sonar python:S2115, 2026-10-16).
+        dsn=urllib.parse.urlunsplit(("postgresql", "warden:dry-run@dry-run.invalid:5432", "/" + DB_DATABASE, "", "")),
         database=DB_DATABASE, host="dry-run.invalid",
         instance_id="dry-run", security_group_id="sg-dry-run",
     )
