@@ -77,6 +77,16 @@ def failures(log: Any, entry: str, target: str) -> list[tuple[datetime, str]]:
                    if r["status"] == "relapsed" and r["entry"] == entry and r["target"] == target]
 
 
+def failed_in(log: Any, incident: str) -> list[tuple[str, str]]:
+    """(entry, target) of each fix of `incident` that was verified and did not hold - its alarm came back in the soak,
+    or a re-check failed and its run ended `relapsed` (CodeRabbit, PR 43) - once each, in the record's order."""
+    rows = [(str(e["body"].get("entry", "")), str(e["body"].get("target", "")))
+            for e in log.entries(incident, kinds=(DID_NOT_HOLD,))]
+    rows += [(str(r["entry"]), str(r["target"])) for r in plans(log, lookback=None)
+             if r["incident"] == incident and r["status"] == "relapsed"]
+    return list(dict.fromkeys(rows))
+
+
 def offer_again_hash(entry: str, target: str, failed_at: datetime) -> str:
     """What a person signs to let WARDEN offer a fix again: this fix, this target, after this failure."""
     import hashlib

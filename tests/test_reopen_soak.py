@@ -136,6 +136,18 @@ def test_a_fix_that_relapsed_at_a_re_check_is_not_offered_again_either(tmp_path)
     assert history.did_not_hold(log, "e", "dev/u") == ("", "")
 
 
+
+def test_a_fix_that_relapsed_at_a_re_check_long_ago_is_still_not_offered_again(tmp_path):
+    """Durable (CodeRabbit, PR 43): no time limit on a relapsed run either - only a person clears it."""
+    clock = [datetime.now(UTC) - timedelta(days=400)]
+    log = AuditLog(tmp_path / "a.db", key=None, clock=lambda: clock[0])
+    log.append("inc-9", "remediation.plan", {"workflow_id": "w", "run_id": "r", "entry": "e", "target": "dev/t"})
+    log.append("inc-9", "workflow.end", {"workflow_id": "w", "run_id": "r", "status": "relapsed"})
+    clock[0] = datetime.now(UTC)
+    assert history.did_not_hold(log, "e", "dev/t")[0] == "inc-9"
+    assert history.failed_in(log, "inc-9") == [("e", "dev/t")]
+
+
 def test_the_reopened_incidents_own_earlier_fix_is_its_history():
     log = _log()
     alert = ALERT.model_copy(update={"alert_id": "inc-r"})
@@ -324,3 +336,68 @@ def test_the_offer_again_command_clears_a_fix_with_the_approvers_own_key(tmp_pat
     assert history.did_not_hold(log, "e", "dev/t")[0] == "inc-9"
     assert main(args) == 0 and "may be offered again" in capsys.readouterr().out
     assert history.did_not_hold(audit.AuditLog(pathlib.Path(tmp_path / "audit.db")), "e", "dev/t") == ("", "")
+    assert main(args) == 1 and "nothing to clear" in capsys.readouterr().err  # cleared: nothing held back now
+    # A fix whose re-check failed (its run ended `relapsed`, no did-not-hold row) is cleared the same way (PR 43).
+    log = audit.AuditLog(pathlib.Path(tmp_path / "audit.db"))
+    log.append("inc-7", "remediation.plan", {"workflow_id": "w7", "run_id": "r", "entry": "e", "target": "dev/u"})
+    log.append("inc-7", "workflow.end", {"workflow_id": "w7", "run_id": "r", "status": "relapsed"})
+    assert history.did_not_hold(log, "e", "dev/u")[0] == "inc-7"
+    assert main(["offer-again", "inc-7", "--approver", "owner", "--key", str(key_file)]) == 0
+    assert "`e` on `dev/u` may be offered again" in capsys.readouterr().out
+    assert history.did_not_hold(audit.AuditLog(pathlib.Path(tmp_path / "audit.db")), "e", "dev/u") == ("", "")
+
+
+def test_a_fix_verified_long_after_its_plan_is_watched_through_its_whole_soak(tmp_path):
+    """CodeRabbit, PR 43: the plan row is written before the approval wait (up to a week); a one-day look-back for it
+    lost the fix late in a long soak, and its relapse was never recorded."""
+    clock = [datetime.now(UTC) - timedelta(days=3)]
+    log = AuditLog(tmp_path / "a.db", key=None, clock=lambda: clock[0])
+    ev = _ev(at=LATER())
+    incident = f"{intake.fingerprint(ev)}-20261014T010000Z"
+    log.append(incident, "remediation.plan", {"workflow_id": "rem-prod-1", "run_id": "r1", "entry": "k8s_rollout_undo",
+                                              "environment": "prod", "service": "checkout",
+                                              "target": "prod/deployment:checkout", "soak_minutes": 1440})
+    clock[0] = datetime.now(UTC) - timedelta(hours=23)  # approved and verified days later; 23 h into its soak
+    log.append(incident, bounds.RESULT, {"workflow_id": "rem-prod-1", "run_id": "r1", "ok": True, "service": "x"})
+    clock[0] = datetime.now(UTC)
+    held = intake.held_fix(ev, log, datetime.now(UTC))
+    assert held is not None and held["incident"] == incident and held["entry"] == "k8s_rollout_undo"
+    assert intake.held_fix(ev, log, datetime.now(UTC) + timedelta(hours=2)) is None  # past its soak
+
+
+def test_a_long_soaks_own_fix_is_beside_the_reopened_diagnosis(tmp_path):
+    """CodeRabbit, PR 43: the fix that reopened the incident was read only inside OWN_FIX_WINDOW (60 min), and a
+    soak runs up to a day."""
+    from warden.activities import OWN_FIX_WINDOW
+
+    clock = [datetime.now(UTC) - OWN_FIX_WINDOW - timedelta(minutes=60)]
+    log = AuditLog(tmp_path / "a.db", key=None, clock=lambda: clock[0])
+    alert = ALERT.model_copy(update={"alert_id": "inc-r", "started_at": (datetime.now(UTC) + timedelta(minutes=1)).isoformat()})
+    log.append("inc-r", bounds.APPLIED, {"workflow_id": "w", "run_id": "r", "service": f"dev/table:{alert.service}",
+                                         "action_class": "dynamodb_restore_capacity"})
+    clock[0] = datetime.now(UTC)
+    acts = IncidentActivities(audit=log, platform=_Plans())
+    assert acts._own_fixes(alert) == []
+    log.append("inc-r", history.DID_NOT_HOLD, {"workflow_id": "w", "entry": "e", "target": "dev/t"})
+    [(_, link)] = acts._own_fixes(alert)
+    assert link["workflow_id"] == "w" and int(link["minutes_before"]) >= 119
+
+
+def test_a_reopen_cut_off_before_its_marker_still_marks_the_fix_on_the_retry():
+    """CodeRabbit, PR 43 (security review): the reopen's intent and the did-not-hold marker are two rows; a retry of
+    an intent recorded without its marker writes the marker, so the fix is never offered again unmarked."""
+    log = _log()
+    ev = _ev(at=LATER())
+    incident = f"{intake.fingerprint(ev)}-20261016T010000Z"
+    _fixed(log, incident, at=None)
+    held = intake.held_fix(ev, log, datetime.now(UTC))
+    at = ev.transitioned_at.isoformat()
+    # As if the process stopped after the intent and before the marker (the order before this fix).
+    log.append(incident, intake.REOPENED, {"rule": "HighErrorRate", "at": at, "fingerprint": intake.fingerprint(ev),
+                                           "workflow_id": held["workflow_id"], "held": held})
+    log.append(incident, "workflow.end", {"workflow_id": "rem-prod-1", "run_id": "r1", "status": "recovered"})
+    assert asyncio.run(intake.submit(_Reusing(), ev, log)).action == "reopen"
+    [row] = [e["body"] for e in log.entries(incident, kinds=(history.DID_NOT_HOLD,))]
+    assert row["workflow_id"] == "rem-prod-1" and history.did_not_hold(log, "k8s_rollout_undo", row["target"])[0]
+    asyncio.run(intake.submit(_Reusing(), ev, log))  # delivered once more: still one marker
+    assert len(log.entries(incident, kinds=(history.DID_NOT_HOLD,))) == 1
