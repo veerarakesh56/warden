@@ -4,7 +4,8 @@
 # label is mistyped and nothing is enforced". Applying this and asserting `Forbidden` can. CI runs
 # `kubectl apply --dry-run=server -f` on it and fails if the API server ACCEPTS it.
 #
-# So every IaC linter finding on it is the point (2026-10-16, naming audit item 18): privileged, root,
+# So every IaC linter finding on it is the point (2026-10-16, naming audit item 18; Sonar kubernetes:S6428 by design,
+# owner to review - tests/test_iac_leftovers_sonar.py checks it is only ever dry-run): privileged, root,
 # and none of the hardening the real workloads carry, because the namespace must refuse exactly that.
 # It is never created - a server-side dry run only - so probes and a NetworkPolicy would mean nothing
 # either. It does carry requests and limits (2026-10-16, Sonar kubernetes:S6864): they cost nothing,

@@ -231,6 +231,11 @@ resource "aws_apigatewayv2_integration" "front" {
   payload_format_version = "2.0"
 }
 
+# Public by design (Sonar terraform:S6333 on this route and the next, owner to review - never weakened): an alert
+# source on the internet must reach them, and an API Gateway authorizer could check only the bearer secret, which the
+# function already compares in constant time (webhooks.authorized) before it reads a byte more; it then asks the source
+# whether the alert is real. tests/test_webhooks_s5.py, tests/test_datadog_alerts_g10z.py and
+# tests/test_iac_leftovers_sonar.py hold it, the last one also that no other route is open.
 resource "aws_apigatewayv2_route" "alertmanager" {
   api_id    = aws_apigatewayv2_api.front.id
   route_key = "POST /alertmanager"
