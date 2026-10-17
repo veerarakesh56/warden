@@ -23,6 +23,15 @@ step is recorded.
    command line). In production that is always a person. If anything the fix depends on changes first, WARDEN makes the plan again and asks again.
 7. **It applies the fix once, checks that the service recovered, and undoes the fix if it did not.**
 
+[![WARDEN: how it fits together](docs/diagrams/architecture-overview.png)](docs/diagrams/architecture-overview.svg)
+
+*The whole system on one page: an alarm comes in, WARDEN's separate parts read the evidence, ask the AI, check its
+answer and report, and nothing changes until the exact fix is approved. Click a picture for a sharp copy.*
+
+[![WARDEN: one incident, end to end](docs/diagrams/incident-flow.png)](docs/diagrams/incident-flow.svg)
+
+*One incident from the alarm to the signed record, step by step, with every safety check marked.*
+
 ## What keeps it safe
 
 - **Nothing is applied without approval.** The AI only suggests. A change runs only after an approver on the
@@ -117,6 +126,7 @@ when WARDEN itself misbehaves is in [docs/RUNBOOK-WARDEN-INCIDENT.md](docs/RUNBO
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Workflows, trust zones, the approval page, the gate and quarantine |
+| [diagrams/](docs/diagrams/README.md) | The overview, detailed, incident-flow and delivery diagrams, and their editable sources |
 | [ai-boundary.md](docs/ai-boundary.md) | Why the model never decides, and the policy table |
 | [SETUP.md](docs/SETUP.md) | Setting WARDEN up in your own AWS and GitHub accounts |
 | [AWS-SETUP.md](docs/AWS-SETUP.md) | The AWS identities the benchmark stack uses |
@@ -159,8 +169,8 @@ alert -> gather evidence -> redact -> quarantine -> diagnose (one model call) ->
    proposal to go to an approver. Each verdict lists every rule that fired. New rules run in observe mode first
    (P25-P28 today): recorded on every verdict, obeyed by none, until they are measured.
 5. **A fix is a plan, not a command.** An allowed proposal opens a plan from a fixed catalogue, made from what WARDEN
-   reads live. An approver approves the plan's hash (in production, a person). WARDEN applies it once, checks that the service recovered, and
-   rolls back if it did not.
+   reads live. An approver approves the plan's hash (in production, a person). WARDEN applies it once, checks that
+   the service recovered, and rolls back if it did not.
 
 Everything runs as [Temporal](https://temporal.io) workflows: `IncidentWorkflow` for a diagnosis and one
 `RemediationWorkflow` per target. The full design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and why the
@@ -248,6 +258,18 @@ flowchart TB
     end
     D1 --> VER & GATE & PLAN
 ```
+
+### How a change to WARDEN is delivered
+
+[![WARDEN: how changes are checked and delivered](docs/diagrams/delivery.png)](docs/diagrams/delivery.svg)
+
+*How a change reaches an environment: `main` runs the tests and deploys nothing; the `dev` and `prod` branches each
+deploy their own environment, without stored AWS keys, and infrastructure changes only from a reviewed plan.*
+
+Every component by its real name is in the detailed diagrams:
+[the runtime](docs/diagrams/architecture-detailed-1.svg) and
+[identities, environments and outside services](docs/diagrams/architecture-detailed-2.svg). Their editable sources
+and how to re-export them are in [docs/diagrams/](docs/diagrams/README.md).
 
 ## Safety model
 
