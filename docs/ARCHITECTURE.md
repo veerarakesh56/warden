@@ -240,6 +240,15 @@ to the console.
 process, for the CLI, the benchmark harness and the tests. `WARDEN_MOCK=1` replaces the model with
 deterministic answers built from typed state, so the demo and CI need no key and no network.
 
+## Scheduled reviews
+
+The dependency review (`depwatch.py`, `DependencyWatchWorkflow`) is the one workflow a Temporal Schedule starts
+(`warden-dependency-watch`, every `WARDEN_DEPWATCH_EVERY_HOURS`, one run at a time), made or updated by the core
+worker at start. Its steps keep the trust zones: GitHub is read in **read** (a read-only token only that zone holds;
+release notes reduced there to facts), the effects are asked of the model in **llm** (facts only, a fixed number of
+calls per review counted from the audit), grounding, risk, plan and the record are **core**'s, and the post goes out
+from **notify** through the outbound gate. It changes nothing and starts nothing. See OPERATIONS.md.
+
 ## Testing
 
 - `tests/`: unit and property tests. Every policy has a test that proves it can fire, and the tests that

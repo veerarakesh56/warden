@@ -16,6 +16,7 @@ locals {
     #                    timeseries_query, events_read, monitors_read
     "datadog-webhook-token", # the bearer secret Datadog's webhook sends (webhooks.receive_datadog); set by the setup
     #                          script together with the webhook itself
+    "github-read-token", # the dependency review's read-only GitHub token (depwatch.py): the read zone's alone
     # Register S15: each zone's own Temporal Cloud service account key (settings.PER_ZONE).
     "temporal-api-key-core", "temporal-api-key-read", "temporal-api-key-llm", "temporal-api-key-notify",
     "temporal-api-key-act",

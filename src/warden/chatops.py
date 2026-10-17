@@ -187,7 +187,8 @@ class SlackBotSink:
 
 
 class SlackThreadSink:
-    """One reply in one Slack thread, with the bot's token (discuss.py): the thread a person mentioned WARDEN in."""
+    """One reply in one Slack thread, with the bot's token (discuss.py): the thread a person mentioned WARDEN in - or,
+    with no thread, one new message in the channel."""
 
     name = "slack-thread"
 
@@ -198,12 +199,23 @@ class SlackThreadSink:
         if not self.live:
             return Notification(sink=self.name, delivered=False, detail="dry-run (WARDEN_CHATOPS_LIVE!=1)")
         parts = slack_messages(split_for_slack(name_people(to_slack_mrkdwn(text), data.get("people"), slack=True)), data)
-        failed = [d for d in (_slack_call("chat.postMessage", {"channel": self.channel, "thread_ts": self.thread_ts,
-                                                               "unfurl_links": False, "unfurl_media": False, **m},
-                                          self._token)[1] for m in parts) if d != "ok"]
+        thread, failed = self.thread_ts, []
+        for m in parts:
+            # No thread given (the dependency review, depwatch.py): the first part is a new message in the channel and
+            # the rest go in its thread.
+            answer, detail = _slack_call("chat.postMessage", {"channel": self.channel, **({"thread_ts": thread} if thread
+                                                                                          else {}),
+                                                              "unfurl_links": False, "unfurl_media": False, **m},
+                                         self._token)
+            if detail != "ok":
+                failed.append(detail)
+                if not thread:  # no message to thread the rest under: stop, rather than scatter them in the channel
+                    break
+            elif not thread:
+                thread = str((answer or {}).get("ts") or "")
         if failed:
             return Notification(sink=self.name, delivered=False, detail=f"{len(failed)} part(s) failed: {failed[0]}")
-        return Notification(sink=self.name, delivered=True, detail=f"thread {self.thread_ts}")
+        return Notification(sink=self.name, delivered=True, detail=f"thread {thread}")
 
 
 # Decision D13: PagerDuty through its Events API v2 (read 2026-10-04: https://events.pagerduty.com/v2/enqueue; a
