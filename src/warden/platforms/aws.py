@@ -1273,7 +1273,7 @@ class AwsPlatform:
         attrs = sqs.get_queue_attributes(QueueUrl=url, AttributeNames=["QueueArn", "ApproximateNumberOfMessages"])
         attrs = attrs["Attributes"]
         tasks = sqs.list_message_move_tasks(SourceArn=attrs["QueueArn"], MaxResults=1).get("Results") or []
-        return bool(tasks) and tasks[0].get("Status") == "COMPLETED" and str(attrs.get("ApproximateNumberOfMessages")) == "0"
+        return next(iter(tasks), {}).get("Status") == "COMPLETED" and str(attrs.get("ApproximateNumberOfMessages")) == "0"
 
     # ------------------------------------------------------------------ athena: cancel the runaway query (G9-D)
 
@@ -1560,7 +1560,7 @@ class AwsPlatform:
         alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         return str(st.get("deployment")) == str(params.get("deployment")) and st.get("deploy_state") in (
-            "REVERTED", "ROLLED_BACK") and bool(alarm) and alarm[0].get("StateValue") == "OK"
+            "REVERTED", "ROLLED_BACK") and next(iter(alarm), {}).get("StateValue") == "OK"
 
     # ------------------------------------------------------------------ ec2: undo a recorded security group change (G10-D)
 
@@ -1686,7 +1686,7 @@ class AwsPlatform:
         alarm = self._read("cloudwatch").describe_alarms(AlarmNames=[str(params.get("alarm", ""))],
                                                          AlarmTypes=["MetricAlarm"]).get("MetricAlarms") or []
         undone = "kind" in st and st.get("present") is (st["kind"] == "revoke")
-        return undone and bool(alarm) and alarm[0].get("StateValue") == "OK"
+        return undone and next(iter(alarm), {}).get("StateValue") == "OK"
 
     # ------------------------------------------------------------------ undo a recorded change, from Config (G10-D3)
 
@@ -1700,7 +1700,7 @@ class AwsPlatform:
     def _alarm_ok(self, alarm: str) -> bool:
         found = self._read("cloudwatch").describe_alarms(AlarmNames=[alarm], AlarmTypes=["MetricAlarm"]).get(
             "MetricAlarms") or []
-        return bool(found) and found[0].get("StateValue") == "OK"
+        return next(iter(found), {}).get("StateValue") == "OK"
 
     def _alarm_clear_minutes(self, alarm: str) -> int | None:
         """How long this alarm may take to read OK once its cause is gone - None when that cannot be read."""
