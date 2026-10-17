@@ -378,6 +378,10 @@ why. The options were researched live on 2026-10-03 (the research notes are not 
   (section 16 records why not OPA or Cedar).
 - The decision component - `decide.py`: a logistic model over a dozen measured features is a dot product and a
   sigmoid; scikit-learn would add a dependency and a pickle for that. Trained by scripts/train_decider.py.
+- Earned autonomy and the AI critic - `autonomy.py`, `eldane.py` (owner, 2026-10-16): the levels are counts over
+  WARDEN's own signed audit rows and a Wilson bound (`decide.tier_enabled`), so a feature-flag service would be a
+  second, mutable store beside the record; the critic is one call to a second vendor's model through
+  `providers.py`, whose verdict the code checks against the evidence ids. No agent framework is needed for either.
 - Number checks in the model's prose - `numbers.py`: a unit library (pint) would convert units, but naming which
   metric a number in free prose refers to is the hard part, and no library does it.
 - Telling English logs from others - `language.py`: language-detection libraries (lingua, langdetect) answer
