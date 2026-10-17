@@ -151,8 +151,13 @@ def _sides(body: dict[str, Any], incident: str) -> tuple[str, str] | None:
 def links_of(log: Any, incident: str) -> list[dict[str, Any]]:
     """This incident's links as they stand, oldest first, each as {with, side, approver, note, at}: for each other
     incident and type, the newest signed word (by its own signed time), dropped when that word took the link back."""
+    return _standing(log.entries(kinds=(KIND,)), incident)
+
+
+def _standing(rows: list[dict[str, Any]], incident: str) -> list[dict[str, Any]]:
+    """links_of over link rows already read: a walk reads them once, not once per record it reaches (CodeRabbit)."""
     latest: dict[tuple[str, str], dict[str, Any]] = {}
-    for e in log.entries(kinds=(KIND,)):
+    for e in rows:
         b = e["body"]
         sides = _sides(b, incident)
         if sides is None:
@@ -189,12 +194,13 @@ def proven_fix(log: Any, incident: str) -> dict[str, Any] | None:
     """The newest proven fix on a record that shares this incident's cause through its links (breadth first, at most
     DEPTH links away and MOST_REACHED records, this one included), with the path of links that reached it; None when
     there is none. This incident's own fixes are not counted: a fix of this incident is in its own record."""
+    rows = log.entries(kinds=(KIND,))
     seen, queue, found = {incident}, deque([(incident, [])]), []
     while queue and len(seen) < MOST_REACHED:
         here, path = queue.popleft()
         if len(path) >= DEPTH:
             continue
-        for link in links_of(log, here):
+        for link in _standing(rows, here):
             other = link["with"]
             if link["side"] not in SHARES_A_FIX or other in seen:
                 continue
