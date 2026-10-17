@@ -80,7 +80,7 @@ jobs:
           python-version: "3.13"
           activate-environment: true
       - name: Install the scanners (locked)
-        run: uv sync --locked --group scan
+        run: uv sync --locked --no-build --group scan
       # Every locked package - every extra and group, not only what this job installs - audited from the
       # lock itself, hashes required.
       - name: Dependencies with known vulnerabilities
@@ -110,14 +110,14 @@ jobs:
           activate-environment: true
 
       - name: Install (locked)
-        run: uv sync --locked --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres
+        run: uv sync --locked --no-build --extra dev --extra all-providers --extra mcp --extra k8s --extra aws --extra approval --extra postgres
 
       # The core package must import with NO vendor SDK present. providers.py imports them lazily,
       # and this proves it - otherwise a missing extra becomes an ImportError at startup for a
       # provider the user never asked for.
       - name: Core imports without any provider SDK
         run: |
-          UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked
+          UV_PROJECT_ENVIRONMENT=/tmp/bare uv sync --locked --no-build
           /tmp/bare/bin/python -c "import warden; from warden.llm import LLMClient; LLMClient(mock=True); print('core imports clean')"
 
       - name: Lint
@@ -224,7 +224,7 @@ jobs:
 
       # Seconds with uv; pip took 98 s here (measured 2026-10-01).
       - name: Install with the k8s extra (locked)
-        run: uv sync --locked --extra dev --extra k8s
+        run: uv sync --locked --no-build --extra dev --extra k8s
 
       # A pinned release, checked against a pinned SHA-256 (audit A-I-24): the old step piped the
       # install script from k3d's main branch into bash on every push.
@@ -555,13 +555,13 @@ jobs:
           activate-environment: true
 
       - name: Install with the database extras (locked)
-        run: uv sync --locked --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
+        run: uv sync --locked --no-build --extra dev --extra postgres --extra mysql --extra redis --extra mongo --extra mssql
 
       # The core package must still import with NO database driver present - the drivers are lazily
       # imported inside each engine adapter, exactly like the provider SDKs.
       - name: Core imports without any database driver
         run: |
-          UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked
+          UV_PROJECT_ENVIRONMENT=/tmp/bare-db uv sync --locked --no-build
           /tmp/bare-db/bin/python -c "from warden.database import DatabaseBackend; print('core imports clean without drivers')"
 
       - name: Integration tests against REAL databases - and they must have RUN, not skipped

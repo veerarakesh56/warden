@@ -40,6 +40,19 @@ def test_every_uv_sync_is_locked():
     assert all("--locked" in line for _, _, line in syncs), [s for s in syncs if "--locked" not in s[2]]
 
 
+def test_no_install_runs_a_packages_build_script():
+    """Sonar S8541 (2026-10-16): an sdist's setup script is code that runs at install, in a job that may hold
+    credentials. Every locked package is a wheel; uv builds only WARDEN itself, in process (uv_build's direct build)."""
+    syncs = [line for _, _, steps, _ in _steps() for st in steps
+             for line in _code(st.get("run", "")).splitlines() if re.search(r"\buv sync\b", line)]
+    for name in ("Dockerfile", "Dockerfile.runtime"):
+        syncs += [line for line in (ROOT / name).read_text(encoding="utf-8").splitlines() if line.startswith("RUN uv sync")]
+    assert len(syncs) >= 13 and all("--no-build" in line for line in syncs), [s for s in syncs if "--no-build" not in s]
+    app = (ROOT / "scenarios" / "fullstack" / "app" / "Dockerfile").read_text(encoding="utf-8")
+    pips = [line for line in app.splitlines() if "pip install" in line]
+    assert pips and all("--only-binary :all:" in line and "--require-hashes" in line for line in pips), pips
+
+
 def test_uv_is_pinned_and_checksum_verified_everywhere():
     uses = [(wf, job, st) for wf, job, steps, _ in _steps() for st in steps
             if str(st.get("uses", "")).startswith("astral-sh/setup-uv@")]
