@@ -76,6 +76,9 @@ LOADABLE = frozenset({
     # The watched database's DSNs carry no password: each read signs an IAM token in the incident's reader role
     # (aws_stack.iam_dsn).
     "WARDEN_STACK_DB_IAM_AUTH",
+    # The dependency review (depwatch.py): the repository it reviews and how often, plain; its GitHub token is read-only
+    # (pull requests, contents, Dependabot alerts, Actions, metadata) and the read zone's alone.
+    "WARDEN_DEPWATCH_REPO", "WARDEN_DEPWATCH_EVERY_HOURS", "WARDEN_GITHUB_READ_TOKEN",
 })
 
 
@@ -115,6 +118,7 @@ RESTRICTED: dict[str, frozenset[str]] = {
     "WARDEN_DATADOG_API_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_APP_KEY": frozenset({"worker", "lambda-alertmanager"}),
     "WARDEN_DATADOG_WEBHOOK_TOKEN": frozenset({"lambda-alertmanager"}),
+    "WARDEN_GITHUB_READ_TOKEN": frozenset({"worker"}),
 }
 
 
@@ -126,7 +130,7 @@ SECRETS = frozenset({
     "WARDEN_AUDIT_KEY_PASSPHRASE", "WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY", "WARDEN_GITHUB_TOKEN",
     "WARDEN_TEMPORAL_KEY_PREVIOUS", "WARDEN_AUDIT_DSN", "WARDEN_ALERTMANAGER_TOKEN", "WARDEN_ALERTMANAGER_TOKEN_PREVIOUS",
     "WARDEN_PAGERDUTY_ROUTING_KEY", "WARDEN_SLACK_CLIENT_SECRET", "WARDEN_SLACK_APP_TOKEN",
-    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN",
+    "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY", "WARDEN_DATADOG_WEBHOOK_TOKEN", "WARDEN_GITHUB_READ_TOKEN",
 })
 
 
@@ -140,7 +144,8 @@ _EVERY_ZONE = frozenset({"WARDEN_TEMPORAL_KEY", "WARDEN_TEMPORAL_API_KEY"})
 ZONE_SECRETS: dict[str, frozenset[str]] = {
     "core": _EVERY_ZONE,
     "read": _EVERY_ZONE | {"WARDEN_STACK_DB_PRIMARY_RO_DSN", "WARDEN_STACK_DB_REPLICA_RO_DSN",
-                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY"},
+                           "WARDEN_DATADOG_API_KEY", "WARDEN_DATADOG_APP_KEY",
+                           "WARDEN_GITHUB_READ_TOKEN"},
     "llm": _EVERY_ZONE | {"ANTHROPIC_API_KEY"},
     # GitHub: the change-record issue `finish` writes (changes.py) and the deploys `notify` reads into the report
     # (timeline.recent) - both notify-zone activities (workflows.ZONES).
